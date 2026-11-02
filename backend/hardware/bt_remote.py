@@ -104,6 +104,9 @@ class BtRemoteController:
         self._scan_task: Optional[asyncio.Task] = None
         self._discovery_task: Optional[asyncio.Task] = None
         self._dbus_listener_task: Optional[asyncio.Task] = None
+        # The Search button's run, held here rather than in the request's task
+        # so that disabling the remote stops it like the background tasks.
+        self._manual_discovery_task: Optional[asyncio.Task] = None
         self._dbus_reconnect_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
 
         # Volume accumulator (shared with rotary encoder)
@@ -165,12 +168,18 @@ class BtRemoteController:
         await self._dispatcher.cleanup()
         await self._volume.cleanup()
 
-        for task_ref in (self._scan_task, self._discovery_task, self._dbus_listener_task):
+        manual = self._manual_discovery_task
+        for task_ref in (self._scan_task, self._discovery_task, self._dbus_listener_task, manual):
             if task_ref and not task_ref.done():
                 task_ref.cancel()
         self._scan_task = None
         self._discovery_task = None
         self._dbus_listener_task = None
+        self._manual_discovery_task = None
+        if manual:
+            # Let its teardown kill bluetoothctl and drop `_discovering` before
+            # the caller disconnects, or a re-enabled Search finds it still set.
+            await asyncio.wait([manual])
 
         # Drain pending reconnect events
         while not self._dbus_reconnect_queue.empty():
@@ -676,6 +685,21 @@ class BtRemoteController:
             await self._broadcast_status()
             return {"status": "already_connected", "message": "Device already connected"}
 
+        # A second press waits on the run in progress: a run of its own would
+        # be one the off does not cancel.
+        task = self._manual_discovery_task
+        if task is None or task.done():
+            task = self._manual_discovery_task = asyncio.create_task(self._run_manual_discovery())
+        try:
+            # Shielded: a caller that goes away must not stop the run for another.
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():
+                raise
+            return {"status": "cancelled", "message": "BT remote stopped during discovery"}
+
+    async def _run_manual_discovery(self) -> dict:
+        """The Search button's run: reconnect a bonded remote, else scan and pair."""
         logger.info("Manual BT discovery triggered")
 
         # Try lightweight reconnect first for paired devices

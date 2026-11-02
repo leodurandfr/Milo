@@ -802,6 +802,130 @@ async def test_search_on_a_disabled_controller_touches_no_adapter(bt, instant):
     assert bt.bluez.calls == []
 
 
+def hold_bluetoothctl(bt, monkeypatch, holds):
+    """Park bluetoothctl where `holds(argv, proc)` says, until the returned gate opens.
+
+    The gate stands in for the adapter taking its time (a 5 s scan, an 8 s
+    connect), which is the window in which the user flips the header toggle.
+    `holds` returns the proc method to stall, by name, or None.
+    """
+    gate = asyncio.Event()
+    reached = asyncio.Event()
+    spawn = asyncio.create_subprocess_exec
+
+    async def create_subprocess_exec(*argv, **kwargs):
+        proc = await spawn(*argv, **kwargs)
+        name = holds(argv, proc)
+        if name:
+            parent = proc.stdin if name == "drain" else proc
+            answer = getattr(parent, name)
+
+            async def held(*args, **kw):
+                reached.set()
+                await gate.wait()
+                return await answer(*args, **kw)
+
+            setattr(parent, name, held)
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
+    return gate, reached
+
+
+def adapter_work_after_the_off(bt):
+    """What bluetoothctl was asked while the controller was already stopped,
+    leaving out the `devices` reads and the off's own `disconnect`: a session
+    (scan or trust/pair/connect) or a `connect` is the adapter paged anyway."""
+    return [
+        argv for argv, running in bt.bluez.calls
+        if not running and (len(argv) == 1 or argv[1] == "connect")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_disabling_during_manual_discovery_stops_the_pairing(bt, instant, monkeypatch):
+    """The header toggle stays live while Search runs. Turning the remote off
+    mid-scan must end the search there: carried on, it trusts, pairs and
+    connects a remote nobody monitors, paging hci0 over an A2DP stream."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.bluez.paired = []
+    bt.bluez.discovered = [(REMOTE_MAC, REMOTE_NAME)]
+    bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]  # what the pair session would leave
+    gate, reached = hold_bluetoothctl(
+        bt, monkeypatch, lambda argv, proc: "drain" if len(argv) == 1 else None,
+    )
+
+    discover = asyncio.create_task(bt.controller.trigger_discovery())
+    await asyncio.wait_for(reached.wait(), timeout=1)
+    assert bt.bluez.written[-1] == ["scan on\n"]
+
+    await bt.controller.update_config({"enabled": False})
+    gate.set()
+    result = await asyncio.wait_for(discover, timeout=1)
+
+    assert adapter_work_after_the_off(bt) == []
+    assert not any(
+        line.startswith(("trust ", "pair ", "connect "))
+        for session in bt.bluez.written for line in session
+    ), bt.bluez.written
+    assert result["status"] == "cancelled"
+    assert bt.status()[-1].discovering is False
+
+
+@pytest.mark.asyncio
+async def test_disabling_during_the_reconnect_runs_no_scan(bt, instant, monkeypatch):
+    """With a bond, Search first tries a plain `connect` (8 s). An off landing
+    there must not fall through to the full scan and re-pair that follows a
+    failed connect."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+    bt.bluez.connect_succeeds = False
+    gate, reached = hold_bluetoothctl(
+        bt, monkeypatch,
+        lambda argv, proc: "communicate" if argv[1:2] == ("connect",) else None,
+    )
+
+    discover = asyncio.create_task(bt.controller.trigger_discovery())
+    await asyncio.wait_for(reached.wait(), timeout=1)
+
+    await bt.controller.update_config({"enabled": False})
+    gate.set()
+    result = await asyncio.wait_for(discover, timeout=1)
+
+    assert adapter_work_after_the_off(bt) == []
+    assert bt.bluez.written == [], "a scan session ran after the off"
+    assert result["status"] == "cancelled"
+    assert bt.status()[-1].discovering is False
+
+
+@pytest.mark.asyncio
+async def test_a_second_search_joins_the_one_running(bt, instant, monkeypatch):
+    """A second press must not start a second search the off would not stop:
+    both callers wait on the one tracked run and both learn it was cancelled."""
+    bt.controller.enabled = True
+    bt.controller.running = True
+    bt.bluez.paired = []
+    bt.bluez.discovered = [(REMOTE_MAC, REMOTE_NAME)]
+    gate, reached = hold_bluetoothctl(
+        bt, monkeypatch, lambda argv, proc: "drain" if len(argv) == 1 else None,
+    )
+
+    first = asyncio.create_task(bt.controller.trigger_discovery())
+    await asyncio.wait_for(reached.wait(), timeout=1)
+    second = asyncio.create_task(bt.controller.trigger_discovery())
+    await asyncio.sleep(0)
+
+    await bt.controller.update_config({"enabled": False})
+    gate.set()
+    results = await asyncio.wait_for(asyncio.gather(first, second), timeout=1)
+
+    assert [r["status"] for r in results] == ["cancelled", "cancelled"]
+    assert len(bt.bluez.written) == 1, "the second press opened its own scan"
+    assert adapter_work_after_the_off(bt) == []
+
+
 # ------------------------------------------------------------------ the boot
 @pytest.fixture(autouse=True)
 def never_the_real_system_bus(monkeypatch):
