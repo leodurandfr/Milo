@@ -41,6 +41,7 @@ import aiohttp
 import pytest
 
 from backend.core.multiroom.websocket import SnapcastWebSocketService
+from backend.tests.conftest import drain_background_tasks
 
 # Captured at import: a neighbouring test may replace asyncio.sleep globally,
 # and a double that yields through the replacement is no longer a double.
@@ -646,3 +647,133 @@ class TestCleanup:
         assert service.running is False
         assert service.should_connect is False
         assert service._bg._tasks == set()
+
+
+LOCAL, CANAPE, BUREAU = "2c:cf:67:00:00:01", "aa:bb:cc:dd:ee:07", "aa:bb:cc:dd:ee:08"
+
+
+async def _registry_with_three_online():
+    """The real registry with the local client and two satellites admitted, and
+    every delivery of its bus recorded with who the registry called online then."""
+    from backend.core.multiroom.client_registry import ClientRegistryService
+
+    settings = AsyncMock()
+    settings.get_setting = AsyncMock(return_value=None)
+    registry = ClientRegistryService(settings_service=settings)
+    await registry.initialize()
+    for mac, name, ip in (
+        (LOCAL, "Salon", "127.0.0.1"),
+        (CANAPE, "Canapé", "192.168.1.153"),
+        (BUREAU, "Bureau", "192.168.1.60"),
+    ):
+        await registry.register_client(mac, name, ip)
+        await registry.set_client_online(mac, True)
+
+    deliveries: list = []
+
+    async def _record(event_type, data):
+        deliveries.append((event_type, data.get("mac_id"), sorted(registry.get_online_client_ids())))
+
+    registry.subscribe(_record)
+    return registry, deliveries
+
+
+def _went_offline(deliveries):
+    from backend.core.multiroom.models import RegistryEventType
+
+    return [d for d in deliveries if d[0] == RegistryEventType.CLIENT_DISCONNECTED]
+
+
+class TestEveryClientGoesOfflineWithTheSocket:
+    """Nothing watches a client once the control socket is gone, so none stays online.
+
+    When these fail, a satellite unplugged while multiroom was off (or while
+    snapserver restarted) is still online when the socket comes back: every
+    admission of its neighbors re-applies the zone crossover to it, at a dead
+    IP, in the banner, and it stays on screen until the 30 s sweep. And a client
+    whose re-admission gave up is never tried again — `_process_online_status_changes`
+    only brings back a client the registry holds offline — so a speaker whose
+    CamillaDSP restarted muted (`-m`) stays silent while every screen shows it
+    playing. snapserver going down announces only the local snapclient, so the
+    socket's own end is the one signal there is.
+    """
+
+    async def test_switching_multiroom_off_takes_every_client_offline(self):
+        """All the flags first, then the events: a subscriber that recalculates a
+        zone on the first one must not read its neighbor as still online."""
+        registry, deliveries = await _registry_with_three_online()
+        service = make_service(multiroom_enabled=False, registry=registry)
+        service.should_connect = True
+
+        await service.stop_connection()
+
+        assert registry.get_online_client_ids() == []
+        gone = _went_offline(deliveries)
+        assert sorted(mac for _, mac, _ in gone) == sorted([LOCAL, CANAPE, BUREAU])
+        assert [online for _, _, online in gone] == [[], [], []], (
+            "a subscriber was told of one departure while the registry still "
+            "called the others online"
+        )
+
+    async def test_a_socket_that_dropped_after_ready_takes_every_client_offline(self):
+        """snapserver closing the socket under a connection that worked: the
+        reconnect wait is unwatched, and the next connection re-admits whoever
+        is still there through the one sync."""
+        registry, deliveries = await _registry_with_three_online()
+        snapcast = MagicMock()
+        snapcast.get_server_status = AsyncMock(return_value={"server": {"groups": []}})
+        snapcast.extract_clients = MagicMock(return_value=[])
+        service = make_service(multiroom_enabled=False, snapcast=snapcast, registry=registry)
+        service.session = FakeSession(
+            websocket=FakeWebSocket(frames=[FakeMessage(aiohttp.WSMsgType.CLOSE)])
+        )
+        service.running = True
+        service.should_connect = True
+
+        async def _sleep(delay, *args, **kwargs):
+            if delay >= 5:  # the reconnect wait: one connection is the run
+                service.should_connect = False
+                return await _REAL_SLEEP(0)
+            return await _REAL_SLEEP(delay if delay < 1 else 0)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(asyncio, "sleep", _sleep)
+            await service._connection_loop()
+            await service._bg.cancel_all()
+
+        snapcast.extract_clients.assert_called_once()  # the connection got as far as ready
+        assert registry.get_online_client_ids() == []
+        assert sorted(mac for _, mac, _ in _went_offline(deliveries)) == sorted([LOCAL, CANAPE, BUREAU])
+
+    async def test_a_disable_landing_mid_announcement_still_announces_every_client(self):
+        """A disable stops snapserver before it stops this service, so the loop is
+        often still announcing the departures the closed socket caused when
+        `stop_connection` cancels it — measured 0.3 ms apart in the journal.
+        The flags are already lowered then, and `stop_connection`'s own pass
+        finds nothing left to announce: the clients not yet announced stayed
+        online on every screen."""
+        registry, deliveries = await _registry_with_three_online()
+        reached, release = asyncio.Event(), asyncio.Event()
+
+        async def _slow_subscriber(event_type, data):
+            reached.set()
+            await release.wait()
+
+        registry.subscribe(_slow_subscriber)
+        snapcast = MagicMock()
+        snapcast.get_server_status = AsyncMock(return_value={"server": {"groups": []}})
+        snapcast.extract_clients = MagicMock(return_value=[])
+        service = make_service(multiroom_enabled=False, snapcast=snapcast, registry=registry)
+        service.session = FakeSession(
+            websocket=FakeWebSocket(frames=[FakeMessage(aiohttp.WSMsgType.CLOSE)])
+        )
+        service.running = True
+        service.should_connect = True
+        service._bg.spawn(service._connection_loop(), label="connection_loop")
+        await asyncio.wait_for(reached.wait(), timeout=2.0)
+
+        await service.stop_connection()
+        release.set()
+        await drain_background_tasks()
+
+        assert sorted(mac for _, mac, _ in _went_offline(deliveries)) == sorted([LOCAL, CANAPE, BUREAU])

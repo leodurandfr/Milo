@@ -1720,3 +1720,29 @@ class TestWhatChangesWhileAClientIsAdmitted:
         assert snapcast.set_latency.await_count == 1
         for setting in ("/equalizer/volume", "/equalizer/mute", "/equalizer/gain", "record"):
             assert world.satellite.calls[(IP, setting)] == 1, setting
+
+
+class TestAClientSeenAgainAfterTheSocketDropped:
+    """A client still there when the socket comes back goes through the sync again."""
+
+    async def test_a_client_seen_before_the_socket_dropped_is_readmitted_through_the_sync(
+        self, service, registry, snapcast, volume_service
+    ):
+        """Between two connections nobody watched it: its CamillaDSP may have
+        restarted muted (`-m`), or a re-admission may have given up. Held online
+        across the gap, it was skipped by the online flip — which only brings
+        back a client the registry holds offline — and never synced again, so a
+        silent speaker stayed on every screen as playing."""
+        await registry.register_client(MAC, "Canapé", IP)
+        await registry.set_client_online(MAC, True)
+        service.should_connect = True
+
+        await service.stop_connection()
+        await service._reconcile_clients([_snapcast_client()])
+        await drain_background_tasks()
+
+        snapcast.set_latency.assert_awaited()
+        volume_service.equalizer_controller.set_equalizer_volume.assert_awaited_with(
+            MAC, -20.0, force=True
+        )
+        assert registry.get_client(MAC).online is True

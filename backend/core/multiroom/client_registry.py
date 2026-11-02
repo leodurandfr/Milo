@@ -13,7 +13,7 @@ Architecture:
 import asyncio
 import contextlib
 import logging
-from typing import Dict, List, Optional, Callable, Awaitable, Any, Type, Union
+from typing import Dict, Iterable, List, Optional, Callable, Awaitable, Any, Type, Union
 
 from backend.shared.background import BackgroundTaskSet
 
@@ -100,7 +100,8 @@ class ClientRegistryService:
         # Subscriber callbacks for event handling (incl. WebSocket broadcasting)
         self._subscribers: List[Callable[[str, Dict], Awaitable[None]]] = []
 
-        # Debounced persistence, used by the EQ drag only (see set_clients_equalizer)
+        # Debounced persistence, used by the EQ drag only (see set_clients_equalizer),
+        # and the announcement of clients gone offline (see set_clients_offline)
         self._bg = BackgroundTaskSet(self.logger, "client_registry")
         self._persist_debounce_task: Optional[asyncio.Task] = None
 
@@ -259,31 +260,76 @@ class ClientRegistryService:
 
     async def set_client_online(self, mac_id: str, online: bool) -> None:
         """
-        Update client online status.
+        Update client online status. Offline is `set_clients_offline`'s, for
+        one client.
 
         Args:
             mac_id: The client's mac_id
             online: New online status
         """
+        if not online:
+            await self.set_clients_offline([mac_id])
+            return
+
         async with self._lock:
             client = self._clients.get(mac_id)
             if not client:
                 self.logger.warning(f"Cannot set online: client {mac_id} not found")
                 return
 
-            if client.online == online:
+            if client.online:
                 return
 
-            client.online = online
+            client.online = True
             client_dict = client.to_dict()
 
-        self.logger.info(f"Client {mac_id} online status: {online}")
+        self.logger.info(f"Client {mac_id} online status: True")
 
-        event_type = RegistryEventType.CLIENT_CONNECTED if online else RegistryEventType.CLIENT_DISCONNECTED
-        await self._emit_event(event_type, {
+        await self._emit_event(RegistryEventType.CLIENT_CONNECTED, {
             "mac_id": mac_id,
             "client": client_dict
         })
+
+    async def set_clients_offline(self, mac_ids: Iterable[str]) -> List[str]:
+        """Take clients offline together: every flag is lowered before the first event.
+
+        A subscriber reacting to one departure reads who else is online — the
+        crossover recalculates the zone from it — so lowering the flags one
+        event at a time showed it neighbors already gone, and it pushed their
+        filters to dead addresses. Unknown and already-offline clients are
+        skipped.
+
+        The events outlive a caller cancelled between two of them: a flag
+        already lowered is not lowered again, so the rest would never be
+        announced. That caller exists — snapserver stopped by a multiroom
+        disable closes the socket, and the disable cancels the connection loop
+        announcing it (measured 0.3 ms apart).
+
+        Returns:
+            The mac_ids that went offline.
+        """
+        gone = []
+        async with self._lock:
+            for mac_id in mac_ids:
+                client = self._clients.get(mac_id)
+                if client is None or not client.online:
+                    continue
+                client.online = False
+                gone.append((mac_id, client.to_dict()))
+
+        if gone:
+            announcing = self._bg.spawn(self._announce_offline(gone), label="announce_offline")
+            if announcing is not None:
+                await asyncio.shield(announcing)
+        return [mac_id for mac_id, _ in gone]
+
+    async def _announce_offline(self, gone: List[tuple]) -> None:
+        for mac_id, client_dict in gone:
+            self.logger.info(f"Client {mac_id} online status: False")
+            await self._emit_event(RegistryEventType.CLIENT_DISCONNECTED, {
+                "mac_id": mac_id,
+                "client": client_dict
+            })
 
     async def update_client(
         self,

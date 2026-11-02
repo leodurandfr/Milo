@@ -185,6 +185,7 @@ class SnapcastWebSocketService:
         self._admission_sent.clear()
 
         await self._close_websocket(websocket)
+        await self._take_every_client_offline()
 
         self._ready_event.clear()
 
@@ -251,6 +252,18 @@ class SnapcastWebSocketService:
         """Set VolumeService dependency (closes the volume ↔ snapcast_ws cycle)."""
         self._volume_service = service
 
+    async def _take_every_client_offline(self) -> None:
+        """Nobody watches a client once the control socket is gone, so none stays online.
+
+        snapserver going down announces the local snapclient alone. Held online
+        across the gap, a satellite unplugged meanwhile had every neighbor's
+        admission push its zone's filters to a dead address, and one whose
+        re-admission gave up was never tried again: the sweep's online flip
+        only retries a client the registry holds offline.
+        """
+        if self.registry:
+            await self.registry.set_clients_offline(self.registry.get_client_ids())
+
     def _spawn_loops(self) -> None:
         """Start the two long-lived loops that only run while multiroom is on."""
         self.reconnect_task = self._bg.spawn(self._connection_loop(), label="connection_loop")
@@ -265,6 +278,7 @@ class SnapcastWebSocketService:
             try:
                 if await self._connect_and_listen():
                     reconnect_delay = 5
+                    await self._take_every_client_offline()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -616,19 +630,17 @@ class SnapcastWebSocketService:
     async def _process_disconnected_clients(self, current_mac_ids: set, known_mac_ids: set) -> None:
         """Mark registry clients as offline when they no longer appear in Snapcast.
 
-        Only a real transition is worth a line: this runs on every reconcile pass,
-        so logging unconditionally wrote the same "disconnected" line every 30s for
-        as long as a satellite stayed unplugged.
+        In one registry call, so a zone that went at once (a power strip) is
+        recalculated from no member online rather than from neighbors still
+        flagged online at dead addresses. Only a real transition is worth a
+        line: this runs on every reconcile pass, so logging unconditionally
+        wrote the same "disconnected" line every 30s for as long as a satellite
+        stayed unplugged.
         """
-        for mac_id in known_mac_ids:
-            if mac_id not in current_mac_ids:
-                client = self.registry.get_client(mac_id) if self.registry else None
-                if client is None or not client.online:
-                    continue
-
-                self.logger.info(f"CLIENT DISCONNECTED: {mac_id}")
-                if self.registry:
-                    await self.registry.set_client_online(mac_id, False)
+        if not self.registry:
+            return
+        for mac_id in await self.registry.set_clients_offline(known_mac_ids - current_mac_ids):
+            self.logger.info(f"CLIENT DISCONNECTED: {mac_id}")
 
     async def _process_online_status_changes(self, all_clients: list) -> None:
         """Bring back the known clients Snapcast lists again.

@@ -1751,3 +1751,56 @@ class TestProxyRefusalLevel:
 
         assert result is False
         assert caplog.text == ""
+
+
+# =============================================================================
+# A zone that loses every member at once is not a refusal
+# =============================================================================
+
+class TestAZoneLostInOneSweep:
+    """A whole zone that goes in one reconcile pass (a power strip switched off).
+
+    When this fails, every member taken offline before its neighbors re-applies
+    the zone's crossover to a member the registry still calls online, at a dead
+    IP: one ERROR per filter plus the zone verdict, in the banner, for speakers
+    that are simply unplugged — and 3-5 s of connect timeout each, on the
+    snapserver message loop.
+    """
+
+    BOOKSHELF, SUBWOOFER = "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"
+
+    @pytest.mark.asyncio
+    async def test_two_members_lost_in_one_sweep_raise_no_error(
+        self, mock_settings_service, mock_camilladsp_service, mock_proxy_service, caplog
+    ):
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        registry = ClientRegistryService(settings_service=mock_settings_service)
+        await registry.initialize()
+        crossover = CrossoverService(
+            settings_service=mock_settings_service,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=mock_proxy_service,
+        )
+        crossover.set_registry(registry)
+        await registry.register_client(self.BOOKSHELF, "Salon", "192.168.1.50", speaker_type="bookshelf")
+        await registry.register_client(self.SUBWOOFER, "Caisson", "192.168.1.51", speaker_type="subwoofer")
+        await registry.set_client_online(self.BOOKSHELF, True)
+        await registry.set_client_online(self.SUBWOOFER, True)
+        await registry.create_zone("zone-1", "Salon", [self.BOOKSHELF, self.SUBWOOFER])
+        assert mock_proxy_service.try_request.await_count > 0, "the zone was never applied"
+
+        # Both unplugged: snapserver lists neither, and neither answers.
+        mock_proxy_service.try_request.reset_mock()
+        mock_proxy_service.try_request.return_value = 0
+        state_machine = MagicMock()
+        state_machine.broadcast = AsyncMock()
+        ws = SnapcastWebSocketService(state_machine=state_machine, routing_service=MagicMock())
+        ws.set_registry(registry)
+
+        with caplog.at_level(logging.ERROR):
+            await ws._process_disconnected_clients(set(), {self.BOOKSHELF, self.SUBWOOFER})
+
+        assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+        mock_proxy_service.try_request.assert_not_called()
+        assert registry.get_online_client_ids() == []

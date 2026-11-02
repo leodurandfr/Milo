@@ -390,9 +390,9 @@ class VolumeStateStore:
 
         Multiroom: online in the registry (without one, a store built on its
         own, no client is). Direct: the local speaker alone, whatever the
-        registry says — no snapclient runs, and the registry still holds the
-        satellites online after a switch from multiroom, and every client
-        offline after a boot in direct mode, the local one too.
+        registry says — no snapclient runs, and the registry holds every
+        client offline in direct mode, the local one too, after a switch from
+        multiroom as after a boot.
         """
         if not multiroom:
             return mac_id == self._local_mac_id
