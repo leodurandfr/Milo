@@ -13,9 +13,11 @@ reported a preset snapserver was not running). The write half carries three
 invariants nothing was holding:
 
 * **the argv is the contract.** `sudo milo-deploy-update write-config <tmp> <dest>`
-  is pinned verbatim by `/etc/sudoers.d/milo-backend`; the `milo` user cannot
-  write `/etc` any other way, and a changed verb or argument order is a real
-  permission denial on the unit and nowhere else.
+  is the `milo` user's only way to write `/etc`. Sudoers grants the whole
+  helper, so what holds the argv is the helper's own validation: the verb, a
+  source under `/tmp` or `/var/tmp`, a destination under `/etc`. A changed verb,
+  a reordered pair or a staging file elsewhere is a refusal on the unit and
+  nowhere else.
 * **a failed write must not reach the restart.** The file lands on disk *before*
   snapserver is asked to reload it, so an accepted write followed by a refused
   restart already leaves the new preset on disk with the old one playing. A
@@ -25,23 +27,31 @@ invariants nothing was holding:
 
 Every subprocess spawn in this file is replaced, not observed: this checkout is
 the appliance, `DEPLOY_UPDATE_CMD` is a real root-owned helper, and the systemd
-manager here restarts the live snapserver. `snapserver_conf` is pointed at the
-pytest tmpdir for the same reason.
+manager here restarts the live snapserver. `snapserver_conf` and the staging
+directory are pointed at the pytest tmpdir for the same reason.
 """
 import asyncio
+import fnmatch
 import ipaddress
 import logging
+import os
+import re
+import stat
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from backend.config.constants import DEPLOY_UPDATE_CMD
+from backend.core.multiroom import snapcast
 from backend.core.multiroom.snapcast import (
     SNAPSERVER_CONTROL_ADDRESS,
     SnapcastRequestError,
     SnapcastService,
 )
 from backend.tests.architecture.test_multiroom_capture_map import conf_sections, flashed_conf
+
+DEPLOY_HELPER = Path(__file__).resolve().parents[2] / "rootfs/usr/local/bin/milo-deploy-update"
 
 LIVE_CONF = """\
 # Snapserver configuration
@@ -169,39 +179,29 @@ def service(systemd, tmp_path, monkeypatch):
 
 @pytest.fixture
 def staging(tmp_path, monkeypatch):
-    """Redirect the one hard-coded path in this module onto the pytest tmpdir.
-
-    Carried on the path, not on the module: `snapcast.py` imports `aiofiles`
-    plainly, so replacing its `open` outright would replace it for every other
-    writer in the process. Everything but the staging file is delegated to the
-    real primitive.
-    """
-    import aiofiles
-
-    real_open = aiofiles.open
-    staged = tmp_path / "snapserver.conf.tmp"
-
-    def _open(path, *args, **kwargs):
-        if str(path) == "/tmp/snapserver.conf.tmp":
-            return real_open(staged, *args, **kwargs)
-        return real_open(path, *args, **kwargs)
-
-    monkeypatch.setattr("backend.core.multiroom.snapcast.aiofiles.open", _open)
+    """Point the staging directory at the pytest tmpdir: the real one is /tmp,
+    which this checkout shares with the live backend."""
+    staged = tmp_path / "staging"
+    staged.mkdir()
+    monkeypatch.setattr(snapcast, "STAGING_DIR", str(staged))
     return staged
 
 
 @pytest.fixture
-def deploy(monkeypatch):
-    """Replace the privileged write with a double that records its argv."""
-    calls = []
+def deploy(monkeypatch, staging):
+    """Replace the privileged write with a double that records its argv, and
+    what the staged file held when the wrapper was called: the writer removes
+    it once the wrapper has answered."""
+    calls, staged = [], []
     outcome = {"proc": FakeProc()}
 
     async def _exec(*args, **kwargs):
         calls.append(args)
+        staged.append(Path(args[3]).read_text())
         return outcome["proc"]
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _exec)
-    return calls, outcome
+    return calls, staged, outcome
 
 
 class TestReadingTheConfFile:
@@ -373,20 +373,38 @@ class TestRewritingTheStreamSection:
 class TestTheWriteToEtc:
     """`_update_config_file`: the one privileged write on this path."""
 
-    async def test_the_deploy_wrapper_is_called_with_the_argv_sudoers_pins(
+    async def test_the_deploy_wrapper_is_called_with_the_argv_it_validates(
         self, service, deploy, staging
     ):
         """Invariant 1. The `milo` user's only route to `/etc/snapserver.conf` is
-        `NOPASSWD` on this exact command; a changed verb or a reordered pair is a
-        permission denial that reproduces on a unit and nowhere else."""
-        calls, _ = deploy
+        this helper, which refuses any other verb, a source outside `/tmp` or
+        `/var/tmp` and a destination outside `/etc`: a changed verb, a reordered
+        pair or a staging file elsewhere is a refusal that reproduces on a unit
+        and nowhere else."""
+        calls, _, _ = deploy
 
         assert await service._update_config_file({"buffer_ms": 1500}) is True
 
         assert len(calls) == 1
-        assert calls[0] == (
-            "sudo", DEPLOY_UPDATE_CMD,
-            "write-config", "/tmp/snapserver.conf.tmp", str(service.snapserver_conf),
+        sudo, helper, verb, source, destination = calls[0]
+        assert (sudo, helper, verb, destination) == (
+            "sudo", DEPLOY_UPDATE_CMD, "write-config", str(service.snapserver_conf),
+        )
+        assert Path(source).parent == staging
+        assert Path(source).name.startswith("snapserver.conf.")
+
+    def test_the_staging_directory_is_one_the_wrapper_accepts(self):
+        """The helper takes its source only where `validate_temp_path` says, so a
+        staging directory moved elsewhere refuses every write on the unit, with
+        the fixtures here pointing it at the tmpdir."""
+        helper = DEPLOY_HELPER.read_text()
+        body = helper.split("validate_temp_path() {", 1)[1].split("\n}", 1)[0]
+        accepted = re.search(r"^\s*(\S+)\)\s*;;", body, re.MULTILINE).group(1).split("|")
+        assert accepted and all(pattern.startswith("/") for pattern in accepted)
+
+        assert any(
+            fnmatch.fnmatchcase(f"{snapcast.STAGING_DIR}/snapserver.conf.x1y2z3", pattern)
+            for pattern in accepted
         )
 
     async def test_the_staged_file_carries_the_modified_content(
@@ -396,14 +414,14 @@ class TestTheWriteToEtc:
         be in it. A deploy of the file as it was read succeeds, restarts
         snapserver, and changes nothing — with the settings page reporting the
         new preset."""
-        calls, _ = deploy
+        _, staged, _ = deploy
 
         assert await service._update_config_file({"buffer_ms": 180, "codec": "pcm"}) is True
 
-        staged = staging.read_text()
-        assert "buffer = 180" in staged
-        assert "codec = pcm" in staged
-        assert calls[0][3] == "/tmp/snapserver.conf.tmp"
+        assert len(staged) == 1
+        assert "buffer = 180" in staged[0]
+        assert "codec = pcm" in staged[0]
+        assert list(staging.iterdir()) == []
 
     async def test_a_refused_deploy_is_a_failure_and_says_why(
         self, service, deploy, staging, caplog
@@ -411,13 +429,16 @@ class TestTheWriteToEtc:
         """The wrapper refuses a destination outside its whitelist. Reporting
         success would have the caller restart snapserver for a file that never
         changed — every room silent, nothing different afterwards."""
-        calls, outcome = deploy
+        _, _, outcome = deploy
         outcome["proc"] = FakeProc(returncode=1, stderr=b"refused: destination not allowed")
 
         with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.snapcast"):
             assert await service._update_config_file({"buffer_ms": 1500}) is False
 
         assert any("destination not allowed" in r.message for r in caplog.records)
+        # The helper removes its source only after a copy: what it refused stays
+        # in /tmp unless the writer removes it.
+        assert list(staging.iterdir()) == []
 
     async def test_a_missing_conf_file_is_refused_before_anything_is_staged(
         self, service, deploy, staging, caplog
@@ -425,14 +446,74 @@ class TestTheWriteToEtc:
         """Writing a file the appliance does not have would create one snapserver
         never reads, from a template that is not the one the image baked."""
         service.snapserver_conf.unlink()
-        calls, _ = deploy
+        calls, _, _ = deploy
 
         with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.snapcast"):
             assert await service._update_config_file({"buffer_ms": 1500}) is False
 
         assert calls == []
-        assert not staging.exists()
+        assert list(staging.iterdir()) == []
         assert any("not found" in r.message for r in caplog.records)
+
+    async def test_the_staged_file_is_readable_by_snapserver(
+        self, service, staging, monkeypatch
+    ):
+        """snapserver runs as `milo`, not root, and a `cp` that creates its
+        destination gives it the source's mode: a staging file only its owner
+        can read would become an /etc/snapserver.conf snapserver cannot open."""
+        modes = []
+
+        async def _helper(*args, **kwargs):
+            modes.append(os.stat(args[3]).st_mode)
+            return FakeProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _helper)
+
+        assert await service._update_config_file({"buffer_ms": 700}) is True
+
+        assert len(modes) == 1
+        assert modes[0] & stat.S_IROTH
+
+    async def test_two_concurrent_writes_never_share_a_staging_file(
+        self, service, staging, monkeypatch
+    ):
+        """Two writers in flight at once each hand the helper a file of their
+        own. The helper `cp`s its source into place then `rm -f`s it: on one
+        shared path the second writer truncated the first's content before its
+        copy, and the first's removal left the second refused with "Source file
+        does not exist", or copying an empty file into /etc. The double below
+        holds both calls until both are in flight, then copies and removes its
+        source as the helper does. Which write lands last is not this layer's
+        to decide: the route runs its writes one at a time under the routing
+        lock (TestAServerConfigWriteRacingTheToggle in test_routes_snapcast.py),
+        and the start's reconcile runs before the API serves anything."""
+        calls, copies = [], []
+        both_in_flight = asyncio.Event()
+
+        async def _helper(*args, **kwargs):
+            calls.append(args)
+            if len(calls) == 2:
+                both_in_flight.set()
+            await asyncio.wait_for(both_in_flight.wait(), timeout=5)
+            source = Path(args[3])
+            if not source.exists():
+                return FakeProc(returncode=1, stderr=b"Source file does not exist")
+            copies.append(source.read_text())
+            source.unlink()
+            return FakeProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _helper)
+        first, second = {"buffer_ms": 180}, {"buffer_ms": 900}
+
+        assert await asyncio.gather(
+            service._update_config_file(first), service._update_config_file(second)
+        ) == [True, True]
+
+        assert len({args[3] for args in calls}) == 2
+        assert sorted(copies) == sorted(
+            service._modify_config_content(LIVE_CONF, config) for config in (first, second)
+        )
+        assert list(staging.iterdir()) == []
 
 
 class TestTheCaptureMapReconcile:
@@ -451,16 +532,18 @@ class TestTheCaptureMapReconcile:
         its stream is rewritten to the capture map, and the preset the settings
         page tuned (buffer 200, pcm, 20 ms) is the file's, kept as it was."""
         service.snapserver_conf.write_text(UNIT_CONF)
-        calls, _ = deploy
+        calls, written, _ = deploy
 
         assert await service.reconcile_conf() is True
 
-        staged = staging.read_text()
+        assert len(calls) == 1
+        staged = written[0]
         assert _source_lines(staged) == _source_lines(flashed_conf())
         assert _control(staged) == _control(flashed_conf())
         assert _unowned(staged) == _unowned(UNIT_CONF)
-        assert len(calls) == 1
-        assert calls[0][2:] == ("write-config", "/tmp/snapserver.conf.tmp", str(service.snapserver_conf))
+        verb, source, destination = calls[0][2:]
+        assert (verb, destination) == ("write-config", str(service.snapserver_conf))
+        assert Path(source).parent == staging
 
     async def test_the_flashed_conf_is_a_fixed_point(self, service, staging):
         """A card flashed from this tree starts with the lines the rewrite would
@@ -470,7 +553,7 @@ class TestTheCaptureMapReconcile:
         service.snapserver_conf.write_text(flashed_conf())
 
         assert await service.reconcile_conf() is False
-        assert not staging.exists()
+        assert list(staging.iterdir()) == []
 
     async def test_a_refused_write_is_no_change_and_says_why(
         self, service, deploy, staging, caplog
@@ -478,7 +561,7 @@ class TestTheCaptureMapReconcile:
         """The caller restarts snapserver only on a change: a refused write
         reported as one would cut every room to reload the stale file."""
         service.snapserver_conf.write_text(UNIT_CONF)
-        _, outcome = deploy
+        _, _, outcome = deploy
         outcome["proc"] = FakeProc(returncode=1, stderr=b"refused: destination not allowed")
 
         with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.snapcast"):
@@ -574,13 +657,13 @@ class TestTheControlSurfaces:
         nothing -- each write restarts snapserver, a cut in every room."""
         service.snapserver_conf.write_text(_opened(flashed_conf()))
         assert _source_lines(service.snapserver_conf.read_text()) == _source_lines(flashed_conf())
-        calls, _ = deploy
+        calls, written, _ = deploy
 
         assert await service.reconcile_conf() is True
 
-        staged = staging.read_text()
-        assert _control(staged) == _control(flashed_conf())
         assert len(calls) == 1
+        staged = written[0]
+        assert _control(staged) == _control(flashed_conf())
 
         service.snapserver_conf.write_text(staged)
         assert await service.reconcile_conf() is False
@@ -729,7 +812,7 @@ class TestTheWholeUpdate:
         """An unknown key means a body in the wrong shape; accepting it wrote
         nothing, returned success and restarted snapserver anyway — the only way
         this endpoint can lie."""
-        calls, _ = deploy
+        calls, _, _ = deploy
 
         assert await service.update_server_config({"buffer_ms": 700, "bogus": 1}) is False
 

@@ -21,6 +21,7 @@ from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.multiroom.routing import (
     SNAPCLIENT_LIMITS,
+    MultiroomDisabledError,
     SnapclientEnv,
     resolve_snapclient_config,
 )
@@ -180,7 +181,10 @@ def create_routing_router(
         snapserver and snapclient behind AudioRoutingService's back, and
         snapclient would take hw:Loopback,0,0 while routing.env still points
         milo_roc at it: the next direct-mode source opens a busy device and
-        plays silence until a reboot or a manual multiroom toggle.
+        plays silence until a reboot or a manual multiroom toggle. The whole
+        write runs under the routing lock (`snapcast_config_held`), which reads
+        the mode there: a disable waits for a write in flight, a write waits for
+        a disable, and two writes run one after the other.
 
         The gate is the MODE, not a liveness probe of snapserver. A daemon that
         is enabled but down is exactly when rewriting snapserver.conf is the
@@ -191,83 +195,83 @@ def create_routing_router(
         failure.
         """
         async with api_error_handler("Error updating server config", logger):
-            if not (routing_service and routing_service.get_state()["multiroom_enabled"]):
+            try:
+                async with routing_service.snapcast_config_held():
+                    return await _write_server_config(payload.config.copy())
+            except MultiroomDisabledError as e:
                 logger.warning("Refusing server-config write: multiroom is off")
-                raise HTTPException(
-                    status_code=409,
-                    detail="Multiroom is off; there is no snapserver to configure"
-                )
+                raise HTTPException(status_code=409, detail=str(e))
 
-            config = payload.config.copy()
+    async def _write_server_config(config: dict) -> dict:
+        """Steps 1-5 of a server-config write. Runs under the routing lock."""
+        # Extract snapclient config (not part of snapserver.conf)
+        snapclient_buffer_time = config.pop("snapclient_buffer_time", None)
+        snapclient_fragments = config.pop("snapclient_fragments", None)
+        _validate_snapclient_value("buffer_time", snapclient_buffer_time)
+        _validate_snapclient_value("fragments", snapclient_fragments)
 
-            # Extract snapclient config (not part of snapserver.conf)
-            snapclient_buffer_time = config.pop("snapclient_buffer_time", None)
-            snapclient_fragments = config.pop("snapclient_fragments", None)
-            _validate_snapclient_value("buffer_time", snapclient_buffer_time)
-            _validate_snapclient_value("fragments", snapclient_fragments)
+        # Snapclient buffer settings must be propagated to remotes BEFORE
+        # the snapserver restart: the restart disconnects every client, and
+        # the registry returns no online remotes for ~1 s. Pushing first
+        # (while remotes are still connected to the OLD snapserver) lets
+        # them rewrite their env and restart themselves; they then reconnect
+        # to the NEW snapserver with the updated buffer_time already applied.
+        if snapclient_buffer_time is not None:
+            # 1. Persist to settings.json (source of truth) — buffer_time and
+            # fragments land together so a crash can't split the pair.
+            # Strict, because the three steps below push these values to
+            # every satellite and to the local snapclient: a swallowed write
+            # would leave the whole fleet running a buffer_time settings.json
+            # never took, and losing it on the next boot — the split-brain
+            # set_settings_strict exists for.
+            if settings_service:
+                updates = {'multiroom.snapclient_buffer_time': snapclient_buffer_time}
+                if snapclient_fragments is not None:
+                    updates['multiroom.snapclient_fragments'] = snapclient_fragments
+                await settings_service.set_settings_strict(updates)
 
-            # Snapclient buffer settings must be propagated to remotes BEFORE
-            # the snapserver restart: the restart disconnects every client, and
-            # the registry returns no online remotes for ~1 s. Pushing first
-            # (while remotes are still connected to the OLD snapserver) lets
-            # them rewrite their env and restart themselves; they then reconnect
-            # to the NEW snapserver with the updated buffer_time already applied.
-            if snapclient_buffer_time is not None:
-                # 1. Persist to settings.json (source of truth) — buffer_time and
-                # fragments land together so a crash can't split the pair.
-                # Strict, because the three steps below push these values to
-                # every satellite and to the local snapclient: a swallowed write
-                # would leave the whole fleet running a buffer_time settings.json
-                # never took, and losing it on the next boot — the split-brain
-                # set_settings_strict exists for.
-                if settings_service:
-                    updates = {'multiroom.snapclient_buffer_time': snapclient_buffer_time}
-                    if snapclient_fragments is not None:
-                        updates['multiroom.snapclient_fragments'] = snapclient_fragments
-                    await settings_service.set_settings_strict(updates)
+            # Resolve the effective fragments through the one clamped read
+            # path. An explicit value was validated above; a *stored* one
+            # used to be passed through raw, and the two consumers below
+            # disagreed about it: SnapclientEnv clamps it to 8 for the local
+            # speaker while the satellites received it unbounded and
+            # answered 422 — one house on two ALSA buffer settings.
+            effective_fragments = snapclient_fragments
+            if effective_fragments is None:
+                _, effective_fragments = await resolve_snapclient_config(settings_service)
 
-                # Resolve the effective fragments through the one clamped read
-                # path. An explicit value was validated above; a *stored* one
-                # used to be passed through raw, and the two consumers below
-                # disagreed about it: SnapclientEnv clamps it to 8 for the local
-                # speaker while the satellites received it unbounded and
-                # answered 422 — one house on two ALSA buffer settings.
-                effective_fragments = snapclient_fragments
-                if effective_fragments is None:
-                    _, effective_fragments = await resolve_snapclient_config(settings_service)
+            # 2. Regenerate local snapclient.env with the resolved values
+            await SnapclientEnv.regenerate(snapclient_buffer_time, effective_fragments)
 
-                # 2. Regenerate local snapclient.env with the resolved values
-                await SnapclientEnv.regenerate(snapclient_buffer_time, effective_fragments)
+            # 3. Push to remotes and AWAIT — must complete before snapserver restart
+            await _push_snapclient_config_to_remotes(snapclient_buffer_time, effective_fragments)
 
-                # 3. Push to remotes and AWAIT — must complete before snapserver restart
-                await _push_snapclient_config_to_remotes(snapclient_buffer_time, effective_fragments)
+        # 4. Update snapserver.conf and restart snapserver
+        if not await snapcast_service.update_server_config(config):
+            logger.error("snapserver rejected the config update")
+            raise HTTPException(status_code=502, detail="Snapserver config update failed")
 
-            # 4. Update snapserver.conf and restart snapserver
-            if not await snapcast_service.update_server_config(config):
-                logger.error("snapserver rejected the config update")
-                raise HTTPException(status_code=502, detail="Snapserver config update failed")
+        # 5. Restart local snapclient to pick up the new env (after
+        # snapserver restart so it reconnects cleanly to the new server).
+        # A refused restart is not cosmetic: every satellite is now on the
+        # new buffer_time and the local speaker is still on the old one, so
+        # it must reach the caller rather than a log line under a "services
+        # restarted" answer.
+        if snapclient_buffer_time is not None:
+            if routing_service.service_manager:
+                unit = routing_service.snapclient_service
+                if not await routing_service.service_manager.restart(unit):
+                    logger.error(f"Failed to restart {unit} with buffer_time={snapclient_buffer_time}ms")
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Configuration saved but {unit} did not restart"
+                    )
+                logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
 
-            # 5. Restart local snapclient to pick up the new env (after
-            # snapserver restart so it reconnects cleanly to the new server).
-            # A refused restart is not cosmetic: every satellite is now on the
-            # new buffer_time and the local speaker is still on the old one, so
-            # it must reach the caller rather than a log line under a "services
-            # restarted" answer.
-            if snapclient_buffer_time is not None:
-                if routing_service and routing_service.service_manager:
-                    unit = routing_service.snapclient_service
-                    if not await routing_service.service_manager.restart(unit):
-                        logger.error(f"Failed to restart {unit} with buffer_time={snapclient_buffer_time}ms")
-                        raise HTTPException(
-                            status_code=502,
-                            detail=f"Configuration saved but {unit} did not restart"
-                        )
-                    logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
-
-            return {
-                "status": "success",
-                "message": "Configuration updated and services restarted"
-            }
+        return {
+            "status": "success",
+            "message": "Configuration updated and services restarted"
+        }
 
     # === Automatic analysis ===
 

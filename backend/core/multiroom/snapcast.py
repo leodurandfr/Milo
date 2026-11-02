@@ -6,8 +6,11 @@ This service handles all REST commands to the Snapcast server. WebSocket
 notifications are handled separately by SnapcastWebSocketService.
 """
 import asyncio
+import contextlib
 import difflib
 import logging
+import os
+import tempfile
 import time
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -61,6 +64,25 @@ SNAPSERVER_CONTROL_SECTIONS = {
 # bounds: a proposal outside them would be a payload this very method rejects.
 BUFFER_MS_RANGE = (150, 3000)
 CHUNK_MS_RANGE = (15, 50)
+
+# Where snapserver.conf is staged for milo-deploy-update, which takes its source
+# only from /tmp or /var/tmp: the `milo` user cannot write /etc.
+STAGING_DIR = "/tmp"
+
+
+def _stage(content: str) -> str:
+    """Write `content` to a file of its own under STAGING_DIR and return its
+    path. Blocking: run it off the event loop.
+
+    World-readable, as a plain open() made it: mkstemp's 0600 would reach /etc
+    through the helper's `cp` wherever it creates the destination rather than
+    overwriting it, and snapserver does not run as root.
+    """
+    fd, path = tempfile.mkstemp(prefix="snapserver.conf.", dir=STAGING_DIR)
+    with os.fdopen(fd, "w") as f:
+        os.fchmod(f.fileno(), 0o644)
+        f.write(content)
+    return path
 
 
 class SnapcastRequestError(RuntimeError):
@@ -586,21 +608,27 @@ class SnapcastService:
         return await self._write_config_file(self._modify_config_content(content, config))
 
     async def _write_config_file(self, content: str) -> bool:
-        """Deploy `content` as snapserver.conf; both writers of the file come here."""
-        # Write temp file to /tmp (milo user has no write access to /etc/)
-        temp_file = "/tmp/snapserver.conf.tmp"
-        async with aiofiles.open(temp_file, 'w') as f:
-            await f.write(content)
+        """Deploy `content` as snapserver.conf; both writers of the file come here.
 
-        # Deploy to /etc/ via secure wrapper
-        proc = await asyncio.create_subprocess_exec(
-            "sudo", DEPLOY_UPDATE_CMD,
-            "write-config", temp_file, str(self.snapserver_conf),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        Each write stages its own file. The wrapper `cp`s its source into place
+        and then `rm -f`s it, so on one shared path a second writer truncated
+        the first's content before its copy, and the first's removal left the
+        second copying a file that was gone. The `finally` removes what a
+        refused deploy left behind.
+        """
+        temp_file = await asyncio.to_thread(_stage, content)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", DEPLOY_UPDATE_CMD,
+                "write-config", temp_file, str(self.snapserver_conf),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
 
-        _, stderr = await proc.communicate()
+            _, stderr = await proc.communicate()
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                await asyncio.to_thread(os.remove, temp_file)
 
         if proc.returncode == 0:
             self.logger.info("snapserver.conf updated successfully")

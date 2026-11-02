@@ -2,27 +2,45 @@
 """
 Unit tests for the snapcast half of the /api/routing router.
 """
+import asyncio
+from types import SimpleNamespace
+
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 from backend.api.routing import create_routing_router
-from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG, SNAPCLIENT_LIMITS
+from backend.core.multiroom.routing import (
+    DEFAULT_SNAPCLIENT_CONFIG,
+    SNAPCLIENT_LIMITS,
+    AudioRoutingService,
+)
 from backend.core.multiroom.snapcast import NETWORK_PRESETS
 from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsWriteError
-from backend.core.state import SystemAudioState
+from backend.core.state import AudioStateMachine, SystemAudioState
+
+
+def _routing_service(settings_service):
+    """The real routing service over a systemd double.
+
+    Real because the server-config route takes its lock and reads the mode
+    under it from `routing.multiroom_enabled`: a Mock has no lock to hold, so a
+    write racing a toggle would pass here and fail on the unit.
+    """
+    systemd = Mock()
+    systemd.restart = AsyncMock(return_value=True)
+    return AudioRoutingService(settings_service=settings_service, systemd_manager=systemd)
 
 
 class TestSnapcastRoutes:
     """Tests for Snapcast routes"""
 
     @pytest.fixture
-    def mock_routing_service(self):
-        """Routing service mock"""
-        service = Mock()
-        service.get_state = Mock(return_value={'multiroom_enabled': True})
-        return service
+    def routing_service(self, mock_settings_service):
+        mock_settings_service._storage["routing.multiroom_enabled"] = True
+        return _routing_service(mock_settings_service)
 
     @pytest.fixture
     def mock_snapcast_service(self):
@@ -42,17 +60,16 @@ class TestSnapcastRoutes:
         return sm
 
     @pytest.fixture
-    def client(self, mock_routing_service, mock_snapcast_service, mock_state_machine):
+    def client(self, routing_service, mock_snapcast_service, mock_state_machine):
         """Fixture to create a TestClient"""
         app = FastAPI()
         router = create_routing_router(
-            mock_routing_service,
+            routing_service,
             mock_state_machine,
             mock_snapcast_service,
         )
         app.include_router(router)
         client = TestClient(app)
-        client._mock_routing = mock_routing_service
         client._mock_snapcast = mock_snapcast_service
         return client
 
@@ -106,7 +123,7 @@ class TestSnapcastRoutes:
         )
         assert response.status_code == 502
 
-    def test_a_write_is_refused_while_snapserver_is_down(self, client):
+    def test_a_write_is_refused_while_snapserver_is_down(self, client, mock_settings_service):
         """Direct mode stops both snapcast units, and every step of this route
         ends in a `systemctl restart` — a verb that STARTS a stopped unit.
 
@@ -125,7 +142,7 @@ class TestSnapcastRoutes:
         MultiroomSettings.vue hides the button in direct mode, which is why this
         never fired; a route may not rely on a v-if.
         """
-        client._mock_routing.get_state = Mock(return_value={"multiroom_enabled": False})
+        mock_settings_service._storage["routing.multiroom_enabled"] = False
 
         response = client.put(
             "/api/routing/snapcast/server-config",
@@ -168,19 +185,17 @@ class TestSnapclientBufferSetting:
 
     @pytest.fixture
     def settings_service(self):
-        store = {}
+        store = {"routing.multiroom_enabled": True}
         svc = Mock()
         svc.get_setting = AsyncMock(side_effect=lambda key: store.get(key))
+        svc.get_setting_sync = Mock(side_effect=lambda key: store.get(key))
         svc.set_settings_strict = AsyncMock(side_effect=lambda updates: store.update(updates))
         svc.store = store
         return svc
 
     @pytest.fixture
     def client(self, settings_service):
-        routing_service = Mock()
-        routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
-        routing_service.service_manager = Mock()
-        routing_service.service_manager.restart = AsyncMock(return_value=True)
+        routing_service = _routing_service(settings_service)
 
         snapcast_service = Mock()
         snapcast_service.is_available = AsyncMock(return_value=True)
@@ -339,9 +354,13 @@ class TestStoredFragmentsReachBothSidesClamped:
 
     @pytest.fixture
     def settings_service(self):
-        store = {'multiroom.snapclient_fragments': TestStoredFragmentsReachBothSidesClamped.OUT_OF_RANGE}
+        store = {
+            "routing.multiroom_enabled": True,
+            'multiroom.snapclient_fragments': TestStoredFragmentsReachBothSidesClamped.OUT_OF_RANGE,
+        }
         svc = Mock()
         svc.get_setting = AsyncMock(side_effect=lambda key: store.get(key))
+        svc.get_setting_sync = Mock(side_effect=lambda key: store.get(key))
         svc.set_settings_strict = AsyncMock(side_effect=lambda updates: store.update(updates))
         svc.store = store
         return svc
@@ -356,10 +375,7 @@ class TestStoredFragmentsReachBothSidesClamped:
 
     @pytest.fixture
     def client(self, settings_service, registry):
-        routing_service = Mock()
-        routing_service.get_state = Mock(return_value={"multiroom_enabled": True})
-        routing_service.service_manager = Mock()
-        routing_service.service_manager.restart = AsyncMock(return_value=True)
+        routing_service = _routing_service(settings_service)
 
         snapcast_service = Mock()
         snapcast_service.is_available = AsyncMock(return_value=True)
@@ -550,3 +566,192 @@ class TestAToggleRacingASourceSwitch:
         podcast.release_for_reroute.assert_awaited_once()
         podcast.acquire_after_reroute.assert_awaited_once()
         assert response.json()["source"] == "podcast"
+
+
+class _JournaledSystemd:
+    """systemd as both the routing service and the route drive it: every verb is
+    journaled in call order, and the first `stop` can be held on an Event."""
+
+    def __init__(self, journal):
+        self.journal = journal
+        self.hold_stop = None
+        self.stopping = asyncio.Event()
+
+    async def start(self, unit):
+        self.journal.append(("start", unit))
+        return True
+
+    async def stop(self, unit):
+        self.journal.append(("stop", unit))
+        if not self.stopping.is_set():
+            self.stopping.set()
+            if self.hold_stop is not None:
+                await self.hold_stop.wait()
+        return True
+
+    async def restart(self, unit):
+        self.journal.append(("restart", unit))
+        return True
+
+    async def is_active(self, unit):
+        return True
+
+
+class TestAServerConfigWriteRacingTheToggle:
+    """PUT /snapcast/server-config against a real routing service and a real
+    state machine, with only the outside world mocked: systemd, snapserver's
+    conf writer, the env files and the WebSocket clients.
+
+    What breaks when this fails: every step of an Apply ends in a `systemctl
+    restart`, a verb that STARTS a stopped unit. A multiroom disable landing
+    while an Apply is in flight stops both snapcast units and writes routing.env
+    in direct mode, then the Apply restarts them: snapclient holds
+    hw:Loopback,0,0 while routing.env hands it to the direct-mode source, which
+    plays silence until a reboot. Two Applies at once interleave their
+    settings, env and conf writes, leaving the house on a buffer neither asked
+    for. The Apply pushes to every satellite first (up to 10 s), so the window
+    is wide.
+    """
+
+    # Long enough for an unserialized request to run to its end here (it
+    # awaits nothing real), never a measure of anything: a serialized one waits
+    # it out and the verdict is the same whatever the value.
+    LET_IT_RUN_S = 0.5
+
+    @pytest.fixture
+    def appliance(self, mock_settings_service):
+        journal = []
+        systemd = _JournaledSystemd(journal)
+        routing = AudioRoutingService(
+            settings_service=mock_settings_service, systemd_manager=systemd
+        )
+        routing._initial_detection_done = True
+        mock_settings_service._storage["routing.multiroom_enabled"] = True
+
+        async def _persist(updates):
+            journal.append(("settings", updates["multiroom.snapclient_buffer_time"]))
+            mock_settings_service._storage.update(updates)
+
+        mock_settings_service.set_settings_strict = AsyncMock(side_effect=_persist)
+
+        async def _env(buffer_time, fragments):
+            journal.append(("env", buffer_time))
+
+        # No source is active, so the reroute runs the output switch directly.
+        state_machine = AudioStateMachine()
+        state_machine.routing_service = routing
+        routing.set_state_machine(state_machine)
+        state_machine.ws_manager = Mock()
+        state_machine.ws_manager.broadcast_dict = AsyncMock()
+
+        # snapserver's conf writer, which restarts snapserver on success. Set
+        # `writing` and `held` to hold the first call until `held` is set.
+        snapcast = Mock()
+        snapcast.writing = snapcast.held = None
+
+        async def _write(config):
+            journal.append(("server-config", config["buffer_ms"]))
+            if snapcast.writing is not None and not snapcast.writing.is_set():
+                snapcast.writing.set()
+                await snapcast.held.wait()
+            return True
+
+        snapcast.update_server_config = AsyncMock(side_effect=_write)
+
+        app = FastAPI()
+        app.include_router(create_routing_router(
+            routing, state_machine, snapcast, settings_service=mock_settings_service,
+        ))
+        with patch("backend.core.multiroom.routing.RoutingEnv.regenerate"), \
+                patch("backend.core.multiroom.routing.SnapclientEnv.regenerate",
+                      AsyncMock(side_effect=_env)):
+            yield SimpleNamespace(
+                app=app, routing=routing, systemd=systemd, snapcast=snapcast,
+                journal=journal, settings=mock_settings_service._storage,
+            )
+
+    @staticmethod
+    def _apply(client, buffer_ms, buffer_time):
+        return client.put("/api/routing/snapcast/server-config", json={"config": {
+            "buffer_ms": buffer_ms,
+            "snapclient_buffer_time": buffer_time,
+            "snapclient_fragments": 4,
+        }})
+
+    @staticmethod
+    def _client(appliance):
+        transport = httpx.ASGITransport(app=appliance.app)
+        return httpx.AsyncClient(transport=transport, base_url="http://milo")
+
+    async def test_a_server_config_write_racing_a_multiroom_disable_never_restarts_snapcast(
+        self, appliance
+    ):
+        """The disable is held between its first stop and its second: the mode
+        is still persisted on, and the write must not read it there."""
+        appliance.systemd.hold_stop = asyncio.Event()
+        async with self._client(appliance) as client:
+            disable = asyncio.create_task(
+                client.put("/api/routing/multiroom", json={"enabled": False})
+            )
+            await appliance.systemd.stopping.wait()
+
+            write = asyncio.create_task(self._apply(client, 700, 120))
+            await asyncio.wait({write}, timeout=self.LET_IT_RUN_S)
+            appliance.systemd.hold_stop.set()
+            disabled, written = await disable, await write
+
+        assert disabled.status_code == 200
+        assert written.status_code == 409
+        appliance.snapcast.update_server_config.assert_not_awaited()
+        assert [unit for verb, unit in appliance.journal if verb in ("start", "restart")] == []
+        assert appliance.settings["routing.multiroom_enabled"] is False
+
+    async def test_a_multiroom_disable_waits_for_a_server_config_write_in_flight(
+        self, appliance
+    ):
+        """The write is held in snapserver's conf writer, past its mode check:
+        the disable runs after its last restart, so the units end stopped."""
+        snapcast, routing = appliance.snapcast, appliance.routing
+        snapcast.writing, snapcast.held = asyncio.Event(), asyncio.Event()
+        async with self._client(appliance) as client:
+            write = asyncio.create_task(self._apply(client, 700, 120))
+            await snapcast.writing.wait()
+
+            disable = asyncio.create_task(
+                client.put("/api/routing/multiroom", json={"enabled": False})
+            )
+            await asyncio.wait({disable}, timeout=self.LET_IT_RUN_S)
+            snapcast.held.set()
+            written, disabled = await write, await disable
+
+        assert written.status_code == 200
+        assert disabled.status_code == 200
+        assert [
+            (verb, unit) for verb, unit in appliance.journal if verb in ("start", "stop", "restart")
+        ] == [
+            ("restart", routing.snapclient_service),
+            ("stop", routing.snapclient_service),
+            ("stop", routing.snapserver_service),
+        ]
+        assert appliance.settings["routing.multiroom_enabled"] is False
+
+    async def test_two_concurrent_server_config_puts_are_serialized(self, appliance):
+        """Two Applies a second apart (the kiosk and a phone): each one's
+        settings, env, conf and restart land together, the second's last."""
+        snapcast, client_unit = appliance.snapcast, appliance.routing.snapclient_service
+        snapcast.writing, snapcast.held = asyncio.Event(), asyncio.Event()
+        async with self._client(appliance) as client:
+            first = asyncio.create_task(self._apply(client, 700, 120))
+            await snapcast.writing.wait()
+
+            second = asyncio.create_task(self._apply(client, 900, 200))
+            await asyncio.wait({second}, timeout=self.LET_IT_RUN_S)
+            snapcast.held.set()
+            responses = [await first, await second]
+
+        assert [r.status_code for r in responses] == [200, 200]
+        assert appliance.journal == [
+            ("settings", 120), ("env", 120), ("server-config", 700), ("restart", client_unit),
+            ("settings", 200), ("env", 200), ("server-config", 900), ("restart", client_unit),
+        ]
+        assert appliance.settings["multiroom.snapclient_buffer_time"] == 200

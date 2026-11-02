@@ -266,6 +266,11 @@ class SnapclientEnv:
         )
 
 
+class MultiroomDisabledError(RuntimeError):
+    """Raised by `AudioRoutingService.snapcast_config_held` in direct mode,
+    where both snapcast units are stopped and there is nothing to configure."""
+
+
 class AudioRoutingService:
     """
     Audio routing service.
@@ -858,6 +863,25 @@ class AudioRoutingService:
                 f"snapcast stop incomplete: client_ok={client_ok}, server_ok={server_ok}"
             )
         return client_ok and server_ok
+
+    @contextlib.asynccontextmanager
+    async def snapcast_config_held(self):
+        """Hold the routing lock across a write of the snapcast configuration.
+
+        The mode is read under the lock, never before it: a multiroom disable
+        persists it only once both units are stopped, and every step of a
+        server-config write ends in a `systemctl restart`, a verb that STARTS a
+        stopped unit. Read outside, a disable landing mid-write was followed by
+        a restart of snapserver and snapclient, which took hw:Loopback,0,0 from
+        the direct-mode source. Held, a disable waits for the write to finish
+        and two writes run one after the other.
+
+        Raises MultiroomDisabledError in direct mode.
+        """
+        async with self._routing_lock:
+            if not self.multiroom_enabled:
+                raise MultiroomDisabledError("Multiroom is off; there is no snapserver to configure")
+            yield
 
     def get_state(self) -> Dict[str, bool]:
         """
