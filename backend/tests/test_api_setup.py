@@ -100,7 +100,7 @@ def services():
         "power_button": {"enabled": True, "led_gpio_pin": 5},
     })
     hardware.save_config = AsyncMock()
-    hardware.apply_and_reboot = AsyncMock()
+    hardware.apply = AsyncMock()
 
     network = Mock()
     network.save_network = AsyncMock()
@@ -514,10 +514,10 @@ class TestCompleteSetup:
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def _apply(**_):
-            if services.hardware.apply_and_reboot.await_count == 1:
+            if services.hardware.apply.await_count == 1:
                 entered.set()
                 await release.wait()
-        services.hardware.apply_and_reboot.side_effect = _apply
+        services.hardware.apply.side_effect = _apply
 
         app = FastAPI()
         app.include_router(create_setup_router(
@@ -537,7 +537,7 @@ class TestCompleteSetup:
         assert first.status_code == 200
         assert second.status_code == 200
         assert second.json() == {"status": "rebooting"}
-        assert services.hardware.apply_and_reboot.await_count == 1
+        assert services.hardware.apply.await_count == 1
         assert services.hardware.save_config.await_count == 1
         services.systemd.power.assert_awaited_once_with("reboot")
 
@@ -552,7 +552,7 @@ class TestCompleteSetup:
 
         assert response.status_code == 200
         assert response.json() == {"status": "rebooting"}
-        services.hardware.apply_and_reboot.assert_awaited_once()
+        services.hardware.apply.assert_awaited_once()
         services.systemd.power.assert_awaited_once_with("reboot")
 
     def test_a_failed_apply_lets_the_wizard_be_submitted_again(self, client, services):
@@ -560,14 +560,14 @@ class TestCompleteSetup:
         there forever would leave a fresh unit with no way to finish its setup
         short of a backend restart."""
         self._reflecting_store(services)
-        services.hardware.apply_and_reboot.side_effect = [
+        services.hardware.apply.side_effect = [
             RuntimeError("config.txt is read-only"), None,
         ]
 
         client.post("/api/setup/complete", json=self._payload())
         client.post("/api/setup/complete", json=self._payload())
 
-        assert services.hardware.apply_and_reboot.await_count == 2
+        assert services.hardware.apply.await_count == 2
         services.systemd.power.assert_awaited_once_with("reboot")
 
     def test_a_refused_payload_does_not_hold_the_wizard(self, client, services):
@@ -579,7 +579,7 @@ class TestCompleteSetup:
         client.post("/api/setup/complete", json=self._payload())
 
         assert refused.status_code == 400
-        services.hardware.apply_and_reboot.assert_awaited_once()
+        services.hardware.apply.assert_awaited_once()
 
     def test_the_reboot_runs_after_the_response_and_not_during_it(self, client, services):
         """Rewriting config.txt and rebooting inline would take the box down
@@ -590,7 +590,7 @@ class TestCompleteSetup:
 
         assert response.status_code == 200
         assert response.json() == {"status": "rebooting"}
-        services.hardware.apply_and_reboot.assert_awaited_once()
+        services.hardware.apply.assert_awaited_once()
         services.systemd.power.assert_awaited_once_with("reboot")
 
     def test_a_hardware_write_that_fails_never_marks_setup_done(self, client, services):
@@ -610,7 +610,7 @@ class TestCompleteSetup:
         assert ("setup_completed", True) not in [
             call.args for call in services.settings.set_setting.await_args_list
         ]
-        services.hardware.apply_and_reboot.assert_not_awaited()
+        services.hardware.apply.assert_not_awaited()
 
     def test_the_overlay_lands_before_the_flag_and_the_flag_before_the_reboot(
         self, client, services
@@ -623,15 +623,11 @@ class TestCompleteSetup:
         booted with no dtoverlay: no sound, no wizard, nothing in any log
         saying why. Applying first makes every cut before the flag bring the
         wizard back, and a cut after it lands on a config.txt already correct.
-
-        `reboot=False` is asserted with the order: the helper reboots on its
-        own by default, which would take the box down before the flag is
-        written and put the window straight back.
+        That the helper itself never reboots is `HardwareService.apply`'s, and
+        pinned with it.
         """
         order = []
-        services.hardware.apply_and_reboot = AsyncMock(
-            side_effect=lambda **kw: order.append(f"apply(reboot={kw.get('reboot', True)})")
-        )
+        services.hardware.apply = AsyncMock(side_effect=lambda: order.append("apply"))
         services.settings.set_setting = AsyncMock(
             side_effect=lambda key, value: order.append(f"{key}={value}") or True
         )
@@ -642,7 +638,7 @@ class TestCompleteSetup:
         assert response.status_code == 200
         assert order == [
             "language=" + self._payload()["language"],
-            "apply(reboot=False)",
+            "apply",
             "setup_completed=True",
             "reboot",
         ]
@@ -652,7 +648,7 @@ class TestCompleteSetup:
     ):
         """config.txt was not rewritten, so rebooting would only lose the
         user's answers: the wizard must still be there on the next boot."""
-        services.hardware.apply_and_reboot.side_effect = RuntimeError("config.txt is read-only")
+        services.hardware.apply.side_effect = RuntimeError("config.txt is read-only")
 
         client.post("/api/setup/complete", json=self._payload())
 
@@ -675,7 +671,7 @@ class TestCompleteSetup:
         original = stored["config"]
         services.hardware.get_full_config.side_effect = lambda: stored["config"]
         services.hardware.save_config.side_effect = lambda cfg: stored.update(config=cfg)
-        services.hardware.apply_and_reboot.side_effect = [
+        services.hardware.apply.side_effect = [
             RuntimeError("EEPROM write refused"), None,
         ]
 

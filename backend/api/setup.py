@@ -208,7 +208,7 @@ def create_setup_router(
                 try:
                     await asyncio.sleep(1)  # Allow HTTP response to flush to the client
                     try:
-                        await hardware_service.apply_and_reboot(reboot=False)
+                        await hardware_service.apply()
                     except Exception as e:
                         # The next submit reads hardware.json as the current
                         # state: left as written, it names a card config.txt

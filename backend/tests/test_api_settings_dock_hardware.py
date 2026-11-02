@@ -79,10 +79,10 @@ def equalizer():
 
 @pytest.fixture
 def hardware():
-    """`apply_and_reboot` shells `sudo milo-apply-hardware` and reboots this Pi."""
+    """`apply` shells `sudo milo-apply-hardware`, which rewrites this Pi's config.txt."""
     svc = Mock()
     svc.save_config = AsyncMock()
-    svc.apply_and_reboot = AsyncMock()
+    svc.apply = AsyncMock()
     svc.get_screen_info = Mock(
         return_value={"type": "none", "resolution": {"width": None, "height": None}}
     )
@@ -538,9 +538,9 @@ class TestTheHardwareConfig:
     }
 
     def test_the_config_is_saved_before_anything_is_applied(self, client, hardware):
-        """`apply_and_reboot` reboots. A config applied before it was stored is a
-        box that comes back on the previous hardware with `config.txt` describing
-        the new one."""
+        """The helper reads `hardware.json`: a config applied before it was
+        stored is `config.txt` rewritten from the previous one, and a box that
+        reboots onto the old hardware while the page shows the new one."""
         response = client.put("/api/settings/hardware-config", json=self.PAYLOAD)
 
         assert response.status_code == 200
@@ -717,7 +717,7 @@ class TestTheHardwareConfig:
 
         assert response.status_code >= 400
         hardware.save_config.assert_not_called()
-        hardware.apply_and_reboot.assert_not_called()
+        hardware.apply.assert_not_called()
 
 
 class TestTheHardwareRead:

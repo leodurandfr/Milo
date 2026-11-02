@@ -820,7 +820,7 @@ def create_settings_router(
                 logger.info(f"Hardware config saved: audio={payload.audio.id}, screen={payload.screen.type}")
 
                 try:
-                    await hardware_service.apply_and_reboot(reboot=False)
+                    await hardware_service.apply()
                 except Exception as e:
                     logger.error(f"{e} — restoring the previous hardware config")
                     await hardware_service.save_config(previous)

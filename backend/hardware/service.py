@@ -231,40 +231,30 @@ class HardwareService:
         await save_versioned_json(self.hardware_file, config, self.SCHEMA_VERSION)
         self._cache = None
 
-    async def apply_and_reboot(self, reboot: bool = True) -> None:
+    async def apply(self) -> None:
         """Apply hardware config to config.txt and the bootloader EEPROM via milo-apply-hardware.
 
-        `reboot=False` returns instead of taking the box down, and both callers
-        use it. The setup wizard must persist `setup_completed` before the
-        reboot, and doing that before the overlay reached config.txt left a
+        The helper runs with `--no-reboot`, always: the reboot is the caller's.
+        The setup wizard must persist `setup_completed` between the apply and
+        the reboot — doing it before the overlay reached config.txt left a
         window where a power cut produced a unit that believed it was
-        configured and had no audio card — silent, and with the wizard gone.
-        The Hardware page must restore the previous hardware.json when the
-        apply is refused, and answer the failure rather than "rebooting". So
-        under `reboot=False` any non-zero return code is a failure, a signal
-        included. A helper that dies after it began rewriting config.txt can
-        leave it half-written; restoring hardware.json does not undo that.
+        configured and had no audio card, silent and with the wizard gone —
+        and the Hardware page must restore the previous hardware.json when
+        the apply is refused, answering the failure rather than "rebooting".
+        So any non-zero return code is a failure, a signal included: the
+        helper never reboots here, so a signal came from outside, and a
+        helper that died after it began rewriting config.txt can leave it
+        half-written; restoring hardware.json does not undo that.
         """
-        self.logger.info(
-            "Applying hardware configuration%s...", " and rebooting" if reboot else ""
-        )
-        argv = ['sudo', '/usr/local/bin/milo-apply-hardware']
-        if not reboot:
-            argv.append('--no-reboot')
+        self.logger.info("Applying hardware configuration...")
         proc = await asyncio.create_subprocess_exec(
-            *argv,
+            'sudo', '/usr/local/bin/milo-apply-hardware', '--no-reboot',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
         rc = proc.returncode
         if rc == 0:
-            return
-        # A negative code is a signal. When the script reboots the box itself,
-        # that is the reboot killing it — success. Under --no-reboot it never
-        # reboots, so the signal came from outside and may have cut config.txt
-        # mid-rewrite.
-        if reboot and rc < 0:
             return
         printed = stderr.decode().strip() if stderr else ""
         if rc < 0:

@@ -365,14 +365,15 @@ class TestTheBootLoad:
         assert "hardware sync read fallback" in caplog.text
 
 
-class TestApplyAndReboot:
-    """The privileged apply, at 0 %. `sudo /usr/local/bin/milo-apply-hardware`
-    rewrites config.txt and, without `--no-reboot`, reboots. The setup wizard
-    runs it after its response has flushed; `PUT /hardware-config` runs it
-    within the request, so a refused apply can restore the previous config.
+class TestApply:
+    """The privileged apply, at 0 %. `sudo /usr/local/bin/milo-apply-hardware
+    --no-reboot` rewrites config.txt and leaves the reboot to the caller. The
+    setup wizard runs it after its response has flushed; `PUT /hardware-config`
+    runs it within the request, so a refused apply can restore the previous
+    config.
 
     The subprocess is replaced rather than watched: on this host the real one
-    would rewrite the appliance's config.txt and reboot it.
+    would rewrite the appliance's config.txt.
     """
 
     @pytest.fixture
@@ -389,12 +390,17 @@ class TestApplyAndReboot:
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
         return types.SimpleNamespace(calls=calls, proc=proc)
 
-    async def test_the_pinned_sudoers_helper_is_what_is_run(self, service, spawn):
+    async def test_the_pinned_sudoers_helper_is_run_without_its_reboot(self, service, spawn):
         """The absolute path is the sudoers rule; a relative one or a different
-        name is a permission denial, not a different program."""
-        await service.apply_and_reboot()
+        name is a permission denial, not a different program. `--no-reboot` is
+        the wizard's ordering — apply, then persist `setup_completed`, then
+        reboot: a helper that rebooted on its own would put back the window
+        where a power cut left a unit that believed it was configured with no
+        dtoverlay in config.txt — and the Hardware page's restore, which needs
+        the box still up when the apply is refused."""
+        await service.apply()
 
-        assert spawn.calls == [("sudo", "/usr/local/bin/milo-apply-hardware")]
+        assert spawn.calls == [("sudo", "/usr/local/bin/milo-apply-hardware", "--no-reboot")]
 
     async def test_a_helper_that_fails_is_raised_with_what_it_printed(
         self, service, spawn
@@ -405,18 +411,9 @@ class TestApplyAndReboot:
         spawn.proc.communicate = AsyncMock(return_value=(b"", b"  no such overlay\n"))
 
         with pytest.raises(RuntimeError, match="no such overlay"):
-            await service.apply_and_reboot()
+            await service.apply()
 
-    async def test_the_reboot_killing_the_helper_is_not_an_error(self, service, spawn):
-        """The script reboots the machine, so being killed by a signal is the
-        success path — a negative return code must not read as a failure and
-        roll back a setup that already applied. The exemption holds only when
-        the script reboots it itself (`reboot=True`)."""
-        spawn.proc.returncode = -15
-
-        await service.apply_and_reboot()
-
-    async def test_a_no_reboot_apply_killed_by_a_signal_is_a_failure(
+    async def test_an_apply_killed_by_a_signal_is_a_failure(
         self, service, spawn
     ):
         """With `--no-reboot` the script never reboots, so a signal can only
@@ -427,7 +424,7 @@ class TestApplyAndReboot:
         spawn.proc.returncode = -15
 
         with pytest.raises(RuntimeError, match="SIGTERM"):
-            await service.apply_and_reboot(reboot=False)
+            await service.apply()
 
     async def test_a_signal_with_no_name_is_still_a_failure_not_a_crash(
         self, service, spawn
@@ -439,7 +436,7 @@ class TestApplyAndReboot:
         spawn.proc.communicate = AsyncMock(return_value=(b"", b"Bootloader staged\n"))
 
         with pytest.raises(RuntimeError, match="signal 40: Bootloader staged"):
-            await service.apply_and_reboot(reboot=False)
+            await service.apply()
 
     async def test_a_failure_with_nothing_on_stderr_still_says_something(
         self, service, spawn
@@ -448,17 +445,7 @@ class TestApplyAndReboot:
         spawn.proc.communicate = AsyncMock(return_value=(b"", b""))
 
         with pytest.raises(RuntimeError, match="unknown error"):
-            await service.apply_and_reboot()
-
-    async def test_no_reboot_is_passed_through_to_the_helper(self, service, spawn):
-        """The wizard's ordering depends on it: apply first, then persist
-        `setup_completed`, then reboot. If the flag went first — as it used to —
-        a power cut between the two left a unit that believed it was configured
-        with no dtoverlay in config.txt, silently.
-        """
-        await service.apply_and_reboot(reboot=False)
-
-        assert spawn.calls == [("sudo", "/usr/local/bin/milo-apply-hardware", "--no-reboot")]
+            await service.apply()
 
 
 class TestTheConfiguredCardBeingThere:
