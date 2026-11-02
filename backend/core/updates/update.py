@@ -929,6 +929,23 @@ class UpdateService(VersionService):
                     f"Snapserver updated but snapclient failed: {client_install.get('error')}.", restored
                 )
 
+            # The helper's OK says apt exited 0, which is also what it answers
+            # after removing a package it could not satisfy: what the binaries
+            # read is the proof, as the NQPTP and qobuz flows read theirs.
+            installed = (await self.get_installed_version("multiroom"))["versions"]
+            off_target = [
+                f"{binary} reads {installed.get(binary) or 'nothing'}"
+                for binary in config["commands"]
+                if installed.get(binary) != latest_version
+            ]
+            if off_target:
+                restored = await self._restore_multiroom_services()
+                await self._cleanup_temp_files(server_download.get("temp_dir"))
+                await self._cleanup_temp_files(client_download.get("temp_dir"))
+                return self._failure_after_restore(
+                    f"{', '.join(off_target)} after install, expected {latest_version}.", restored
+                )
+
             # Phase 5: Restart services (80-95%)
             await self._restore_multiroom_services()
 
@@ -1809,7 +1826,8 @@ class UpdateService(VersionService):
 
 
     async def _install_deb_package(self, deb_path: str) -> Dict[str, Any]:
-        """Installs a .deb package via milo-deploy-update (dpkg + apt-get -f)."""
+        """Installs a .deb package via milo-deploy-update (one `apt-get install`
+        that refuses removals, then a dpkg-query of the .deb's own version)."""
         self.update_logger.info(f"Installing {Path(deb_path).name}...")
         success, output = await self._run_deploy("install-deb", deb_path, timeout=300)
         if not success:

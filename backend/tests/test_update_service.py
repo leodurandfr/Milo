@@ -820,13 +820,18 @@ class TestUpdateMultiroom:
 
     @staticmethod
     @contextmanager
-    def _flow(service, *, multiroom, install=None):
+    def _flow(service, *, multiroom, install=None, installed=None):
         """Stack the collaborators, leaving _update_multiroom itself real.
 
         `multiroom` is the stored `routing.multiroom_enabled`, which decides
         whether the units come back; `install` overrides the two
-        _install_deb_package results.
+        _install_deb_package results; `installed` is what `snapserver
+        --version` and `snapclient --version` read afterwards, both at the
+        target unless given.
         """
+        latest = TestUpdateMultiroom.STATUS["latest"]["version"]
+        if installed is None:
+            installed = {"snapserver": latest, "snapclient": latest}
         service.settings_service._storage["routing.multiroom_enabled"] = multiroom
         with ExitStack() as stack:
             mocks = {
@@ -837,6 +842,10 @@ class TestUpdateMultiroom:
                 "_install_deb_package": stack.enter_context(patch.object(
                     service, "_install_deb_package",
                     side_effect=install or [{"success": True}, {"success": True}],
+                )),
+                "get_installed_version": stack.enter_context(patch.object(
+                    service, "get_installed_version",
+                    return_value={"versions": installed},
                 )),
             }
             for name, value in (("_stop_service", True), ("_start_service", True), ("_cleanup_temp_files", None)):
@@ -955,6 +964,28 @@ class TestUpdateMultiroom:
         assert result["success"] is False
         assert self._started(mocks) == list(self.SERVICES)
         assert "restored" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("installed", [
+        pytest.param({}, id="both-removed"),
+        pytest.param({"snapserver": "0.27.0", "snapclient": "0.27.0"}, id="old-version-stayed"),
+        pytest.param({"snapserver": STATUS["latest"]["version"]}, id="snapclient-removed"),
+    ])
+    async def test_a_deb_that_did_not_end_up_installed_fails_the_update(self, update_service, installed):
+        """The helper's OK is not the proof: what the binaries read afterwards is.
+
+        `apt-get -f install -y` once removed a package whose Depends it could not
+        satisfy and exited 0, so the update answered success over an uninstalled
+        snapcast — every room mute, and `installed` None, which the
+        reconciliation skips forever. The units still come back as the mode
+        says, and the error says whether they did.
+        """
+        with self._flow(update_service, multiroom=True, installed=installed) as mocks:
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is False
+        assert self.STATUS["latest"]["version"] in result["error"]
+        assert self._started(mocks) == list(self.SERVICES)
 
     @pytest.mark.asyncio
     async def test_server_download_failure(self, update_service):
@@ -4751,6 +4782,8 @@ class TestTheUnitStateIsReadWhenItIsActedOn:
         with patch.object(service, "_download_snapcast_component", AsyncMock(return_value={
                     "success": True, "deb_path": "/tmp/pkg.deb", "temp_dir": "/tmp/dl"})), \
                 patch.object(service, "_install_deb_package", AsyncMock(return_value={"success": True})), \
+                patch.object(service, "get_installed_version", AsyncMock(return_value={"versions": {
+                    unit: self.MULTIROOM_STATUS["latest"]["version"] for unit in ("snapserver", "snapclient")}})), \
                 patch.object(service, "_cleanup_temp_files", AsyncMock()):
             result = await service._update_multiroom(self.MULTIROOM_STATUS)
 

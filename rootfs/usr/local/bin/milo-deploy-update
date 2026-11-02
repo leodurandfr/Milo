@@ -221,6 +221,11 @@ cmd_install_deb() {
     [ ! -f "$deb_path" ] && error_exit "File does not exist: $deb_path"
     validate_not_symlink "$deb_path"
 
+    local pkg ver
+    pkg=$(dpkg-deb -f "$deb_path" Package) || error_exit "Not a readable .deb: $deb_path"
+    ver=$(dpkg-deb -f "$deb_path" Version) || error_exit "Not a readable .deb: $deb_path"
+    [ -n "$pkg" ] && [ -n "$ver" ] || error_exit "No Package/Version in $deb_path"
+
     export DEBIAN_FRONTEND=noninteractive
     export DEBCONF_NONINTERACTIVE_SEEN=true
     export APT_LISTCHANGES_FRONTEND=none
@@ -228,13 +233,21 @@ cmd_install_deb() {
     echo "Updating APT package list..."
     apt update -qq
 
-    echo "Installing $(basename "$deb_path") with dpkg..."
-    dpkg -i --force-confdef --force-confold "$deb_path" || true
+    # One apt transaction, never `dpkg -i` then `apt-get -f install -y`: the
+    # repair step satisfies a Depends it cannot meet by removing the package
+    # just unpacked, and exits 0. --no-remove refuses any removal instead, and
+    # --allow-downgrades because the validated pin may sit below what runs.
+    echo "Installing $(basename "$deb_path")..."
+    apt-get install -y -qq --no-remove --allow-downgrades --no-install-recommends \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+        "$deb_path"
 
-    echo "Resolving dependencies..."
-    apt-get -f install -y -qq
+    local state
+    state=$(dpkg-query -W -f='${db:Status-Status} ${Version}' "$pkg" 2>/dev/null) || state="not-installed"
+    [ "$state" = "installed $ver" ] \
+        || error_exit "$pkg reads '$state' after apt, expected $ver"
 
-    echo "OK: Package installed"
+    echo "OK: $pkg $ver installed"
 }
 
 cmd_daemon_reload() {
