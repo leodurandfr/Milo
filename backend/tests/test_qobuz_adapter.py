@@ -2,8 +2,9 @@
 """The gate that decides whether a qobuz-proxy release can be shipped.
 
 `rootfs/usr/local/bin/milo-qobuz` adds position/duration and the session's
-state to the sidecar's status, holds its stream at unity gain and tells the app
-when its slider is inert — things upstream offers no setting for.
+state to the sidecar's status, holds its stream at unity gain, tells the app
+when its slider is inert and puts the web UI behind the backend's request gate
+— things upstream offers no setting for.
 They bind to names, and `--check` is what refuses a release that moved one,
 before `_update_qobuz_proxy` restarts the service onto it. qobuz-proxy is not in
 the backend's environment, so `fake_qobuz_proxy` stands in for it, in the shape
@@ -220,12 +221,55 @@ def _move_volume_argument(fake):
     fake.ProtocolCodec.encode_join_session = encode_join_session
 
 
+def _move_register_routes(fake):
+    del fake.app.register_routes
+
+
+def _move_route_registration(fake):
+    async def _start_web_server(self):
+        self._web_app = None
+
+    fake.app.QobuzProxy._start_web_server = _start_web_server
+
+
 # A release that moved one binding, keyed by the name the binding carries.
 MOVES = {
     "_volume": _move_volume_attribute,
     "duration_ms": _move_duration,
     "supports_volume_control": _move_volume_argument,
+    "register_routes": _move_register_routes,
+    "_start_web_server": _move_route_registration,
 }
+
+# `qobuz_proxy/app.py` reduced to its web UI: compiled as a module rather than
+# nested in the builder, so `_start_web_server` reaches `register_routes` as a
+# global, the way upstream's does — a closure would hide the name the check reads.
+_FAKE_APP_SOURCE = """
+from aiohttp import web
+
+reached = []
+
+
+async def _handle_status(request):
+    reached.append("status")
+    return web.json_response({"status": "ok"})
+
+
+async def _handle_logout(request):
+    reached.append("logout")
+    return web.json_response({"status": "ok"})
+
+
+def register_routes(app):
+    app.router.add_get("/api/status", _handle_status)
+    app.router.add_post("/api/auth/logout", _handle_logout)
+
+
+class QobuzProxy:
+    async def _start_web_server(self):
+        self._web_app = web.Application()
+        register_routes(self._web_app)
+"""
 
 
 def _build_qobuz_proxy(move=None):
@@ -297,18 +341,21 @@ def _build_qobuz_proxy(move=None):
         handed_over.append(True)
         return _UPSTREAM_EXIT
 
-    fake = types.SimpleNamespace(
-        PlaybackState=PlaybackState, AudioOutputStream=AudioOutputStream, WsManager=WsManager,
-        ProtocolCodec=ProtocolCodec, QobuzPlayer=QobuzPlayer, Speaker=Speaker,
-        handed_over=handed_over, upstream_set_volume=AudioOutputStream.set_volume,
-    )
-    if move is not None:
-        MOVES[move](fake)
-
     def package(name, **attributes):
         module = types.ModuleType(name)
         module.__dict__.update(attributes)
         return module
+
+    app = package("qobuz_proxy.app")
+    exec(compile(_FAKE_APP_SOURCE, "qobuz_proxy/app.py", "exec"), app.__dict__)
+
+    fake = types.SimpleNamespace(
+        PlaybackState=PlaybackState, AudioOutputStream=AudioOutputStream, WsManager=WsManager,
+        ProtocolCodec=ProtocolCodec, QobuzPlayer=QobuzPlayer, Speaker=Speaker, app=app,
+        handed_over=handed_over, upstream_set_volume=AudioOutputStream.set_volume,
+    )
+    if move is not None:
+        MOVES[move](fake)
 
     stream = package("qobuz_proxy.backends.local.stream", AudioOutputStream=AudioOutputStream)
     local = package("qobuz_proxy.backends.local", stream=stream)
@@ -320,8 +367,9 @@ def _build_qobuz_proxy(move=None):
     speaker = package("qobuz_proxy.speaker", Speaker=Speaker)
     cli = package("qobuz_proxy.cli", main=main)
     root = package("qobuz_proxy", cli=cli, backends=backends, connect=connect,
-                   playback=playback, speaker=speaker)
-    fake.modules = [root, cli, backends, local, stream, connect, protocol, playback, player, speaker]
+                   playback=playback, speaker=speaker, app=app)
+    fake.modules = [root, cli, backends, local, stream, connect, protocol, playback, player,
+                    speaker, app]
     return fake
 
 
@@ -463,3 +511,86 @@ def test_main_does_not_hand_over_when_a_binding_moved(adapter, fake_qobuz_proxy,
     assert adapter.main() == _UPSTREAM_EXIT
     assert sound.handed_over == [True]
     assert sound.AudioOutputStream()._volume == 1.0
+
+
+# ----------------------------------------------------------------------
+# The web UI's request gate: :8689 listens on every interface for the OAuth flow
+# ----------------------------------------------------------------------
+
+async def _gated_web_ui(adapter, fake):
+    """The web app built the way upstream's `_start_web_server` builds it,
+    after `apply()` — through the module attribute `app.py` calls."""
+    from aiohttp import web
+    from aiohttp.test_utils import TestClient, TestServer
+
+    adapter.apply()
+    web_app = web.Application()
+    sys.modules["qobuz_proxy.app"].register_routes(web_app)
+    return TestClient(TestServer(web_app))
+
+
+async def test_the_webui_refuses_a_foreign_host_and_a_foreign_origin(adapter, fake_qobuz_proxy):
+    """Without the gate, a page from the internet open on a LAN browser logs the
+    household's Qobuz account out with a self-submitting form (a simple request,
+    no preflight), and under DNS rebinding rewrites `config.yaml` through
+    `/api/speakers`. The refusal must land before upstream's handler runs,
+    while the backend's own calls (loopback, no Origin) and the OAuth page
+    (same origin, on the unit's name) still pass."""
+    fake = fake_qobuz_proxy()
+
+    async with await _gated_web_ui(adapter, fake) as client:
+        foreign_host = await client.get("/api/status", headers={"Host": "evil.example"})
+        assert foreign_host.status == 403
+        assert (await foreign_host.json())["status"] == "error"
+
+        for origin in ("http://evil.example", "null"):
+            response = await client.post("/api/auth/logout", headers={"Origin": origin})
+            assert response.status == 403, origin
+        assert fake.app.reached == []
+
+        assert (await client.get("/api/status")).status == 200
+        assert (await client.post("/api/auth/logout")).status == 200
+        oauth_page = await client.post("/api/auth/logout", headers={
+            "Host": "milo.local:8689", "Origin": "http://milo.local:8689"})
+        assert oauth_page.status == 200
+
+    assert fake.app.reached == ["status", "logout", "logout"]
+
+
+_HOSTS = ["milo.local", "milo.local:8689", "MILO.LOCAL", "milo", "milo-2.local", "milo.lan",
+          "milo.home.arpa", "localhost:8689", "127.0.0.1:8689", "192.168.1.5", "[::1]:8689",
+          "10.42.0.1", "100.64.0.1", "milo.fritz.box", "milo.local.evil.example",
+          "evil.example", "8.8.8.8", "[::1", ""]
+_ORIGINS = [None, "null", "http://milo.local", "https://milo.local", "http://milo.local:8689",
+            "http://localhost:5173", "http://milo-2.local", "http://192.168.1.5:8689",
+            "http://[::1]:8689", "http://100.64.0.1", "http://milo.fritz.box",
+            "http://evil.example", "file://"]
+_METHODS = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
+
+
+def test_the_qobuz_gate_agrees_with_the_backend_gate(adapter):
+    """The launcher restates the backend's two rules rather than importing them
+    (the sidecar's venv has neither `backend` nor starlette, and a rootfs script
+    may not reach outside its tree), so this is what holds the copies equal: a
+    name the backend comes to accept — an Avahi rename, a router's DNS suffix —
+    must open the OAuth page too, and a host it refuses must not reach
+    `/api/speakers`. The expected verdict is the backend's, never written here."""
+    from starlette.datastructures import Headers
+
+    from backend.api import middleware
+
+    disagreements, refused = [], 0
+    for host in _HOSTS:
+        for origin in _ORIGINS:
+            headers = {"host": host} | ({"origin": origin} if origin is not None else {})
+            for method in _METHODS:
+                backend = bool(middleware.RequestOriginGate._rejection(
+                    Headers(headers), method in middleware._STATE_CHANGING_METHODS))
+                qobuz = bool(adapter.rejection(method, host, origin))
+                refused += backend
+                if backend != qobuz:
+                    disagreements.append((method, host, origin, backend))
+
+    total = len(_HOSTS) * len(_ORIGINS) * len(_METHODS)
+    assert 0 < refused < total, "the corpus must hold requests either gate passes and refuses"
+    assert disagreements == []

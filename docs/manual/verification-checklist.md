@@ -208,6 +208,7 @@ These are shared by every source; they break for all of them at once.
 | Check | Expected observable | Set |
 |---|---|---|
 | Sign-in | Settings > Qobuz shows the signed-in state and survives a reboot | targeted |
+| Web UI gate | With Qobuz selected, Settings > Qobuz > Connect completes the sign-in on `milo.local:8689`; `curl -s -o /dev/null -w '%{http_code}' -H 'Origin: http://evil.example' -X POST http://localhost:8689/api/speakers -d x` and `curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://localhost:8689/api/status` both answer 403 (never probe `/api/auth/logout`: without the gate it signs the account out) | targeted |
 | Discovery | Milō appears in the Qobuz app's device list | targeted |
 | Playback + metadata | Audio plays; artwork, title, artist, album shown; progress advances; no transport buttons | targeted |
 

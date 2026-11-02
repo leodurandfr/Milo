@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run qobuz-proxy with Milō's four adaptations, bound to names instead of to source text.
+"""Run qobuz-proxy with Milō's five adaptations, bound to names instead of to source text.
 
-Milō needs four things upstream does not offer as configuration:
+Milō needs five things upstream does not offer as configuration:
 
 1. **Volume policy.** CamillaDSP is the only attenuation stage in the audio path
    — the role `external_volume` plays for go-librespot and `ignore_volume_control`
@@ -33,6 +33,20 @@ Milō needs four things upstream does not offer as configuration:
    It now advertises DEVICE whenever the flag is off — read at join time, which
    is why the backend restarts the sidecar when the setting changes either way.
 
+5. **The web UI behind the backend's request gate.** The web UI listens on
+   every interface (:8689) for the phone's OAuth flow, with no middleware, and
+   its routes change state: `POST /api/auth/logout` clears the token and stops
+   the speaker, `/api/speakers` rewrites `config.yaml`. A page from the internet
+   open on a LAN browser could log the account out with a self-submitting form,
+   and under DNS rebinding rewrite the config. The gate is `RequestOriginGate`'s
+   two rules (backend/api/middleware.py), restated because a rootfs script may
+   not import the backend and this venv has neither it nor starlette: 403 to a
+   Host that is not one of the unit's names or a private address, and to a
+   state-changing method whose Origin is present and not one of those.
+   `test_the_qobuz_gate_agrees_with_the_backend_gate` holds the copies equal.
+   The OAuth callback carries no `state` upstream, so a login CSRF on
+   `/auth/callback` stays out of a Host/Origin gate's reach.
+
 The first three used to be applied by rewriting upstream's installed sources, anchored on
 exact lines. qobuz-proxy 1.6.0 moved one of those lines — `"volume"` left the
 `now_playing` literal for a conditional assignment, for a DLNA-only feature —
@@ -42,9 +56,10 @@ reading formatting.
 
 So the adaptations wrap methods. What they bind to is `Speaker.get_status`,
 `AudioOutputStream.set_volume`, the player's state and two progress properties,
-the WebSocket manager's `_renderer_active` and the `supports_volume_control`
-argument of `ProtocolCodec.encode_join_session` (qobuz-proxy ≥ 1.7.4), which
-only a real refactor moves — and `--check` says which one did, before the
+the WebSocket manager's `_renderer_active`, the `supports_volume_control`
+argument of `ProtocolCodec.encode_join_session` (qobuz-proxy ≥ 1.7.4) and the
+`register_routes` that `app.py` builds the web UI with, which only a real
+refactor moves — and `--check` says which one did, before the
 service is restarted onto it.
 
 The trade this makes, stated: `set_volume` is replaced whole rather than having
@@ -58,12 +73,24 @@ Run by milo-qobuz.service through the venv's own interpreter; every argument is
 forwarded to qobuz-proxy untouched.
 """
 import inspect
+import ipaddress
+import logging
 import os
+import re
 import sys
+from urllib.parse import urlsplit
 
 VOLUME_FLAG = "allow_app_volume"
 # The player states Milo maps to a session phase (backend/sources/qobuz/source.py).
 PLAYER_STATES = {"STOPPED", "PLAYING", "PAUSED", "LOADING", "ERROR"}
+
+# backend/api/middleware.py's, with `milo` for EXPECTED_SERVER_HOSTNAME.
+STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+APPLIANCE_NAME = re.compile(
+    r"^(localhost|milo(-\d+)?(\.(local|lan|home|home\.arpa|internal|localdomain))?)$"
+)
+
+logger = logging.getLogger("milo_qobuz")
 
 
 def _mentions_key(func, key):
@@ -101,7 +128,9 @@ def _keyword_only(func, name):
 
 def _bindings():
     """Everything the adaptations touch, with what to say when one has moved."""
+    from qobuz_proxy import app as proxy_app
     from qobuz_proxy import cli
+    from qobuz_proxy.app import QobuzProxy
     from qobuz_proxy.backends import PlaybackState
     from qobuz_proxy.backends.local.stream import AudioOutputStream
     from qobuz_proxy.connect import WsManager
@@ -170,6 +199,17 @@ def _bindings():
             "AudioOutputStream.__init__ sets _volume",
             "_volume" in AudioOutputStream.__init__.__code__.co_names,
             "the gain attribute the stream multiplies by was renamed",
+        ),
+        (
+            "qobuz_proxy.app.register_routes",
+            callable(getattr(proxy_app, "register_routes", None)),
+            "the web UI's request gate has nothing to attach to — :8689 would "
+            "answer a foreign page",
+        ),
+        (
+            "QobuzProxy._start_web_server builds the web UI through register_routes",
+            "register_routes" in QobuzProxy._start_web_server.__code__.co_names,
+            "the web UI is built another way and the gate would not reach it",
         ),
         (
             "ProtocolCodec.encode_join_session takes supports_volume_control by keyword",
@@ -241,7 +281,63 @@ def with_volume_policy(encode_join_session):
     return encode_join_session_with_policy
 
 
+def _hostname(url):
+    """Bare lowercase host of an `Origin` value, or of a `Host` header given as `//host`."""
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
+
+
+def _is_appliance_host(host):
+    if not host:
+        return False
+    if APPLIANCE_NAME.match(host):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_private
+    except ValueError:
+        return False
+
+
+def rejection(method, raw_host, origin):
+    """Why the backend's gate would refuse this request — empty when it would serve it."""
+    if not _is_appliance_host(_hostname(f"//{raw_host}")):
+        return f"untrusted Host {raw_host!r}"
+    if (method in STATE_CHANGING_METHODS and origin
+            and not _is_appliance_host(_hostname(origin))):
+        return f"untrusted Origin {origin!r}"
+    return ""
+
+
+def with_request_gate(register_routes):
+    """`qobuz_proxy.app.register_routes`, putting the web app behind the gate.
+
+    Appended after upstream's routes: the middleware list is frozen only when
+    the runner sets the app up, after this returns.
+    """
+    from aiohttp import web
+
+    @web.middleware
+    async def request_gate(request, handler):
+        reason = rejection(request.method, request.headers.get("Host", ""),
+                           request.headers.get("Origin"))
+        if reason:
+            logger.warning("Refused %s %s: %s", request.method, request.path, reason)
+            return web.json_response(
+                {"status": "error", "message": "Untrusted request origin"}, status=403
+            )
+        return await handler(request)
+
+    def register_routes_behind_gate(app):
+        register_routes(app)
+        app.middlewares.append(request_gate)
+
+    return register_routes_behind_gate
+
+
 def apply():
+    from qobuz_proxy import app as proxy_app
     from qobuz_proxy.backends.local.stream import AudioOutputStream
     from qobuz_proxy.connect.protocol import ProtocolCodec
     from qobuz_proxy.speaker import Speaker
@@ -275,6 +371,9 @@ def apply():
     Speaker.get_status = get_status
 
     ProtocolCodec.encode_join_session = with_volume_policy(ProtocolCodec.encode_join_session)
+
+    # The module's attribute, not webui.routes': app.py bound the name at import.
+    proxy_app.register_routes = with_request_gate(proxy_app.register_routes)
 
 
 def main():

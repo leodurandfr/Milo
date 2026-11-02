@@ -519,7 +519,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 
 **Configuration:**
 - Service: milo-qobuz.service (qobuz-proxy sidecar, backend-managed)
-- API: port 8689 on every interface — the phone reaches it over the LAN (`/api/status` polled by the backend; OAuth on `/auth/*`)
+- API: port 8689 on every interface — the phone reaches it over the LAN (`/api/status` polled by the backend; OAuth on `/auth/*`), behind the launcher's copy of the request origin gate (see Security)
 - Audio output: ALSA (milo_qobuz)
 - Visible name: "Milo" (ASCII — the Qobuz iOS app silently aborts the Connect
   handshake on a non-ASCII device name; Milō's own UI still shows "Qobuz")
@@ -1169,11 +1169,23 @@ IP address and sends no `Origin`. So a `POST`/`PUT`/`PATCH`/`DELETE` carrying an
 refused, a LAN page's included, and the `Host` must be `localhost`, `milo-client`, `milo-client-<n>`
 (with or without `.local`) or a private IP address. `X-Forwarded-*` headers are ignored.
 
+qobuz-proxy's web UI (port 8689) is a third server on every interface, for the phone's OAuth flow,
+and upstream mounts it with no middleware while its routes change state (`POST /api/auth/logout`
+clears the account's token, `/api/speakers` rewrites `config.yaml`). The launcher
+(`rootfs/usr/local/bin/milo-qobuz`) puts it behind the same two checks as `RequestOriginGate`,
+restated rather than imported because the sidecar's venv holds neither the backend nor starlette;
+`test_the_qobuz_gate_agrees_with_the_backend_gate` holds the copy equal to the backend's. The
+backend's own calls (loopback, no `Origin`) and the OAuth page (same origin) pass. One gap stays
+out of its reach: upstream's `/auth/callback` carries no `state`, so a login CSRF — a foreign page
+landing the browser on a callback with the attacker's code — is not something a Host/Origin gate
+can tell from a real login.
+
 ### Exposure
 nginx serves the app and proxies `/api/` and `/ws` on port 80. The backend also listens on port
 8000 on every interface, because satellites register with the server there; the gate applies on
 both ports. The OpenAPI schema and its docs are public on the LAN (`/api/openapi.json`,
-`/api/docs`).
+`/api/docs`). While Qobuz is the selected source, qobuz-proxy listens on 8689 (its web UI, gated as
+above) and 8690 (the Connect endpoint the Qobuz app calls, ungated).
 
 snapserver opens only its stream port (1704) to the LAN, which the satellites play from. Its
 JSON-RPC answers any client with no authentication and no `Origin` check, and a group it mutes or
