@@ -739,7 +739,11 @@ been silent for `idle_threshold` (5 s), so a switch lost up to 5 s in every room
 - Automatic network jitter compensation
 
 **Configuration:**
-- Server: http://localhost:1780 (REST API + WebSocket)
+- Server: JSON-RPC over HTTP and WebSocket on `127.0.0.1:1780`, for the backend
+  alone — no snapweb, no TCP control port (1705); only the stream port (1704) is
+  on the LAN. The backend rewrites `[http]` and `[tcp-control]` with the captures
+  at each start (`SNAPSERVER_CONTROL_SECTIONS`), and an admission lifts a mute
+  snapserver kept on the client's group
 - Buffer: 300 ms by default (adjustable based on network latency)
 - Format: PCM 48kHz 32-bit stereo (`48000:32:2`, forced in `snapcast.py`)
 
@@ -1161,6 +1165,11 @@ nginx serves the app and proxies `/api/` and `/ws` on port 80. The backend also 
 8000 on every interface, because satellites register with the server there; the gate applies on
 both ports. The OpenAPI schema and its docs are public on the LAN (`/api/openapi.json`,
 `/api/docs`).
+
+snapserver opens only its stream port (1704) to the LAN, which the satellites play from. Its
+JSON-RPC answers any client with no authentication and no `Origin` check, and a group it mutes or
+moves stays so across its restarts, so it listens on `127.0.0.1:1780` for the backend alone, with
+no snapweb and no mDNS record, and its TCP control port (1705) is off.
 
 ### CORS
 Allowed origins only (`ALLOWED_ORIGINS` in `backend/api/middleware.py`):

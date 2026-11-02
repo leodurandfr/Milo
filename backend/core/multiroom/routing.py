@@ -417,13 +417,13 @@ class AudioRoutingService:
         (mirrored in self.multiroom_enabled). Snapcast units carry no
         [Install] section, so they only run when this reconcile starts them.
 
-        snapserver.conf's captures are rewritten from the capture map first, in
+        snapserver.conf's captures and control sections are rewritten first, in
         either mode: no OTA ships that file, and snapserver reads it only when
         it starts.
         """
         conf_changed = False
         if self.snapcast_service:
-            conf_changed = await self.snapcast_service.reconcile_stream_sources()
+            conf_changed = await self.snapcast_service.reconcile_conf()
 
         snapcast_status = await self.get_snapcast_status()
         server_running = snapcast_status.get("server_active", False)
@@ -438,10 +438,10 @@ class AudioRoutingService:
 
         if self.multiroom_enabled and conf_changed:
             # A snapserver already up (a backend restart restarts it too, through
-            # PartOf=) captures the old map until restarted, and a start is a
+            # PartOf=) runs the old conf until restarted, and a start is a
             # no-op on it. Not gated on the probe: one that timed out reads as
             # stopped, and a restart starts a stopped unit all the same.
-            self.logger.info("SNAPCAST_RECONCILE: restarting snapserver on its rewritten captures")
+            self.logger.info("SNAPCAST_RECONCILE: restarting snapserver on its rewritten conf")
             restarted = await self.service_manager.restart(self.snapserver_service)
             if restarted and not await self._wait_snapserver_ready(timeout=10.0):
                 self.logger.warning("Snapserver not ready 10s after its restart, proceeding anyway")

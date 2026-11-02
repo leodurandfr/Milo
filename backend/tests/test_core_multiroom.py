@@ -17,6 +17,7 @@ import aiohttp
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.tests.conftest import attach_registry_broadcaster, drain_background_tasks
+from backend.tests.snapserver_world import listing_every_pinned_client
 from backend.core.multiroom.models import (
     Client,
     Zone,
@@ -1822,9 +1823,7 @@ class TestSnapcastClientDetection:
         ws_service.set_registry(registry)
 
         # Mock snapcast and volume services so volume sync succeeds
-        mock_snapcast = MagicMock()
-        mock_snapcast.set_volume = AsyncMock(return_value=True)
-        mock_snapcast.set_latency = AsyncMock(return_value=True)
+        mock_snapcast = listing_every_pinned_client(MagicMock())
         mock_snapcast.get_clients = AsyncMock(return_value=[])
         ws_service._snapcast_service = mock_snapcast
 
@@ -2026,9 +2025,7 @@ class TestSnapcastClientDetection:
         ws_service.set_registry(registry)
 
         # Mock snapcast and volume services so volume sync succeeds
-        mock_snapcast = MagicMock()
-        mock_snapcast.set_volume = AsyncMock(return_value=True)
-        mock_snapcast.set_latency = AsyncMock(return_value=True)
+        mock_snapcast = listing_every_pinned_client(MagicMock())
         mock_snapcast.get_clients = AsyncMock(return_value=[])
         ws_service._snapcast_service = mock_snapcast
 
@@ -2929,7 +2926,7 @@ class TestAdmissionPathConvergence:
     IP = "192.168.1.153"
 
     def _status(self) -> dict:
-        return {"server": {"groups": [{"id": "g1", "clients": [{
+        return {"server": {"groups": [{"id": "g1", "name": "", "muted": False, "stream_id": "Multiroom", "clients": [{
             "id": self.MAC,
             "connected": True,
             "config": {"name": "", "volume": {"percent": 100, "muted": False}},
@@ -2949,6 +2946,8 @@ class TestAdmissionPathConvergence:
         snapcast.get_server_status = AsyncMock(return_value=self._status())
         snapcast.set_volume = AsyncMock(return_value=True)
         snapcast.set_latency = AsyncMock(return_value=True)
+        snapcast.set_group_mute = AsyncMock(return_value=True)
+        snapcast.set_group_stream = AsyncMock(return_value=True)
 
         pending_service = MagicMock()
         pending_service.get_client = MagicMock(return_value=pending)
@@ -3076,10 +3075,10 @@ class TestAdmissionPathConvergence:
         service.set_volume_service(volume_service)
 
         assert await service._sync_reconnecting_client_volume(
-            self.MAC, max_retries=0, retry_delay=0, snapcast_id="snap-1"
+            self.MAC, max_retries=0, retry_delay=0, snapcast_id=self.MAC
         )
 
-        snapcast.set_volume.assert_awaited_once_with("snap-1", 100)
+        snapcast.set_volume.assert_awaited_once_with(self.MAC, 100)
 
     @pytest.mark.asyncio
     async def test_the_per_client_delay_is_repushed_on_admission(self):
@@ -3105,10 +3104,10 @@ class TestAdmissionPathConvergence:
         service.set_volume_service(volume_service)
 
         assert await service._sync_reconnecting_client_volume(
-            self.MAC, max_retries=0, retry_delay=0, snapcast_id="snap-1"
+            self.MAC, max_retries=0, retry_delay=0, snapcast_id=self.MAC
         )
 
-        snapcast.set_latency.assert_awaited_once_with("snap-1", 40)
+        snapcast.set_latency.assert_awaited_once_with(self.MAC, 40)
 
     @pytest.mark.asyncio
     async def test_a_client_snapserver_lists_twice_is_admitted_once(self):

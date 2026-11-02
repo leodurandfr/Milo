@@ -116,7 +116,7 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 
 #### milo-snapserver-multiroom.service
 - **Role**: Snapcast server for multiroom audio synchronization
-- **Port**: 1704 (streaming), 1780 (HTTP control)
+- **Port**: 1704 (streaming, on the LAN), 1780 (JSON-RPC over HTTP and WebSocket, on 127.0.0.1 for the backend alone)
 - **Config**: /etc/snapserver.conf
 - **Dependencies**: network-online.target
 - **Managed By**: SnapcastService

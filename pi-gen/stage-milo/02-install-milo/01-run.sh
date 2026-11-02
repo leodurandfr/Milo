@@ -184,10 +184,6 @@ tee /etc/avahi/services/milo.service > /dev/null << 'XML'
     <port>80</port>
     <txt-record>path=/</txt-record>
   </service>
-  <service>
-    <type>_snapcast._tcp</type>
-    <port>1705</port>
-  </service>
 </service-group>
 XML
 CHROOT

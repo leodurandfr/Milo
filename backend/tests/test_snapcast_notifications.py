@@ -16,9 +16,11 @@ Consumers: every multiroom screen in `frontend/src/components/multiroom/`, fed
 by the `multiroom` WS events the registry emits once these handlers run.
 
 `Client.OnNameChanged` is reachable in production even though Milō never calls
-`Client.SetName` itself: snapserver's own web UI is served on `0.0.0.0:1780`
-(`http.enabled = true` in `/etc/snapserver.conf`), so anyone on the LAN can
-rename a client there and that is what emits the notification.
+`Client.SetName` itself: any other JSON-RPC client of snapserver can rename a
+client, and that is what emits the notification. snapserver's control listens
+on loopback only (`[http]` in `/etc/snapserver.conf`, rewritten at each start),
+so that client runs on the unit; until the bind moved there it was anyone on
+the LAN, through snapweb.
 """
 import json
 import logging

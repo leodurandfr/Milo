@@ -764,7 +764,7 @@ class TestAudioRoutingService:
     @staticmethod
     def _snapcast(conf_changed: bool):
         snapcast = Mock(spec=SnapcastService)
-        snapcast.reconcile_stream_sources = AsyncMock(return_value=conf_changed)
+        snapcast.reconcile_conf = AsyncMock(return_value=conf_changed)
         snapcast.wait_until_available = AsyncMock(return_value=True)
         return snapcast
 
@@ -779,7 +779,7 @@ class TestAudioRoutingService:
         _seed_multiroom(mock_settings_service, True)
         routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=True)
         order = Mock()
-        order.attach_mock(snapcast.reconcile_stream_sources, "reconcile")
+        order.attach_mock(snapcast.reconcile_conf, "reconcile")
         order.attach_mock(mock_systemd_manager.restart, "restart")
         order.attach_mock(mock_systemd_manager.start, "start")
 
@@ -821,7 +821,7 @@ class TestAudioRoutingService:
 
         await routing_service._sync_snapcast_state()
 
-        snapcast.reconcile_stream_sources.assert_awaited_once()
+        snapcast.reconcile_conf.assert_awaited_once()
         mock_systemd_manager.restart.assert_not_called()
         mock_systemd_manager.start.assert_not_called()
 
@@ -836,6 +836,6 @@ class TestAudioRoutingService:
 
         await routing_service._sync_snapcast_state()
 
-        snapcast.reconcile_stream_sources.assert_awaited_once()
+        snapcast.reconcile_conf.assert_awaited_once()
         mock_systemd_manager.start.assert_not_called()
         mock_systemd_manager.restart.assert_not_called()

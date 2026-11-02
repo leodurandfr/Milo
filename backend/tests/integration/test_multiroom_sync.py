@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.tests.conftest import attach_registry_broadcaster
+from backend.tests.snapserver_world import listing_every_pinned_client
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.models import EqualizerSettings
@@ -63,10 +64,8 @@ def _make_ws_service(registry, volume_service=None, snapcast_service=None):
     ws = SnapcastWebSocketService(state_machine=sm, routing_service=routing)
     ws.set_registry(registry)
     ws._volume_service = volume_service or _make_volume_service()
-    ws._snapcast_service = snapcast_service or MagicMock(
-        set_volume=AsyncMock(return_value=True),
-        set_latency=AsyncMock(return_value=True),
-        get_clients=AsyncMock(return_value=[]),
+    ws._snapcast_service = snapcast_service or listing_every_pinned_client(
+        MagicMock(get_clients=AsyncMock(return_value=[]))
     )
     # Stub equalizer sync to isolate volume tests
     ws._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)

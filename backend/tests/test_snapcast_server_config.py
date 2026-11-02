@@ -29,14 +29,19 @@ manager here restarts the live snapserver. `snapserver_conf` is pointed at the
 pytest tmpdir for the same reason.
 """
 import asyncio
+import ipaddress
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from backend.config.constants import DEPLOY_UPDATE_CMD
-from backend.core.multiroom.snapcast import SnapcastRequestError, SnapcastService
-from backend.tests.architecture.test_multiroom_capture_map import flashed_conf
+from backend.core.multiroom.snapcast import (
+    SNAPSERVER_CONTROL_ADDRESS,
+    SnapcastRequestError,
+    SnapcastService,
+)
+from backend.tests.architecture.test_multiroom_capture_map import conf_sections, flashed_conf
 
 LIVE_CONF = """\
 # Snapserver configuration
@@ -100,12 +105,24 @@ enabled = true
 """
 
 
+CONTROL = ("http", "tcp-control")
+
+
 def _source_lines(conf):
     return [ln for ln in conf.splitlines() if ln.strip().startswith("source =")]
 
 
-def _other_lines(conf):
-    return "\n".join(ln for ln in conf.splitlines() if not ln.strip().startswith("source ="))
+def _unowned(conf):
+    """The setting and comment lines the backend does not own: neither a capture
+    nor in a control section."""
+    kept, section = [], None
+    for line in conf.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            section = stripped[1:-1]
+        if stripped and section not in CONTROL and not stripped.startswith("source ="):
+            kept.append(line)
+    return kept
 
 
 class SpawnedPastTheGuards(BaseException):
@@ -303,15 +320,14 @@ class TestRewritingTheStreamSection:
         assert "44100:16:2" not in out
 
     def test_keys_outside_the_stream_section_are_left_alone(self, service):
-        """`[http]` is what serves snapweb on 0.0.0.0:1780 and `[server]` sets the
-        thread count. A writer that matched by key name anywhere in the file
-        would rewrite them from a stream payload."""
+        """`[server]` sets the thread count. A writer that matched a stream key
+        by name anywhere in the file would rewrite it from a stream payload."""
         content = LIVE_CONF.replace("[server]\nthreads = 4", "[server]\ncodec = 4")
 
         out = service._modify_config_content(content, {"codec": "opus"})
 
         assert "[stream]" in out and "codec = opus" in out
-        assert out.split("[server]")[1].strip() == "codec = 4"
+        assert conf_sections(out)["server"] == {"codec": "4"}
 
     def test_a_commented_key_is_not_revived(self, service):
         """`provisioning/snapcast.sh` leaves documentation lines in the file; turning
@@ -324,14 +340,18 @@ class TestRewritingTheStreamSection:
         assert "buffer = 1500" not in out
 
     def test_a_write_carries_the_capture_map_and_keeps_everything_else(self, service):
-        """The `source =` lines are the ALSA loopback map, so a preset write
-        leaves them as the capture map says, never as it found them: copied, a
-        stale map would be written back with every new preset. Every other line
-        is the payload's or nobody's, and stays."""
+        """The `source =` lines are the ALSA loopback map and the control
+        sections the ports snapserver opens, so a preset write leaves them as
+        the backend's tables say, never as it found them: copied, a stale map or
+        an open port would be written back with every new preset. Every other
+        line is the payload's or nobody's, and stays."""
         out = service._modify_config_content(LIVE_CONF, {"chunk_ms": 20})
 
         assert _source_lines(out) == _source_lines(flashed_conf())
-        assert _other_lines(out) == _other_lines(LIVE_CONF).replace("chunk_ms = 40", "chunk_ms = 20")
+        assert _control(out) == _control(flashed_conf())
+        assert _unowned(out) == [
+            ln.replace("chunk_ms = 40", "chunk_ms = 20") for ln in _unowned(LIVE_CONF)
+        ]
 
     def test_a_key_absent_from_the_file_is_silently_dropped(self, service):
         """Measured limit, recorded rather than fixed (B1-9).
@@ -416,11 +436,12 @@ class TestTheWriteToEtc:
 
 
 class TestTheCaptureMapReconcile:
-    """`reconcile_stream_sources`: the only way a capture reaches a flashed card.
+    """`reconcile_conf`: the only way a capture reaches a flashed card.
 
     snapserver.conf is written at image build and no OTA ships it, so a source
     added, moved or retired since a card was flashed reaches its conf only
-    through this rewrite, which the routing service runs at every start.
+    through this rewrite, which the routing service runs at every start. The
+    control sections ride on it (TestTheControlSurfaces).
     """
 
     async def test_stale_source_lines_are_rewritten_from_the_capture_map(
@@ -432,11 +453,12 @@ class TestTheCaptureMapReconcile:
         service.snapserver_conf.write_text(UNIT_CONF)
         calls, _ = deploy
 
-        assert await service.reconcile_stream_sources() is True
+        assert await service.reconcile_conf() is True
 
         staged = staging.read_text()
         assert _source_lines(staged) == _source_lines(flashed_conf())
-        assert _other_lines(staged) == _other_lines(UNIT_CONF)
+        assert _control(staged) == _control(flashed_conf())
+        assert _unowned(staged) == _unowned(UNIT_CONF)
         assert len(calls) == 1
         assert calls[0][2:] == ("write-config", "/tmp/snapserver.conf.tmp", str(service.snapserver_conf))
 
@@ -447,7 +469,7 @@ class TestTheCaptureMapReconcile:
         the test if a process is spawned."""
         service.snapserver_conf.write_text(flashed_conf())
 
-        assert await service.reconcile_stream_sources() is False
+        assert await service.reconcile_conf() is False
         assert not staging.exists()
 
     async def test_a_refused_write_is_no_change_and_says_why(
@@ -460,9 +482,110 @@ class TestTheCaptureMapReconcile:
         outcome["proc"] = FakeProc(returncode=1, stderr=b"refused: destination not allowed")
 
         with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.snapcast"):
-            assert await service.reconcile_stream_sources() is False
+            assert await service.reconcile_conf() is False
 
         assert any("destination not allowed" in r.message for r in caplog.records)
+
+
+# The control block every card flashed before the loopback bind carries.
+OPEN_HTTP = """\
+[http]
+enabled = true
+bind_to_address = 0.0.0.0
+port = 1780
+doc_root = /usr/share/snapserver/snapweb/
+"""
+
+
+def _control(conf):
+    sections = conf_sections(conf)
+    return {name: sections.get(name) for name in CONTROL}
+
+
+def _opened(conf):
+    """`conf` with its control sections replaced by the open block: the captures
+    as current as the file's, the control ports on the LAN."""
+    head, rest = conf.split("[http]\n", 1)
+    tail = rest.split("[server]\n", 1)[1]
+    return head + OPEN_HTTP + "\n[server]\n" + tail
+
+
+class TestTheControlSurfaces:
+    """`[http]` and `[tcp-control]`: who can drive snapserver besides the backend.
+
+    snapserver's JSON-RPC answers any client with no authentication and no
+    Origin check, and a group it mutes or moves stays so in server.json across
+    its restarts. Bound to every interface, a page open anywhere on the LAN
+    could post `Group.SetMute` (text/plain, no preflight) and silence a room
+    for good under a screen showing it playing. No OTA ships the conf, so the
+    backend's rewrite is what closes a card already flashed.
+    """
+
+    def test_control_surfaces_bind_to_loopback(self, service):
+        """The flashed conf serves JSON-RPC on the loopback the backend dials, no
+        web page, and no raw TCP control port; a conf flashed open is rewritten
+        to the same surface, its stream preset kept, and rewrites to itself."""
+        flashed = _control(flashed_conf())
+        assert None not in flashed.values(), f"the heredoc lacks a control section: {flashed}"
+        assert ipaddress.ip_address(flashed["http"]["bind_to_address"]).is_loopback
+        assert flashed["http"]["bind_to_address"] == SNAPSERVER_CONTROL_ADDRESS
+        assert "doc_root" not in flashed["http"]
+        assert flashed["tcp-control"]["enabled"] == "false"
+
+        closed = service._modify_config_content(LIVE_CONF, {})
+
+        assert _control(closed) == flashed
+        stream = conf_sections(closed)["stream"]
+        assert (stream["buffer"], stream["codec"], stream["chunk_ms"]) == ("700", "flac", "40")
+        assert service._modify_config_content(closed, {}) == closed
+
+    def test_a_header_carrying_a_comment_is_still_its_section(self, service):
+        """snapserver reads what follows a `#` as a comment, a header's too: a
+        rewrite blind to `[http] # …` would leave the open block in place and
+        append a second `[http]` after it."""
+        content = LIVE_CONF.replace("[http]\n", "[http] # snapweb\n")
+
+        out = service._modify_config_content(content, {})
+
+        assert out.count("[http]") == 1
+        assert _control(out) == _control(flashed_conf())
+
+    def test_the_stream_listener_keeps_its_lan_bind(self, service):
+        """Port 1704 is the satellites'. `[stream]` still names its address under
+        snapserver 0.35 (deprecated for `[tcp-streaming]`), so a rewrite that
+        matched `bind_to_address` outside `[http]` would put it on loopback and
+        cut every room."""
+        content = LIVE_CONF.replace(
+            "default_source = Multiroom\n", "default_source = Multiroom\nbind_to_address = 0.0.0.0\n"
+        ) + "\n[tcp-streaming]\nbind_to_address = 0.0.0.0\nport = 1704\n"
+
+        out = conf_sections(service._modify_config_content(content, {}))
+
+        assert out["http"]["bind_to_address"] == SNAPSERVER_CONTROL_ADDRESS
+        assert out["stream"]["bind_to_address"] == "0.0.0.0"
+        assert out["tcp-streaming"] == {"bind_to_address": "0.0.0.0", "port": "1704"}
+
+    async def test_a_card_whose_captures_are_current_is_closed_once(
+        self, service, deploy, staging, systemd
+    ):
+        """A card flashed after its captures last moved has nothing else to
+        rewrite: left out of the change test, its control ports would stay open
+        for good. Closed, it is a fixed point, and the next start writes
+        nothing -- each write restarts snapserver, a cut in every room."""
+        service.snapserver_conf.write_text(_opened(flashed_conf()))
+        assert _source_lines(service.snapserver_conf.read_text()) == _source_lines(flashed_conf())
+        calls, _ = deploy
+
+        assert await service.reconcile_conf() is True
+
+        staged = staging.read_text()
+        assert _control(staged) == _control(flashed_conf())
+        assert len(calls) == 1
+
+        service.snapserver_conf.write_text(staged)
+        assert await service.reconcile_conf() is False
+        assert len(calls) == 1
+        systemd.restart.assert_not_called()
 
 
 class TestTheRestart:
@@ -693,9 +816,9 @@ class TestReadingTheClientList:
         assert [c["mac_id"] for c in parsed] == ["aa:bb:cc:dd:ee:01"]
 
     def test_snapservers_own_web_client_is_not_a_speaker(self, service):
-        """snapweb is served on 0.0.0.0:1780 and registers as a client whenever
-        anyone on the LAN opens it. Admitting it would put a phantom speaker in
-        the room list — and every admission path would then push volume, EQ and
+        """snapweb registers as a client whenever it is opened — from anywhere
+        on the LAN while snapserver served it there, and server.json keeps the
+        entries. Admitting it would put a phantom speaker in the room list — and every admission path would then push volume, EQ and
         buffer config at a browser tab."""
         parsed = service._parse_clients(self._status([
             self._entry(client_id="ff:ff:ff:ff:ff:01", name="Snapweb client",

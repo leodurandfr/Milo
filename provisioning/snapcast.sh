@@ -4,6 +4,12 @@
 # Writes /etc/snapserver.conf for Milō's multiroom audio. The snapserver and
 # snapclient packages are installed by pi-gen/stage-milo/01-install-audio.
 #
+# Only the stream port (1704) is on the LAN. JSON-RPC answers any client with no
+# authentication, so it listens on loopback for the backend alone, with no web
+# page and no mDNS record, and the TCP control port is off. The backend rewrites
+# the [http] and [tcp-control] sections and the `source =` lines at each start
+# (backend/core/multiroom/snapcast.py), so these must stay equal to its tables.
+#
 # Sourced by pi-gen/stage-milo during the image build.
 
 set -e
@@ -36,9 +42,12 @@ source = alsa:///?name=Tidal&device=hw:2,1,3&idle_threshold=5000
 
 [http]
 enabled = true
-bind_to_address = 0.0.0.0
+bind_to_address = 127.0.0.1
 port = 1780
-doc_root = /usr/share/snapserver/snapweb/
+publish_http = false
+
+[tcp-control]
+enabled = false
 
 [server]
 threads = 4

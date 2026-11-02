@@ -11,6 +11,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock
 
 from backend.tests.conftest import attach_registry_broadcaster, drain_background_tasks
+from backend.tests.snapserver_world import listing_every_pinned_client
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.identity import compute_mac_id
 from backend.core.multiroom.websocket import SnapcastWebSocketService
@@ -78,9 +79,7 @@ class TestSnapcastDetectionIntegration:
         service.set_registry(registry)
 
         # Mock snapcast service so volume sync succeeds
-        mock_snapcast = MagicMock()
-        mock_snapcast.set_volume = AsyncMock(return_value=True)
-        mock_snapcast.set_latency = AsyncMock(return_value=True)
+        mock_snapcast = listing_every_pinned_client(MagicMock())
         mock_snapcast.get_clients = AsyncMock(return_value=[])
         service._snapcast_service = mock_snapcast
 

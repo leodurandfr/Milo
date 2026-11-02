@@ -203,9 +203,9 @@ def test_both_snapclients_leave_the_level_to_camilladsp(name):
     """Invariant 7 again, one stage upstream of CamillaDSP.
 
     With `--mixer software` snapclient scales the stream by the volume
-    snapserver holds for it — and snapserver takes that volume from anyone on
-    the LAN (snapweb on :1780, a home-automation integration, JSON-RPC), while
-    Milō ignored Client.OnVolumeChanged. A room turned down there stayed down
+    snapserver holds for it — and snapserver takes that volume from any
+    JSON-RPC client (snapweb and every other one on the LAN, until its control
+    moved to loopback), while Milō ignored Client.OnVolumeChanged. A room turned down there stayed down
     under CamillaDSP until the next admission reset it to 100. `--mixer none`
     ignores that volume (measured on the unit: Client.SetVolume at 10 % left
     CamillaDSP's capture peak where it was). It still obeys snapserver's mute

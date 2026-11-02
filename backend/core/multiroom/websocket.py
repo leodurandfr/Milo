@@ -989,45 +989,60 @@ class SnapcastWebSocketService:
     async def _pin_snapserver(
         self, mac_id: str, snapcast_id: Optional[str], delay_ms: int
     ) -> bool:
-        """Lift snapserver's mute, push the client's delay and point its group at
-        the active source's stream; True once all three are acknowledged.
+        """Lift snapserver's mutes, push the client's delay and point its group at
+        the active source's stream; True once all of it is acknowledged.
 
         Snapserver stays a passthrough — attenuation is CamillaDSP's job on the
         client. Every snapclient runs `--mixer none`, which ignores snapserver's
-        volume but still obeys its mute (measured on 0.35), and snapserver keeps
-        a mute across its restarts: one set from snapweb or a home-automation
-        client would silence the room for good, with Milō showing it unmuted.
-        The per-client delay is native Snapcast latency Milō owns, and a delay
-        set while the client was away never reached snapserver. The group comes
-        back on whatever stream snapserver kept for it, and a switch made while
-        the client was away moved only the groups snapserver then listed; with
-        no source playing there is no stream to choose, and it is left alone.
+        volume but still obeys its mute, the client's or its group's (measured
+        on 0.35), and snapserver keeps both across its restarts: one set by any
+        other JSON-RPC client would silence the room for good, with Milō
+        showing it unmuted. The per-client delay is native Snapcast latency Milō
+        owns, and a delay set while the client was away never reached
+        snapserver. The group comes back on whatever stream snapserver kept for
+        it, and a switch made while the client was away moved only the groups
+        snapserver then listed; with no source playing there is no stream to
+        choose, and it is left alone.
 
-        Every call answers a refusal (HTTP error, timeout, JSON-RPC error) with
-        False rather than raising. A caller without a snapcast id has nothing to
-        pin: snapserver keys its clients by its own id.
+        No notification carries the client's group (Client.OnConnect names the
+        client alone), so it is read here, at each attempt. Every call answers a
+        refusal (HTTP error, timeout, JSON-RPC error) with False rather than
+        raising, and a status that could not be read is one too: snapserver's
+        mute is never assumed lifted. A caller without a snapcast id has nothing
+        to pin: snapserver keys its clients by its own id.
         """
         if not (snapcast_id and self._snapcast_service):
             return True
-        if not await self._snapcast_service.set_volume(snapcast_id, 100):
+        snapcast = self._snapcast_service
+        if not await snapcast.set_volume(snapcast_id, 100):
             self.logger.warning(f"SYNC_RECONNECT: snapserver refused to lift the mute of {mac_id}")
             return False
-        if not await self._snapcast_service.set_latency(snapcast_id, delay_ms):
+        if not await snapcast.set_latency(snapcast_id, delay_ms):
             self.logger.warning(f"SYNC_RECONNECT: snapserver refused the {delay_ms} ms delay of {mac_id}")
             return False
+
+        group = snapcast.group_of(await snapcast.get_server_status(), snapcast_id)
+        if group is None:
+            self.logger.warning(f"SYNC_RECONNECT: snapserver lists no group holding {mac_id}")
+            return False
+        group_id = group["id"]
+        if group["muted"]:
+            self.logger.warning(f"SYNC_RECONNECT: snapserver kept the group of {mac_id} muted, lifting it")
+            if not await snapcast.set_group_mute(group_id, False):
+                self.logger.warning(f"SYNC_RECONNECT: snapserver refused to lift the group mute of {mac_id}")
+                return False
+
         # Read again past each answer: a transition meanwhile points every group
         # at its own stream, and this answer can land after it.
-        stream = self._active_stream()
-        while stream is not None:
-            if not await self._snapcast_service.point_groups_at(stream, client_id=snapcast_id):
+        playing, stream = group["stream_id"], self._active_stream()
+        while stream is not None and stream != playing:
+            self.logger.info(f"SNAPCAST_SET_STREAM: group={group_id} {playing} -> {stream}")
+            if not await snapcast.set_group_stream(group_id, stream):
                 self.logger.warning(
                     f"SYNC_RECONNECT: snapserver refused to point {mac_id} at the {stream} stream"
                 )
                 return False
-            moved = self._active_stream()
-            if moved == stream:
-                break
-            stream = moved
+            playing, stream = stream, self._active_stream()
         return True
 
     def _active_stream(self) -> Optional[str]:
@@ -1106,9 +1121,9 @@ class SnapcastWebSocketService:
         Bring a client that just (re)appeared to the state Milō holds for it.
 
         The one admission recipe, shared by all four notifications that can see
-        a client arrive: restore the snapserver passthrough and the client's
-        delay, point its group at the active stream, resolve the level the
-        client itself last held, apply it, re-push
+        a client arrive: restore the snapserver passthrough (the client's mute
+        and its group's) and the client's delay, point its group at the active
+        stream, resolve the level the client itself last held, apply it, re-push
         its EQ record and its snapclient buffer config, then show it online and
         send it whatever was changed while this ran — a write meanwhile was only
         stored, since the client was not online yet

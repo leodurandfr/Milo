@@ -9,21 +9,15 @@ Spotify, with the screen showing it playing. The backend now points every group
 at the stream of the source it starts, before the start, so the first samples
 reach the rooms.
 
-The outside world is a snapserver of this file's own on an ephemeral loopback
-port, knowing exactly the streams `provisioning/snapcast.sh` declares — never
-snapserver's 1780, which answers on this machine and reaches speakers in
-occupied rooms. Everything else is the real thing: `SnapcastService`,
+The outside world is the fake snapserver of `tests/snapserver_world.py`, on an
+ephemeral loopback port and knowing exactly the streams `provisioning/snapcast.sh`
+declares. Everything else is the real thing: `SnapcastService`,
 `AudioRoutingService`, `AudioStateMachine`.
 """
-import asyncio
-import copy
 import logging
-import re
-from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from aiohttp import web
 
 from backend.core.models.audio_state import AudioSource, NetworkRequirement
 from backend.core.models.audio_wire import SourceView
@@ -31,99 +25,13 @@ from backend.core.multiroom.routing import AudioRoutingService
 from backend.core.multiroom.snapcast import SnapcastService
 from backend.core.state import AudioStateMachine
 from backend.tests.conftest import free_mailbox
-
-PROVISIONING = Path(__file__).resolve().parents[2] / "provisioning" / "snapcast.sh"
-
-LOCAL, CANAPE, BUREAU = "2c:cf:67:00:00:01", "dc:a6:32:7e:d3:43", "d8:3a:dd:68:e7:e4"
-
-
-def _shipped_stream_names():
-    """Every stream snapserver.conf declares: the ten captures and the meta."""
-    names = re.findall(
-        r"^source\s*=\s*\w+:///[^\n]*?[?&]name=([^&\s]+)",
-        PROVISIONING.read_text(encoding="utf-8"),
-        re.MULTILINE,
-    )
-    assert len(names) >= 11, f"only parsed {names} from {PROVISIONING}"
-    return set(names)
-
-
-class FakeSnapserver:
-    """snapserver's JSON-RPC, as far as Milō drives it: three groups, one client each.
-
-    Every request is written to the journal shared with the sources, so the order
-    between a `Group.SetStream` and a source's start is read from one sequence.
-    """
-
-    def __init__(self, journal, streams):
-        self.journal = journal
-        self.streams = streams
-        self.refuse_set_stream = False
-        self.hang = False
-        self.released = asyncio.Event()
-        self.groups = [
-            {"id": f"group-{client}", "stream_id": "Multiroom",
-             "clients": [{"id": client, "connected": True}]}
-            for client in (LOCAL, CANAPE, BUREAU)
-        ]
-
-    def stream_of(self, client_id):
-        return next(
-            g["stream_id"] for g in self.groups
-            if any(c["id"] == client_id for c in g["clients"])
-        )
-
-    def set_streams(self, stream_id):
-        for group in self.groups:
-            group["stream_id"] = stream_id
-
-    async def handle(self, request):
-        body = await request.json()
-        method, params = body["method"], body.get("params", {})
-        self.journal.append(("rpc", method, params))
-        if self.hang:
-            await self.released.wait()
-
-        def error(message):
-            return web.json_response({
-                "id": body["id"], "jsonrpc": "2.0",
-                "error": {"code": -32603, "message": message},
-            })
-
-        if method == "Server.GetRPCVersion":
-            result = {"major": 2, "minor": 0, "patch": 0}
-        elif method == "Server.GetStatus":
-            result = {"server": {
-                "groups": copy.deepcopy(self.groups),
-                "streams": [{"id": name, "status": "idle"} for name in sorted(self.streams)],
-            }}
-        elif method == "Group.SetStream":
-            group = next((g for g in self.groups if g["id"] == params.get("id")), None)
-            if group is None or params.get("stream_id") not in self.streams:
-                return error("Internal error")
-            if self.refuse_set_stream:
-                return error("refused")
-            group["stream_id"] = params["stream_id"]
-            result = {"stream_id": params["stream_id"]}
-        else:
-            return error("Method not found")
-        return web.json_response({"id": body["id"], "jsonrpc": "2.0", "result": result})
+from backend.tests.snapserver_world import FakeSnapserver, serving
 
 
 @pytest.fixture
 async def snapserver():
-    journal = []
-    fake = FakeSnapserver(journal, _shipped_stream_names())
-    app = web.Application()
-    app.router.add_post("/jsonrpc", fake.handle)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", 0)
-    await site.start()
-    fake.port = site._server.sockets[0].getsockname()[1]
-    yield fake
-    fake.released.set()
-    await runner.cleanup()
+    async with serving(FakeSnapserver()) as fake:
+        yield fake
 
 
 def _source(name, journal):
@@ -232,7 +140,7 @@ async def test_a_refused_set_stream_does_not_fail_the_switch(snapserver, applian
     over a stream snapserver kept would be a source the user cannot pick. The
     refusal is in the journal, and the next admission or switch repoints."""
     state_machine, _, _ = appliance
-    snapserver.refuse_set_stream = True
+    snapserver.refuse["Group.SetStream"] = None
 
     with caplog.at_level(logging.WARNING):
         assert await state_machine.transition_to_source(AudioSource.RADIO)
@@ -274,25 +182,6 @@ async def test_enabling_multiroom_points_the_groups_at_the_carried_source_before
     moves = [i for i, _ in _set_streams(snapserver.journal)]
     assert len(moves) == 3
     assert all(i < acquired for i in moves)
-
-
-async def test_an_admission_moves_only_the_group_of_its_client(snapserver):
-    """A satellite admitted is pointed at the active stream on its own; the rooms
-    already playing are not touched."""
-    snapcast = SnapcastService(systemd_manager=Mock(), host="127.0.0.1", port=snapserver.port)
-
-    assert await snapcast.point_groups_at("Podcast", client_id=CANAPE)
-
-    assert snapserver.stream_of(CANAPE) == "Podcast"
-    assert snapserver.stream_of(LOCAL) == "Multiroom"
-    assert snapserver.stream_of(BUREAU) == "Multiroom"
-
-
-async def test_a_client_snapserver_does_not_list_cannot_be_pointed(snapserver):
-    """Nothing moved is not a success: the admission must try again."""
-    snapcast = SnapcastService(systemd_manager=Mock(), host="127.0.0.1", port=snapserver.port)
-
-    assert await snapcast.point_groups_at("Podcast", client_id="02:00:00:00:00:a7") is False
 
 
 async def test_a_stream_snapserver_does_not_know_is_a_refusal(snapserver):

@@ -79,7 +79,11 @@ def _create_service(name: str) -> Any:
         "systemd_manager": lambda: _import("backend.core.systemd", "SystemdServiceManager")(),
         "settings_service": lambda: _import("backend.core.settings", "SettingsService")(),
         "hardware_service": lambda: _import("backend.hardware.service", "HardwareService")(),
-        "snapcast_service": lambda: _import("backend.core.multiroom.snapcast", "SnapcastService")(systemd_manager=get_service("systemd_manager"), host="127.0.0.1"),
+        "snapcast_service": lambda: _import("backend.core.multiroom.snapcast", "SnapcastService")(
+            systemd_manager=get_service("systemd_manager"),
+            host=_import("backend.core.multiroom.snapcast", "SNAPSERVER_CONTROL_ADDRESS"),
+            port=_import("backend.core.multiroom.snapcast", "SNAPSERVER_CONTROL_PORT"),
+        ),
         "websocket_manager": lambda: _import("backend.ws", "WebSocketManager")(),
 
         # Services with dependencies
@@ -112,8 +116,8 @@ def _create_service(name: str) -> Any:
             state_machine=get_service("audio_state_machine"),
             routing_service=get_service("audio_routing_service"),
             settings_service=get_service("settings_service"),
-            host="127.0.0.1",
-            port=1780,
+            host=_import("backend.core.multiroom.snapcast", "SNAPSERVER_CONTROL_ADDRESS"),
+            port=_import("backend.core.multiroom.snapcast", "SNAPSERVER_CONTROL_PORT"),
             snapcast_service=get_service("snapcast_service"),
             crossover_service=get_service("crossover_service"),
             equalizer_client_proxy_service=get_service("equalizer_client_proxy_service"),

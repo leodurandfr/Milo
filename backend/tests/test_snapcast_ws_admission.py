@@ -36,6 +36,7 @@ from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import EqFilter, EqualizerSettings
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.snapcast import SnapcastService
+from backend.tests.snapserver_world import FakeSnapserver
 
 MAC = "aa:bb:cc:dd:ee:07"
 IP = "192.168.1.153"
@@ -70,6 +71,12 @@ def snapcast():
     service.get_clients = AsyncMock(return_value=[])
     service.get_server_status = AsyncMock(return_value={"server": {"groups": []}})
     service.extract_clients = MagicMock(return_value=[])
+    service.group_of = MagicMock(return_value={
+        "id": f"group-{SNAPCAST_ID}", "muted": False, "stream_id": "Multiroom",
+        "clients": [{"id": SNAPCAST_ID}],
+    })
+    service.set_group_mute = AsyncMock(return_value=True)
+    service.set_group_stream = AsyncMock(return_value=True)
     return service
 
 
@@ -305,10 +312,11 @@ class TestTheDuplicateSyncGuard:
         Snapserver must stay a passthrough — CamillaDSP on the client is the only
         attenuation stage (invariant 7). Its volume no longer reaches the audio
         (`--mixer none`), but its mute still does, and snapserver keeps a mute
-        across restarts: one set from snapweb would silence the room for good
-        while Milō shows it unmuted. The per-client delay is the mirror: it is native Snapcast latency
-        Milō owns, so a delay changed while the client was away has reached
-        nobody until this call.
+        across restarts: one set by any other JSON-RPC client would silence the
+        room for good while Milō shows it unmuted (its group's mute: see
+        TestTheGroupSnapserverKeeps). The per-client delay is the mirror: it is
+        native Snapcast latency Milō owns, so a delay changed while the client
+        was away has reached nobody until this call.
         """
         await registry.register_client(MAC, "Canapé", IP)
         await registry.set_client_delay(MAC, 40)
@@ -388,87 +396,6 @@ class TestTheDuplicateSyncGuard:
         assert ok is False
         assert registry.get_client(MAC).online is False
 
-    async def test_an_admission_points_the_clients_group_at_the_active_stream(
-        self, service, registry, snapcast
-    ):
-        """A satellite that connects lands in a group snapserver kept on whatever
-        stream it last had (or on its default, the meta stream). The source
-        playing is the one its room must hear, before the room is shown online."""
-        await registry.register_client(MAC, "Canapé", IP)
-        await registry.set_client_online(MAC, False)
-        service.state_machine.system_state.active_source = AudioSource.RADIO
-        online_when_pointed = []
-
-        async def point(stream, client_id=None):
-            online_when_pointed.append(registry.get_client(MAC).online)
-            return True
-
-        snapcast.point_groups_at = AsyncMock(side_effect=point)
-
-        ok = await service._sync_reconnecting_client_volume(
-            MAC, set_online_after=True, max_retries=0, retry_delay=0.0,
-            snapcast_id=SNAPCAST_ID,
-        )
-
-        assert ok is True
-        assert snapcast.point_groups_at.await_args_list == [call("Radio", client_id=SNAPCAST_ID)]
-        assert online_when_pointed == [False]
-
-    async def test_a_refused_stream_is_a_failed_attempt_and_retried(
-        self, service, registry, snapcast
-    ):
-        """A room left on another stream plays the wrong source, or silence,
-        under a screen that shows it in the house: the client is not shown
-        online over a refusal."""
-        await registry.register_client(MAC, "Canapé", IP)
-        await registry.set_client_online(MAC, False)
-        service.state_machine.system_state.active_source = AudioSource.RADIO
-        snapcast.point_groups_at = AsyncMock(side_effect=[False, True])
-
-        ok = await service._sync_reconnecting_client_volume(
-            MAC, set_online_after=True, max_retries=1, retry_delay=0.0,
-            snapcast_id=SNAPCAST_ID,
-        )
-
-        assert snapcast.point_groups_at.await_count == 2
-        assert ok is True
-        assert registry.get_client(MAC).online is True
-
-    async def test_a_switch_during_the_pointing_is_followed(self, service, registry, snapcast):
-        """The admission reads the active source, then waits on snapserver; a
-        transition meanwhile points every group at its own stream, and the
-        admission's answer can land after it. Read again, the new stream wins."""
-        await registry.register_client(MAC, "Canapé", IP)
-        service.state_machine.system_state.active_source = AudioSource.RADIO
-
-        async def point(stream, client_id=None):
-            service.state_machine.system_state.active_source = AudioSource.PODCAST
-            return True
-
-        snapcast.point_groups_at = AsyncMock(side_effect=point)
-
-        await service._sync_reconnecting_client_volume(
-            MAC, set_online_after=True, max_retries=0, retry_delay=0.0,
-            snapcast_id=SNAPCAST_ID,
-        )
-
-        assert [c.args[0] for c in snapcast.point_groups_at.await_args_list] == ["Radio", "Podcast"]
-
-    async def test_no_source_leaves_the_clients_group_alone(self, service, registry, snapcast):
-        """Nothing plays, so there is no stream to choose: the room keeps the
-        last one, which the next selection moves."""
-        await registry.register_client(MAC, "Canapé", IP)
-        service.state_machine.system_state.active_source = AudioSource.NONE
-        snapcast.point_groups_at = AsyncMock(return_value=True)
-
-        ok = await service._sync_reconnecting_client_volume(
-            MAC, set_online_after=True, max_retries=0, retry_delay=0.0,
-            snapcast_id=SNAPCAST_ID,
-        )
-
-        assert ok is True
-        snapcast.point_groups_at.assert_not_called()
-
     async def test_a_sync_that_is_not_an_admission_does_not_change_what_is_shown(
         self, service, registry
     ):
@@ -514,6 +441,198 @@ class TestTheDuplicateSyncGuard:
         assert service._apply_target_volume_to_client.await_count == 3
         assert waits == [3.0, 3.0]
         assert any("GAVE UP after 3 attempts" in r.message for r in caplog.records)
+
+
+OTHER_ID, OTHER_IP = "aa:bb:cc:dd:ee:08", "192.168.1.60"
+
+
+@pytest.fixture
+def snapserver():
+    return FakeSnapserver(clients={SNAPCAST_ID: IP, OTHER_ID: OTHER_IP})
+
+
+@pytest.fixture
+def admitted(service, registry, snapserver, monkeypatch):
+    """The service on the real SnapcastService, which the fake snapserver answers,
+    and every change of a client's online flag written to the snapserver's journal.
+
+    Taken after `service`, whose `no_satellite_network` replaces
+    `aiohttp.ClientSession`: snapserver's URL is answered by the fake, every
+    other request by that stand-in.
+    """
+    snapcast = SnapcastService(systemd_manager=MagicMock(), host="snapserver.test")
+    monkeypatch.setattr(
+        aiohttp, "ClientSession", snapserver.client_session(snapcast.base_url, aiohttp.ClientSession)
+    )
+    service._snapcast_service = snapcast
+    set_online = registry.set_client_online
+
+    async def recorded(mac_id, online):
+        snapserver.journal.append(("online", mac_id, online))
+        return await set_online(mac_id, online)
+
+    registry.set_client_online = recorded
+    return service
+
+
+def _rpcs(journal, method):
+    return [(i, e[2]) for i, e in enumerate(journal) if e[:2] == ("rpc", method)]
+
+
+def _shown_online(journal):
+    return [i for i, e in enumerate(journal) if e[0] == "online" and e[2] is True]
+
+
+async def _admit(service, registry, *, max_retries=0):
+    await registry.register_client(MAC, "Canapé", IP)
+    await registry.set_client_online(MAC, False)
+    return await service._sync_reconnecting_client_volume(
+        MAC, set_online_after=True, max_retries=max_retries, retry_delay=0.0,
+        snapcast_id=SNAPCAST_ID,
+    )
+
+
+class TestTheGroupSnapserverKeeps:
+    """What an admission puts right in the client's snapserver group.
+
+    snapserver sends a client `client.muted || group.muted` and plays it the
+    group's stream, and it keeps both in server.json across its restarts. No
+    notification Milō handles carries the group (Client.OnConnect names the
+    client alone), so the admission reads it from the status, at each attempt.
+    """
+
+    async def test_an_admission_lifts_a_group_mute(self, admitted, registry, snapserver):
+        """A group muted by any JSON-RPC client (snapweb's group button, a
+        home-automation integration) silenced the room for good: `--mixer none`
+        obeys it, the admission lifted the client's mute only, and every screen
+        showed the room playing. Only the client's own group is touched."""
+        snapserver.group_of(SNAPCAST_ID)["muted"] = True
+        snapserver.group_of(OTHER_ID)["muted"] = True
+
+        assert await _admit(admitted, registry) is True
+
+        assert snapserver.is_muted(SNAPCAST_ID) is False
+        assert snapserver.group_of(OTHER_ID)["muted"] is True
+        assert registry.get_client(MAC).online is True
+
+    async def test_a_refused_group_unmute_keeps_the_client_offline(
+        self, admitted, registry, snapserver
+    ):
+        """A room shown online over a mute snapserver kept offers controls for a
+        speaker that stays silent: the refusal is a failed attempt, retried, and
+        the client is shown online only after the mute was lifted."""
+        snapserver.group_of(SNAPCAST_ID)["muted"] = True
+        snapserver.refuse["Group.SetMute"] = 1
+
+        assert await _admit(admitted, registry, max_retries=1) is True
+
+        unmutes = _rpcs(snapserver.journal, "Group.SetMute")
+        assert [params for _, params in unmutes] == [{"id": f"group-{SNAPCAST_ID}", "mute": False}] * 2
+        assert _shown_online(snapserver.journal)[0] > unmutes[1][0]
+        assert snapserver.is_muted(SNAPCAST_ID) is False
+
+    async def test_a_status_snapserver_did_not_answer_is_never_read_as_no_mute(
+        self, admitted, registry, snapserver
+    ):
+        """`get_server_status` is fail-open: it flattens a refusal to {}. Read as
+        "the group is not muted", the room would be shown online under a mute
+        nobody lifted."""
+        snapserver.group_of(SNAPCAST_ID)["muted"] = True
+        snapserver.refuse["Server.GetStatus"] = None
+
+        assert await _admit(admitted, registry, max_retries=1) is False
+
+        assert len(_rpcs(snapserver.journal, "Server.GetStatus")) == 2
+        assert registry.get_client(MAC).online is False
+
+    async def test_the_group_is_read_whatever_milo_counts_live(
+        self, admitted, registry, snapserver
+    ):
+        """The group is snapserver's state for the client, read raw: the
+        liveness rule (lastSeen, the stale local id, the MAC dedup) decides
+        which speakers are shown, and a client it drops is still one whose room
+        snapserver mutes. Read through it, such an admission failed every
+        attempt."""
+        snapserver.client(SNAPCAST_ID)["lastSeen"]["sec"] -= 60
+        snapserver.group_of(SNAPCAST_ID)["muted"] = True
+
+        assert await _admit(admitted, registry) is True
+
+        assert snapserver.is_muted(SNAPCAST_ID) is False
+
+    async def test_an_admission_points_the_clients_group_at_the_active_stream(
+        self, admitted, registry, snapserver
+    ):
+        """A satellite that connects lands in a group snapserver kept on whatever
+        stream it last had (or on its default, the meta stream). The source
+        playing is the one its room must hear, before the room is shown online;
+        the rooms already playing are not touched."""
+        admitted.state_machine.system_state.active_source = AudioSource.RADIO
+
+        assert await _admit(admitted, registry) is True
+
+        assert snapserver.stream_of(SNAPCAST_ID) == "Radio"
+        assert snapserver.stream_of(OTHER_ID) == "Multiroom"
+        (pointed, _), = _rpcs(snapserver.journal, "Group.SetStream")
+        assert _shown_online(snapserver.journal)[0] > pointed
+
+    async def test_a_group_already_on_the_stream_is_not_moved(
+        self, admitted, registry, snapserver
+    ):
+        """snapserver re-sends the stream to a group it is asked to move, even
+        onto the one it plays: a room that is right costs no request."""
+        admitted.state_machine.system_state.active_source = AudioSource.RADIO
+        snapserver.group_of(SNAPCAST_ID)["stream_id"] = "Radio"
+
+        assert await _admit(admitted, registry) is True
+
+        assert _rpcs(snapserver.journal, "Group.SetStream") == []
+
+    async def test_a_refused_stream_is_a_failed_attempt_and_retried(
+        self, admitted, registry, snapserver
+    ):
+        """A room left on another stream plays the wrong source, or silence,
+        under a screen that shows it in the house: the client is not shown
+        online over a refusal."""
+        admitted.state_machine.system_state.active_source = AudioSource.RADIO
+        snapserver.refuse["Group.SetStream"] = 1
+
+        assert await _admit(admitted, registry, max_retries=1) is True
+
+        moves = _rpcs(snapserver.journal, "Group.SetStream")
+        assert len(moves) == 2
+        assert _shown_online(snapserver.journal)[0] > moves[1][0]
+        assert snapserver.stream_of(SNAPCAST_ID) == "Radio"
+
+    async def test_a_switch_during_the_pointing_is_followed(self, admitted, registry, snapserver):
+        """The admission reads the active source, then waits on snapserver; a
+        transition meanwhile points every group at its own stream, and the
+        admission's answer can land after it. Read again, the new stream wins."""
+        state = admitted.state_machine.system_state
+        state.active_source = AudioSource.RADIO
+
+        def switch(method, params):
+            if method == "Group.SetStream" and params["stream_id"] == "Radio":
+                state.active_source = AudioSource.PODCAST
+
+        snapserver.on_request = switch
+
+        assert await _admit(admitted, registry) is True
+
+        assert [p["stream_id"] for _, p in _rpcs(snapserver.journal, "Group.SetStream")] == [
+            "Radio", "Podcast",
+        ]
+        assert snapserver.stream_of(SNAPCAST_ID) == "Podcast"
+
+    async def test_no_source_leaves_the_clients_group_alone(self, admitted, registry, snapserver):
+        """Nothing plays, so there is no stream to choose: the room keeps the
+        last one, which the next selection moves."""
+        admitted.state_machine.system_state.active_source = AudioSource.NONE
+
+        assert await _admit(admitted, registry) is True
+
+        assert _rpcs(snapserver.journal, "Group.SetStream") == []
+        assert snapserver.stream_of(SNAPCAST_ID) == "Multiroom"
 
 
 class TestThePushesNothingRetries:
@@ -750,7 +869,8 @@ class TestTheReconcileSweepAndTheCloseBound:
 
 
 class TestTheNameChangedResolution:
-    """snapweb is served on 0.0.0.0:1780, so anyone on the LAN can rename a client."""
+    """Any other JSON-RPC client of snapserver can rename a client (one on the
+    unit since the control moved to loopback; snapweb, from the LAN, before)."""
 
     async def test_the_rename_lands_on_the_same_identity_whether_snapserver_answers_or_not(
         self, service, registry, snapcast

@@ -251,8 +251,6 @@ LISTEN_PORTS = {
     8000: "milo-backend",
     8001: "milo-client (a satellite's API; the server does not listen here)",
     1704: "snapserver stream",
-    1705: "snapserver control",
-    1780: "snapserver JSON-RPC",
     3678: "go-librespot API",
     4533: "navidrome",
 }

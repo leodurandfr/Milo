@@ -32,6 +32,29 @@ MULTIROOM_STREAM_SOURCES = (
     *(f"alsa:///?name={s.name}&device={s.device}&idle_threshold=5000" for s in MULTIROOM_STREAMS.values()),
 )
 
+# Where snapserver's JSON-RPC listens and the backend dials, on loopback: it
+# answers any client with no authentication and no Origin check, and a group it
+# mutes or moves stays so in server.json across restarts -- from the LAN, a page
+# open in any browser could silence or reroute a room for good.
+SNAPSERVER_CONTROL_ADDRESS = "127.0.0.1"
+SNAPSERVER_CONTROL_PORT = 1780
+
+# The sections of snapserver.conf that open a control port, the backend's whole:
+# JSON-RPC over HTTP and WebSocket on loopback, with no web page (snapweb) and
+# no mDNS record of a port nobody else can reach, and the TCP control port
+# (1705) closed. Written over whatever the file holds, by every write of it.
+# The stream port (1704, `[stream]`/`[tcp-streaming]`) is the satellites' and
+# keeps its own lines.
+SNAPSERVER_CONTROL_SECTIONS = {
+    "http": (
+        ("enabled", "true"),
+        ("bind_to_address", SNAPSERVER_CONTROL_ADDRESS),
+        ("port", str(SNAPSERVER_CONTROL_PORT)),
+        ("publish_http", "false"),
+    ),
+    "tcp-control": (("enabled", "false"),),
+}
+
 # Accepted ranges for the two numeric stream parameters, declared here because
 # _validate_config is what enforces them. `core/multiroom/calibration.py` clamps
 # its computed values against these same tuples rather than restating the
@@ -171,29 +194,27 @@ class SnapcastService:
     # === GROUP COMMANDS ===
 
     @handle_errors(default=False, level='warning')
+    async def set_group_mute(self, group_id: str, muted: bool) -> bool:
+        """Mute or unmute one snapserver group (JSON-RPC `Group.SetMute`)."""
+        self.logger.info(f"SNAPCAST_SET_GROUP_MUTE: group={group_id}, muted={muted}")
+        await self._request("Group.SetMute", {"id": group_id, "mute": muted})
+        return True
+
+    @handle_errors(default=False, level='warning')
     async def set_group_stream(self, group_id: str, stream_id: str) -> bool:
         """Point one snapserver group at a stream (JSON-RPC `Group.SetStream`)."""
         await self._request("Group.SetStream", {"id": group_id, "stream_id": stream_id})
         return True
 
     @handle_errors(default=False, level='warning')
-    async def point_groups_at(self, stream_id: str, client_id: Optional[str] = None) -> bool:
-        """Point every group — or only `client_id`'s — at `stream_id`.
+    async def point_groups_at(self, stream_id: str) -> bool:
+        """Point every group at `stream_id`.
 
         Groups already on it are left alone, so snapserver re-sends nothing to a
-        room that is right. True only when every group that had to move did; a
-        `client_id` snapserver does not list is False, since nothing was pointed.
+        room that is right. True only when every group that had to move did.
         """
         status = await self._request("Server.GetStatus")
         groups = status.get("server", {}).get("groups", [])
-        if client_id is not None:
-            groups = [
-                g for g in groups
-                if any(c.get("id") == client_id for c in g.get("clients", []))
-            ]
-            if not groups:
-                self.logger.warning(f"SNAPCAST_SET_STREAM: no group holds client {client_id}")
-                return False
 
         moves = []
         for group in groups:
@@ -292,6 +313,21 @@ class SnapcastService:
         and only then parses, which ``get_clients``' fail-open [] cannot express.
         """
         return self._parse_clients(status)
+
+    @staticmethod
+    def group_of(status: dict, client_id: str) -> Optional[Dict[str, Any]]:
+        """The group holding `client_id` in a status already fetched, or None.
+
+        Read raw, not through ``extract_clients``: a group is snapserver's state
+        for a client whether or not Milō counts that client live.
+        """
+        return next(
+            (
+                group for group in status.get("server", {}).get("groups", [])
+                if any(c.get("id") == client_id for c in group.get("clients", []))
+            ),
+            None,
+        )
 
     def _deduplicate_by_mac(self, clients: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Remove duplicate clients based on computed mac_id."""
@@ -473,16 +509,18 @@ class SnapcastService:
         return True
 
     @handle_errors(default=False)
-    async def reconcile_stream_sources(self) -> bool:
-        """Rewrite the conf's `source =` lines from the capture map; True iff it changed.
+    async def reconcile_conf(self) -> bool:
+        """Rewrite the lines of snapserver.conf the backend owns; True iff it changed.
 
-        snapserver.conf is written at image build and no OTA ships it, so a
-        source added, moved or retired since a card was flashed reaches its conf
-        only through this. Never restarts snapserver: the caller knows whether
-        it should run, and a restart of the stopped unit would start it.
+        Those are the captures (the `source =` lines, from the capture map) and
+        the control sections (SNAPSERVER_CONTROL_SECTIONS). snapserver.conf is
+        written at image build and no OTA ships it, so a source added, moved or
+        retired since a card was flashed, or a control port closed since, reaches
+        its conf only through this. Never restarts snapserver: the caller knows
+        whether it should run, and a restart of the stopped unit would start it.
         """
         if not self.snapserver_conf.exists():
-            self.logger.warning("snapserver.conf not found, its captures were not reconciled")
+            self.logger.warning("snapserver.conf not found, nothing in it was reconciled")
             return False
 
         async with aiofiles.open(self.snapserver_conf, 'r') as f:
@@ -496,7 +534,7 @@ class SnapcastService:
             line for line in difflib.unified_diff(content.splitlines(), updated_content.splitlines(), lineterm="", n=0)
             if line[:1] in "+-" and not line.startswith(("+++", "---"))
         ]
-        self.logger.info(f"snapserver.conf captures differ from the capture map, rewriting: {moved}")
+        self.logger.info(f"snapserver.conf differs from what the backend writes, rewriting: {moved}")
         return await self._write_config_file(updated_content)
 
     @handle_errors(default=False)
@@ -544,12 +582,19 @@ class SnapcastService:
         place rather than regrouped, so the blank line between the meta stream
         and the captures stays where the file has it, and a rewritten file
         rewrites to itself -- the reconcile restarts snapserver on any change.
+
+        Each section of SNAPSERVER_CONTROL_SECTIONS holds exactly its settings,
+        the same way: an owned key is written over its first line, any other
+        setting there is dropped (snapweb's `doc_root`), a key it lacks is added
+        after its last setting, and a section the file lacks is added at its end.
         """
         lines = content.split('\n')
         updated_lines = []
-        in_stream_section = False
+        section = None
         expected_sources = iter(MULTIROOM_STREAM_SOURCES)
         after_last_source = None
+        unwritten = {}
+        after_last_control = {}
 
         # Map snapserver.conf field names (left) to incoming payload keys (right).
         # The conf uses `buffer` for what we expose on the wire as `buffer_ms`.
@@ -563,19 +608,25 @@ class SnapcastService:
         for line in lines:
             stripped_line = line.strip()
 
-            if stripped_line == "[stream]":
-                in_stream_section = True
+            # snapserver reads what follows a `#` as a comment, a header's too.
+            header = stripped_line.split("#", 1)[0].strip()
+            if header.startswith("["):
+                section = header[1:-1] if header.endswith("]") else None
                 updated_lines.append(line)
-                after_last_source = len(updated_lines)
+                if section == "stream":
+                    after_last_source = len(updated_lines)
+                elif section in SNAPSERVER_CONTROL_SECTIONS:
+                    unwritten.setdefault(section, dict(SNAPSERVER_CONTROL_SECTIONS[section]))
+                    after_last_control[section] = len(updated_lines)
                 continue
-            elif stripped_line.startswith("[") and stripped_line != "[stream]":
-                in_stream_section = False
 
-            if (in_stream_section and "=" in stripped_line and
-                not stripped_line.startswith("#")):
+            if "=" not in stripped_line or stripped_line.startswith("#"):
+                updated_lines.append(line)
+                continue
 
-                key = stripped_line.split("=")[0].strip()
+            key = stripped_line.split("=")[0].strip()
 
+            if section == "stream":
                 if key == "source":
                     source = next(expected_sources, None)
                     if source is not None:
@@ -589,14 +640,39 @@ class SnapcastService:
                         updated_lines.append(f"{key} = {config[param_key]}")
                 else:
                     updated_lines.append(line)
+            elif section in SNAPSERVER_CONTROL_SECTIONS:
+                value = unwritten[section].pop(key, None)
+                if value is not None:
+                    updated_lines.append(f"{key} = {value}")
+                    after_last_control[section] = len(updated_lines)
             else:
                 updated_lines.append(line)
 
+        # Inserted from the bottom up, so each index still points where it did.
+        insertions = []
         missing = [f"source = {source}" for source in expected_sources]
         if missing and after_last_source is None:
             self.logger.warning("snapserver.conf has no [stream] section, so no capture was written")
         elif missing:
-            updated_lines[after_last_source:after_last_source] = missing
+            insertions.append((after_last_source, missing))
+        for name, settings in unwritten.items():
+            if settings:
+                insertions.append((after_last_control[name], [f"{k} = {v}" for k, v in settings.items()]))
+        for index, block in sorted(insertions, key=lambda insertion: insertion[0], reverse=True):
+            updated_lines[index:index] = block
+
+        absent = [name for name in SNAPSERVER_CONTROL_SECTIONS if name not in unwritten]
+        if absent:
+            final_newline = bool(updated_lines) and updated_lines[-1] == ""
+            if final_newline:
+                updated_lines.pop()
+            for name in absent:
+                if updated_lines and updated_lines[-1].strip():
+                    updated_lines.append("")
+                updated_lines.append(f"[{name}]")
+                updated_lines += [f"{k} = {v}" for k, v in SNAPSERVER_CONTROL_SECTIONS[name]]
+            if final_newline:
+                updated_lines.append("")
 
         return '\n'.join(updated_lines)
 

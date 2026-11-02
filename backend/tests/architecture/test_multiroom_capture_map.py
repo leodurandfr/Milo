@@ -18,13 +18,16 @@ only one of them is Python:
 
 A slot two of them disagree on is a source that plays to nobody in every room,
 with no error and every screen showing it playing.
+
+The same heredoc writes the sections that open snapserver's control ports,
+which the backend rewrites at each start from `SNAPSERVER_CONTROL_SECTIONS`.
 """
 import re
 from pathlib import Path
 
 from backend.config.constants import MULTIROOM_STREAMS
 from backend.core.models.audio_state import AudioSource
-from backend.core.multiroom.snapcast import MULTIROOM_STREAM_SOURCES
+from backend.core.multiroom.snapcast import MULTIROOM_STREAM_SOURCES, SNAPSERVER_CONTROL_SECTIONS
 
 ROOT = Path(__file__).resolve().parents[3]
 ASOUND = ROOT / "rootfs" / "etc" / "asound.conf"
@@ -52,6 +55,20 @@ def flashed_conf():
     """
     script = PROVISIONING.read_text(encoding="utf-8")
     return script.split("<< 'EOF'\n", 1)[1].split("\nEOF\n", 1)[0] + "\n"
+
+
+def conf_sections(conf):
+    """`{section: {key: value}}` as snapserver reads a snapserver.conf: what
+    follows a `#` is a comment."""
+    sections, current = {}, None
+    for line in conf.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line.startswith("[") and line.endswith("]"):
+            current = sections.setdefault(line[1:-1], {})
+        elif current is not None and "=" in line:
+            key, value = line.split("=", 1)
+            current[key.strip()] = value.strip()
+    return sections
 
 
 def _heredoc_sources():
@@ -99,3 +116,14 @@ def test_the_provisioning_heredoc_is_the_capture_map():
     """A freshly flashed card starts with exactly the lines the backend would
     write, so its first boot rewrites nothing and restarts nothing."""
     assert _heredoc_sources() == list(MULTIROOM_STREAM_SOURCES)
+
+
+def test_the_provisioning_heredoc_is_the_control_surface():
+    """The sections that open a control port are the backend's whole, rewritten
+    at each start: a card flashed with others restarts snapserver at its first
+    boot, and one flashed with these rewrites nothing."""
+    sections = conf_sections(flashed_conf())
+    assert {"stream", "http", "tcp-control"} <= set(sections), f"only parsed {sorted(sections)} from {PROVISIONING}"
+
+    for name, settings in SNAPSERVER_CONTROL_SECTIONS.items():
+        assert sections[name] == dict(settings), f"[{name}] differs from SNAPSERVER_CONTROL_SECTIONS"

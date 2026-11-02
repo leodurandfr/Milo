@@ -26,7 +26,7 @@ What lives only here, in order of what it costs:
   never fire and the TCP connection to snapserver leaks.
 
 The `never_the_real_snapserver` fixture below is why this file can exist at all:
-snapserver's control socket answers on `0.0.0.0:1780` on this machine, the
+snapserver's control socket answers on `127.0.0.1:1780` on this machine, the
 service's default host is `localhost`, and the suite's network guard lets
 loopback through on purpose. A test that lost its double would not merely read —
 `_initialize_existing_clients` admits every live client and each admission
@@ -65,7 +65,7 @@ def never_the_real_snapserver(monkeypatch):
         def __init__(self, *args, **kwargs):
             raise ReachedTheLiveSnapserver(
                 "a test built a real aiohttp.ClientSession; snapserver listens on "
-                "0.0.0.0:1780 on this machine and admitting its clients pushes to "
+                "127.0.0.1:1780 on this machine and admitting its clients pushes to "
                 "the satellites"
             )
 

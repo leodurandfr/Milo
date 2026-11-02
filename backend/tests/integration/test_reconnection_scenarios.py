@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from backend.tests.conftest import attach_registry_broadcaster
+from backend.tests.snapserver_world import listing_every_pinned_client
 from backend.core.models.volume import VolumeConfig
 
 
@@ -104,8 +105,7 @@ class TestInZoneReconnectionSyncIntegration:
         await registry.set_client_online("client-3", True)
 
         # Create websocket service
-        mock_snapcast = AsyncMock()
-        mock_snapcast.set_volume = AsyncMock()
+        mock_snapcast = listing_every_pinned_client(AsyncMock())
         mock_state_machine.snapcast_service = mock_snapcast
 
         ws_service = SnapcastWebSocketService(
@@ -206,8 +206,7 @@ class TestInZoneReconnectionSyncIntegration:
         await registry.set_client_online("client-2", True)
 
         # Create websocket service with mocks
-        mock_snapcast = AsyncMock()
-        mock_snapcast.set_volume = AsyncMock()
+        mock_snapcast = listing_every_pinned_client(AsyncMock())
         mock_state_machine.snapcast_service = mock_snapcast
 
         ws_service = SnapcastWebSocketService(
@@ -514,8 +513,7 @@ class TestStandaloneReconnectionSyncIntegration:
         await registry.set_client_online("client-3", True)
 
         # Create websocket service
-        mock_snapcast = AsyncMock()
-        mock_snapcast.set_volume = AsyncMock()
+        mock_snapcast = listing_every_pinned_client(AsyncMock())
         mock_state_machine.snapcast_service = mock_snapcast
 
         ws_service = SnapcastWebSocketService(
@@ -598,8 +596,7 @@ class TestStandaloneReconnectionSyncIntegration:
         await registry.set_client_online("client-1", True)
 
         # Setup mocks
-        mock_snapcast = AsyncMock()
-        mock_snapcast.set_volume = AsyncMock()
+        mock_snapcast = listing_every_pinned_client(AsyncMock())
         mock_state_machine.snapcast_service = mock_snapcast
 
         ws_service = SnapcastWebSocketService(
