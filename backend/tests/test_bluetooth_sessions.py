@@ -437,6 +437,17 @@ async def test_a_silent_bluetoothd_cannot_hold_the_teardown(bt, monkeypatch, cap
     assert [r.name for r in caplog.records if r.levelno == logging.WARNING] == ["source.bluetooth"]
 
 
+async def test_a_bluetoothd_silent_on_the_agent_cannot_hold_the_teardown(bt):
+    """The teardown unregisters the agent before it closes the exposure, inside
+    the same 3 s entry of main.py's CLEANUP_TIMEOUT_S: left to the per-call
+    D-Bus bound, a silent AgentManager1 spent it all, the exposure stayed open
+    and the sources after Bluetooth never got their shutdown."""
+    await bt.select()
+    bt.bluez.agent_gate = asyncio.Event()
+    await asyncio.wait_for(bt.source.shutdown(), 3)
+    assert not bt.exposed() and bt.blocked() == EVERY_SENDER
+
+
 async def test_a_backend_that_died_open_is_closed_at_its_next_start(bt):
     """Killed outright, the backend runs no teardown, and BlueZ keeps what it
     was told — Blocked is durable. The next backend never selects Bluetooth

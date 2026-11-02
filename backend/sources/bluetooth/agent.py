@@ -83,10 +83,10 @@ class BluetoothAgent(ServiceInterface):
         return True
 
     @handle_errors(default=False)
-    async def unregister(self) -> bool:
+    async def unregister(self, timeout: Optional[float] = None) -> bool:
         """
-        Unregister agent from BlueZ, within DBUS_CALL_TIMEOUT for the whole
-        exchange.
+        Unregister agent from BlueZ, within `timeout` (DBUS_CALL_TIMEOUT by
+        default) for the whole exchange.
 
         It runs inside the source's STOP, which nothing preempts, ahead of the
         exposure write. A bluetoothd that does not answer costs nothing past
@@ -99,7 +99,7 @@ class BluetoothAgent(ServiceInterface):
         if not self._registered or not self._bus:
             return True
 
-        bound = bluez_adapter.DBUS_CALL_TIMEOUT
+        bound = bluez_adapter.DBUS_CALL_TIMEOUT if timeout is None else timeout
         try:
             await asyncio.wait_for(self._unregister_from_bluez(), bound)
         except asyncio.TimeoutError:

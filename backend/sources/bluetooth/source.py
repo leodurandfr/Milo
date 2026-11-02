@@ -88,6 +88,9 @@ ADAPTER_CONFIGURE_RETRY_S = 0.5
 # shutdown. At boot the close holds the mailbox, so a Bluetooth selection waits
 # behind it inside its own 15 s transition budget.
 SHUTDOWN_EXPOSURE_TIMEOUT_S = 1.5
+# The agent goes first at teardown, inside the same entry. A timed-out
+# unregister costs nothing: BlueZ drops an agent whose bus connection closes.
+SHUTDOWN_AGENT_TIMEOUT_S = 0.5
 BOOT_EXPOSURE_TIMEOUT_S = 5.0
 
 
@@ -326,7 +329,7 @@ class BluetoothSource(BaseAudioSource):
     async def shutdown(self) -> None:
         await super().shutdown()
         was_running, self._running = self._running, False
-        await self._cleanup()
+        await self._cleanup(agent_timeout=SHUTDOWN_AGENT_TIMEOUT_S)
         # Only a running source opened anything; closing regardless would fail
         # on every teardown with bluetoothd stopped.
         if was_running:
@@ -817,12 +820,12 @@ class BluetoothSource(BaseAudioSource):
                 await self._link_up(address, name, running)
                 return
 
-    async def _cleanup(self) -> None:
+    async def _cleanup(self, agent_timeout: Optional[float] = None) -> None:
         """Stop the feeds and the agent, and forget what they said."""
         await self.monitor.stop()
         await self.avrcp.stop()
         if self.auto_agent:
-            await self.agent.unregister()
+            await self.agent.unregister(agent_timeout)
         self._discard_feed()
 
     # === The view (docs: "le fil") ===
