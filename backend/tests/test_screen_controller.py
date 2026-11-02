@@ -9,6 +9,7 @@ same success as one that took everything.
 """
 import asyncio
 import json
+import logging
 import types
 from pathlib import Path
 from time import monotonic
@@ -581,6 +582,117 @@ class TestTheSourceStateWatch:
             await controller._monitor_source_state()
 
         assert len(passes) == 2
+
+
+class TestOneSleepPerIdlePeriod:
+    """The inactivity loop decides again every second, from `screen_on` alone.
+
+    `screen_on` moves only when the panel takes a write, so a sleep that moved
+    nothing was replayed on every tick: on a unit with no panel to drive, one
+    `screen_sleep_changed` a second, each raising the wake shield over every
+    browser; on a panel that refuses the write, one shell, one ERROR and one
+    banner a second. The single-pass tests above cannot see either.
+    """
+
+    START = 10_000.0
+
+    def _controller(self, screen_type, monkeypatch, tmp_path):
+        hardware = Mock()
+        hardware.get_screen_type = Mock(return_value=screen_type)
+        settings = Mock()
+        settings.defaults = SettingsService().defaults
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+        # The DSI branch globs the real sysfs, and this host has a backlight.
+        (tmp_path / "no-backlight").mkdir()
+        monkeypatch.setattr("backend.hardware.screen.Path", lambda _root: tmp_path / "no-backlight")
+        controller = ScreenController(state_machine, settings, hardware, AsyncMock())
+        controller.screen_on = True
+        controller.running = True
+        controller.boot_time = None
+        controller.session_live = False
+        controller.last_activity_time = self.START - 600
+        return controller
+
+    async def _run(self, controller, passes, proc):
+        """Run the loop for `passes` ticks on a clock that advances by each sleep."""
+        clock = [self.START]
+        ticks = []
+
+        async def tick(delay):
+            clock[0] += delay
+            ticks.append(delay)
+            if len(ticks) >= passes:
+                controller.running = False
+
+        with patch("backend.hardware.screen.monotonic", lambda: clock[0]), \
+                patch("asyncio.create_subprocess_shell", return_value=proc) as shell, \
+                patch("asyncio.sleep", new=AsyncMock(side_effect=tick)):
+            await controller._monitor_timeout()
+        return shell
+
+    @staticmethod
+    def _errors(caplog):
+        return [
+            record for record in caplog.records
+            if record.name == "backend.hardware.screen" and record.levelno >= logging.ERROR
+        ]
+
+    @pytest.mark.parametrize("screen_type", ["none", "waveshare_8_dsi"])
+    async def test_a_screenless_unit_never_announces_sleep(
+        self, screen_type, monkeypatch, tmp_path
+    ):
+        """"No screen" is the setup default: a remote browser is then the only
+        interface, and a shield raised every second makes it unusable."""
+        controller = self._controller(screen_type, monkeypatch, tmp_path)
+        controller.timeout_seconds = 1
+
+        shell = await self._run(controller, 3, _make_proc())
+
+        shell.assert_not_called()
+        controller.state_machine.broadcast.assert_not_awaited()
+
+    async def test_force_sleep_on_a_screenless_unit_announces_nothing(
+        self, monkeypatch, tmp_path
+    ):
+        """The IR MENU long-press must not tell the browsers a panel went dark."""
+        controller = self._controller("none", monkeypatch, tmp_path)
+
+        await controller.force_sleep()
+
+        controller.state_machine.broadcast.assert_not_awaited()
+
+    async def test_a_refused_sleep_is_not_retried_every_second(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        controller = self._controller("waveshare_7_usb", monkeypatch, tmp_path)
+        controller.timeout_seconds = 60
+
+        shell = await self._run(controller, 5, _make_proc(returncode=1, stderr=b"Permission denied"))
+
+        assert shell.call_count == 1, "the refused write was retried on the next ticks"
+        assert len(self._errors(caplog)) == 1
+        controller.state_machine.broadcast.assert_not_awaited()
+
+    async def test_one_outage_logs_one_error_until_the_panel_takes_a_write(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        """Each ERROR is a banner on every screen: a panel that keeps refusing is
+        reported once, and a refusal after it recovered is a new outage."""
+        controller = self._controller("waveshare_7_usb", monkeypatch, tmp_path)
+        controller.timeout_seconds = 3
+
+        shell = await self._run(controller, 5, _make_proc(returncode=1))
+
+        assert shell.call_count == 2, "a refused sleep is retried one timeout later"
+        assert len(self._errors(caplog)) == 1
+
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc()):
+            assert await controller.apply_screen_config(5) is True
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)):
+            await controller.force_sleep()
+
+        assert len(self._errors(caplog)) == 2
 
 
 class TestPanelsWithNoBacklightToDrive:

@@ -59,6 +59,10 @@ class ScreenController:
         self.boot_time = None  # Will be set during initialize()
         self.boot_grace_period = 30  # Will be calculated as max(30, timeout_seconds) during initialize()
         self.screen_on = True
+        # Set by the first refused backlight write of an outage, cleared by the
+        # next accepted one: the inactivity loop retries once per timeout, and
+        # every ERROR reaches the UI as a banner.
+        self._refusal_reported = False
         self.running = False
         # A session is live on the selected source: the screen stays awake.
         self.session_live = False
@@ -249,19 +253,27 @@ class ScreenController:
             _, stderr = await asyncio.wait_for(process.communicate(), 5.0)
         except asyncio.TimeoutError:
             process.kill()
-            self.logger.error(f"Timeout executing screen command: {cmd}")
+            self._report_refusal(f"Timeout executing screen command: {cmd}")
             return False
 
         if process.returncode != 0:
-            self.logger.error(
-                f"Screen command failed ({process.returncode}): {cmd} — {stderr.decode().strip()}"
+            self._report_refusal(
+                f"Screen command failed ({process.returncode}): {cmd} — {stderr.decode(errors='replace').strip()}"
             )
             return False
+
+        self._refusal_reported = False
 
         # Determine if screen is on by comparing with screen_off_cmd
         # (if command is screen_off_cmd, screen is off, otherwise it's on)
         self.screen_on = (cmd != self.screen_off_cmd)
         return True
+
+    def _report_refusal(self, message: str) -> None:
+        """The first refusal of an outage at error level, the ones after it at debug."""
+        level = logging.DEBUG if self._refusal_reported else logging.ERROR
+        self._refusal_reported = True
+        self.logger.log(level, message)
 
     @handle_errors(default=None)
     async def _broadcast_sleep_state(self, sleeping: bool):
@@ -304,6 +316,13 @@ class ScreenController:
                     await asyncio.sleep(5)
                     continue
 
+                # No panel to drive (no screen, a DSI panel with no backlight
+                # node): `_screen_cmd` answers True and moves nothing, so every
+                # tick would announce a sleep that never happens.
+                if not self.screen_off_cmd:
+                    await asyncio.sleep(5)
+                    continue
+
                 # Grace period after boot: don't turn off screen during the first X seconds
                 if self.boot_time is not None:
                     time_since_boot = monotonic() - self.boot_time
@@ -328,9 +347,13 @@ class ScreenController:
                 )
 
                 if should_turn_off:
-                    self.logger.info(f"Screen turning OFF after {time_since_activity:.1f}s (timeout: {self.timeout_seconds}s)")
                     if await self._screen_cmd(self.screen_off_cmd):
+                        self.logger.info(f"Screen turned OFF after {time_since_activity:.1f}s (timeout: {self.timeout_seconds}s)")
                         await self._broadcast_sleep_state(True)
+                    else:
+                        # screen_on did not move: without this the refused write
+                        # is retried on the next tick, once a second.
+                        self.last_activity_time = monotonic()
 
                 await asyncio.sleep(1)
 
@@ -351,9 +374,10 @@ class ScreenController:
 
         Symmetric to `on_touch_detected()` — used by hardware controllers
         (e.g. IR remote MENU long-press) to short-circuit the inactivity
-        timer and turn the screen off on demand. No-op if already sleeping.
+        timer and turn the screen off on demand. No-op if already sleeping,
+        or with no panel to drive.
         """
-        if not self.screen_on:
+        if not self.screen_on or not self.screen_off_cmd:
             return
         if await self._screen_cmd(self.screen_off_cmd):
             await self._broadcast_sleep_state(True)
