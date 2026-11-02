@@ -120,7 +120,9 @@ def create_equalizer_router(
         async with api_error_handler(f"Error getting equalizer for target {target}", logger):
             target_type, target_id = _resolve_target(target)
 
-            # Validate existence up front so an unknown target fails loud (404):
+            # Validate existence up front so an unknown target answers 404, logged
+            # at warning: it is the caller's mistake, and at error it would raise
+            # the backend-error banner on every open screen.
             #  - remote client → must be in the registry (the local sentinel has no
             #    entry; without this the access layer would hand back a neutral
             #    default record and mask the unknown MAC).
@@ -131,17 +133,13 @@ def create_equalizer_router(
                 and client_registry_service
                 and not client_registry_service.get_client(target_id)
             ):
-                logger.error(f"Equalizer read for unknown client: {target_id}")
+                logger.warning(f"Equalizer read for unknown client: {target_id}")
                 raise HTTPException(status_code=404, detail=f"Client not found: {target_id}")
 
-            try:
-                record = await multiroom_equalizer_service.get_equalizer(target_type, target_id)
-            except ValueError as e:
-                logger.error(f"Equalizer read failed for target {target}: {e}")
-                raise HTTPException(status_code=404, detail=str(e))
+            record = await multiroom_equalizer_service.get_equalizer(target_type, target_id)
             if record is None:
                 # Only reachable for an unknown zone — a client always yields a record.
-                logger.error(f"Equalizer target not found: {target}")
+                logger.warning(f"Equalizer target not found: {target}")
                 raise HTTPException(status_code=404, detail=f"Equalizer target not found: {target}")
 
             # Live connection state for the UI (the record carries no runtime state).
@@ -188,7 +186,7 @@ def create_equalizer_router(
                     enabled=payload.enabled,
                 )
             except ValueError as e:
-                logger.error(f"Filter update failed for target {target}: {e}")
+                logger.warning(f"Filter update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target, "filter_id": filter_id}
 
@@ -209,7 +207,7 @@ def create_equalizer_router(
                     makeup_gain=payload.makeup_gain,
                 )
             except ValueError as e:
-                logger.error(f"Compressor update failed for target {target}: {e}")
+                logger.warning(f"Compressor update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target}
 
@@ -227,7 +225,7 @@ def create_equalizer_router(
                     low_boost=payload.low_boost,
                 )
             except ValueError as e:
-                logger.error(f"Loudness update failed for target {target}: {e}")
+                logger.warning(f"Loudness update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target}
 
@@ -251,7 +249,7 @@ def create_equalizer_router(
                     enabled=enabled,
                 )
             except ValueError as e:
-                logger.error(f"Mono update failed for target {target}: {e}")
+                logger.warning(f"Mono update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success", "target": target, "mono": enabled}
 
@@ -267,7 +265,7 @@ def create_equalizer_router(
         async with api_error_handler(f"Error setting crossover for target {target}", logger):
             target_type, zone_id = _resolve_target(target)
             if target_type != "zone":
-                logger.error("Crossover requested for a non-zone target: %s", target)
+                logger.warning("Crossover requested for a non-zone target: %s", target)
                 raise HTTPException(
                     status_code=400,
                     detail="Crossover applies to zone targets only (zone:<id>)",
@@ -309,7 +307,7 @@ def create_equalizer_router(
                         target_id, enabled, routing_service
                     )
             except ValueError as e:
-                logger.error(f"Equalizer enabled update failed for target {target}: {e}")
+                logger.warning(f"Equalizer enabled update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             return {"status": "success" if success else "error", "target": target, "enabled": enabled}
 
@@ -328,7 +326,7 @@ def create_equalizer_router(
                     target_type, target_id, payload.preset_id
                 )
             except ValueError as e:
-                logger.error(f"Preset load failed for target {target}: {e}")
+                logger.warning(f"Preset load failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             if not success:
                 logger.error(f"Preset {payload.preset_id} not applied to target {target}")
@@ -351,7 +349,7 @@ def create_equalizer_router(
             try:
                 saved = await multiroom_equalizer_service.save_custom_preset(target_type, target_id)
             except ValueError as e:
-                logger.error(f"Custom-preset save failed for target {target}: {e}")
+                logger.warning(f"Custom-preset save failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             if not saved:
                 logger.error(f"Custom preset not applied to target {target}")

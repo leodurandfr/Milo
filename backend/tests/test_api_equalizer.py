@@ -10,6 +10,7 @@ family and the /zone/{id}/* family. Every read/write now flows through one gramm
 that the route resolves to (target_type, target_id) and dispatches to the access
 layer (MultiroomEqualizerService).
 """
+import logging
 from types import SimpleNamespace
 from unittest.mock import Mock, AsyncMock
 
@@ -559,13 +560,6 @@ class TestUnknownTargetsAreNamedNotSwallowed:
         assert response.status_code == 404
         assert "unknown zone: 7" in response.json()["detail"]
 
-    def test_a_read_of_a_vanished_zone_is_a_404(self, client, mock_mre):
-        mock_mre.get_equalizer = AsyncMock(side_effect=ValueError("unknown zone: 7"))
-
-        response = client.get("/api/equalizer/target/zone:7")
-
-        assert response.status_code == 404
-
     def test_a_zone_the_access_layer_simply_does_not_know_is_a_404(self, client, mock_mre):
         """The other shape of the same absence: no raise, an empty record. Left
         untranslated it becomes a 200 carrying `null`, which the EQ view renders
@@ -614,6 +608,111 @@ class TestUnknownTargetsAreNamedNotSwallowed:
         response = client.put("/api/equalizer/target/zone:7/crossover", json={"frequency": 120})
 
         assert response.status_code == 500
+
+
+class TestACallerMistakeRaisesNoBanner:
+    """A 4xx the caller caused is logged at warning, never at error.
+
+    `main.py` hangs the `WebSocketLogHandler` on the `backend` logger at ERROR,
+    and every record it takes becomes `system/backend_error`, the red banner on
+    every open screen. Seen in `errors.log` on 2026-10-30: one `curl` to
+    `GET /api/equalizer/target/salon` from another machine on the LAN was logged
+    at ERROR, so every screen showed "Backend error" for a request the server
+    answered correctly. The warning still lands in `errors.log`. The
+    registry and the access layer are real here, so each refusal is the one
+    production raises; only the local DSP, the satellites' HTTP, routing and the
+    broadcast are mocked.
+    """
+
+    UNKNOWN_MAC = "aa:bb:cc:dd:ee:ff"
+
+    MISTAKES = [
+        ("get", f"/target/{UNKNOWN_MAC}", None, 404),
+        ("get", "/target/zone:nope", None, 404),
+        ("put", "/target/zone:nope/filter/eq_band_00", {"gain": 1.0}, 404),
+        ("put", "/target/zone:nope/compressor", {"enabled": True, "threshold": -25.0}, 404),
+        ("put", "/target/zone:nope/loudness", {"enabled": True}, 404),
+        ("put", "/target/zone:nope/mono", {"enabled": True}, 404),
+        ("put", "/target/zone:nope/enabled", {"enabled": True}, 404),
+        ("put", f"/target/{UNKNOWN_MAC}/crossover", {"frequency": 120}, 400),
+        ("post", "/target/zone:nope/preset", {"preset_id": "rock"}, 404),
+        ("post", "/target/local/preset", {"preset_id": "nope"}, 404),
+        ("post", "/target/zone:nope/save-custom", None, 404),
+    ]
+
+    @pytest.fixture
+    async def app(self):
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+
+        camilladsp = Mock()
+        camilladsp.get_equalizer_settings = Mock(return_value=EqualizerSettings.default())
+        camilladsp.get_status = AsyncMock(return_value={"available": True, "state": "running"})
+        proxy = Mock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        routing = Mock()
+        routing.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+
+        app = FastAPI()
+        app.include_router(create_equalizer_router(
+            camilladsp_service=camilladsp,
+            routing_service=routing,
+            crossover_service=Mock(),
+            client_registry_service=registry,
+            multiroom_equalizer_service=MultiroomEqualizerService(
+                client_registry_service=registry,
+                camilladsp_service=camilladsp,
+                proxy_service=proxy,
+                routing_service=routing,
+                state_machine=state_machine,
+            ),
+        ))
+        return app
+
+    @pytest.mark.parametrize("verb,path,body,status", MISTAKES)
+    async def test_a_caller_mistake_answers_4xx_without_an_error_record(
+        self, app, caplog, verb, path, body, status
+    ):
+        caplog.set_level(logging.WARNING)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            kwargs = {} if body is None else {"json": body}
+            response = await http.request(verb.upper(), f"/api/equalizer{path}", **kwargs)
+
+        assert response.status_code == status
+        banner = [
+            r.getMessage() for r in caplog.records
+            if r.levelno >= logging.ERROR and r.name.startswith("backend")
+        ]
+        assert banner == [], "a caller's mistake reaches the error banner"
+        assert any(
+            r.levelno == logging.WARNING and r.name == "backend.api.equalizer"
+            for r in caplog.records
+        ), "the refusal leaves no trace in errors.log"
+
+    @pytest.mark.parametrize("verb,path,body,status", [
+        ("put", "/target/zone:7/crossover", {"frequency": 120}, 500),
+        ("post", "/target/zone:7/preset", {"preset_id": "rock"}, 502),
+    ])
+    def test_a_refusal_the_server_could_not_carry_out_still_logs_an_error(
+        self, client, mock_crossover, mock_mre, caplog, verb, path, body, status
+    ):
+        """The other side of the line: a target that exists and did not take
+        the write is a fault of the appliance, and the banner is how it is seen."""
+        mock_crossover.set_zone_crossover_frequency = AsyncMock(return_value=False)
+        mock_mre.load_preset = AsyncMock(return_value=(False, [1.0] * 10))
+
+        response = client.request(verb.upper(), f"/api/equalizer{path}", json=body)
+
+        assert response.status_code == status
+        assert any(
+            r.levelno == logging.ERROR and r.name == "backend.api.equalizer"
+            for r in caplog.records
+        )
 
 
 class TestLevelsMonitorKeepalive:
