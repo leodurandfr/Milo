@@ -10,6 +10,7 @@ One EQ record per client is the source of truth; a zone holds no EQ of its own
 - partial updates (per-member persistence + targeted broadcast)
 - local DSP application + the active-preset name sync
 """
+import asyncio
 import logging
 from types import SimpleNamespace
 
@@ -1153,6 +1154,64 @@ class TestPartialUpdateMethods:
             await multiroom_equalizer_service.update_compressor("client", "unknown-mac", enabled=True)
 
 
+SALON_LOCAL = "2c:cf:67:00:00:01"
+SALON_CANAPE = "dc:a6:32:7e:d3:43"
+
+
+@pytest.fixture
+async def salon(mock_camilla_client, camilla_daemon, tmp_path, monkeypatch):
+    """Build the zone Salon = this unit + Canapé, Canapé online."""
+    monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
+    dsps = []
+    registries = []
+
+    async def build(*, local_online, dsp_connected=True):
+        dsp = CamillaDSPService(settings_service=Mock(
+            get_setting=AsyncMock(return_value=None), set_setting=AsyncMock()
+        ))
+        dsps.append(dsp)
+        if dsp_connected:
+            dsp._client = mock_camilla_client
+            dsp._connected = True
+        camilla_daemon.load({"filters": {"eq_band_00": {
+            "type": "Biquad",
+            "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41},
+        }}, "pipeline": []})
+
+        registry = ClientRegistryService(settings_service=AsyncMock(
+            get_setting=AsyncMock(return_value=None)
+        ))
+        registries.append(registry)
+        await registry.initialize()
+        await registry.register_client(SALON_LOCAL, "Milō", "127.0.0.1")
+        await registry.register_client(SALON_CANAPE, "Canapé", "192.168.1.153")
+        await registry.set_client_online(SALON_CANAPE, True)
+        if local_online:
+            await registry.set_client_online(SALON_LOCAL, True)
+        await registry.create_zone("salon", "Salon", [SALON_LOCAL, SALON_CANAPE])
+
+        proxy = Mock(request=AsyncMock(return_value={"status": "success"}))
+        state_machine = Mock(broadcast=AsyncMock())
+        service = MultiroomEqualizerService(
+            client_registry_service=registry,
+            camilladsp_service=dsp,
+            proxy_service=proxy,
+            equalizer_router=EqualizerRouter(registry, dsp, proxy),
+            state_machine=state_machine,
+        )
+        return SimpleNamespace(
+            service=service, registry=registry, proxy=proxy, state_machine=state_machine
+        )
+
+    yield build
+    for dsp in dsps:
+        # Flushes the debounced equalizer.json write into tmp_path.
+        await dsp.cleanup()
+    for registry in registries:
+        # Flushes the debounced multiroom write into the settings double.
+        await registry.cleanup()
+
+
 class TestLocalMemberOfflineInTheRegistry:
     """This unit's DSP does not depend on its snapclient.
 
@@ -1166,55 +1225,6 @@ class TestLocalMemberOfflineInTheRegistry:
     The registry, the router and the DSP service are real; CamillaDSP's daemon
     and the satellite's HTTP are the outside world.
     """
-
-    LOCAL = "2c:cf:67:00:00:01"
-    CANAPE = "dc:a6:32:7e:d3:43"
-
-    @pytest.fixture
-    async def salon(self, mock_camilla_client, camilla_daemon, tmp_path, monkeypatch):
-        """Build the zone Salon = this unit + Canapé, Canapé online."""
-        monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
-        dsps = []
-
-        async def build(*, local_online, dsp_connected=True):
-            dsp = CamillaDSPService(settings_service=Mock(
-                get_setting=AsyncMock(return_value=None), set_setting=AsyncMock()
-            ))
-            dsps.append(dsp)
-            if dsp_connected:
-                dsp._client = mock_camilla_client
-                dsp._connected = True
-            camilla_daemon.load({"filters": {"eq_band_00": {
-                "type": "Biquad",
-                "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41},
-            }}, "pipeline": []})
-
-            registry = ClientRegistryService(settings_service=AsyncMock(
-                get_setting=AsyncMock(return_value=None)
-            ))
-            await registry.initialize()
-            await registry.register_client(self.LOCAL, "Milō", "127.0.0.1")
-            await registry.register_client(self.CANAPE, "Canapé", "192.168.1.153")
-            await registry.set_client_online(self.CANAPE, True)
-            if local_online:
-                await registry.set_client_online(self.LOCAL, True)
-            await registry.create_zone("salon", "Salon", [self.LOCAL, self.CANAPE])
-
-            proxy = Mock(request=AsyncMock(return_value={"status": "success"}))
-            state_machine = Mock(broadcast=AsyncMock())
-            service = MultiroomEqualizerService(
-                client_registry_service=registry,
-                camilladsp_service=dsp,
-                proxy_service=proxy,
-                equalizer_router=EqualizerRouter(registry, dsp, proxy),
-                state_machine=state_machine,
-            )
-            return SimpleNamespace(service=service, proxy=proxy, state_machine=state_machine)
-
-        yield build
-        for dsp in dsps:
-            # Flushes the debounced equalizer.json write into tmp_path.
-            await dsp.cleanup()
 
     @staticmethod
     def announced_gain(world):
@@ -1256,6 +1266,113 @@ class TestLocalMemberOfflineInTheRegistry:
         assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
         assert camilla_daemon.pushed_configs == []
         assert (await world.service.get_zone_eq("salon")).filters[0].gain == self.announced_gain(world)
+
+
+class TestConcurrentZoneEdits:
+    """Two partial edits of one zone, the second sent while the first is in flight.
+
+    A zone that holds this unit reads its record from the local DSP's cache,
+    which takes a band only once the daemon has answered. Read before that, the
+    second edit wrote the whole record, the first band still at its old value,
+    into the satellite's registry entry. Both rooms played both edits, but the
+    admission after the satellite's next restart replays that entry: its band
+    went back, and the two rooms no longer matched.
+
+    The registry, the router and the DSP service are real; CamillaDSP's daemon
+    and the satellite's HTTP are the outside world.
+    """
+
+    @staticmethod
+    def park_the_first_config_read(mock_camilla_client, camilla_daemon):
+        """Hold the daemon's first config read until the returned gate opens."""
+        parked, gate = asyncio.Event(), asyncio.Event()
+        reads = 0
+
+        async def get_config():
+            nonlocal reads
+            reads += 1
+            if reads == 1:
+                parked.set()
+                await gate.wait()
+            return camilla_daemon.get_config()
+
+        mock_camilla_client.get_config.side_effect = get_config
+        return parked, gate
+
+    @staticmethod
+    def band_gain(record, band_id):
+        return next(f.gain for f in record.filters if f.id == band_id)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("second_edit, read_second, expected", [
+        (
+            lambda service: service.update_filter("zone", "salon", "eq_band_07", gain=2.0),
+            lambda record: TestConcurrentZoneEdits.band_gain(record, "eq_band_07"),
+            2.0,
+        ),
+        (
+            lambda service: service.update_compressor("zone", "salon", threshold=-30.0),
+            lambda record: record.compressor.threshold,
+            -30.0,
+        ),
+    ], ids=["band", "compressor"])
+    async def test_two_quick_zone_edits_leave_both_in_the_satellite_record(
+        self, salon, mock_camilla_client, camilla_daemon, second_edit, read_second, expected
+    ):
+        world = await salon(local_online=True)
+        parked, gate = self.park_the_first_config_read(mock_camilla_client, camilla_daemon)
+
+        first = asyncio.create_task(
+            world.service.update_filter("zone", "salon", "eq_band_03", gain=4.0)
+        )
+        await parked.wait()
+        # Scheduled before the first edit can wake: it runs its first step while
+        # the band is still on its way to the daemon.
+        second = asyncio.create_task(second_edit(world.service))
+        gate.set()
+        await asyncio.gather(first, second)
+
+        assert camilla_daemon.active_config["filters"]["eq_band_03"]["parameters"]["gain"] == 4.0
+        satellite = world.registry.get_client_equalizer(SALON_CANAPE)
+        zone = await world.service.get_zone_eq("salon")
+        for record in (satellite, zone):
+            assert self.band_gain(record, "eq_band_03") == 4.0
+            assert read_second(record) == expected
+
+    @pytest.mark.asyncio
+    async def test_a_satellite_that_stopped_answering_holds_no_edit_of_this_room(
+        self, salon, camilla_daemon
+    ):
+        """The satellites are sent an edit once its lock is released. Held across
+        their HTTP, a satellite that stopped answering would hold each step of a
+        band drag on this room behind its 10 s timeout, one step after another."""
+        world = await salon(local_online=True)
+        parked, gate = asyncio.Event(), asyncio.Event()
+
+        async def satellite(hostname, method, path, body=None, **_):
+            if not parked.is_set():
+                parked.set()
+                await gate.wait()
+            return {"status": "success"}
+
+        world.proxy.request.side_effect = satellite
+
+        first = asyncio.create_task(
+            world.service.update_filter("zone", "salon", "eq_band_03", gain=4.0)
+        )
+        await parked.wait()
+        # A hang guard, not a budget: held behind the first edit, this never returns.
+        await asyncio.wait_for(
+            world.service.update_filter("zone", "salon", "eq_band_07", gain=2.0), timeout=5
+        )
+
+        assert not first.done()
+        assert camilla_daemon.active_config["filters"]["eq_band_07"]["parameters"]["gain"] == 2.0
+        gate.set()
+        await first
+        satellite_record = world.registry.get_client_equalizer(SALON_CANAPE)
+        assert self.band_gain(satellite_record, "eq_band_03") == 4.0
+        assert self.band_gain(satellite_record, "eq_band_07") == 2.0
 
 
 # =============================================================================

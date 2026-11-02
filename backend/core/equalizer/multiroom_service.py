@@ -20,7 +20,8 @@ Architecture:
 """
 import asyncio
 import logging
-from typing import Optional
+import weakref
+from typing import Callable, Optional
 
 from backend.core.equalizer.eq_response import record_headroom_db
 from backend.core.models.ws_events import (
@@ -93,6 +94,12 @@ class MultiroomEqualizerService:
 
         # Async lock for thread safety
         self._lock = asyncio.Lock()
+        # One per target, held by a partial edit (see _partial_lock). Weak: a
+        # lock lives while an edit holds or awaits it, so a target that is gone,
+        # or never existed, leaves nothing behind.
+        self._partial_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
+            weakref.WeakValueDictionary()
+        )
 
         self.logger.info("MultiroomEqualizerService created")
 
@@ -524,40 +531,65 @@ class MultiroomEqualizerService:
     # Partial Equalizer Update Methods
     # =========================================================================
 
+    def _partial_lock(self, target_type: str, target_id: str) -> asyncio.Lock:
+        """The lock that serializes the partial edits of one target.
+
+        The local unit is one key whichever way it is addressed (the sentinel or
+        its registered MAC). Distinct from ``self._lock`` (a zone's whole-record
+        write); the registry's lock and the DSP's ``_config_lock`` are only ever
+        taken inside it.
+        """
+        if target_type == "client" and self._is_local(target_id):
+            target_id = LOCAL_TARGET
+        key = f"{target_type}:{target_id}"
+        lock = self._partial_locks.get(key)
+        if lock is None:
+            lock = self._partial_locks[key] = asyncio.Lock()
+        return lock
+
     async def _apply_partial_update(
         self,
         target_type: str,
         target_id: str,
-        current: EqualizerSettings,
         router_method: str,
-        router_kwargs: dict,
-        broadcast_settings: dict,
+        edit: Callable[[EqualizerSettings], tuple[dict, dict]],
     ) -> bool:
         """
-        Shared logic for partial equalizer updates (persist → route → broadcast).
+        Shared logic for partial equalizer updates (read → persist → route → broadcast).
 
-        1. Persist `current` to each affected member's per-client record (remote →
+        1. Read the target's record and let `edit` change it in place; `edit`
+           returns the router's kwargs and the partial settings to broadcast
+        2. Persist it to each affected member's per-client record (remote →
            registry, each keeping its own ``enabled``; local → its live DSP
            snapshot, after the router applies below)
-        2. Route the targeted update via EqualizerRouter to the online remote
-           members, plus the local member whenever its DSP is connected — its DSP
-           does not depend on its snapclient
-        3. Broadcast targeted WebSocket event with only the changed sub-object
+        3. Route the targeted update via EqualizerRouter to the local member
+           whenever its DSP is connected — its DSP does not depend on its
+           snapclient — then to the online remote members
+        4. Broadcast targeted WebSocket event with only the changed sub-object
+
+        Everything up to the local member's apply runs under the target's
+        ``_partial_lock``. A zone that holds this unit reads its record from the
+        local DSP's cache, which takes a band only once the daemon has answered;
+        a second edit read in that window stored the first band's old value in
+        every satellite's record, and the admission after the satellite's next
+        restart replays that record, so its band went back while this room kept
+        it. The satellites are sent the update once the lock is released: one
+        that has stopped answering holds a request for up to 10 s, and a band
+        drag sends 20 a second.
 
         Raises whatever the fan-out raised (typically ``SatelliteUnreachable``,
-        which the api/ layer maps to a 503) once the three steps are done — a
+        which the api/ layer maps to a 503) once the four steps are done — a
         member that refused the command must not be reported as applied.
 
         Args:
             target_type: "zone" or "client"
             target_id: Zone ID or client MAC ID
-            current: The mutated EqualizerSettings to persist
             router_method: EqualizerRouter method name (e.g., "update_filter")
-            router_kwargs: Kwargs for the router method (excluding mac_id, persist, broadcast)
-            broadcast_settings: Partial equalizer_settings dict for the WebSocket broadcast
+            edit: Mutates the record; returns the router's kwargs (excluding
+                mac_id and persist) and the broadcast's equalizer_settings
         """
-        # A client target must be a known client (a zone target is validated by the
-        # caller via get_zone). Fail loud so an unknown MAC surfaces as 404 instead
+        # A client target must be a known client (a zone target is validated by
+        # its read below). Fail loud so an unknown MAC surfaces as 404 instead
         # of silently materializing a phantom per-client record. The local sentinel
         # is exempt — it has no registry entry when multiroom is off.
         if (
@@ -568,95 +600,118 @@ class MultiroomEqualizerService:
         ):
             raise ValueError(f"Client not found: {target_id}")
 
-        # Resolve the affected members (zone fan-out, or a single client). A zone
-        # member that detached its EQ is excluded — it is edited as its own client.
-        if target_type == "zone":
-            zone = self._registry.get_zone(target_id)
-            members = [
-                m for m in zone.client_ids if not self._is_eq_independent(m)
-            ] if zone else []
-        else:
-            members = [target_id]
-
-        # Persist `current` to each REMOTE member's record (the per-client source
-        # of truth — a fresh copy each, so members never alias) in ONE write: the
-        # registry rewrites the whole of settings.json per call, and a drag emits
-        # 20 requests a second. The local member is persisted from its live DSP
-        # cache below, after the router applies.
-        local_touched = any(self._is_local(member) for member in members)
-        remote_records = {
-            member: self._member_record(member, current)
-            for member in members
-            if not self._is_local(member)
-        }
-        if remote_records and self._registry:
-            await self._registry.set_clients_equalizer(
-                remote_records, broadcast=False, defer_persist=True
-            )
-
-        # Route the targeted update via EqualizerRouter to the online remote
-        # members, and to the local member whenever its DSP is connected, whatever
-        # the registry says: its DSP does not depend on its snapclient, which the
-        # registry holds offline at boot and through every snapclient restart, and
-        # its readmission re-pushes nothing local. A disconnected DSP is captured
-        # below instead, so routing it would only log a failure for a staged write.
-        fanout_error: Optional[BaseException] = None
-        if self._equalizer_router:
-            method = getattr(self._equalizer_router, router_method)
-            if target_type == "zone":
-                targets = [
-                    c.mac_id for c in self._registry.get_online_zone_clients(target_id)
-                    if not self._is_eq_independent(c.mac_id) and not self._is_local(c.mac_id)
-                ]
-                if local_touched and self._camilladsp_service and self._camilladsp_service.connected:
-                    targets.append(next(m for m in members if self._is_local(m)))
-                if targets:
-                    results = await asyncio.gather(
-                        *[method(mac_id=mac_id, persist=False, **router_kwargs)
-                          for mac_id in targets],
-                        return_exceptions=True,
-                    )
-                    # Same outcome as the single-client branch below, which lets a
-                    # SatelliteUnreachable reach api_error_handler (→ 503): gather
-                    # holds the exceptions back, it does not make the write
-                    # succeed. Every member is named in the log first, since one
-                    # raise can only carry one of them. "skipped" is not a failure
-                    # — the client went offline between the online filter and the
-                    # call, and its record above syncs on reconnection.
-                    outcomes = [
-                        r if isinstance(r, BaseException) else r.get("status") != "error"
-                        for r in results
-                    ]
-                    failed_members(
-                        self.logger,
-                        f"Zone {target_id} {router_method}",
-                        targets,
-                        outcomes,
-                    )
-                    # Raised at the end, not here: the members that DID take the
-                    # update still need the local snapshot and the broadcast below,
-                    # or equalizer.json drifts from the DSP the router just wrote.
-                    fanout_error = next(
-                        (r for r in results if isinstance(r, BaseException)), None
-                    )
-            else:
-                await method(mac_id=target_id, persist=False, **router_kwargs)
-        else:
+        dsp = self._camilladsp_service
+        method = getattr(self._equalizer_router, router_method) if self._equalizer_router else None
+        if method is None:
             self.logger.warning(f"EqualizerRouter not available, {router_method} not applied to clients")
 
-        # Persist the local member's record so it survives a restart. When the DSP
-        # is connected the router already applied the targeted change to the live
-        # cache, so we schedule a snapshot of it — debounced, because this is the
-        # drag path and an immediate write here cost one full rewrite + fsync of
-        # equalizer.json per throttled request. When it is disconnected the router
-        # no-op'd, so we capture the intended record into the cache + equalizer.json
-        # instead — restore_effects() re-pushes it on reconnect (no drift from
-        # remote members), and that branch stays immediate: it is not a hot path.
-        if local_touched and self._camilladsp_service:
-            if self._camilladsp_service.connected:
-                self._camilladsp_service.schedule_persist()
+        targets: list[str] = []
+        results: list = []
+        async with self._partial_lock(target_type, target_id):
+            current = await self.get_equalizer(target_type, target_id)
+            if not current:
+                raise ValueError(f"{target_type} not found: {target_id}")
+            router_kwargs, broadcast_settings = edit(current)
+
+            # Resolve the affected members (zone fan-out, or a single client). A zone
+            # member that detached its EQ is excluded — it is edited as its own client.
+            if target_type == "zone":
+                zone = self._registry.get_zone(target_id)
+                members = [
+                    m for m in zone.client_ids if not self._is_eq_independent(m)
+                ] if zone else []
             else:
-                await self._camilladsp_service.update_cache(current)
+                members = [target_id]
+
+            # Persist `current` to each REMOTE member's record (the per-client source
+            # of truth — a fresh copy each, so members never alias) in ONE write: the
+            # registry rewrites the whole of settings.json per call, and a drag emits
+            # 20 requests a second. The local member is persisted from its live DSP
+            # cache below, after the router applies.
+            local_member = next((m for m in members if self._is_local(m)), None)
+            remote_records = {
+                member: self._member_record(member, current)
+                for member in members
+                if not self._is_local(member)
+            }
+            if remote_records and self._registry:
+                await self._registry.set_clients_equalizer(
+                    remote_records, broadcast=False, defer_persist=True
+                )
+
+            # Route the targeted update to the local member whenever its DSP is
+            # connected, whatever the registry says: its DSP does not depend on its
+            # snapclient, which the registry holds offline at boot and through every
+            # snapclient restart, and its readmission re-pushes nothing local. A
+            # disconnected DSP is captured below instead, so routing it would only
+            # log a failure for a staged write.
+            if method and local_member:
+                if target_type != "zone":
+                    await method(mac_id=target_id, persist=False, **router_kwargs)
+                elif dsp and dsp.connected:
+                    targets.append(local_member)
+                    try:
+                        results.append(
+                            await method(mac_id=local_member, persist=False, **router_kwargs)
+                        )
+                    except Exception as exc:  # reported with the satellites' outcome below
+                        results.append(exc)
+
+            # Persist the local member's record so it survives a restart. When the DSP
+            # is connected the router already applied the targeted change to the live
+            # cache, so we schedule a snapshot of it — debounced, because this is the
+            # drag path and an immediate write here cost one full rewrite + fsync of
+            # equalizer.json per throttled request. When it is disconnected the router
+            # no-op'd, so we capture the intended record into the cache + equalizer.json
+            # instead — restore_effects() re-pushes it on reconnect (no drift from
+            # remote members), and that branch stays immediate: it is not a hot path.
+            if local_member and dsp:
+                if dsp.connected:
+                    dsp.schedule_persist()
+                else:
+                    await dsp.update_cache(current)
+
+            # The online remote members, chosen with the records written above.
+            remote_targets = [
+                c.mac_id for c in self._registry.get_online_zone_clients(target_id)
+                if not self._is_eq_independent(c.mac_id) and not self._is_local(c.mac_id)
+            ] if method and target_type == "zone" else []
+
+        # The satellites, past the lock. A single remote client raises straight
+        # through, before the broadcast.
+        if remote_targets:
+            targets += remote_targets
+            results += await asyncio.gather(
+                *[method(mac_id=mac_id, persist=False, **router_kwargs)
+                  for mac_id in remote_targets],
+                return_exceptions=True,
+            )
+        elif method and target_type != "zone" and not local_member:
+            await method(mac_id=target_id, persist=False, **router_kwargs)
+
+        # Same outcome as the single-client branch, which lets a SatelliteUnreachable
+        # reach api_error_handler (→ 503): gather holds the exceptions back, it does
+        # not make the write succeed. Every member is named in the log first, since
+        # one raise can only carry one of them. "skipped" is not a failure — the
+        # client went offline between the online filter and the call, and its
+        # record above syncs on reconnection.
+        fanout_error: Optional[BaseException] = None
+        if targets:
+            outcomes = [
+                r if isinstance(r, BaseException) else r.get("status") != "error"
+                for r in results
+            ]
+            failed_members(
+                self.logger,
+                f"Zone {target_id} {router_method}",
+                targets,
+                outcomes,
+            )
+            # Raised at the end, not here: the members that DID take the update
+            # still need the broadcast below.
+            fanout_error = next(
+                (r for r in results if isinstance(r, BaseException)), None
+            )
 
         # Broadcast targeted WebSocket event
         if self._state_machine:
@@ -713,34 +768,28 @@ class MultiroomEqualizerService:
         Returns:
             True if successful
         """
-        current = await self.get_equalizer(target_type, target_id)
-        if not current:
-            raise ValueError(f"{target_type} not found: {target_id}")
+        def edit(current: EqualizerSettings) -> tuple[dict, dict]:
+            # Find and update the filter in settings
+            updated_filter = None
+            for f in current.filters:
+                if f.id == filter_id:
+                    if frequency is not None:
+                        f.frequency = frequency
+                    if gain is not None:
+                        f.gain = gain
+                    if q is not None:
+                        f.q = q
+                    if filter_type is not None:
+                        f.filter_type = FilterType(filter_type)
+                    if enabled is not None:
+                        f.enabled = enabled
+                    updated_filter = f
+                    break
 
-        # Find and update the filter in settings
-        updated_filter = None
-        for f in current.filters:
-            if f.id == filter_id:
-                if frequency is not None:
-                    f.frequency = frequency
-                if gain is not None:
-                    f.gain = gain
-                if q is not None:
-                    f.q = q
-                if filter_type is not None:
-                    f.filter_type = FilterType(filter_type)
-                if enabled is not None:
-                    f.enabled = enabled
-                updated_filter = f
-                break
+            if not updated_filter:
+                raise ValueError(f"Filter not found: {filter_id}")
 
-        if not updated_filter:
-            raise ValueError(f"Filter not found: {filter_id}")
-
-        return await self._apply_partial_update(
-            target_type, target_id, current,
-            router_method="update_filter",
-            router_kwargs={
+            router_kwargs = {
                 "filter_id": filter_id,
                 "filter_data": {
                     "freq": updated_filter.frequency,
@@ -749,13 +798,15 @@ class MultiroomEqualizerService:
                     "filter_type": updated_filter.filter_type.value,
                     **self._headroom_for(target_type, target_id, current),
                 },
-            },
-            broadcast_settings={
+            }
+            broadcast_settings = {
                 # Wire shape (freq/type) — the frontend WS handler reads freq/type.
                 "filters": [updated_filter.to_wire_dict()],
                 "active_preset": current.active_preset,
-            },
-        )
+            }
+            return router_kwargs, broadcast_settings
+
+        return await self._apply_partial_update(target_type, target_id, "update_filter", edit)
 
     async def update_compressor(
         self,
@@ -787,28 +838,22 @@ class MultiroomEqualizerService:
         Returns:
             True if successful
         """
-        current = await self.get_equalizer(target_type, target_id)
-        if not current:
-            raise ValueError(f"{target_type} not found: {target_id}")
+        def edit(current: EqualizerSettings) -> tuple[dict, dict]:
+            comp = current.compressor
+            if enabled is not None:
+                comp.enabled = enabled
+            if threshold is not None:
+                comp.threshold = threshold
+            if ratio is not None:
+                comp.ratio = ratio
+            if attack is not None:
+                comp.attack = attack
+            if release is not None:
+                comp.release = release
+            if makeup_gain is not None:
+                comp.makeup_gain = makeup_gain
 
-        comp = current.compressor
-        if enabled is not None:
-            comp.enabled = enabled
-        if threshold is not None:
-            comp.threshold = threshold
-        if ratio is not None:
-            comp.ratio = ratio
-        if attack is not None:
-            comp.attack = attack
-        if release is not None:
-            comp.release = release
-        if makeup_gain is not None:
-            comp.makeup_gain = makeup_gain
-
-        return await self._apply_partial_update(
-            target_type, target_id, current,
-            router_method="set_compressor",
-            router_kwargs={
+            router_kwargs = {
                 "settings": {
                     "enabled": comp.enabled,
                     "threshold": comp.threshold,
@@ -817,9 +862,10 @@ class MultiroomEqualizerService:
                     "release": comp.release,
                     "makeup_gain": comp.makeup_gain,
                 },
-            },
-            broadcast_settings={"compressor": comp.to_dict()},
-        )
+            }
+            return router_kwargs, {"compressor": comp.to_dict()}
+
+        return await self._apply_partial_update(target_type, target_id, "set_compressor", edit)
 
     async def update_loudness(
         self,
@@ -845,30 +891,25 @@ class MultiroomEqualizerService:
         Returns:
             True if successful
         """
-        current = await self.get_equalizer(target_type, target_id)
-        if not current:
-            raise ValueError(f"{target_type} not found: {target_id}")
+        def edit(current: EqualizerSettings) -> tuple[dict, dict]:
+            loud = current.loudness
+            if enabled is not None:
+                loud.enabled = enabled
+            if high_boost is not None:
+                loud.high_boost = high_boost
+            if low_boost is not None:
+                loud.low_boost = low_boost
 
-        loud = current.loudness
-        if enabled is not None:
-            loud.enabled = enabled
-        if high_boost is not None:
-            loud.high_boost = high_boost
-        if low_boost is not None:
-            loud.low_boost = low_boost
-
-        return await self._apply_partial_update(
-            target_type, target_id, current,
-            router_method="set_loudness",
-            router_kwargs={
+            router_kwargs = {
                 "settings": {
                     "enabled": loud.enabled,
                     "high_boost": loud.high_boost,
                     "low_boost": loud.low_boost,
                 },
-            },
-            broadcast_settings={"loudness": loud.to_dict()},
-        )
+            }
+            return router_kwargs, {"loudness": loud.to_dict()}
+
+        return await self._apply_partial_update(target_type, target_id, "set_loudness", edit)
 
     async def update_mono(
         self,
@@ -890,18 +931,11 @@ class MultiroomEqualizerService:
         Returns:
             True if successful
         """
-        current = await self.get_equalizer(target_type, target_id)
-        if not current:
-            raise ValueError(f"{target_type} not found: {target_id}")
+        def edit(current: EqualizerSettings) -> tuple[dict, dict]:
+            current.mono = enabled
+            return {"settings": {"enabled": enabled}}, {"mono": enabled}
 
-        current.mono = enabled
-
-        return await self._apply_partial_update(
-            target_type, target_id, current,
-            router_method="set_mono",
-            router_kwargs={"settings": {"enabled": enabled}},
-            broadcast_settings={"mono": enabled},
-        )
+        return await self._apply_partial_update(target_type, target_id, "set_mono", edit)
 
     async def set_client_equalizer_effects_enabled(
         self, mac_id: str, enabled: bool, routing_service=None
