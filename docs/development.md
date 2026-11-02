@@ -634,7 +634,7 @@ standing in for the podcast catalogue and a mount layer underneath.**
   playlist / search): the frontend hands ordered Subsonic song dicts to
   `play_context`, the source maps each id to a stream URL and loads them as one mpv
   native playlist (`--gapless-audio`). The playing track is the state's `session`
-  (or its `resume` for 600 s after it stops), and the queue, its index, shuffle
+  (or its `resume` once it stops), and the queue, its index, shuffle
   and the current track/album/artist ids are its `details`
   (`kind: "music_library"`). `musicLibraryStore` derives now-playing from
   `unifiedAudioStore.systemState` gated on `source === 'music_library'`; the

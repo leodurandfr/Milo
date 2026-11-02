@@ -41,7 +41,6 @@ import asyncio
 import errno
 import os
 import random
-import time
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Set
 
@@ -824,7 +823,7 @@ class CdSource(MpvAudioSource):
         self._set_resume_point(
             replace(point, **moved) if point is not None and point.identity == self._toc.disc_id
             else ResumePoint(
-                identity=self._toc.disc_id, captured_at=time.monotonic(),
+                identity=self._toc.disc_id,
                 reason=EndReason.IDLE_TIMEOUT, **moved,
             )
         )

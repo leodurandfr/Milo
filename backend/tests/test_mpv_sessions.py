@@ -717,28 +717,6 @@ async def test_library_reroute_mid_play_resumes_playing_the_same_track(library):
     assert started and started[-1][3] == 75
 
 
-async def test_library_resume_snapshot_expiry_is_published(monkeypatch):
-    """The snapshot expired silently: the screen kept offering a queue that a
-    return to the library would no longer reopen. Its expiry is published."""
-    monkeypatch.setattr(library_module, "RESUME_TTL_S", WATCHDOG_S)
-    policy = getattr(MusicLibrarySource, "RESUME_POLICY", None)
-    if policy is not None:
-        from dataclasses import replace
-        monkeypatch.setattr(MusicLibrarySource, "RESUME_POLICY", replace(policy, ttl_s=WATCHDOG_S))
-    library = LibraryRig(monkeypatch, settings={"audio.auto_stop_delay": 1})
-    await library.select()
-    await library.play_album()
-    library.mpv.playhead(30)
-    await library.tick()
-
-    await library.command("pause")            # idle timeout, then the snapshot's
-    await settle()
-
-    state = library.state()
-    assert state["session"] is None
-    assert library.track() is None
-
-
 # === What mpv last announced is not what it is doing now ===
 
 async def test_library_paused_queue_stays_paused_across_a_reroute(library):

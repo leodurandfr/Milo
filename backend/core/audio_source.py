@@ -755,9 +755,6 @@ class BaseAudioSource(ABC):
             self._logger.debug(f"Dropping a '{name}' timer expiry that was disarmed since")
             return None
         del self._timers[name]
-        if name == "resume":
-            await self._expire_resume()
-            return None
         if name == "idle" and self.IDLE_POLICY is IdlePolicy.REQUEST_END:
             await self._request_idle_end()
             return None
@@ -1017,7 +1014,7 @@ class BaseAudioSource(ABC):
         self._close_daemon_watch()
         for name in [
             n for n, (_, token) in self._timers.items()
-            if n != "resume" and not isinstance(token, DeviceToken)
+            if not isinstance(token, DeviceToken)
         ]:
             self._disarm_timer(name)
         tasks, self._session_bg = self._session_bg, None
@@ -1044,7 +1041,7 @@ class BaseAudioSource(ABC):
             return None
         identity, position_ms, payload = content
         return ResumePoint(
-            identity=identity, position_ms=position_ms, captured_at=time.monotonic(),
+            identity=identity, position_ms=position_ms,
             reason=reason, content=payload, phase=session.phase,
         )
 
@@ -1056,29 +1053,9 @@ class BaseAudioSource(ABC):
         """Hook: what a source releases when a session ends (Radio: Shazam)."""
 
     def _set_resume_point(self, point: Optional[ResumePoint]) -> None:
-        """Replace the resume point; one with a TTL expires on a timer, so the
-        screen stops offering it the moment it stops being offered."""
+        """Replace the resume point. It has no expiry: what was listened stays
+        until a session replaces it or an end in `forget_on` drops it."""
         self._resume_point = point
-        self._disarm_timer("resume")
-        ttl = self.RESUME_POLICY.ttl_s if self.RESUME_POLICY else None
-        if point is not None and ttl is not None:
-            self._arm_timer("resume", max(0.0, ttl - (time.monotonic() - point.captured_at)), point)
-
-    def _resume_fresh(self) -> bool:
-        """Whether the resume point may still be restored without a press."""
-        point = self._resume_point
-        if point is None:
-            return False
-        ttl = self.RESUME_POLICY.ttl_s if self.RESUME_POLICY else None
-        return ttl is None or time.monotonic() - point.captured_at < ttl
-
-    async def _expire_resume(self) -> None:
-        """The resume point outlived its TTL: forget it, and say so when it is
-        what the screen shows."""
-        self._logger.info("Resume point expired")
-        self._set_resume_point(None)
-        if self._session is None and self._published is not None:
-            self._publish()
 
     # === Sessions a daemon holds (docs: source architecture, "reconcile") ===
     #

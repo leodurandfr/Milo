@@ -20,9 +20,9 @@ which mpv carries out itself through its loop options.
 Resume-on-return: a session ended by a source switch, the idle timeout, a
 multiroom toggle, a dead mpv or a failed load leaves its queue, track, second,
 shuffle and repeat as the resume point (RESUME_POLICY); the next activation
-reopens it paused — or playing, after a toggle that found it playing — for as
-long as it is fresh (``RESUME_TTL_S``, whose expiry is published). An explicit Stop, a queue played
-out and a storage space that left forget it; it is never persisted.
+reopens it paused — or playing, after a toggle that found it playing — however
+long the detour lasted, as radio and podcast keep theirs. An explicit Stop, a
+queue played out and a storage space that left forget it; it is never persisted.
 
 Where the music comes from is NOT here: the configured SMB/NFS shares and the
 USB watcher underneath them live in :mod:`shares.py`, reached as ``source.shares``
@@ -81,13 +81,6 @@ _ALBUM_PAGE = 500
 # `inf` the property sits at -1 and a loop looks like any seek to 0. At one
 # loop per pass this is 10 000 passes of the track, then the queue moves on.
 TRACK_LOOPS = 10000
-
-# How long a resume-on-return snapshot stays worth restoring, measured from the
-# moment playback stopped. It exists to cover a detour — a source switch, the
-# idle auto-stop while the user is answering the door — not a later sitting:
-# past this, opening the library on a paused track nobody remembers starting
-# reads as a bug, and the fresh READY placeholder is what the user wants.
-RESUME_TTL_S = 600.0
 
 # Scrobble threshold — the Last.fm rule Navidrome implements: a play counts once
 # it has been listened to for half the track or four minutes, whichever comes
@@ -170,7 +163,6 @@ class MusicLibrarySource(MpvAudioSource):
             EndReason.EOF, EndReason.USER_STOP, EndReason.STORAGE_GONE,
             EndReason.SENDER_LEFT,
         }),
-        ttl_s=RESUME_TTL_S,
         restore_on_start=True,
     )
     SESSION_DAEMON = False
@@ -711,11 +703,9 @@ class MusicLibrarySource(MpvAudioSource):
             if point is not None and point.reason is EndReason.REROUTE:
                 await self._restore(point, playing=point.phase is not Phase.PAUSED)
                 return True
-            if point is not None and self.RESUME_POLICY.restore_on_start and self._resume_fresh():
+            if point is not None and self.RESUME_POLICY.restore_on_start:
                 await self._restore(point, playing=False)
                 return True
-            if point is not None:
-                self._set_resume_point(None)
             self._publish()
             return True
 
@@ -1364,9 +1354,9 @@ class MusicLibrarySource(MpvAudioSource):
         return self._availability
 
     def _saved_queue(self) -> Optional[Tuple[List[Dict[str, Any]], int]]:
-        """The resume point's queue and index while it may still be reopened."""
+        """The resume point's queue and index."""
         point = self._resume_point
-        if point is None or not self._resume_fresh():
+        if point is None:
             return None
         tracks = point.content["queue"]
         return tracks, min(point.content["queue_index"], len(tracks) - 1)

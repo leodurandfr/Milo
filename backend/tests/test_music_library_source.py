@@ -16,7 +16,6 @@ reaches the outside: the published state, the error banners, what mpv was
 sent, what Navidrome was told, and the command's answer.
 """
 import asyncio
-from dataclasses import replace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -29,7 +28,7 @@ from backend.sources.music_library.navidrome_client import NavidromeUnreachable
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.tests.golden.harness import AsyncioProxy, settle
 from backend.tests.golden.test_wire_music_library import FakeNavidrome
-from backend.tests.test_mpv_sessions import WATCHDOG_S, LibraryRig
+from backend.tests.test_mpv_sessions import LibraryRig
 
 _real_sleep = asyncio.sleep
 
@@ -1342,27 +1341,6 @@ class TestResume:
         await rig.select()
 
         assert loads_since(rig, mark) == []
-        assert details(rig) is None
-
-    async def test_a_stale_resume_point_is_not_reopened_by_itself(self, monkeypatch):
-        """Past its TTL the library opens on nothing, not on a paused track.
-        Breaks: reopened hours later, a now-playing appears for music the user
-        does not remember starting, and the docked player with it."""
-        monkeypatch.setattr(
-            MusicLibrarySource, "RESUME_POLICY",
-            replace(MusicLibrarySource.RESUME_POLICY, ttl_s=WATCHDOG_S),
-        )
-        rig = LibraryRig(monkeypatch)
-        await rig.select()
-        await play(rig, start_index=1)
-        await rig.tick()
-        await rig.leave()
-        mark = len(rig.mpv.sent)
-
-        await rig.select()
-
-        assert loads_since(rig, mark) == []
-        assert session(rig) is None
         assert details(rig) is None
 
     async def test_resume_with_nothing_playing_and_nothing_saved_refuses(self, rig):

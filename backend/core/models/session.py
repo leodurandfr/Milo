@@ -226,7 +226,6 @@ class ResumePoint:
     """
     identity: str
     position_ms: int
-    captured_at: float
     reason: EndReason
     content: Any = None
     phase: Phase = Phase.PAUSED
@@ -263,8 +262,7 @@ class CommandScope(str, Enum):
 
 @dataclass(frozen=True)
 class ResumePolicy:
-    """Which ends keep a resume point, which forget it, and for how long."""
+    """Which ends keep a resume point and which forget it."""
     capture_on: FrozenSet[EndReason]
     forget_on: FrozenSet[EndReason]
-    ttl_s: Optional[float] = None
     restore_on_start: bool = False

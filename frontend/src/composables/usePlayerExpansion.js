@@ -4,15 +4,28 @@
 // answer: the shell that draws the two views (BrowserSourceViews) and the
 // automatic expansion after inactivity (useAutoPlayer) read the same flag.
 //
-// It holds only "expanded or not" and never the source it was expanded for:
-// another source opens on its own default view, so a change of source drops
-// it. Besides the full player's cover (or its pull down on the phone), only an
-// ending with nothing to resume does (BrowserSourceViews) — a pause or a stop
-// that keeps something to resume leaves the player on screen.
+// It holds "expanded or not" for the selected source: another source opens on
+// its own default view, so a change of source drops it. Besides the full
+// player's cover (or its pull down on the phone), only an ending with nothing
+// to resume does (BrowserSourceViews) — a pause or a stop that keeps something
+// to resume leaves the player on screen.
+//
+// One exception to the change of source: coming back within RETURN_WINDOW_MS
+// to the source whose full player was open is taken for a source picked by
+// mistake, and opens that player again — once the source is started and still
+// has something to show (a session, or what it would resume). Nothing plays
+// by itself: the player opens on what the source kept.
 import { computed, effectScope, readonly, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
+export const RETURN_WINDOW_MS = 30_000;
+
 const expanded = ref(false);
+
+// { source, at }: the source left with its full player open, and when.
+let leftExpanded = null;
+// The source being returned to within the window, until it has settled.
+let returningTo = null;
 
 function expand() {
   expanded.value = true;
@@ -33,8 +46,26 @@ function holdSourceRule(store) {
   if (store === ruleStore) return;
   ruleScope?.stop();
   ruleStore = store;
+  leftExpanded = null;
+  returningTo = null;
   ruleScope = effectScope(true);
-  ruleScope.run(() => watch(() => store.systemState.source, collapse));
+  ruleScope.run(() => watch(() => store.systemState, followSource));
+}
+
+function followSource(state, previous) {
+  if (state.source !== previous?.source) {
+    const now = Date.now();
+    const back = leftExpanded?.source === state.source && now - leftExpanded.at < RETURN_WINDOW_MS;
+    returningTo = back ? state.source : null;
+    leftExpanded = expanded.value && previous ? { source: previous.source, at: now } : null;
+    collapse();
+  }
+  // The selection is published before the source has started, with nothing
+  // to show yet; what it kept arrives with the first state that settles it.
+  if (returningTo === state.source && !state.switching) {
+    if (state.service === 'running' && (state.session || state.resume)) expand();
+    returningTo = null;
+  }
 }
 
 /**
