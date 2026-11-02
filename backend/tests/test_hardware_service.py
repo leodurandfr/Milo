@@ -409,10 +409,36 @@ class TestApplyAndReboot:
     async def test_the_reboot_killing_the_helper_is_not_an_error(self, service, spawn):
         """The script reboots the machine, so being killed by a signal is the
         success path — a negative return code must not read as a failure and
-        roll back a setup that already applied."""
+        roll back a setup that already applied. The exemption holds only when
+        the script reboots it itself (`reboot=True`)."""
         spawn.proc.returncode = -15
 
         await service.apply_and_reboot()
+
+    async def test_a_no_reboot_apply_killed_by_a_signal_is_a_failure(
+        self, service, spawn
+    ):
+        """With `--no-reboot` the script never reboots, so a signal can only
+        come from outside (a backend stop mid-apply), possibly between removing
+        the MILO AUDIO block from config.txt and writing it back. Read as a
+        success, the setup wizard persists `setup_completed` and reboots into a
+        unit with no audio overlay, silent, and with the wizard gone."""
+        spawn.proc.returncode = -15
+
+        with pytest.raises(RuntimeError, match="SIGTERM"):
+            await service.apply_and_reboot(reboot=False)
+
+    async def test_a_signal_with_no_name_is_still_a_failure_not_a_crash(
+        self, service, spawn
+    ):
+        """`signal.Signals` names only some real-time signals; an unnamed one
+        must still reach the wizard as the RuntimeError it rolls back on, with
+        what the helper printed before it died."""
+        spawn.proc.returncode = -40
+        spawn.proc.communicate = AsyncMock(return_value=(b"", b"Bootloader staged\n"))
+
+        with pytest.raises(RuntimeError, match="signal 40: Bootloader staged"):
+            await service.apply_and_reboot(reboot=False)
 
     async def test_a_failure_with_nothing_on_stderr_still_says_something(
         self, service, spawn

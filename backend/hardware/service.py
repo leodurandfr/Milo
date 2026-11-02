@@ -8,6 +8,7 @@ button configuration. Uses the schema_version protocol — see CLAUDE.md
 import asyncio
 import json
 import logging
+import signal
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 
@@ -238,6 +239,8 @@ class HardwareService:
         before the reboot, and doing that before the overlay reached config.txt
         left a window where a power cut produced a unit that believed it was
         configured and had no audio card — silent, and with the wizard gone.
+        So under `reboot=False` any non-zero return code is a failure, a signal
+        included.
         """
         self.logger.info(
             "Applying hardware configuration%s...", " and rebooting" if reboot else ""
@@ -251,8 +254,24 @@ class HardwareService:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
-        # Negative returncode means killed by signal (e.g. system reboot) — not an error
-        if proc.returncode is not None and proc.returncode > 0:
-            error_msg = stderr.decode().strip() if stderr else "unknown error"
-            self.logger.error(f"milo-apply-hardware failed (rc={proc.returncode}): {error_msg}")
-            raise RuntimeError(f"Hardware apply failed: {error_msg}")
+        rc = proc.returncode
+        if rc == 0:
+            return
+        # A negative code is a signal. When the script reboots the box itself,
+        # that is the reboot killing it — success. Under --no-reboot it never
+        # reboots, so the signal came from outside and may have cut config.txt
+        # mid-rewrite.
+        if reboot and rc < 0:
+            return
+        printed = stderr.decode().strip() if stderr else ""
+        if rc < 0:
+            try:
+                error_msg = f"killed by {signal.Signals(-rc).name}"
+            except ValueError:
+                error_msg = f"killed by signal {-rc}"
+            if printed:
+                error_msg = f"{error_msg}: {printed}"
+        else:
+            error_msg = printed or "unknown error"
+        self.logger.error(f"milo-apply-hardware failed (rc={rc}): {error_msg}")
+        raise RuntimeError(f"Hardware apply failed: {error_msg}")
