@@ -176,6 +176,16 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return address === targetRef();
   }
 
+  /**
+   * Whether the selection addresses one satellite on its own — the only target
+   * whose record is read from the satellite itself; the local DAC and a zone
+   * read the local CamillaDSP (api/equalizer.py::get_target_equalizer).
+   */
+  function selectsRemoteClient() {
+    const address = targetRef();
+    return address !== LOCAL_TARGET && !address.startsWith(ZONE_PREFIX);
+  }
+
   // === API CALLS ===
   /**
    * Fetch the complete EQ record for the current target (one GET, one record).
@@ -576,11 +586,18 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (availableTargets.value.length === 0) return true;
 
     // The selected target survives the modal closing, so it can name a client
-    // that has since been forgotten or a zone that was dissolved. Every read and
-    // write is addressed through targetRef(), so a stale MAC 404s the whole page
-    // — and the record GET failing silently leaves the previous target's EQ on
-    // screen. Drop it here, where a valid target is this function's job.
-    if (selectedTarget.value && !availableTargets.value.some(t => t.id === selectedTarget.value)) {
+    // that has since been forgotten, a zone that was dissolved, or a satellite
+    // that went offline. Every read and write is addressed through targetRef():
+    // a stale MAC 404s the whole page — and the record GET failing silently
+    // leaves the previous target's EQ on screen — while an offline satellite's
+    // record reads `disconnected`, which holds the modal on "Connecting…". Drop
+    // it here, where a valid target is this function's job. A zone is kept
+    // whoever represents it: it reads the local DSP. A resync can drop it under
+    // an open modal, so the drop is a target switch: what is still throttled
+    // for the old target goes with it rather than through the new one.
+    const selected = availableTargets.value.find(t => t.id === selectedTarget.value);
+    if (selectedTarget.value && (!selected || (!selected.online && selectsRemoteClient()))) {
+      cleanup();
       selectedTarget.value = null;
     }
 

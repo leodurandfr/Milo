@@ -14,9 +14,14 @@
         <MessageContent v-if="!equalizerStore.isEqualizerEffectsEnabled" key="disabled" icon="equalizer"
           :title="t('equalizer.effects_disabled')" />
 
-        <!-- State 2: Equalizer enabled but loading/connecting -->
-        <MessageContent v-else-if="!equalizerStore.isConnected" key="loading" :loading="true" :loading-delay="0"
-          :title="t('equalizer.connecting')" />
+        <!-- State 2: Equalizer enabled but loading/connecting. The tabs stay, so
+             a target that never connects can be left. Not while nothing is
+             selected (the first opening): the strip would select its first tab
+             on mount, ahead of loadTargets() picking the local client. -->
+        <SectionStack v-else-if="!equalizerStore.isConnected" key="loading">
+          <ItemSelector v-if="equalizerStore.selectedTarget" ref="zoneTabsRef" />
+          <MessageContent :loading="true" :loading-delay="0" :title="t('equalizer.connecting')" />
+        </SectionStack>
 
         <!-- State 3: Equalizer connected - controls -->
         <SectionStack v-else key="controls">

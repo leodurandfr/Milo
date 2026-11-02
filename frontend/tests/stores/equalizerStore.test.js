@@ -70,14 +70,18 @@ function setMultiroom(enabled, volumeClients = {}) {
   });
 }
 
-/** Answer loadTargets()' registry fetch with the local + one remote client. */
-function registryTargets() {
+/**
+ * Answer loadTargets()' registry fetch with the local + one remote client;
+ * `remote` overrides the remote client's fields, `clients`/`zones` add more.
+ */
+function registryTargets({ remote = {}, clients = {}, zones = {} } = {}) {
   apiCall.get.mockResolvedValueOnce(ok({
     clients: {
       [LOCAL_MAC]: { mac_id: LOCAL_MAC, name: 'Milo', online: true, is_local: true },
-      [REMOTE_MAC]: { mac_id: REMOTE_MAC, name: 'Kitchen', online: true },
+      [REMOTE_MAC]: { mac_id: REMOTE_MAC, name: 'Kitchen', online: true, ...remote },
+      ...clients,
     },
-    zones: {},
+    zones,
   }));
 }
 
@@ -707,6 +711,79 @@ describe('equalizerStore', () => {
       await equalizerStore.loadTargets();
 
       expect(equalizerStore.selectedTarget).toBe(REMOTE_MAC);
+    });
+
+    /**
+     * A satellite unplugged after its tab was picked stays in the registry,
+     * offline. Its record GET answers `state: "disconnected"` (the router skips
+     * an offline client), and the modal then shows only "Connecting…", with no
+     * tab strip to leave by: reopening kept the same target, so the server's own
+     * EQ was out of reach until a page reload, which a kiosk barely offers.
+     */
+    it.each([
+      ['multiroom on', true],
+      ['multiroom off', false],
+    ])('drops a selected satellite that is offline and re-adopts the local client (%s)', async (_, multiroom) => {
+      registryTargets({ remote: { online: false } });
+      setMultiroom(multiroom);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      await equalizerStore.loadTargets();
+
+      expect(equalizerStore.selectedTarget).toBe(LOCAL_MAC);
+      expect(await resolvedTargetPath()).toBe('local');
+    });
+
+    it('keeps a zone tab whose representative member is offline', async () => {
+      // A zone reads the local DSP whoever represents it: dropping it would
+      // send the page to the server's own EQ for no reason.
+      registryTargets({
+        remote: { online: false },
+        clients: { [OTHER_MAC]: { mac_id: OTHER_MAC, name: 'Office', online: true } },
+        zones: { z1: { id: 'z1', name: 'Upstairs', client_ids: [REMOTE_MAC, OTHER_MAC] } },
+      });
+      setMultiroom(true);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      await equalizerStore.loadTargets();
+
+      expect(equalizerStore.selectedTarget).toBe(REMOTE_MAC);
+      expect(await resolvedTargetPath()).toBe('zone:z1');
+    });
+
+    it('drops an offline zone member that detached its EQ', async () => {
+      // A detached member reads its own satellite, not the zone's DSP.
+      registryTargets({
+        remote: { online: false, eq_independent: true },
+        clients: { [OTHER_MAC]: { mac_id: OTHER_MAC, name: 'Office', online: true } },
+        zones: { z1: { id: 'z1', name: 'Upstairs', client_ids: [REMOTE_MAC, OTHER_MAC] } },
+      });
+      setMultiroom(true);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+
+      await equalizerStore.loadTargets();
+
+      expect(equalizerStore.selectedTarget).toBe(LOCAL_MAC);
+    });
+
+    it('sends nothing left over for a satellite a resync drops', async () => {
+      // A reconnect can find the satellite on screen offline: a band write still
+      // throttled for it would fire through the new selection, onto the server.
+      vi.useFakeTimers();
+      registryTargets();
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      await equalizerStore.loadTargets();
+      apiCall.get.mockResolvedValue(ok({ state: 'running', filters: [FILTER('eq_band_00', 31)], presets: [] }));
+      await equalizerStore.loadStatus();
+      equalizerStore.updateFilter('eq_band_00', 'gain', 3);
+      registerClient(REMOTE_MAC, { name: 'Kitchen', online: false });
+
+      await equalizerStore.resync();
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(equalizerStore.selectedTarget).toBe(LOCAL_MAC);
+      const bandWrites = apiCall.put.mock.calls.map(([url]) => url).filter(url => url.includes('/filter/'));
+      expect(bandWrites).toEqual([`/api/equalizer/target/${REMOTE_MAC}/filter/eq_band_00`]);
     });
   });
 
