@@ -74,14 +74,16 @@ function sourceFiles(dir) {
 
 /**
  * State that describes the selected target, and must therefore never be written
- * from a payload whose target was not checked. `state` (the CamillaDSP daemon's
- * own connection state) and `outputPeak` (an aggregate the caller chooses the
- * clients for) are deliberately absent — they are not per-target.
+ * from a payload whose target was not checked. `state` is the connection of the
+ * CamillaDSP that serves the target — the local one for the DAC and a zone, the
+ * satellite's own for a remote client — so equalizer/state_changed, which only
+ * speaks for the local one, is target-scoped too. `outputPeak` (an aggregate the
+ * caller chooses the clients for) is deliberately absent: it is not per-target.
  */
 const TARGET_SCOPED_REFS = [
   'filters', 'compressor', 'loudness', 'mono',
   'activePreset', 'customGains', 'isPresetEdited', 'originalPresetGains',
-  'isEqualizerEffectsEnabled',
+  'isEqualizerEffectsEnabled', 'state',
 ];
 
 /**
@@ -93,6 +95,14 @@ const SCOPE_CHECKS = [
   'targetRef(', 'getSelectedZoneId(', 'isAddressedToSelection(',
   'target_id', 'zone_id',
 ];
+
+/**
+ * `selectsRemoteClient()` says whether the screen reads the local CamillaDSP,
+ * never which satellite it shows, so it scopes the local daemon's own state and
+ * nothing else: a satellite's filters gated by it would land on another one.
+ */
+const LOCAL_DSP_CHECK = 'selectsRemoteClient(';
+const LOCAL_DSP_REFS = ['state'];
 
 const source = readFileSync(EQ_STORE, 'utf8');
 
@@ -152,7 +162,8 @@ describe('equalizerStore target scoping', () => {
       );
       if (written.length === 0) continue;
 
-      const checksTarget = SCOPE_CHECKS.some(check => body.includes(check));
+      const checksTarget = SCOPE_CHECKS.some(check => body.includes(check))
+        || (body.includes(LOCAL_DSP_CHECK) && written.every(ref => LOCAL_DSP_REFS.includes(ref)));
       if (!checksTarget) offenders.push(`${handler.name} writes ${written.join(', ')}`);
     }
 

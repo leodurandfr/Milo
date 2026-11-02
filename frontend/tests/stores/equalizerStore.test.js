@@ -651,6 +651,42 @@ describe('equalizerStore', () => {
       expect(equalizerStore.isConnected).toBe(false);
     });
 
+    /**
+     * state_changed is the server's own CamillaDSP connection and carries no
+     * target, while a satellite's state comes from its own /equalizer/status
+     * (api/equalizer.py). Adopting it turned the modal of an unreachable
+     * satellite into live controls the moment the local daemon reconnected.
+     */
+    function answerRecordWithState(recordState) {
+      apiCall.get.mockImplementation(async (url) => (url.endsWith('/presets')
+        ? ok({ presets: [] })
+        : ok({ state: recordState, enabled: true, filters: [] })));
+    }
+
+    it('state_changed from the local DSP leaves a satellite target\'s state alone', async () => {
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      answerRecordWithState('disconnected');
+      await equalizerStore.loadStatus();
+
+      equalizerStore.handleStateChanged({ state: 'running' });
+
+      expect(equalizerStore.isConnected).toBe(false);
+    });
+
+    it('state_changed still drives a zone target, which reads the local DSP', async () => {
+      // A zone's state is the local CamillaDSP's whoever its members are, so
+      // the guard is about the kind of target, not about a local member.
+      registerZone('z1', [REMOTE_MAC, OTHER_MAC]);
+      setMultiroom(true);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      answerRecordWithState('disconnected');
+      await equalizerStore.loadStatus();
+
+      equalizerStore.handleStateChanged({ state: 'running' });
+
+      expect(equalizerStore.isConnected).toBe(true);
+    });
+
     it('levels falls back to silence when the monitor reports unavailable', () => {
       equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
       expect(equalizerStore.outputPeak).toEqual([-12, -14]);

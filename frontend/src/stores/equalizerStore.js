@@ -729,7 +729,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
+  /**
+   * `equalizer/state_changed` is the LOCAL CamillaDSP's connection and carries
+   * no target. It speaks for the local DAC and a zone, which read that daemon,
+   * never for a satellite, whose state comes from its own status
+   * (api/equalizer.py::get_target_equalizer).
+   */
   function handleStateChanged(payload) {
+    if (selectsRemoteClient()) return;
     state.value = payload.state;
   }
 
