@@ -1,5 +1,7 @@
 """Unit tests for load_versioned_json / save_versioned_json."""
 import asyncio
+import builtins
+import errno
 import json
 import os
 import threading
@@ -229,3 +231,65 @@ async def test_private_save_tightens_an_existing_readable_file(tmp_path: Path, o
 
     assert file.stat().st_mode & 0o777 == 0o600
     assert file.read_bytes() == b'{"credentials": {}}'
+
+
+@pytest.mark.asyncio
+async def test_a_corrupt_snapshot_never_overwrites_an_earlier_one(tmp_path: Path):
+    """The first copy is often the most recoverable one; a second corruption of
+    the same file must land beside it, not on it."""
+    file = tmp_path / "equalizer.json"
+    file.write_bytes(b'{"filters": [')
+    first = await persistence.snapshot_corrupt_file(file)
+    file.write_bytes(b"")
+
+    second = await persistence.snapshot_corrupt_file(file)
+
+    assert first.read_bytes() == b'{"filters": ['
+    assert second != first and second.read_bytes() == b""
+
+
+@pytest.mark.asyncio
+async def test_the_same_corrupt_bytes_are_kept_once(tmp_path: Path):
+    """An unreadable file nothing rewrites is met again at every boot; one copy
+    per boot would fill the data directory with the same bytes."""
+    file = tmp_path / "equalizer.json"
+    file.write_bytes(b'{"filters": [')
+
+    copies = {await persistence.snapshot_corrupt_file(file) for _ in range(3)}
+
+    assert copies == {tmp_path / "equalizer.json.corrupted"}
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "equalizer.json", "equalizer.json.corrupted",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_copy_the_disk_cut_short_is_not_left_behind(tmp_path: Path, monkeypatch):
+    """A truncated copy never matches the file's bytes again: on a full SD card
+    every boot would add one more, and none would hold what the file held."""
+    file = tmp_path / "equalizer.json"
+    file.write_bytes(b'{"filters": [')
+
+    class _FullDisk:
+        def __init__(self, stream):
+            self._stream = stream
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._stream.close()
+
+        def write(self, data):
+            self._stream.write(data[:3])
+            self._stream.flush()
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(
+        persistence, "open", lambda path, mode: _FullDisk(builtins.open(path, mode)), raising=False
+    )
+
+    with pytest.raises(OSError):
+        await persistence.snapshot_corrupt_file(file)
+
+    assert [p.name for p in tmp_path.iterdir()] == ["equalizer.json"]

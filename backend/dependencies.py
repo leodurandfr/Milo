@@ -549,6 +549,11 @@ async def initialize_services() -> None:
 
     async def init_async():
         """Async initialization with error handling."""
+        async def first_hostname_check() -> None:
+            # check() answers whether the name is taken, not whether it ran: its
+            # False is the healthy boot, never an initialization that failed.
+            await hostname_conflict_service.check()
+
         services = [
             # SettingsService + HardwareService come first in this list, but
             # that buys no ordering: gather() below starts every entry at once,
@@ -587,7 +592,7 @@ async def initialize_services() -> None:
             # The kept Spotify profiles (fail-loud on schema_version drift)
             ("spotify_source", spotify_source.initialize()),
             # mDNS hostname conflict detection (fail-open, never raises)
-            ("hostname_conflict_service", hostname_conflict_service.check()),
+            ("hostname_conflict_service", first_hostname_check()),
             # Internet connectivity monitoring (D-Bus subscription, fail-open)
             ("connectivity_service", connectivity_service.initialize()),
             # Network status live updates (Ethernet + WiFi, NM D-Bus, fail-open)
@@ -618,6 +623,10 @@ async def initialize_services() -> None:
         for (service_name, _), result in zip(services, results):
             if isinstance(result, Exception):
                 logger.error("%s initialization failed: %s", service_name, result)
+            elif result is False:
+                # A fail-open service that came up without its job; the reason
+                # is its own log line, this one only keeps the boot log honest.
+                logger.warning("%s initialization did not complete", service_name)
             else:
                 logger.info("%s initialized successfully", service_name)
 

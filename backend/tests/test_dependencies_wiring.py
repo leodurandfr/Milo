@@ -420,6 +420,41 @@ class TestAsyncInit:
         registry["volume_service"].initialize.assert_awaited_once()
         assert "ir_remote_controller initialization failed" in caplog.text
 
+    async def test_a_service_that_answers_false_is_not_announced_initialized(
+        self, registry, caplog
+    ):
+        """False is how a fail-open service says it came up without its job.
+
+        CamillaDSP answers it when its saved curve cannot be read; announced as
+        a success, the boot log read clean next to a speaker that did not play.
+        """
+        registry["camilladsp_service"].initialize = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.INFO):
+            await _run_init(registry)
+
+        assert "camilladsp_service initialized successfully" not in caplog.text
+        assert any(
+            r.levelno == logging.WARNING and "camilladsp_service" in r.getMessage()
+            for r in caplog.records
+        )
+
+    async def test_a_hostname_check_that_finds_no_conflict_is_a_clean_boot(
+        self, registry, caplog
+    ):
+        """`check()` answers whether the name is taken, so its False is the healthy
+        case. Read as an initialization result, every boot that kept `milo.local`
+        would warn about a service that worked."""
+        registry["hostname_conflict_service"].check = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.INFO):
+            await _run_init(registry)
+
+        assert not any(
+            r.levelno >= logging.WARNING and "hostname_conflict_service" in r.getMessage()
+            for r in caplog.records
+        )
+
     @pytest.mark.parametrize("critical", ["routing_service", "volume_service"])
     async def test_a_critical_service_failure_is_re_raised(self, registry, critical):
         """Routing and volume are the two without which the box makes no sound.

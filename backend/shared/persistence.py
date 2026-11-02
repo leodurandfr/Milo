@@ -94,6 +94,41 @@ def load_versioned_json_sync(file: Path, expected_version: int) -> Dict[str, Any
     return data
 
 
+def _snapshot_file(file: Path) -> Path:
+    """Copy ``file`` to the first free ``.corrupted[.N]`` sibling. Blocking."""
+    content = file.read_bytes()
+    for n in itertools.count():
+        backup = file.with_name(f"{file.name}.corrupted" + (f".{n}" if n else ""))
+        try:
+            stream = open(backup, "xb")
+        except FileExistsError:
+            if backup.read_bytes() == content:
+                return backup
+            continue
+        try:
+            with stream:
+                stream.write(content)
+        except BaseException:
+            # A partial copy never matches these bytes again: every later call
+            # would add one more beside it (a full SD card, at every boot).
+            backup.unlink(missing_ok=True)
+            raise
+        return backup
+
+
+async def snapshot_corrupt_file(file: Path) -> Path:
+    """Keep the bytes of an unreadable ``file`` beside it, before anything rewrites it.
+
+    Named like ``SettingsService``'s ``.corrupted`` snapshot, and never over an
+    earlier copy: the next one goes to ``.corrupted.1``, ``.corrupted.2`` … One
+    difference: a copy already holding these exact bytes is answered instead of a
+    new one — a file nothing rewrites is met again at every boot, and one copy per
+    boot would pile up. Returns the copy's path; raises ``FileNotFoundError`` when
+    ``file`` is absent, like any read.
+    """
+    return await asyncio.to_thread(_snapshot_file, file)
+
+
 def _unique_temp(file: Path) -> Path:
     """A temp name beside ``file`` that no concurrent writer shares.
 

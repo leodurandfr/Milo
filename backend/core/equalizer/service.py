@@ -39,6 +39,7 @@ from backend.shared.persistence import (
     SchemaVersionMismatch,
     load_versioned_json,
     save_versioned_json,
+    snapshot_corrupt_file,
 )
 
 
@@ -262,26 +263,47 @@ class CamillaDSPService:
         return self._connected and self._state in (CamillaDspState.INACTIVE, CamillaDspState.RUNNING, CamillaDspState.PAUSED)
 
     async def initialize(self) -> bool:
+        """Load the saved curve, then start the connection loop whatever it held.
+
+        Answers False when the curve could not be read. The loop starts anyway:
+        it is the only thing that unmutes the daemon, which starts muted at its
+        floor (invariant 7), so the boot loses the EQ rather than the sound.
+        """
+        self.logger.info("Initializing CamillaDSP service...")
+        loaded = True
         try:
-            self.logger.info("Initializing CamillaDSP service...")
-
-            # Load saved configuration from settings
             await self._load_saved_config()
-
-            # Start the connection loop (handles initial connect + reconnection)
-            self._reconnect_task = asyncio.create_task(self._connection_loop())
-
-            return True
-
         except SchemaVersionMismatch:
             # Let dependencies.py::init_async log the banner + SystemExit(1)
             self._connection_ready.set()
             raise
         except Exception as e:
-            self.logger.error(f"Error initializing CamillaDSP service: {e}")
-            # Signal event on error so waiters don't block forever
-            self._connection_ready.set()
-            return False
+            await self._report_unreadable_config(e)
+            loaded = False
+
+        # Handles the initial connect + reconnection, and releases the boot's
+        # rendezvous once the graph is restored (see wait_for_connection).
+        self._reconnect_task = asyncio.create_task(self._connection_loop())
+        return loaded
+
+    async def _report_unreadable_config(self, error: Exception) -> None:
+        """Keep the unreadable file beside itself and say so, once, at error.
+
+        The next EQ change persists the defaults over it, so the copy is what is
+        left of the curve.
+        """
+        try:
+            kept = f"its bytes are kept in {await snapshot_corrupt_file(self.STORAGE_PATH)}"
+        except FileNotFoundError:
+            kept = "there is no file to keep"
+        except OSError as copy_error:
+            kept = "no copy kept"
+            self.logger.warning(f"Could not copy {self.STORAGE_PATH} aside: {copy_error}")
+        self.logger.error(
+            f"Cannot load the saved equalizer from {self.STORAGE_PATH} "
+            f"({type(error).__name__}: {error}); {kept}. CamillaDSP opens on the "
+            "default curve, and the next EQ change rewrites the file"
+        )
 
     async def connect(self) -> bool:
         """Public connect method for external callers (e.g., routing.py startup)."""
@@ -1184,6 +1206,14 @@ class CamillaDSPService:
         if not data:
             return  # Fresh install — in-memory defaults stay
 
+        # The one conversion that can raise (a null gain) runs before anything is
+        # kept, so a file that fails keeps none of its values, as initialize says.
+        saved_gains = data.get("custom_gains")
+        custom_gains = (
+            [float(g) for g in saved_gains]
+            if isinstance(saved_gains, list) and len(saved_gains) >= 10 else None
+        )
+
         saved_filters = data.get("filters")
         if isinstance(saved_filters, list) and saved_filters:
             self._filters = saved_filters
@@ -1204,9 +1234,8 @@ class CamillaDSPService:
         if isinstance(saved_preset, str):
             self._active_preset = saved_preset
 
-        saved_gains = data.get("custom_gains")
-        if isinstance(saved_gains, list) and len(saved_gains) >= 10:
-            self._custom_gains = [float(g) for g in saved_gains]
+        if custom_gains is not None:
+            self._custom_gains = custom_gains
 
         self.logger.info(
             f"Loaded equalizer.json: {len(self._filters)} filters, "

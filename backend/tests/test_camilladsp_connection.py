@@ -29,6 +29,7 @@ network guard lets loopback through on purpose.
 """
 import asyncio
 import contextlib
+import json
 import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call
@@ -726,23 +727,6 @@ class TestInitialize:
 
         assert service._connection_ready.is_set()
 
-    async def test_any_other_failure_gives_up_without_blocking_the_boot(
-        self, service, caplog
-    ):
-        """Fail open: the appliance boots without CamillaDSP, silent but alive.
-
-        The `_connection_ready.set()` here is the same rendezvous as above — the
-        difference from the schema arm is that this one answers False instead of
-        re-raising, so the rest of the services carry on.
-        """
-        service._load_saved_config = AsyncMock(side_effect=RuntimeError("disk on fire"))
-
-        with caplog.at_level(logging.ERROR):
-            assert await service.initialize() is False
-
-        assert service._connection_ready.is_set()
-        assert "Error initializing CamillaDSP service" in caplog.text
-
 
 class TestWaitForConnection:
     """The boot rendezvous, read from the waiting side."""
@@ -1110,6 +1094,27 @@ class TestPersistState:
         assert reloaded._custom_gains == [2.0] * 10
         assert reloaded._filters[0]["gain"] == 6.0
 
+    async def test_a_file_that_fails_halfway_leaves_the_defaults_whole(self, service, tmp_path):
+        """The boot reports an unreadable file as "opens on the default curve".
+
+        Kept field by field up to the value that raised, the cache would hold the
+        file's bands and mono over default gains — a curve nobody set, which the
+        next persist then writes back as if it were the user's.
+        """
+        service._filters[0]["gain"] = 6.0
+        service._mono = True
+        await service.persist_state()
+        saved = json.loads((tmp_path / "equalizer.json").read_text())
+        saved["custom_gains"] = [None] * 10
+        (tmp_path / "equalizer.json").write_text(json.dumps(saved))
+
+        fresh = CamillaDSPService(settings_service=service.settings_service)
+        fresh.STORAGE_PATH = Path(tmp_path / "equalizer.json")
+        with pytest.raises(TypeError):
+            await fresh._load_saved_config()
+
+        assert fresh.get_equalizer_settings() == CamillaDSPService().get_equalizer_settings()
+
 
 async def _a_trimmed_unit_under_a_subwoofer(
     mock_camilla_client, camilla_daemon, tmp_path, monkeypatch, *, local_level=-30.0, trim=-12.0
@@ -1287,3 +1292,48 @@ class TestBootOrder:
         assert "gain_trim" in camilla_daemon.last_pushed["filters"]
         assert unmutes, "the boot never unmuted the restarted daemon"
         assert unmutes[0] > writes[-1]
+
+    @pytest.mark.parametrize("content", [
+        '{"schema_version": 2, "filters": [',  # cut short: an SD card that lost the tail
+        "",
+        json.dumps({"schema_version": 2, "custom_gains": [None] * 10}),  # edited by hand
+    ], ids=["truncated", "empty", "null_gain"])
+    async def test_an_unreadable_equalizer_json_still_opens_the_dsp(
+        self, a_daemon_that_answers_over_a_socket, camilla_daemon, tmp_path, monkeypatch,
+        caplog, content,
+    ):
+        """The connection loop is the only thing that unmutes the daemon.
+
+        CamillaDSP starts muted at its floor (`-m`, invariant 7) and only the
+        reconnect's volume callback opens the room. A boot that gave up on the
+        loop because the saved curve could not be read left the server's speaker
+        silent at every boot, behind a UI showing a source playing — the EQ is
+        worth losing, the sound is not. The unreadable bytes are kept beside the
+        file, since the next EQ change rewrites it with the defaults.
+        """
+        client = a_daemon_that_answers_over_a_socket
+        dsp, _ = await _a_trimmed_unit_under_a_subwoofer(
+            client, camilla_daemon, tmp_path, monkeypatch
+        )
+        dsp._connected = False
+        dsp._client = None
+        dsp.RECONNECT_DELAY = 0.001
+        saved = tmp_path / "equalizer.json"
+        saved.write_text(content)
+
+        try:
+            with caplog.at_level(logging.ERROR):
+                assert await dsp.initialize() is False
+            assert await dsp.wait_for_connection(timeout=2.0) is True
+        finally:
+            dsp._running = False
+            if dsp._reconnect_task:
+                dsp._reconnect_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await dsp._reconnect_task
+
+        assert call.set_mute(False) in client.mock_calls
+        assert any(
+            r.levelno == logging.ERROR and str(saved) in r.getMessage() for r in caplog.records
+        )
+        assert (tmp_path / "equalizer.json.corrupted").read_text() == content
