@@ -15,7 +15,7 @@ answering, a satellite that is unplugged, a daemon that will not talk.
 """
 import asyncio
 import logging
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from backend.config.constants import ERROR_LOG_FILE, MUSIC_LIBRARY_DATA_FILE
 from backend.core.system.diagnostic import collectors, probes, render, satellite
@@ -60,6 +60,10 @@ class DiagnosticService:
     # The backstop. Sections run in parallel, so the natural wall clock is one
     # slow section — this only fires if several wedge at once.
     TOTAL_TIMEOUT = 20.0
+    # Read before any section starts and outside TOTAL_TIMEOUT, so it is bounded
+    # on its own: a few nmcli reads, and a NetworkManager that does not answer
+    # costs the labels, never the report.
+    SSID_TIMEOUT = 5.0
 
     def __init__(
         self,
@@ -73,6 +77,7 @@ class DiagnosticService:
         version_service=None,
         connectivity_service=None,
         hostname_conflict_service=None,
+        network_service=None,
     ):
         self._services = {
             "settings_service": settings_service,
@@ -85,6 +90,7 @@ class DiagnosticService:
             "version_service": version_service,
             "connectivity_service": connectivity_service,
             "hostname_conflict_service": hostname_conflict_service,
+            "network_service": network_service,
         }
 
     # ----------------------------------------------------------------- public
@@ -133,7 +139,7 @@ class DiagnosticService:
             else:
                 blocks.append(render.section(title, body))
 
-        blocks.append(self._satellites_block(satellite_task, unavailable))
+        blocks.append(self._satellites_block(satellite_task, unavailable, ctx))
         blocks.append(self._not_collected_block(unavailable))
 
         text, _ = render.fit_report(blocks)
@@ -187,7 +193,9 @@ class DiagnosticService:
         import json
 
         data = {}
-        raw = await probes.read_file(MUSIC_LIBRARY_DATA_FILE)
+        raw, ssids = await asyncio.gather(
+            probes.read_file(MUSIC_LIBRARY_DATA_FILE), self._known_ssids()
+        )
         if raw:
             try:
                 data = json.loads(raw)
@@ -226,7 +234,24 @@ class DiagnosticService:
                 share["id"]: share.get("name") for share in shares if share.get("id")
             },
             usb_strings=usb_strings,
+            ssid_labels={
+                ssid: f"wifi-{index}" for index, ssid in enumerate(sorted(ssids), start=1)
+            },
         )
+
+    async def _known_ssids(self) -> Set[str]:
+        network = self._services["network_service"]
+        if network is None:
+            return set()
+        try:
+            return await asyncio.wait_for(network.known_ssids(), self.SSID_TIMEOUT)
+        except Exception as e:
+            # The structural rule still strips the shapes Milō logs a name in.
+            logger.warning(
+                "diagnostic could not list the WiFi networks: %s",
+                str(e) or type(e).__name__,
+            )
+            return set()
 
     def _clients(self):
         registry = self._services["registry_service"]
@@ -249,7 +274,7 @@ class DiagnosticService:
             "cannot be read without them\n"
         )
 
-    def _satellites_block(self, task, unavailable: List[Dict[str, str]]) -> str:
+    def _satellites_block(self, task, unavailable: List[Dict[str, str]], ctx) -> str:
         title = "SATELLITES"
         if not task.done():
             task.cancel()
@@ -264,8 +289,20 @@ class DiagnosticService:
             return render.unavailable_section(title, reason)
 
         unavailable.extend(satellite.unavailable_names(results))
+        # A satellite's text is its own journal, free text like the server's, so
+        # it takes the same redaction, line by line and before the budget cuts it.
+        sanitized = [
+            {
+                **result,
+                **{
+                    key: "\n".join(ctx.sanitize(line) for line in result[key].splitlines())
+                    for key in ("text", "hostname", "reason") if result.get(key)
+                },
+            }
+            for result in results
+        ]
         return render.section(
-            title, satellite.render(results, render.SATELLITE_BUDGET_BYTES)
+            title, satellite.render(sanitized, render.SATELLITE_BUDGET_BYTES)
         )
 
     def _not_collected_block(self, unavailable: List[Dict[str, str]]) -> str:

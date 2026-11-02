@@ -32,7 +32,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Set, Tuple
 
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
@@ -460,6 +460,46 @@ class NetworkService:
                     networks.append(SavedNetwork(ssid=_ssid_from_profile(name)))
 
         return networks
+
+    async def known_ssids(self) -> Set[str]:
+        """The SSID of every WiFi profile NetworkManager holds, the setup
+        hotspot's excepted — for the diagnostic report, which must not name them.
+
+        Read from each profile's `802-11-wireless.ssid` rather than from its
+        name, because only the profiles Milō wrote follow `milo-<ssid>`: the
+        first flash leaves `netplan-wlan0-<ssid>`, and a card prepared by
+        Raspberry Pi Imager holds one called `preconfigured`. Each is asked for
+        by UUID, since a name can be shared or be one of nmcli's own keywords,
+        and a profile whose SSID cannot be read counts by the name it gives.
+        """
+        rc, stdout, stderr = await self._run_nmcli(
+            "-t", "-f", "NAME,UUID,TYPE", "connection", "show", timeout=2.0
+        )
+        if rc != 0:
+            raise RuntimeError(f"Failed to list WiFi profiles: {stderr}")
+
+        profiles = []
+        for line in stdout.split("\n"):
+            fields = _parse_nmcli_line(line) if line else []
+            if len(fields) >= 3 and "wireless" in fields[2] and fields[0] != HOTSPOT_NAME:
+                profiles.append((fields[0], fields[1]))
+
+        answers = await asyncio.gather(*(
+            self._run_nmcli(
+                "-t", "-f", "802-11-wireless.ssid", "connection", "show", "uuid", uuid,
+                timeout=2.0,
+            )
+            for _, uuid in profiles
+        ), return_exceptions=True)
+        ssids = set()
+        for (name, _), answer in zip(profiles, answers):
+            ssid = None
+            if not isinstance(answer, BaseException) and answer[0] == 0:
+                fields = _parse_nmcli_line(answer[1].split("\n", 1)[0])
+                ssid = fields[1] if len(fields) >= 2 else None
+            ssids.add(ssid or _ssid_from_profile(name))
+        ssids.discard(HOTSPOT_NAME)
+        return ssids
 
     async def get_active_wifi_credentials(self) -> Optional[dict]:
         """Return SSID + PSK of the active WiFi client connection on wlan0.

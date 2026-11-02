@@ -14,8 +14,8 @@ Two shapes of secret, both measured in this tree rather than imagined:
 
   * Real secrets. The Qobuz token (`/var/lib/milo/qobuz/credentials.json`),
     a share password (a root-only cred file written by milo-mount — never in
-    music_library_data.json), the WiFi PSK and SSID (NetworkManager). None of
-    them is read by any collector: no path here points at them.
+    music_library_data.json), the WiFi PSK (NetworkManager). None of them is
+    read by any collector: no path here points at them.
   * Things the user typed or named. A share id embeds the display name the user
     chose (`nas-leo-d7992dfe`), a client is called "Canapé", a USB key "iPod de
     Léo", a Bluetooth remote filter is whatever was typed. None is a secret and
@@ -23,10 +23,15 @@ Two shapes of secret, both measured in this tree rather than imagined:
     that carry the same diagnostic value: `client-1` beside its MAC says as much
     as "Canapé" and says nothing about who lives there.
 
-The two free-text sections (errors.log, the journal) cannot be projected field
-by field. Their whitelist is the set of admitted UNITS — `milo-*` plus the two
-named below, never NetworkManager or wpa_supplicant, which carry the SSID — and
-one structural rule on the text itself, `strip_query_strings`.
+The free-text sections (errors.log, the journal, each satellite's block) cannot
+be projected field by field. Their whitelist is the set of admitted UNITS —
+`milo-*` plus the two named below, never NetworkManager or wpa_supplicant — and
+structural rules on the text itself. Keeping those two units out does not keep
+the SSID out: milo-backend and milo-client log the networks they save, join,
+forget and hand to a satellite themselves. So the networks NetworkManager holds
+are replaced by `wifi-N` like any other excluded value, and `strip_wifi_names`
+removes a network named in one of the shapes Milō's own lines use, which is what
+still catches one forgotten since.
 """
 import re
 from typing import Any, Dict, Iterable, Mapping, Optional
@@ -257,7 +262,7 @@ LISTEN_PORTS = {
 
 
 # =============================================================================
-# The one structural rule on free text
+# The structural rules on free text
 # =============================================================================
 
 _QUERY = re.compile(r"(\?)[^\s\"'<>]*")
@@ -286,6 +291,61 @@ def strip_global_ipv6(text: str) -> str:
     Nothing is diagnosed from it that `eth0 is up` does not already say.
     """
     return _GLOBAL_IPV6.sub("<global-ipv6>", text)
+
+
+# The shapes Milō's own lines give a network name, read off every logger call
+# that passes one — `test_every_logged_ssid_shape_is_redacted_without_knowing_it`
+# renders each of them and goes red on one these do not read. A quoted value is
+# taken on a line that is about a network; an unquoted one only after its own
+# lead and up to the end of the line or a known suffix, which holds because a
+# line is sanitized whole, before it is capped.
+_WIFI_LINE = re.compile(r"wi-?fi|ssid|home network|hotspot|adopt", re.IGNORECASE)
+_QUOTED = re.compile(r"(?<!\w)'([^\n]*?)'(?!\w)")
+_UNQUOTED = (
+    re.compile(
+        r"(\b(?:connected to WiFi|WiFi network|WiFi profile): )"
+        r"(.+?)(?= \((?:password provided|ssid=)|$)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(\bdelete WiFi profile )(.+?)(?=: |$)", re.IGNORECASE),
+    re.compile(r"(\(ssid=)(.+)(?=\)$)", re.IGNORECASE),
+    # An nmcli that timed out is logged with its argv, which names the profile
+    # and, for an `add`, the SSID: everything after the verb goes.
+    re.compile(
+        r"(\bnmcli timed out: nmcli (?:.*? )?connection (?:add|delete|modify|show|up) )"
+        r"(?!--active$)(.+)$"
+    ),
+)
+# What a known network was already replaced by, which says more than `<wifi>`.
+_WIFI_LABEL = re.compile(r"(?:milo-)?wifi-\d+")
+# The appliance's own names — the setup hotspot every Milō raises, its units and
+# hosts. Never a household's, and an SSID spelled like one would rewrite every
+# unit and host name in the file.
+_APPLIANCE_NAME = re.compile(r"mil[oō](?:-client)?(?:-\d+)?", re.IGNORECASE)
+
+
+def _kept(name: str) -> bool:
+    return bool(_WIFI_LABEL.fullmatch(name) or _APPLIANCE_NAME.fullmatch(name))
+
+
+def strip_wifi_names(text: str, about_a_network: Optional[bool] = None) -> str:
+    """Replace a network name written in one of Milō's own shapes by `<wifi>`.
+
+    `about_a_network` is whether the line was about a network before any label
+    was put in it: a `wifi-N` the Redactor wrote does not make every other
+    quoted value on its line a network name.
+    """
+    if about_a_network is None:
+        about_a_network = bool(_WIFI_LINE.search(text))
+    if about_a_network:
+        text = _QUOTED.sub(
+            lambda m: m.group(0) if _kept(m.group(1)) else "'<wifi>'", text
+        )
+    for pattern in _UNQUOTED:
+        text = pattern.sub(
+            lambda m: m.group(0) if _kept(m.group(2)) else f"{m.group(1)}<wifi>", text
+        )
+    return text
 
 
 def strip_query_strings(text: str) -> str:
@@ -356,9 +416,10 @@ class Redactor:
 
     def __call__(self, text: str) -> str:
         text = strip_global_ipv6(strip_query_strings(text))
+        about_a_network = bool(_WIFI_LINE.search(text))
         for pattern, label in self._patterns:
             text = pattern.sub(label, text)
-        return text
+        return strip_wifi_names(text, about_a_network)
 
     @classmethod
     def build(
@@ -371,6 +432,7 @@ class Redactor:
         share_labels: Dict[str, str],
         share_names: Dict[str, str],
         usb_strings: Dict[str, str],
+        ssid_labels: Dict[str, str],
     ) -> "Redactor":
         """One map from every excluded value this unit holds to its label."""
         replacements: Dict[str, str] = {}
@@ -388,4 +450,7 @@ class Redactor:
             if name:
                 replacements[name] = label
         replacements.update(usb_strings)
+        for ssid, label in ssid_labels.items():
+            if not _APPLIANCE_NAME.fullmatch(ssid):
+                replacements[ssid] = label
         return cls(replacements)

@@ -502,6 +502,64 @@ async def test_the_saved_ssid_is_read_back_from_the_milo_prefixed_profile(servic
     assert status.wifi.saved_ssid == "Home"
 
 
+@pytest.mark.asyncio
+async def test_known_ssids_name_every_station_profile_and_not_the_hotspot(service):
+    """The diagnostic report redacts exactly these, so one missing is one leaked.
+
+    The SSID is read from the profile, not its name: a first-flash netplan
+    profile and an Imager `preconfigured` one name their network nowhere else,
+    and two profiles may share a name, which is why each is asked for by UUID.
+    The setup hotspot is every Milō's, not the household's, and stays readable.
+    """
+    profiles = [
+        ("milo-Home", "u-1", "Home"),
+        ("netplan-wlan0-Flash Net", "u-2", "Flash Net"),
+        ("preconfigured", "u-3", "Imager: Net"),
+        ("preconfigured", "u-4", "Second Net"),
+        (HOTSPOT_NAME, "u-5", HOTSPOT_NAME),
+    ]
+    by_uuid = {uuid: ssid for _, uuid, ssid in profiles}
+
+    def router(args):
+        if args == ("-t", "-f", "NAME,UUID,TYPE", "connection", "show"):
+            return 0, "\n".join([
+                "Wired connection 1:u-0:802-3-ethernet",
+                *(f"{name}:{uuid}:802-11-wireless" for name, uuid, _ in profiles),
+                "lo:u-9:loopback",
+            ]), ""
+        if args[:6] == ("-t", "-f", "802-11-wireless.ssid", "connection", "show", "uuid"):
+            value = by_uuid[args[6]].replace(":", "\\:")
+            return 0, f"802-11-wireless.ssid:{value}", ""
+        return 0, "", ""
+
+    fake, patcher = with_nmcli(router)
+    with patcher:
+        known = await service.known_ssids()
+
+    assert known == {"Home", "Flash Net", "Imager: Net", "Second Net"}
+    assert not any("u-5" in call for call in fake.argv_containing("802-11-wireless.ssid"))
+
+
+@pytest.mark.asyncio
+async def test_known_ssids_fall_back_to_the_profile_name_when_its_ssid_is_unreadable(service):
+    """A profile nmcli will not describe, or not in time, still names its network
+    in its name — and one stalled read does not cost the others."""
+    def router(args):
+        if args == ("-t", "-f", "NAME,UUID,TYPE", "connection", "show"):
+            return 0, "milo-Home:u-1:802-11-wireless\nmilo-Cafe:u-2:802-11-wireless\nOffice:u-3:802-11-wireless", ""
+        if args[-1] == "u-1":
+            return 10, "", "Error: no such connection profile."
+        if args[-1] == "u-2":
+            return asyncio.get_running_loop().create_future()
+        return 0, "802-11-wireless.ssid:Office Net", ""
+
+    fake, patcher = with_nmcli(router)
+    with patcher:
+        known = await service.known_ssids()
+
+    assert known == {"Home", "Cafe", "Office Net"}
+
+
 # --------------------------------------------------------------------------- #
 # The AP transition — what a blank card depends on
 # --------------------------------------------------------------------------- #

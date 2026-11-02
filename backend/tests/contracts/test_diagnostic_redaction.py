@@ -22,6 +22,7 @@ would pass this file by producing nothing at all.
 """
 import ast
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -267,15 +268,59 @@ def test_the_redactor_replaces_an_excluded_value_wherever_it_appears():
         share_labels={"nas-leo-d7992dfe": "share-1"},
         share_names={"nas-leo-d7992dfe": "NAS-Leo"},
         usb_strings={"iPod de Léo": "usb-1"},
+        ssid_labels={"Freebox-Leo": "wifi-1"},
     )
     out = redactor(
         "Share nas-leo-d7992dfe stopped answering; zone Salon (zone-uuid) holds "
-        "Canapé; mounted /media/milo/nas-leo-d7992dfe and iPod de Léo"
+        "Canapé; mounted /media/milo/nas-leo-d7992dfe and iPod de Léo; "
+        "nmcli timed out: nmcli connection show milo-Freebox-Leo"
     )
-    for secret in ("nas-leo-d7992dfe", "Salon", "zone-uuid", "Canapé", "iPod de Léo"):
+    for secret in (
+        "nas-leo-d7992dfe", "Salon", "zone-uuid", "Canapé", "iPod de Léo", "Freebox-Leo",
+    ):
         assert secret not in out, secret
     assert out.count("share-1") == 2
     assert "client-1" in out and "zone-1" in out and "usb-1" in out
+    assert "milo-wifi-1" in out
+
+
+def test_a_known_network_keeps_its_label_through_the_structural_rule():
+    """The label cross-references one network across sections; `<wifi>` would not."""
+    redactor = wl.Redactor({"Freebox-Leo": "wifi-1"})
+    assert redactor(
+        "Could not hand WiFi 'Freebox-Leo' to satellite 192.168.1.60: timeout"
+    ) == "Could not hand WiFi 'wifi-1' to satellite 192.168.1.60: timeout"
+    assert redactor(
+        "Deleting WiFi profile: milo-Freebox-Leo (ssid=Freebox-Leo)"
+    ) == "Deleting WiFi profile: milo-wifi-1 (ssid=wifi-1)"
+
+
+def test_a_network_named_like_the_appliance_does_not_rewrite_its_unit_names():
+    """An SSID "milo" would turn every `milo-backend` into `wifi-1-backend`.
+
+    It names no household, so it is the network that is left readable, not the
+    unit and host names that are destroyed.
+    """
+    redactor = wl.Redactor.build(
+        client_labels={}, client_names={}, zone_labels={}, zone_names={},
+        share_labels={}, share_names={}, usb_strings={},
+        ssid_labels={"milo": "wifi-1", "Milo-Client": "wifi-2"},
+    )
+    assert redactor("milo-backend.service started on milo-client") == (
+        "milo-backend.service started on milo-client"
+    )
+    # Nor does the setup hotspot every Milō raises lose its name to the rule.
+    line = "Access point 'Milō' is up from a previous run — adopted"
+    assert redactor(line) == line
+
+
+def test_a_label_does_not_turn_its_line_into_a_network_line():
+    """Only a line about a network has its quoted values taken; the `wifi-N`
+    the redactor wrote into it is not what makes it one."""
+    redactor = wl.Redactor({"Home": "wifi-1"})
+    assert redactor("connection up milo-Home failed: 'Secrets were required'") == (
+        "connection up milo-wifi-1 failed: 'Secrets were required'"
+    )
 
 
 def test_a_short_value_is_not_substituted_into_unrelated_words():
@@ -287,6 +332,104 @@ def test_a_short_value_is_not_substituted_into_unrelated_words():
     """
     redactor = wl.Redactor({"Ho": "client-1", "Salon": "zone-1"})
     assert redactor("Ho and Salonique and Salon") == "Ho and Salonique and zone-1"
+
+
+# Every logger call in the two applications that hands a network name to its
+# format string. The report reads both: the server's own errors.log and journal,
+# and each satellite's journal inside its block.
+LOGGED_TREES = (REPO_ROOT / "backend", REPO_ROOT / "milo-client" / "app")
+_LOG_METHODS = {"debug", "info", "warning", "error", "exception", "critical"}
+_SPEC = re.compile(r"%(?:\([^)]*\))?[#0\- +]*\d*(?:\.\d+)?([a-zA-Z%])")
+
+
+def _logged_ssid_formats():
+    """(where, format, which argument indexes carry an SSID), read from source."""
+    found = []
+    for tree_root in LOGGED_TREES:
+        for path in sorted(tree_root.rglob("*.py")):
+            if "tests" in path.relative_to(REPO_ROOT).parts:
+                continue
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in _LOG_METHODS
+                    and ast.unparse(node.func.value).endswith("logger")
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                ):
+                    continue
+                fmt = node.args[0].value
+                carriers = {}
+                for index, arg in enumerate(node.args[1:]):
+                    source = ast.unparse(arg)
+                    if "ssid" in source.lower():
+                        carriers[index] = "{ssid}"
+                    elif source in _PROFILE_ARGS and _PROFILE_LINE.search(fmt):
+                        carriers[index] = "milo-{ssid}"
+                    elif source in _NMCLI_ARGV and fmt.startswith("nmcli "):
+                        carriers[index] = (
+                            "connection add type wifi con-name milo-{ssid} "
+                            "ifname wlan0 ssid {ssid}"
+                        )
+                if carriers:
+                    where = f"{path.relative_to(REPO_ROOT)}:{node.lineno}"
+                    found.append((where, fmt, carriers))
+    return found
+
+
+# A profile name is `milo-<ssid>` (or netplan's, or the SSID itself), and an
+# nmcli argv carries both: they name the network under another variable.
+_PROFILE_ARGS = {"name", "active_name", "profile", "con_name"}
+_PROFILE_LINE = re.compile(r"profile|connection|credentials", re.IGNORECASE)
+_NMCLI_ARGV = {"_redact_nmcli_args(args)", "' '.join(args)"}
+
+
+def _render(fmt: str, carriers, ssid: str) -> str:
+    """The message as logging would write it, the SSID in its own slots."""
+    values, index = [], 0
+    for match in _SPEC.finditer(fmt):
+        conversion = match.group(1)
+        if conversion == "%":
+            continue
+        if index in carriers:
+            values.append(carriers[index].format(ssid=ssid))
+        else:
+            values.append(0 if conversion in "di" else "x")
+        index += 1
+    return fmt % tuple(values)
+
+
+def test_the_logged_ssid_extractor_is_not_vacuous():
+    """The guard below is a for-all, and a for-all over nothing holds."""
+    found = _logged_ssid_formats()
+    assert len(found) >= 20, found
+    assert any(where.startswith("milo-client/") for where, _, _ in found), found
+    # The two nmcli timeout lines, which name a profile under neither spelling.
+    assert sum("nmcli timed out" in fmt for _, fmt, _ in found) == 2, found
+
+
+@pytest.mark.parametrize("ssid", ["Sentinel Net Name", "Léo's (5 GHz)"])
+def test_every_logged_ssid_shape_is_redacted_without_knowing_it(ssid):
+    """A network forgotten since is in no NetworkManager profile, so no known
+    value can redact it — yet errors.log's rotations and the journal still hold
+    the lines that named it. What removes it is the rule on the shapes Milō's
+    own lines give a name, and this goes red the day a logger call writes one in
+    a shape the rule does not read.
+    """
+    redact = wl.Redactor()
+    leaks = []
+    for where, fmt, carriers in _logged_ssid_formats():
+        message = _render(fmt, carriers, ssid)
+        for line in (
+            f"[2026-09-04 16:56:13,146] WARNING backend.x - {message}",
+            f"2026-09-04T16:56:13+02:00 milo python[812]: INFO backend.x - {message}",
+        ):
+            if ssid in redact(line):
+                leaks.append(f"{where}: {redact(line)}")
+    assert not leaks, "\n".join(leaks)
 
 
 # --------------------------------------------------------------------------- #
@@ -311,6 +454,11 @@ EXCLUDED_SENTINELS = {
     "zone name": "SentinelZone",
     "zone id": "sentinel-zone-uuid",
     "bt remote filter": "SENTINELREMOTE",
+    # With a space, so the unquoted shapes are proved to take the whole name.
+    "wifi ssid": "Sentinel Net Name",
+    # A network forgotten since: NetworkManager no longer names it, the journal
+    # and errors.log's rotations still do.
+    "forgotten wifi ssid": "Sentinel Old Net",
 }
 
 ALLOWED_SENTINELS = {
@@ -319,11 +467,15 @@ ALLOWED_SENTINELS = {
     "share host": "192.168.55.77",
 }
 
+# A line of a satellite's own block that names nothing, so the counter-proof can
+# tell a sanitized block from a missing one.
+SATELLITE_ALLOWED_LINE = "snapclient: latency 42 ms, buffer 1000 ms"
+
 
 @pytest.fixture
 def planted(monkeypatch, tmp_path):
     """A unit whose every excluded field carries a unique, greppable value."""
-    from backend.core.system.diagnostic import collectors
+    from backend.core.system.diagnostic import collectors, probes, satellite
     from backend.core.system.diagnostic import service as service_module
 
     data_file = tmp_path / "music_library_data.json"
@@ -362,11 +514,51 @@ def planted(monkeypatch, tmp_path):
         f"http://127.0.0.1:4533/rest/stream?u=milo&t=deadbeefsentineltoken&s=abc\n"
         f"[2026-09-04 16:56:16,000] WARNING source.music_library - mounted "
         f"{EXCLUDED_SENTINELS['usb mountpoint']}\n"
+        f"[2026-09-04 16:56:17,000] WARNING backend.core.multiroom.satellite_wifi - "
+        f"Could not hand WiFi '{EXCLUDED_SENTINELS['wifi ssid']}' to satellite "
+        f"{ALLOWED_SENTINELS['client ip']}: TimeoutError\n"
     )
 
     monkeypatch.setattr(service_module, "MUSIC_LIBRARY_DATA_FILE", data_file)
     monkeypatch.setattr(collectors, "MUSIC_LIBRARY_DATA_FILE", data_file)
     monkeypatch.setattr(service_module, "ERROR_LOG_FILE", errors_log)
+
+    # journalctl, as milo-backend's own INFO lines read in short-iso.
+    async def _units(glob, extra=()):
+        return ["milo-backend.service"]
+
+    async def _journal_tail(*, units=(), kernel=False, **_):
+        if kernel:
+            return []
+        return [
+            "2026-09-04T16:56:18+02:00 milo python[812]: INFO backend.core.network - "
+            f"Connecting to WiFi network: {EXCLUDED_SENTINELS['wifi ssid']} "
+            "(password provided: True)",
+            "2026-09-04T16:56:19+02:00 milo python[812]: INFO backend.core.network - "
+            f"Forgot WiFi network: {EXCLUDED_SENTINELS['forgotten wifi ssid']}",
+        ]
+
+    monkeypatch.setattr(probes, "list_milo_units", _units)
+    monkeypatch.setattr(probes, "journal_tail", _journal_tail)
+
+    # A satellite that answers, with its own journal in the text it sends back.
+    async def _satellites(clients, labels):
+        return [{
+            "reachable": True,
+            "hostname": "milo-client",
+            "text": (
+                f"{SATELLITE_ALLOWED_LINE}\n"
+                "2026-09-04T16:56:20+00:00 milo-client python[611]: INFO app - "
+                f"WiFi '{EXCLUDED_SENTINELS['wifi ssid']}' saved as a standby link"
+            ),
+            "unavailable": [],
+            "label": labels[client.mac_id],
+            "mac_id": client.mac_id,
+            "ip": client.ip,
+            "registry_online": True,
+        }]
+
+    monkeypatch.setattr(satellite, "collect_all", _satellites)
 
     zone = Zone(
         name=EXCLUDED_SENTINELS["zone name"],
@@ -403,11 +595,21 @@ def planted(monkeypatch, tmp_path):
                 },
             }
 
-    return _Registry(), _Settings()
+    class _Network:
+        """NetworkManager as NetworkService reads it: the one network it holds."""
+
+        async def known_ssids(self):
+            return {EXCLUDED_SENTINELS["wifi ssid"]}
+
+    return {
+        "registry_service": _Registry(),
+        "settings_service": _Settings(),
+        "network_service": _Network(),
+    }
 
 
 @pytest.mark.asyncio
-async def test_no_excluded_value_survives_a_real_report(planted, monkeypatch):
+async def test_no_excluded_value_survives_a_real_report(planted):
     """The fixture's whole excluded half must be absent from the file.
 
     Including from the log lines, where nothing is projected — that half is what
@@ -416,16 +618,7 @@ async def test_no_excluded_value_survives_a_real_report(planted, monkeypatch):
     """
     from backend.core.system.diagnostic import DiagnosticService
 
-    registry, settings = planted
-    # No satellite probe: the fixture's client is remote, and a real HTTP fan-out
-    # here would make the test about the network.
-    monkeypatch.setattr(
-        "backend.core.system.diagnostic.satellite.collect_all",
-        lambda clients, labels: _empty(),
-    )
-    result = await DiagnosticService(
-        registry_service=registry, settings_service=settings
-    ).generate()
+    result = await DiagnosticService(**planted).generate()
 
     for name, sentinel in EXCLUDED_SENTINELS.items():
         assert sentinel not in result["report"], f"{name} leaked into the report"
@@ -433,7 +626,7 @@ async def test_no_excluded_value_survives_a_real_report(planted, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_allowed_values_do_survive_a_real_report(planted, monkeypatch):
+async def test_the_allowed_values_do_survive_a_real_report(planted):
     """The counter-proof, and the reason the test above can be trusted.
 
     A report that collected nothing satisfies every "must not contain" rule
@@ -442,14 +635,7 @@ async def test_the_allowed_values_do_survive_a_real_report(planted, monkeypatch)
     """
     from backend.core.system.diagnostic import DiagnosticService
 
-    registry, settings = planted
-    monkeypatch.setattr(
-        "backend.core.system.diagnostic.satellite.collect_all",
-        lambda clients, labels: _empty(),
-    )
-    result = await DiagnosticService(
-        registry_service=registry, settings_service=settings
-    ).generate()
+    result = await DiagnosticService(**planted).generate()
 
     for name, sentinel in ALLOWED_SENTINELS.items():
         assert sentinel in result["report"], f"{name} is missing from the report"
@@ -458,7 +644,9 @@ async def test_the_allowed_values_do_survive_a_real_report(planted, monkeypatch)
     assert "client-1" in result["report"]
     assert "zone-1" in result["report"]
     assert "share-1" in result["report"]
+    # The network NetworkManager holds is named by its label, and the satellite
+    # block is still there, sanitized rather than dropped.
+    assert "wifi-1" in result["report"]
+    assert "===== SATELLITES =====" in result["report"]
+    assert SATELLITE_ALLOWED_LINE in result["report"]
 
-
-async def _empty():
-    return []

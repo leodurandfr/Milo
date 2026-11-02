@@ -216,6 +216,8 @@ def _create_service(name: str) -> Any:
             version_service=get_service("update_service"),
             connectivity_service=get_service("connectivity_service"),
             hostname_conflict_service=get_service("hostname_conflict_service"),
+            # The WiFi networks NetworkManager holds, which the report must not name.
+            network_service=get_service("network_service"),
         ),
 
         # Lyrics (transverse Lyrics app — LRCLIB lookup + disk cache; no source, no boot init)
