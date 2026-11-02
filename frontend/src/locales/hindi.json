@@ -912,7 +912,8 @@
       "connected": "कनेक्टेड",
       "notPaired": "पेयर नहीं किया गया",
       "paired": "पेयर किया गया",
-      "hardwareDisabled": "इन्फ्रारेड रिसीवर निष्क्रिय"
+      "hardwareDisabled": "इन्फ्रारेड रिसीवर निष्क्रिय",
+      "receiverDown": "रिसीवर प्रतिक्रिया नहीं दे रहा"
     }
   },
   "btRemoteSettings": {

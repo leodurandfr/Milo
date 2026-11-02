@@ -15,6 +15,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.core.models.audio_state import AudioSource
+from backend.core.models.ws_events import IrRemoteStatusChanged
 from backend.hardware.ir_remote import (
     GPIO_IR_DEVICE_NAME,
     MENU_CLICK_WINDOW,
@@ -1247,6 +1248,112 @@ class TestTheRuntimeLoopEndsQuietly:
             await controller._runtime_loop(asyncio.Queue(maxsize=1))
 
         device.close.assert_called_once()
+
+
+class TestADeadListenerIsAnnounced:
+    """A reader that is not running must say so on the wire.
+
+    `listening` is derived from the reader task, so it turns False the moment
+    the task ends — but nothing else moves, and the settings panel kept a
+    green "Paired" over a remote whose every button was dead. What is pinned
+    is the last status the panel was sent, built by `get_status()`.
+    """
+
+    def _paired(self):
+        controller = _runtime_controller()
+        controller.enabled = True
+        controller.paired = True
+        controller.device_id = 0x8D
+        return controller
+
+    def _last_status(self, controller):
+        event = controller.state_machine.broadcast.await_args.args[0]
+        assert isinstance(event, IrRemoteStatusChanged)
+        return event
+
+    @staticmethod
+    def _failing_device(error):
+        device = MagicMock()
+        device.name = GPIO_IR_DEVICE_NAME
+
+        async def _loop():
+            raise error
+            yield  # pragma: no cover - makes this an async generator
+
+        device.async_read_loop = _loop
+        return device
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("read_error", [
+        pytest.param(OSError(19, "No such device"), id="read-oserror"),
+        pytest.param(RuntimeError("evdev bug"), id="read-fault"),
+        pytest.param(None, id="open-fails"),
+    ])
+    async def test_a_runtime_loop_that_dies_announces_it_is_not_listening(
+        self, read_error
+    ):
+        controller = self._paired()
+        if read_error is None:
+            input_device = patch(
+                "evdev.InputDevice", side_effect=OSError(16, "Device busy")
+            )
+        else:
+            input_device = patch(
+                "evdev.InputDevice", return_value=self._failing_device(read_error)
+            )
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), input_device:
+            await controller._start_runtime_listener()
+            reader = controller._runtime_task
+            worker = controller._transport_task
+            assert await _until(reader.done)
+            assert await _until(
+                lambda: controller.state_machine.broadcast.await_count >= 1
+            )
+            await controller._bg.cancel_all()
+
+        status = self._last_status(controller)
+        assert status.listening is False
+        assert status.enabled is True
+        assert status.paired is True
+        # The worker would otherwise sit on a queue nothing feeds any more.
+        assert await _until(worker.done)
+
+    @pytest.mark.asyncio
+    async def test_a_receiver_missing_at_boot_announces_it_is_not_listening(self):
+        controller = _runtime_controller()
+        controller.settings_service.get_setting.return_value = {
+            "enabled": True, "device_id": 0x8D, "paired_at": 1700000000.0,
+        }
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value=None):
+            await controller.initialize()
+            assert await _until(
+                lambda: controller.state_machine.broadcast.await_count >= 1
+            )
+            await controller._bg.cancel_all()
+
+        status = self._last_status(controller)
+        assert status.listening is False
+        assert status.paired is True
+
+    @pytest.mark.asyncio
+    async def test_a_deliberate_stop_broadcasts_nothing_extra(self):
+        """Stopping is the caller's own state change, which it broadcasts
+        itself; a second "listener down" would race the one it sends."""
+        controller = self._paired()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=_pairing_device()):
+            await controller._start_runtime_listener()
+            reader = controller._runtime_task
+            await controller._stop_runtime_listener()
+            assert reader.done()
+            # Every pass a spawned broadcast would need to land.
+            for _ in range(10):
+                await asyncio.sleep(0)
+
+        controller.state_machine.broadcast.assert_not_awaited()
 
 
 class TestAKeycodeHandlerThatRaises:

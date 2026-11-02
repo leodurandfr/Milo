@@ -80,6 +80,7 @@ const irStatusText = computed(() => {
   if (!irHardwareEnabled.value) return t('remoteControls.status.hardwareDisabled');
   if (!settingsStore.irRemote.enabled) return t('remoteControls.status.disabled');
   if (!settingsStore.irRemote.paired) return t('remoteControls.status.notPaired');
+  if (!settingsStore.irRemote.listening) return t('remoteControls.status.receiverDown');
   return t('remoteControls.status.paired');
 });
 
@@ -87,6 +88,7 @@ const irDotClass = computed(() => {
   if (!irHardwareEnabled.value) return 'remote-dot--off';
   if (!settingsStore.irRemote.enabled) return 'remote-dot--off';
   if (!settingsStore.irRemote.paired) return 'remote-dot--idle';
+  if (!settingsStore.irRemote.listening) return 'remote-dot--idle';
   return 'remote-dot--ok';
 });
 

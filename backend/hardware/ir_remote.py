@@ -231,7 +231,7 @@ class IrRemoteController:
         if not EVDEV_AVAILABLE:
             return
 
-        # A reader that ended on its own (OSError) left its worker behind.
+        # A reader that ended on its own left its worker cancelled, not awaited.
         await self._stop_runtime_listener()
         if self._runtime_task:
             return  # another start ran while this one was stopping
@@ -241,6 +241,7 @@ class IrRemoteController:
             logger.warning(
                 "gpio_ir_recv device not found — is the gpio-ir overlay loaded?"
             )
+            self._bg.spawn(self._broadcast_status(), label="ir_listener_down")
             return
 
         # Transport keys wait for the source's actor, so they run off the
@@ -250,7 +251,21 @@ class IrRemoteController:
         transport = asyncio.Queue(maxsize=1)
         self._transport_task = asyncio.create_task(self._transport_worker(transport))
         self._runtime_task = asyncio.create_task(self._runtime_loop(transport))
+        self._runtime_task.add_done_callback(self._on_runtime_exit)
         logger.info("IR runtime listener started on %s", self._device_path)
+
+    def _on_runtime_exit(self, task: asyncio.Task) -> None:
+        """Announce a reader that ended on its own: every button is now dead.
+
+        A deliberate stop clears `_runtime_task` before it cancels, so only
+        an exit nobody asked for gets here. The status can only be built once
+        the task is done, which is why this is not the loop's own `finally`.
+        """
+        if task.cancelled() or task is not self._runtime_task:
+            return
+        if self._transport_task:
+            self._transport_task.cancel()
+        self._bg.spawn(self._broadcast_status(), label="ir_listener_down")
 
     async def _stop_runtime_listener(self) -> None:
         tasks = (self._runtime_task, self._transport_task)

@@ -912,7 +912,8 @@
       "connected": "Connected",
       "notPaired": "Not paired",
       "paired": "Paired",
-      "hardwareDisabled": "Infrared receiver disabled"
+      "hardwareDisabled": "Infrared receiver disabled",
+      "receiverDown": "Receiver not responding"
     }
   },
   "btRemoteSettings": {

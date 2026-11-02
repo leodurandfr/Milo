@@ -912,7 +912,8 @@
       "connected": "已连接",
       "notPaired": "未配对",
       "paired": "已配对",
-      "hardwareDisabled": "红外接收器已禁用"
+      "hardwareDisabled": "红外接收器已禁用",
+      "receiverDown": "接收器无响应"
     }
   },
   "btRemoteSettings": {

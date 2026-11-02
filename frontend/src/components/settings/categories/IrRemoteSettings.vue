@@ -23,8 +23,10 @@
     <RemoteStatusSection
       v-else-if="settingsStore.irRemote.paired"
       v-model="stepIrRemoteDb"
-      :ok="true"
-      :status-label="t('remoteControls.status.paired')"
+      :ok="settingsStore.irRemote.listening"
+      :status-label="settingsStore.irRemote.listening
+        ? t('remoteControls.status.paired')
+        : t('remoteControls.status.receiverDown')"
       :step-label="t('irRemoteSettings.step')"
       :show-unpair="true"
       :unpair-label="t('irRemoteSettings.unpair')"

@@ -912,7 +912,8 @@
       "connected": "Connesso",
       "notPaired": "Non accoppiato",
       "paired": "Accoppiato",
-      "hardwareDisabled": "Ricevitore infrarossi disattivato"
+      "hardwareDisabled": "Ricevitore infrarossi disattivato",
+      "receiverDown": "Il ricevitore non risponde"
     }
   },
   "btRemoteSettings": {

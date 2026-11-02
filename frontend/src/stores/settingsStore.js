@@ -418,6 +418,7 @@ export const useSettingsStore = defineStore('settings', () => {
   async function toggleIrRemote(enabled) {
     const prev = { ...irRemote.value };
     irRemote.value.enabled = enabled;
+    irRemote.value.listening = enabled && irRemote.value.paired;
     const result = await apiCall.patch('/api/ir-remote/config', { enabled }, {
       category: 'settings',
       message: 'Error toggling IR remote',
