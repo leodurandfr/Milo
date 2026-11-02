@@ -299,8 +299,8 @@ function back() { navBack(); prepareNavigation(); }
 // `visible` reads stores, so the table is built here rather than in a module.
 const HOME_SECTIONS = [
   {
-    key: 'appearance',
-    titleKey: 'settings.section.appearance',
+    key: 'general',
+    titleKey: 'settings.section.general',
     rows: [
       { view: 'languages', titleKey: 'settings.languageRegion', icon: 'languages' },
       { view: 'apps', titleKey: 'settings.dock', icon: 'dock' },

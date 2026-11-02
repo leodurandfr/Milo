@@ -25,7 +25,7 @@
   "settings": {
     "title": "Milō सेटिंग्स",
     "section": {
-      "appearance": "स्वरूप",
+      "general": "सामान्य",
       "audio": "ऑडियो",
       "sources": "स्रोत",
       "device": "डिवाइस"

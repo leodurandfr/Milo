@@ -25,7 +25,7 @@
   "settings": {
     "title": "Paramètres de Milō",
     "section": {
-      "appearance": "Apparence",
+      "general": "Général",
       "audio": "Audio",
       "sources": "Sources",
       "device": "Appareil"
