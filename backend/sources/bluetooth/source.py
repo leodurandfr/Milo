@@ -51,7 +51,8 @@ over AVRCP, and the stored one is whatever the last track change captured.
 
 Features:
 - Multi-service management: bluetooth, bluealsa, bluealsa-aplay
-- D-Bus agent for automatic pairing (NoInputNoOutput mode)
+- D-Bus agent for automatic pairing (NoInputNoOutput mode) that authorizes
+  the audio profiles only and rejects every other service
 - Single device enforcement (a second phone's link is dropped)
 - Recovery from a bluetoothd or BlueALSA that died under the source
 - AVRCP metadata + transport via BlueZ

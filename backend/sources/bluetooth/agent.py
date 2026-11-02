@@ -2,19 +2,27 @@
 """
 Bluetooth D-Bus agent for auto-pairing.
 
-Implements the org.bluez.Agent1 interface to automatically accept
-incoming Bluetooth connections without user interaction.
+Implements the org.bluez.Agent1 interface to pair incoming devices without
+user interaction, then authorize the audio profiles only (A2DP, AVRCP):
+any other service an untrusted device asks for — HID, serial, phonebook — is
+rejected, since pairing itself is Just Works for anyone in range.
 """
 import contextlib
 import logging
 import uuid
 from typing import Optional
 
+from dbus_next import DBusError
 from dbus_next.aio import MessageBus
 from dbus_next.service import ServiceInterface, method
 from dbus_next.constants import BusType
 
 from backend.shared.decorators import handle_errors
+
+# A2DP and AVRCP in every role. BlueZ asks for A2DP under ADVANCED_AUDIO (110d).
+AUDIO_SERVICE_UUIDS = frozenset(
+    f"0000110{x}-0000-1000-8000-00805f9b34fb" for x in "abcdef"
+)
 
 
 class BluetoothAgent(ServiceInterface):
@@ -165,7 +173,10 @@ class BluetoothAgent(ServiceInterface):
 
     @method()
     def AuthorizeService(self, device: 'o', uuid: 's') -> None:
-        """Authorize service (auto-accept)."""
+        """Authorize an audio profile; reject every other service."""
+        if uuid.lower() not in AUDIO_SERVICE_UUIDS:
+            self._logger.warning(f"Rejected service {uuid} for {device}: not audio")
+            raise DBusError("org.bluez.Error.Rejected", f"Service {uuid} is not audio")
         self._logger.debug(f"Service {uuid} authorization for {device}")
 
     @method()

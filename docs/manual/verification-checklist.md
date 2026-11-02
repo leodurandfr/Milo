@@ -237,6 +237,7 @@ flowing; anything else is "connected" (a Mac publishes no state for its first 10
 | Check | Expected observable | Set |
 |---|---|---|
 | Pairing | Milō is discoverable and pairs from a phone | targeted |
+| Only audio is authorized | A freshly paired phone plays, shows its title, and `POST /api/audio/control/bluetooth` `pause`/`resume` changes the phone's state; `journalctl -u milo-backend` shows no `Rejected service` and `journalctl -u bluetooth` no `authorization … failed` for a `0000110x` (audio) UUID. If a Classic (BR/EDR) keyboard is at hand: it pairs, but nothing it types reaches the kiosk, no new `/dev/input/event*` appears, and the backend logs `Rejected service 00001124-…` | targeted |
 | State | UI shows "Connected to [device name]" with a Disconnect button; "Ready" when idle | targeted |
 | Audio | Playback from the phone is audible | targeted |
 | Volume | Phone at 20 % then at 100 %: same level in the room; while playing, `bluealsa-cli info <pcm>` (the path from `bluealsa-cli list-pcms`) shows `SoftVolume: false`; Milō's displayed level does not move | targeted |
