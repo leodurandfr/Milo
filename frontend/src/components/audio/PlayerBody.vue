@@ -331,18 +331,18 @@ defineExpose({ swipe });
   min-height: 0;
 }
 
-/* In and out on the same springs, as the player's other moves: the bar's
-   drop on the full one, the room it makes on the light one so the lines
-   settle without a bounce. An ease-in on the way out read as the entrance
+/* In and out on one short ease-out, the bar's drop and the room it makes
+   together, so the lines move with the bar. No spring: a bounce on a row this
+   small read as a jitter. An ease-in on the way out read as the entrance
    played backwards. */
 .source-reveal-enter-active,
 .source-reveal-leave-active {
-  transition: grid-template-rows var(--transition-spring-light);
+  transition: grid-template-rows var(--transition-medium);
 }
 
 .source-reveal-enter-active .body-source,
 .source-reveal-leave-active .body-source {
-  transition: transform var(--transition-spring), opacity var(--transition-in-out);
+  transition: transform var(--transition-medium), opacity var(--transition-in-out);
 }
 
 .source-reveal-enter-from,
@@ -372,9 +372,12 @@ defineExpose({ swipe });
 }
 
 /* On the card the bar is ranged left, and the title keeps to two lines: the
-   card's height is shared with the cover above it. */
+   card's height is shared with the cover above it. Under the bar, room before
+   the lines — a margin inside the slot's row rather than a gap on the block,
+   so it opens and closes with the slot. */
 .player-body--card .body-source {
   justify-content: flex-start;
+  margin-bottom: var(--space-03);
 }
 
 .player-body--card .card-lines :deep(.player-info-title) {

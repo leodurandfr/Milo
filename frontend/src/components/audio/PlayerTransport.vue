@@ -309,23 +309,36 @@ async function press(control) {
   transform: scale(0.96);
 }
 
-/* A labelled button hugs its label, centred in the box of the main button it
-   stands for — on the plate its target, on the card its glyph and ghost
-   padding — so the row keeps its height when the transport comes back. On the
-   desktop card it sits on that box's floor instead. */
+/* A labelled button spans the row, in the box of the main button it stands
+   for — on the plate its target, on the card its glyph and ghost padding — so
+   the row keeps its height when the transport comes back. On the desktop card
+   it sits on that box's floor, inset to the progress bar's edges: as far from
+   the card's sides as from its bottom. */
 .player-transport-labelled {
   display: flex;
   align-items: center;
-  flex: 0 0 auto;
+  flex: 1;
+}
+
+.player-button--labelled {
+  width: 100%;
 }
 
 .player-transport--plate .player-transport-labelled {
   height: var(--primary-target);
+  justify-content: center;
+}
+
+/* Up to the kiosk's column: past it (a wide desktop window) the button stops
+   growing and stays centred. */
+.player-transport--plate .player-button--labelled {
+  max-width: 448px;
 }
 
 .player-transport--card .player-transport-labelled {
   height: calc(var(--transport-primary) + 2 * var(--space-02));
   align-items: flex-end;
+  padding-inline: var(--space-04);
 }
 
 /* The source's own button at the row's end, in the box a toggle takes. */
@@ -380,9 +393,16 @@ async function press(control) {
     --primary-target: 64px;
   }
 
-  /* On the phone's mini-bar a labelled button sits centred in its box. */
+  /* On the phone's mini-bar a labelled button hugs its label, centred in its
+     box: the row is shared with the lines beside it. */
   .player-transport--card .player-transport-labelled {
     align-items: center;
+    flex: 0 0 auto;
+    padding-inline: 0;
+  }
+
+  .player-transport--card .player-button--labelled {
+    width: auto;
   }
 
   /* The toggles are hidden there (`player-extra`): nothing to inset. */
