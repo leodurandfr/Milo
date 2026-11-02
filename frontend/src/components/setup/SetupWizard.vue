@@ -84,6 +84,7 @@ import SummaryStep from './SummaryStep.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useTimer } from '@/composables/useTimer';
+import { nextRebootStep } from '@/utils/rebootPoll';
 
 const { t } = useI18n();
 const timer = useTimer();
@@ -219,36 +220,30 @@ async function applySetup() {
   isApplying.value = false;
   isRebooting.value = true;
 
-  // Two-phase polling: wait for backend to go DOWN, then wait for it to come back UP
-  let pollCount = 0;
-  const maxPolls = 60;
-  let backendWentDown = false;
+  // Wait for the backend to go down, then for it to come back up.
+  let polls = 0;
+  let wentDown = false;
 
   pollIntervalId = timer.setInterval(async () => {
-    pollCount++;
-    if (pollCount > maxPolls) {
-      timer.clear(pollIntervalId);
-      pollIntervalId = null;
-      isRebooting.value = false;
-      error.value = t('setup.summary.rebootTimeout');
-      return;
-    }
+    polls++;
     const pingResult = await apiCall.get('/api/ping', {
       category: 'setup',
       message: 'Ping during reboot',
       timeout: 2000,
       logLevel: 'debug',
     });
-    if (pingResult.ok) {
-      if (backendWentDown) {
-        // Backend is back up after reboot
-        timer.clear(pollIntervalId);
-        pollIntervalId = null;
-        window.location.reload();
-      }
-    } else {
-      // Backend unreachable — reboot has begun
-      backendWentDown = true;
+    const step = nextRebootStep({ pingOk: pingResult.ok, wentDown, polls, maxPolls: 60 });
+    if (step === 'down') {
+      wentDown = true;
+    } else if (step === 'reload') {
+      timer.clear(pollIntervalId);
+      pollIntervalId = null;
+      window.location.reload();
+    } else if (step === 'timeout') {
+      timer.clear(pollIntervalId);
+      pollIntervalId = null;
+      isRebooting.value = false;
+      error.value = t('setup.summary.rebootTimeout');
     }
   }, 3000);
 }

@@ -314,7 +314,8 @@
     "powerButtonDescription": "Milō attende la pressione di questo pulsante per avviarsi. Senza pulsante, si avvia appena riceve alimentazione.",
     "applyAndReboot": "Applica e riavvia",
     "confirmReboot": "Conferma riavvio",
-    "rebooting": "Riavvio…"
+    "rebooting": "Riavvio…",
+    "rebootTimeout": "Il riavvio non si è completato in tempo. Aggiorni la pagina o applichi di nuovo la configurazione."
   },
   "fanSettings": {
     "temperature": "Temperatura",

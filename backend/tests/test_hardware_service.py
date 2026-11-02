@@ -367,8 +367,9 @@ class TestTheBootLoad:
 
 class TestApplyAndReboot:
     """The privileged apply, at 0 %. `sudo /usr/local/bin/milo-apply-hardware`
-    rewrites config.txt and reboots; both the setup wizard and
-    `PUT /hardware-config` fire it after their response has flushed.
+    rewrites config.txt and, without `--no-reboot`, reboots. The setup wizard
+    runs it after its response has flushed; `PUT /hardware-config` runs it
+    within the request, so a refused apply can restore the previous config.
 
     The subprocess is replaced rather than watched: on this host the real one
     would rewrite the appliance's config.txt and reboot it.

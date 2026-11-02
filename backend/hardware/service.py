@@ -234,13 +234,16 @@ class HardwareService:
     async def apply_and_reboot(self, reboot: bool = True) -> None:
         """Apply hardware config to config.txt and the bootloader EEPROM via milo-apply-hardware.
 
-        `reboot=False` returns instead of taking the box down, and exists for
-        the setup wizard alone: the wizard must persist `setup_completed`
-        before the reboot, and doing that before the overlay reached config.txt
-        left a window where a power cut produced a unit that believed it was
+        `reboot=False` returns instead of taking the box down, and both callers
+        use it. The setup wizard must persist `setup_completed` before the
+        reboot, and doing that before the overlay reached config.txt left a
+        window where a power cut produced a unit that believed it was
         configured and had no audio card — silent, and with the wizard gone.
-        So under `reboot=False` any non-zero return code is a failure, a signal
-        included.
+        The Hardware page must restore the previous hardware.json when the
+        apply is refused, and answer the failure rather than "rebooting". So
+        under `reboot=False` any non-zero return code is a failure, a signal
+        included. A helper that dies after it began rewriting config.txt can
+        leave it half-written; restoring hardware.json does not undo that.
         """
         self.logger.info(
             "Applying hardware configuration%s...", " and rebooting" if reboot else ""

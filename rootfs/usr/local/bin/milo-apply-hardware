@@ -14,13 +14,17 @@
 #   # BEGIN MILO IR ... # END MILO IR
 #   # BEGIN MILO POWER LED ... # END MILO POWER LED
 #
-# --no-reboot exists for the setup wizard alone. The wizard has to persist
-# `setup_completed` before the box goes down, or it reappears after a
-# reboot it just completed — and doing that *before* this script ran left a
-# window where a power cut produced a unit that considered itself configured
-# with no overlay in config.txt: no sound, no wizard, no message. Splitting the
-# reboot out lets the wizard order it apply → flag → reboot, so a cut anywhere
-# before the flag brings the wizard back instead.
+# --no-reboot is how the backend runs it, from both the setup wizard and the
+# Hardware page. The wizard has to persist `setup_completed` before the box
+# goes down, or it reappears after a reboot it just completed — and doing that
+# *before* this script ran left a window where a power cut produced a unit that
+# considered itself configured with no overlay in config.txt: no sound, no
+# wizard, no message. Splitting the reboot out lets the wizard order it
+# apply → flag → reboot, so a cut anywhere before the flag brings the wizard
+# back instead. The Hardware page needs this script's exit status before the
+# reboot: a refused apply restores the previous hardware.json rather than
+# rebooting onto a card config.txt never loaded. Without the flag the script
+# reboots itself, for an operator running it by hand.
 
 set -euo pipefail
 

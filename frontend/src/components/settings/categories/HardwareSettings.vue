@@ -132,6 +132,8 @@
       </div>
     </ToggleSection>
 
+    <NoticeBox v-if="rebootTimedOut">{{ t('hardwareSettings.rebootTimeout') }}</NoticeBox>
+
     <!-- Apply & Reboot (sticky, two-step confirm) -->
     <Button v-if="isDirty || isRebooting" :variant="confirmReboot ? 'important' : 'brand'" class="apply-button-sticky" floating
       :loading="isApplying || isRebooting" :disabled="isApplying || isRebooting" @click="handleApply">
@@ -147,12 +149,14 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
 import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
+import { nextRebootStep } from '@/utils/rebootPoll';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import Button from '@/components/ui/Button.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import FanSection from '@/components/settings/categories/FanSection.vue';
 import { useFanStore } from '@/stores/fanStore';
 
@@ -192,6 +196,7 @@ const powerButtonSupported = ref(false);
 const confirmReboot = ref(false);
 const isApplying = ref(false);
 const isRebooting = ref(false);
+const rebootTimedOut = ref(false);
 
 const isDirty = computed(() => {
   if (!savedConfig.value) return false;
@@ -359,6 +364,7 @@ function onPowerLedPinChange(value) {
 async function applyAndReboot() {
   isApplying.value = true;
   confirmReboot.value = false;
+  rebootTimedOut.value = false;
 
   const payload = {
     audio: { id: config.value.audio_id, volume_control: config.value.volume_control },
@@ -390,28 +396,30 @@ async function applyAndReboot() {
   isApplying.value = false;
   isRebooting.value = true;
 
-  // Poll for backend to come back after reboot (max ~3 minutes).
+  // Poll until the backend has gone down and come back (max ~3 minutes).
   // Use debug log level so the expected stream of failures during reboot does
   // not flood the console.
-  let pollCount = 0;
-  const maxPolls = 60;
+  let polls = 0;
+  let wentDown = false;
   const pollInterval = timer.setInterval(async () => {
-    pollCount++;
-    if (pollCount > maxPolls) {
-      timer.clear(pollInterval);
-      isRebooting.value = false;
-      logger.error('hardware', 'Reboot polling timed out');
-      return;
-    }
+    polls++;
     const pingResult = await apiCall.get('/api/ping', {
       category: 'hardware',
       message: 'Reboot polling ping failed',
       timeout: 2000,
       logLevel: 'debug'
     });
-    if (pingResult.ok) {
+    const step = nextRebootStep({ pingOk: pingResult.ok, wentDown, polls, maxPolls: 60 });
+    if (step === 'down') {
+      wentDown = true;
+    } else if (step === 'reload') {
       timer.clear(pollInterval);
       window.location.reload();
+    } else if (step === 'timeout') {
+      timer.clear(pollInterval);
+      isRebooting.value = false;
+      rebootTimedOut.value = true;
+      logger.error('hardware', 'Reboot polling timed out');
     }
   }, 3000);
 }

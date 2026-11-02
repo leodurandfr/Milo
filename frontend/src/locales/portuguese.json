@@ -314,7 +314,8 @@
     "powerButtonDescription": "O Milō aguarda que este botão seja premido para arrancar. Sem botão, arranca assim que recebe energia.",
     "applyAndReboot": "Aplicar e reiniciar",
     "confirmReboot": "Confirmar reinício",
-    "rebooting": "A reiniciar…"
+    "rebooting": "A reiniciar…",
+    "rebootTimeout": "O reinício não foi concluído a tempo. Atualize a página ou aplique novamente a configuração."
   },
   "fanSettings": {
     "temperature": "Temperatura",

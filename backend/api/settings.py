@@ -117,6 +117,7 @@ def create_settings_router(
     settings = settings_service
     # One lock per settings.json section: read, effects, write and broadcast run under it.
     section_locks: Dict[str, asyncio.Lock] = {"dock": asyncio.Lock()}
+    hardware_lock = asyncio.Lock()
 
     def _from_kiosk(request: Request) -> bool:
         """Whether a request comes from the Pi's own kiosk.
@@ -756,7 +757,11 @@ def create_settings_router(
         Save hardware config, apply to config.txt and the bootloader EEPROM, and reboot.
 
         Resolves full audio card properties from registry before saving,
-        then runs the privileged milo-apply-hardware script.
+        then runs the privileged milo-apply-hardware script within the request.
+        A refused apply restores the previous hardware.json and answers 500 —
+        config.txt is then the old one too, unless the helper failed after it
+        staged the EEPROM or began rewriting config.txt. Only a successful
+        apply reboots.
         """
         from backend.hardware.registry import AUDIO_CARDS, SCREENS
 
@@ -797,20 +802,28 @@ def create_settings_router(
                 },
             }
 
-            await hardware_service.save_config(config)
-            logger.info(f"Hardware config saved: audio={payload.audio.id}, screen={payload.screen.type}")
+            # Held from the write to the end of the apply: a second request
+            # interleaved with a refused one would restore the first's "previous"
+            # over a config.txt the second just applied.
+            async with hardware_lock:
+                # The helper reads hardware.json, so the new config is written
+                # first; the previous one is what a refused apply puts back, so the
+                # file never names a card config.txt does not load.
+                previous = hardware_service.get_full_config()
+                await hardware_service.save_config(config)
+                logger.info(f"Hardware config saved: audio={payload.audio.id}, screen={payload.screen.type}")
 
-            # Apply config.txt changes and reboot (after HTTP response is sent)
-            async def _delayed_apply():
-                await asyncio.sleep(1)  # Allow HTTP response to flush to the client
                 try:
-                    await hardware_service.apply_and_reboot()
+                    await hardware_service.apply_and_reboot(reboot=False)
                 except Exception as e:
-                    logger.error(f"Hardware apply/reboot failed: {e}")
+                    logger.error(f"{e} — restoring the previous hardware config")
+                    await hardware_service.save_config(previous)
+                    raise HTTPException(status_code=500, detail=str(e)) from e
 
-            background_tasks.add_task(_delayed_apply)
+                # Only the reboot is deferred, so the response reaches the browser first.
+                background_tasks.add_task(systemd_manager.power, "reboot", 1.0)
 
-            return {"status": "rebooting"}
+                return {"status": "rebooting"}
 
     # What the Mac panel may offer. Read here so the page never restates a bound
     # the validator enforces.

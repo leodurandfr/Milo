@@ -306,18 +306,21 @@ def test_the_kiosk_is_switched_with_the_screen(verb):
 
 
 def test_the_apply_helper_can_defer_its_reboot():
-    """`--no-reboot` is what lets the setup wizard order apply → flag → reboot.
+    """`--no-reboot` is what lets both backend callers act on the result first.
 
-    Without it the helper takes the box down itself, so `setup_completed` has to
-    be written first — and a power cut in that window leaves a unit that
-    believes it is configured with no dtoverlay in config.txt: no sound, no
-    wizard, and no line anywhere saying so.
+    Without it the helper takes the box down itself. The setup wizard then has
+    to write `setup_completed` first — and a power cut in that window leaves a
+    unit that believes it is configured with no dtoverlay in config.txt: no
+    sound, no wizard, and no line anywhere saying so. The Hardware page could
+    no longer restore the previous hardware.json on a refused apply. The
+    reboot arm stays for an operator running the helper by hand.
     """
     script = _uncommented(APPLY_HARDWARE)
 
     assert "--no-reboot" in script, "milo-apply-hardware always reboots"
     assert "/sbin/reboot" in script, (
-        "milo-apply-hardware no longer reboots at all — the Hardware page relies on it"
+        "milo-apply-hardware no longer reboots at all — run by hand it would "
+        "leave the new config.txt unapplied until the next boot"
     )
 
 

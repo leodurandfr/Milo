@@ -314,7 +314,8 @@
     "powerButtonDescription": "Milō attend un appui sur ce bouton pour démarrer. Sans bouton, il démarre dès qu'il est alimenté.",
     "applyAndReboot": "Appliquer et redémarrer",
     "confirmReboot": "Confirmer le redémarrage",
-    "rebooting": "Redémarrage…"
+    "rebooting": "Redémarrage…",
+    "rebootTimeout": "Le redémarrage n'a pas abouti à temps. Veuillez actualiser la page ou appliquer à nouveau la configuration."
   },
   "fanSettings": {
     "temperature": "Température",

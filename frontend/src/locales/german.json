@@ -314,7 +314,8 @@
     "powerButtonDescription": "Milō wartet auf einen Druck dieser Taste, um zu starten. Ohne Taste startet es, sobald es Strom erhält.",
     "applyAndReboot": "Anwenden und neu starten",
     "confirmReboot": "Neustart bestätigen",
-    "rebooting": "Neustart…"
+    "rebooting": "Neustart…",
+    "rebootTimeout": "Der Neustart wurde nicht rechtzeitig abgeschlossen. Bitte laden Sie die Seite neu oder wenden Sie die Konfiguration erneut an."
   },
   "fanSettings": {
     "temperature": "Temperatur",

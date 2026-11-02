@@ -314,7 +314,8 @@
     "powerButtonDescription": "Milō waits for a press on this button to start. Without one, it starts as soon as it is powered.",
     "applyAndReboot": "Apply and reboot",
     "confirmReboot": "Confirm reboot",
-    "rebooting": "Rebooting…"
+    "rebooting": "Rebooting…",
+    "rebootTimeout": "The reboot did not complete in time. Please refresh the page or apply the configuration again."
   },
   "fanSettings": {
     "temperature": "Temperature",

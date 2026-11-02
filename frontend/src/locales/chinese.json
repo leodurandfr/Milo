@@ -314,7 +314,8 @@
     "powerButtonDescription": "Milō 需按下此按钮才会启动。没有按钮时，接通电源即自动启动。",
     "applyAndReboot": "应用并重启",
     "confirmReboot": "确认重启",
-    "rebooting": "正在重启…"
+    "rebooting": "正在重启…",
+    "rebootTimeout": "重启未能及时完成。请刷新页面或重新应用配置。"
   },
   "fanSettings": {
     "temperature": "温度",

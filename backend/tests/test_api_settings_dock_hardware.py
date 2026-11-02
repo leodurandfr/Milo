@@ -14,10 +14,12 @@ What breaks when these fail:
   function that was just switched off is that per-step commit. Measured
   2026-08-27, all 23 of its uncovered lines were the failure branches and the
   step-by-step commit.
-* **`PUT /hardware-config` writes `hardware.json` and then reboots the box.**
-  The apply runs from a `BackgroundTask` so the HTTP response can flush first —
-  and TestClient runs BackgroundTasks for real, against an appliance whose
-  `apply_and_reboot` shells `sudo milo-apply-hardware` and then reboots. Its
+* **`PUT /hardware-config` writes `hardware.json`, applies it, and reboots.**
+  The apply runs inside the request (`--no-reboot`), so a refused one restores
+  the previous `hardware.json` and answers 500; only the reboot is a
+  `BackgroundTask`, so the response can flush first — and TestClient runs
+  BackgroundTasks for real, against an appliance where `systemd_manager.power`
+  reboots this Pi. Its
   `volume_control` field is the DAC decision: `False` means an external amp owns
   the level and CamillaDSP must stay pinned at 0 dB.
 
@@ -57,6 +59,7 @@ def systemd():
     manager.stop = AsyncMock(return_value=True)
     manager.start = AsyncMock(return_value=True)
     manager.restart = AsyncMock(return_value=True)
+    manager.power = AsyncMock(return_value=True)
     return manager
 
 
@@ -596,39 +599,112 @@ class TestTheHardwareConfig:
 
         assert hardware.save_config.await_args.args[0]["audio"]["volume_control"] is True
 
-    def test_the_reboot_is_deferred_so_the_response_can_reach_the_browser(
-        self, client, hardware, monkeypatch
+    @pytest.fixture
+    def real_hardware(self, tmp_path):
+        """A real `HardwareService` on a scratch hardware.json, holding an amp
+        that owns its volume — the config a failed apply must leave in place."""
+        from backend.hardware.service import HardwareService
+
+        svc = HardwareService()
+        svc.hardware_file = tmp_path / "hardware.json"
+        asyncio.run(svc.save_config({
+            "audio": {"id": "hifiberry_amp2", "card_name": "sndrpihifiberry",
+                      "overlay": "hifiberry-dacplus-std", "volume_control": True},
+            "screen": {"type": "none", "resolution": None},
+            "rotary_encoder": {"enabled": False, "clk_pin": 5, "dt_pin": 6, "sw_pin": 13},
+            "ir_remote": {"enabled": False, "gpio_pin": 17},
+            "power_button": {"enabled": False, "led_gpio_pin": 26},
+        }))
+        return svc
+
+    def _client_over(self, hardware_service, systemd, state_machine, routing, equalizer, settings):
+        app = FastAPI()
+        app.include_router(
+            create_settings_router(
+                volume_service=Mock(),
+                state_machine=state_machine,
+                screen_controller=Mock(),
+                systemd_manager=systemd,
+                routing_service=routing,
+                hardware_service=hardware_service,
+                settings_service=settings,
+                multiroom_equalizer_service=equalizer,
+                mac_link_calibration=Mock(),
+            ),
+            prefix="/api/settings",
+        )
+        return TestClient(app)
+
+    @staticmethod
+    def _spawn(monkeypatch, order, returncode, stderr=b""):
+        """`sudo milo-apply-hardware`, as the outside world it is."""
+        proc = Mock()
+        proc.communicate = AsyncMock(return_value=(b"", stderr))
+        proc.returncode = returncode
+
+        async def fake(*argv, **kwargs):
+            order.append(("apply", argv))
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
+
+    def test_a_successful_apply_reboots_only_after_it_returned(
+        self, real_hardware, systemd, state_machine, routing, equalizer, settings, monkeypatch
     ):
-        """Rebooting inline drops the connection mid-response, and the wizard
-        reports a failure for the one action that worked."""
-        slept = []
+        """The apply runs inside the request so its failure can still reach the
+        page; the reboot is the one thing deferred, so the "rebooting" answer
+        reaches the browser before the box goes down. `--no-reboot` is what
+        keeps the helper from taking the box down before the route answered."""
+        from backend.hardware.registry import AUDIO_CARDS, is_dac_card
 
-        async def _sleep(delay, *a, **k):
-            slept.append(delay)
+        order = []
+        self._spawn(monkeypatch, order, returncode=0)
+        systemd.power = AsyncMock(
+            side_effect=lambda *a, **k: order.append(("power", a)) or True
+        )
+        dac_id = next(cid for cid in AUDIO_CARDS if is_dac_card(cid))
+        client = self._client_over(real_hardware, systemd, state_machine, routing, equalizer, settings)
 
-        monkeypatch.setattr(asyncio, "sleep", _sleep)
-
-        response = client.put("/api/settings/hardware-config", json=self.PAYLOAD)
+        response = client.put(
+            "/api/settings/hardware-config", json={**self.PAYLOAD, "audio": {"id": dac_id}}
+        )
 
         assert response.status_code == 200
+        assert response.json() == {"status": "rebooting"}
         # TestClient runs BackgroundTasks after the response, so by here it ran.
-        assert slept == [1]
-        hardware.apply_and_reboot.assert_awaited_once()
+        assert [step for step, _ in order] == ["apply", "power"]
+        assert "--no-reboot" in order[0][1]
+        assert order[1][1] == ("reboot", 1.0)
 
-    def test_an_apply_that_fails_is_logged_rather_than_lost(
-        self, client, hardware, monkeypatch, caplog
+    def test_an_apply_that_fails_restores_the_previous_config_and_answers_500(
+        self, real_hardware, systemd, state_machine, routing, equalizer, settings,
+        monkeypatch, caplog
     ):
-        """It runs after the response, so there is no status code left to carry
-        the failure — the log line is the only place a wizard that answered
-        "rebooting" over a box that did not reboot can be diagnosed from."""
-        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
-        hardware.apply_and_reboot = AsyncMock(side_effect=RuntimeError("config.txt is read-only"))
+        """The helper writes the EEPROM before config.txt, so a refused EEPROM
+        write leaves config.txt describing the old card. A hardware.json left on the new one
+        is a unit that boots in that card's volume mode over the board still
+        loaded — a DAC's 0 dB unmuted on an amp — and a page that reloads onto
+        a card that never reached the boot config."""
+        from backend.hardware.registry import AUDIO_CARDS, is_dac_card
+        from backend.hardware.service import HardwareService
+
+        order = []
+        self._spawn(monkeypatch, order, returncode=1, stderr=b"EEPROM write refused\n")
+        dac_id = next(cid for cid in AUDIO_CARDS if is_dac_card(cid))
+        client = self._client_over(real_hardware, systemd, state_machine, routing, equalizer, settings)
 
         with caplog.at_level(logging.ERROR, logger="backend.api.settings"):
-            response = client.put("/api/settings/hardware-config", json=self.PAYLOAD)
+            response = client.put(
+                "/api/settings/hardware-config", json={**self.PAYLOAD, "audio": {"id": dac_id}}
+            )
 
-        assert response.status_code == 200
-        assert any("Hardware apply/reboot failed" in r.message for r in caplog.records)
+        assert response.status_code == 500
+        assert any("EEPROM write refused" in r.getMessage() for r in caplog.records)
+        reread = HardwareService()
+        reread.hardware_file = real_hardware.hardware_file
+        assert reread.get_audio_id() == "hifiberry_amp2"
+        assert reread.get_volume_control() is True
+        systemd.power.assert_not_awaited()
 
     def test_an_unknown_card_is_refused_before_anything_is_written(
         self, client, hardware
