@@ -657,6 +657,63 @@ async def test_events_while_the_next_track_is_named_do_not_extend_the_hold(signe
     assert remote(signed_in) is None
 
 
+async def test_a_next_track_at_the_end_of_another_hold_is_held_in_full(signed_in):
+    """A hold already running when the track changes elsewhere — here a
+    take-over Spotify accepted and never delivered, ms from its end — is no
+    hold for the next track: it runs out under the resolution, and the bar
+    leaves and comes back."""
+    await signed_in.plays_elsewhere(PARAPLUIE, device="Mac mini")
+    signed_in.daemon.session = True   # the transfer is "in flight": nothing lands
+    await signed_in.command("take_over")
+    signed_in.daemon.session = False
+    await signed_in.advance(signed_in.source.TAKE_OVER_HOLD - 0.01)
+    sent = len(signed_in.published())
+
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=0.05)
+
+    shown = [s["details"]["remote"] for s in signed_in.published()[sent:]]
+    assert None not in shown
+    assert title_shown(signed_in) == "Trois Neuf Trois"
+
+
+async def test_a_hold_that_ran_out_unread_still_holds_the_next_track(signed_in):
+    """A hold whose end could not be read leaves its deadline behind, past;
+    that is not a hold running, and the next track elsewhere is held too."""
+    await signed_in.plays_elsewhere(PARAPLUIE, device="Mac mini")
+    signed_in.daemon.session = True
+    await signed_in.command("take_over")
+    signed_in.daemon.session = False
+    signed_in.daemon.status_answers = False
+    await signed_in.advance(signed_in.source.TAKE_OVER_HOLD + signed_in.source.STATUS_RETRY_DELAY + 1)
+    signed_in.daemon.status_answers = True
+    await signed_in.advance(30)
+    assert title_shown(signed_in) == "Parapluie"
+    sent = len(signed_in.published())
+
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=0.05)
+
+    shown = [s["details"]["remote"] for s in signed_in.published()[sent:]]
+    assert None not in shown
+    assert title_shown(signed_in) == "Trois Neuf Trois"
+
+
+async def test_a_hold_whose_expiry_read_fails_is_read_again(signed_in):
+    """The hold's end is the one moment Milō re-reads /status on its own, and
+    go-librespot says nothing more after a resolution it gave up on: a read
+    failing then must be retried, or the old track stays on the bar for as
+    long as the daemon stays quiet, though /status answers again."""
+    await signed_in.plays_elsewhere(PARAPLUIE, device="Mac mini")
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=None)
+    signed_in.daemon.status_answers = False
+
+    await signed_in.advance(signed_in.source.NEXT_TRACK_HOLD + 0.5)
+    signed_in.daemon.status_answers = True
+    await signed_in.advance(signed_in.source.STATUS_RETRY_DELAY + 1)
+
+    assert remote(signed_in) is None
+    assert signed_in.state()["controls"] == []
+
+
 async def test_take_over_asks_once_and_the_session_arrives_like_a_transfer(signed_in):
     """take_over is one POST /player/transfer; the session is the daemon's,
     reconciled from what it says, at the position the phone was at."""

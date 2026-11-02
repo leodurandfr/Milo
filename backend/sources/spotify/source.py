@@ -421,6 +421,9 @@ class SpotifySource(BaseAudioSource):
         # Until when the remote is kept while /status names nothing (0: no
         # hold since the last release) — see TAKE_OVER_HOLD.
         self._remote_held_until = 0.0
+        # The remote shown the NEXT_TRACK_HOLD was last armed for: once per
+        # remote, whatever deadline another hold left (running or run out).
+        self._next_track_held_for: Optional[RemotePlayback] = None
         # What a `remote` event announced since the last /status read: what the
         # daemon itself saw before it went to sign in again, the one record of
         # the phone while /status cannot name it. Consumed by the next read.
@@ -1265,7 +1268,11 @@ class SpotifySource(BaseAudioSource):
             return
         if name == "remote_hold":
             # Nothing came in its place: show what /status says plays elsewhere.
-            await self.refresh_metadata()
+            # The daemon may say nothing more, so a failed read is retried.
+            if not await self.refresh_metadata():
+                self._logger.warning("go-librespot status unavailable as the remote hold ends — reading it again")
+                if not self._timer_armed("status"):
+                    self._arm_timer("status", self.STATUS_RETRY_DELAY)
             return
         if name != "status":
             return
@@ -1368,10 +1375,11 @@ class SpotifySource(BaseAudioSource):
         One rule keeps the bar up across a handover: the last remote stands
         while /status names nothing, until a session opens here or the hold
         started by what began the handover runs out (TAKE_OVER_HOLD). Whatever
-        /status names is taken at once, held or not. A remote is shown once its
-        track is named (go-librespot resolves the artists after the cluster
-        names the track). A remote named with no track while one is shown is
-        its next track resolving: the one shown stands, and only a named track
+        /status names with its track is taken at once, held or not. A remote is
+        shown once its track is named (go-librespot resolves the artists after
+        the cluster names the track). A remote named with no track while one is
+        shown is its next track resolving: the one shown stands, held once per
+        remote shown whatever hold already runs, and only a named track
         releases the hold, so another event before it (a pause, a seek) does
         not extend it (NEXT_TRACK_HOLD).
         """
@@ -1386,7 +1394,8 @@ class SpotifySource(BaseAudioSource):
             self._release_remote_hold()
         elif named:
             # The device shown moving on: its next track is being resolved.
-            if not self._remote_held_until:
+            if self._next_track_held_for is not self._remote:
+                self._next_track_held_for = self._remote
                 self._hold_remote(self.NEXT_TRACK_HOLD)
         elif announced:
             # A phone taking the session over: go-librespot announced it, then
