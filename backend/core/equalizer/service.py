@@ -1109,9 +1109,9 @@ class CamillaDSPService:
         EQ-band pipeline membership is left untouched (matching `set_filter` /
         the old loop): bands enter the pipeline via `restore_effects`. Volume,
         mute and the master effects toggle are never touched here. No WebSocket
-        event is emitted: callers broadcast the complete target state themselves
-        (e.g. the zone fan-out), exactly as the old per-parameter loop did with
-        `broadcast=False`.
+        event is emitted: the multiroom layer announces the target's record
+        itself (`MultiroomEqualizerService.apply_equalizer` for a full record,
+        `_apply_partial_update` for one setting).
         """
         if not self._connected:
             self.logger.warning("Cannot apply settings: not connected")

@@ -11,13 +11,18 @@ One EQ record per client is the source of truth; a zone holds no EQ of its own
 - local DSP application + the active-preset name sync
 """
 import logging
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import Mock, AsyncMock
 
 from backend.core.equalizer import MultiroomEqualizerService
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
-from backend.core.models.ws_events import EqualizerZoneEnabledChanged
+from backend.core.models.ws_events import (
+    EqualizerZoneEnabledChanged,
+    MultiroomEqualizerChanged,
+)
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
@@ -25,6 +30,7 @@ from backend.core.multiroom.models import (
     LoudnessSettings,
     FilterType,
     Client,
+    RegistryEventType,
     Zone,
 )
 
@@ -69,6 +75,31 @@ def wire_enabled_stores(registry, camilladsp, routing, *, local_enabled=True):
     )
     camilladsp.get_equalizer_settings = Mock(side_effect=local_record)
     routing.set_equalizer_effects_enabled = AsyncMock(side_effect=toggle_local)
+
+
+def give_the_local_dsp_a_memory(camilladsp):
+    """What the local DSP took is what its next snapshot reads, as
+    CamillaDSPService's cache does: the record from ``apply_settings`` (which
+    leaves the master toggle and the custom curve alone) and the curve from
+    ``set_custom_gains``. A re-read then reports the write, not a typed value.
+    """
+    held = EqualizerSettings.default()
+
+    async def apply_settings(settings, persist=True):
+        nonlocal held
+        record = EqualizerSettings.from_dict(settings.to_dict())
+        record.enabled, record.custom_gains = held.enabled, held.custom_gains
+        held = record
+        return True
+
+    def set_custom_gains(gains):
+        held.custom_gains = list(gains)
+
+    camilladsp.apply_settings = AsyncMock(side_effect=apply_settings)
+    camilladsp.set_custom_gains = Mock(side_effect=set_custom_gains)
+    camilladsp.get_equalizer_settings = Mock(
+        side_effect=lambda: EqualizerSettings.from_dict(held.to_dict())
+    )
 
 
 # =============================================================================
@@ -1126,18 +1157,62 @@ class TestPartialUpdateMethods:
 # =============================================================================
 
 class TestEventBroadcasting:
-    @pytest.mark.asyncio
-    async def test_apply_zone_equalizer_does_not_broadcast_directly(self, multiroom_equalizer_service, mock_registry, mock_state_machine, sample_zone, sample_equalizer_settings):
-        """Full-record applies don't broadcast; partial updates and the registry do."""
-        mock_registry.get_zone.return_value = sample_zone
-        await multiroom_equalizer_service.apply_zone_equalizer("zone-123", sample_equalizer_settings)
-        mock_state_machine.broadcast.assert_not_called()
+    """A full-record write (a preset, a save) to the local unit or a zone has no
+    registry write to announce it: unless the service does, a second screen keeps
+    the old preset and its sliders until the modal is reopened."""
+
+    @staticmethod
+    def equalizer_events(state_machine):
+        return [
+            c.args[0] for c in state_machine.broadcast.await_args_list
+            if isinstance(c.args[0], MultiroomEqualizerChanged)
+        ]
 
     @pytest.mark.asyncio
-    async def test_apply_client_equalizer_does_not_broadcast_directly(self, multiroom_equalizer_service, mock_registry, mock_state_machine, local_client, sample_equalizer_settings):
-        mock_registry.get_client.return_value = local_client
-        await multiroom_equalizer_service.apply_client_equalizer("local", sample_equalizer_settings)
-        mock_state_machine.broadcast.assert_not_called()
+    @pytest.mark.parametrize("target_type, target_id", [("client", "local"), ("zone", "zone-123")])
+    async def test_load_preset_broadcasts_the_record_against_its_target(
+        self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service,
+        mock_state_machine, sample_zone, target_type, target_id,
+    ):
+        from backend.core.equalizer.presets import get_preset_by_id
+
+        mock_registry.get_zone.return_value = sample_zone
+        give_the_local_dsp_a_memory(mock_camilladsp_service)
+
+        await multiroom_equalizer_service.load_preset(target_type, target_id, "rock")
+
+        events = self.equalizer_events(mock_state_machine)
+        assert [(e.target_type, e.target_id) for e in events] == [(target_type, target_id)]
+        record = events[0].equalizer_settings
+        assert record["active_preset"] == "rock"
+        assert [f["gain"] for f in record["filters"]] == get_preset_by_id("rock")["gains"]
+        # The master bypass has its own events (equalizer/enabled_changed,
+        # zone_enabled_changed); a zone's would be a conjunction, not a flag.
+        assert "enabled" not in record
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target_type, target_id", [("client", "local"), ("zone", "zone-123")])
+    async def test_save_custom_preset_broadcasts_the_saved_curve_against_its_target(
+        self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service,
+        mock_state_machine, sample_zone, target_type, target_id,
+    ):
+        """The other screen snapshots `custom_gains` as the curve "custom" names;
+        without them it compares its edits against the previous save."""
+        from backend.core.equalizer.presets import get_preset_by_id
+
+        mock_registry.get_zone.return_value = sample_zone
+        give_the_local_dsp_a_memory(mock_camilladsp_service)
+        await multiroom_equalizer_service.load_preset(target_type, target_id, "rock")
+        mock_state_machine.broadcast.reset_mock()
+
+        await multiroom_equalizer_service.save_custom_preset(target_type, target_id)
+
+        events = self.equalizer_events(mock_state_machine)
+        assert [(e.target_type, e.target_id) for e in events] == [(target_type, target_id)]
+        record = events[0].equalizer_settings
+        assert record["active_preset"] == "custom"
+        assert record["custom_gains"] == get_preset_by_id("rock")["gains"]
+        assert "enabled" not in record
 
     @pytest.mark.asyncio
     async def test_apply_without_state_machine(self, mock_registry, mock_camilladsp_service, sample_zone, sample_equalizer_settings):
@@ -1880,7 +1955,8 @@ class TestRemoteEnabledPush:
 
         with caplog.at_level(logging.WARNING):
             result = await service._set_remote_client_enabled(
-                "aa:bb", False, fallback=EqualizerSettings.default_for_zone
+                "aa:bb", False, fallback=EqualizerSettings.default_for_zone,
+                announce=False,
             )
 
         assert result is False
@@ -1901,7 +1977,8 @@ class TestRemoteEnabledPush:
         ))
 
         result = await service._set_remote_client_enabled(
-            "aa:bb", True, fallback=EqualizerSettings.default_for_zone
+            "aa:bb", True, fallback=EqualizerSettings.default_for_zone,
+            announce=False,
         )
 
         assert result is True
@@ -1924,7 +2001,8 @@ class TestRemoteEnabledPush:
         mock_registry.get_client_equalizer = Mock(return_value=sample_equalizer_settings)
 
         await service._set_remote_client_enabled(
-            "aa:bb", False, fallback=EqualizerSettings.default_for_zone
+            "aa:bb", False, fallback=EqualizerSettings.default_for_zone,
+            announce=False,
         )
 
         stored = mock_registry.set_client_equalizer.await_args.args[1]
@@ -1945,9 +2023,106 @@ class TestRemoteEnabledPush:
         mock_registry.get_client_equalizer = Mock(return_value=None)
 
         await service._set_remote_client_enabled(
-            "aa:bb", True, fallback=EqualizerSettings.default_for_zone
+            "aa:bb", True, fallback=EqualizerSettings.default_for_zone,
+            announce=False,
         )
 
         stored = mock_registry.set_client_equalizer.await_args.args[1]
         assert isinstance(stored, EqualizerSettings)
         assert stored.enabled is True
+
+
+class TestStandaloneSatelliteAnnouncements:
+    """A satellite outside any zone has no zone event to speak for it: the
+    registry's record event is the only thing that tells a second screen what it
+    now holds. Silent, the other screen keeps showing the effects on, and its
+    band drags go to a satellite in bypass, inaudible until the modal reopens.
+
+    The registry and the access layer are real here; only the satellites' HTTP
+    and the broadcast are mocked.
+    """
+
+    BUREAU = "d8:3a:dd:68:e7:e4"
+    CANAPE = "dc:a6:32:7e:d3:43"
+
+    @pytest.fixture
+    async def world(self):
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        for mac, name, ip in (
+            (self.BUREAU, "Bureau", "192.168.1.60"),
+            (self.CANAPE, "Canapé", "192.168.1.153"),
+        ):
+            await registry.register_client(mac, name, ip)
+            await registry.set_client_online(mac, True)
+
+        events = []
+
+        async def record(event_type, data):
+            events.append((event_type, data))
+
+        registry.subscribe(record)
+
+        proxy = Mock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        proxy.apply_record = AsyncMock(return_value=True)
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+        service = MultiroomEqualizerService(
+            client_registry_service=registry,
+            proxy_service=proxy,
+            state_machine=state_machine,
+        )
+        return SimpleNamespace(
+            registry=registry, service=service, events=events,
+            state_machine=state_machine,
+        )
+
+    @staticmethod
+    def record_events(world):
+        return [
+            data for event_type, data in world.events
+            if event_type == RegistryEventType.EQUALIZER_SETTINGS_CHANGED
+        ]
+
+    @pytest.mark.asyncio
+    async def test_standalone_satellite_enabled_toggle_is_announced(self, world):
+        await world.registry.set_client_equalizer(
+            self.BUREAU, EqualizerSettings.default(), broadcast=False
+        )
+
+        assert await world.service.set_client_equalizer_effects_enabled(self.BUREAU, False)
+
+        assert [
+            (d["target_type"], d["target_id"], d["equalizer_settings"]["enabled"])
+            for d in self.record_events(world)
+        ] == [("client", self.BUREAU, False)]
+
+    @pytest.mark.asyncio
+    async def test_a_zone_toggle_is_announced_by_the_zone_event_alone(self, world):
+        """Each member's record moves too, but under its own MAC: with the zone
+        on screen those events describe nobody, and one per member per toggle
+        would only be noise next to the zone's own."""
+        await world.registry.create_zone("salon", "Salon", [self.BUREAU, self.CANAPE])
+        world.events.clear()
+
+        assert await world.service.set_zone_equalizer_effects_enabled("salon", False)
+
+        assert self.record_events(world) == []
+        zone_events = [
+            c.args[0] for c in world.state_machine.broadcast.await_args_list
+            if isinstance(c.args[0], EqualizerZoneEnabledChanged)
+        ]
+        assert [(e.zone_id, e.enabled) for e in zone_events] == [("salon", False)]
+
+    @pytest.mark.asyncio
+    async def test_a_standalone_satellite_preset_is_announced_once(self, world):
+        """The registry already announces a satellite's record as it stores it;
+        the service announcing it as well would apply it twice on every screen."""
+        await world.service.load_preset("client", self.BUREAU, "rock")
+
+        assert [(d["target_id"], d["equalizer_settings"]["active_preset"])
+                for d in self.record_events(world)] == [(self.BUREAU, "rock")]
+        world.state_machine.broadcast.assert_not_awaited()

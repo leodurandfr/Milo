@@ -104,10 +104,13 @@ export const wsEventRegistry = {
     output_peak: z.array(z.number()),
   }),
   // Backend: MultiroomEqualizerChanged — equalizer_settings is a PARTIAL wire
-  // dict by design, two producers:
-  //  - multiroom/client_registry.py registry forward → full record
-  //    (to_wire_dict): enabled/filters/compressor/loudness/active_preset/mono/
-  //    custom_gains.
+  // dict by design, three producers:
+  //  - multiroom/client_registry.py registry forward → a remote client's full
+  //    record (to_wire_dict): enabled/filters/compressor/loudness/active_preset/
+  //    mono/custom_gains.
+  //  - equalizer/multiroom_service.py apply_equalizer → the local unit's or a
+  //    zone's full record read back, without enabled (announced by its own
+  //    events).
   //  - equalizer/multiroom_service.py _apply_partial_update → only the changed
   //    sub-object ({filters,active_preset} | {compressor} | {loudness} | {mono}).
   // Hence every equalizer_settings field is optional; filters use the freq/type

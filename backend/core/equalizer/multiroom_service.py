@@ -406,7 +406,11 @@ class MultiroomEqualizerService:
         """
         Apply equalizer settings to a zone or client.
 
-        Routes to appropriate method based on target_type.
+        Routes to appropriate method based on target_type, then announces the
+        record as written. A remote client is announced by the registry as it
+        stores it; the local unit and a zone have no registry write, so they are
+        announced here — read back, whether or not the write was taken, since a
+        refused write is still what a GET now shows.
 
         Args:
             target_type: "zone" or "client"
@@ -420,11 +424,25 @@ class MultiroomEqualizerService:
             ValueError: If invalid target_type
         """
         if target_type == "zone":
-            return await self.apply_zone_equalizer(target_id, settings)
+            applied = await self.apply_zone_equalizer(target_id, settings)
         elif target_type == "client":
-            return await self.apply_client_equalizer(target_id, settings)
+            applied = await self.apply_client_equalizer(target_id, settings)
         else:
             raise ValueError(f"Invalid target_type: {target_type}. Must be 'zone' or 'client'")
+
+        if self._state_machine and (target_type == "zone" or self._is_local(target_id)):
+            record = await self.get_equalizer(target_type, target_id)
+            if record:
+                wire = record.to_wire_dict()
+                # The master bypass has its own events (equalizer/enabled_changed,
+                # zone_enabled_changed), and a zone's is only a conjunction.
+                wire.pop("enabled", None)
+                await self._state_machine.broadcast(MultiroomEqualizerChanged(
+                    target_type=target_type,
+                    target_id=target_id,
+                    equalizer_settings=wire,
+                ))
+        return applied
 
     async def get_equalizer(
         self, target_type: str, target_id: str
@@ -470,7 +488,7 @@ class MultiroomEqualizerService:
         # One batched graph write for the whole record (filters + compressor +
         # loudness + mono + active_preset name), instead of 13 sequential read-
         # modify-write round-trips. persist/broadcast suppressed: set_client_eq
-        # snapshots to equalizer.json and the zone broadcasts the complete state.
+        # snapshots to equalizer.json and apply_equalizer announces the record.
         # apply_settings is @handle_errors(default=False), so it never raises.
         success = await self._camilladsp_service.apply_settings(settings, persist=False)
         if not success:
@@ -902,7 +920,7 @@ class MultiroomEqualizerService:
         if self._registry and not self._registry.get_client(mac_id):
             raise ValueError(f"Client not found: {mac_id}")
         return await self._set_remote_client_enabled(
-            mac_id, enabled, fallback=EqualizerSettings.default
+            mac_id, enabled, fallback=EqualizerSettings.default, announce=True
         )
 
     async def set_local_equalizer_effects_enabled(self, enabled: bool) -> bool:
@@ -939,13 +957,19 @@ class MultiroomEqualizerService:
             LOCAL_TARGET,
         )
 
-    async def _set_remote_client_enabled(self, client_id: str, enabled: bool, *, fallback) -> bool:
+    async def _set_remote_client_enabled(
+        self, client_id: str, enabled: bool, *, fallback, announce: bool
+    ) -> bool:
         """Push the enabled flag to an online satellite and persist it on the
         client's per-client record (the source of truth).
 
         ``fallback`` builds the neutral record when the client has none yet —
         ``EqualizerSettings.default`` for a standalone client, ``default_for_zone``
         for a zone member (mono on).
+
+        ``announce`` lets the registry announce the record: a standalone client
+        has no other event, while a zone member is covered by the zone's
+        ``zone_enabled_changed`` once the fan-out is done.
 
         Returns True when an online push succeeded OR the flag was persisted for an
         offline/unknown client (syncs on reconnect); False only when an online push
@@ -969,7 +993,7 @@ class MultiroomEqualizerService:
                 EqualizerSettings.from_dict(existing.to_dict()) if existing else fallback()
             )
             record.enabled = enabled
-            await self._registry.set_client_equalizer(client_id, record, broadcast=False)
+            await self._registry.set_client_equalizer(client_id, record, broadcast=announce)
 
         return pushed if (client and client.online) else True
 
@@ -1014,7 +1038,8 @@ class MultiroomEqualizerService:
                 self._routing_service.set_equalizer_effects_enabled(enabled)
                 if self._is_local(mac_id)
                 else self._set_remote_client_enabled(
-                    mac_id, enabled, fallback=EqualizerSettings.default_for_zone
+                    mac_id, enabled, fallback=EqualizerSettings.default_for_zone,
+                    announce=False,
                 )
                 for mac_id in members
             ],

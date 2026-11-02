@@ -658,6 +658,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (!equalizer_settings) return;
     if (!isAddressedToSelection(target_type, target_id)) return;
 
+    // A remote client's master flag lives in its record. The local unit's and a
+    // zone's are announced by enabled_changed / zone_enabled_changed instead.
+    if (equalizer_settings.enabled !== undefined
+        && target_type === 'client' && targetRef() !== LOCAL_TARGET) {
+      isEqualizerEffectsEnabled.value = equalizer_settings.enabled;
+    }
+
     // Update local equalizer state from received settings
     if (equalizer_settings.filters && Array.isArray(equalizer_settings.filters)) {
       for (const filterData of equalizer_settings.filters) {
@@ -688,6 +695,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
     if (equalizer_settings.mono !== undefined) {
       mono.value = equalizer_settings.mono;
+    }
+
+    // Before the preset: "custom" is snapshotted from these gains. A save over
+    // "custom" keeps the name, so the block below skips it: snapshot it here.
+    if (Array.isArray(equalizer_settings.custom_gains)) {
+      customGains.value = equalizer_settings.custom_gains;
+      if (activePreset.value === 'custom') _snapshotPresetGains('custom');
     }
 
     // Update active preset if it actually changed (avoid resetting edit state on echo)

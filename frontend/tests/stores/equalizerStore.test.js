@@ -476,6 +476,70 @@ describe('equalizerStore', () => {
       expect(equalizerStore.filters[0].gain).toBe(0);
     });
 
+    /**
+     * A standalone satellite's master flag lives in its record, and the
+     * registry's record event is the only announcement it gets. The local unit
+     * and a zone have their own enabled events — a zone's record carries no
+     * flag of its own, and the local one is a settings value, not the record.
+     */
+    it('adopts enabled from a record addressed to the selected remote client', () => {
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'client',
+        target_id: REMOTE_MAC,
+        equalizer_settings: { enabled: false },
+      });
+
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(false);
+    });
+
+    it('leaves enabled to its own events on the local unit and on a zone', () => {
+      setMultiroom(false);
+      equalizerStore.selectedTarget = LOCAL_MAC;
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'client',
+        target_id: 'local',
+        equalizer_settings: { enabled: false },
+      });
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(true);
+
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'zone',
+        target_id: 'z1',
+        equalizer_settings: { enabled: false },
+      });
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(true);
+    });
+
+    /**
+     * A save on another screen names "custom" and carries the curve it saved.
+     * Snapshotting the previous one instead, this screen reads its own matching
+     * bands as an edit of the preset just saved.
+     */
+    it.each([
+      ['a screen on another preset', 'flat'],
+      ['a screen already on custom', 'custom'],
+    ])('adopts the saved custom curve on %s', (_, shownPreset) => {
+      vi.useFakeTimers();
+      equalizerStore.filters = [FILTER('eq_band_00', 31, { gain: 3 }), FILTER('eq_band_01', 62, { gain: -1 })];
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'client',
+        target_id: REMOTE_MAC,
+        equalizer_settings: { active_preset: shownPreset, custom_gains: [1, 1] },
+      });
+
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'client',
+        target_id: REMOTE_MAC,
+        equalizer_settings: { active_preset: 'custom', custom_gains: [3, -1] },
+      });
+      equalizerStore.updateFilter('eq_band_00', 'gain', 3);
+
+      expect(equalizerStore.activePreset).toBe('custom');
+      expect(equalizerStore.isPresetEdited).toBe(false);
+    });
+
     it('ignores an event with no settings', () => {
       expect(() => equalizerStore.handleEqualizerChanged({
         target_type: 'client',
