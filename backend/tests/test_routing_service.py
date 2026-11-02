@@ -17,6 +17,7 @@ audio routing.
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
+from backend.core.equalizer.service import CamillaDSPService
 from backend.core.multiroom import AudioRoutingService
 from backend.core.multiroom.snapcast import SnapcastService
 from backend.core.models.audio_state import AudioSource
@@ -37,6 +38,8 @@ class _CamillaStub:
         self.bypass_effects = AsyncMock(return_value=True)
         self.restore_effects = AsyncMock(return_value=True)
         self.set_gain = AsyncMock(return_value=True)
+        self.set_crossover_filter = AsyncMock(return_value=True)
+        self.set_lowpass_filter = AsyncMock(return_value=True)
 
     @property
     def effects_enabled(self) -> bool:
@@ -44,6 +47,12 @@ class _CamillaStub:
 
     def set_effects_enabled(self, value: bool) -> None:
         self._effects_enabled = bool(value)
+
+
+def _wired_filters(graph: dict) -> set:
+    """Every filter name the graph defines or runs in a Filter step."""
+    steps = [s for s in graph["pipeline"] if s.get("type") == "Filter"]
+    return set(graph["filters"]) | {n for s in steps for n in s.get("names", [])}
 
 
 def _seed_multiroom(mock_settings_service, value: bool) -> None:
@@ -420,6 +429,40 @@ class TestAudioRoutingService:
         await routing_service._post_transition_setup_best_effort(False)
 
         assert "Could not sync the level trim" in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("setter, name", [
+        ("set_crossover_filter", "crossover_highpass"),
+        ("set_lowpass_filter", "crossover_lowpass"),
+    ])
+    async def test_leaving_multiroom_drops_the_local_subwoofer_split(
+        self, routing_service, mock_settings_service, mock_camilla_client, camilla_daemon,
+        tmp_path, monkeypatch, setter, name
+    ):
+        """In direct mode there is no subwoofer to hand the low band to, and the
+        zone's split never comes off by itself: snapclient stops first, the local
+        client goes offline, and the zone recalculation skips an offline member.
+        A highpass left in is the only speaker playing with no bass, a lowpass one
+        playing nothing but bass — and a restart of CamillaDSP in direct mode put
+        either back from the cache."""
+        monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
+        dsp = CamillaDSPService(settings_service=Mock(get_setting=AsyncMock(return_value=None)))
+        dsp.state_machine = Mock(broadcast=AsyncMock())
+        dsp._client = mock_camilla_client
+        dsp._connected = True
+        routing_service.camilladsp_service = dsp
+        routing_service.set_volume_service(self._volume_service_stub())
+        camilla_daemon.load({"filters": {}, "pipeline": []})
+        await getattr(dsp, setter)(True, 100.0, 0.707)  # as CrossoverService sets it
+        _seed_multiroom(mock_settings_service, True)
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
+            assert await routing_service.set_multiroom_enabled(False) is True
+
+        assert name not in _wired_filters(camilla_daemon.active_config)
+        camilla_daemon.load({"filters": {}, "pipeline": []})  # restarted on its file's graph
+        await dsp._restore_after_reconnect()
+        assert name not in _wired_filters(camilla_daemon.active_config)
 
     @pytest.mark.asyncio
     async def test_detect_initial_state_failure_keeps_flag_false(self, routing_service, mock_settings_service):

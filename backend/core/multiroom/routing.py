@@ -659,7 +659,8 @@ class AudioRoutingService:
         return pointed
 
     async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
-        """Post-transition: WebSocket lifecycle, volume mode, and ready broadcast.
+        """Post-transition: WebSocket lifecycle, volume mode, the local trim, the
+        subwoofer split on leaving, and the ready broadcast.
 
         Settings + routing.env are already committed by the caller and snapserver
         has been started, so every step here is best-effort and self-healing: a
@@ -708,6 +709,28 @@ class AudioRoutingService:
                 await self.volume_service.sync_local_gain()
         except Exception as e:
             self.logger.warning(f"POST_TRANSITION: Could not sync the level trim: {e}")
+
+        # The zone's subwoofer split, leaving only: in direct mode there is no
+        # subwoofer to hand the low band to, so a highpass left in plays the only
+        # speaker with no bass, and a lowpass plays nothing else. Nothing else
+        # removes it — snapclient stops first, the local client goes offline, and
+        # the zone recalculation skips an offline member. Each setter clears its
+        # cache even when the daemon refuses, so a CamillaDSP reconnect drops what
+        # is left rather than putting it back. Coming back needs nothing here: the
+        # local client's admission recalculates its zone.
+        if not enabled and self.camilladsp_service:
+            for label, setter in (
+                ("highpass", self.camilladsp_service.set_crossover_filter),
+                ("lowpass", self.camilladsp_service.set_lowpass_filter),
+            ):
+                try:
+                    if not await setter(False):
+                        self.logger.warning(
+                            f"POST_TRANSITION: CamillaDSP did not drop the subwoofer {label}; "
+                            "its next reconnect removes it"
+                        )
+                except Exception as e:
+                    self.logger.warning(f"POST_TRANSITION: Could not drop the subwoofer {label}: {e}")
 
         # multiroom_ready — clears the UI transition spinner. Fires whenever
         # enabling (the mode IS up); each client's level arrives with its own
