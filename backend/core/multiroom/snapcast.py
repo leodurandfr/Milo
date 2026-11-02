@@ -6,6 +6,7 @@ This service handles all REST commands to the Snapcast server. WebSocket
 notifications are handled separately by SnapcastWebSocketService.
 """
 import asyncio
+import difflib
 import logging
 import time
 from typing import List, Dict, Any, Optional
@@ -14,7 +15,7 @@ from pathlib import Path
 import aiohttp
 import aiofiles
 
-from backend.config.constants import get_client_display_name, DEPLOY_UPDATE_CMD
+from backend.config.constants import get_client_display_name, DEPLOY_UPDATE_CMD, MULTIROOM_STREAMS
 from backend.core.multiroom.identity import compute_mac_id, is_stale_local_client
 from backend.core.multiroom.routing import DEFAULT_SNAPCLIENT_CONFIG
 from backend.shared.decorators import handle_errors
@@ -22,6 +23,14 @@ from backend.shared.decorators import handle_errors
 # Codec whitelist — single source for _validate_config and the /server-config
 # capabilities payload the frontend builds its codec options from.
 SUPPORTED_CODECS = ["flac", "pcm", "opus", "ogg"]
+
+# The `source =` lines of snapserver.conf's [stream]: the `Multiroom` meta stream
+# (`default_source`), then one capture per source, all from the one source ->
+# stream table. Written over whatever the file holds, by every write of it.
+MULTIROOM_STREAM_SOURCES = (
+    f"meta:///{'/'.join(s.name for s in MULTIROOM_STREAMS.values())}?name=Multiroom",
+    *(f"alsa:///?name={s.name}&device={s.device}&idle_threshold=5000" for s in MULTIROOM_STREAMS.values()),
+)
 
 # Accepted ranges for the two numeric stream parameters, declared here because
 # _validate_config is what enforces them. `core/multiroom/calibration.py` clamps
@@ -464,6 +473,33 @@ class SnapcastService:
         return True
 
     @handle_errors(default=False)
+    async def reconcile_stream_sources(self) -> bool:
+        """Rewrite the conf's `source =` lines from the capture map; True iff it changed.
+
+        snapserver.conf is written at image build and no OTA ships it, so a
+        source added, moved or retired since a card was flashed reaches its conf
+        only through this. Never restarts snapserver: the caller knows whether
+        it should run, and a restart of the stopped unit would start it.
+        """
+        if not self.snapserver_conf.exists():
+            self.logger.warning("snapserver.conf not found, its captures were not reconciled")
+            return False
+
+        async with aiofiles.open(self.snapserver_conf, 'r') as f:
+            content = await f.read()
+
+        updated_content = self._modify_config_content(content, {})
+        if updated_content == content:
+            return False
+
+        moved = [
+            line for line in difflib.unified_diff(content.splitlines(), updated_content.splitlines(), lineterm="", n=0)
+            if line[:1] in "+-" and not line.startswith(("+++", "---"))
+        ]
+        self.logger.info(f"snapserver.conf captures differ from the capture map, rewriting: {moved}")
+        return await self._write_config_file(updated_content)
+
+    @handle_errors(default=False)
     async def _update_config_file(self, config: Dict[str, Any]) -> bool:
         """Update configuration file via milo-deploy-update write-config."""
         if not self.snapserver_conf.exists():
@@ -473,12 +509,14 @@ class SnapcastService:
         async with aiofiles.open(self.snapserver_conf, 'r') as f:
             content = await f.read()
 
-        updated_content = self._modify_config_content(content, config)
+        return await self._write_config_file(self._modify_config_content(content, config))
 
+    async def _write_config_file(self, content: str) -> bool:
+        """Deploy `content` as snapserver.conf; both writers of the file come here."""
         # Write temp file to /tmp (milo user has no write access to /etc/)
         temp_file = "/tmp/snapserver.conf.tmp"
         async with aiofiles.open(temp_file, 'w') as f:
-            await f.write(updated_content)
+            await f.write(content)
 
         # Deploy to /etc/ via secure wrapper
         proc = await asyncio.create_subprocess_exec(
@@ -498,10 +536,20 @@ class SnapcastService:
             return False
 
     def _modify_config_content(self, content: str, config: Dict[str, Any]) -> str:
-        """Modify file content with new configuration."""
+        """Modify file content with new configuration.
+
+        The `source =` lines of [stream] become MULTIROOM_STREAM_SOURCES whatever
+        the payload, position by position: the i-th line takes the i-th source, a
+        surplus line is dropped, a shortfall is added after the last one. In
+        place rather than regrouped, so the blank line between the meta stream
+        and the captures stays where the file has it, and a rewritten file
+        rewrites to itself -- the reconcile restarts snapserver on any change.
+        """
         lines = content.split('\n')
         updated_lines = []
         in_stream_section = False
+        expected_sources = iter(MULTIROOM_STREAM_SOURCES)
+        after_last_source = None
 
         # Map snapserver.conf field names (left) to incoming payload keys (right).
         # The conf uses `buffer` for what we expose on the wire as `buffer_ms`.
@@ -518,6 +566,7 @@ class SnapcastService:
             if stripped_line == "[stream]":
                 in_stream_section = True
                 updated_lines.append(line)
+                after_last_source = len(updated_lines)
                 continue
             elif stripped_line.startswith("[") and stripped_line != "[stream]":
                 in_stream_section = False
@@ -527,7 +576,12 @@ class SnapcastService:
 
                 key = stripped_line.split("=")[0].strip()
 
-                if key in param_mapping and param_mapping[key] in config:
+                if key == "source":
+                    source = next(expected_sources, None)
+                    if source is not None:
+                        updated_lines.append(f"source = {source}")
+                        after_last_source = len(updated_lines)
+                elif key in param_mapping and param_mapping[key] in config:
                     param_key = param_mapping[key]
                     if param_key == "sampleformat":
                         updated_lines.append("sampleformat = 48000:32:2")
@@ -537,6 +591,12 @@ class SnapcastService:
                     updated_lines.append(line)
             else:
                 updated_lines.append(line)
+
+        missing = [f"source = {source}" for source in expected_sources]
+        if missing and after_last_source is None:
+            self.logger.warning("snapserver.conf has no [stream] section, so no capture was written")
+        elif missing:
+            updated_lines[after_last_source:after_last_source] = missing
 
         return '\n'.join(updated_lines)
 

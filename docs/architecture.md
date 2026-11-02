@@ -725,7 +725,9 @@ Audio source → ALSA Loopback → Snapserver → Network
 
 **Which stream each room plays:** every source writes its own Loopback substream
 and snapserver captures each as a named stream (`MULTIROOM_STREAMS` in
-`config/constants.py`, held equal to `provisioning/snapcast.sh`). The backend
+`config/constants.py`, held equal to `provisioning/snapcast.sh`; no OTA ships
+`/etc/snapserver.conf`, so the backend rewrites its `source =` lines from the
+table at each start, and restarts snapserver in multiroom when they moved). The backend
 points every group at the stream of the source it starts (`Group.SetStream`,
 before the start, on a multiroom enable, and for a client at its admission) —
 the `Multiroom` meta stream left alone kept the previous source until it had

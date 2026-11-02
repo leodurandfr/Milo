@@ -364,9 +364,13 @@ pcm.milo_mysource_direct {
 # subdevices (0..7) and only 3 are taken (1=Qobuz, 2=Music Library, 3=Tidal, see
 # provisioning/snapcast.sh). Take the free subdevice 0 first, then 4, 5, 6, 7 —
 # do NOT open a third loopback card until all 8 are used.
-# Then add a matching `source = alsa:///?...&device=hw:2,1,<subdevice>` line to
-# the snapserver.conf that provisioning/snapcast.sh writes, and its slug to the
-# `meta:///...` aggregator.
+# Then give the source its entry in MULTIROOM_STREAMS (backend/config/constants.py:
+# stream name, `hw:2,1,<subdevice>`, `milo_mysource`), and add the same capture
+# line, and the name in the `meta:///...` aggregator, to the snapserver.conf
+# provisioning/snapcast.sh writes at image build. The guardrail
+# tests/architecture/test_multiroom_capture_map.py holds the table, that script
+# and this alias equal; a unit flashed earlier gets the capture from the backend,
+# which rewrites its snapserver.conf `source =` lines from the table at each start.
 pcm.milo_mysource_multiroom {
     type plug
     slave.pcm {

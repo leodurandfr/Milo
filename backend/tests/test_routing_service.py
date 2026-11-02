@@ -18,6 +18,7 @@ audio routing.
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from backend.core.multiroom import AudioRoutingService
+from backend.core.multiroom.snapcast import SnapcastService
 from backend.core.models.audio_state import AudioSource
 from backend.core.settings import SettingsWriteError
 from backend.core.state import AudioStateMachine
@@ -759,3 +760,82 @@ class TestAudioRoutingService:
 
         mock_systemd_manager.start.assert_not_called()
         mock_systemd_manager.stop.assert_not_called()
+
+    @staticmethod
+    def _snapcast(conf_changed: bool):
+        snapcast = Mock(spec=SnapcastService)
+        snapcast.reconcile_stream_sources = AsyncMock(return_value=conf_changed)
+        snapcast.wait_until_available = AsyncMock(return_value=True)
+        return snapcast
+
+    @pytest.mark.asyncio
+    async def test_sync_snapcast_state_rewrites_the_captures_before_starting_snapserver(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """snapserver reads its captures once, when it starts: the conf a card
+        was flashed with is rewritten first, so the start reads the new one.
+        Seen stopped, it is still restarted: a probe that timed out reads as
+        stopped, and a start leaves a running snapserver on the old map."""
+        _seed_multiroom(mock_settings_service, True)
+        routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=True)
+        order = Mock()
+        order.attach_mock(snapcast.reconcile_stream_sources, "reconcile")
+        order.attach_mock(mock_systemd_manager.restart, "restart")
+        order.attach_mock(mock_systemd_manager.start, "start")
+
+        await routing_service._sync_snapcast_state()
+
+        first, then = order.mock_calls[:2]
+        assert first[0] == "reconcile"
+        assert then[0] == "restart" and then.args == ("milo-snapserver-multiroom.service",)
+        mock_systemd_manager.restart.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_running_snapserver_is_restarted_once_on_a_rewritten_conf(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """A backend restart restarts snapserver too (`PartOf=`), before the conf
+        is rewritten: left running, it would capture the old map until the next
+        backend restart. One restart, and the readiness wait before anything uses it."""
+        _seed_multiroom(mock_settings_service, True)
+        mock_systemd_manager.is_active = AsyncMock(return_value=True)
+        routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=True)
+        order = Mock()
+        order.attach_mock(mock_systemd_manager.restart, "restart")
+        order.attach_mock(snapcast.wait_until_available, "ready")
+
+        await routing_service._sync_snapcast_state()
+
+        mock_systemd_manager.restart.assert_awaited_once_with("milo-snapserver-multiroom.service")
+        assert [c[0] for c in order.mock_calls] == ["restart", "ready"]
+        mock_systemd_manager.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_unchanged_conf_restarts_nothing(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """Every boot runs the reconcile; a restart on a no-op would cut every room each time."""
+        _seed_multiroom(mock_settings_service, True)
+        mock_systemd_manager.is_active = AsyncMock(return_value=True)
+        routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=False)
+
+        await routing_service._sync_snapcast_state()
+
+        snapcast.reconcile_stream_sources.assert_awaited_once()
+        mock_systemd_manager.restart.assert_not_called()
+        mock_systemd_manager.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_direct_mode_rewrites_the_conf_without_starting_snapserver(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """The conf is rewritten in direct mode too, for the day multiroom is
+        enabled; a restart there would start the stopped unit."""
+        _seed_multiroom(mock_settings_service, False)
+        routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=True)
+
+        await routing_service._sync_snapcast_state()
+
+        snapcast.reconcile_stream_sources.assert_awaited_once()
+        mock_systemd_manager.start.assert_not_called()
+        mock_systemd_manager.restart.assert_not_called()

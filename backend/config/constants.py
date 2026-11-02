@@ -182,25 +182,29 @@ class MultiroomStream(NamedTuple):
     """The snapserver stream a source plays on in multiroom."""
     name: str    # snapserver's stream id, what Group.SetStream names
     device: str  # the Loopback capture snapserver reads it from
+    pcm: str     # the ALSA PCM the source's unit writes, `pcm.<pcm>_multiroom` in asound.conf
 
 
 # In multiroom each source writes its own Loopback substream and snapserver
 # captures each as a named stream; the backend points every group at the stream
 # of the source it starts, because the meta stream left alone switches in its
-# own order, after `idle_threshold` of silence. In the order of the captures
-# `provisioning/snapcast.sh` writes into snapserver.conf, which cannot import
-# this: tests/architecture/test_multiroom_capture_map.py holds the two equal.
+# own order, after `idle_threshold` of silence. snapserver.conf's `source =`
+# lines are derived from it (snapcast.py's MULTIROOM_STREAM_SOURCES) and rewritten
+# at every backend start, since no OTA ships that file. provisioning/snapcast.sh
+# writes the same lines at image build and cannot import this, and asound.conf
+# holds the writer's side: tests/architecture/test_multiroom_capture_map.py holds
+# all three equal.
 MULTIROOM_STREAMS: Dict[AudioSource, MultiroomStream] = {
-    AudioSource.BLUETOOTH: MultiroomStream("Bluetooth", "hw:1,1,1"),
-    AudioSource.MAC: MultiroomStream("ROC", "hw:1,1,2"),
-    AudioSource.SPOTIFY: MultiroomStream("Spotify", "hw:1,1,3"),
-    AudioSource.RADIO: MultiroomStream("Radio", "hw:1,1,4"),
-    AudioSource.PODCAST: MultiroomStream("Podcast", "hw:1,1,5"),
-    AudioSource.AIRPLAY: MultiroomStream("AirPlay", "hw:1,1,6"),
-    AudioSource.CD: MultiroomStream("CD", "hw:1,1,7"),
-    AudioSource.QOBUZ: MultiroomStream("Qobuz", "hw:2,1,1"),
-    AudioSource.MUSIC_LIBRARY: MultiroomStream("MusicLibrary", "hw:2,1,2"),
-    AudioSource.TIDAL: MultiroomStream("Tidal", "hw:2,1,3"),
+    AudioSource.BLUETOOTH: MultiroomStream("Bluetooth", "hw:1,1,1", "milo_bluetooth"),
+    AudioSource.MAC: MultiroomStream("ROC", "hw:1,1,2", "milo_roc"),
+    AudioSource.SPOTIFY: MultiroomStream("Spotify", "hw:1,1,3", "milo_spotify"),
+    AudioSource.RADIO: MultiroomStream("Radio", "hw:1,1,4", "milo_radio"),
+    AudioSource.PODCAST: MultiroomStream("Podcast", "hw:1,1,5", "milo_podcast"),
+    AudioSource.AIRPLAY: MultiroomStream("AirPlay", "hw:1,1,6", "milo_airplay"),
+    AudioSource.CD: MultiroomStream("CD", "hw:1,1,7", "milo_cd"),
+    AudioSource.QOBUZ: MultiroomStream("Qobuz", "hw:2,1,1", "milo_qobuz"),
+    AudioSource.MUSIC_LIBRARY: MultiroomStream("MusicLibrary", "hw:2,1,2", "milo_music_library"),
+    AudioSource.TIDAL: MultiroomStream("Tidal", "hw:2,1,3", "milo_tidal"),
 }
 
 # Default dock apps (ordered for UI)

@@ -36,6 +36,7 @@ import pytest
 
 from backend.config.constants import DEPLOY_UPDATE_CMD
 from backend.core.multiroom.snapcast import SnapcastRequestError, SnapcastService
+from backend.tests.architecture.test_multiroom_capture_map import flashed_conf
 
 LIVE_CONF = """\
 # Snapserver configuration
@@ -59,6 +60,52 @@ doc_root = /usr/share/snapserver/snapweb/
 [server]
 threads = 4
 """
+
+# The server's conf as it stood on 2026-11-02, flashed before DLNA left the
+# repository on 2026-09-24 and tuned since from the settings page.
+UNIT_CONF = """\
+[stream]
+default_source = Multiroom
+
+buffer = 200
+codec = pcm
+chunk_ms = 20
+sampleformat = 48000:32:2
+
+source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay/CD/DLNA/Qobuz/Tidal/MusicLibrary?name=Multiroom
+
+source = alsa:///?name=Bluetooth&device=hw:1,1,1&idle_threshold=5000
+source = alsa:///?name=ROC&device=hw:1,1,2&idle_threshold=5000
+source = alsa:///?name=Spotify&device=hw:1,1,3&idle_threshold=5000
+source = alsa:///?name=Radio&device=hw:1,1,4&idle_threshold=5000
+source = alsa:///?name=Podcast&device=hw:1,1,5&idle_threshold=5000
+source = alsa:///?name=AirPlay&device=hw:1,1,6&idle_threshold=5000
+source = alsa:///?name=CD&device=hw:1,1,7&idle_threshold=5000
+source = alsa:///?name=DLNA&device=hw:2,1,0&idle_threshold=5000
+source = alsa:///?name=Qobuz&device=hw:2,1,1&idle_threshold=5000
+source = alsa:///?name=MusicLibrary&device=hw:2,1,2&idle_threshold=5000
+source = alsa:///?name=Tidal&device=hw:2,1,3&idle_threshold=5000
+
+[http]
+enabled = true
+bind_to_address = 0.0.0.0
+port = 1780
+doc_root = /usr/share/snapserver/snapweb/
+
+[server]
+threads = 4
+
+[logging]
+enabled = true
+"""
+
+
+def _source_lines(conf):
+    return [ln for ln in conf.splitlines() if ln.strip().startswith("source =")]
+
+
+def _other_lines(conf):
+    return "\n".join(ln for ln in conf.splitlines() if not ln.strip().startswith("source ="))
 
 
 class SpawnedPastTheGuards(BaseException):
@@ -276,14 +323,15 @@ class TestRewritingTheStreamSection:
         assert "# buffer = 700" in out
         assert "buffer = 1500" not in out
 
-    def test_everything_the_payload_does_not_name_is_preserved_byte_for_byte(self, service):
-        """The `source =` lines are the ALSA loopback map. Losing one
-        removes a whole audio source from multiroom."""
+    def test_a_write_carries_the_capture_map_and_keeps_everything_else(self, service):
+        """The `source =` lines are the ALSA loopback map, so a preset write
+        leaves them as the capture map says, never as it found them: copied, a
+        stale map would be written back with every new preset. Every other line
+        is the payload's or nobody's, and stays."""
         out = service._modify_config_content(LIVE_CONF, {"chunk_ms": 20})
 
-        assert out.count("source = ") == LIVE_CONF.count("source = ")
-        assert "default_source = Multiroom" in out
-        assert out.splitlines()[0] == "# Snapserver configuration"
+        assert _source_lines(out) == _source_lines(flashed_conf())
+        assert _other_lines(out) == _other_lines(LIVE_CONF).replace("chunk_ms = 40", "chunk_ms = 20")
 
     def test_a_key_absent_from_the_file_is_silently_dropped(self, service):
         """Measured limit, recorded rather than fixed (B1-9).
@@ -365,6 +413,56 @@ class TestTheWriteToEtc:
         assert calls == []
         assert not staging.exists()
         assert any("not found" in r.message for r in caplog.records)
+
+
+class TestTheCaptureMapReconcile:
+    """`reconcile_stream_sources`: the only way a capture reaches a flashed card.
+
+    snapserver.conf is written at image build and no OTA ships it, so a source
+    added, moved or retired since a card was flashed reaches its conf only
+    through this rewrite, which the routing service runs at every start.
+    """
+
+    async def test_stale_source_lines_are_rewritten_from_the_capture_map(
+        self, service, deploy, staging
+    ):
+        """The server still captured DLNA, gone from the repository for weeks:
+        its stream is rewritten to the capture map, and the preset the settings
+        page tuned (buffer 200, pcm, 20 ms) is the file's, kept as it was."""
+        service.snapserver_conf.write_text(UNIT_CONF)
+        calls, _ = deploy
+
+        assert await service.reconcile_stream_sources() is True
+
+        staged = staging.read_text()
+        assert _source_lines(staged) == _source_lines(flashed_conf())
+        assert _other_lines(staged) == _other_lines(UNIT_CONF)
+        assert len(calls) == 1
+        assert calls[0][2:] == ("write-config", "/tmp/snapserver.conf.tmp", str(service.snapserver_conf))
+
+    async def test_the_flashed_conf_is_a_fixed_point(self, service, staging):
+        """A card flashed from this tree starts with the lines the rewrite would
+        write. Anything but a no-op here restarts snapserver -- a cut in every
+        room -- at every boot of every fresh unit. The `service` fixture fails
+        the test if a process is spawned."""
+        service.snapserver_conf.write_text(flashed_conf())
+
+        assert await service.reconcile_stream_sources() is False
+        assert not staging.exists()
+
+    async def test_a_refused_write_is_no_change_and_says_why(
+        self, service, deploy, staging, caplog
+    ):
+        """The caller restarts snapserver only on a change: a refused write
+        reported as one would cut every room to reload the stale file."""
+        service.snapserver_conf.write_text(UNIT_CONF)
+        _, outcome = deploy
+        outcome["proc"] = FakeProc(returncode=1, stderr=b"refused: destination not allowed")
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.snapcast"):
+            assert await service.reconcile_stream_sources() is False
+
+        assert any("destination not allowed" in r.message for r in caplog.records)
 
 
 class TestTheRestart:
