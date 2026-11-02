@@ -664,6 +664,22 @@ class SnapcastWebSocketService:
         if "error" in response:
             self.logger.error(f"Snapcast RPC error: {response['error']}")
 
+    def _identity_of(
+        self, client: Dict[str, Any], host: str, ip: str, event: str
+    ) -> Optional[str]:
+        """The mac_id a notification's entry is keyed by, or None to skip it.
+
+        A remote entry with no usable id is skipped at warning, as the status
+        walk (`SnapcastService._parse_clients`) skips it. The local client's
+        unreadable MAC (RuntimeError) still raises.
+        """
+        client_id = client.get("id") or ""
+        try:
+            return compute_mac_id(host, ip, client_id)
+        except ValueError as e:
+            self.logger.warning(f"{event}: skipping client id={client_id!r}: {e}")
+            return None
+
     async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
         """Handle client connected event."""
         client = params.get("client", {})
@@ -677,7 +693,9 @@ class SnapcastWebSocketService:
             return
 
         # Compute mac_id early so we can dedup by stable identifier
-        mac_id = compute_mac_id(client_host, client_ip, client_id or "")
+        mac_id = self._identity_of(client, client_host, client_ip, "Client.OnConnect")
+        if mac_id is None:
+            return
 
         client_name = client.get("config", {}).get("name") or get_client_display_name(client_host) or mac_id
         is_local = (client_ip == "127.0.0.1")
@@ -725,10 +743,9 @@ class SnapcastWebSocketService:
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
 
-        # Compute mac_id using canonical method
-        mac_id = compute_mac_id(
-            client_host, client_ip, client.get("id", "")
-        )
+        mac_id = self._identity_of(client, client_host, client_ip, "Client.OnDisconnect")
+        if mac_id is None:
+            return
 
         self.logger.info(f"CLIENT DISCONNECTED: {client_host} (mac_id: {mac_id})")
 

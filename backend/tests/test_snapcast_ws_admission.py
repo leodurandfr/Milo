@@ -1252,6 +1252,85 @@ class TestSnapwebIsNotASpeaker:
         assert list(registry.get_all_clients()) == by_status_walk
 
 
+ZERO_ID = "00:00:00:00:00:00"
+
+
+def _disconnect_frame(**kwargs):
+    """A `Client.OnDisconnect` frame: the same client object as the connect."""
+    frame = _connect_frame(**kwargs)
+    frame["method"] = "Client.OnDisconnect"
+    frame["params"]["client"]["connected"] = False
+    return frame
+
+
+class TestAnEntryWithNoUsableId:
+    """A remote snapclient started without Milō's `--hostID` announces an
+    all-zero id, which no identity can be derived from.
+
+    The status walk skips such an entry with a warning; the two notifications
+    that carry one entry each must answer the same. Before, they let
+    compute_mac_id's ValueError reach `_handle_message`, which logs it at ERROR
+    — a UI banner at every connect and every disconnect of that client.
+    """
+
+    @pytest.mark.parametrize("client_id", [MAC, ZERO_ID, ""])
+    async def test_on_connect_and_the_status_walk_judge_an_identity_alike(
+        self, service, registry, client_id
+    ):
+        """"One client, one admission", for the identity as for the name: an
+        entry the status walk skips is not registered by Client.OnConnect
+        either, and one it keys is keyed the same."""
+        frame = _connect_frame(client_id=client_id, host_name=HOST, mac=MAC, ip=IP)
+        status = {"server": {"groups": [{"clients": [frame["params"]["client"]]}]}}
+
+        by_status_walk = [
+            c["mac_id"]
+            for c in SnapcastService(systemd_manager=MagicMock()).extract_clients(status)
+        ]
+        await service._handle_client_connect(frame["params"])
+        await drain_background_tasks()
+
+        assert list(registry.get_all_clients()) == by_status_walk
+
+    async def test_its_connect_and_disconnect_are_warnings_that_change_nothing(
+        self, service, registry, caplog
+    ):
+        await registry.register_client(MAC, "Bureau", "192.168.1.60", host="milo-client")
+        await registry.set_client_online(MAC, True)
+
+        with caplog.at_level(logging.WARNING):
+            await service._handle_message(_connect_frame(client_id=ZERO_ID, host_name=HOST,
+                                                         mac=ZERO_ID, ip=IP))
+            await drain_background_tasks()
+            await service._handle_message(_disconnect_frame(client_id=ZERO_ID, host_name=HOST,
+                                                            mac=ZERO_ID, ip=IP))
+            await drain_background_tasks()
+
+        assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+        named = [r for r in caplog.records
+                 if r.levelno == logging.WARNING and IP in r.getMessage()]
+        assert len(named) == 2, [r.getMessage() for r in caplog.records]
+        assert set(registry.get_all_clients()) == {MAC}
+        assert registry.get_client(MAC).online is True
+
+    async def test_the_local_entry_whose_mac_cannot_be_read_still_fails_loudly(
+        self, service, registry, monkeypatch, caplog
+    ):
+        """The skip is for a remote entry. /sys unreadable on this unit is a
+        fault of the unit, and the status walk fails its whole parse on it
+        rather than skip the appliance's own speaker."""
+        monkeypatch.setattr("backend.core.multiroom.identity.get_local_mac", lambda: None)
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.websocket"):
+            await service._handle_message(_connect_frame(client_id="aa:bb:cc:dd:ee:99",
+                                                         host_name="milo", mac=MAC,
+                                                         ip="127.0.0.1"))
+            await drain_background_tasks()
+
+        assert registry.get_all_clients() == {}
+        assert any("Cannot determine local MAC" in r.getMessage() for r in caplog.records)
+
+
 class TestWhatANewClientIsAdmittedAt:
     """The level a client nobody has ever set comes back at.
 
