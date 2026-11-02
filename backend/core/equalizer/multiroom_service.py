@@ -911,18 +911,17 @@ class MultiroomEqualizerService:
         that its members hold one record: writing the local domain alone leaves
         every satellite playing under its own flag, audibly out of step, with no
         later transition to repair it. So when the local client is a zone member
-        the toggle fans out to the zone; otherwise it is the plain local write.
+        that shares the zone's EQ the toggle fans out to the zone; otherwise —
+        standalone, or detached from its zone (``eq_independent``) — it is the
+        plain local write.
 
         This is the entry point for any caller that means "the equalizer of this
         appliance", as opposed to ``/equalizer/target/local/enabled``, which
         addresses the local client explicitly.
         """
-        zone = (
-            self._registry.get_zone_for_client(self._local_mac_id())
-            if self._registry
-            else None
-        )
-        if zone:
+        local_mac = self._local_mac_id()
+        zone = self._registry.get_zone_for_client(local_mac) if self._registry else None
+        if zone and not self._is_eq_independent(local_mac):
             return await self.set_zone_equalizer_effects_enabled(zone.id, enabled)
         return await self.set_client_equalizer_effects_enabled(LOCAL_TARGET, enabled)
 
@@ -975,16 +974,19 @@ class MultiroomEqualizerService:
         """
         Enable/disable equalizer effects for all clients in a zone.
 
-        Fans out to each member through the per-client primitives (local →
-        routing_service bypass/restore; remote → push + persist), then broadcasts
-        the zone-level event.
+        Fans out in parallel to each member that shares the zone's EQ, through
+        the per-client primitives (local → routing_service bypass/restore;
+        remote → push + persist), then broadcasts the zone-level event when at
+        least one member moved. A member that did not take it is logged by name
+        at error, like every other zone fan-out.
 
         Args:
             zone_id: The zone ID
             enabled: Whether equalizer effects should be enabled
 
         Returns:
-            True if at least one client was updated successfully
+            True only when every non-independent member took it: a partial
+            fan-out leaves the zone's members audibly out of step
 
         Raises:
             ValueError: If zone not found
@@ -997,26 +999,38 @@ class MultiroomEqualizerService:
         if not zone:
             raise ValueError(f"Zone not found: {zone_id}")
 
-        success_count = 0
+        # A detached member owns its flag; with no routing service (a dev host)
+        # the local member has no bypass to move and is left out of the count.
+        members = [
+            m for m in zone.client_ids
+            if not self._is_eq_independent(m)
+            and (self._routing_service or not self._is_local(m))
+        ]
+        results = await asyncio.gather(
+            *[
+                self._routing_service.set_equalizer_effects_enabled(enabled)
+                if self._is_local(mac_id)
+                else self._set_remote_client_enabled(
+                    mac_id, enabled, fallback=EqualizerSettings.default_for_zone
+                )
+                for mac_id in members
+            ],
+            return_exceptions=True,
+        )
+        failed = failed_members(
+            self.logger, f"Zone {zone_id} equalizer enabled", members, results
+        )
 
-        for client_id in zone.client_ids:
-            if self._registry.is_local_client(client_id):
-                # Local client: use routing_service (bypass/restore the DSP effects).
-                if self._routing_service:
-                    try:
-                        if await self._routing_service.set_equalizer_effects_enabled(enabled):
-                            success_count += 1
-                    except Exception as e:
-                        self.logger.warning(f"Failed to set equalizer enabled for local: {e}")
-            elif await self._set_remote_client_enabled(
-                client_id, enabled, fallback=EqualizerSettings.default_for_zone
-            ):
-                success_count += 1
+        # The event carries the members' flags read back, not the value asked: a
+        # local DSP that refused keeps its old one and the zone reads as the
+        # conjunction. A satellite's record takes the value even on a refusal
+        # (the re-admission sync replays it), so that one shows in the ERROR alone.
+        if len(failed) < len(members) and self._state_machine:
+            zone_eq = await self.get_zone_eq(zone_id)
+            if zone_eq:
+                await self._state_machine.broadcast(
+                    EqualizerZoneEnabledChanged(zone_id=zone_id, enabled=zone_eq.enabled)
+                )
 
-        if self._state_machine:
-            await self._state_machine.broadcast(
-                EqualizerZoneEnabledChanged(zone_id=zone_id, enabled=enabled)
-            )
-
-        return success_count > 0
+        return not failed
 

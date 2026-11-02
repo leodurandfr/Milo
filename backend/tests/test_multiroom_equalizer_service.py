@@ -16,6 +16,8 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 
 from backend.core.equalizer import MultiroomEqualizerService
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.models.ws_events import EqualizerZoneEnabledChanged
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
@@ -40,6 +42,33 @@ def batched_records(registry):
     """
     registry.set_clients_equalizer.assert_awaited_once()
     return registry.set_clients_equalizer.await_args.args[0]
+
+
+def wire_enabled_stores(registry, camilladsp, routing, *, local_enabled=True):
+    """Give both domains of the master toggle a memory, so a re-read sees the writes.
+
+    The local flag is the DSP's (the routing service moves it), a satellite's is
+    its per-client record. A zone event that re-reads its members then reports
+    what the fan-out left behind, not a value the test typed.
+    """
+    records = {}
+    local = {"enabled": local_enabled}
+
+    async def toggle_local(enabled):
+        local["enabled"] = enabled
+        return True
+
+    def local_record():
+        record = EqualizerSettings.default()
+        record.enabled = local["enabled"]
+        return record
+
+    registry.get_client_equalizer = Mock(side_effect=records.get)
+    registry.set_client_equalizer = AsyncMock(
+        side_effect=lambda mac, record, **_: records.__setitem__(mac, record)
+    )
+    camilladsp.get_equalizer_settings = Mock(side_effect=local_record)
+    routing.set_equalizer_effects_enabled = AsyncMock(side_effect=toggle_local)
 
 
 # =============================================================================
@@ -1246,10 +1275,10 @@ class TestZoneEffectsEnabled:
         )
 
     @pytest.mark.asyncio
-    async def test_zone_fans_out_local_and_remote_then_broadcasts(self, multiroom_equalizer_service, mock_registry, mock_state_machine, routing_service, proxy_service, sample_zone, remote_client):
+    async def test_zone_fans_out_local_and_remote_then_broadcasts(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, mock_state_machine, routing_service, proxy_service, sample_zone, remote_client):
         mock_registry.get_zone.return_value = sample_zone  # ["local", "milo-client-1"]
         mock_registry.get_client.side_effect = lambda mac: remote_client if mac == "milo-client-1" else None
-        mock_registry.get_client_equalizer.return_value = None
+        wire_enabled_stores(mock_registry, mock_camilladsp_service, routing_service)
 
         result = await multiroom_equalizer_service.set_zone_equalizer_effects_enabled("zone-123", False)
 
@@ -1635,49 +1664,176 @@ class TestZoneEnabledFanout:
         service._routing_service.set_equalizer_effects_enabled.assert_awaited_once_with(False)
         assert proxy_service.request.await_count == 1
 
+    @staticmethod
+    def _errors_naming(caplog, member):
+        return [
+            r for r in caplog.records
+            if r.levelno == logging.ERROR and member in r.getMessage()
+        ]
+
+    @staticmethod
+    def _zone_events(state_machine):
+        return [
+            c.args[0] for c in state_machine.broadcast.await_args_list
+            if isinstance(c.args[0], EqualizerZoneEnabledChanged)
+        ]
+
     @pytest.mark.asyncio
     async def test_a_local_failure_does_not_stop_the_satellites(
         self, service, mock_registry, proxy_service, caplog
     ):
         """A DSP that refuses its bypass must not leave the rest of the zone at
-        the old setting — half a room with effects on is worse than none."""
+        the old setting — half a room with effects on is worse than none. It is
+        still a failure: answered True, the panel draws the zone as switched
+        while the local speaker kept its effects, and no banner names it."""
         self._zone(mock_registry, ["local", "aa:bb:cc:dd:ee:02"])
         service._routing_service.set_equalizer_effects_enabled = AsyncMock(
             side_effect=RuntimeError("daemon down")
         )
 
         with caplog.at_level(logging.WARNING):
-            assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is True
+            assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is False
 
         proxy_service.request.assert_awaited_once()
-        assert "Failed to set equalizer enabled for local" in caplog.text
+        assert self._errors_naming(caplog, "local"), \
+            "the local refusal raised no ERROR line, so no banner names the speaker"
+
+    @pytest.mark.asyncio
+    async def test_a_satellite_refusal_fails_the_zone_toggle(
+        self, service, mock_registry, proxy_service, caplog
+    ):
+        """The zone's invariant is one record across its members, so a partial
+        fan-out is a failure — the rule `set_zone_eq` and the crossover already
+        follow. Counted as a success, the route answered `success`, the dock tile
+        moved, and Canapé kept its effects while the room next to it had none,
+        with nothing on any screen. The record is still persisted: it is what
+        the re-admission sync replays to the satellite."""
+        self._zone(mock_registry, ["local", "aa:bb:cc:dd:ee:02"])
+        proxy_service.request = AsyncMock(
+            side_effect=SatelliteUnreachable("192.168.1.2", "refused", 400)
+        )
+
+        with caplog.at_level(logging.WARNING):
+            assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is False
+
+        assert self._errors_naming(caplog, "aa:bb:cc:dd:ee:02"), \
+            "the satellite's refusal raised no ERROR line naming it"
+        mock_registry.set_client_equalizer.assert_awaited_once()
+        mac, record = mock_registry.set_client_equalizer.await_args.args
+        assert (mac, record.enabled) == ("aa:bb:cc:dd:ee:02", False)
+
+    @pytest.mark.asyncio
+    async def test_the_zone_master_toggle_skips_an_independent_member(
+        self, service, mock_registry, proxy_service
+    ):
+        """A member that detached its EQ owns its record and is excluded from
+        every zone-EQ operation. Toggled with the zone, its own effects switch
+        off from the zone panel, which no longer shows it."""
+        members = {
+            "aa:bb:cc:dd:ee:01": Client(
+                mac_id="aa:bb:cc:dd:ee:01", name="Bureau", ip="192.168.1.1",
+                online=True, zone_id="zone-1", eq_independent=True,
+            ),
+            "aa:bb:cc:dd:ee:02": Client(
+                mac_id="aa:bb:cc:dd:ee:02", name="Canapé", ip="192.168.1.2",
+                online=True, zone_id="zone-1",
+            ),
+        }
+        mock_registry.get_zone = Mock(return_value=Zone(
+            id="zone-1", name="Salon", client_ids=list(members)
+        ))
+        mock_registry.get_client = Mock(side_effect=members.get)
+
+        assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is True
+
+        assert [c.args[0] for c in proxy_service.request.await_args_list] == ["192.168.1.2"]
+        assert [
+            c.args[0] for c in mock_registry.set_client_equalizer.await_args_list
+        ] == ["aa:bb:cc:dd:ee:02"]
+
+    @pytest.mark.asyncio
+    async def test_the_dock_toggle_of_an_independent_local_stays_local(
+        self, service, mock_registry, mock_state_machine, proxy_service
+    ):
+        """The dock's Equalizer switch means "this appliance". When the local
+        client has detached its EQ from its zone, handing the switch to the zone
+        would bypass every satellite of the room for a tap on the main unit."""
+        local = Client(
+            mac_id="local", name="Milō", ip="127.0.0.1",
+            online=True, zone_id="zone-1", eq_independent=True,
+        )
+        remote = Client(
+            mac_id="aa:bb:cc:dd:ee:02", name="Canapé", ip="192.168.1.2",
+            online=True, zone_id="zone-1",
+        )
+        clients = {local.mac_id: local, remote.mac_id: remote}
+        zone = Zone(id="zone-1", name="Salon", client_ids=list(clients))
+        mock_registry.get_all_clients = Mock(return_value=clients)
+        mock_registry.get_zone_for_client = Mock(return_value=zone)
+        mock_registry.get_zone = Mock(return_value=zone)
+        mock_registry.get_client = Mock(side_effect=clients.get)
+
+        assert await service.set_local_equalizer_effects_enabled(False) is True
+
+        service._routing_service.set_equalizer_effects_enabled.assert_awaited_once_with(False)
+        proxy_service.request.assert_not_awaited()
+        assert self._zone_events(mock_state_machine) == []
 
     @pytest.mark.asyncio
     async def test_a_zone_whose_members_all_refuse_reports_failure(
         self, service, mock_registry, proxy_service
     ):
-        """"At least one client updated" is the contract. All refused is the one
-        case the UI must not draw as applied."""
+        """True means every member took the toggle; all refused is the plainest
+        case of a zone the UI must not draw as applied."""
         self._zone(mock_registry, ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])
         proxy_service.request = AsyncMock(return_value={"status": "error"})
 
         assert await service.set_zone_equalizer_effects_enabled("zone-1", True) is False
 
     @pytest.mark.asyncio
+    async def test_a_zone_whose_members_all_refuse_broadcasts_nothing(
+        self, service, mock_registry, mock_state_machine, proxy_service
+    ):
+        """`zone_enabled_changed` moves the zone's tile on every other screen.
+        Sent when no member moved, it draws a change that happened nowhere."""
+        self._zone(mock_registry, ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])
+        proxy_service.request = AsyncMock(return_value={"status": "error"})
+
+        await service.set_zone_equalizer_effects_enabled("zone-1", True)
+
+        mock_state_machine.broadcast.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_the_zone_event_carries_what_the_members_hold_not_what_was_asked(
+        self, service, mock_registry, mock_camilladsp_service, mock_state_machine
+    ):
+        """Effects asked on, the local DSP refuses and stays bypassed, the
+        satellite takes it. The zone now reads off (`get_zone_eq`'s conjunction),
+        and that is what the other screens must draw: announcing the value asked
+        for would show a zone with effects on while the main unit plays without."""
+        self._zone(mock_registry, ["local", "aa:bb:cc:dd:ee:02"])
+        wire_enabled_stores(
+            mock_registry, mock_camilladsp_service, service._routing_service,
+            local_enabled=False,
+        )
+        service._routing_service.set_equalizer_effects_enabled = AsyncMock(return_value=False)
+
+        assert await service.set_zone_equalizer_effects_enabled("zone-1", True) is False
+
+        [event] = self._zone_events(mock_state_machine)
+        assert event.wire_data() == {"zone_id": "zone-1", "enabled": False}
+
+    @pytest.mark.asyncio
     async def test_a_zone_with_no_routing_service_reports_nothing_wrong(
         self, service, mock_registry, proxy_service, caplog
     ):
-        """The guard's only effect is the absence of a warning, and that is the
-        whole assertion.
+        """With no routing service the local member is left out of the count,
+        silently.
 
         `dependencies.py` always constructs this service with the routing
-        service, so None is a dev-host shape. And the `except Exception` inside
-        the guard would catch the `AttributeError` an unguarded call raises, log
-        it, and let the satellites through anyway — so the fan-out's OUTCOME
-        cannot separate the two versions. What separates them is a WARNING per
-        zone toggle in `errors.log`, on a unit where nothing is actually wrong.
-        Same family as `_load_config_from_settings`'s inert guard in B5, except
-        this one is worth keeping for that reason.
+        service, so None is a dev-host shape. Counted as a member that failed,
+        it would be an ERROR per zone toggle in `errors.log` and a False the
+        panel draws as a failure, on a unit where nothing is actually wrong.
         """
         self._zone(mock_registry, ["local", "aa:bb:cc:dd:ee:02"])
         service._routing_service = None
