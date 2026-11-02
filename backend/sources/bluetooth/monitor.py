@@ -180,7 +180,10 @@ class BlueAlsaMonitor:
             return
 
         try:
-            while not self._stopped and not self._process.stdout.at_eof():
+            # No at_eof() test here: a line followed at once by EOF leaves it
+            # true as soon as the line is read, and the loop would leave
+            # without a report. An empty read is the one way out.
+            while not self._stopped:
                 line = await self._process.stdout.readline()
                 if not line:
                     await self._report_lost("bluealsa-cli monitor closed its output")
@@ -219,11 +222,14 @@ class BlueAlsaMonitor:
 
         detail = ""
         if self._process:
+            # Both reads bounded: a monitor that closed stdout without exiting
+            # still holds stderr open, and must not hold this report — the
+            # report is the point.
             with contextlib.suppress(Exception):
                 if self._process.stderr:
-                    detail = (await self._process.stderr.read()).decode().strip()
-            # Bounded: a monitor that closed stdout without exiting must not
-            # hold this report — the report is the point.
+                    detail = (
+                        await asyncio.wait_for(self._process.stderr.read(), 1.0)
+                    ).decode(errors="replace").strip()
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(self._process.wait(), 1.0)
             reason = f"{reason} (exit={self._process.returncode})"

@@ -79,14 +79,7 @@ class FakeStdout:
 
     def __init__(self, *lines):
         self._lines = list(lines)
-        self._eof = False
         self.reads = 0
-
-    def at_eof(self):
-        # A real StreamReader is not at EOF until a read has actually hit it —
-        # answering True on an empty queue skips the loop entirely and the
-        # "daemon closed its output" arm becomes unreachable.
-        return self._eof
 
     async def readline(self):
         self.reads += 1
@@ -94,7 +87,6 @@ class FakeStdout:
             raise RunawayRead("readline called 200 times: the loop lost its exit")
         if self._lines:
             return self._lines.pop(0)
-        self._eof = True
         return b""
 
 
@@ -302,16 +294,6 @@ class TestReportingTheLoss:
         assert "exit=1" in caplog.text
         assert "D-Bus connection refused" in caplog.text
 
-    async def test_a_child_that_will_not_exit_does_not_hold_the_report(self):
-        """Bounded on purpose: a monitor that closed stdout without exiting
-        must not swallow the report, which is the whole point of the method."""
-        mon = monitor()
-        mon._alive = True
-        mon._process = child()
-        mon._process.wait = AsyncMock(side_effect=asyncio.TimeoutError)
-
-        await asyncio.wait_for(mon._report_lost("closed its output"), timeout=5)
-
     async def test_the_source_is_told_once_and_not_again(self):
         """`_read_output` can reach it from two arms in one death. A second
         banner for the same loss is noise on an appliance whose only Bluetooth
@@ -353,6 +335,76 @@ class TestReportingTheLoss:
             await mon._report_lost("gone")
 
         assert "connection detection is down" in caplog.text
+
+
+class TestARealChild:
+    """The feed's death against a real process, not a double.
+
+    The doubles above answer `stderr.read()` at once and set `at_eof()` only
+    after an empty read, so they could not see what a real `StreamReader`
+    does: a child that closed stdout but still holds stderr blocks a read to
+    EOF for as long as it lives, and a line followed at once by EOF leaves
+    `at_eof()` true the moment the line is read. Both silenced the report
+    (no error, no `on_lost`, no banner) with every test above green.
+
+    The child is `sh`, spawned through `create_subprocess_shell`, which the
+    module-wide guard on `create_subprocess_exec` does not cover. The
+    deadlines are shortened, so the guard is `asyncio.timeout`, which that
+    patch does not reach either.
+    """
+
+    @staticmethod
+    def spawning(monkeypatch, script, *, settled=False):
+        async def fake_exec(*_argv, **kwargs):
+            proc = await asyncio.create_subprocess_shell(script, **kwargs)
+            if settled:
+                # wait() also waits for the pipes to close, so the line and
+                # the EOF are both buffered before the reader starts.
+                await proc.wait()
+            return proc
+
+        monkeypatch.setattr(monitor_module.asyncio, "create_subprocess_exec", fake_exec)
+        monkeypatch.setattr(monitor_module.asyncio, "wait_for", shortened_wait_for())
+
+    @staticmethod
+    async def until_lost(mon, lost):
+        try:
+            assert await mon.start()
+            async with asyncio.timeout(5):
+                await lost.wait()
+        finally:
+            await mon.stop()
+
+    async def test_a_child_that_closed_its_output_but_will_not_exit_is_reported(
+        self, monkeypatch, caplog
+    ):
+        """The child stays alive with stderr open: the report must still go
+        out, bounded, since it is the only word the owner gets of the loss."""
+        self.spawning(monkeypatch, "exec 1>&-; exec sleep 30")
+        lost = asyncio.Event()
+        on_lost = AsyncMock(side_effect=lambda _reason: lost.set())
+        mon = monitor(on_lost=on_lost)
+
+        with caplog.at_level("ERROR", logger="source.bluetooth.monitor"):
+            await self.until_lost(mon, lost)
+
+        on_lost.assert_awaited_once()
+        assert "connection detection is down" in caplog.text
+
+    async def test_a_monitor_that_exits_right_after_a_line_is_reported(
+        self, monkeypatch, caplog
+    ):
+        self.spawning(monkeypatch, "echo 'ServiceRunning org.bluealsa'; exit 3",
+                      settled=True)
+        lost = asyncio.Event()
+        on_lost = AsyncMock(side_effect=lambda _reason: lost.set())
+        mon = monitor(on_lost=on_lost)
+
+        with caplog.at_level("ERROR", logger="source.bluetooth.monitor"):
+            await self.until_lost(mon, lost)
+
+        on_lost.assert_awaited_once()
+        assert "exit=3" in caplog.text
 
 
 class TestStoppingTheFeed:

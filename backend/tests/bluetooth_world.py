@@ -176,16 +176,9 @@ class _Stream:
 
     def __init__(self) -> None:
         self.lines: asyncio.Queue = asyncio.Queue()
-        self.eof = False
 
     async def readline(self) -> bytes:
-        line = await self.lines.get()
-        if not line:
-            self.eof = True
-        return line
-
-    def at_eof(self) -> bool:
-        return self.eof
+        return await self.lines.get()
 
     async def read(self) -> bytes:
         return b""

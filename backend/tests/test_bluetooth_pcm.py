@@ -8,7 +8,7 @@ so a change is a deliberate, reviewed edit — and cover the BlueZ D-Bus
 name-resolution fail-open path.
 """
 import pytest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 from backend.sources.bluetooth.monitor import (
     BlueAlsaMonitor,
@@ -138,7 +138,6 @@ class TestFeedDeath:
         """A bluealsa-cli that closed its output — an empty readline is EOF."""
         proc = AsyncMock()
         proc.stdout = AsyncMock()
-        proc.stdout.at_eof = Mock(return_value=False)
         proc.stdout.readline = AsyncMock(return_value=b"")
         proc.stderr = AsyncMock()
         proc.stderr.read = AsyncMock(return_value=stderr)
