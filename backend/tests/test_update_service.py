@@ -230,27 +230,7 @@ class TestUpdateProgram:
 
 
 class TestServiceManagement:
-    """Tests for _is_service_active, _stop_service, _start_service, _restart_service"""
-
-    @pytest.mark.asyncio
-    async def test_is_service_active_true(self, update_service):
-        proc = _make_mock_proc(stdout=b"active\n")
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            result = await update_service._is_service_active("milo-spotify.service")
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_is_service_active_false(self, update_service):
-        proc = _make_mock_proc(stdout=b"inactive\n")
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            result = await update_service._is_service_active("milo-spotify.service")
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_is_service_active_error(self, update_service):
-        with patch("asyncio.create_subprocess_exec", side_effect=Exception("fail")):
-            result = await update_service._is_service_active("milo-spotify.service")
-        assert result is False
+    """Tests for _stop_service, _start_service, _restart_service"""
 
     @pytest.mark.asyncio
     async def test_stop_service_success(self, update_service):
@@ -489,9 +469,8 @@ class TestRollbackBinaryProgram:
 
     @pytest.mark.asyncio
     async def test_a_service_that_will_not_stop_leaves_the_binary_alone(self, update_service, tmp_path):
-        """install-binary over a running image either fails with "Text file busy"
-        or writes a file nothing is executing; either way the restore cannot be
-        claimed, so it is not attempted.
+        """install-binary under a running process writes a file nothing is
+        executing, so the restore cannot be claimed, and it is not attempted.
         """
         config = _rollback_config(tmp_path)
         (tmp_path / "backups").mkdir()
@@ -688,7 +667,6 @@ class TestUpdateBinaryProgram:
               rollback=True):
         """Stack the collaborators, leaving the flow under test real."""
         returns = {
-            "_is_service_active": service_active,
             "_backup_binary_program": backup or {"success": True},
             "_download_binary_program": download or {
                 "success": True, "binary_path": "/tmp/bin", "temp_dir": "/tmp/dl"
@@ -705,8 +683,8 @@ class TestUpdateBinaryProgram:
                 name: stack.enter_context(patch.object(service, name, return_value=value))
                 for name, value in returns.items()
             }
-            # The flow waits for the kernel to release the running binary.
-            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            mocks["probe_active"] = stack.enter_context(patch.object(
+                service._systemd, "probe_active", AsyncMock(return_value=service_active)))
             yield mocks
 
     @pytest.mark.asyncio
@@ -842,17 +820,16 @@ class TestUpdateMultiroom:
 
     @staticmethod
     @contextmanager
-    def _flow(service, *, active, install=None):
+    def _flow(service, *, multiroom, install=None):
         """Stack the collaborators, leaving _update_multiroom itself real.
 
-        `active` maps each multiroom unit to what systemd reported before the
-        update; `install` overrides the two _install_deb_package results.
+        `multiroom` is the stored `routing.multiroom_enabled`, which decides
+        whether the units come back; `install` overrides the two
+        _install_deb_package results.
         """
+        service.settings_service._storage["routing.multiroom_enabled"] = multiroom
         with ExitStack() as stack:
             mocks = {
-                "_is_service_active": stack.enter_context(patch.object(
-                    service, "_is_service_active", side_effect=lambda svc: active[svc]
-                )),
                 "_download_snapcast_component": stack.enter_context(patch.object(
                     service, "_download_snapcast_component",
                     return_value={"success": True, "deb_path": "/tmp/pkg.deb", "temp_dir": "/tmp/dl"},
@@ -872,47 +849,44 @@ class TestUpdateMultiroom:
         return [call.args[0] for call in mocks["_start_service"].await_args_list]
 
     @pytest.mark.asyncio
-    async def test_units_inactive_before_the_update_stay_stopped(self, update_service):
+    async def test_units_stay_stopped_in_direct_mode(self, update_service):
         """The snapcast units have no WantedBy — nothing reconciles them after an
         update. Starting them in direct mode leaves snapclient holding
         hw:Loopback,0,0, so the next direct-mode source plays silence until reboot.
         """
-        active = dict.fromkeys(self.SERVICES, False)
-
-        with self._flow(update_service, active=active) as mocks:
+        with self._flow(update_service, multiroom=False) as mocks:
             result = await update_service._update_multiroom(self.STATUS)
 
         assert result["success"] is True
         assert self._started(mocks) == []
 
     @pytest.mark.asyncio
-    async def test_units_active_before_the_update_come_back(self, update_service):
+    async def test_units_come_back_in_multiroom_mode(self, update_service):
         """Multiroom mode: the update must not leave the appliance mute."""
-        active = dict.fromkeys(self.SERVICES, True)
-
-        with self._flow(update_service, active=active) as mocks:
+        with self._flow(update_service, multiroom=True) as mocks:
             result = await update_service._update_multiroom(self.STATUS)
 
         assert result["success"] is True
         assert self._started(mocks) == list(self.SERVICES)
 
     @pytest.mark.asyncio
-    async def test_restore_is_decided_per_unit(self, update_service):
-        """A server-only unit (snapserver up, no local snapclient) must not gain one."""
-        active = {self.SERVICES[0]: True, self.SERVICES[1]: False}
-
-        with self._flow(update_service, active=active) as mocks:
+    async def test_the_restore_reads_the_setting_not_the_units(self, update_service):
+        """Multiroom runs both units or neither, and the setting is what
+        `_sync_snapcast_state` holds them to. A probe that timed out, or a unit
+        caught `activating`, read as "was inactive" and left every room mute."""
+        probe = AsyncMock(return_value=None)
+        with self._flow(update_service, multiroom=True) as mocks, \
+                patch.object(update_service._systemd, "probe_active", probe):
             result = await update_service._update_multiroom(self.STATUS)
 
         assert result["success"] is True
-        assert self._started(mocks) == [self.SERVICES[0]]
+        assert self._started(mocks) == list(self.SERVICES)
+        probe.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_install_failure_does_not_start_inactive_units(self, update_service):
-        """The recovery branches restore the prior state, they do not impose one."""
-        active = dict.fromkeys(self.SERVICES, False)
-
-        with self._flow(update_service, active=active, install=[{"success": False, "error": "dpkg"}]) as mocks:
+    async def test_install_failure_does_not_start_the_units_in_direct_mode(self, update_service):
+        """The recovery branches restore the mode in force, they do not impose one."""
+        with self._flow(update_service, multiroom=False, install=[{"success": False, "error": "dpkg"}]) as mocks:
             result = await update_service._update_multiroom(self.STATUS)
 
         assert result["success"] is False
@@ -923,9 +897,7 @@ class TestUpdateMultiroom:
         """The download phase runs before anything is stopped, so its except branch
         has no prior state to restore — and must not invent one.
         """
-        active = dict.fromkeys(self.SERVICES, True)
-
-        with self._flow(update_service, active=active) as mocks:
+        with self._flow(update_service, multiroom=True) as mocks:
             mocks["_download_snapcast_component"].side_effect = RuntimeError("network down")
             result = await update_service._update_multiroom(self.STATUS)
 
@@ -937,14 +909,13 @@ class TestUpdateMultiroom:
         """A snapcast unit that stayed down after a failed install leaves the
         appliance mute — the opposite of the recovery the error claimed.
         """
-        active = dict.fromkeys(self.SERVICES, True)
         install = [{"success": False, "error": "dpkg"}]
 
-        with self._flow(update_service, active=active, install=install) as mocks:
+        with self._flow(update_service, multiroom=True, install=install) as mocks:
             mocks["_start_service"].return_value = True
             restored = await update_service._update_multiroom(self.STATUS)
 
-        with self._flow(update_service, active=active, install=install) as mocks:
+        with self._flow(update_service, multiroom=True, install=install) as mocks:
             mocks["_start_service"].return_value = False
             stranded = await update_service._update_multiroom(self.STATUS)
 
@@ -962,9 +933,7 @@ class TestUpdateMultiroom:
         answers success. The row reads the new version off the new binary on
         disk while the process serving audio is still the old one.
         """
-        active = dict.fromkeys(self.SERVICES, True)
-
-        with self._flow(update_service, active=active) as mocks:
+        with self._flow(update_service, multiroom=True) as mocks:
             mocks["_stop_service"].return_value = False
             result = await update_service._update_multiroom(self.STATUS)
 
@@ -979,9 +948,7 @@ class TestUpdateMultiroom:
         The second unit refuses; the first was already stopped by then, and is
         the one the room needs back.
         """
-        active = dict.fromkeys(self.SERVICES, True)
-
-        with self._flow(update_service, active=active) as mocks:
+        with self._flow(update_service, multiroom=True) as mocks:
             mocks["_stop_service"].side_effect = [True, False]
             result = await update_service._update_multiroom(self.STATUS)
 
@@ -1030,7 +997,7 @@ class TestUpdateMultiroom:
     async def test_snapclient_install_failure_partial_success(self, update_service):
         install = [{"success": True}, {"success": False, "error": "install failed"}]
 
-        with self._flow(update_service, active=dict.fromkeys(self.SERVICES, True), install=install) as mocks:
+        with self._flow(update_service, multiroom=True, install=install) as mocks:
             result = await update_service._update_multiroom(self.STATUS)
 
         # The discriminator is which half failed: snapserver installed, snapclient
@@ -1735,7 +1702,7 @@ class TestVerifyBinaryProgram:
         """
         config = update_service.programs["go-librespot"]
         with patch("pathlib.Path.exists", return_value=True):
-            with patch.object(update_service, "_is_service_active") as mock_active:
+            with patch.object(update_service._systemd, "probe_active") as mock_active:
                 result = await update_service._verify_binary_program(config, False)
         assert result["success"] is True
         mock_active.assert_not_awaited()
@@ -1764,7 +1731,7 @@ class TestVerifyShairportSyncUpdate:
     async def test_service_not_running_when_expected(self, update_service):
         config = {"binary_path": "/usr/local/bin/shairport-sync", "service_name": "milo-airplay.service"}
         with patch("pathlib.Path.exists", return_value=True):
-            with patch.object(update_service, "_is_service_active", return_value=False):
+            with patch.object(update_service._systemd, "probe_active", return_value=False):
                 result = await update_service._verify_shairport_sync_update(config, service_was_active=True)
         assert result["success"] is False
 
@@ -1772,7 +1739,7 @@ class TestVerifyShairportSyncUpdate:
     async def test_success_service_active(self, update_service):
         config = {"binary_path": "/usr/local/bin/shairport-sync", "service_name": "milo-airplay.service"}
         with patch("pathlib.Path.exists", return_value=True):
-            with patch.object(update_service, "_is_service_active", return_value=True):
+            with patch.object(update_service._systemd, "probe_active", return_value=True):
                 result = await update_service._verify_shairport_sync_update(config, service_was_active=True)
         assert result["success"] is True
 
@@ -1890,7 +1857,6 @@ class TestUpdateShairportSync:
     @contextmanager
     def _flow(service, *, install=None, rollback=True):
         returns = {
-            "_is_service_active": True,
             "_backup_shairport_sync": {"success": True},
             "_download_source": {
                 "success": True, "temp_dir": "/tmp/sps", "source_dir": "/tmp/sps/src"
@@ -1906,6 +1872,8 @@ class TestUpdateShairportSync:
             "_cleanup_temp_files": None,
         }
         with ExitStack() as stack:
+            stack.enter_context(patch.object(
+                service._systemd, "probe_active", AsyncMock(return_value=True)))
             yield {
                 name: stack.enter_context(patch.object(service, name, return_value=value))
                 for name, value in returns.items()
@@ -1948,8 +1916,9 @@ class TestUpdateQobuzProxy:
                     service, "_start_service", return_value=start
                 )),
             }
+            mocks["probe_active"] = stack.enter_context(patch.object(
+                service._systemd, "probe_active", AsyncMock(return_value=True)))
             for name, value in (
-                ("_is_service_active", True),
                 ("_backup_qobuz_venv", {"success": True}),
                 ("_verify_qobuz_update", {"success": True}),
                 ("_stop_service", True),
@@ -2633,7 +2602,6 @@ class TestUpdateShairportSyncFlow:
     @contextmanager
     def _flow(service, *, was_active=True, overrides=None, version_file=True):
         returns = {
-            "_is_service_active": was_active,
             "_backup_shairport_sync": {"success": True},
             "_download_source": {
                 "success": True, "temp_dir": "/tmp/sps", "source_dir": "/tmp/sps/src"
@@ -2656,6 +2624,8 @@ class TestUpdateShairportSyncFlow:
                 name: stack.enter_context(patch.object(service, name, return_value=value))
                 for name, value in returns.items()
             }
+            mocks["probe_active"] = stack.enter_context(patch.object(
+                service._systemd, "probe_active", AsyncMock(return_value=was_active)))
             if version_file:
                 stack.enter_context(patch("backend.core.updates.update.aiofiles.open",
                                           new=_recording_aiofiles_open(written)))
@@ -2747,8 +2717,8 @@ class TestUpdateShairportSyncFlow:
 
     @pytest.mark.asyncio
     async def test_a_service_that_will_not_stop_aborts_before_the_install(self, update_service):
-        """install-binary on a running unit either hits "Text file busy" or
-        replaces the image under a live process."""
+        """install-binary on a running unit replaces the image under a live
+        process, which goes on running the old one."""
         with self._flow(update_service, overrides={"_stop_service": False}) as flow:
             result = await update_service._update_shairport_sync(self.STATUS)
 
@@ -2993,7 +2963,7 @@ class TestShairportSyncNqptpPair:
         build = {"binary": "/tmp/sps/nqptp", "version": "1.2.9"}
         with patch.object(update_service, "_stop_service", AsyncMock(return_value=True)), \
                 patch.object(update_service, "_start_service", AsyncMock(return_value=True)), \
-                patch.object(update_service, "_is_service_active", AsyncMock(return_value=False)), \
+                patch.object(update_service._systemd, "probe_active", AsyncMock(return_value=False)), \
                 patch.object(update_service, "_run_deploy", AsyncMock(return_value=(True, ""))) as deploy, \
                 patch("backend.core.updates.update.asyncio.sleep", AsyncMock()):
             result = await update_service._install_nqptp(build)
@@ -3369,7 +3339,6 @@ class TestUpdateQobuzProxyFlow:
     @contextmanager
     def _flow(service, *, was_active=True, overrides=None):
         returns = {
-            "_is_service_active": was_active,
             "_backup_qobuz_venv": {"success": True},
             "_stop_service": True,
             "_start_service": True,
@@ -3383,6 +3352,8 @@ class TestUpdateQobuzProxyFlow:
                 name: stack.enter_context(patch.object(service, name, return_value=value))
                 for name, value in returns.items()
             }
+            mocks["probe_active"] = stack.enter_context(patch.object(
+                service._systemd, "probe_active", AsyncMock(return_value=was_active)))
             local = LocalCommands((overrides or {}).pop("_local_failures", None))
             mocks["_local"] = stack.enter_context(
                 patch.object(service, "_run_local", local)) and local
@@ -3593,7 +3564,6 @@ class TestBinaryProgramRecoveryArms:
     @contextmanager
     def _flow(service, *, overrides=None):
         returns = {
-            "_is_service_active": True,
             "_backup_binary_program": {"success": True},
             "_download_binary_program": {
                 "success": True, "binary_path": "/tmp/dl/camilladsp", "temp_dir": "/tmp/dl"},
@@ -4554,3 +4524,236 @@ class TestTheReleaseInstall:
                 side_effect=lambda *a, **k: assets.session(),
             ))
             yield
+
+
+class _SystemdWorld:
+    """systemd as the update flows drive it: units that hold a state, and the
+    calls made on them, in order.
+
+    Injected as `systemd_manager`, the collaborator every flow reaches systemd
+    through. A flow that decides what to stop and restart from a reading taken
+    minutes earlier is only visible against a world that keeps moving between
+    the reading and the act: a receiver selected during a compile, a source
+    started during a download. `requires` is the one unit relation the flows
+    depend on — stopping nqptp stops milo-airplay (`Requires=`).
+    """
+
+    def __init__(self, active=None, *, unreadable=(),
+                 requires=(("milo-airplay.service", "nqptp.service"),)):
+        self.active = dict(active or {})
+        self.unreadable = set(unreadable)
+        self.requires = dict(requires)
+        self.calls: list[tuple[str, ...]] = []
+
+    async def probe_active(self, unit):
+        self.calls.append(("probe_active", unit))
+        if unit in self.unreadable:
+            return None
+        return self.active.get(unit, False)
+
+    async def is_active(self, unit):
+        return await self.probe_active(unit) is True
+
+    async def stop(self, unit):
+        self.calls.append(("stop", unit))
+        self.active[unit] = False
+        for dependent, required in self.requires.items():
+            if required == unit:
+                self.active[dependent] = False
+        return True
+
+    async def start(self, unit):
+        self.calls.append(("start", unit))
+        if unit in self.requires:
+            self.active[self.requires[unit]] = True
+        self.active[unit] = True
+        return True
+
+    def acts(self):
+        """What was done to the units, without the readings."""
+        return [call for call in self.calls if call[0] != "probe_active"]
+
+
+def _deploy_into(world):
+    """Stand in for the deploy wrapper, recording each subcommand beside the
+    systemd calls so their order is one list."""
+    async def run_deploy(*args, timeout=120):
+        world.calls.append(("deploy", *args))
+        return True, ""
+    return run_deploy
+
+
+class TestTheUnitStateIsReadWhenItIsActedOn:
+    """Every install flow decides what to stop, restart and roll back from the
+    unit's state at the moment it acts on it, never from a reading taken before
+    minutes of download, compile or pip — during which the owner can select the
+    very source being updated. A stale reading left AirPlay, Spotify or Navidrome
+    stopped, and a probe that could not answer read as "inactive", often under
+    a success.
+    """
+
+    BINARY_STATUS = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
+    SHAIRPORT_STATUS = {
+        "installed": {"versions": {"main": "5.6.1"}},
+        "latest": {"version": "5.6.2", "tag_name": "5.6.2"},
+    }
+    MULTIROOM_STATUS = {"installed": {"versions": {"main": "0.27.0"}}, "latest": {"version": "0.28.0"}}
+
+    @staticmethod
+    def _service(world, settings):
+        satellites = Mock()
+        satellites.push_client_app_to_fleet = AsyncMock(return_value=[])
+        settings._storage["updates.forced_versions"] = {}
+        return UpdateService(systemd_manager=world, satellite_update_service=satellites,
+                             settings_service=settings)
+
+    @pytest.mark.asyncio
+    async def test_a_receiver_selected_during_the_compile_is_running_after_the_update(
+            self, mock_settings_service):
+        """Spotify plays, AirPlay is off; during `make` the owner selects AirPlay
+        and an iPhone plays to it. The NQPTP swap stops milo-airplay through
+        `Requires=`, so it must have been stopped on purpose first and started
+        again after — not left down under `success: True`."""
+        airplay = PROGRAMS["shairport-sync"]["service_name"]
+        nqptp = PROGRAMS["shairport-sync"]["nqptp"]
+        world = _SystemdWorld()
+        service = self._service(world, mock_settings_service)
+
+        async def compile_while_airplay_is_selected(source_dir):
+            world.active[airplay] = True
+            world.active[nqptp["service_name"]] = True
+            return {"success": True}
+
+        build = {"binary": "/tmp/sps/nqptp/nqptp", "version": "1.2.9"}
+        with patch.object(service, "_backup_shairport_sync", AsyncMock(return_value={"success": True})), \
+                patch.object(service, "_download_source", AsyncMock(return_value={
+                    "success": True, "temp_dir": "/tmp/sps", "source_dir": "/tmp/sps/src"})), \
+                patch.object(service, "_prepare_nqptp", AsyncMock(return_value={
+                    "success": True, "build": build, "expected": ("1.2.9", 11)})), \
+                patch.object(service, "_configure_source", AsyncMock(return_value={"success": True})), \
+                patch.object(service, "_compile_source", side_effect=compile_while_airplay_is_selected), \
+                patch.object(service, "_run_deploy", side_effect=_deploy_into(world)), \
+                patch.object(service, "_install_shairport_sync", AsyncMock(return_value={"success": True})), \
+                patch.object(service, "_installed_nqptp", AsyncMock(return_value=("1.2.9", 11))), \
+                patch.object(service, "_cleanup_temp_files", AsyncMock()), \
+                patch("backend.core.updates.update.Path.exists", return_value=True), \
+                patch("backend.core.updates.update.aiofiles.open", new=_recording_aiofiles_open({})), \
+                patch("backend.core.updates.update.asyncio.sleep", AsyncMock()):
+            result = await service._update_shairport_sync(self.SHAIRPORT_STATUS)
+
+        assert result == {"success": True}
+        assert world.active[airplay] is True
+        acts = world.acts()
+        swap = acts.index(("deploy", "install-binary", build["binary"], nqptp["binary_path"]))
+        assert ("stop", airplay) in acts[:swap]
+        assert ("start", airplay) in acts[swap:]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("program_key", ["navidrome", "go-librespot"])
+    async def test_a_service_started_during_the_download_is_restarted_onto_the_new_binary(
+            self, mock_settings_service, program_key):
+        """The dock enables Music Library, or Spotify is selected, while the
+        release downloads. The binary must not be swapped under the running
+        process, and the unit must end up running the new one."""
+        world = _SystemdWorld()
+        service = self._service(world, mock_settings_service)
+        config = service.programs[program_key]
+        unit = config["service_name"]
+
+        async def download_while_the_unit_starts(cfg, version):
+            world.active[unit] = True
+            return {"success": True, "binary_path": "/tmp/dl/bin", "temp_dir": "/tmp/dl"}
+
+        with patch.object(service, "_backup_binary_program", AsyncMock(return_value={"success": True})), \
+                patch.object(service, "_download_binary_program", side_effect=download_while_the_unit_starts), \
+                patch.object(service, "_run_deploy", side_effect=_deploy_into(world)), \
+                patch.object(service, "_rollback_binary_program", AsyncMock(return_value=True)) as rollback, \
+                patch.object(service, "_cleanup_temp_files", AsyncMock()), \
+                patch("backend.core.updates.update.Path.exists", return_value=True):
+            result = await service._update_binary_program(program_key, self.BINARY_STATUS)
+
+        assert result == {"success": True}
+        assert world.acts() == [
+            ("stop", unit),
+            ("deploy", "install-binary", "/tmp/dl/bin", config["binary_path"]),
+            ("start", unit),
+        ]
+        rollback.assert_not_awaited()
+        assert world.active[unit] is True
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_service_state_aborts_before_touching_the_binary(
+            self, mock_settings_service):
+        """A probe that timed out is not "inactive": swapping on that belief
+        writes under a process that may be running and skips its restart."""
+        unit = PROGRAMS["go-librespot"]["service_name"]
+        world = _SystemdWorld(unreadable={unit})
+        service = self._service(world, mock_settings_service)
+
+        with patch.object(service, "_backup_binary_program", AsyncMock(return_value={"success": True})), \
+                patch.object(service, "_download_binary_program", AsyncMock(return_value={
+                    "success": True, "binary_path": "/tmp/dl/bin", "temp_dir": "/tmp/dl"})), \
+                patch.object(service, "_run_deploy", side_effect=_deploy_into(world)), \
+                patch.object(service, "_cleanup_temp_files", AsyncMock()) as cleanup:
+            result = await service._update_binary_program("go-librespot", self.BINARY_STATUS)
+
+        assert result["success"] is False
+        assert unit in result["error"]
+        assert world.acts() == []
+        cleanup.assert_awaited_with("/tmp/dl")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("program_key", ["go-librespot", "shairport-sync", "qobuz-proxy"])
+    async def test_a_rollback_restarts_a_unit_that_was_running_when_it_began(
+            self, mock_settings_service, tmp_path, program_key):
+        """The caller's flag says the unit was off when the update stopped
+        nothing; someone selected it since. The rollback stops it to put the old
+        version back, and must start it again rather than leave it down."""
+        world = _SystemdWorld()
+        service = self._service(world, mock_settings_service)
+        config = {**service.programs[program_key], "backup_path": str(tmp_path)}
+        unit = config["service_name"]
+        world.active[unit] = True
+
+        with patch.object(service, "_run_deploy", side_effect=_deploy_into(world)), \
+                patch.object(service, "_run_local", LocalCommands()):
+            if program_key == "qobuz-proxy":
+                (tmp_path / "venv").mkdir()
+                rolled_back = await service._rollback_qobuz_venv(config, service_was_active=False)
+            elif program_key == "shairport-sync":
+                (tmp_path / "shairport-sync.backup").write_bytes(b"old")
+                rolled_back = await service._rollback_shairport_sync(config, service_was_active=False)
+            else:
+                (tmp_path / "go-librespot.backup").write_bytes(b"old")
+                rolled_back = await service._rollback_binary_program(config, restart_service=False)
+
+        assert rolled_back is True
+        assert world.active[unit] is True
+        assert world.acts()[-1] == ("start", unit)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("multiroom_enabled", [True, False])
+    @pytest.mark.parametrize("reading", [None, False], ids=["unreadable", "activating"])
+    async def test_a_multiroom_update_restarts_the_units_whenever_multiroom_is_on(
+            self, mock_settings_service, multiroom_enabled, reading):
+        """The snapcast units run exactly while multiroom is on — the setting is
+        what `_sync_snapcast_state` reconciles them to, and nothing reconciles
+        them after an update. A probe that timed out, or a unit caught
+        `activating`, must not leave every room mute; and in direct mode they
+        stay stopped whatever they read, or snapclient holds hw:Loopback."""
+        units = PROGRAMS["multiroom"]["services"]
+        world = _SystemdWorld()
+        if reading is None:
+            world.unreadable.update(units)
+        mock_settings_service._storage["routing.multiroom_enabled"] = multiroom_enabled
+        service = self._service(world, mock_settings_service)
+
+        with patch.object(service, "_download_snapcast_component", AsyncMock(return_value={
+                    "success": True, "deb_path": "/tmp/pkg.deb", "temp_dir": "/tmp/dl"})), \
+                patch.object(service, "_install_deb_package", AsyncMock(return_value={"success": True})), \
+                patch.object(service, "_cleanup_temp_files", AsyncMock()):
+            result = await service._update_multiroom(self.MULTIROOM_STATUS)
+
+        assert result == {"success": True}
+        started = [call[1] for call in world.acts() if call[0] == "start"]
+        assert started == (list(units) if multiroom_enabled else [])

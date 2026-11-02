@@ -560,7 +560,7 @@ class TestTheUpdateRollbacks:
         config = self._config(tmp_path)
         Path(config["binary_path"]).write_text("new binary")
 
-        with patch.object(service, "_is_service_active", AsyncMock(return_value=False)):
+        with patch.object(service._systemd, "probe_active", AsyncMock(return_value=False)):
             result = await service._verify_binary_program(config, expect_service_active=True)
 
         assert result["success"] is False
@@ -574,7 +574,7 @@ class TestTheUpdateRollbacks:
         config = self._config(tmp_path)
         Path(config["binary_path"]).write_text("new binary")
 
-        with patch.object(service, "_is_service_active",
+        with patch.object(service._systemd, "probe_active",
                           AsyncMock(side_effect=RuntimeError("dbus is gone"))):
             result = await service._verify_binary_program(config, expect_service_active=True)
 

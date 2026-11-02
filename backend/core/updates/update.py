@@ -631,19 +631,19 @@ class UpdateService(VersionService):
         The one behavioural difference is service policy. CamillaDSP is
         always-on, so it is stopped and started unconditionally; go-librespot's
         Spotify service is on-demand and Navidrome runs only while the dock
-        enables Music Library, so their previous state is preserved and an
-        inactive service is left inactive.
+        enables Music Library, so they are restarted only if they run when the
+        download is done — the owner may select either while it downloads, and
+        a reading taken before it would leave the one they chose stopped. A
+        state systemd cannot report aborts the update before anything changes.
         """
         config = self.programs[program_key]
         display_name = config["log_name"]
         latest_version = status["latest"]["version"]
-
-        service_was_active = await self._is_service_active(config["service_name"])
-        self.update_logger.info(f"Service {config['service_name']} was {'active' if service_was_active else 'inactive'} before update")
-        run_service = config.get("always_on", False) or service_was_active
+        service_name = config["service_name"]
 
         download_result = None
         service_stopped = False
+        run_service = False
 
         try:
             backup_result = await self._backup_binary_program(config)
@@ -654,15 +654,22 @@ class UpdateService(VersionService):
             if not download_result["success"]:
                 return download_result
 
+            if config.get("always_on", False):
+                run_service = True
+            else:
+                state = await self._systemd.probe_active(service_name)
+                if state is None:
+                    await self._cleanup_temp_files(download_result.get("temp_dir"))
+                    return self._unreadable_state(service_name)
+                run_service = state
+                self.update_logger.info(f"Service {service_name} is {'active' if state else 'inactive'} before the swap")
+
             if run_service:
                 if not await self._stop_service(config["service_name"]):
                     await self._cleanup_temp_files(download_result.get("temp_dir"))
                     return {"success": False, "error": "Failed to stop service"}
 
                 service_stopped = True
-                # Let the kernel release the running image before it is
-                # overwritten, otherwise install-binary hits "Text file busy".
-                await asyncio.sleep(0.5)
 
             success, output = await self._run_deploy(
                 "install-binary", download_result["binary_path"], config["binary_path"]
@@ -782,7 +789,7 @@ class UpdateService(VersionService):
             if not Path(config["binary_path"]).exists():
                 return {"success": False, "error": f"{config['log_name']} binary not found after update"}
 
-            if expect_service_active and not await self._is_service_active(config["service_name"]):
+            if expect_service_active and await self._systemd.probe_active(config["service_name"]) is not True:
                 return {"success": False, "error": f"{config['log_name']} service not running after update"}
 
             return {"success": True}
@@ -791,7 +798,8 @@ class UpdateService(VersionService):
             return {"success": False, "error": f"Verification failed: {e}"}
 
     async def _rollback_binary_program(self, config: Dict[str, Any], restart_service: bool = True) -> bool:
-        """Restores the backed-up binary, respecting the service's previous state."""
+        """Restores the backed-up binary, and restarts the service if the caller
+        ran it or it runs now."""
         display_name = config["log_name"]
         try:
             binary_path = Path(config["binary_path"])
@@ -800,14 +808,15 @@ class UpdateService(VersionService):
                 self.update_logger.error("No backup found for rollback")
                 return False
 
+            restart_service = await self._restart_after_rollback(config["service_name"], restart_service)
+
             # A unit that refuses to stop keeps its image loaded: install-binary
-            # either hits "Text file busy" or writes a file nothing is running,
-            # and the start below would report the *new* binary still up. Neither
-            # is a rollback, so it does not claim one.
+            # writes a file nothing is running, and the start below would report
+            # the *new* binary still up. That is not a rollback, so it does not
+            # claim one.
             if not await self._stop_service(config["service_name"]):
                 self.update_logger.error(f"{display_name} did not stop, cannot restore its binary")
                 return False
-            await asyncio.sleep(0.5)
 
             # Copy backup to /tmp for install-binary (requires temp path)
             tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
@@ -833,26 +842,28 @@ class UpdateService(VersionService):
             self.update_logger.error(f"{display_name} rollback failed: {e}")
             return False
 
-    async def _restore_multiroom_services(self, services_were_active: Dict[str, bool]) -> bool:
-        """Starts back only the multiroom units that were running before the update.
+    async def _restore_multiroom_services(self) -> bool:
+        """Starts the multiroom units back exactly when multiroom is on.
 
         The two snapcast units have no `WantedBy`: their lifecycle is owned solely
         by `AudioRoutingService._sync_snapcast_state`, which runs at init and inside
-        `set_multiroom_enabled` and never reconciles afterwards. Starting a unit that
-        was inactive leaves snapclient holding hw:Loopback,0,0, so the next
-        direct-mode source opens a busy device and plays silence until a reboot or a
-        manual multiroom toggle.
+        `set_multiroom_enabled`, never reconciles afterwards, and runs both of them
+        exactly while `routing.multiroom_enabled` is set. So that setting decides
+        here too, not a probe: one that timed out, or a unit caught `activating`,
+        would leave every room mute; and starting them in direct mode leaves
+        snapclient holding hw:Loopback,0,0, so the next direct-mode source opens a
+        busy device and plays silence until a reboot or a manual multiroom toggle.
 
-        Returns whether every unit that was running before the update is running
-        again. The recovery branches report it; the success path does not, on
-        purpose — there the caller has nothing better to say than the per-unit
-        error already logged here.
+        Returns whether every unit multiroom needs is running again. The recovery
+        branches report it; the success path does not, on purpose — there the
+        caller has nothing better to say than the per-unit error already logged
+        here.
         """
+        if not await self.settings_service.get_setting("routing.multiroom_enabled"):
+            self.update_logger.info("Leaving the multiroom units stopped (multiroom is off)")
+            return True
         restored = True
-        for service, was_active in services_were_active.items():
-            if not was_active:
-                self.update_logger.info(f"Leaving {service} stopped (it was inactive before the update)")
-                continue
+        for service in self.programs["multiroom"]["services"]:
             if not await self._start_service(service):
                 self.update_logger.error(f"Failed to start {service}")
                 restored = False
@@ -865,8 +876,8 @@ class UpdateService(VersionService):
 
         server_download = None
         client_download = None
-        # Empty until phase 2 stops anything, so a failure before that restores nothing.
-        services_were_active: Dict[str, bool] = {}
+        # False until phase 2 stops anything, so a failure before that restores nothing.
+        stopped = False
 
         try:
             # Phase 1: Download both packages (0-30%)
@@ -887,11 +898,10 @@ class UpdateService(VersionService):
             # something that never stopped and reports it restored, and the row
             # then reads the new version off the new binary on disk while the
             # process serving audio is still the old one.
+            stopped = True
             for service in config["services"]:
-                services_were_active[service] = await self._is_service_active(service)
-                self.update_logger.info(f"Service {service} was {'active' if services_were_active[service] else 'inactive'} before update")
                 if not await self._stop_service(service):
-                    restored = await self._restore_multiroom_services(services_were_active)
+                    restored = await self._restore_multiroom_services()
                     await self._cleanup_temp_files(server_download.get("temp_dir"))
                     await self._cleanup_temp_files(client_download.get("temp_dir"))
                     return self._failure_after_restore(
@@ -901,7 +911,7 @@ class UpdateService(VersionService):
             # Phase 3: Install snapserver (40-60%)
             server_install = await self._install_deb_package(server_download["deb_path"])
             if not server_install["success"]:
-                restored = await self._restore_multiroom_services(services_were_active)
+                restored = await self._restore_multiroom_services()
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
                 return self._failure_after_restore(
@@ -912,7 +922,7 @@ class UpdateService(VersionService):
             client_install = await self._install_deb_package(client_download["deb_path"])
             if not client_install["success"]:
                 self.update_logger.warning(f"Snapclient installation failed after snapserver succeeded: {client_install.get('error')}")
-                restored = await self._restore_multiroom_services(services_were_active)
+                restored = await self._restore_multiroom_services()
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
                 return self._failure_after_restore(
@@ -920,7 +930,7 @@ class UpdateService(VersionService):
                 )
 
             # Phase 5: Restart services (80-95%)
-            await self._restore_multiroom_services(services_were_active)
+            await self._restore_multiroom_services()
 
             # Phase 6: Cleanup (95-100%)
             await self._cleanup_temp_files(server_download.get("temp_dir"))
@@ -932,15 +942,15 @@ class UpdateService(VersionService):
 
         except Exception as e:
             self.update_logger.error(f"Multiroom update failed: {e}")
-            restored = await self._restore_multiroom_services(services_were_active)
             if server_download:
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
             if client_download:
                 await self._cleanup_temp_files(client_download.get("temp_dir"))
             # Nothing was stopped before phase 2, so there is nothing to restore
-            # and no outcome to report — services_were_active is still empty.
-            if not services_were_active:
+            # and no outcome to report.
+            if not stopped:
                 return {"success": False, "error": str(e)}
+            restored = await self._restore_multiroom_services()
             return self._failure_after_restore(f"{e}.", restored)
 
     # === SHAIRPORT-SYNC (compile from source) ===
@@ -957,14 +967,18 @@ class UpdateService(VersionService):
         a receiver that dies the next time AirPlay is selected. So the pair is
         settled before anything is stopped (`_prepare_nqptp`), installed in
         upstream's order (NQPTP first), and rolled back together.
+
+        Whether milo-airplay runs is read once the build is done, not before:
+        the owner may select AirPlay during the minutes it compiles, and the
+        NQPTP swap stops it through `Requires=` — a reading taken before would
+        leave the receiver they chose stopped under a success.
         """
         config = self.programs["shairport-sync"]
         latest_version = status["latest"]["version"]
         tag_name = status["latest"]["tag_name"]
+        service_name = config["service_name"]
 
-        service_was_active = await self._is_service_active(config["service_name"])
-        self.update_logger.info(f"Service {config['service_name']} was {'active' if service_was_active else 'inactive'} before update")
-
+        service_was_active = False
         temp_dir = None
         nqptp_swapped = False
 
@@ -1000,6 +1014,13 @@ class UpdateService(VersionService):
             if not compile_result["success"]:
                 await self._cleanup_temp_files(temp_dir)
                 return compile_result
+
+            state = await self._systemd.probe_active(service_name)
+            if state is None:
+                await self._cleanup_temp_files(temp_dir)
+                return self._unreadable_state(service_name)
+            service_was_active = state
+            self.update_logger.info(f"Service {service_name} is {'active' if state else 'inactive'} before the install")
 
             # Phase 5: Stop service only if active (75%)
             if service_was_active:
@@ -1205,9 +1226,6 @@ class UpdateService(VersionService):
         service = nqptp["service_name"]
         if not await self._stop_service(service):
             return {"success": False, "error": "NQPTP did not stop"}
-        # Let the kernel release the running image, or install-binary hits
-        # "Text file busy".
-        await asyncio.sleep(0.5)
 
         success, output = await self._run_deploy("install-binary", build["binary"], nqptp["binary_path"])
         if not success:
@@ -1218,7 +1236,7 @@ class UpdateService(VersionService):
         # NQPTP opens ports 319/320 right after it starts and exits when it
         # cannot: a start that returned is not yet a running clock.
         await asyncio.sleep(NQPTP_SETTLE_S)
-        if not await self._is_service_active(service):
+        if await self._systemd.probe_active(service) is not True:
             return {"success": False, "error": "NQPTP exited after update"}
 
         self.update_logger.info(f"NQPTP {build['version']} installed")
@@ -1426,8 +1444,7 @@ class UpdateService(VersionService):
 
             # Check service is running (only if it was active before)
             if service_was_active:
-                is_active = await self._is_service_active(config["service_name"])
-                if not is_active:
+                if await self._systemd.probe_active(config["service_name"]) is not True:
                     return {"success": False, "error": "shairport-sync service not running after update"}
 
             return {"success": True}
@@ -1456,6 +1473,9 @@ class UpdateService(VersionService):
             if not nqptp_restorable:
                 self.update_logger.error("No NQPTP backup to roll back to")
 
+            service_was_active = await self._restart_after_rollback(
+                config["service_name"], service_was_active
+            )
             # Same as _rollback_binary_program: a unit that will not stop makes
             # the restore unverifiable, so it is not claimed.
             if not await self._stop_service(config["service_name"]):
@@ -1467,7 +1487,6 @@ class UpdateService(VersionService):
                 if not await self._stop_service(nqptp["service_name"]):
                     self.update_logger.error("NQPTP did not stop, cannot restore its binary")
                     return False
-                await asyncio.sleep(0.5)
                 if not await self._install_backup(nqptp_backup, nqptp["binary_path"]):
                     return False
                 if not await self._start_service(nqptp["service_name"]):
@@ -1546,9 +1565,9 @@ class UpdateService(VersionService):
         venv = config["venv_path"]
         service = config["service_name"]
 
-        service_was_active = await self._is_service_active(service)
-        self.update_logger.info(f"Service {service} was {'active' if service_was_active else 'inactive'} before update")
-
+        # Read once the backup is taken, right before the stop it decides: the
+        # owner may select Qobuz while the venv is copied.
+        service_was_active = False
         # Nothing to roll back to before phase 1 completes, so a failure above
         # that line reports no rollback outcome at all.
         backed_up = False
@@ -1559,6 +1578,13 @@ class UpdateService(VersionService):
             if not backup_result["success"]:
                 return backup_result
             backed_up = True
+
+            state = await self._systemd.probe_active(service)
+            if state is None:
+                await self._cleanup_qobuz_backup(config)
+                return self._unreadable_state(service)
+            service_was_active = state
+            self.update_logger.info(f"Service {service} is {'active' if state else 'inactive'} before the upgrade")
 
             # Phase 2: Stop the sidecar before touching the venv (50%).
             # Normally already stopped (the route deactivates Qobuz pre-update),
@@ -1652,6 +1678,9 @@ class UpdateService(VersionService):
                 self.update_logger.error("No qobuz-proxy venv backup found for rollback")
                 return False
 
+            service_was_active = await self._restart_after_rollback(
+                config["service_name"], service_was_active
+            )
             # Refusing to touch the venv of a unit that would not stop is the
             # point: the rm below would pull it out from under a running
             # process, and the start further down would report the *new* code
@@ -1790,9 +1819,23 @@ class UpdateService(VersionService):
 
     # Service control delegates to the central SystemdServiceManager — one
     # implementation of the privileged `sudo systemctl` gesture (see invariant #1).
-    async def _is_service_active(self, service_name: str) -> bool:
-        """Checks if a systemd service is currently active."""
-        return await self._systemd.is_active(service_name)
+    # Every reading here decides an act, so it is `probe_active`'s three answers,
+    # never `is_active`, which reads a probe that timed out as "inactive".
+    @staticmethod
+    def _unreadable_state(service_name: str) -> Dict[str, Any]:
+        """The answer of a flow that could not read the unit it was about to stop."""
+        return {"success": False, "error": f"state of {service_name} unreadable, nothing changed"}
+
+    async def _restart_after_rollback(self, service_name: str, requested: bool) -> bool:
+        """Whether a rollback starts the unit again once the old version is back.
+
+        The caller's flag is the state its own flow acted on, and the unit may
+        have been started since — a source selected mid-update — which the
+        rollback's own stop would leave down. An unreadable probe leaves the
+        caller's flag to decide: a receiver nobody chose is never started on a
+        guess.
+        """
+        return requested or await self._systemd.probe_active(service_name) is True
 
     async def _stop_service(self, service_name: str) -> bool:
         """Stops a systemd service."""

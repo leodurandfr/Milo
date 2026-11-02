@@ -213,3 +213,38 @@ def test_every_helper_is_tracked_by_git():
         "these helpers deploy to the fleet but are not in git: "
         + ", ".join(sorted(on_disk - tracked))
     )
+
+
+def _shell_function(text: str, name: str) -> str:
+    """The body of a top-level bash function, from its opening line to the
+    first `}` in column 0."""
+    match = re.search(rf"^{name}\(\) \{{\n(.*?)^\}}", text, re.MULTILINE | re.DOTALL)
+    return match.group(1) if match else ""
+
+
+def test_install_binary_never_writes_over_a_running_image():
+    """`install-binary` swaps the binary of a unit that may be running.
+
+    Writing onto the path in place fails with "Text file busy" while the old
+    image executes (measured on kernel 6.18: `cp` rc=1), which turns an update
+    into a rollback — or, when the unit was started after the update read its
+    state, into a receiver stopped and never restarted. A rename never meets
+    ETXTBSY: the running process keeps its inode. So the only line that may
+    name the installed path is the `mv -f` from a `.new` beside it, the idiom
+    `install_self` already uses in the same script.
+    """
+    helper = REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-deploy-update"
+    body = _shell_function(helper.read_text(), "cmd_install_binary")
+    assert body and "validate_temp_path" in body, (
+        "could not extract cmd_install_binary from milo-deploy-update; the extractor is broken"
+    )
+
+    on_dest = [
+        line.strip() for line in _uncommented(body).splitlines()
+        if re.search(r'"\$dest"', line)
+        and not line.strip().startswith(("validate_", "[[", "case "))
+    ]
+    assert on_dest == ['mv -f "$dest.new" "$dest"'], (
+        "cmd_install_binary writes the installed path other than by renaming "
+        f"a .new beside it: {on_dest}"
+    )

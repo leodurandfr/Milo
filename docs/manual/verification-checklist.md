@@ -399,6 +399,7 @@ makes this silent.
 | Hardware page | Changing card/screen/encoder/IR offers "Apply and reboot", and the unit comes back with the new config applied | targeted |
 | Updates ⚠ | An available release is listed; applying it deploys and restarts the unit, which comes back healthy on the new version | targeted |
 | Programs ⚠ | A per-program update completes and that source still plays afterwards | targeted |
+| Programs: a source selected mid-update ⚠ iPhone | Start a shairport-sync update while Spotify plays (every room at −50 dB or lower), select AirPlay during the compile and play from the iPhone: at the end AirPlay still plays and `systemctl is-active milo-airplay` answers `active`. The update used to read the unit's state once, before minutes of compiling, so the NQPTP swap (`Requires=`) stopped the receiver and the update answered success with it down. Same gesture for go-librespot (select Spotify during the download): it is restarted onto the new binary | targeted |
 | Information | Version, IP, CPU temperature and CPU/RAM usage are plausible and refresh | targeted |
 | Power | Restart and shutdown both ask for confirmation and do what they say | targeted |
 

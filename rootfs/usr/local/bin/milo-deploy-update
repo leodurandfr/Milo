@@ -199,8 +199,11 @@ cmd_install_binary() {
     [[ "$(basename "$dest")" == "milo-deploy-update" ]] && \
         error_exit "Cannot overwrite the deploy script itself"
 
-    cp "$src" "$dest"
-    chmod 755 "$dest"
+    # Renamed into place, as install_self does: the unit may still be running
+    # the old image, and writing onto it in place fails with "Text file busy".
+    cp "$src" "$dest.new"
+    chmod 755 "$dest.new"
+    mv -f "$dest.new" "$dest"
     sync
     echo "OK: Installed binary $dest"
 }
