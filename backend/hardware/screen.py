@@ -178,9 +178,19 @@ class ScreenController:
         """
         self.brightness_on = brightness_on
         self._update_screen_commands()
+        was_sleeping = not self.screen_on
         applied = await self._screen_cmd(self.screen_on_cmd)
         self.last_activity_time = monotonic()
+        # The panel's state, not `applied`: with no backlight to drive the write
+        # answers True and leaves screen_on where it was.
+        if was_sleeping and self.screen_on:
+            await self._broadcast_sleep_state(False)
         return applied
+
+    @property
+    def sleeping(self) -> bool:
+        """Whether the panel is dark, as its last accepted write left it."""
+        return not self.screen_on
 
     @handle_errors(default=False)
     async def initialize(self) -> bool:

@@ -670,6 +670,12 @@ def create_settings_router(
             await screen_controller.on_touch_detected()
             return {"status": "success", "activity_time_reset": True}
 
+    @router.get("/screen-sleep")
+    async def get_screen_sleep():
+        """Whether the panel is dark — the snapshot of `settings/screen_sleep_changed`,
+        re-read on resync so a kiosk that missed the delta raises the right shield."""
+        return {"status": "success", "sleeping": screen_controller.sleeping}
+
     # Hardware info
     @router.get("/hardware-info")
     async def get_hardware_info():

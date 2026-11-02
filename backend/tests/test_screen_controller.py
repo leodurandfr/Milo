@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 import pytest
 
 from backend.core.models.audio_wire import SessionView, SourceView
+from backend.core.models.ws_events import ScreenSleepChanged
 from backend.core.settings import SettingsService
 from backend.core.state import SystemAudioState
 from backend.hardware.screen import ScreenController
@@ -212,6 +213,51 @@ class TestSleepStateFollowsThePanel:
             await controller._monitor_source_state()
 
         broadcasts.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("was_on", "returncode", "announced"),
+        [
+            pytest.param(False, 0, [False], id="sleeping-panel-takes-it"),
+            pytest.param(False, 1, [], id="sleeping-panel-refuses"),
+            pytest.param(True, 0, [], id="lit-panel"),
+        ],
+    )
+    async def test_applying_brightness_to_a_sleeping_panel_announces_the_wake(
+        self, controller, was_on, returncode, announced
+    ):
+        """A brightness set from a phone lights a sleeping panel. Unannounced,
+        the kiosk keeps its shield up over a lit screen and swallows the first
+        touch."""
+        controller.screen_on = was_on
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode)):
+            await controller.apply_screen_config(8)
+
+        events = [call.args[0] for call in controller.state_machine.broadcast.await_args_list]
+        assert all(isinstance(event, ScreenSleepChanged) for event in events)
+        assert [event.sleeping for event in events] == announced
+
+    async def test_a_screenless_unit_never_announces_a_wake(self, controller):
+        """With nothing to drive, `_screen_cmd` answers True and moves nothing:
+        announcing that would tell the kiosk a panel woke that never slept."""
+        controller.screen_type = "none"
+        controller.screen_on = False
+        with patch("asyncio.create_subprocess_shell") as shell:
+            await controller.apply_screen_config(8)
+        shell.assert_not_called()
+        controller.state_machine.broadcast.assert_not_awaited()
+
+    async def test_sleeping_reads_what_the_panel_last_took(self, controller):
+        """`GET /api/settings/screen-sleep` answers from this — the snapshot a
+        freshly loaded kiosk raises its wake shield from."""
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc()):
+            await controller._screen_cmd(controller.screen_off_cmd)
+            assert controller.sleeping is True
+            await controller._screen_cmd(controller.screen_on_cmd)
+            assert controller.sleeping is False
+
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)):
+            await controller._screen_cmd(controller.screen_off_cmd)
+        assert controller.sleeping is False
 
 
 class TestInitializeReportsThePanel:

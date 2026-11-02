@@ -466,6 +466,16 @@ class TestSettingsRoutes:
         assert response.status_code == 200
         assert response.json()["brightness_applied"] == 7
 
+    def test_screen_sleep_answers_under_the_key_the_kiosk_reads(self, client, mock_screen_controller):
+        """settingsStore.loadScreenSleeping reads `sleeping`; under any other
+        key it reads undefined, and a resync never raises the wake shield."""
+        mock_screen_controller.sleeping = True
+
+        response = client.get("/api/settings/screen-sleep")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "success", "sleeping": True}
+
     # ===================
     # SCREEN AUTO PLAYER TESTS
     # ===================

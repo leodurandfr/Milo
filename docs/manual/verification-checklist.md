@@ -356,6 +356,7 @@ makes this silent.
 |---|---|---|
 | Brightness | The setting changes the panel intensity immediately | smoke |
 | Sleep | The screen turns off after the configured inactivity delay; touch wakes it to the same view | smoke |
+| Wake shield across a missed delta | Three cases, each starting from a panel asleep with nothing playing. (1) `sudo systemctl restart milo-kiosk`, then touch the dark panel over a Dock tile: it only lights the panel, nothing opens. (2) `sudo systemctl restart milo-backend`: once the panel is lit again, the first touch on a button presses it. (3) Set the brightness from a phone: the panel lights, and the first touch on the kiosk presses what it lands on | targeted |
 | Automatic full-screen player | With the setting on, a browser source (radio, podcast, music library, Spotify) **playing** and the screen untouched for its delay opens its full player; a touch before the delay counts it again from zero. Never while paused, never over open lyrics, and a track change does not restart the count (an album with a delay longer than one track still opens it); never on CD/TIDAL/AirPlay/Bluetooth/Qobuz/Mac. A pause leaves the player on screen; a tap on its cover returns to the same page and scroll of the navigation, and the player opens again after another delay if still playing | targeted |
 | Scale | Small / Normal / Large change the layout without clipping | targeted |
 | Kiosk memory | `systemctl status milo-kiosk` shows no recent restart loop after ~1 h of use (past OOM regression) | targeted |

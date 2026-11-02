@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
+import { isKiosk } from '@/utils/kiosk';
 
 // Non-source dock apps; the full dock roster is sources + utilities.
 const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'lyrics', 'settings'];
@@ -467,6 +468,23 @@ export const useSettingsStore = defineStore('settings', () => {
     isScreenSleeping.value = sleeping;
   }
 
+  // The snapshot of screen_sleep_changed. Only the kiosk sits in front of the
+  // panel: on a remote browser the snapshot lowers a stale shield, never raises one.
+  async function loadScreenSleeping() {
+    if (!isKiosk()) {
+      updateScreenSleeping(false);
+      return true;
+    }
+    const result = await apiCall.get('/api/settings/screen-sleep', {
+      category: 'screen',
+      message: 'Error loading the screen sleep state',
+    });
+    if (result.ok) {
+      updateScreenSleeping(result.data.sleeping);
+    }
+    return result.ok;
+  }
+
   const updateScreenTimeout = makeUpdater(screenTimeout);
   const updateScreenBrightness = makeUpdater(screenBrightness);
   const updateScreenAutoPlayer = makeUpdater(screenAutoPlayer);
@@ -515,14 +533,16 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   // Also re-applies language: the locale watcher reacts to settingsStore.language.
-  // btRemote/irRemote sit outside the settings/bulk payload and are delta-fed
-  // (bt_remote_*/ir_remote_status_changed), so refetch them explicitly here.
+  // btRemote, irRemote and the screen's sleep sit outside the settings/bulk payload
+  // and are delta-fed (bt_remote_*/ir_remote_status_changed/screen_sleep_changed),
+  // so refetch them explicitly here.
   async function resync() {
     const outcomes = await Promise.all([
       loadAllSettings(),
       loadBtRemoteStatus(),
       loadIrRemoteStatus(),
       loadDaylightLocation(),
+      loadScreenSleeping(),
     ]);
     return outcomes.every(Boolean);
   }
