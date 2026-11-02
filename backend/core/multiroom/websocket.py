@@ -672,6 +672,10 @@ class SnapcastWebSocketService:
         client_host = client.get("host", {}).get("name") or "Unknown"
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
 
+        if not SnapcastService.is_speaker_entry(client):
+            self.logger.debug(f"CLIENT_CONNECT: {client_id} ({client_host}) is not a speaker, not admitted")
+            return
+
         # Compute mac_id early so we can dedup by stable identifier
         mac_id = compute_mac_id(client_host, client_ip, client_id or "")
 

@@ -112,6 +112,10 @@ class SnapcastService:
     # detection latency (the other is SnapcastWebSocketService.RECONCILE_INTERVAL_S).
     LAST_SEEN_FRESHNESS_S = 20
 
+    # snapweb's player calls itself "Snapweb client": a client whose name holds
+    # this, in any case, is no speaker (is_speaker_entry).
+    SNAPWEB_NAME = "snapweb"
+
     def __init__(self, systemd_manager, host: str = "localhost", port: int = 1780):
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
@@ -254,7 +258,6 @@ class SnapcastService:
             List of client dicts, deduplicated by MAC address
         """
         raw_clients = []
-        exclude_names = {'snapweb client', 'snapweb'}
         now = time.time()
 
         for group in status.get("server", {}).get("groups", []):
@@ -262,9 +265,9 @@ class SnapcastService:
                 if not client_data.get("connected"):
                     continue
 
-                name = client_data["config"]["name"] or get_client_display_name(client_data["host"]["name"])
-                if any(exclude in name.lower() for exclude in exclude_names):
+                if not self.is_speaker_entry(client_data):
                     continue
+                name = self._entry_name(client_data)
 
                 host = client_data["host"]["name"]
                 ip = client_data["host"]["ip"].replace("::ffff:", "")
@@ -324,6 +327,28 @@ class SnapcastService:
         cannot express.
         """
         return self._parse_clients(status)
+
+    @staticmethod
+    def _entry_name(client_data: dict) -> str:
+        """The name a snapserver client entry goes by: its own, else its host's."""
+        return client_data.get("config", {}).get("name") or get_client_display_name(
+            client_data.get("host", {}).get("name") or ""
+        )
+
+    @classmethod
+    def is_speaker_entry(cls, client_data: dict) -> bool:
+        """Whether a snapserver client entry may be admitted as a room.
+
+        snapweb's in-browser player is a snapserver client too, and nothing
+        behind its address answers Milō: admitted, it is a room that stays
+        offline forever, persisted and listed by every reader of the registry.
+        Both admission readers ask this -- the status walk here and
+        `Client.OnConnect`, which carries one entry and no status -- so no
+        notification admits snapweb whichever arrives first. Reads the entry
+        with `.get()`, as that handler does: a key missing from one notification
+        is no reason to fail it.
+        """
+        return cls.SNAPWEB_NAME not in cls._entry_name(client_data).lower()
 
     @staticmethod
     def group_of(status: dict, client_id: str) -> Optional[Dict[str, Any]]:

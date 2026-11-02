@@ -25,6 +25,7 @@ Measured 2026-08-27, none of these arms had run. They fall in three groups:
 """
 import asyncio
 import logging
+import time
 from collections import Counter
 from unittest.mock import AsyncMock, MagicMock, call
 
@@ -36,6 +37,7 @@ from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import EqFilter, EqualizerSettings
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.snapcast import SnapcastService
+from backend.tests.conftest import drain_background_tasks
 from backend.tests.snapserver_world import FakeSnapserver
 
 MAC = "aa:bb:cc:dd:ee:07"
@@ -1159,6 +1161,95 @@ class TestTheRemainingAdmissionArms:
 
         assert any("WebSocket connection failed" in r.message for r in caplog.records)
         assert service.websocket is None
+
+
+SNAPWEB_ID = "3f1c2a8e-7b4d-4e2a-9c1f-5d6e7f8a9b0c"
+
+
+def _connect_frame(*, client_id, host_name, mac, arch="aarch64", name="", ip="192.168.1.42"):
+    """A `Client.OnConnect` frame as snapserver 0.35 sends it."""
+    client = {
+        "id": client_id,
+        "connected": True,
+        "config": {"name": name, "volume": {"percent": 100, "muted": False}},
+        "host": {"name": host_name, "ip": f"::ffff:{ip}", "mac": mac, "arch": arch},
+        "lastSeen": {"sec": int(time.time()), "usec": 0},
+    }
+    return {"jsonrpc": "2.0", "method": "Client.OnConnect",
+            "params": {"id": client_id, "client": client}}
+
+
+class TestSnapwebIsNotASpeaker:
+    """snapserver's in-browser player is one of its clients, and never a room.
+
+    snapweb's player says hello as a snapclient (`hostname` "Snapweb client",
+    `mac` all zeros, `arch` "web", a UUID it keeps in the browser as its id), so
+    snapserver lists it and announces it like any speaker. Nothing behind its
+    address answers Milō: admitted, it is a room that is offline forever, written
+    to settings.json, listed by every multiroom screen and by Milo-Mac's
+    `GET /api/multiroom/state`, and back after every deletion. The status walk
+    refused it; `Client.OnConnect`, the fourth admission path, did not.
+    """
+
+    async def test_a_snapweb_on_connect_is_never_admitted(
+        self, service, volume_service, no_satellite_network, caplog
+    ):
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        reg = ClientRegistryService(settings_service=settings)
+        await reg.initialize()
+        service.set_registry(reg)
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.websocket"):
+            await service._handle_message(_connect_frame(
+                client_id=SNAPWEB_ID, host_name="Snapweb client",
+                mac="00:00:00:00:00:00", arch="web",
+            ))
+            await drain_background_tasks()
+
+            assert reg.get_all_clients() == {}
+            settings.set_setting.assert_not_awaited()
+            settings.set_settings.assert_not_awaited()
+            assert no_satellite_network == []
+            volume_service.equalizer_controller.set_equalizer_volume.assert_not_awaited()
+
+            # The same frame from a speaker is admitted: `_handle_message` turns
+            # any exception into a log line, so a frame the handler could not
+            # read would pass the half above on nothing.
+            await service._handle_message(_connect_frame(
+                client_id=MAC, host_name=HOST, mac=MAC, ip=IP,
+            ))
+            await drain_background_tasks()
+
+        assert set(reg.get_all_clients()) == {MAC}
+        settings.set_settings.assert_awaited()
+        volume_service.equalizer_controller.set_equalizer_volume.assert_awaited()
+        assert not any("Error handling message" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize("name, host_name", [
+        ("", "Snapweb client"),
+        ("snapweb", HOST),
+        ("Kitchen", HOST),
+        ("", HOST),
+    ])
+    async def test_on_connect_and_the_status_walk_judge_a_name_alike(
+        self, service, registry, name, host_name
+    ):
+        """"One client, one admission": whichever notification sees a client
+        first, what its name decides is the same. An entry one path admits and
+        another refuses is a client whose presence in the room list depends on
+        a boot-order race. Only the name varies here, on a live speaker entry."""
+        frame = _connect_frame(client_id=MAC, host_name=host_name, mac=MAC, name=name, ip=IP)
+        status = {"server": {"groups": [{"clients": [frame["params"]["client"]]}]}}
+
+        by_status_walk = [
+            c["mac_id"]
+            for c in SnapcastService(systemd_manager=MagicMock()).extract_clients(status)
+        ]
+        await service._handle_client_connect(frame["params"])
+        await drain_background_tasks()
+
+        assert list(registry.get_all_clients()) == by_status_walk
 
 
 class TestWhatANewClientIsAdmittedAt:
