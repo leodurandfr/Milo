@@ -80,3 +80,39 @@ describe('settingsStore — the screen sleep snapshot', () => {
     expect(store.isScreenSleeping).toBe(true);
   });
 });
+
+/**
+ * The delta itself: `screen_sleep_changed` reaches every browser, and the shield
+ * (App.vue `.sleep-shield`, fixed and transparent over the whole page) is hidden
+ * off the kiosk only by a portrait media query. If the store took the delta on a
+ * remote browser, a Mac or a landscape phone would swallow its first click after
+ * every sleep of the Pi's panel.
+ */
+describe('settingsStore — the screen sleep delta', () => {
+  let store;
+
+  beforeEach(() => {
+    resetApiCallMock();
+    kiosk.value = true;
+    setActivePinia(createPinia());
+    store = useSettingsStore();
+  });
+
+  it('screen_sleep_changed is ignored off the kiosk', () => {
+    kiosk.value = false;
+    store.updateScreenSleeping(true);
+    expect(store.isScreenSleeping).toBe(false);
+  });
+
+  it('screen_sleep_changed raises the shield on the kiosk', () => {
+    store.updateScreenSleeping(true);
+    expect(store.isScreenSleeping).toBe(true);
+  });
+
+  it('a remote browser still drops a stale shield', () => {
+    store.updateScreenSleeping(true);
+    kiosk.value = false;
+    store.updateScreenSleeping(false);
+    expect(store.isScreenSleeping).toBe(false);
+  });
+});

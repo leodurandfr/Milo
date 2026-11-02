@@ -462,14 +462,15 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * Update screen sleep state (from WebSocket broadcast)
+   * The one writer of the wake shield's state. Only the kiosk sits in front of
+   * the panel, so only the kiosk raises it; lowering it is always accepted.
    */
   function updateScreenSleeping(sleeping) {
-    isScreenSleeping.value = sleeping;
+    isScreenSleeping.value = Boolean(sleeping) && isKiosk();
   }
 
-  // The snapshot of screen_sleep_changed. Only the kiosk sits in front of the
-  // panel: on a remote browser the snapshot lowers a stale shield, never raises one.
+  // The snapshot of screen_sleep_changed. A remote browser has no panel in
+  // front of it, so there is nothing to read: the shield is simply down.
   async function loadScreenSleeping() {
     if (!isKiosk()) {
       updateScreenSleeping(false);
