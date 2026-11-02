@@ -10,7 +10,7 @@ Type=simple
 User=milo
 Group=audio
 
-ExecStart=/usr/bin/bluealsa-aplay --pcm=milo_bluetooth --profile-a2dp 00:00:00:00:00:00
+ExecStart=/usr/bin/bluealsa-aplay --pcm=milo_bluetooth --volume=none --profile-a2dp 00:00:00:00:00:00
 
 RestartSec=2
 Restart=always

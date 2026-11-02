@@ -239,6 +239,7 @@ flowing; anything else is "connected" (a Mac publishes no state for its first 10
 | Pairing | Milō is discoverable and pairs from a phone | targeted |
 | State | UI shows "Connected to [device name]" with a Disconnect button; "Ready" when idle | targeted |
 | Audio | Playback from the phone is audible | targeted |
+| Volume | Phone at 20 % then at 100 %: same level in the room; while playing, `bluealsa-cli info <pcm>` (the path from `bluealsa-cli list-pcms`) shows `SoftVolume: false`; Milō's displayed level does not move | targeted |
 | Metadata | Title and artist appear and change with the track; transport buttons work. A sender publishing neither keeps the status card, which is correct | targeted |
 | Cover | The slot fills within a few seconds — resolved from the track text, not carried by AVRCP — or stays on the source glyph. Never a broken image | targeted |
 | Remote session | An iPhone controlling *another* device (a Mac, a HomePod) publishes the iOS card's two lines. The player must show title and artist, never "Now playing on …" | targeted |

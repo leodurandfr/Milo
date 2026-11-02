@@ -234,7 +234,9 @@ Spotify app, and guests join the way the app offers.
 
 **How does it work?**
 - `bluealsa`: daemon that manages Bluetooth connections
-- `bluealsa-aplay`: reads Bluetooth audio and sends to ALSA
+- `bluealsa-aplay`: reads Bluetooth audio and sends to ALSA, at unity
+  (`--volume=none`): the phone's volume slider scales nothing, CamillaDSP is
+  the only attenuation stage
 - Milō backend automatically detects connections/disconnections
 - **Two independent feeds.** BlueALSA carries the audio and the connection
   (`sources/bluetooth/monitor.py` scrapes `bluealsa-cli monitor`); track
