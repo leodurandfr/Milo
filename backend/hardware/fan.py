@@ -303,6 +303,12 @@ class FanController:
             logger.error("Kernel thermal governor still active — the fan mode will not apply")
         if not await self._write_sysfs(self._pwm_enable_path, "1"):
             logger.error("pwm-fan not switched to manual — the fan mode will not apply")
+        # The governor is off, so pwm1 now holds the duty it last set (or ours,
+        # after a backend that died without its teardown): adopt it as the
+        # loop's anchor, or a 0 % target would look already applied.
+        pwm = await asyncio.to_thread(_read_int, self._pwm_path)
+        if pwm is not None:
+            self._pwm_percent = round(pwm * 100 / PWM_MAX)
 
     async def _release_to_governor(self) -> None:
         """Re-enable the kernel governor so the config.txt curve resumes.
@@ -415,7 +421,8 @@ class FanController:
                         target = self._target_mode_percent(control_temp)
                     else:
                         target = self.manual_percent
-                    # Compare against the ACTUAL last-written duty (self._pwm_percent),
+                    # Compare against the ACTUAL duty (self._pwm_percent, read back at
+                    # takeover, then the last one written),
                     # not a loop-local var — otherwise a manual/disabled excursion
                     # leaves the loop's memory stale and hysteresis suppresses the
                     # corrective write when switching back to target. Hysteresis absorbs

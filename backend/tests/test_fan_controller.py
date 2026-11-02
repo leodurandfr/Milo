@@ -16,6 +16,7 @@ handover, and the four boundary methods the rest of the appliance calls into —
 import asyncio
 import contextlib
 import logging
+import os
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -397,6 +398,93 @@ class TestInitializeDetection:
         assert controller.available is False
         assert controller._monitor_task is None
         controller._write_sysfs.assert_not_awaited()
+
+
+class TestTakeoverReadsTheDutyInPlace:
+    """`_take_control` stops the governor, which freezes pwm1 on whatever duty
+    it held — the governor's own step, or our last duty after a backend that
+    died without its teardown.
+
+    What breaks when this fails: the loop compares each target against
+    `_pwm_percent`, which started at 0 whatever pwm1 held, so a 0 % target
+    (a SoC under the band) looked already applied and was never written. The
+    fan stayed frozen at the stale duty while the fan page showed 0 %.
+
+    The sysfs tree is the outside world here, so the writes, the reads and the
+    monitor loop all run for real against it.
+    """
+
+    @pytest.fixture
+    def sysfs(self, tmp_path, monkeypatch):
+        device = tmp_path / "cooling_fan"
+        hwmon = device / "hwmon" / "hwmon3"
+        hwmon.mkdir(parents=True)
+        (hwmon / "pwm1_enable").write_text("2")
+        (hwmon / "fan1_input").write_text("2400")
+        zone = tmp_path / "thermal_zone0"
+        zone.mkdir()
+        (zone / "mode").write_text("enabled")
+        monkeypatch.setattr(fan, "COOLING_FAN_DEVICE", str(device))
+        monkeypatch.setattr(fan, "THERMAL_ZONE", str(zone))
+        return hwmon, zone
+
+    def _controller(self):
+        controller = make_controller()
+        controller.settings_service.get_setting = AsyncMock(return_value={
+            "enabled": True,
+            "mode": "target",
+            "manual_percent": 50,
+            "target_temp_c": 66,
+        })
+        return controller
+
+    async def _first_tick(self, controller):
+        """The loop broadcasts once its first tick has written (or not)."""
+        for _ in range(500):
+            if controller.state_machine.broadcast.await_count:
+                break
+            await asyncio.sleep(0.01)
+        await controller._stop_monitor()
+        assert controller.state_machine.broadcast.await_count, "no tick ran"
+
+    async def test_the_first_tick_after_a_takeover_writes_a_zero_target_over_a_stale_duty(
+        self, sysfs
+    ):
+        hwmon, zone = sysfs
+        (hwmon / "pwm1").write_text("170")
+        (zone / "temp").write_text("55000")  # under 66 - 3 °C: the target is 0 %
+        controller = self._controller()
+
+        assert await controller.initialize() is True
+        await self._first_tick(controller)
+
+        assert int((hwmon / "pwm1").read_text()) == 0
+        assert controller.get_status()["pwm_percent"] == 0
+
+    async def test_an_unreadable_duty_is_a_warning_and_the_controller_still_takes_over(
+        self, sysfs, caplog
+    ):
+        if os.geteuid() == 0:
+            pytest.skip("root reads a write-only node anyway")
+        hwmon, zone = sysfs
+        pwm = hwmon / "pwm1"
+        pwm.write_text("170")
+        pwm.chmod(0o200)
+        (zone / "temp").write_text("70000")  # inside the band: a target above 0 %
+        controller = self._controller()
+
+        with caplog.at_level(logging.WARNING):
+            assert await controller.initialize() is True
+            await self._first_tick(controller)
+
+        assert controller.available is True
+        assert any(
+            "Failed to read" in r.getMessage() and "pwm1" in r.getMessage()
+            for r in caplog.records
+        )
+        pwm.chmod(0o600)
+        assert int(pwm.read_text()) not in (0, 170), "the first tick wrote the band's duty"
+        assert controller.get_status()["pwm_percent"] == controller._target_mode_percent(70.0)
 
 
 class TestReadStatus:
