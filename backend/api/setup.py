@@ -210,7 +210,13 @@ def create_setup_router(
                     try:
                         await hardware_service.apply_and_reboot(reboot=False)
                     except Exception as e:
-                        logger.error(f"Setup wizard: hardware apply failed: {e}")
+                        # The next submit reads hardware.json as the current
+                        # state: left as written, it names a card config.txt
+                        # never loaded, with the peripherals its pins turned off.
+                        logger.error(
+                            f"Setup wizard: hardware apply failed: {e} — restoring the previous hardware config"
+                        )
+                        await hardware_service.save_config(current)
                         return
 
                     if not await settings_service.set_setting("setup_completed", True):

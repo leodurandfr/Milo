@@ -661,6 +661,35 @@ class TestCompleteSetup:
         ]
         services.systemd.power.assert_not_awaited()
 
+    def test_a_refused_apply_puts_the_previous_hardware_config_back(self, client, services):
+        """The helper reads hardware.json, so the wizard writes it before the
+        apply — and the next submit reads it back as the unit's current state.
+        Left as written after a refusal, it names a card config.txt never
+        loaded, and the peripherals that card's pins turned off stay off:
+        an IR receiver on GPIO 17, refused with an Amp100, stayed disabled on
+        the Amp4 Pro applied next, which leaves 17 free.
+        """
+        assert 17 in reserved_pins("hifiberry_amp100")
+        assert 17 not in reserved_pins("hifiberry_amp4pro")
+        stored = {"config": services.hardware.get_full_config.return_value}
+        original = stored["config"]
+        services.hardware.get_full_config.side_effect = lambda: stored["config"]
+        services.hardware.save_config.side_effect = lambda cfg: stored.update(config=cfg)
+        services.hardware.apply_and_reboot.side_effect = [
+            RuntimeError("EEPROM write refused"), None,
+        ]
+
+        client.post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp100"))
+
+        assert services.hardware.save_config.await_args.args[0] == original
+        assert stored["config"]["ir_remote"] == {"enabled": True, "gpio_pin": 17}
+
+        client.post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp4pro"))
+
+        applied = services.hardware.save_config.await_args.args[0]
+        assert applied["audio"]["id"] == "hifiberry_amp4pro"
+        assert applied["ir_remote"] == {"enabled": True, "gpio_pin": 17}
+
     def test_a_flag_that_will_not_persist_does_not_reboot(self, client, services):
         """Rebooting on an unwritten flag is a unit that shows the wizard again
         with its hardware already applied — recoverable, but the reboot bought
