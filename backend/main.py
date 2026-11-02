@@ -191,6 +191,7 @@ async def lifespan(app: FastAPI):
         ("pending_clients", get_service("pending_clients_service").shutdown),
         ("calibration", get_service("calibration_service").cleanup),
         ("mac_link_calibration", get_service("mac_link_calibration_service").cleanup),
+        ("multiroom_equalizer", multiroom_equalizer_service.cleanup),
         ("equalizer_proxy", equalizer_proxy_service.cleanup),
         ("levels_monitor", levels_monitor.cleanup),
         ("screen", screen_controller.cleanup),

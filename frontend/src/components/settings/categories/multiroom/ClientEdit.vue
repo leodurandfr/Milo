@@ -445,13 +445,15 @@ async function toggleVolumeControl() {
 }
 
 async function toggleEqIndependent(enabled) {
-  const previous = eqIndependent.value;
   eqIndependent.value = enabled;
   try {
     await multiroomClientStore.setClientEqIndependent(props.macId, enabled);
   } catch (error) {
     logger.error('multiroom', 'Error saving EQ independence', error);
-    eqIndependent.value = previous; // Revert on failure
+    // The record's flag, not the one before the tap: a 502 means the flag was
+    // saved but the speaker refused the zone's EQ, and client_state_changed may
+    // already be in, so the watcher fires no more.
+    eqIndependent.value = client.value?.eq_independent === true;
   }
 }
 

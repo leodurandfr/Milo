@@ -378,6 +378,7 @@ def create_multiroom_router(
 
         Raises:
             404: Client not found
+            502: the flag is saved, but the member did not take the zone's EQ
         """
         async with api_error_handler(f"Error setting eq_independent for client {mac_id}", logger):
             client = registry_service.get_client(mac_id)
@@ -406,17 +407,16 @@ def create_multiroom_router(
             updated_client = await registry_service.set_client_eq_independent(mac_id, request.enabled)
 
             if zone_eq is not None:
-                # A satellite that refuses the push answers False rather than
-                # raising, so the except below never sees it. Warning, not
-                # error: the record is persisted either way and the client's
-                # next reconnection sync re-pushes it.
                 try:
                     adopted = await multiroom_equalizer_service.set_client_eq(mac_id, zone_eq)
                     refusal = None if adopted else "the client refused the push"
                 except Exception as e:
                     refusal = str(e)
                 if refusal:
-                    logger.warning(f"Failed to re-adopt zone equalizer for {mac_id}: {refusal}")
+                    logger.error(f"Failed to re-adopt zone equalizer for {mac_id}: {refusal}")
+                    raise HTTPException(
+                        status_code=502, detail="saved, the speaker did not take its EQ"
+                    )
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 
@@ -813,6 +813,7 @@ def create_multiroom_router(
         Raises:
             404: Zone not found
             400: Client not found or failed to add
+            502: the client is in the zone, but did not take the zone's EQ
         """
         async with api_error_handler(f"Error adding client {request.mac_id} to zone {zone_id}", logger):
             zone = registry_service.get_zone(zone_id)
@@ -859,9 +860,12 @@ def create_multiroom_router(
                 except Exception as e:
                     refusal = str(e)
                 if refusal:
-                    logger.warning(
+                    logger.error(
                         f"Failed to apply zone equalizer to new member "
                         f"{request.mac_id}: {refusal}"
+                    )
+                    raise HTTPException(
+                        status_code=502, detail="saved, the speaker did not take its EQ"
                     )
 
             zone = registry_service.get_zone(zone_id)

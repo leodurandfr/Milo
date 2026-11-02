@@ -112,9 +112,10 @@ async function toggleClient(clientId) {
         await multiroomStore.addClientToZone(props.groupId, clientId);
         // Watcher syncs final state from WebSocket
       } catch (error) {
-        // Revert optimistic update
-        const revertIndex = selectedClients.value.indexOf(clientId);
-        if (revertIndex !== -1) selectedClients.value.splice(revertIndex, 1);
+        // Show the store's membership, not the one before the tap: a 502 means
+        // the client joined but its speaker refused the zone's EQ, and the
+        // zone_changed event may already be in, so the watcher fires no more.
+        selectedClients.value = [...(currentGroup.value?.client_ids || [])];
         logger.error('multiroom', 'Error adding client to zone', error);
       }
     }

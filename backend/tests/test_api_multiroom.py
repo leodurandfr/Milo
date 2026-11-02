@@ -269,24 +269,27 @@ class TestEqIndependentEndpoint:
         resp = client.put("/api/multiroom/clients/nope/eq-independent", json={"enabled": True})
         assert resp.status_code == 404
 
-    def test_a_refused_readoption_is_warned(self, tuning_client, caplog):
-        """`set_client_eq` answers False when the satellite refused the push —
-        it never raises, so the route's `except Exception` could not see it and
-        the member kept its own curve while the UI showed it back on the zone's.
-
-        Warning, not error: the record is persisted either way and the client's
-        next reconnection sync re-pushes it.
-        """
-        client, _, eq, _ = tuning_client
-        eq.set_client_eq = AsyncMock(return_value=False)
+    @pytest.mark.parametrize("refusal", [
+        lambda: AsyncMock(return_value=False),
+        lambda: AsyncMock(side_effect=OSError("settings.json is read-only")),
+    ], ids=["refused", "raised"])
+    def test_a_refused_readoption_is_reported(self, tuning_client, caplog, refusal):
+        """The flag and the record are stored, but the member still plays its
+        own curve while every screen shows it back on the zone's: a 200 there
+        said the opposite, and a satellite that stays online is re-sent nothing
+        by its admission. 502, at error, so the banner names the speaker."""
+        client, registry, eq, _ = tuning_client
+        eq.set_client_eq = refusal()
 
         with caplog.at_level(logging.WARNING):
             resp = client.put(
                 "/api/multiroom/clients/mac-1/eq-independent", json={"enabled": False}
             )
 
-        assert resp.status_code == 200
-        assert "Failed to re-adopt zone equalizer for mac-1" in caplog.text
+        assert resp.status_code == 502
+        registry.set_client_eq_independent.assert_awaited_once_with("mac-1", False)
+        errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any("mac-1" in message for message in errors)
 
     def test_an_accepted_readoption_says_nothing(self, tuning_client, caplog):
         client, _, _, _ = tuning_client
@@ -1218,7 +1221,7 @@ def eq_donor_client():
 
     app = FastAPI()
     app.include_router(create_multiroom_router(registry, eq))
-    return TestClient(app), eq
+    return TestClient(app), eq, registry
 
 
 class TestNewZoneMemberEqDonor:
@@ -1230,7 +1233,7 @@ class TestNewZoneMemberEqDonor:
         The re-attach donor (PUT /clients/{mac}/eq-independent) already filters
         it out; this path took the first member it found.
         """
-        client, eq = eq_donor_client
+        client, eq, _ = eq_donor_client
 
         resp = client.post("/api/multiroom/zones/z1/clients", json={"mac_id": "mac-new"})
 
@@ -1238,17 +1241,23 @@ class TestNewZoneMemberEqDonor:
         eq.get_client_eq.assert_awaited_once_with("mac-shared")
         assert eq.set_client_eq.await_args.args[0] == "mac-new"
 
-    def test_a_refused_adoption_is_warned(self, eq_donor_client, caplog):
-        """Same dropped verdict as the re-attach path: False never enters the
-        route's `except`, so a new member silently kept whatever curve it had."""
-        client, eq = eq_donor_client
-        eq.set_client_eq = AsyncMock(return_value=False)
+    @pytest.mark.parametrize("refusal", [
+        lambda: AsyncMock(return_value=False),
+        lambda: AsyncMock(side_effect=OSError("settings.json is read-only")),
+    ], ids=["refused", "raised"])
+    def test_a_refused_adoption_is_reported(self, eq_donor_client, caplog, refusal):
+        """Same verdict as the re-attach path: the member is in the zone and
+        holds its record, but plays whatever curve it had."""
+        client, eq, registry = eq_donor_client
+        eq.set_client_eq = refusal()
 
         with caplog.at_level(logging.WARNING):
             resp = client.post("/api/multiroom/zones/z1/clients", json={"mac_id": "mac-new"})
 
-        assert resp.status_code == 200
-        assert "Failed to apply zone equalizer to new member mac-new" in caplog.text
+        assert resp.status_code == 502
+        registry.add_client_to_zone.assert_awaited_once_with("z1", "mac-new")
+        errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any("mac-new" in message for message in errors)
 
 
 @pytest.fixture

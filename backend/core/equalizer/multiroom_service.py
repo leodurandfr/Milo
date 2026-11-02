@@ -33,6 +33,7 @@ from backend.core.multiroom.models import (
     EqFilter,
     FilterType,
 )
+from backend.shared.background import BackgroundTaskSet
 from backend.shared.fanout import failed_members
 
 
@@ -41,6 +42,11 @@ from backend.shared.fanout import failed_members
 # multiroom is off; the sentinel keeps base-audio EQ addressable (and independent
 # of the multiroom registry) in every mode.
 LOCAL_TARGET = "local"
+
+# A record an online satellite refused is sent again at the admission's cadence
+# (SnapcastWebSocketService._sync_reconnecting_client_volume): 6 tries 3 s apart.
+RECORD_RESEND_ATTEMPTS = 6
+RECORD_RESEND_DELAY_S = 3.0
 
 
 class MultiroomEqualizerService:
@@ -100,8 +106,16 @@ class MultiroomEqualizerService:
         self._partial_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
             weakref.WeakValueDictionary()
         )
+        # One record resend per satellite (see _arm_resend).
+        self._bg = BackgroundTaskSet(self.logger, "eq-resend")
+        self._resend_tasks: dict[str, asyncio.Task] = {}
 
         self.logger.info("MultiroomEqualizerService created")
+
+    async def cleanup(self) -> None:
+        """Cancel the record resends still waiting."""
+        await self._bg.cancel_all()
+        self._resend_tasks.clear()
 
     # =========================================================================
     # Per-Client Access Layer — the unified EQ source of truth
@@ -503,7 +517,14 @@ class MultiroomEqualizerService:
         return success
 
     async def _apply_to_remote(self, mac_id: str, settings: EqualizerSettings) -> bool:
-        """Apply equalizer settings to a remote client via proxy."""
+        """Apply equalizer settings to a remote client via proxy.
+
+        A refusal from an online client is resent (``_arm_resend``): the
+        admission, the only other push of a record, never runs for a satellite
+        that stays online.
+        """
+        # This record is the newest: a resend still waiting would only repeat it.
+        self._cancel_resend(mac_id)
         if not self._proxy_service:
             self.logger.debug(f"Proxy service not available, skipping remote client {mac_id} (will sync on reconnection)")
             return True  # Not a failure - settings are persisted and will sync later
@@ -525,7 +546,58 @@ class MultiroomEqualizerService:
         applied = await self._proxy_service.apply_record(client_ip, settings)
         if applied:
             self.logger.debug(f"Equalizer settings applied to remote client {mac_id}")
+        else:
+            self._arm_resend(mac_id)
         return applied
+
+    def _arm_resend(self, mac_id: str) -> None:
+        """Send ``mac_id`` its whole record again until its satellite takes it.
+
+        For a satellite that refused a record or a targeted edit while online
+        (its CamillaDSP restarting, its snapclient still up). The caller
+        reports the refusal itself; only an abandon is logged at error here.
+        """
+        if not (self._proxy_service and self._registry):
+            return
+        # A band drag sends 20 edits a second: one warning per resend, not per edit.
+        if not self._cancel_resend(mac_id):
+            self.logger.warning(f"Equalizer of {mac_id} refused, resending its record")
+        task = self._bg.spawn(self._resend_record(mac_id), label=f"resend_{mac_id}")
+        if task is not None:
+            self._resend_tasks[mac_id] = task
+
+    def _cancel_resend(self, mac_id: str) -> bool:
+        """Cancel ``mac_id``'s resend; True if one was still running."""
+        task = self._resend_tasks.pop(mac_id, None)
+        if task and not task.done():
+            task.cancel()
+            return True
+        return False
+
+    async def _resend_record(self, mac_id: str) -> None:
+        """The registry's record, read anew at each try, so an edit stored since
+        the refusal travels with it. Ends when the client is gone, offline or
+        unaddressed: its admission pushes the record then."""
+        taken = False
+        for attempt in range(1, RECORD_RESEND_ATTEMPTS + 1):
+            await asyncio.sleep(RECORD_RESEND_DELAY_S)
+            client = self._registry.get_client(mac_id)
+            if not client or not client.online or not client.ip:
+                return
+            record = self._registry.get_client_equalizer(mac_id)
+            if record is None:
+                return
+            taken = await self._proxy_service.apply_record(client.ip, record)
+            if taken and self._registry.get_client_equalizer(mac_id) is record:
+                self.logger.info(f"Equalizer record resent to {mac_id} (try {attempt})")
+                return
+            # Taken while an edit was stored, the edit may have reached the
+            # satellite before this record's bands: the next try sends it whole.
+        if not taken:
+            self.logger.error(
+                f"Equalizer record not taken by {mac_id} after {RECORD_RESEND_ATTEMPTS} "
+                "resends: it plays another curve until its next admission"
+            )
 
     # =========================================================================
     # Partial Equalizer Update Methods
@@ -678,7 +750,9 @@ class MultiroomEqualizerService:
             ] if method and target_type == "zone" else []
 
         # The satellites, past the lock. A single remote client raises straight
-        # through, before the broadcast.
+        # through, before the broadcast. A satellite that refused is resent its
+        # whole record, which the registry already holds: the edit carries one
+        # band, and an edit it takes later does not bring this one back.
         if remote_targets:
             targets += remote_targets
             results += await asyncio.gather(
@@ -687,7 +761,11 @@ class MultiroomEqualizerService:
                 return_exceptions=True,
             )
         elif method and target_type != "zone" and not local_member:
-            await method(mac_id=target_id, persist=False, **router_kwargs)
+            try:
+                await method(mac_id=target_id, persist=False, **router_kwargs)
+            except Exception:
+                self._arm_resend(target_id)
+                raise
 
         # Same outcome as the single-client branch, which lets a SatelliteUnreachable
         # reach api_error_handler (→ 503): gather holds the exceptions back, it does
@@ -701,12 +779,15 @@ class MultiroomEqualizerService:
                 r if isinstance(r, BaseException) else r.get("status") != "error"
                 for r in results
             ]
-            failed_members(
+            failed = failed_members(
                 self.logger,
                 f"Zone {target_id} {router_method}",
                 targets,
                 outcomes,
             )
+            for member in failed:
+                if not self._is_local(member):
+                    self._arm_resend(member)
             # Raised at the end, not here: the members that DID take the update
             # still need the broadcast below.
             fanout_error = next(

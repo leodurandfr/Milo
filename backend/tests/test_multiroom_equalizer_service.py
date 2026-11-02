@@ -35,6 +35,7 @@ from backend.core.multiroom.models import (
     RegistryEventType,
     Zone,
 )
+from backend.tests.conftest import drain_background_tasks
 
 
 # =============================================================================
@@ -1781,7 +1782,8 @@ class TestRemotePushRefusals:
     as "the satellite is here and would not take it". The first is normal — a
     speaker in an empty room — and reported as a failure it would put an error
     banner in front of the user every time they touch a zone. The second must
-    surface, because nothing retries it.
+    surface, and is resent (TestARefusedPushIsResent): the admission never runs
+    for a satellite that stays online.
     """
 
     @pytest.fixture
@@ -1886,6 +1888,202 @@ class TestRemotePushRefusals:
 
         proxy_service.apply_record.assert_not_awaited()
         assert "has no IP" in caplog.text
+
+
+RESEND_CANAPE, RESEND_CANAPE_IP = "dc:a6:32:7e:d3:43", "192.168.1.153"
+RESEND_BUREAU, RESEND_BUREAU_IP = "d8:3a:dd:68:e7:e4", "192.168.1.60"
+
+
+class _Satellite:
+    """The satellites' HTTP surface as the EQ service reaches it.
+
+    `apply_record` answers from `verdicts`, one per record, then True: False is
+    a satellite whose CamillaDSP is down, the satellite still online since its
+    snapclient does not depend on it. `during_record` runs inside a record's
+    delivery, before its verdict. A `(hostname, path prefix)` in `refused` is
+    answered 400 by `request`, as the satellite's API answers an edit its DSP
+    cannot take.
+    """
+
+    def __init__(self):
+        self.records = []
+        self.verdicts = []
+        self.during_record = None
+        self.refused = set()
+
+    async def apply_record(self, hostname, settings):
+        self.records.append((hostname, settings.to_dict()))
+        if self.during_record:
+            await self.during_record(len(self.records))
+        return self.verdicts.pop(0) if self.verdicts else True
+
+    async def request(self, hostname, method, path, body=None, skip_multiroom_check=False):
+        if any(hostname == host and path.startswith(prefix) for host, prefix in self.refused):
+            raise SatelliteUnreachable(hostname, "Client error: 400", status_code=400)
+        return {"status": "success"}
+
+
+@pytest.fixture
+async def two_satellites(monkeypatch):
+    """Canapé and Bureau online, over the real registry, router and EQ service."""
+    from backend.core.equalizer import multiroom_service
+
+    monkeypatch.setattr(multiroom_service, "RECORD_RESEND_DELAY_S", 0)
+    monkeypatch.setattr(ClientRegistryService, "PERSIST_DEBOUNCE_S", 0)
+    registry = ClientRegistryService(settings_service=AsyncMock(
+        get_setting=AsyncMock(return_value=None)
+    ))
+    await registry.initialize()
+    for mac, name, ip in (
+        (RESEND_CANAPE, "Canapé", RESEND_CANAPE_IP),
+        (RESEND_BUREAU, "Bureau", RESEND_BUREAU_IP),
+    ):
+        await registry.register_client(mac, name, ip)
+        await registry.set_client_online(mac, True)
+    satellite = _Satellite()
+    service = MultiroomEqualizerService(
+        client_registry_service=registry,
+        proxy_service=satellite,
+        equalizer_router=EqualizerRouter(registry, None, satellite),
+    )
+    yield SimpleNamespace(service=service, registry=registry, satellite=satellite)
+    await service.cleanup()
+    await registry.cleanup()
+
+
+def _record(gain: float) -> EqualizerSettings:
+    return EqualizerSettings(filters=[EqFilter(id="eq_band_00", frequency=1000, gain=gain)])
+
+
+class TestARefusedPushIsResent:
+    """A record an online satellite refused, sent again until it takes it.
+
+    `_apply_to_remote` answers True for an offline client, so a refusal always
+    comes from one that is online — a satellite whose CamillaDSP restarted while
+    its snapclient stayed up — and the admission, the only other push of a
+    record, never runs for it. The record stood in the registry, on every screen
+    and in Milo-Mac while that room played its old curve until its next
+    admission, whenever that was. The registry and the router are real; the
+    satellites' HTTP is the outside world.
+    """
+
+    @staticmethod
+    def errors(caplog):
+        return [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_live_push_is_resent_until_the_satellite_takes_it(self, two_satellites):
+        world = two_satellites
+        world.satellite.verdicts = [False]
+
+        async def an_edit_lands_meanwhile(n):
+            if n == 1:
+                await world.registry.set_clients_equalizer({RESEND_CANAPE: _record(-4.0)})
+
+        world.satellite.during_record = an_edit_lands_meanwhile
+
+        assert await world.service.set_client_eq(RESEND_CANAPE, _record(5.0)) is False
+        await drain_background_tasks()
+
+        # The registry's record at the resend, not the one the refused push carried.
+        stored = world.registry.get_client_equalizer(RESEND_CANAPE).to_dict()
+        assert stored != _record(5.0).to_dict()
+        assert world.satellite.records == [
+            (RESEND_CANAPE_IP, _record(5.0).to_dict()),
+            (RESEND_CANAPE_IP, stored),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_edit_stored_while_a_resend_is_in_flight_is_sent_too(self, two_satellites):
+        """A band edit sent while the resend's five requests are on their way
+        can reach the satellite before the resend's bands do, and be undone by
+        them: the record it was stored with is sent once more."""
+        world = two_satellites
+        world.satellite.verdicts = [False]
+
+        async def a_band_edit_lands_during_the_resend(n):
+            if n == 2:
+                await world.registry.set_clients_equalizer({RESEND_CANAPE: _record(1.0)})
+
+        world.satellite.during_record = a_band_edit_lands_during_the_resend
+
+        await world.service.set_client_eq(RESEND_CANAPE, _record(5.0))
+        await drain_background_tasks()
+
+        assert len(world.satellite.records) == 3
+        assert world.satellite.records[-1] == (
+            RESEND_CANAPE_IP, world.registry.get_client_equalizer(RESEND_CANAPE).to_dict()
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_resend_stops_when_the_client_goes_offline(self, two_satellites, caplog):
+        """Offline, the client is the admission's: it pushes the registry's
+        record when the satellite is back, and a resend meanwhile would only
+        time out against a speaker that is not there."""
+        world = two_satellites
+        world.satellite.verdicts = [False] * 10
+
+        async def the_satellite_drops(n):
+            if n == 2:
+                await world.registry.set_client_online(RESEND_CANAPE, False)
+
+        world.satellite.during_record = the_satellite_drops
+
+        with caplog.at_level(logging.WARNING):
+            await world.service.set_client_eq(RESEND_CANAPE, _record(5.0))
+            await drain_background_tasks()
+
+        assert len(world.satellite.records) == 2
+        assert self.errors(caplog) == []
+
+    @pytest.mark.asyncio
+    async def test_a_resend_that_never_lands_is_reported_at_error(self, two_satellites, caplog):
+        from backend.core.equalizer import multiroom_service
+
+        world = two_satellites
+        world.satellite.verdicts = [False] * 100
+
+        with caplog.at_level(logging.WARNING):
+            await world.service.set_client_eq(RESEND_CANAPE, _record(5.0))
+            await drain_background_tasks()
+
+        assert len(world.satellite.records) == 1 + multiroom_service.RECORD_RESEND_ATTEMPTS
+        errors = self.errors(caplog)
+        assert len(errors) == 1
+        assert RESEND_CANAPE in errors[0].getMessage()
+
+    @pytest.mark.asyncio
+    async def test_a_newer_write_supersedes_a_pending_resend(self, two_satellites):
+        world = two_satellites
+        world.satellite.verdicts = [False]
+
+        assert await world.service.set_client_eq(RESEND_CANAPE, _record(5.0)) is False
+        assert await world.service.set_client_eq(RESEND_CANAPE, _record(-2.0)) is True
+        await drain_background_tasks()
+
+        assert world.satellite.records == [
+            (RESEND_CANAPE_IP, _record(5.0).to_dict()),
+            (RESEND_CANAPE_IP, _record(-2.0).to_dict()),
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target_type", ["zone", "client"])
+    async def test_a_refused_band_edit_resends_the_whole_record(self, two_satellites, target_type):
+        """A band edit carries one band; the satellite that refused it lacks that
+        band, and every refused edit before it, until it is sent the record."""
+        world = two_satellites
+        if target_type == "zone":
+            await world.registry.create_zone("salon", "Salon", [RESEND_CANAPE, RESEND_BUREAU])
+        target_id = "salon" if target_type == "zone" else RESEND_CANAPE
+        world.satellite.refused = {(RESEND_CANAPE_IP, "/equalizer/filter/")}
+
+        with pytest.raises(SatelliteUnreachable):
+            await world.service.update_filter(target_type, target_id, "eq_band_00", gain=6.0)
+        await drain_background_tasks()
+
+        stored = world.registry.get_client_equalizer(RESEND_CANAPE)
+        assert stored.filters[0].gain == 6.0
+        assert world.satellite.records == [(RESEND_CANAPE_IP, stored.to_dict())]
 
 
 class TestZoneEnabledFanout:
