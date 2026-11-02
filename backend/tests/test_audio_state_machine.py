@@ -894,31 +894,65 @@ class TestFailedTransition:
         old_source.stop.assert_awaited_once()
 
 
+async def _never_answers():
+    await asyncio.Event().wait()
+
+
 class TestAFailureIsTheLastWordOfAFailedStart:
     """`service: failed`, once settled, is what every client is shown until a
     start succeeds."""
 
     @pytest.mark.asyncio
-    async def test_the_failure_lands_with_the_switch_over(self, state_machine, mock_source):
-        """The state that says `failed` is the one the card draws.
+    @pytest.mark.parametrize(("start", "budget", "reason"), [
+        (AsyncMock(return_value=False), AudioStateMachine.TRANSITION_TIMEOUT, "start_failed"),
+        (AsyncMock(side_effect=RuntimeError("mpv IPC did not connect")),
+         AudioStateMachine.TRANSITION_TIMEOUT, "start_failed"),
+        (AsyncMock(side_effect=_never_answers), 0.05, "start_timeout"),
+    ], ids=["returns-false", "raises", "times-out"])
+    async def test_the_failure_is_on_the_wire_while_the_failed_target_still_stops(
+        self, state_machine, mock_source, start, budget, reason
+    ):
+        """The failure is what clients are shown while the failed target stops (E03).
 
-        A "starting" once lingered with the switch already over — a spinner
-        under the failure, Dock re-enabled — for as long as the failed target
-        took to stop, before the failure landed (E03). And the settle after
-        the target stopped repeats nothing already on the wire.
+        That stop can take seconds (a unit that will not stop is stopped
+        again). A failure landing only once the target had stopped would leave
+        `starting` with `switching: true` on the wire for all that time — and,
+        after a timeout that cut the previous source's teardown, up to
+        TEARDOWN_GRACE longer: the source card draws a spinner and no Retry,
+        and the Dock stays disabled. The wire carries the selection, then the
+        failure, and the settle after the target stopped repeats nothing.
         """
         sent = recorded(state_machine)
-        mock_source.start = AsyncMock(return_value=False)
+        stopping, released = asyncio.Event(), asyncio.Event()
+
+        async def stop():
+            stopping.set()
+            await released.wait()
+            return True
+
+        mock_source.start = start
+        mock_source.stop = AsyncMock(side_effect=stop)
+        state_machine.TRANSITION_TIMEOUT = budget
         state_machine.register_source(AudioSource.SPOTIFY, mock_source)
 
-        await state_machine.transition_to_source(AudioSource.SPOTIFY)
+        selection = asyncio.ensure_future(
+            state_machine.transition_to_source(AudioSource.SPOTIFY)
+        )
+        try:
+            async with asyncio.timeout(5):          # a hang guard, not a budget
+                await stopping.wait()
+            in_flight = envelopes(sent, "source", "state")[-1]["data"]
+            assert (in_flight["service"], in_flight["switching"]) == ("failed", False)
+            assert in_flight["service_error"]["reason"] == reason
+        finally:
+            released.set()
+            async with asyncio.timeout(5):          # a hang guard, not a budget
+                result = await selection
+        assert result is False
 
         states = [e["data"] for e in envelopes(sent, "source", "state")]
-        assert not [s for s in states if s["service"] == "starting" and not s["switching"]]
-        failed = [s for s in states if s["service"] == "failed"]
-        assert len(failed) == 1
-        assert failed[0]["switching"] is False
-        assert states[-1] == failed[0]
+        assert [s["service"] for s in states] == ["starting", "failed"]
+        assert states[-1] == in_flight
 
     @pytest.mark.asyncio
     async def test_a_source_publishing_after_a_failed_start_does_not_hide_the_failure(
