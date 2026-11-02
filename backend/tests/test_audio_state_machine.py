@@ -792,6 +792,44 @@ class TestFailedTransition:
         radio.stop.assert_not_awaited()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("unmoved_stamp", [False, True], ids=["alone", "with-unmoved-stamp"])
+    async def test_a_deselection_expecting_another_source_leaves_the_active_one(
+        self, clock, unmoved_stamp
+    ):
+        """`expected_source` refuses a transition decided on a source no longer active.
+
+        The sweep passes it with the activity stamp, and a selection stamps the
+        clock, so in the sweep's own tests the stamp catches a source chosen
+        meanwhile whether this half works or not. Here the stamp is either not
+        passed or still the one the selection wrote: removed, this half lets the
+        switch to "no source" stop the radio the user selected.
+        """
+        sm = AudioStateMachine()
+        radio = make_source()
+        sm.register_source(AudioSource.RADIO, radio)
+        await sm.transition_to_source(AudioSource.RADIO)
+        # The clock has not moved since the selection, so it reads its stamp.
+        stamp = {"expected_activity": clock[0]} if unmoved_stamp else {}
+        sent = recorded(sm)
+
+        assert await sm.transition_to_source(
+            AudioSource.NONE, expected_source=AudioSource.SPOTIFY, **stamp
+        ) is False
+
+        state = sm.get_current_state()
+        assert (state["source"], state["service"]) == ("radio", "running")
+        radio.stop.assert_not_awaited()
+        assert envelopes(sent, "source", "state") == []
+
+        # The same call expecting the active source goes through: the stamp
+        # passed above was not what refused it.
+        assert await sm.transition_to_source(
+            AudioSource.NONE, expected_source=AudioSource.RADIO, **stamp
+        ) is True
+        assert sm.get_current_state()["source"] == "none"
+        radio.stop.assert_awaited()
+
+    @pytest.mark.asyncio
     async def test_a_teardown_cut_by_the_timeout_is_finished_not_re_issued(
         self, state_machine, mock_source
     ):
