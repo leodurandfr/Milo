@@ -2,9 +2,10 @@
 """Reporting for a fan-out across multiroom members.
 
 One writer for the line that tells the operator *which speaker* did not take a
-setting. The three fan-outs that exist — the zone EQ record, the zone crossover
-and the zone's master EQ toggle — report through it, so a member that refused
-reads the same way whichever one dropped it.
+setting. Every zone fan-out reports through it — the zone EQ record, a targeted
+edit of it (a band, the compressor, the loudness, mono), the zone crossover and
+the zone's master EQ toggle — so a member that refused reads the same way
+whichever one dropped it.
 """
 import logging
 from typing import Sequence

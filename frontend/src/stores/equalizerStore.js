@@ -803,7 +803,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       } else {
         cleanup();
       }
-    } else {
+    } else if (!(await loadStatus())) {
+      // A refused zone toggle may still have moved some members, and the zone
+      // reads as their conjunction: what holds is read back, not assumed. Only
+      // when nothing answers is the write taken as never having landed.
       isEqualizerEffectsEnabled.value = previousState;
     }
 

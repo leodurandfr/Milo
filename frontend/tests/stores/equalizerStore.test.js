@@ -313,6 +313,45 @@ describe('equalizerStore', () => {
     });
   });
 
+  describe('master toggle', () => {
+    /**
+     * A zone toggle that fails may still have moved some of its members: the
+     * backend answers "error" when one speaker refused, after announcing the
+     * zone's enabled as the conjunction of what the members now hold. Restoring
+     * the value from before the click leaves this screen showing the effects on
+     * while the zone record, every other screen and the local DSP say off.
+     */
+    it('reads the zone back after a refused toggle rather than restoring the old value', async () => {
+      registerZone('z1', [LOCAL_MAC, REMOTE_MAC]);
+      setMultiroom(true);
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      apiCall.put.mockImplementationOnce(async () => {
+        equalizerStore.handleZoneEnabledChanged({ data: { zone_id: 'z1', enabled: false } });
+        return fail('Zone z1 equalizer enabled not applied', 200);
+      });
+      apiCall.get.mockImplementation(async (url) => (
+        url.endsWith('/presets')
+          ? ok({ presets: [] })
+          : ok({ state: 'running', enabled: false, filters: [] })
+      ));
+
+      expect(await equalizerStore.toggleEqualizerEffectsEnabled(false)).toBe(false);
+
+      expect(apiCall.get).toHaveBeenCalledWith('/api/equalizer/target/zone:z1', expect.anything());
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(false);
+    });
+
+    it('keeps the old value when nothing can be read back either', async () => {
+      // The server unreachable: the write most likely never landed.
+      apiCall.put.mockResolvedValueOnce(fail());
+      apiCall.get.mockResolvedValue(fail());
+
+      expect(await equalizerStore.toggleEqualizerEffectsEnabled(false)).toBe(false);
+
+      expect(equalizerStore.isEqualizerEffectsEnabled).toBe(true);
+    });
+  });
+
   describe('resync gate', () => {
     /**
      * App.vue resyncs every delta store on reconnect and on every tab return.
