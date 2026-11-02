@@ -87,7 +87,7 @@ import { getTrackIdentity } from '@/stores/lyricsStore';
 import { useI18n } from '@/services/i18n';
 import { useSourceProgress } from '@/composables/useSourceProgress';
 import { useSwipeVisibility } from '@/composables/useSwipeVisibility';
-import { useDelayedFlag } from '@/composables/useDelayedFlag';
+import { useLoadingIndicator } from '@/composables/useLoadingIndicator';
 import { pausesOnPress } from '@/utils/transport';
 
 import ProgressBar from '@/components/audio/ProgressBar.vue';
@@ -120,7 +120,7 @@ const identity = computed(() => getTrackIdentity(unifiedStore.systemState));
 const { currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized, setTrackWidth } =
   useSourceProgress(props.source);
 
-const isLoading = useDelayedFlag(() => session.value?.phase === 'loading');
+const isLoading = useLoadingIndicator(() => session.value?.phase);
 
 function togglePlayPause() {
   const command = pausesOnPress(session.value?.phase) ? 'pause' : 'resume';

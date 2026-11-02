@@ -6,7 +6,7 @@
 // derive their buttons by one rule, and the parts of one player from one copy.
 import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useDelayedFlag } from '@/composables/useDelayedFlag';
+import { useLoadingIndicator } from '@/composables/useLoadingIndicator';
 import { playerControls } from '@/utils/playerControls';
 
 export function usePlayerControls(source) {
@@ -45,7 +45,7 @@ export function usePlayerControls(source) {
       .map(control => live.get(control.id) ?? { ...control, enabled: false });
   });
 
-  const isBuffering = useDelayedFlag(() => phase.value === 'loading');
+  const isBuffering = useLoadingIndicator(phase);
 
   // sendCommand swallows + logs errors via the store, and answers whether the
   // source took the command. One the source does not list now would be

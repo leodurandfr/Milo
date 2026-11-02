@@ -97,8 +97,9 @@ const { controls, shownControls, phase, isBuffering, sendSourceCommand } = usePl
 
 // The main button spins while the session loads: past a second for a track
 // change, which passes through loading too briefly to be worth a spinner, at
-// once for a live stream, whose tune is always a real wait for the network —
-// as its progress bar dims at once.
+// once for a session opening (useLoadingIndicator) and for a live stream,
+// whose tune is always a real wait for the network — as its progress bar dims
+// at once.
 const waiting = (control) => (control.live ? phase.value === 'loading' : isBuffering.value);
 
 const isToggle = (control) => control.id === 'shuffle' || control.id === 'repeat';

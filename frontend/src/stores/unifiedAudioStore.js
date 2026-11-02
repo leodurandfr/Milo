@@ -28,6 +28,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     equalizer_effects_enabled: false,
   });
 
+  // The session is loading and has never been past `loading`: its first wait,
+  // which is a real one (a disc read, a file opened), unlike the loading a
+  // track change passes through.
+  const sessionOpening = ref(false);
+  let settledSessionId = null;
+
   // === VOLUME STATE (unified structure) ===
   const volumeState = ref({
     mode: 'direct',                  // 'direct' or 'multiroom'
@@ -161,6 +167,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       return;
     }
     systemState.value = result.data;
+    const session = result.data.session;
+    if (session && session.phase !== 'loading') settledSessionId = session.id;
+    sessionOpening.value = session?.phase === 'loading' && session.id !== settledSessionId;
   }
 
   /** `source/state` (its data IS the state) and `system/initial_state` (key `state`). */
@@ -358,6 +367,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     resync,
     // State
     systemState,
+    sessionOpening,
     volumeState,
     showVolumeBar,
     commandError,

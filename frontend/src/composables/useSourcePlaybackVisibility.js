@@ -25,7 +25,7 @@
 // `@after-hide` rather than by a 600 ms guess at how long its transition runs.
 import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useDelayedFlag } from '@/composables/useDelayedFlag';
+import { useLoadingIndicator } from '@/composables/useLoadingIndicator';
 
 /**
  * @param {string} source - Audio source identifier (e.g. 'radio', 'podcast')
@@ -47,7 +47,7 @@ export function useSourcePlaybackVisibility(source, { content }) {
 
   const isPlaying = computed(() => phase.value === 'playing');
   // The spinner, not the phase: held back so a track change never flashes it.
-  const isBuffering = useDelayedFlag(() => phase.value === 'loading');
+  const isBuffering = useLoadingIndicator(phase);
 
   const hasSomethingToShow = computed(() => {
     if (unifiedStore.systemState.source !== source) return false;
