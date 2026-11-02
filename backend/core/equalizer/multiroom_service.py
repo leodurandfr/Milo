@@ -539,7 +539,9 @@ class MultiroomEqualizerService:
         1. Persist `current` to each affected member's per-client record (remote →
            registry, each keeping its own ``enabled``; local → its live DSP
            snapshot, after the router applies below)
-        2. Route the targeted update to ONLINE members via EqualizerRouter
+        2. Route the targeted update via EqualizerRouter to the online remote
+           members, plus the local member whenever its DSP is connected — its DSP
+           does not depend on its snapclient
         3. Broadcast targeted WebSocket event with only the changed sub-object
 
         Raises whatever the fan-out raised (typically ``SatelliteUnreachable``,
@@ -592,19 +594,26 @@ class MultiroomEqualizerService:
                 remote_records, broadcast=False, defer_persist=True
             )
 
-        # Route the targeted update to ONLINE members via EqualizerRouter
+        # Route the targeted update via EqualizerRouter to the online remote
+        # members, and to the local member whenever its DSP is connected, whatever
+        # the registry says: its DSP does not depend on its snapclient, which the
+        # registry holds offline at boot and through every snapclient restart, and
+        # its readmission re-pushes nothing local. A disconnected DSP is captured
+        # below instead, so routing it would only log a failure for a staged write.
         fanout_error: Optional[BaseException] = None
         if self._equalizer_router:
             method = getattr(self._equalizer_router, router_method)
             if target_type == "zone":
-                online_clients = [
-                    c for c in self._registry.get_online_zone_clients(target_id)
-                    if not self._is_eq_independent(c.mac_id)
+                targets = [
+                    c.mac_id for c in self._registry.get_online_zone_clients(target_id)
+                    if not self._is_eq_independent(c.mac_id) and not self._is_local(c.mac_id)
                 ]
-                if online_clients:
+                if local_touched and self._camilladsp_service and self._camilladsp_service.connected:
+                    targets.append(next(m for m in members if self._is_local(m)))
+                if targets:
                     results = await asyncio.gather(
-                        *[method(mac_id=c.mac_id, persist=False, **router_kwargs)
-                          for c in online_clients],
+                        *[method(mac_id=mac_id, persist=False, **router_kwargs)
+                          for mac_id in targets],
                         return_exceptions=True,
                     )
                     # Same outcome as the single-client branch below, which lets a
@@ -621,7 +630,7 @@ class MultiroomEqualizerService:
                     failed_members(
                         self.logger,
                         f"Zone {target_id} {router_method}",
-                        [c.mac_id for c in online_clients],
+                        targets,
                         outcomes,
                     )
                     # Raised at the end, not here: the members that DID take the

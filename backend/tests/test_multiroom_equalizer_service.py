@@ -16,13 +16,14 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import Mock, AsyncMock
 
-from backend.core.equalizer import MultiroomEqualizerService
+from backend.core.equalizer import CamillaDSPService, MultiroomEqualizerService
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.models.ws_events import (
     EqualizerZoneEnabledChanged,
     MultiroomEqualizerChanged,
 )
 from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
@@ -1150,6 +1151,111 @@ class TestPartialUpdateMethods:
         mock_registry.get_client.return_value = None
         with pytest.raises(ValueError, match="Client not found"):
             await multiroom_equalizer_service.update_compressor("client", "unknown-mac", enabled=True)
+
+
+class TestLocalMemberOfflineInTheRegistry:
+    """This unit's DSP does not depend on its snapclient.
+
+    The registry holds the local member offline for the first seconds of a boot
+    and through every restart of its snapclient (a server-config write), while
+    CamillaDSP already answers. A zone band moved then reached the satellite and
+    the broadcast but not this unit's DSP, so the room kept the old band and the
+    zone, read through the local member, reported the old value until the band
+    moved again: the readmission re-pushes nothing local.
+
+    The registry, the router and the DSP service are real; CamillaDSP's daemon
+    and the satellite's HTTP are the outside world.
+    """
+
+    LOCAL = "2c:cf:67:00:00:01"
+    CANAPE = "dc:a6:32:7e:d3:43"
+
+    @pytest.fixture
+    async def salon(self, mock_camilla_client, camilla_daemon, tmp_path, monkeypatch):
+        """Build the zone Salon = this unit + Canapé, Canapé online."""
+        monkeypatch.setattr(CamillaDSPService, "STORAGE_PATH", tmp_path / "equalizer.json")
+        dsps = []
+
+        async def build(*, local_online, dsp_connected=True):
+            dsp = CamillaDSPService(settings_service=Mock(
+                get_setting=AsyncMock(return_value=None), set_setting=AsyncMock()
+            ))
+            dsps.append(dsp)
+            if dsp_connected:
+                dsp._client = mock_camilla_client
+                dsp._connected = True
+            camilla_daemon.load({"filters": {"eq_band_00": {
+                "type": "Biquad",
+                "parameters": {"type": "Peaking", "freq": 31, "gain": 0, "q": 1.41},
+            }}, "pipeline": []})
+
+            registry = ClientRegistryService(settings_service=AsyncMock(
+                get_setting=AsyncMock(return_value=None)
+            ))
+            await registry.initialize()
+            await registry.register_client(self.LOCAL, "Milō", "127.0.0.1")
+            await registry.register_client(self.CANAPE, "Canapé", "192.168.1.153")
+            await registry.set_client_online(self.CANAPE, True)
+            if local_online:
+                await registry.set_client_online(self.LOCAL, True)
+            await registry.create_zone("salon", "Salon", [self.LOCAL, self.CANAPE])
+
+            proxy = Mock(request=AsyncMock(return_value={"status": "success"}))
+            state_machine = Mock(broadcast=AsyncMock())
+            service = MultiroomEqualizerService(
+                client_registry_service=registry,
+                camilladsp_service=dsp,
+                proxy_service=proxy,
+                equalizer_router=EqualizerRouter(registry, dsp, proxy),
+                state_machine=state_machine,
+            )
+            return SimpleNamespace(service=service, proxy=proxy, state_machine=state_machine)
+
+        yield build
+        for dsp in dsps:
+            # Flushes the debounced equalizer.json write into tmp_path.
+            await dsp.cleanup()
+
+    @staticmethod
+    def announced_gain(world):
+        event = world.state_machine.broadcast.await_args.args[0]
+        return event.equalizer_settings["filters"][0]["gain"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("local_online", [False, True])
+    async def test_a_zone_band_edit_reaches_the_local_dsp_while_its_snapclient_is_offline(
+        self, salon, camilla_daemon, local_online
+    ):
+        world = await salon(local_online=local_online)
+
+        await world.service.update_filter("zone", "salon", "eq_band_00", gain=6.0)
+
+        assert [c.args[:3] for c in world.proxy.request.await_args_list] == [
+            ("192.168.1.153", "PUT", "/equalizer/filter/eq_band_00"),
+        ]
+        # One graph, whichever way the local member was listed: routed once, not
+        # once as an online member and again as the local one.
+        assert len(camilla_daemon.pushed_configs) == 1
+        announced = self.announced_gain(world)
+        assert camilla_daemon.last_pushed["filters"]["eq_band_00"]["parameters"]["gain"] == announced
+        assert (await world.service.get_zone_eq("salon")).filters[0].gain == announced
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("local_online", [False, True])
+    async def test_a_zone_band_edit_with_the_local_dsp_down_is_captured_not_failed(
+        self, salon, camilla_daemon, caplog, local_online
+    ):
+        """Down, the local DSP can take nothing: the edit is staged for the
+        reconnection to push. Routed anyway, it would answer an error, and the
+        ERROR line raises the UI's banner over a write that did not fail."""
+        world = await salon(local_online=local_online, dsp_connected=False)
+
+        with caplog.at_level(logging.ERROR):
+            assert await world.service.update_filter("zone", "salon", "eq_band_00", gain=6.0)
+
+        assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+        assert camilla_daemon.pushed_configs == []
+        assert (await world.service.get_zone_eq("salon")).filters[0].gain == self.announced_gain(world)
 
 
 # =============================================================================
