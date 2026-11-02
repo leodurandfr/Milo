@@ -281,3 +281,52 @@ def test_every_repo_file_a_stage_sources_exists_in_this_repo():
         if not (REPO_ROOT / rel).is_file()
     ]
     assert not missing, "\n".join(missing)
+
+
+# --------------------------------------------------------------------------- #
+# BlueALSA's storage directory: declared by the build, created by the unit.
+# --------------------------------------------------------------------------- #
+#
+# bluealsa saves per-device state under `<localstatedir>/lib/bluealsa`, a path
+# compiled in by the stage's `configure`, and runs as `User=milo` from a unit
+# Milō writes itself (`--disable-systemd` drops upstream's), so the directory
+# exists only if that unit's `StateDirectory=` makes it. The two declarations
+# live in different trees and nothing tied them: built with `--prefix=/usr` and
+# no `--localstatedir`, the binary looked for `/usr/var/lib/bluealsa`, which no
+# unit creates — a warning at every start and an ERROR "Couldn't save storage"
+# at every disconnect.
+
+BLUEALSA_STAGE_SCRIPT = STAGE_DIR / "01-install-audio" / "01-run.sh"
+BLUEALSA_UNIT = REPO_ROOT / "system" / "milo-bluealsa.service"
+
+
+def _bluealsa_configure_line() -> str:
+    text = BLUEALSA_STAGE_SCRIPT.read_text().replace("\\\n", " ")
+    block = text[text.index("bluez-alsa.git"):]
+    return next(line for line in block.splitlines() if line.strip().startswith("../configure"))
+
+
+def test_bluealsa_storage_directory_is_declared_by_its_unit():
+    """The directory the binary writes to is the one systemd creates for it.
+
+    Fails when the stage's configure line and `milo-bluealsa.service` name
+    different directories: the daemon then loses every device's saved state and
+    logs an error each time a phone leaves.
+    """
+    configure = _bluealsa_configure_line()
+    assert "--prefix=/usr" in configure and "--with-bluealsauser=milo" in configure, (
+        f"the bluez-alsa configure line was not extracted: {configure!r}"
+    )
+    options = dict(
+        opt.split("=", 1) for opt in configure.split() if opt.startswith("--") and "=" in opt
+    )
+    # autoconf's default once --prefix is given.
+    localstatedir = options.get("--localstatedir", options["--prefix"] + "/var")
+    binary_dir = f"{localstatedir}/lib/bluealsa"
+
+    state_dirs = re.findall(r"^StateDirectory=(\S+)\s*$", BLUEALSA_UNIT.read_text(), re.MULTILINE)
+    unit_dirs = [f"/var/lib/{d}" for d in state_dirs]
+    assert unit_dirs == [binary_dir], (
+        f"bluealsa is built to store under {binary_dir}, but "
+        f"{BLUEALSA_UNIT.relative_to(REPO_ROOT)} creates {unit_dirs or 'no StateDirectory'}"
+    )

@@ -50,7 +50,7 @@ git clone --branch v${BLUEZ_ALSA_VERSION} --depth 1 https://github.com/arkq/blue
 cd bluez-alsa
 autoreconf --install
 mkdir build && cd build
-../configure --prefix=/usr --disable-systemd \
+../configure --prefix=/usr --localstatedir=/var --disable-systemd \
     --with-alsaplugindir=/usr/lib/aarch64-linux-gnu/alsa-lib \
     --with-bluealsauser=milo --with-bluealsaaplayuser=milo \
     --enable-cli \

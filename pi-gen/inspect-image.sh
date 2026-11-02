@@ -293,6 +293,12 @@ for b in go-librespot navidrome camilladsp snapserver snapclient shairport-sync 
         bad "binary $b not found"
     fi
 done
+# configure maps localstatedir to ${prefix}/var once --prefix is given, and the
+# unit's StateDirectory= only creates /var/lib/bluealsa.
+check "bluealsa stores under /var/lib/bluealsa" \
+      "strings -a '${ROOT%/}/usr/bin/bluealsa' | grep -qx /var/lib/bluealsa"
+check "bluealsa has no /usr/var path" \
+      "command -v strings && [ -f '${ROOT%/}/usr/bin/bluealsa' ] && ! strings -a '${ROOT%/}/usr/bin/bluealsa' | grep -q /usr/var"
 check "ALSA only — no pipewire" "! [ -x '${ROOT%/}/usr/bin/pipewire' ]"
 check "ALSA only — no pulseaudio" "! [ -x '${ROOT%/}/usr/bin/pulseaudio' ]"
 

@@ -11,6 +11,9 @@ Type=simple
 ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
 User=milo
 Group=audio
+# The per-device storage bluealsa is built to keep (--localstatedir=/var in the
+# pi-gen stage); upstream's unit, dropped by --disable-systemd, declared it too.
+StateDirectory=bluealsa
 Restart=on-failure
 MemoryMax=64M
 
