@@ -35,7 +35,6 @@ from backend.sources.radio.data import StationDataService
 from backend.sources.radio.logos import StationLogos
 from backend.sources.radio.playlist import is_playlist_url, resolve_stream_url
 from backend.sources.radio.shazam import ShazamRecognitionService
-from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.radio.browser_api import RadioBrowserAPI
 
@@ -229,7 +228,6 @@ class RadioSource(MpvAudioSource):
 
         self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
 
-    @handle_errors(default=False)
     async def initialize(self) -> bool:
         """Initialize station data (call at startup for API access)."""
         await self._station_data.initialize()

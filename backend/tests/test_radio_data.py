@@ -17,11 +17,17 @@ import pytest
 from backend.sources.radio.data import ImageManager, StationDataService
 
 
-@pytest.fixture
-def data(tmp_path):
-    svc = StationDataService(state_machine=MagicMock(broadcast=AsyncMock()))
+def _unloaded(tmp_path, **kwargs):
+    svc = StationDataService(state_machine=MagicMock(broadcast=AsyncMock()), **kwargs)
     svc._data_file = tmp_path / "radio_data.json"
     svc.image_manager.delete_image = AsyncMock(return_value=True)
+    return svc
+
+
+@pytest.fixture
+async def data(tmp_path):
+    svc = _unloaded(tmp_path)
+    await svc.initialize()
     return svc
 
 
@@ -754,14 +760,10 @@ class TestFavoritesListener:
     can step to another favorite (`prev` / `next`) depends on the list."""
 
     @pytest.fixture
-    def told(self, tmp_path):
+    async def told(self, tmp_path):
         calls = []
-        svc = StationDataService(
-            state_machine=MagicMock(broadcast=AsyncMock()),
-            on_favorites_changed=lambda: calls.append(True),
-        )
-        svc._data_file = tmp_path / "radio_data.json"
-        svc.image_manager.delete_image = AsyncMock(return_value=True)
+        svc = _unloaded(tmp_path, on_favorites_changed=lambda: calls.append(True))
+        await svc.initialize()
         return svc, calls
 
     async def test_adding_and_removing_a_favorite_each_tell_the_source(self, told):
@@ -781,3 +783,34 @@ class TestFavoritesListener:
         await svc.modify_favorite_metadata("s1", name="Renamed", url="http://example.invalid/1")
 
         assert calls == []
+
+
+class TestAnUnloadedFileIsNeverOverwritten:
+    """A file that failed to load is the user's favorites, edits and custom
+    stations, waiting to be repaired: the service holds nothing of it, so a
+    save from that empty memory wrote `{favorites: [new]}` at the current
+    schema over everything. Consumer: every favorites route, Milo-Mac and
+    Milo-iOS's lists."""
+
+    @pytest.mark.parametrize("content", [
+        '{"schema_version": 1, "favorites": ["keep-me"',
+        json.dumps({"schema_version": StationDataService.SCHEMA_VERSION,
+                    "favorites": ["keep-me"]}),
+        json.dumps({"schema_version": StationDataService.SCHEMA_VERSION + 1,
+                    "favorites": ["keep-me"], "modified_metadata": {},
+                    "manual_stations": {}, "favorites_cache": {}}),
+    ], ids=["truncated", "missing-key", "newer-schema"])
+    async def test_a_corrupt_file_is_never_overwritten_by_a_later_favorite(self, tmp_path, content):
+        data = _unloaded(tmp_path)
+        data._data_file.write_text(content, encoding="utf-8")
+        before = data._data_file.read_bytes()
+        with pytest.raises((json.JSONDecodeError, RuntimeError)):
+            await data.initialize()
+
+        new = {"name": "New", "url": "http://example.invalid/n"}
+        added = [await data.add_favorite("newone", new) for _ in range(2)]
+
+        assert added == [False, False]
+        assert data.is_favorite("newone") is False
+        assert data._data_file.read_bytes() == before
+        data._state_machine.broadcast.assert_not_awaited()

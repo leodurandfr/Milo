@@ -281,6 +281,26 @@ class TestStationDataPersistence:
         with pytest.raises(RuntimeError, match="missing required keys"):
             await service.initialize()
 
+    async def test_source_initialize_lets_a_schema_mismatch_reach_the_boot_gather(self, tmp_path):
+        """`initialize_services` exits on a `SchemaVersionMismatch` only when the
+        gather hands it the exception: a source that turned it into False booted
+        with empty favorites, and the first one added rewrote the file at the
+        current schema over the user's list."""
+        from backend.shared.persistence import SchemaVersionMismatch
+        source = RadioSource(settings_service=make_settings(), systemd_manager=make_systemd())
+        source.station_data._data_file = tmp_path / "radio_data.json"
+        source.station_data._data_file.write_text(json.dumps({
+            "schema_version": StationDataService.SCHEMA_VERSION + 1,
+            "favorites": ["keep-me"],
+            "modified_metadata": {},
+            "manual_stations": {},
+            "favorites_cache": {},
+        }), encoding="utf-8")
+
+        results = await asyncio.gather(source.initialize(), return_exceptions=True)
+
+        assert isinstance(results[0], SchemaVersionMismatch)
+
 
 
 class TestTheCommonFloor:

@@ -589,11 +589,12 @@ class TestStationRecordMoved:
     UPLOAD = "/api/radio/images/upload.webp"
 
     @pytest.fixture
-    def data(self, radio, tmp_path, monkeypatch):
+    async def data(self, radio, tmp_path, monkeypatch):
         from backend.sources.radio.data import ImageManager
         monkeypatch.setattr(ImageManager, "IMAGES_DIR", tmp_path / "radio_images")
         data = radio.real_station_data
         data._data_file = tmp_path / "radio_data.json"
+        await data.initialize()
         radio.source._station_data = data
         return data
 

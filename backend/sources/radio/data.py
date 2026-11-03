@@ -345,9 +345,10 @@ class StationDataService:
         """Load state from disk.
 
         Seeds defaults on fresh install. Raises SchemaVersionMismatch on version
-        drift or RuntimeError on a corrupt file (missing keys / invalid JSON); the
-        handler in dependencies.py logs the banner and SystemExit(1)s — favorites
-        are never silently wiped.
+        drift, which dependencies.py turns into a banner and SystemExit(1), and
+        RuntimeError / JSONDecodeError on a corrupt file (missing keys, invalid
+        JSON), which fails the radio init with an error logged. Until a load
+        succeeds `_save` refuses to write, so favorites are never silently wiped.
         """
         if self._loaded:
             return
@@ -413,7 +414,13 @@ class StationDataService:
         return True
 
     async def _save(self) -> bool:
-        """Save all data."""
+        """Save all data — never over a file that failed to load."""
+        if not self._loaded:
+            self.logger.error(
+                f"radio_data.json is not loaded; refusing to overwrite it — "
+                f"if its load failed at boot, fix or delete it (rm {self._data_file})"
+            )
+            return False
         data = {
             "favorites": self._favorites,
             "modified_metadata": self._modified_metadata,
@@ -556,6 +563,7 @@ class StationDataService:
             return True
 
         self._favorites.append(station_id)
+        previous_cache = self._favorites_cache.get(station_id)
 
         # An edited station keeps the original it has: the record a client sends
         # from the search carries the edit overlaid, and cached as the original
@@ -567,7 +575,15 @@ class StationDataService:
 
         success = await self._save()
 
-        if success:
+        if not success:
+            # Left in memory, a second tap would answer success from the
+            # early return above for a favorite that was never saved.
+            self._favorites.remove(station_id)
+            if previous_cache is None:
+                self._favorites_cache.pop(station_id, None)
+            else:
+                self._favorites_cache[station_id] = previous_cache
+        else:
             self._favorites_moved()
             await self._broadcast(RadioFavoriteAdded(station_id=station_id))
 
