@@ -537,6 +537,59 @@ describe('radioStore', () => {
       expect(store.displayedStations).toHaveLength(2);
     });
 
+    it('a favorite removed while browsing search results leaves the search loading flag alone', async () => {
+      // The ✓ in the bar (or Milo-Mac / Milo-iOS) releases a favorite while the
+      // search view is open: the refetch must not blank the results grid.
+      await seedSearchResults(store, [STATION('s1'), STATION('s2')]);
+      await seedFavorites(store, [STATION('s1'), STATION('s2')]);
+      let loadingWhileFetching = null;
+      apiCall.get.mockImplementationOnce(async () => {
+        loadingWhileFetching = store.loading;
+        return ok({ stations: [STATION('s2')] });
+      });
+
+      await store.handleFavoriteEvent('s1', false);
+
+      expect(loadingWhileFetching).toBe(false);
+      expect(store.favoriteStations.map(s => s.id)).toEqual(['s2']);
+      expect(store.displayedStations).toHaveLength(2);
+    });
+
+    it('a favorite removed after a failed search keeps the search error showing', async () => {
+      await seedFavorites(store, [STATION('s1'), STATION('s2')]);
+      apiCall.get.mockResolvedValueOnce(fail('Bad request', 400));
+      await store.loadStations();
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION('s2')] }));
+
+      await store.handleFavoriteEvent('s1', false);
+
+      expect(store.hasError).toBe(true);
+      expect(store.favoriteStations.map(s => s.id)).toEqual(['s2']);
+    });
+
+    it('a forced favorites refetch does not join a request that left before the event', async () => {
+      // A resync's GET may have been answered before the removal reached the
+      // backend: joining it would keep the station that was just released.
+      let answerFirst;
+      apiCall.get.mockImplementationOnce(
+        () => new Promise(resolve => { answerFirst = resolve; }),
+      );
+      const firstFetch = store.preloadFavorites({ force: true });
+      let firstAnsweredBeforeSecondLeft = false;
+      apiCall.get.mockImplementationOnce(async () => {
+        firstAnsweredBeforeSecondLeft = store.favoriteStations.length === 2;
+        return ok({ stations: [STATION('s2')] });
+      });
+
+      const removal = store.handleFavoriteEvent('s1', false);
+      answerFirst(ok({ stations: [STATION('s1'), STATION('s2')] }));
+      await Promise.all([firstFetch, removal]);
+
+      expect(apiCall.get).toHaveBeenCalledTimes(2);
+      expect(firstAnsweredBeforeSecondLeft).toBe(true);
+      expect(store.favoriteStations.map(s => s.id)).toEqual(['s2']);
+    });
+
     it('keeps an edited station under "Modified stations" when its favorite is removed', async () => {
       // An edit outlives its favorite on the backend: a station released by
       // mistake keeps the image the user chose, listed in Réglages.

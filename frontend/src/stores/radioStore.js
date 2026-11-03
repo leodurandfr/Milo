@@ -204,17 +204,23 @@ export const useRadioStore = defineStore('radio', () => {
   let preloadPromise = null;
 
   /**
-   * Preload favorites at app boot (fire-and-forget, like podcastStore.preloadSubscriptionsList)
-   * Ensures favorites are available instantly when the user opens Radio.
+   * Load the favorites list — at app boot (fire-and-forget, like
+   * podcastStore.preloadSubscriptionsList), so they are there the moment Radio
+   * opens, and again on every refetch (WS delta, rename, resync).
    *
    * force=true refetches even when already initialized (reconnect/tab-visible
-   * resync — favorite_* WS deltas may have been missed). favoritesInitialized
-   * stays true during the refetch so FavoritesView doesn't flash skeletons.
+   * resync, a favorite_* WS delta) and chains a fresh GET after any in-flight
+   * one: a request that left before the change may answer without it.
+   * favoritesInitialized stays true during the refetch so FavoritesView
+   * doesn't flash skeletons.
    */
   async function preloadFavorites({ force = false } = {}) {
     if (favoritesInitialized.value && !force) return true;
-    if (preloadPromise) return preloadPromise;
-    preloadPromise = (async () => {
+    if (preloadPromise && !force) return preloadPromise;
+    const previous = preloadPromise;
+    const mine = (async () => {
+      // Its own caller hears how it ended; this one only needs it settled.
+      if (previous) await previous.catch(() => false);
       const result = await apiCall.get('/api/radio/stations', {
         category: 'radio',
         message: 'Error preloading favorites',
@@ -227,8 +233,9 @@ export const useRadioStore = defineStore('radio', () => {
       }
       return result.ok;
     })();
-    const loaded = await preloadPromise;
-    preloadPromise = null;
+    preloadPromise = mine;
+    const loaded = await mine;
+    if (preloadPromise === mine) preloadPromise = null;
     return loaded;
   }
 
@@ -511,20 +518,14 @@ export const useRadioStore = defineStore('radio', () => {
   async function handleFavoriteEvent(stationId, isFavoriteNow) {
     logger.info('radio', `Syncing favorite status: ${stationId} = ${isFavoriteNow}`);
 
-    if (isFavoriteNow) {
-      // Refetched rather than appended in place: the list comes ordered by the
-      // backend, and an append would park the new station at the end of the
-      // grid rather than at its real position. Through
-      // preloadFavorites, not loadStations: the ⊕ is usually tapped from
-      // the search view, whose results share the `loading` flag — reloading
-      // through it would blank the grid the user is looking at.
-      await preloadFavorites({ force: true });
-    } else {
-      // Remove from favorites - reload to get animation and ensure consistency.
-      // The custom dict is left alone: an edit outlives its favorite.
-      logger.debug('radio', 'Favorite removed, reloading favorites');
-      await loadStations(true);
-    }
+    // Refetched rather than edited in place: the list comes ordered by the
+    // backend, and an append would park a new station at the end of the grid
+    // rather than at its real position. Through preloadFavorites, not
+    // loadStations: the ⊕ and ✓ are usually tapped from the search view, whose
+    // results share the `loading` flag — reloading through it would blank the
+    // grid the user is looking at. On a removal the custom dict is left alone:
+    // an edit outlives its favorite.
+    await preloadFavorites({ force: true });
   }
 
   /**

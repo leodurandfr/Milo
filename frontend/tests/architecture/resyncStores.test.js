@@ -511,13 +511,7 @@ const DELTA_ONLY = new Map([
   ['multiroom.configuringClients', 'this tab\'s own configure request in flight, set by the click '
     + 'and cleared by the event or its timeout; the server offers no read of it'],
   ['equalizer.outputPeak', 'a live meter, overwritten by the next levels event'],
-  ['radio.loading', SEARCH_VIEW],
-  ['radio.hasError', SEARCH_VIEW],
   ['radio.searchResults', SEARCH_VIEW],
-  ['radio.displayedCount', SEARCH_VIEW],
-  ['radio.searchUnavailable', SEARCH_VIEW],
-  ['radio.topStationsCache', SEARCH_VIEW],
-  ['radio.topStationsCacheTimestamp', SEARCH_VIEW],
   ['updates.satelliteCompletedUpdates', COMPLETED_MARK],
   ['updates.satelliteAppCompletedUpdates', COMPLETED_MARK],
   ['updates.satelliteCamillaCompletedUpdates', COMPLETED_MARK],
