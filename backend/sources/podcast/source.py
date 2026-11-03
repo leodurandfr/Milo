@@ -431,10 +431,15 @@ class PodcastSource(MpvAudioSource):
             await self._read_playhead(session)
 
     async def _save_progress(self, session: Optional[PodcastSession]) -> None:
-        """Save the session's position to the progress file."""
+        """Save the session's position to the progress file. Best-effort: every
+        end saves first, and a disk that refuses the write costs this save,
+        never the end."""
         if not isinstance(session, PodcastSession) or session.position <= 0:
             return
-        await self._write_progress(session.episode, session.position, session.duration)
+        try:
+            await self._write_progress(session.episode, session.position, session.duration)
+        except Exception as e:
+            self._logger.error(f"Progress save failed: {e}")
 
     async def _write_progress(self, episode: Dict[str, Any], position: int, duration: int) -> None:
         podcast_info = episode.get('podcast', {})
@@ -477,8 +482,8 @@ class PodcastSource(MpvAudioSource):
         # in-progress queue. A final row first (a short clip may never have hit
         # a periodic save), then the explicit mark: the position>=duration-30
         # heuristic behind the row fails when mpv over-reports VBR durations.
+        await self._save_progress(session)
         try:
-            await self._save_progress(session)
             await self._podcast_data.mark_episode_completed(finished_uuid)
         except Exception as e:
             self._logger.error(f"Failed to persist episode completion: {e}")
@@ -488,15 +493,15 @@ class PodcastSource(MpvAudioSource):
 
     async def _on_playing_tick(self, session: PodcastSession) -> None:
         await self._read_playhead(session)
-        try:
-            if session.reopen:
+        if session.reopen:
+            try:
                 await self._podcast_data.reopen_episode(session.episode['uuid'], session.position)
                 session.reopen = False
-            if session.ticks % PROGRESS_SAVE_TICKS == 0:
-                await self._save_progress(session)
-        except Exception as e:
-            # Per tick, like any loop body: a disk hiccup costs this save.
-            self._logger.error(f"Progress save failed: {e}")
+            except Exception as e:
+                # Per tick, like any loop body: retried at the next one.
+                self._logger.error(f"Reopening the episode failed: {e}")
+        if session.ticks % PROGRESS_SAVE_TICKS == 0:
+            await self._save_progress(session)
 
     # === Public API ===
 

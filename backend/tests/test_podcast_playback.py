@@ -531,6 +531,111 @@ class TestStopping:
         assert rig.data.progress == {}
 
 
+class TestAFailingSaveNeverBlocksAnEnd:
+    """A progress write that fails (a full, failing or read-only SD card) costs
+    that write, never the end it was recorded on the way to.
+
+    What breaks when this fails: the save raised past every end that saves
+    first — a switch left mpv playing the episode under the next source with
+    milo-podcast still up, a reroute kept mpv on the old output, a dead mpv or
+    a lost stream left the session PLAYING, and no other episode could start
+    while the disk refused.
+    """
+
+    @pytest.fixture(autouse=True)
+    def disk_full(self, rig):
+        rig.data.update_playback_progress = AsyncMock(
+            side_effect=OSError(28, "No space left on device")
+        )
+
+    async def playing_a(self, rig):
+        await rig.select()
+        await rig.play(EPISODE_A)
+        rig.mpv.playhead(640)
+
+    async def test_leaving_with_a_failing_save_still_stops_the_unit(self, rig):
+        await self.playing_a(rig)
+
+        await rig.leave()
+
+        rig.systemd.stop.assert_any_await("milo-podcast.service")
+        assert rig.mpv.is_connected is False
+        assert rig.session_ends() == ["source_switch"]
+
+    async def test_a_reroute_with_a_failing_save_still_releases_mpv(self, rig):
+        await self.playing_a(rig)
+        assert len(rig.loads()) == 1
+
+        await rig.reroute()
+
+        assert len(rig.loads()) == 2
+        assert "reroute" in rig.session_ends()
+
+    async def test_mpv_dying_with_a_failing_save_still_ends_the_session(self, rig):
+        await self.playing_a(rig)
+        await rig.tick()
+
+        await rig.mpv.dies()
+        await settle()
+
+        assert rig.session_ends() == ["daemon_died"]
+        assert rig.state()["session"] is None
+
+    async def test_play_episode_with_a_failing_save_still_plays(self, rig):
+        await self.playing_a(rig)
+
+        result = await rig.play(EPISODE_B)
+
+        assert result["success"] is True
+        assert rig.episode() == EPISODE_B["uuid"]
+        assert rig.loads()[-1][1] == EPISODE_B["audio_url"]
+        assert "playback_failed" not in rig.errors()
+
+    async def test_a_pause_with_a_failing_save_still_answers_paused(self, rig):
+        await self.playing_a(rig)
+
+        result = await rig.command("pause")
+
+        assert result["success"] is True
+        assert rig.phase() == "paused"
+
+    async def test_a_seek_with_a_failing_save_still_answers(self, rig):
+        await self.playing_a(rig)
+
+        result = await rig.command("seek", {"position": 900})
+
+        assert result["success"] is True
+        assert rig.playing()
+
+    async def test_an_episode_played_out_with_a_failing_save_is_still_marked_listened(
+        self, rig
+    ):
+        """The mark is a write of its own: the row that failed before it must
+        not take the "already listened" card down with it."""
+        await self.playing_a(rig)
+        await rig.tick()
+
+        await rig.mpv.ends("eof")
+        await settle()
+
+        assert rig.data.completed == [EPISODE_A["uuid"]]
+        assert rig.session_ends() == ["eof"]
+
+    async def test_a_pause_left_to_expire_with_a_failing_save_still_ends(
+        self, rig, monkeypatch
+    ):
+        await self.playing_a(rig)
+        clock = VirtualClock()
+        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(clock.sleep))
+        await rig.command("pause")
+
+        await clock.advance(121)                       # past the 120 s pause timer
+        await settle()
+
+        assert rig.session_ends() == ["idle_timeout"]
+        assert rig.state()["session"] is None
+
+
 class TestAPausedEpisodeReplacedByAnother:
     """Pausing arms the auto-stop timer; starting another episode must disarm
     it (E49).
