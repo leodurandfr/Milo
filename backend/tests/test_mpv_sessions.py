@@ -188,6 +188,126 @@ async def test_radio_dead_url_is_reported_when_mpv_says_so(radio):
     assert radio.station() == "fip"
 
 
+class PlaylistServer:
+    """A station's web server, on loopback: one playlist file at `/<name>`,
+    sent in several writes (a body read with `read(n)` stops at the first one),
+    and every request it answered."""
+
+    def __init__(self, body: str, status: int = 200):
+        self.body, self.status = body, status
+        self.requests: List[str] = []
+
+    async def __aenter__(self) -> "PlaylistServer":
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+
+        async def serve(request):
+            self.requests.append(f"{request.method} {request.path}")
+            if self.status != 200:
+                return web.Response(status=self.status)
+            response = web.StreamResponse(headers={"Content-Type": "audio/x-scpls"})
+            await response.prepare(request)
+            data = self.body.encode()
+            for i in range(0, len(data), 16):
+                await response.write(data[i:i + 16])
+                await asyncio.sleep(0)
+            await response.write_eof()
+            return response
+
+        app = web.Application()
+        app.router.add_get("/{name}", serve)
+        self._server = TestServer(app)
+        await self._server.start_server()
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self._server.close()
+
+    def station(self, name: str) -> dict:
+        return {"id": "soma", "name": "SomaFM Groove Salad",
+                "url": str(self._server.make_url(f"/{name}"))}
+
+
+SOMA_STREAM = "http://ice.somafm.example/groovesalad-128-mp3"
+SOMA_PLS = (
+    "[playlist]\r\nnumberofentries=2\r\n"
+    f"File1={SOMA_STREAM}\r\nTitle1=SomaFM: Groove Salad\r\nLength1=-1\r\n"
+    "File2=http://ice2.somafm.example/groovesalad-128-mp3\r\nVersion=2\r\n"
+)
+
+
+def _local(radio, station: dict) -> None:
+    """`station` is one the user added (POST /api/radio/custom keeps its URL as typed)."""
+    known = {"fip": FIP, "nova": NOVA, station["id"]: station}
+    radio.source._station_data.get_local_station.side_effect = known.get
+
+
+@pytest.fixture
+def real_watchdog(monkeypatch):
+    """The unit's watchdog: the rig's 0.5 s one fires at once, while a real
+    fetch over loopback is still in flight."""
+    monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", 30.0, raising=False)
+
+
+async def test_radio_station_behind_a_playlist_plays(radio, real_watchdog):
+    """A custom station added by its `.pls` link was handed to mpv as is: with
+    the unit's `reconnect_at_eof=1`, ffmpeg fetched the playlist again at every
+    EOF (54 795 GETs in 40 s, measured) and the load ended LOAD_FAILED. The
+    playlist is read once, and mpv plays the stream it lists."""
+    radio.mpv.playlists["soma.pls"] = SOMA_STREAM
+    async with PlaylistServer(SOMA_PLS) as server:
+        station = server.station("soma.pls")
+        _local(radio, station)
+        await radio.select()
+        await radio.tune(station)
+        await radio.tick()
+
+        assert radio.playing()
+        assert radio.errors() == []
+        assert radio.loads()[-1][1] == SOMA_STREAM
+        assert server.requests == ["GET /soma.pls"]
+
+
+@pytest.mark.parametrize("status, body", [
+    (404, ""),
+    (200, "[playlist]\nnumberofentries=0\nVersion=2\n"),
+], ids=["not-found", "no-stream-listed"])
+async def test_radio_playlist_that_cannot_be_fetched_fails_the_load(radio, real_watchdog, status, body):
+    """A playlist that gives no stream is a load that failed, with its banner —
+    never the playlist URL handed to mpv anyway, which loops on it."""
+    radio.mpv.playlists["soma.pls"] = SOMA_STREAM
+    async with PlaylistServer(body, status) as server:
+        station = server.station("soma.pls")
+        _local(radio, station)
+        await radio.select()
+        await radio.tune(station)
+
+        assert not radio.active()
+        assert radio.errors() == ["stream_load_failed"]
+        assert radio.loads() == []
+
+
+async def test_radio_playlist_stream_that_ends_is_a_lost_stream(radio):
+    """A playlist mpv expands itself (no extension to tell, a server that
+    answers Range) ends its entry `reason=redirect` and starts the one it
+    inserted. Only the first entry was the session's: the stream's sound
+    counted, its end did not, and the session stayed PLAYING on a silent mpv."""
+    station = {"id": "listen", "name": "Listen", "url": "http://stream.example/listen"}
+    _local(radio, station)
+    radio.mpv.playlists["/listen"] = "http://stream.example/live-128.mp3"
+    radio.mpv.loops_on_playlists = False
+    await radio.select()
+    await radio.tune(station)
+    await radio.tick()
+    assert radio.playing()
+
+    await radio.mpv.ends("eof")
+    await settle()
+
+    assert not radio.active()
+    assert radio.errors() == ["stream_disconnected"]
+
+
 async def test_radio_knob_during_buffering_stops_then_retunes_the_shown_station(radio, monkeypatch):
     """E42: while a station buffers, the knob re-tuned whatever was stopped
     last — not the station on screen. A press on a loading station stops it;

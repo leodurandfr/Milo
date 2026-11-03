@@ -33,6 +33,7 @@ from backend.sources.radio.models import PlayStationParams
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.logos import StationLogos
+from backend.sources.radio.playlist import is_playlist_url, resolve_stream_url
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
@@ -354,9 +355,18 @@ class RadioSource(MpvAudioSource):
         self.open_session(session)
         self._publish()
 
+        if is_playlist_url(session.stream_url):
+            # The station replaced must not sound while the playlist is read.
+            await self._mpv.stop()
+            stream = await resolve_stream_url(session.stream_url)
+            if stream is None:
+                await self._end_playback(EndReason.LOAD_FAILED, detail="playlist gave no stream")
+                return self.error_response(f"Unable to load stream: {station_name}")
+            session.stream_url = stream
+
         async def load():
             if await self._mpv_ready() and await self._set_mpv_pause(False):
-                return await self._mpv.loadfile(station.get('url'), mode="replace")
+                return await self._mpv.loadfile(session.stream_url, mode="replace")
             return None
 
         entry = await self._attempt(load)

@@ -37,6 +37,13 @@ consistent truth. Every behaviour below was observed on the unit
 - A stream that stops delivering sets `paused-for-cache` and sends nothing
   else (measured: 155 s before an `eof`, never for a stalled socket).
 - A link that dies sends LINK_LOST to subscribers; reads answer None.
+- A playlist file (`.pls`, `.m3u`) handed to `loadfile`, with the radio unit's
+  `reconnect_at_eof=1`, is fetched again at every EOF instead of being
+  expanded when its server answers without Range (Icecast, SomaFM): `start-file`,
+  then nothing ever opens. Expanded (`loops_on_playlists` False), it ends with
+  `end-file reason=redirect` naming the entry mpv inserts in its place
+  (`playlist_insert_id`, `playlist_insert_num_entries` 1), which starts next.
+  (Measured 2026-10-30, mpv 0.40 with the radio unit's options.)
 
 Events reach subscribers synchronously, as the controller's reader task hands
 them over. What happens *when* is the test's to say: an entry that starts
@@ -72,6 +79,8 @@ class MpvSim:
         self.durations: Dict[str, float] = {}
         self.default_duration: Optional[float] = 1800.0
         self.metadata: Dict[str, str] = {}
+        self.playlists: Dict[str, str] = {}  # url fragment -> the stream it lists
+        self.loops_on_playlists = True     # reconnect_at_eof on a server without Range
         self.playlist: List[Entry] = []
         self.current: Optional[Entry] = None
         self.opened = False
@@ -340,6 +349,11 @@ class MpvSim:
         if was_idle:
             self._emit_prop("idle-active", False)
         self._arm_file_loops()
+        inner = next((url for frag, url in self.playlists.items() if frag in entry.url), None)
+        if inner is not None:
+            if not self.loops_on_playlists:
+                self._redirect(entry, inner)
+            return
         broken = next((err for frag, err in self.broken.items() if frag in entry.url), None)
         if broken is not None:
             self._end_current("error", broken)
@@ -352,6 +366,18 @@ class MpvSim:
                 self._emit({"event": "seek"})
             self._emit_prop("paused-for-cache", False)
             self._emit({"event": "playback-restart"})
+
+    def _redirect(self, entry: Entry, url: str) -> None:
+        """mpv expanded the playlist `entry` was: the stream it lists takes its
+        place under a new id, and starts."""
+        self._next_id += 1
+        inserted = Entry(self._next_id, url)
+        self._emit({
+            "event": "end-file", "reason": "redirect", "playlist_entry_id": entry.id,
+            "playlist_insert_id": inserted.id, "playlist_insert_num_entries": 1,
+        })
+        self.playlist[self.playlist.index(entry)] = inserted
+        self._start(inserted)
 
     def _end_current(self, reason: str, file_error: Optional[str] = None) -> None:
         entry = self.current

@@ -296,10 +296,14 @@ class MpvAudioSource(BaseAudioSource):
     async def _entry_ended(self, session: MpvSession, event: Dict[str, Any]) -> None:
         """mpv ended a playlist entry. Default (one entry per session): the
         entry's end is the session's end, by mpv's reason — a stop is Milō's
-        own doing and ends nothing."""
+        own doing and ends nothing. A redirect is mpv expanding a playlist: the
+        entry it inserted in its place is the session's from now on."""
         if event.get("playlist_entry_id") != session.entry:
             return
         reason = event.get("reason")
+        if reason == "redirect" and event.get("playlist_insert_id") is not None:
+            session.entry = event["playlist_insert_id"]
+            return
         if reason == "eof" and session.heard:
             await self._content_finished(session)
         elif reason in ("eof", "error"):
