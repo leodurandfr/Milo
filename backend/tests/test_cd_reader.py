@@ -559,6 +559,78 @@ class TestAThreadStopGaveUpOn:
         assert any("did not stop" in r.message for r in caplog.records)
         drive.park_in_ioctl.set()
 
+    def test_two_overlapping_stops_on_a_parked_run_both_return(self, monkeypatch, caplog):
+        """A STOP cuts the handler awaiting `to_thread(reader.stop)` but not its
+        worker, and the STOP's own `_end_with_position` stops the reader again
+        beside it. The first to give up used to drop the reference under the
+        second, which then raised in `is_alive()`: `_do_stop` returned early
+        and left milo-cd running with its mpv controller attached."""
+        drive = FakeDrive()
+        drive.park_in_ioctl = threading.Event()
+        drive.install(monkeypatch)
+        reader = CdIoctlReader()
+        reader.start(0, READ_CHUNK * 10_000)
+        assert drive.entered_ioctl.wait(5)
+
+        raised = {}
+
+        def stop(name):
+            try:
+                reader.stop()
+                raised[name] = None
+            except Exception as exc:
+                raised[name] = exc
+
+        first = threading.Thread(target=stop, args=("first",))
+        second = threading.Thread(target=stop, args=("second",))
+        try:
+            with caplog.at_level("WARNING", logger="source.cd.reader"):
+                first.start()
+                time.sleep(1)
+                second.start()
+                first.join(10)
+                second.join(10)
+        finally:
+            drive.park_in_ioctl.set()
+
+        assert raised == {"first": None, "second": None}
+        gave_up = [r for r in caplog.records if "did not stop" in r.message]
+        assert len(gave_up) == 2, "the two stops did not overlap on the parked run"
+        assert reader._thread is None
+
+    def test_a_stop_overtaken_by_a_new_run_leaves_that_run_running(self, monkeypatch):
+        """The next command's `start()` can install a run while a cut handler's
+        `stop()` is still joining the old one. That late stop used to drop the
+        new run's reference, orphaning a thread that kept writing PCM into the
+        FIFO with nothing left able to stop it."""
+        drive = FakeDrive()
+        drive.park_in_ioctl = threading.Event()
+        drive.install(monkeypatch)
+        reader = CdIoctlReader()
+        reader.start(0, READ_CHUNK * 10_000)
+        assert drive.entered_ioctl.wait(5)
+
+        restart = threading.Thread(
+            target=reader.start, args=(50_000, 50_000 + READ_CHUNK * 10_000))
+        late_stop = threading.Thread(target=reader.stop)
+        try:
+            restart.start()                 # joins the parked run, then replaces it
+            time.sleep(1)
+            late_stop.start()               # still joining when the new run lands
+            restart.join(10)
+            late_stop.join(10)
+
+            new_run = reader._thread
+            assert new_run is not None, "the late stop dropped the new run"
+            assert new_run.is_alive()
+            assert not reader._stop_event.is_set(), "the late stop stopped the new run"
+        finally:
+            drive.park_in_ioctl.set()
+
+        reader.stop()
+        assert not new_run.is_alive()
+        assert reader._thread is None
+
 
 class TestTheFifo:
     def test_a_missing_fifo_is_created(self, monkeypatch):

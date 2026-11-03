@@ -49,6 +49,11 @@ class CdIoctlReader:
         self._device = device
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # stop() is reached from worker threads that outlive the handler that
+        # started them (a STOP cuts the handler, not its to_thread), so two can
+        # overlap, or one can still be joining when start() installs the next
+        # run. Held only to read or swap the run, never across the join.
+        self._lock = threading.Lock()
         self._ready_event = threading.Event()
         # Why the last run ended: "leadout", an errno, or None (stopped, or
         # still running). mpv sees the FIFO close the same way in every case.
@@ -87,18 +92,19 @@ class CdIoctlReader:
         # 3 s and drops the reference while it is alive; clearing a *shared*
         # event here un-stopped that thread, which resumed writing PCM into the
         # same FIFO as the new one.
-        self._stop_event = threading.Event()
-        self._ready_event.clear()
-        self._outcome = None
-        self._reached = None
-        self._end = [end_lba]
-        self._thread = threading.Thread(
-            target=self._read_loop,
-            args=(start_lba, self._end, self._stop_event),
-            daemon=True,
-            name="cd-ioctl-reader",
-        )
-        self._thread.start()
+        with self._lock:
+            self._stop_event = threading.Event()
+            self._ready_event.clear()
+            self._outcome = None
+            self._reached = None
+            self._end = [end_lba]
+            self._thread = threading.Thread(
+                target=self._read_loop,
+                args=(start_lba, self._end, self._stop_event),
+                daemon=True,
+                name="cd-ioctl-reader",
+            )
+            self._thread.start()
 
     def set_end(self, end_lba: int) -> None:
         """Move the running read's end. One already past it ends at once."""
@@ -110,17 +116,22 @@ class CdIoctlReader:
 
     def stop(self) -> None:
         """Stop the reader thread. Safe to call even if not running."""
-        if not self._thread:
+        with self._lock:
+            thread, stop_event = self._thread, self._stop_event
+        if thread is None:
             return
-        self._stop_event.set()
+        stop_event.set()
         # Unblock writer if stuck waiting for a reader on the FIFO
         with contextlib.suppress(OSError):
             fd = os.open(CD_FIFO_PATH, os.O_RDONLY | os.O_NONBLOCK)
             os.close(fd)
-        self._thread.join(timeout=3.0)
-        if self._thread.is_alive():
+        thread.join(timeout=3.0)
+        if thread.is_alive():
             logger.warning("CD reader thread did not stop within timeout")
-        self._thread = None
+        with self._lock:
+            # A run start() installed while this one was joining is not ours.
+            if self._thread is thread:
+                self._thread = None
 
     def _read_loop(self, start_lba: int, end: list,
                    stop_event: threading.Event) -> None:
