@@ -59,3 +59,94 @@ def test_wifi_adoption_applies_the_audio_overlay_before_reboot():
         r"\b(?:remove|unlink)\(|\brm\b[^\n]*PENDING_CLIENT_ROLE_FILE", code[: call.start()]
     )
     assert not early, f"the marker is removed before the overlay is applied: {early}"
+
+
+HOSTNAME_SET = "hostnamectl set-hostname milo-client"
+DEFAULT_HARDWARE = "_write_default_client_hardware"
+HARDWARE_GUARD = '[[ -s "$MILO_CLIENT_DATA_DIR/hardware.json" ]] ||'
+
+
+def _functions(text: str) -> dict[str, str]:
+    names = re.findall(r"^(\w+)\(\) \{$", text, re.MULTILINE)
+    bodies = {name: _uncommented(_shell_function(text, name)) for name in names}
+    assert len(bodies) >= 3 and all(bodies.values()), (
+        f"could not read the functions of milo-first-boot ({sorted(bodies)}); the extractor is broken"
+    )
+    return bodies
+
+
+def _reached(code: str, functions: dict[str, str]) -> set[str]:
+    """Every function `code` calls, directly or through another one."""
+    reached: set[str] = set()
+    pending = [code]
+    while pending:
+        body = pending.pop()
+        for name, callee in functions.items():
+            if name not in reached and re.search(rf"(?<![\w-]){name}(?![\w-])", body):
+                reached.add(name)
+                pending.append(callee)
+    return reached
+
+
+def test_an_interrupted_client_conversion_is_resumed():
+    """A conversion cut by a power loss must finish on the next boot.
+
+    `_apply_client_filesystem` sets the hostname first and locks the role
+    (`setup_completed`) last, so a speaker unplugged during those 10-25 s boots
+    back as hostname milo-client with setup not completed. If the branch that
+    sees milo.local and that hostname does nothing, every later boot does
+    nothing too: the speaker stays for good with server units still enabled, or
+    no role at all, or a satellite whose data directory was never handed over.
+    That branch is the conversion boot's only way back, so it must reach
+    `_apply_client_filesystem` and the reboot, and keep a card already written
+    to `hardware.json` rather than reset it to none.
+    """
+    text = FIRST_BOOT.read_text()
+    functions = _functions(text)
+
+    found = re.search(r"^    if \$milo_local_found; then\n(.*?)\n    else\n", text, re.MULTILINE | re.DOTALL)
+    assert found, "could not find the milo.local-found branch of milo-first-boot; the extractor is broken"
+    arms = re.search(
+        r'if \[\[ "\$current_hostname" != "milo-client" \]\]; then\n(.*?)\n\s*else\n(.*?)\n\s*fi\b',
+        found.group(1),
+        re.DOTALL,
+    )
+    assert arms, "could not split the milo.local-found branch on the hostname; the extractor is broken"
+    already_client = _uncommented(arms.group(2))
+
+    reached = _reached(already_client, functions)
+    assert "_apply_client_filesystem" in reached, (
+        f"the already-client branch never reaches _apply_client_filesystem (it calls {sorted(reached)})"
+    )
+    assert any("/sbin/reboot" in functions[name] for name in reached), (
+        "the already-client branch resumes the conversion but never reboots into the satellite"
+    )
+
+    for name in reached - {DEFAULT_HARDWARE}:
+        assert not re.search(r">\s*\S*hardware\.json", functions[name]), (
+            f"{name} writes hardware.json directly; the resume path may only write the default when it is missing"
+        )
+        for line in functions[name].splitlines():
+            if DEFAULT_HARDWARE in line:
+                assert line.strip().startswith(HARDWARE_GUARD), (
+                    f"{name} resets hardware.json unconditionally: {line.strip()!r}"
+                )
+
+
+def test_the_client_hostname_marks_a_conversion_in_progress():
+    """The client hostname is set before anything else the conversion changes.
+
+    That hostname, without `setup_completed`, is what tells an interrupted
+    conversion apart on the next boot: with milo.local answering it is resumed,
+    without it `configure_server` reverts the unit. Setting it last, as
+    `configure_server` does for its own hostname, leaves a unit cut after the
+    server units were disabled named milo; with the server off at that boot it
+    then stays "a server" with no backend, no wizard and no satellite, for good.
+    """
+    body = _functions(FIRST_BOOT.read_text())["_apply_client_filesystem"]
+    assert HOSTNAME_SET in body, f"_apply_client_filesystem no longer runs `{HOSTNAME_SET}`"
+    assert "systemctl disable" in body, "_apply_client_filesystem no longer disables the server units"
+    assert body.index(HOSTNAME_SET) < body.index("systemctl disable"), (
+        "the client hostname is set after the server units are disabled: an interrupted conversion "
+        "with the server off is no longer recovered"
+    )

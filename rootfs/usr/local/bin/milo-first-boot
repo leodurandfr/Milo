@@ -6,7 +6,7 @@
 #
 # Idempotent flow (re-evaluated on every boot until setup_completed=true):
 #   - milo.local found on LAN  + hostname=milo        → configure_client (reboot)
-#   - milo.local found on LAN  + hostname=milo-client → no-op (already client)
+#   - milo.local found on LAN  + hostname=milo-client → resume_client_conversion (reboot)
 #   - milo.local not found     + hostname=milo        → no-op (already server)
 #   - milo.local not found     + hostname=milo-client → configure_server (reboot, revert)
 #   - no ethernet IP available                         → no-op (cannot probe)
@@ -223,7 +223,10 @@ wait_for_ethernet_ip() {
 # Does NOT write hardware.json / identity.json (callers handle those) and does
 # NOT reboot — that is the caller's responsibility.
 _apply_client_filesystem() {
-    # 1. Set hostname
+    # 1. Set hostname — first, the reverse of configure_server, and on purpose:
+    # from here on an interrupted conversion is hostname=milo-client without
+    # setup_completed, which both recovery branches of the main block read —
+    # resume_client_conversion while milo.local answers, configure_server when not.
     hostnamectl set-hostname milo-client
     echo "milo-client" > /etc/hostname
     if grep -q "127.0.1.1" /etc/hosts; then
@@ -443,12 +446,8 @@ PY
     chown -R "$MILO_CLIENT_USER:audio" "$MILO_DATA_DIR"
 }
 
-configure_client() {
-    log "Configuring as milo-client..."
-
-    _apply_client_filesystem
-
-    # Default hardware config — user will pick the audio card via the milo-client UI.
+# Default hardware config — user will pick the audio card via the milo-client UI.
+_write_default_client_hardware() {
     cat > "$MILO_CLIENT_DATA_DIR/hardware.json" << 'EOF'
 {
   "audio": {
@@ -456,10 +455,32 @@ configure_client() {
   }
 }
 EOF
+}
+
+configure_client() {
+    log "Configuring as milo-client..."
+
+    _apply_client_filesystem
+    _write_default_client_hardware
     chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
     log "Client data directory created"
 
     log "Client configuration complete — rebooting"
+    /sbin/reboot
+}
+
+# Finish a conversion that lost power before step 10 locked the role. Every step
+# of _apply_client_filesystem is idempotent, so it runs again whole. hardware.json
+# is written only if missing or empty: a client whose settings.json is unreadable
+# also lands here, and the card it has already been given must not fall back to none.
+resume_client_conversion() {
+    log "Resuming an interrupted conversion to milo-client..."
+
+    _apply_client_filesystem
+    [[ -s "$MILO_CLIENT_DATA_DIR/hardware.json" ]] || _write_default_client_hardware
+    chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
+
+    log "Interrupted conversion resumed — rebooting"
     /sbin/reboot
 }
 
@@ -712,7 +733,8 @@ if has_ethernet_carrier 15 && wait_for_ethernet_ip; then
         if [[ "$current_hostname" != "milo-client" ]]; then
             configure_client  # reboots
         else
-            log "milo.local found and already a client — no action"
+            log "milo.local found, hostname milo-client, setup not completed — resuming an interrupted conversion"
+            resume_client_conversion  # reboots
         fi
     else
         if [[ "$current_hostname" == "milo-client" ]]; then
