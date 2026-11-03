@@ -39,8 +39,10 @@ install_qobuz_proxy() {
     configure_qobuz_proxy
 
     # Own the whole tree (venv + config + future credentials.json) as milo:audio
-    # so the milo-qobuz.service (User=milo) can read config + write the token.
+    # so the milo-qobuz.service (User=milo) can read config + write the token,
+    # and close the directory: the token is a bearer for the account.
     chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/qobuz"
+    chmod 0700 "$MILO_DATA_DIR/qobuz"
 
     log_success "qobuz-proxy installed"
 }

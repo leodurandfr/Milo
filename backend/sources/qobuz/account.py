@@ -10,11 +10,11 @@ availability uses the same predicate while the sidecar is not running.
 """
 import json
 import logging
-import os
 
 import aiofiles
 
 from backend.config.constants import MILO_DATA_DIR
+from backend.shared.persistence import write_bytes_atomically
 
 logger = logging.getLogger("source.qobuz.account")
 
@@ -47,7 +47,6 @@ async def clear_credentials() -> None:
         return
     for key in _TOKEN_KEYS:
         creds.pop(key, None)
-    tmp = QOBUZ_CREDENTIALS_FILE.with_suffix(".tmp")
-    async with aiofiles.open(tmp, "w", encoding="utf-8") as f:
-        await f.write(json.dumps(creds, indent=2))
-    os.replace(tmp, QOBUZ_CREDENTIALS_FILE)
+    await write_bytes_atomically(
+        QOBUZ_CREDENTIALS_FILE, json.dumps(creds, indent=2).encode("utf-8"), private=True
+    )

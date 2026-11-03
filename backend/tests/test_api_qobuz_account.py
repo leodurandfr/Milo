@@ -21,7 +21,10 @@ disk the account's state, and this router the only thing that edits it:
   qobuz-proxy's, not Milō's, and rewriting it whole would drop state Milō does
   not know the meaning of.
 """
+import asyncio
 import json
+import os
+import stat
 
 import pytest
 from fastapi import FastAPI
@@ -254,3 +257,32 @@ class TestLogout:
         client.post("/api/qobuz/account/logout")
 
         assert seen == [{}]
+
+    def test_logout_leaves_the_cache_private(self, client, cache):
+        """The cache holds a bearer token that opens the household's Qobuz
+        account from anywhere. A logout that recreates the file under the
+        backend's umask hands whatever survives in it (and the next login's
+        token, which qobuz-proxy writes in place) to every local account.
+        """
+        old = os.umask(0o022)
+        try:
+            cache.write_text(json.dumps({**CREDENTIALS, "device_id": "milo-1"}))
+            cache.chmod(0o644)
+
+            client.post("/api/qobuz/account/logout")
+        finally:
+            os.umask(old)
+
+        assert stat.S_IMODE(cache.stat().st_mode) == 0o600
+
+    async def test_two_concurrent_clears_both_succeed(self, cache, tmp_path):
+        """Two logouts at once (a double tap, the app and the screen) must not
+        race for one temporary file: the loser answered 500 for a token that
+        was in fact cleared.
+        """
+        cache.write_text(json.dumps(CREDENTIALS))
+
+        await asyncio.gather(account.clear_credentials(), account.clear_credentials())
+
+        assert json.loads(cache.read_text()) == {}
+        assert list(tmp_path.glob("*.tmp")) == []

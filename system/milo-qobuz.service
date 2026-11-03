@@ -8,6 +8,8 @@ BindsTo=milo-backend.service
 Type=simple
 User=milo
 Group=audio
+# qobuz-proxy writes the OAuth token with a plain open(..., "w"): keep it 0600.
+UMask=0077
 
 # Through Milō's launcher, not the console script: it applies the two
 # adaptations upstream has no setting for (unity-gain volume policy,

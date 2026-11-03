@@ -20,6 +20,7 @@ The adaptation failing is the same silence on the unit: a stream at upstream's
 it must not.
 """
 import ast
+import configparser
 import enum
 import inspect
 import sys
@@ -594,3 +595,17 @@ def test_the_qobuz_gate_agrees_with_the_backend_gate(adapter):
     total = len(_HOSTS) * len(_ORIGINS) * len(_METHODS)
     assert 0 < refused < total, "the corpus must hold requests either gate passes and refuses"
     assert disagreements == []
+
+
+def test_the_unit_runs_the_launcher_under_a_private_umask():
+    """qobuz-proxy writes its OAuth token cache with a plain `open(..., "w")`
+    and rewrites it in place, so the unit's umask is the file's mode for good.
+    Without one masking group and others, `user_auth_token` is readable by
+    every local account (nginx's, avahi's) — a bearer that opens the account."""
+    unit = configparser.ConfigParser(strict=False, interpolation=None)
+    unit.optionxform = str
+    unit.read(Path(__file__).resolve().parents[2] / "system" / "milo-qobuz.service")
+
+    umask = unit["Service"].get("UMask")
+    assert umask is not None, "milo-qobuz.service declares no UMask"
+    assert int(umask, 8) & 0o077 == 0o077

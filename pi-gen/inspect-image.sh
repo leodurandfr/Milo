@@ -314,6 +314,7 @@ check "nginx site written"          "grep -q 'server_name milo.local' '${ROOT%/}
 check "go-librespot uses avahi"     "grep -q 'zeroconf_backend: avahi' '${ROOT%/}/var/lib/milo/go-librespot/config.yml'"
 check "navidrome config written"    "[ -f '${ROOT%/}/var/lib/milo/navidrome/navidrome.toml' ]"
 check "qobuz config is ASCII-named" "grep -q 'name: Milo' '${ROOT%/}/var/lib/milo/qobuz/config.yaml'"
+check "qobuz dir is private"        "[ \"\$(stat -c %a '${ROOT%/}/var/lib/milo/qobuz')\" = 700 ]"
 check "snapserver.conf written"     "[ -f '${ROOT%/}/etc/snapserver.conf' ]"
 check "routing.env written"         "[ -f '${ROOT%/}/var/lib/milo/routing.env' ]"
 check "snapclient.env written"      "[ -f '${ROOT%/}/var/lib/milo/snapclient.env' ]"
