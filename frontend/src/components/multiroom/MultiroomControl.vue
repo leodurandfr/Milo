@@ -32,6 +32,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { DEFAULT_VOLUME_DB } from '@/constants/volume';
+import { zoneLevelState } from '@/utils/multiroomZone';
 import { logger } from '@/services/logger';
 import MultiroomItem from './MultiroomItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -201,7 +202,7 @@ const realDisplayClients = computed(() => {
             equalizerMuted: getZoneMuted(zone),
             zoneClientIds: zone.client_ids,
             isZone: true,
-            all_external_volume: zone.all_external_volume || false,
+            zoneLevel: zoneLevelState(zoneClientDetails),
             zoneClientDetails
           };
         }
@@ -215,12 +216,8 @@ const realDisplayClients = computed(() => {
       })
       .sort((a, b) => {
         // Zone online status: zone is online if ANY client is online
-        const aOnline = a.isZone
-          ? a.zoneClientDetails?.some(c => c.online) ?? false
-          : a.online;
-        const bOnline = b.isZone
-          ? b.zoneClientDetails?.some(c => c.online) ?? false
-          : b.online;
+        const aOnline = a.isZone ? a.zoneLevel !== 'offline' : a.online;
+        const bOnline = b.isZone ? b.zoneLevel !== 'offline' : b.online;
 
         // Online items first
         if (aOnline && !bOnline) return -1;

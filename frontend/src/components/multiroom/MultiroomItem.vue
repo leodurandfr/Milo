@@ -54,7 +54,7 @@
           :class="{
             'visible': !isLoading,
             'muted': client.equalizerMuted,
-            'offline': !client.online && !isZone
+            'offline': isOffline
           }"
         >
           <span class="item-name">{{ client.name }}</span>
@@ -69,9 +69,9 @@
           :class="{ 'visible': isLoading }"
         ></div>
 
-        <!-- Offline indicator (standalone offline clients) -->
+        <!-- Offline indicator (offline clients, zones with no member reachable) -->
         <div
-          v-if="!client.online && !isZone"
+          v-if="isOffline"
           class="client-offline text-mono-small"
           :class="{ 'visible': !isLoading }"
         >
@@ -122,7 +122,7 @@
           :class="{ 'visible': !isLoading }"
         >
           <Toggle
-            v-if="client.online || isZone"
+            v-if="!isOffline"
             :model-value="!client.equalizerMuted"
             variant="secondary"
             @change="handleMuteToggle"
@@ -313,9 +313,15 @@ const { getThrottledFn: getClientThrottledFn, flush: flushClientVolume } = useVo
 // Check if zone can be expanded (has client details with multiple clients)
 const canExpand = computed(() => props.isZone && props.zoneClientDetails?.length > 1);
 
+// A zone with no member reachable has no level and no mute the server counts.
+const isOffline = computed(() => {
+  if (props.isZone) return props.client.zoneLevel === 'offline';
+  return !props.client.online;
+});
+
 // DAC mode: external amplifier manages volume
 const isExternalVolume = computed(() => {
-  if (props.isZone) return props.client.all_external_volume === true;
+  if (props.isZone) return props.client.zoneLevel === 'external';
   return props.client.volume_control === false;
 });
 
@@ -407,9 +413,9 @@ function toggleExpand() {
 // for it kept its local value — the slider pinned — for good.
 let zoneDragging = false;
 
-// Same for the zone slider, which gives way to the external-volume label.
-watch(isExternalVolume, (external) => {
-  if (external) {
+// Same for the zone slider, which gives way to the offline or external-volume label.
+watch(() => isOffline.value || isExternalVolume.value, (labelled) => {
+  if (labelled) {
     zoneDragging = false;
     localDisplayVolume.value = null;
   }
