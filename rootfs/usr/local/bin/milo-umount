@@ -5,17 +5,36 @@
 #   <mountpoint>: an absolute path directly under /media/milo, exactly as returned
 #                 by milo-mount (the backend hands back what it captured).
 #
-# Counterpart to milo-mount. Validates the target is a real mountpoint directly
-# beneath /media/milo — with a single safe-named component, no traversal — then
-# unmounts it and removes the now-empty directory.
+# Counterpart to milo-mount. Validates the target sits directly beneath
+# /media/milo — a single safe-named component, no traversal — then unmounts it if
+# the mount table lists it and removes the now-empty directory. Exits non-zero
+# while the table still lists the target, so "unmounted" is never said of a
+# mount that stayed.
 # Falls back to a lazy unmount when the mount is busy (Navidrome still holding a
-# file handle, or the device was yanked). Must run as root (milo-backend sudoers).
+# file handle, the device yanked, a NAS gone). Must run as root (milo-backend
+# sudoers).
 set -euo pipefail
 
 MOUNT_ROOT="/media/milo"
 
 log() { echo "milo-umount: $*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
+
+# Whether $1 is a mountpoint, read from the kernel's mount table — never from a
+# stat of the target: on a dead CIFS share the stat fails (EHOSTDOWN, ~10 s),
+# which mountpoint(1) reads as "not mounted". The table escapes a mountpoint's
+# backslash, space, tab and newline as octal, so the target is escaped the same
+# way (backslash first) and matched exactly; awk takes it from the environment
+# because -v would undo the escapes. $2 (another table) is for the tests only.
+in_mount_table() {
+    local t="$1"
+    t="${t//\\/\\134}"
+    t="${t// /\\040}"
+    t="${t//$'\t'/\\011}"
+    t="${t//$'\n'/\\012}"
+    T="$t" awk '$5 == ENVIRON["T"] { found = 1 } END { exit !found }' \
+        "${2:-/proc/self/mountinfo}"
+}
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
 [ $# -eq 1 ] || die "usage: milo-umount <mountpoint>"
@@ -33,9 +52,14 @@ case "$NAME" in
     *) : ;;
 esac
 
-if mountpoint -q "$TARGET"; then
-    umount "$TARGET" 2>/dev/null || umount -l "$TARGET" \
+if in_mount_table "$TARGET"; then
+    # -c: TARGET is already canonical, and canonicalizing it again is a stat.
+    # -k: CIFS waits killably on a dead server, which SIGTERM does not wake.
+    timeout -k 5 10 umount -c "$TARGET" 2>/dev/null || umount -l -c "$TARGET" \
         || die "failed to unmount $TARGET"
+    if in_mount_table "$TARGET"; then
+        die "$TARGET is still mounted after unmounting"
+    fi
     log "unmounted $TARGET"
 else
     log "$TARGET is not mounted (already gone)"
@@ -54,6 +78,8 @@ fi
 # The retry is here because rmdir fails while a lazy unmount is still settling —
 # i.e. when something still holds a handle, which is precisely the case when
 # Navidrome was scanning this mount, which is when the damage would be worst.
+# By here the table no longer lists the target, so these stats reach the local
+# directory, never the share.
 for _ in $(seq 10); do
     rmdir "$TARGET" 2>/dev/null && break
     [ -d "$TARGET" ] || break

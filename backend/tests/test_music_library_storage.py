@@ -325,6 +325,59 @@ async def test_unmount_share_untracked_falls_back_to_deterministic_path(manager)
     assert exec_mock.call_args.args[3] == "/media/milo/nfs-abcd1234"
 
 
+async def test_a_failed_unmount_is_reported(manager, caplog):
+    """milo-umount refusing (a dead NAS whose mount stayed in the table) is an
+    error naming the mountpoint, never "Unmounted share" — an edit or a removal
+    otherwise reports success over a mount only a reboot will clear."""
+    manager._share_mounts["nas-abcd1234"] = "/media/milo/nas-abcd1234"
+    failure = _proc(
+        returncode=1,
+        stderr=b"milo-umount: ERROR: /media/milo/nas-abcd1234 is still mounted",
+    )
+    with caplog.at_level(logging.INFO, logger="source.music_library.storage"), \
+            patch("asyncio.create_subprocess_exec", return_value=failure):
+        assert await manager.unmount_share("nas-abcd1234") is False
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert not any("Unmounted" in m for m in messages)
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("/media/milo/nas-abcd1234" in m for m in errors)
+
+
+async def test_a_confirmed_share_unmount_says_so(manager, caplog):
+    with caplog.at_level(logging.INFO, logger="source.music_library.storage"), \
+            patch("asyncio.create_subprocess_exec", return_value=_proc()):
+        assert await manager.unmount_share("nas-abcd1234") is True
+    assert any("Unmounted share nas-abcd1234" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_failed_usb_unmount_is_not_announced(manager, caplog):
+    manager._mounts["/dev/sda1"] = _volume("/media/milo/USBKEY")
+    with caplog.at_level(logging.INFO, logger="source.music_library.storage"), \
+            patch("asyncio.create_subprocess_exec",
+                  return_value=_proc(returncode=1, stderr=b"still mounted")):
+        await manager._unmount("/dev/sda1")
+    assert not any("Unmounted" in r.getMessage() for r in caplog.records)
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+def test_the_mount_table_is_unescaped_as_the_kernel_escapes_it():
+    """A share path or key label with a space is listed as ``My\\040Music``;
+    read raw, the connected indicator and the helpers would disagree on what is
+    mounted. Field 4 (the root inside the filesystem) is never the mountpoint."""
+    mountinfo = (
+        "36 25 0:40 / /media/milo/My\\040Music ro,nosuid - cifs //nas/m ro\n"
+        "37 25 0:41 / /media/milo/a\\134040b ro - cifs //nas/b ro\n"
+        "38 25 0:42 /media/milo/elsewhere /mnt/bind rw - ext4 /dev/sda1 rw\n"
+        "garbage\n"
+    )
+    assert storage.mount_table_targets(mountinfo) == [
+        "/media/milo/My Music",
+        "/media/milo/a\\040b",
+        "/mnt/bind",
+    ]
+
+
 async def test_forget_share_credentials(manager):
     with patch("asyncio.create_subprocess_exec", return_value=_proc()) as exec_mock:
         await manager.forget_share_credentials("nas-abcd1234")

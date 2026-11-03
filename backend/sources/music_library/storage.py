@@ -27,6 +27,7 @@ never crash the backend.
 import asyncio
 import contextlib
 import logging
+import re
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.config.constants import (
@@ -73,6 +74,29 @@ _HELPER_TIMEOUT_S = 50.0
 # a key plugged in meanwhile to the 6-hourly backstop.
 _SCAN_WAIT_POLL_S = 5.0
 _SCAN_WAIT_CEILING_S = 1800.0
+
+
+# The kernel's mount table escapes these four bytes of a mountpoint as octal
+# (\040 for a space); milo-mount and milo-umount escape their target the same way.
+_MOUNT_TABLE_ESCAPE_RE = re.compile(r"\\(040|011|012|134)")
+
+
+def mount_table_targets(mountinfo: str) -> List[str]:
+    """The mountpoints a ``/proc/self/mountinfo`` text lists, unescaped.
+
+    Read from the table and never by a stat of the target, which fails (after
+    ~10 s) on a dead network share. The one notion of "mounted" the backend and
+    the two helpers share.
+    """
+    targets = []
+    for line in mountinfo.splitlines():
+        fields = line.split()
+        if len(fields) < 5:
+            continue
+        targets.append(
+            _MOUNT_TABLE_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 8)), fields[4])
+        )
+    return targets
 
 
 class StorageManager:
@@ -258,8 +282,8 @@ class StorageManager:
             if not volume:
                 return  # not one of ours (some other block device)
             mountpoint = volume["mountpoint"]
-            await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
-            self.logger.info("Unmounted %s (%s)", devnode, mountpoint)
+            if await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False) == "":
+                self.logger.info("Unmounted %s (%s)", devnode, mountpoint)
         # No scan on removal, and deliberately so: the key keeps its library and
         # its index (libraries.py), and a scan here would only walk a path that no
         # longer exists. The layer above is still told, so the UI drops the key at
@@ -371,8 +395,12 @@ class StorageManager:
         await self.request_scan()
         return mountpoint
 
-    async def unmount_share(self, share_id: str) -> None:
+    async def unmount_share(self, share_id: str) -> bool:
         """Unmount a share (edit/removal). No scan follows.
+
+        Returns whether milo-umount confirmed the mountpoint gone from the mount
+        table; a failure is logged by :meth:`_run_helper`, never announced as an
+        unmount.
 
         Idempotent: falls back to the deterministic /media/milo/<id> mountpoint
         when the share isn't in the session map (e.g. mounted before a backend
@@ -386,12 +414,16 @@ class StorageManager:
             mountpoint = self._share_mounts.pop(
                 share_id, str(MUSIC_LIBRARY_MOUNT_ROOT / share_id)
             )
-            await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False)
-            self.logger.info("Unmounted share %s (%s)", share_id, mountpoint)
+            unmounted = (
+                await self._run_helper(MILO_UMOUNT_CMD, mountpoint, capture=False) == ""
+            )
+            if unmounted:
+                self.logger.info("Unmounted share %s (%s)", share_id, mountpoint)
         # The library itself outlives an unmount that is only a remount (an edit
         # unmounts before it mounts again) — the caller decides, from the share
         # config, whether it still belongs; here we only report the change.
         await self._on_storage_changed()
+        return unmounted
 
     async def forget_share_credentials(self, share_id: str) -> None:
         """Drop a share's root-only cred file (called on share deletion)."""
@@ -405,36 +437,35 @@ class StorageManager:
         :meth:`mount_share` and has not unmounted since.
 
         Not the same as :meth:`get_mounted_share_ids`: a mount left from before a
-        backend restart is in /proc/mounts but was never recorded, and recording
+        backend restart is in the mount table but was never recorded, and recording
         it is what milo-mount's idempotent answer is for.
         """
         return set(self._share_mounts)
 
     def get_mounted_share_ids(self) -> set:
-        """Ids currently mounted under the mount root, read live from /proc/mounts.
+        """Ids currently mounted under the mount root, read live from the mount table.
 
         Lets the settings UI show which shares are actually connected right now (a
-        share can be configured but its NAS offline). Reading /proc/mounts is a
+        share can be configured but its NAS offline). Reading the table is a
         procfs op — it never touches the network filesystem, so it can't hang on a
         dead CIFS/NFS mount the way stat()/os.path.ismount would. Fail-open: an
         unreadable table yields an empty set.
         """
         root = f"{MUSIC_LIBRARY_MOUNT_ROOT}/"
-        mounted: set = set()
         try:
-            with open("/proc/mounts", "r", encoding="utf-8", errors="ignore") as fh:
-                for line in fh:
-                    fields = line.split()
-                    if len(fields) < 2:
-                        continue
-                    # Our ids are slugs (no spaces), so no /proc-mounts octal
-                    # unescaping is needed; only the first path segment is the id.
-                    mountpoint = fields[1]
-                    if mountpoint.startswith(root):
-                        mounted.add(mountpoint[len(root):].split("/")[0])
+            with open(
+                "/proc/self/mountinfo", "r", encoding="utf-8", errors="ignore"
+            ) as fh:
+                targets = mount_table_targets(fh.read())
         except OSError as exc:
-            self.logger.debug("Could not read /proc/mounts: %s", exc)
-        return mounted
+            self.logger.debug("Could not read /proc/self/mountinfo: %s", exc)
+            return set()
+        # Only the first path segment is the id.
+        return {
+            target[len(root):].split("/")[0]
+            for target in targets
+            if target.startswith(root)
+        }
 
     def get_usb_mounts(self) -> List[Dict[str, str]]:
         """USB volumes mounted read-only under the mount root right now.

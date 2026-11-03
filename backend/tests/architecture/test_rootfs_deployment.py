@@ -382,3 +382,85 @@ def test_kiosk_keeps_the_chromium_sandbox():
         f"the kiosk's Chromium invocation was not extracted: {argv!r}"
     )
     assert [arg for arg in argv if arg in SANDBOX_OFF_SWITCHES] == []
+
+
+# --- Mount helpers: "mounted" is read from the table, never by a stat --------
+
+MOUNT_HELPERS = tuple(
+    REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / name
+    for name in ("milo-mount", "milo-umount")
+)
+MOUNT_TABLE_FUNC_RE = re.compile(r"^in_mount_table\(\) \{\n.*?^\}\n", re.MULTILINE | re.DOTALL)
+# A command that answers "mounted?" by stat-ing the target: mountpoint(1), or
+# findmnt pointed at a path (it canonicalizes, which is a stat).
+STAT_MOUNT_TEST_RE = re.compile(
+    r"\bmountpoint\s+(?:-\w+\s+)*[\"$]|\bfindmnt\b.*(?:--mountpoint|--target|\s-[MT]\b)"
+)
+
+
+def _mount_table_func(path: Path) -> str:
+    match = MOUNT_TABLE_FUNC_RE.search(path.read_text(encoding="utf-8"))
+    return match.group(0) if match else ""
+
+
+def _code_lines(path: Path) -> list[str]:
+    return [
+        line for line in path.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+
+
+def test_mount_helpers_read_the_mount_table_not_the_target():
+    """milo-mount and milo-umount decide "mounted" from /proc/self/mountinfo.
+
+    Fails when either helper asks by a stat of the target again. On a CIFS share
+    whose NAS is gone that stat fails after ~10 s, which mountpoint(1) reads as
+    "not mounted": milo-umount then skipped the unmount and exited 0 (the backend
+    logged "Unmounted share"), and milo-mount's mkdir -p died on it, so an edited
+    share stayed down until a reboot. Consumer: the backend's StorageManager,
+    through the milo-backend sudoers grants for both helpers.
+    """
+    funcs = {path.name: _mount_table_func(path) for path in MOUNT_HELPERS}
+    for name, func in funcs.items():
+        assert "/proc/self/mountinfo" in func, f"{name}: in_mount_table() not extracted"
+    assert len(set(funcs.values())) == 1, "the two copies of in_mount_table() differ"
+
+    for path in MOUNT_HELPERS:
+        code = _code_lines(path)
+        calls = [line for line in code if re.search(r"\bin_mount_table\s+\"", line)]
+        assert calls, f"{path.name} never asks in_mount_table()"
+        assert [line for line in code if STAT_MOUNT_TEST_RE.search(line)] == [], (
+            f"{path.name} decides 'mounted' by a stat of the target"
+        )
+
+
+@pytest.mark.parametrize("target,listed", [
+    ("/media/milo/My Music", True),
+    ("/media/milo/My", False),
+    ("/media/milo/a\\b", True),
+    ("/media/milo/a\\134b", False),
+    ("/media/milo/tab\there", True),
+    ("/media/milo/elsewhere", False),
+])
+def test_the_mount_table_check_escapes_the_target_as_the_kernel_does(
+    tmp_path, target, listed
+):
+    """The kernel lists a mountpoint with its space, tab, newline and backslash
+    as octal; a check comparing the raw path would call "My Music" unmounted
+    (milo-mount would then mkdir and mount over it) and a prefix of it mounted.
+    Field 4, the root inside the filesystem, is never the mountpoint."""
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text(
+        "36 25 0:40 / /media/milo/My\\040Music ro - cifs //nas/m ro\n"
+        "37 25 0:41 / /media/milo/a\\134b ro - cifs //nas/b ro\n"
+        "38 25 0:42 / /media/milo/tab\\011here ro - vfat /dev/sda1 ro\n"
+        "39 25 8:1 /media/milo/elsewhere /mnt/bind rw - ext4 /dev/sdb1 rw\n",
+        encoding="utf-8",
+    )
+    func = _mount_table_func(MOUNT_HELPERS[1])
+    assert func, "in_mount_table() not extracted from milo-umount"
+    result = subprocess.run(
+        ["bash", "-c", func + 'in_mount_table "$1" "$2"', "_", target, str(mountinfo)],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == (0 if listed else 1), result.stderr

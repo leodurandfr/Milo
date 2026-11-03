@@ -236,19 +236,20 @@ class TestShareRequestPath:
 
 
 class TestMountedShareIds:
-    def test_reads_proc_mounts(self):
-        proc_mounts = (
-            "/dev/sda1 /media/milo/USB-KEY vfat ro,nosuid 0 0\n"
-            "//nas/Music /media/milo/music-abc123 cifs ro 0 0\n"
-            "//nas2/Photos /media/milo/photos-def456/sub cifs ro 0 0\n"
-            "tmpfs /media/milo tmpfs rw 0 0\n"          # exactly the root — excluded
-            "proc /proc proc rw 0 0\n"
-            "/dev/root / ext4 rw 0 0\n"
+    def test_reads_the_mount_table(self):
+        mountinfo = (
+            "40 25 8:1 / /media/milo/USB-KEY ro,nosuid - vfat /dev/sda1 ro\n"
+            "41 25 0:50 / /media/milo/music-abc123 ro - cifs //nas/Music ro\n"
+            "42 25 0:51 / /media/milo/photos-def456/sub ro - cifs //nas2/Photos ro\n"
+            "43 25 0:52 / /media/milo/My\\040Key ro - vfat /dev/sdb1 ro\n"
+            "24 1 0:22 / /media/milo rw - tmpfs tmpfs rw\n"  # exactly the root — excluded
+            "22 1 0:5 / /proc rw - proc proc rw\n"
+            "1 0 179:2 / / rw - ext4 /dev/root rw\n"
         )
         mgr = StorageManager(AsyncMock(return_value=None), AsyncMock())
-        with patch("builtins.open", mock_open(read_data=proc_mounts)):
+        with patch("builtins.open", mock_open(read_data=mountinfo)):
             ids = mgr.get_mounted_share_ids()
-        assert ids == {"USB-KEY", "music-abc123", "photos-def456"}
+        assert ids == {"USB-KEY", "music-abc123", "photos-def456", "My Key"}
 
     def test_fail_open_on_error(self):
         mgr = StorageManager(AsyncMock(return_value=None), AsyncMock())
