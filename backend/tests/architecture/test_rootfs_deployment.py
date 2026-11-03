@@ -677,3 +677,102 @@ def test_no_helper_truncates_a_boot_partition_file_in_place():
                 f"{path.relative_to(REPO_ROOT)}: no top-level line matching {rx.pattern!r} "
                 "after the rename"
             )
+
+
+# --------------------------------------------------------------------------- #
+# A helper run by sudo imports nothing from the caller's directory.
+# --------------------------------------------------------------------------- #
+
+SUDOERS_HELPER_RE = re.compile(r"^\S+\s+ALL=\(root\)\s+NOPASSWD:\s+(/usr/local/bin/\S+)", re.MULTILINE)
+# The interpreter word and the short options that follow it, up to the first
+# word that is not one.
+PYTHON_CALL_RE = re.compile(r"\bpython3?(?:\.\d+)?\b((?:\s+-[A-Za-z]+)*)")
+HARDWARE_HELPERS = {
+    name: tree / "usr" / "local" / "lib" / "milo" / "hardware-helpers.sh" for name, tree in TREES.items()
+}
+
+
+def _python_flags(options: str) -> str:
+    """The flag letters before the one that ends the options (`-c` / `-m`)."""
+    flags = ""
+    for word in options.split():
+        letters = word[1:]
+        cut = min((letters.index(c) for c in "cm" if c in letters), default=None)
+        flags += letters[:cut]
+        if cut is not None:
+            break
+    return flags
+
+
+def _files_run_by_sudo() -> list[Path]:
+    """Every NOPASSWD helper both policies grant, plus the files they source."""
+    files: list[Path] = []
+    for tree in TREES.values():
+        for policy in sorted((tree / "etc" / "sudoers.d").iterdir()):
+            for abs_path in SUDOERS_HELPER_RE.findall(policy.read_text(encoding="utf-8")):
+                helper = tree / abs_path.lstrip("/")
+                for path in [helper, *(tree / p.lstrip("/") for p in _sourced_paths(helper))]:
+                    if path not in files:
+                        files.append(path)
+    return files
+
+
+def test_helpers_run_by_sudo_import_nothing_from_the_callers_directory():
+    """Every `python3` a root helper runs carries `-I`.
+
+    sudo keeps the caller's working directory, and `python3 -c` puts that
+    directory first on `sys.path`: a `json.py` left there by the `milo` or
+    `milo-client` account runs as root on the next `import json`, before the
+    helper has checked anything. On a satellite that walks around the
+    argument-scoped sudoers policy. `-I` drops the current directory, the user
+    site and `PYTHON*` from the environment, and changes neither argv nor stdin.
+    Fails naming `file:line` for each invocation without it. Consumers: the
+    server's setup wizard and Hardware page (`milo-apply-hardware`), the
+    satellite's `POST /api/hardware/reboot` (`milo-client-apply-hardware`).
+    """
+    files = _files_run_by_sudo()
+    assert set(HARDWARE_HELPERS.values()) <= set(files), f"sourced helpers not extracted: {files}"
+
+    calls = [
+        (path, number, match.group(1))
+        for path in files
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if number > 1 and not line.lstrip().startswith("#")
+        for match in PYTHON_CALL_RE.finditer(line)
+    ]
+    assert len(calls) >= 4, f"python invocations not extracted: {calls}"
+
+    unisolated = [
+        f"{path.relative_to(REPO_ROOT)}:{number}: python3{options}"
+        for path, number, options in calls
+        if "I" not in _python_flags(options)
+    ]
+    assert not unisolated, "python run by sudo without -I:\n" + "\n".join(unisolated)
+
+
+@pytest.mark.parametrize("tree_name", sorted(HARDWARE_HELPERS))
+def test_hardware_helpers_ignore_a_json_module_in_the_working_directory(tree_name, tmp_path):
+    """`read_json` and `validate_hardware_json` load the stdlib json, whatever the cwd holds.
+
+    The static check above trusts that `-I` is the flag that closes this; this
+    one runs the helpers from a directory holding a planted `json.py`. Fails
+    when that module runs.
+    """
+    marker = tmp_path / "planted-ran"
+    (tmp_path / "json.py").write_text(f"open({str(marker)!r}, 'a').write('ran\\n')\n", encoding="utf-8")
+    (tmp_path / "hardware.json").write_text('{"audio": {"overlay": "hifiberry-dac"}}', encoding="utf-8")
+    (tmp_path / "config.txt").write_text("", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "bash", "-c",
+            f'source {shlex.quote(str(HARDWARE_HELPERS[tree_name]))}; '
+            'HARDWARE_FILE=hardware.json; CONFIG_FILE=config.txt; '
+            'read_json audio.overlay; validate_hardware_json',
+        ],
+        cwd=tmp_path, capture_output=True, text=True, timeout=30, check=False,
+    )
+
+    assert not marker.exists(), f"the planted json.py ran: {marker.read_text()!r}"
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "hifiberry-dac"

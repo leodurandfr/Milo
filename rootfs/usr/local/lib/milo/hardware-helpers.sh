@@ -20,7 +20,7 @@ LEGACY_SWEEP_OVERLAYS="$VALID_AUDIO_OVERLAYS hifiberry-dacplus"
 
 # --- JSON reader ---
 read_json() {
-    python3 -c "
+    python3 -I -c "
 import json, sys
 with open(sys.argv[1]) as f:
     data = json.load(f)
@@ -52,7 +52,7 @@ validate_hardware_json() {
         echo "ERROR: $HARDWARE_FILE not found" >&2
         exit 1
     fi
-    if ! python3 -c "import json, sys; json.load(sys.stdin)" < "$HARDWARE_FILE" 2>/dev/null; then
+    if ! python3 -I -c "import json, sys; json.load(sys.stdin)" < "$HARDWARE_FILE" 2>/dev/null; then
         echo "ERROR: $HARDWARE_FILE is not valid JSON" >&2
         exit 1
     fi
