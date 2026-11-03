@@ -59,10 +59,11 @@ for DEB_VER in "\$DEBIAN_VERSION" "bookworm"; do
     rm -f snapserver_*.deb snapclient_*.deb
 done
 
-# Fallback to apt repositories
-if [ "\$SNAP_INSTALLED" != "true" ]; then
-    apt-get install -y snapserver snapclient
-fi
+# Debian's snapcast is not the pinned one: an image without it must not build.
+[ "\$SNAP_INSTALLED" = true ] || { echo "FATAL: snapcast ${SNAPCAST_VERSION} not installed"; exit 1; }
+for p in snapserver snapclient; do
+    [ "\$(dpkg-query -W -f='\${db:Status-Abbrev}\${Version}' \$p)" = "ii ${SNAPCAST_VERSION}-1" ] || { echo "FATAL: \$p is not ${SNAPCAST_VERSION}-1, installed"; exit 1; }
+done
 
 rm -f /tmp/snapserver_*.deb /tmp/snapclient_*.deb
 

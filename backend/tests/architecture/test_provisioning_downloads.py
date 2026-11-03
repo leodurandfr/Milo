@@ -24,9 +24,16 @@ Two rules, both from defects measured on 2026-09-02:
     variance, and it is not silenced — if both arms fail, `set -e` ends the run,
     which is right.
 
-Nothing else catches either class. These are shell files run in a chroot on a
+The first rule has a second half, measured later: **a pinned download has no
+unpinned fallback.** "Should abort" means nothing if a failed pinned fetch falls
+through to installing the same package from the distribution. The snapcast block
+did exactly that — its `.deb` fetches failing fell through to `apt-get install
+snapserver snapclient`, trixie's 0.31.0 under a manifest that says 0.35.0, and the
+build stayed green.
+
+Nothing else catches any of these. These are shell files run in a chroot on a
 builder CI reaches only through a three-hour job; there is no import to fail and
-no route to 404, and both symptoms are a green build that produced a wrong image.
+no route to 404, and every symptom is a green build that produced a wrong image.
 
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on
@@ -127,7 +134,8 @@ def test_the_fetch_extractor_sees_both_kinds():
 def test_an_unpinned_download_cannot_abort_the_image_build():
     """A vendor outage must cost a feature, never the whole provisioning run.
 
-    Pinned dependency downloads are exempt on purpose: those *should* abort.
+    Pinned dependency downloads are exempt on purpose: those *should* abort —
+    which `test_a_pinned_dependency_has_no_unpinned_install_fallback` holds.
     """
     declared = _declared_versions()
     unguarded = [
@@ -176,3 +184,86 @@ def test_the_apt_extractor_sees_the_installs():
     # ...and the matcher must discriminate.
     assert re.search(r"\|\|\s*true\s*$", "apt install -y x || true")
     assert not re.search(r"\|\|\s*true\s*$", "apt install -y x || apt install -y y")
+
+
+# The package a pinned URL delivers, read from its basename: `snapserver_0.35.0-1_…`,
+# `go-librespot_linux_arm64…`, `camilladsp-linux-aarch64…` — the name stops at the
+# `_`/`-` before the version variable or the platform.
+PINNED_PACKAGE_RE = re.compile(
+    r"/([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*?)[_-](?:linux|\$)"
+)
+
+# `NN-packages[-nr]` lists are installed by pi-gen itself, one name per word, with no
+# version: a pinned package listed there is the same fallback by another path.
+PACKAGE_LISTS = sorted((REPO_ROOT / "pi-gen" / "stage-milo").rglob("*-packages*"))
+
+
+def _pinned_packages(declared: set[str]) -> set[str]:
+    names = {
+        name
+        for _tree, _path, line in _fetches()
+        if _is_pinned(line, declared)
+        for name in PINNED_PACKAGE_RE.findall(line)
+    }
+    assert len(names) >= 4 and {"snapserver", "snapclient"} <= names, (
+        f"pinned package names extracted: {sorted(names)}"
+    )
+    return names
+
+
+def _unpinned_install_of(line: str, packages: set[str], declared: set[str]) -> set[str]:
+    """The pinned packages this statement's `apt install`s take from the distribution.
+
+    Read per command, so `pinned || unpinned` on one line is still caught: an
+    install that names a declared `*_VERSION` is the pinned `.deb` itself, one
+    that names a pinned package bare installs whatever version the mirror has.
+    """
+    found: set[str] = set()
+    for command in re.split(r"\|\||&&|[;|]", line):
+        if APT_INSTALL_RE.search(command) and not _is_pinned(command, declared):
+            found |= {arg.strip("\"'") for arg in command.split()} & packages
+    return found
+
+
+def test_a_pinned_dependency_has_no_unpinned_install_fallback():
+    """A pinned fetch that fails must end the image build, not swap in Debian's.
+
+    The image would ship a version `dependencies.env` never validated, on the
+    server and on every satellite flashed from it, with a green build and a
+    passing inspection.
+    """
+    declared = _declared_versions()
+    packages = _pinned_packages(declared)
+
+    # The rule must discriminate before it is trusted.
+    assert _unpinned_install_of("apt-get install -y snapserver snapclient", packages, declared)
+    assert not _unpinned_install_of(
+        'apt-get install -y "./snapserver_${SNAPCAST_VERSION}-1_arm64_x.deb"', packages, declared
+    )
+    assert not _unpinned_install_of("apt-get install -y libportaudio2", packages, declared)
+    assert _unpinned_install_of(
+        'apt-get install -y "./snapserver_${SNAPCAST_VERSION}-1_arm64_x.deb" '
+        "|| apt-get install -y snapserver",
+        packages,
+        declared,
+    )
+
+    fallbacks = [
+        f"{tree}: {path.relative_to(REPO_ROOT)}: {line.strip()[:90]}"
+        for tree, paths in FETCH_TREES.items()
+        for path in paths
+        for line in _statements(path)
+        if _unpinned_install_of(line, packages, declared)
+    ]
+    assert PACKAGE_LISTS, "no pi-gen 00-packages list found"
+    fallbacks += [
+        f"pi-gen: {path.relative_to(REPO_ROOT)}: {name}"
+        for path in PACKAGE_LISTS
+        for line in _statements(path)
+        for name in sorted(set(line.split()) & packages)
+    ]
+    assert not fallbacks, (
+        "these installs take a package dependencies.env pins from the "
+        "distribution, at whatever version it carries; the pinned fetch must "
+        "abort the build instead:\n" + "\n".join(fallbacks)
+    )

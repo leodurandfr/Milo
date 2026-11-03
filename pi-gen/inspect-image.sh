@@ -296,6 +296,16 @@ for b in go-librespot navidrome camilladsp snapserver snapclient shairport-sync 
         bad "binary $b not found"
     fi
 done
+# Present is not enough: Debian's snapcast is a binary of the same name.
+SNAPCAST_VERSION=$(sed -n 's/^SNAPCAST_VERSION=//p' "$REPO/dependencies.env" 2>/dev/null)
+if [[ -z "$SNAPCAST_VERSION" ]]; then
+    bad "SNAPCAST_VERSION not read from $REPO/dependencies.env"
+else
+    for p in snapserver snapclient; do
+        check "$p is ${SNAPCAST_VERSION}-1, installed" \
+              "[ \"\$(dpkg-query --admindir='${ROOT%/}/var/lib/dpkg' -W -f='\${db:Status-Abbrev}\${Version}' $p)\" = 'ii ${SNAPCAST_VERSION}-1' ]"
+    done
+fi
 # configure maps localstatedir to ${prefix}/var once --prefix is given, and the
 # unit's StateDirectory= only creates /var/lib/bluealsa.
 check "bluealsa stores under /var/lib/bluealsa" \
