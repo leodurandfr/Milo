@@ -32,7 +32,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from typing import Iterator, List, Optional, Set, Tuple
+from typing import AsyncIterator, Iterator, List, Optional, Set, Tuple
 
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
@@ -51,6 +51,16 @@ from backend.core.network.models import (
 # if multiple fresh devices broadcast their hotspot at the same time, the
 # scanner deduplicates by SSID and only one of them is adoptable at a time.
 HOTSPOT_NAME = "Milō"
+
+# The station profile the speaker adoption joins a speaker's setup hotspot
+# through (`core/multiroom/wifi_adoption.py`). Its SSID is HOTSPOT_NAME, its
+# name must not be: the recovery AP deletes the profile called HOTSPOT_NAME
+# before raising itself. Kept out of the `milo-` prefix `_get_saved_ssid` reads.
+ADOPTION_PROFILE = "Milō adoption"
+
+# The WiFi profiles this unit creates for its own use. Neither stands for a
+# network the unit is on: not a link, not credentials, not a home network.
+OWN_PROFILES = frozenset({HOTSPOT_NAME, ADOPTION_PROFILE})
 
 # nmcli's exit status for "Connection, device, or access point does not exist"
 # (nmcli(1), EXIT STATUS): a delete that found nothing to remove.
@@ -137,6 +147,8 @@ class NetworkService:
         # fire-and-forget one: it has to be cancellable the instant a link
         # appears, or an AP is raised seconds after the unit became reachable.
         self._recovery_arm: Optional[asyncio.Task] = None
+        # How many `recovery_held()` are open: none arms the timer meanwhile.
+        self._recovery_holds: int = 0
         # The loop that tries the home network again while the AP is up, tracked
         # for the same reason: anything that takes the AP down ends it.
         self._station_retry: Optional[asyncio.Task] = None
@@ -217,6 +229,30 @@ class NetworkService:
         finally:
             self._recovery_clients -= 1
             self._recovery_client_left = time.monotonic()
+
+    @contextlib.asynccontextmanager
+    async def recovery_held(self) -> AsyncIterator[None]:
+        """Held while the unit leaves its network on purpose — the speaker
+        adoption, which takes a WiFi-only server onto a speaker's hotspot for
+        as long as an association, a push and a restore take. No recovery AP is
+        raised meanwhile, and a timer still waiting is disarmed: an AP raised
+        then takes the radio from under the adoption. A timer already raising
+        the AP is let finish instead — cut short, it leaves the AP owned and
+        half made (`_start_hotspot`) — so read `hotspot_active` only inside.
+        Released, the reachability is looked at again, in the background, so
+        the holder's own error stands."""
+        self._recovery_holds += 1
+        try:
+            arm = self._recovery_arm
+            if arm is not None and self._hotspot_active:
+                await asyncio.wait({arm})
+            else:
+                self._cancel_recovery_arm()
+            yield
+        finally:
+            self._recovery_holds -= 1
+            if not self._recovery_holds:
+                self._bg.spawn(self.evaluate_reachability(), label="recovery_hold_released")
 
     # =========================================================================
     # Public API
@@ -486,7 +522,7 @@ class NetworkService:
         profiles = []
         for line in stdout.split("\n"):
             fields = _parse_nmcli_line(line) if line else []
-            if len(fields) >= 3 and "wireless" in fields[2] and fields[0] != HOTSPOT_NAME:
+            if len(fields) >= 3 and "wireless" in fields[2] and fields[0] not in OWN_PROFILES:
                 profiles.append((fields[0], fields[1]))
 
         answers = await asyncio.gather(*(
@@ -548,7 +584,7 @@ class NetworkService:
             name, device = fields[0], fields[1]
             if device != self.WIFI_INTERFACE:
                 continue
-            if name == HOTSPOT_NAME:
+            if name in OWN_PROFILES:
                 continue
             active_name = name
             break
@@ -690,7 +726,7 @@ class NetworkService:
             await self._restore_radio_preference(status)
             return
 
-        if self._hotspot_active or self._recovery_arm is not None:
+        if self._hotspot_active or self._recovery_arm is not None or self._recovery_holds:
             return
 
         self._recovery_arm = asyncio.create_task(self._raise_recovery_ap_after_delay())
@@ -777,15 +813,14 @@ class NetworkService:
     async def _station_profiles(self) -> List[str]:
         """The WiFi client profiles that stand for a home network — `milo-` ones
         first, as the wizard and the WiFi panel write them, then any other,
-        netplan's included; never one named like the AP, which is the recovery
-        AP's own or a speaker's setup hotspot."""
+        netplan's included; never one of the unit's own (OWN_PROFILES)."""
         rc, stdout, _ = await self._run_nmcli("-t", "-f", "NAME,TYPE", "connection", "show")
         if rc != 0:
             return []
         names = [
             fields[0]
             for fields in map(_parse_nmcli_line, stdout.split("\n"))
-            if len(fields) >= 2 and "wireless" in fields[1] and fields[0] != HOTSPOT_NAME
+            if len(fields) >= 2 and "wireless" in fields[1] and fields[0] not in OWN_PROFILES
         ]
         return sorted(names, key=lambda name: not name.startswith("milo-"))
 
@@ -981,7 +1016,8 @@ class NetworkService:
 
             # `is not True`: the AP is down because this try took it down, and
             # an unknown answer must not leave the unit with no way in at all.
-            if await self._has_active_connection() is not True:
+            # Under a hold the radio is taken: its release looks again.
+            if not self._recovery_holds and await self._has_active_connection() is not True:
                 self._cancel_recovery_arm()
                 await self._start_hotspot()
 
@@ -1025,9 +1061,9 @@ class NetworkService:
         """Whether wlan0 carries this unit's own AP, up or still activating —
         NM finishes an activation whether or not its caller is still there.
 
-        The name alone is not enough: the speaker adoption joins a speaker's
-        setup hotspot through a station profile of the same name, and only the
-        profile's mode tells the two apart.
+        The name alone is not proof: a station profile can carry it too (one
+        made by hand to join a speaker's `Milō`), and adopting that would read
+        `hotspot_active` on a unit that raised nothing. Only `ap` mode is ours.
         """
         rc, stdout, _ = await self._run_nmcli(
             "-t", "-f", "TYPE,STATE,CONNECTION", "device", "status"
@@ -1073,8 +1109,8 @@ class NetworkService:
             device_type, state, connection = fields[0], fields[1], fields[2]
             if state != "connected":
                 continue
-            # Skip the setup hotspot AP connection
-            if connection == HOTSPOT_NAME:
+            # Neither the unit's own AP nor a speaker's hotspot is a link
+            if connection in OWN_PROFILES:
                 continue
             if device_type in ("ethernet", "wifi"):
                 return True
@@ -1182,8 +1218,8 @@ class NetworkService:
         if state != NM_DEVICE_STATE_ACTIVATED or ip_address:
             self._lease_wait_since = None
 
-        # Hotspot's own AP connection is not a real WiFi client connection.
-        if not connection or connection == HOTSPOT_NAME:
+        # Neither the unit's own AP nor a speaker's hotspot is a network it joined.
+        if not connection or connection in OWN_PROFILES:
             return WifiConnectionStatus(connected=False, saved_ssid=saved)
         if not ip_address:
             # Not connected until the IPv4 lease: the Avahi dispatcher won't

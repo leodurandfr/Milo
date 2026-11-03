@@ -5,8 +5,9 @@ caller-chosen `ssid` (`AdoptSpeakerRequest.ssid` is a free-form `str`), and the
 first thing `_connect_to_hotspot` does with it is `nmcli connection delete
 <ssid>`. The `ssid != HOTSPOT_NAME` check is the only thing between that body
 and the deletion of any NetworkManager profile on this server, its own home
-wifi included. The hotspot check is what stops a fresh server from deleting the
-setup AP the operator is connected through, then trying to adopt itself.
+wifi included. The hotspot check is what stops a fresh server from taking the
+radio from the setup AP the operator is connected through, then trying to adopt
+itself.
 Consumer: `api/discovery.py::adopt_speaker`, which maps `AdoptionError.code`
 onto an HTTP status.
 
@@ -15,13 +16,14 @@ under the whole suite — the `def` lines and `__init__`, nothing else. No test
 had ever built an AdoptionError.
 """
 import asyncio
+import contextlib
 
 import pytest
 from unittest.mock import MagicMock
 
 from backend.core.multiroom import wifi_adoption
 from backend.core.multiroom.wifi_adoption import AdoptionError, WifiAdoptionService
-from backend.core.network.service import HOTSPOT_NAME
+from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME
 
 
 AUDIO = {
@@ -63,7 +65,8 @@ async def test_a_foreign_ssid_is_refused_before_nmcli_runs(service):
 
 
 async def test_adoption_is_refused_while_the_server_broadcasts_the_setup_hotspot(service):
-    """Both profiles are named `Milō` — adopting from hotspot mode deletes ours."""
+    """The AP holds the server's one radio: joining a speaker's hotspot would
+    take it from the clients that reach the server through it."""
     service.network_service.hotspot_active = True
 
     with pytest.raises(AdoptionError) as exc:
@@ -259,7 +262,7 @@ class TestAdoptionOrchestration:
         await _adopt(adopting)
 
         assert spawns.index_of("connection", "show", "--active") < \
-            spawns.index_of("connection", "up", HOTSPOT_NAME)
+            spawns.index_of("connection", "up", ADOPTION_PROFILE)
 
     async def test_the_temp_profile_is_created_without_autoconnect(self, adopting, spawns):
         """The profile is torn down in a `finally`; a crash or power cut before
@@ -294,9 +297,9 @@ class TestAdoptionOrchestration:
         """
         await _adopt(adopting)
 
-        deletes = spawns.indexes_of("connection", "delete", HOTSPOT_NAME)
+        deletes = spawns.indexes_of("connection", "delete", ADOPTION_PROFILE)
         assert len(deletes) == 2, "one on the way in, one on the way out"
-        assert deletes[-1] > spawns.index_of("connection", "up", HOTSPOT_NAME)
+        assert deletes[-1] > spawns.index_of("connection", "up", ADOPTION_PROFILE)
         assert spawns.argv_containing("connection", "up", "Maison")
 
     async def test_the_server_comes_home_when_the_speaker_rejects_the_push(
@@ -313,7 +316,7 @@ class TestAdoptionOrchestration:
             await _adopt(adopting)
 
         assert exc.value.code == "push_rejected"
-        assert len(spawns.indexes_of("connection", "delete", HOTSPOT_NAME)) == 2
+        assert len(spawns.indexes_of("connection", "delete", ADOPTION_PROFILE)) == 2
         assert spawns.argv_containing("connection", "up", "Maison")
 
     async def test_an_already_configured_speaker_is_named_as_such(self, adopting, speaker):
@@ -345,13 +348,13 @@ class TestAdoptionOrchestration:
     ):
         """`_connect_to_hotspot` raises before the `try/finally` is entered, so
         its cleanup is a second, separate site — one that is easy to forget."""
-        spawns.script(f"connection up {HOTSPOT_NAME}", returncode=4, stderr="no such network")
+        spawns.script(f"connection up {ADOPTION_PROFILE}", returncode=4, stderr="no such network")
 
         with pytest.raises(AdoptionError) as exc:
             await _adopt(adopting)
 
         assert exc.value.code == "hotspot_connect_failed"
-        assert len(spawns.indexes_of("connection", "delete", HOTSPOT_NAME)) == 2
+        assert len(spawns.indexes_of("connection", "delete", ADOPTION_PROFILE)) == 2
         assert spawns.argv_containing("connection", "up", "Maison")
 
     async def test_an_nmcli_that_never_returns_is_killed_and_reported(
@@ -359,7 +362,7 @@ class TestAdoptionOrchestration:
     ):
         """A hung `connection up` must not hold the adoption lock forever."""
         monkeypatch.setattr(wifi_adoption, "HOTSPOT_CONNECT_TIMEOUT", 0.01)
-        spawns.script(f"connection up {HOTSPOT_NAME}", hangs=True)
+        spawns.script(f"connection up {ADOPTION_PROFILE}", hangs=True)
 
         with pytest.raises(AdoptionError) as exc:
             await _adopt(adopting)
@@ -377,6 +380,69 @@ class TestAdoptionOrchestration:
         await _adopt(adopting)
 
         assert spawns.argv_containing("device", "disconnect", "wlan0")
+
+
+class TestTheAdoptionAndTheRecoveryAccessPoint:
+    """Two owners, one radio: the adoption and NetworkService's recovery AP.
+
+    What breaks when these fail: the adoption's temporary profile was named
+    `Milō`, like the AP. On a WiFi-only server the adoption leaves the home
+    network, NetworkService reads "no link" and, 45 s later, raises its AP —
+    whose first step deletes the profile named `Milō` the push was riding, and
+    the adoption's cleanup then deletes the AP's. Consumer:
+    `NetworkService.recovery_held`, the hold the adoption runs inside.
+    """
+
+    async def test_the_temporary_profile_is_not_named_like_the_access_point(self, adopting, spawns):
+        """It joins the SSID `Milō`, under a profile name the AP never uses."""
+        await _adopt(adopting)
+
+        added = spawns.argv_containing("connection", "add")[0]
+        assert added[added.index("ssid") + 1] == HOTSPOT_NAME
+        assert added[added.index("con-name") + 1] != HOTSPOT_NAME
+        deleted = [call[-1] for call in spawns.calls if call[1:3] == ("connection", "delete")]
+        assert deleted, "the adoption deleted nothing at all"
+        assert HOTSPOT_NAME not in deleted, "the adoption deleted the access point's profile"
+
+    async def test_the_recovery_ap_is_held_from_the_hotspot_until_home_is_restored(
+        self, adopting, spawns
+    ):
+        """Held before the server leaves its network, released only once it is
+        back on it — a hold ending at the push would let the timer fire during
+        a restore that takes its 30 s."""
+        @contextlib.asynccontextmanager
+        async def recovery_held():
+            spawns.calls.append(("<hold>",))
+            yield
+            spawns.calls.append(("</hold>",))
+
+        adopting.network_service.recovery_held = recovery_held
+
+        await _adopt(adopting)
+
+        held = spawns.calls.index(("<hold>",))
+        released = spawns.calls.index(("</hold>",))
+        assert held < spawns.index_of("connection", "up", ADOPTION_PROFILE)
+        assert spawns.index_of("connection", "up", "Maison") < released
+
+    async def test_an_access_point_raised_as_the_hold_begins_refuses_the_adoption(
+        self, adopting, spawns
+    ):
+        """Entering the hold lets a timer already raising the AP finish: read
+        before it, `hotspot_active` would miss that AP and the adoption would
+        take the radio it is coming up on."""
+        @contextlib.asynccontextmanager
+        async def recovery_held():
+            adopting.network_service.hotspot_active = True
+            yield
+
+        adopting.network_service.recovery_held = recovery_held
+
+        with pytest.raises(AdoptionError) as exc:
+            await _adopt(adopting)
+
+        assert exc.value.code == "server_in_hotspot_mode"
+        assert spawns.calls == []
 
 
 class TestWhichConnectionIsRestored:
@@ -397,6 +463,8 @@ class TestWhichConnectionIsRestored:
         # in. Filtering that name out of the restore check is what made an
         # earlier version of this test blind to the very guard it names.
         assert len(spawns.indexes_of("connection", "up", HOTSPOT_NAME)) == 1
+        assert spawns.indexes_of("connection", "up", HOTSPOT_NAME) == \
+            spawns.indexes_of("connection", "up", ADOPTION_PROFILE)
 
     async def test_a_wired_server_has_no_wifi_to_restore(self, adopting, spawns):
         """This appliance is wired: nothing on wlan0 before, nothing to bring
@@ -407,7 +475,7 @@ class TestWhichConnectionIsRestored:
         await _adopt(adopting)
 
         assert spawns.indexes_of("connection", "up") == \
-            spawns.indexes_of("connection", "up", HOTSPOT_NAME)
+            spawns.indexes_of("connection", "up", ADOPTION_PROFILE)
         assert not spawns.argv_containing("device", "disconnect")
 
     async def test_a_name_carrying_a_colon_survives_the_terse_parser(

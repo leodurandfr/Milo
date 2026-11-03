@@ -40,7 +40,7 @@ from starlette.requests import Request
 
 from backend.api.route_helpers import RecoveryAccessPointGate
 from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
-from backend.core.network.service import HOTSPOT_NAME, NetworkService, _parse_nmcli_line
+from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME, NetworkService, _parse_nmcli_line
 
 
 # --------------------------------------------------------------------------- #
@@ -417,14 +417,18 @@ async def test_an_interface_without_an_ip_is_reported_disconnected(service):
     assert status.wifi.connected is False
 
 
+@pytest.mark.parametrize("profile", [HOTSPOT_NAME, ADOPTION_PROFILE])
 @pytest.mark.asyncio
-async def test_the_setup_hotspot_is_not_reported_as_a_wifi_connection(service):
-    """The AP Milō raises for its own wizard is not a network it joined.
+async def test_the_setup_hotspot_is_not_reported_as_a_wifi_connection(service, profile):
+    """The AP Milō raises for its own wizard is not a network it joined, and
+    neither is a speaker's setup hotspot the adoption joined for a minute.
 
-    Reporting it as connected would let the wizard believe setup succeeded
-    while the unit is still serving its own captive portal.
+    Reporting the first as connected would let the wizard believe setup
+    succeeded while the unit is still serving its own captive portal; the
+    second, an open "Milō", is what "WiFi joined" would then push to every
+    satellite as its standby link.
     """
-    fake, patcher = with_nmcli(_status_router(wlan=(HOTSPOT_NAME, "10.42.0.1")))
+    fake, patcher = with_nmcli(_status_router(wlan=(profile, "10.42.0.1")))
     with patcher:
         status = await service.get_network_status()
 
@@ -1200,8 +1204,8 @@ async def test_an_access_point_left_up_by_a_previous_process_is_adopted_and_take
 
 @pytest.mark.asyncio
 async def test_a_speakers_setup_hotspot_the_server_had_joined_is_not_adopted(service):
-    """The speaker adoption joins a speaker's own `Milō` hotspot through a
-    station profile of that very name. Taken for the unit's AP across a restart,
+    """A station profile named like the AP joins a speaker's own `Milō`
+    hotspot (one made by hand). Taken for the unit's AP across a restart,
     it would read `hotspot_active: true` — speaker discovery empty, adoption
     refused as "server in hotspot mode" — on a unit that raised nothing."""
     nm = FakeNetworkManager(profiles={HOTSPOT_NAME: "infrastructure"}, active={HOTSPOT_NAME})
@@ -1211,6 +1215,75 @@ async def test_a_speakers_setup_hotspot_the_server_had_joined_is_not_adopted(ser
         await service.initialize()
 
     assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_no_recovery_ap_is_raised_while_an_adoption_holds_it(service):
+    """The speaker adoption takes a WiFi-only server off its home network on
+    purpose, for as long as an association and a push take — past the settle
+    window at worst. Read as "no link" (a speaker's hotspot is none), it raised
+    the AP mid-push: the AP's stale-profile delete took the profile the
+    adoption was riding, the push failed, and the adoption's cleanup then
+    deleted the AP's. Released, the hold looks again — and a unit still on the
+    speaker's hotspot has no link, so it gets its AP, beside that profile."""
+    nm = FakeNetworkManager(profiles={ADOPTION_PROFILE: "infrastructure"}, active={ADOPTION_PROFILE})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay():
+        async with service.recovery_held():
+            await service.evaluate_reachability()
+            await asyncio.sleep(0.05)
+            assert service.hotspot_active is False
+            assert not fake.argv_containing("add")
+        await settle_until(lambda: HOTSPOT_NAME in nm.active)
+        await service.cleanup()
+
+    assert service.hotspot_active is True
+    assert nm.profiles[ADOPTION_PROFILE] == "infrastructure", "the AP took the adoption's profile"
+
+
+@pytest.mark.asyncio
+async def test_a_recovery_timer_already_running_when_an_adoption_starts_is_disarmed(service):
+    """The server lost its link a moment before the adoption began: the timer,
+    past its wait and still deciding, would raise the AP mid-adoption — the
+    very collision the hold exists for."""
+    nm = FakeNetworkManager()
+    nm.hold("radio", "wifi")
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: nm.in_flight)
+        async with service.recovery_held():
+            nm.release()
+            await asyncio.gather(*nm.in_flight)
+            await asyncio.sleep(0.05)
+            assert service.hotspot_active is False
+            assert not fake.argv_containing("add")
+        await service.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_an_access_point_being_raised_when_an_adoption_starts_is_let_finish(service):
+    """Cut short between its profile and its `connection up`, a raise leaves
+    `hotspot_active` set over an AP NM never brought up: the adoption refused
+    for an AP nobody can join, and with the flag up no evaluation raised a real
+    one. The hold waits for the raise instead, and is entered on an AP that is
+    really there."""
+    nm = FakeNetworkManager()
+    nm.hold("connection", "add")
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: nm.in_flight)
+
+        async def adoption():
+            async with service.recovery_held():
+                return service.hotspot_active, HOTSPOT_NAME in nm.active
+
+        held = asyncio.ensure_future(adoption())
+        await asyncio.sleep(0.02)
+        nm.release()
+        assert await held == (True, True)
+        await service.cleanup()
 
 
 @pytest.mark.asyncio
@@ -1391,6 +1464,34 @@ async def test_an_access_point_adopted_after_a_restart_still_retries_the_home_ne
 
     assert HOTSPOT_NAME not in nm.profiles
     assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_a_failed_home_network_try_raises_no_access_point_under_an_adoption(service):
+    """A try takes the AP down for its `connection up`, and an adoption can
+    begin in that window — `hotspot_active` reads False. Raised again when the
+    try fails, the AP takes the radio mid-adoption; held, it comes back once the
+    hold is released and the unit still has no link."""
+    nm = FakeNetworkManager(
+        profiles={HOTSPOT_NAME: "ap", STATION: "infrastructure"}, active={HOTSPOT_NAME},
+        unreachable={STATION: 1},
+    )
+    nm.hold(*STATION_UP)
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.STATION_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await settle_until(lambda: nm.in_flight)
+        async with service.recovery_held():
+            nm.release()
+            await asyncio.gather(*nm.in_flight)
+            await asyncio.sleep(0.05)
+            assert HOTSPOT_NAME not in nm.active
+            assert service.hotspot_active is False
+        released = len(fake.calls)
+        await settle_until(lambda: ("connection", "up", HOTSPOT_NAME) in fake.calls[released:])
+        await service.cleanup()
 
 
 # --------------------------------------------------------------------------- #
@@ -1888,12 +1989,13 @@ async def test_the_credentials_pushed_to_a_speaker_are_the_ones_on_wlan0(service
     assert fake.calls[1][-1] == "milo-Freebox-CA3555"
 
 
+@pytest.mark.parametrize("profile", [HOTSPOT_NAME, ADOPTION_PROFILE])
 @pytest.mark.asyncio
-async def test_the_setup_hotspot_is_never_offered_as_home_credentials(service):
-    """During first-boot setup wlan0 carries the unit's own AP. Handing "Milō"
-    to a speaker sends it to an access point that stops existing the moment
-    setup completes."""
-    fake, patcher = with_nmcli(creds_router(active=f"{HOTSPOT_NAME}:wlan0"))
+async def test_the_setup_hotspot_is_never_offered_as_home_credentials(service, profile):
+    """During first-boot setup wlan0 carries the unit's own AP, and during an
+    adoption a speaker's setup hotspot. Handing "Milō" to a speaker sends it to
+    an access point that stops existing the moment setup completes."""
+    fake, patcher = with_nmcli(creds_router(active=f"{profile}:wlan0"))
     with patcher:
         assert await service.get_active_wifi_credentials() is None
 

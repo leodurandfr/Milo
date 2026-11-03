@@ -6,7 +6,8 @@ When a fresh speaker exposes its setup hotspot ('Milō'), the server can adopt
 it without ever touching the speaker physically:
 
   1. Capture the server's currently active wifi connection (for restore).
-  2. Add + activate an open NM profile to join the speaker's hotspot.
+  2. Add + activate an open NM profile (ADOPTION_PROFILE) to join the
+     speaker's hotspot.
   3. Discover the speaker's gateway IP (typically 10.42.0.1, served by the
      hotspot's NetworkManager 'shared' mode).
   4. POST /api/setup/become-client with audio config + target wifi creds.
@@ -19,7 +20,10 @@ Side effects on the server:
   - Ethernet servers keep their LAN through the whole flow.
 
 The temporary network switch breaks any TCP connection to the caller; it is
-the caller's responsibility (UI) to handle the brief outage.
+the caller's responsibility (UI) to handle the brief outage. The whole switch
+runs inside `NetworkService.recovery_held()`: off its home network, a
+WiFi-only server reads "no link", and the recovery AP it would raise takes the
+one radio from under the adoption.
 """
 import asyncio
 import logging
@@ -28,7 +32,7 @@ from typing import Optional, Tuple
 
 import aiohttp
 
-from backend.core.network.service import HOTSPOT_NAME, _parse_nmcli_line
+from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME, OWN_PROFILES, _parse_nmcli_line
 
 
 logger = logging.getLogger(__name__)
@@ -89,15 +93,17 @@ class WifiAdoptionService:
         """
         if ssid != HOTSPOT_NAME:
             raise AdoptionError("invalid_ssid", f"'{ssid}' is not the Milō hotspot SSID")
-        if self.network_service.hotspot_active:
-            raise AdoptionError(
-                "server_in_hotspot_mode",
-                "Cannot adopt while broadcasting the setup hotspot",
-            )
         if not wifi_ssid:
             raise AdoptionError("invalid_target_wifi", "Target wifi SSID is required")
 
-        async with self._lock:
+        async with self._lock, self.network_service.recovery_held():
+            # Read inside the hold: entering it lets a raise already under way
+            # finish first.
+            if self.network_service.hotspot_active:
+                raise AdoptionError(
+                    "server_in_hotspot_mode",
+                    "Cannot adopt while broadcasting the setup hotspot",
+                )
             return await self._adopt_impl(
                 ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password
             )
@@ -120,7 +126,7 @@ class WifiAdoptionService:
         try:
             await self._connect_to_hotspot(ssid)
         except AdoptionError:
-            await self._cleanup_temp_profile(ssid)
+            await self._cleanup_temp_profile()
             await self._restore_connection(original_connection)
             raise
 
@@ -137,7 +143,7 @@ class WifiAdoptionService:
                 gateway, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password
             )
         finally:
-            await self._cleanup_temp_profile(ssid)
+            await self._cleanup_temp_profile()
             await self._restore_connection(original_connection)
 
         self.logger.info(
@@ -147,7 +153,7 @@ class WifiAdoptionService:
         return {"ssid": ssid, "gateway": gateway}
 
     async def _connect_to_hotspot(self, ssid: str) -> None:
-        await self._run_nmcli("connection", "delete", ssid)
+        await self._run_nmcli("connection", "delete", ADOPTION_PROFILE)
 
         # No wifi-sec setting at all: the setup hotspot is open, and NM reads
         # `key-mgmt=none` as *WEP with static keys*, then refuses to activate
@@ -161,7 +167,7 @@ class WifiAdoptionService:
             "connection", "add",
             "type", "wifi",
             "ifname", WLAN_INTERFACE,
-            "con-name", ssid,
+            "con-name", ADOPTION_PROFILE,
             "ssid", ssid,
             "connection.autoconnect", "no",
         )
@@ -172,7 +178,7 @@ class WifiAdoptionService:
             )
 
         rc, _, stderr = await self._run_nmcli(
-            "connection", "up", ssid, timeout=HOTSPOT_CONNECT_TIMEOUT
+            "connection", "up", ADOPTION_PROFILE, timeout=HOTSPOT_CONNECT_TIMEOUT
         )
         if rc != 0:
             raise AdoptionError(
@@ -221,11 +227,11 @@ class WifiAdoptionService:
                 "push_failed", f"Cannot reach speaker at {gateway}: {e}"
             ) from e
 
-    async def _cleanup_temp_profile(self, ssid: str) -> None:
-        rc, _, stderr = await self._run_nmcli("connection", "delete", ssid)
+    async def _cleanup_temp_profile(self) -> None:
+        rc, _, stderr = await self._run_nmcli("connection", "delete", ADOPTION_PROFILE)
         if rc != 0:
             self.logger.warning(
-                "Failed to delete temp hotspot profile '%s': %s", ssid, stderr
+                "Failed to delete temp hotspot profile '%s': %s", ADOPTION_PROFILE, stderr
             )
 
     async def _restore_connection(self, name: Optional[str]) -> None:
@@ -260,7 +266,7 @@ class WifiAdoptionService:
             name, device = fields[0], fields[1]
             if device != WLAN_INTERFACE:
                 continue
-            if name == HOTSPOT_NAME:
+            if name in OWN_PROFILES:
                 continue
             return name
         return None
