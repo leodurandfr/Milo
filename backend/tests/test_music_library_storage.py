@@ -288,6 +288,21 @@ async def test_mount_share_failure_records_nothing(manager, navidrome):
     navidrome.start_scan.assert_not_awaited()
 
 
+async def test_a_quiet_mount_failure_raises_no_error(manager, caplog):
+    """The share remount loop's plateau attempts ask for quiet: an error reaches
+    every screen's banner, and a NAS that stays off would raise one every five
+    minutes for as long as it is away."""
+    with caplog.at_level(logging.DEBUG, logger="source.music_library.storage"):
+        with patch("asyncio.create_subprocess_exec",
+                   return_value=_proc(returncode=1, stderr=b"cifs mount failed")):
+            assert await manager.mount_share(_CIFS_SHARE, quiet=True) is None
+            assert await manager.mount_share(_CIFS_SHARE) is None
+
+    assert [r.levelno for r in caplog.records if "failed" in r.getMessage()] == [
+        logging.DEBUG, logging.ERROR,
+    ]
+
+
 async def test_unmount_share_unmounts_and_scans_nothing(manager, navidrome):
     """An unmount runs no scan — a scan here would walk a path that no longer
     exists, and the removal's own reconcile is what retires the library."""

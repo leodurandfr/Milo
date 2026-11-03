@@ -34,10 +34,16 @@ from backend.sources.music_library.models import ShareRequest
 from backend.sources.music_library.navidrome_client import CATALOG_UNREACHABLE
 from backend.sources.music_library.storage import NavidromeProvider, StorageManager
 
-# Bounded catch-up schedule (seconds between attempts) for network shares whose
-# NAS was still offline when the backend booted — a NAS often boots slower than
-# the Pi. ~1.75 min total, then we give up; not an ongoing reconnection loop.
+# Retry schedule (seconds between attempts) for configured network shares that
+# are not mounted. The ramp covers the usual boot race (a NAS boots slower than
+# the Pi); the plateau covers a router and a NAS that take minutes to come back
+# after a power cut, and keeps going until every configured share is mounted —
+# giving up left one out of the library for the rest of the session.
+# Slow on purpose: each attempt is one milo-mount held under the storage lock
+# (up to the helper timeout against a host that does not answer), which a USB
+# hotplug or a share edit waits behind.
 _SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
+_SHARE_REMOUNT_PLATEAU_S = 300
 
 # Scan-watcher cadence. Navidrome exposes no scan event of any kind and runs its
 # own 6-hourly schedule, so a scan starts that Milō never asked for — polling is
@@ -114,10 +120,15 @@ class NetworkShareService:
         # made a scan likely, so a short one is not missed between two polls.
         self._scan_kick = asyncio.Event()
         self._bg = BackgroundTaskSet(self._logger, "music_library.shares")
-        # Boot-remount retry for shares whose NAS was still offline at startup
-        # (see _mount_configured). Tracked so it isn't GC'd mid-flight; bounded
-        # and self-terminating, so it needs no explicit cancellation.
-        self._retry_task: Optional[asyncio.Task] = None
+        # The remount loop (see _remount_configured): one at a time, and a
+        # share write that did not mount rearms the running one.
+        self._remounting = False
+        self._remount_rearm = asyncio.Event()
+        # One share write at a time, the remount loop's attempts included: an
+        # attempt that read a share before an edit or a removal landed would
+        # otherwise mount the old config between the edit's unmount and its
+        # mount, or mount a share that no longer exists.
+        self._write_lock = asyncio.Lock()
         # share id -> did its far side answer the last probe. An id absent from
         # the map reads as alive, which is what makes the probe purely
         # subtractive: it can hide a share it has caught being dead, and can
@@ -145,27 +156,29 @@ class NetworkShareService:
         The config load runs first and is the one **fail-loud** step: a
         schema_version drift raises SchemaVersionMismatch, which the gather in
         dependencies.py turns into the reset banner + SystemExit(1). USB detection
-        and network remounting are both **fail-open** (no udev on a dev host just
-        disables auto-mount; an offline NAS is skipped), so neither can block
-        startup.
+        is **fail-open** (no udev on a dev host just disables auto-mount), and the
+        network remount runs in the background, so neither can block startup: a
+        NAS that does not answer used to hold the API for one mount timeout per
+        share.
         """
         await self._data.initialize()
         await self._storage.initialize()
-        await self._mount_configured()
-        # Every successful mount above already synced; this pass covers the ones
-        # that did not fire a hook — a configured share whose NAS is offline, and
-        # a boot with nothing plugged in at all.
+        # Every share that mounts fires the hook and syncs again; this pass
+        # covers the ones that do not — a configured share whose NAS is offline,
+        # and a boot with nothing plugged in at all.
         await self._sync_libraries()
+        self._remount_soon(boot=True)
         self._bg.spawn(self._watch_scan(), label="scan-watcher")
         self._bg.spawn(self._watch_share_liveness(), label="share-liveness")
 
     async def cleanup(self) -> None:
         """Stop the USB monitor thread and drain the library reconciler.
 
-        Called from the lifespan teardown: the reconcile retry and the scan
-        watcher are background tasks, and one still sleeping on its schedule at
-        shutdown would only wake to talk to a Navidrome that is going down with
-        us.
+        Called from the lifespan teardown: the remount loop, the reconcile retry
+        and the scan watcher are background tasks, and one still sleeping on its
+        schedule at shutdown would only wake to talk to a Navidrome (or a NAS)
+        while the backend is going down. The remount loop is the one that never
+        ends on its own while a share stays away.
 
         The probe pool is dropped without waiting: a worker parked on a dead
         mount returns when the kernel gives up on the link, which is minutes,
@@ -176,39 +189,112 @@ class NetworkShareService:
         await self._storage.cleanup()
         await self._libraries.cleanup()
 
-    async def _mount_configured(self) -> None:
-        """Boot remount of every configured network share (fail-open per share).
+    def _remount_soon(self, boot: bool = False) -> None:
+        """Have the remount loop try the unmounted shares again, starting it if
+        it is not running; a running one starts its ramp over."""
+        if self._remounting:
+            self._remount_rearm.set()
+            return
+        self._remounting = True
+        self._bg.spawn(self._remount_configured(boot=boot), label="share-remount")
+
+    async def _remount_configured(self, boot: bool) -> None:
+        """Mount every configured network share, retrying until none is missing.
 
         No credentials are supplied — milo-mount reuses each share's persisted
-        root-only cred file. A share whose NAS is offline at boot is retried in
-        the background by :meth:`_retry_offline` (common reboot race: the Pi is
-        up before the NAS finishes booting), so it reconnects without a manual
-        re-save. Never raises.
+        root-only cred file. The boot pass runs at once; then the ramp, then the
+        plateau, until every configured share is mounted, so a NAS that comes
+        back late reconnects without a manual re-save. Every pass reads the
+        config again, so a share removed or mounted by an edit in the meantime
+        drops out. One warning when the ramp ends; past it, failures are quiet.
+        Each successful mount triggers a Navidrome rescan via mount_share.
         """
+        ramp = _SHARE_REMOUNT_RETRY_DELAYS_S
+        attempt = 0
+        first = boot
         try:
-            shares = await self._data.list_shares()
-        except Exception as e:
-            self._logger.warning(f"Could not load network shares: {e}")
-            return
-        offline = [s for s in shares if not await self._try_mount(s)]
-        if offline:
-            self._retry_task = asyncio.create_task(self._retry_offline(offline))
+            while True:
+                if not first:
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(
+                            self._remount_rearm.wait(),
+                            ramp[attempt] if attempt < len(ramp)
+                            else _SHARE_REMOUNT_PLATEAU_S,
+                        )
+                        self._remount_rearm.clear()
+                        attempt = 0
+                        continue
+                    attempt += 1
+                first = False
+                quiet = attempt > len(ramp)
+                try:
+                    pending = await self._remount_pass(quiet=quiet)
+                except Exception as e:
+                    # The config could not be read, so nothing says every
+                    # share is mounted: the next pass reads it again.
+                    self._logger.log(
+                        logging.DEBUG if quiet else logging.WARNING,
+                        f"Share remount pass failed: {e}",
+                    )
+                    pending = None
+                if pending == [] and not self._remount_rearm.is_set():
+                    if attempt:
+                        self._logger.info("All configured shares remounted")
+                    return
+                if pending != [] and attempt == len(ramp):
+                    self._logger.warning(
+                        "Shares still not mounted: %s; retrying every %d s",
+                        pending if pending is not None else "config unreadable",
+                        _SHARE_REMOUNT_PLATEAU_S,
+                    )
+        finally:
+            self._remounting = False
 
-    async def _try_mount(self, share: Dict[str, Any]) -> bool:
+    async def _remount_pass(self, quiet: bool) -> List[str]:
+        """One attempt at each configured share; returns the ids still unmounted.
+
+        A share is skipped only when it is mounted *and* this session recorded
+        that mount. A backend restart leaves the mounts in place, unrecorded, and
+        milo-mount's idempotent answer is what records one and asks for its scan
+        — so one whose NAS died meanwhile is asked again until it answers.
+        """
+        pending: List[str] = []
+        for share_id in [s["id"] for s in await self._data.list_shares()]:
+            async with self._write_lock:
+                share = await self._data.get_share(share_id)
+                if share is None:
+                    continue
+                if (
+                    share_id in self._storage.recorded_share_ids()
+                    and share_id in self._storage.get_mounted_share_ids()
+                ):
+                    continue
+                if not await self._try_mount(share, quiet=quiet):
+                    pending.append(share_id)
+        return pending
+
+    async def _try_mount(self, share: Dict[str, Any], quiet: bool = False) -> bool:
         """One remount attempt for a configured share; True on success.
 
-        Fail-open like the rest of the boot path: an offline NAS returns None
+        Fail-open like the rest of the remount path: an offline NAS returns None
         (or the helper raises), which we log and report as not-mounted so the
-        caller can retry it — never propagates.
+        caller can retry it — never propagates. ``quiet`` logs a failure at
+        debug, for an attempt that is expected to fail.
         """
         try:
-            return await self._mount_share(share) is not None
+            return await self._mount_share(share, quiet=quiet) is not None
         except Exception as e:
-            self._logger.warning(f"Failed to mount share {share.get('id')}: {e}")
+            self._logger.log(
+                logging.DEBUG if quiet else logging.WARNING,
+                f"Failed to mount share {share.get('id')}: {e}",
+            )
             return False
 
     async def _mount_share(
-        self, share: Dict[str, Any], credentials: Optional[Dict[str, str]] = None
+        self,
+        share: Dict[str, Any],
+        credentials: Optional[Dict[str, str]] = None,
+        quiet: bool = False,
     ) -> Optional[str]:
         """Mount a share and drop whatever the liveness probe thought of it.
 
@@ -218,7 +304,9 @@ class NetworkShareService:
         a dead share's host and saving it would leave the settings row grey and
         the library out of the browser until the next probe caught up.
         """
-        mountpoint = await self._storage.mount_share(share, credentials=credentials)
+        mountpoint = await self._storage.mount_share(
+            share, credentials=credentials, quiet=quiet
+        )
         if mountpoint is not None:
             self._alive.pop(share["id"], None)
             self._probe_failures.pop(share["id"], None)
@@ -242,29 +330,6 @@ class NetworkShareService:
         a marked track is already absent from every catalog answer.
         """
         await self._storage.unmount_share(share_id)
-
-    async def _retry_offline(self, shares: List[Dict[str, Any]]) -> None:
-        """Retry shares that were offline at boot over a short, bounded schedule.
-
-        Covers the reboot race where the NAS (or the LAN) isn't reachable yet
-        when initialize() runs. Drops each share as it connects and exits once
-        all are mounted or the schedule is exhausted — this is a boot catch-up,
-        deliberately NOT an ongoing reconnection loop (a share going offline
-        while running is out of scope; the appliance is rebooted, not repaired
-        live). Each successful mount triggers a Navidrome rescan via mount_share.
-        """
-        pending = list(shares)
-        for delay in _SHARE_REMOUNT_RETRY_DELAYS_S:
-            await asyncio.sleep(delay)
-            pending = [s for s in pending if not await self._try_mount(s)]
-            if not pending:
-                self._logger.info("All boot-offline shares remounted")
-                return
-        self._logger.warning(
-            "Gave up remounting %d share(s) still offline: %s",
-            len(pending),
-            [s.get("id") for s in pending],
-        )
 
     # =========================================================================
     # READS
@@ -737,29 +802,32 @@ class NetworkShareService:
         Returns the created share (no credentials — the password is written only
         to the root-only cred file by milo-mount, never surfaced here) plus a
         transient ``mounted`` flag so the UI can confirm the mount succeeded
-        (the config is persisted either way — a share that's down now remounts at
-        the next boot, but the user should be told it didn't connect).
+        (the config is persisted either way — a share that's down now is retried
+        in the background, but the user should be told it didn't connect).
         """
-        share = await self._data.add_share(
-            share_type=req.type,
-            host=req.host,
-            path=req.path,
-            name=req.name,
-            has_credentials=bool(req.password),
-            username=req.username,
-            domain=req.domain,
-        )
-        mountpoint = await self._mount_share(
-            share, credentials=self._credentials(req)
-        )
-        # A share whose NAS is down never reached the mount hook, so this is what
-        # gives it its library: a configured share keeps one whether or not it
-        # answers today (libraries.py), and without this it would stay
-        # unbrowsable until an unrelated mount change or a reboot.
-        if mountpoint is None:
-            await self._sync_libraries()
-        self._on_catalog_changed()
-        return {**share, "mounted": mountpoint is not None}
+        async with self._write_lock:
+            share = await self._data.add_share(
+                share_type=req.type,
+                host=req.host,
+                path=req.path,
+                name=req.name,
+                has_credentials=bool(req.password),
+                username=req.username,
+                domain=req.domain,
+            )
+            mountpoint = await self._mount_share(
+                share, credentials=self._credentials(req)
+            )
+            # A share whose NAS is down never reached the mount hook, so this is
+            # what gives it its library: a configured share keeps one whether or
+            # not it answers today (libraries.py), and without this it would stay
+            # unbrowsable until an unrelated mount change or a reboot. The
+            # remount loop then keeps trying it.
+            if mountpoint is None:
+                await self._sync_libraries()
+                self._remount_soon()
+            self._on_catalog_changed()
+            return {**share, "mounted": mountpoint is not None}
 
     async def update(
         self, share_id: str, req: ShareRequest
@@ -769,57 +837,62 @@ class NetworkShareService:
         Returns the updated share, or None if no share has that id. A request that
         omits the password keeps the existing cred file (idempotent PUT).
         """
-        existing = await self._data.get_share(share_id)
-        if existing is None:
-            return None
-        updates: Dict[str, Any] = {
-            "type": req.type,
-            "host": req.host,
-            "path": req.path,
-            "name": req.name,
-        }
-        # Credentials move as a unit with the password (which rewrites the cred
-        # file): a new password stores the new username/domain too; NFS clears
-        # them; a CIFS edit that omits the password keeps the existing login.
-        if req.type == "nfs":
-            updates.update(has_credentials=False, username=None, domain=None)
-        elif req.password:
-            updates.update(has_credentials=True, username=req.username, domain=req.domain)
-        share = await self._data.update_share(share_id, updates)
-        if share is None:
-            return None
-        # Clearing the flag is not enough: milo-mount attaches <id>.cred whenever
-        # the file exists, whatever the share now says. Left behind, it would
-        # remount a share switched back to CIFS with the old password while the
-        # edit screen — which reads has_credentials — says none is saved.
-        if req.type == "nfs" and existing.get("has_credentials"):
-            await self._storage.forget_share_credentials(share_id)
-        # Unmount first so a changed host/path/credentials actually takes effect.
-        await self._unmount_share(share_id)
-        mountpoint = await self._mount_share(
-            share, credentials=self._credentials(req)
-        )
-        # Same reason as in add(): a failed remount fires no hook, and the new
-        # name has to reach the library even when the NAS is not answering.
-        if mountpoint is None:
-            await self._sync_libraries()
-        self._on_catalog_changed()
-        return {**share, "mounted": mountpoint is not None}
+        async with self._write_lock:
+            existing = await self._data.get_share(share_id)
+            if existing is None:
+                return None
+            updates: Dict[str, Any] = {
+                "type": req.type,
+                "host": req.host,
+                "path": req.path,
+                "name": req.name,
+            }
+            # Credentials move as a unit with the password (which rewrites the cred
+            # file): a new password stores the new username/domain too; NFS clears
+            # them; a CIFS edit that omits the password keeps the existing login.
+            if req.type == "nfs":
+                updates.update(has_credentials=False, username=None, domain=None)
+            elif req.password:
+                updates.update(
+                    has_credentials=True, username=req.username, domain=req.domain
+                )
+            share = await self._data.update_share(share_id, updates)
+            if share is None:
+                return None
+            # Clearing the flag is not enough: milo-mount attaches <id>.cred whenever
+            # the file exists, whatever the share now says. Left behind, it would
+            # remount a share switched back to CIFS with the old password while the
+            # edit screen — which reads has_credentials — says none is saved.
+            if req.type == "nfs" and existing.get("has_credentials"):
+                await self._storage.forget_share_credentials(share_id)
+            # Unmount first so a changed host/path/credentials actually takes effect.
+            await self._unmount_share(share_id)
+            mountpoint = await self._mount_share(
+                share, credentials=self._credentials(req)
+            )
+            # Same reasons as in add(): a failed remount fires no hook, and the new
+            # name has to reach the library even when the NAS is not answering.
+            if mountpoint is None:
+                await self._sync_libraries()
+                self._remount_soon()
+            self._on_catalog_changed()
+            return {**share, "mounted": mountpoint is not None}
 
     async def remove(self, share_id: str) -> bool:
         """Unmount, drop the config entry, and forget the credentials. Returns
         False if no share has that id."""
-        if await self._data.get_share(share_id) is None:
-            return False
-        await self._unmount_share(share_id)
-        await self._data.remove_share(share_id)
-        await self._storage.forget_share_credentials(share_id)
-        # The unmount's own sync still saw the share in the config (config is
-        # dropped after, so a failed unmount can't orphan it); this is the pass
-        # that actually retires its library.
-        await self._sync_libraries()
-        self._on_catalog_changed()
-        return True
+        async with self._write_lock:
+            if await self._data.get_share(share_id) is None:
+                return False
+            await self._unmount_share(share_id)
+            await self._data.remove_share(share_id)
+            await self._storage.forget_share_credentials(share_id)
+            # The unmount's own sync still saw the share in the config (config
+            # is dropped after, so a failed unmount can't orphan it); this is the
+            # pass that actually retires its library.
+            await self._sync_libraries()
+            self._on_catalog_changed()
+            return True
 
     @staticmethod
     def _credentials(req: ShareRequest) -> Optional[Dict[str, str]]:

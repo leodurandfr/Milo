@@ -274,6 +274,7 @@ class StorageManager:
         *args: str,
         capture: bool,
         stdin: Optional[bytes] = None,
+        failure_level: int = logging.ERROR,
     ) -> Optional[str]:
         """Run a milo-mount / milo-umount helper via ``sudo -n``.
 
@@ -283,7 +284,8 @@ class StorageManager:
 
         Returns the helper's stripped stdout (the mountpoint) when ``capture`` is
         set and it exited 0, else None. Fail-open: a missing sudoers rule, absent
-        helper or timeout logs and returns None rather than raising.
+        helper or timeout logs (at ``failure_level``) and returns None rather
+        than raising.
         """
         arg_str = " ".join(args)
         proc = None
@@ -307,14 +309,17 @@ class StorageManager:
             # stuck in D state). asyncio's child watcher reaps sudo on its own.
             if proc:
                 proc.kill()
-            self.logger.error("%s timed out for %s", helper, arg_str)
+            self.logger.log(failure_level, "%s timed out for %s", helper, arg_str)
             return None
         except Exception as exc:
-            self.logger.error("%s failed to spawn for %s: %s", helper, arg_str, exc)
+            self.logger.log(
+                failure_level, "%s failed to spawn for %s: %s", helper, arg_str, exc
+            )
             return None
 
         if proc.returncode != 0:
-            self.logger.error(
+            self.logger.log(
+                failure_level,
                 "%s failed (rc=%s) for %s: %s",
                 helper, proc.returncode, arg_str,
                 stderr.decode(errors="replace").strip(),
@@ -327,7 +332,10 @@ class StorageManager:
     # =========================================================================
 
     async def mount_share(
-        self, share: Dict[str, Any], credentials: Optional[Dict[str, str]] = None
+        self,
+        share: Dict[str, Any],
+        credentials: Optional[Dict[str, str]] = None,
+        quiet: bool = False,
     ) -> Optional[str]:
         """Mount a configured SMB/NFS share read-only under the mount root.
 
@@ -336,7 +344,9 @@ class StorageManager:
         (the helper reuses the stored file). Returns the mountpoint on success or
         None (fail-open: an offline NAS logs and returns None, never raises, so a
         share that is down at boot can't block startup). Triggers a Navidrome
-        rescan on success so the newly-visible tracks get indexed.
+        rescan on success so the newly-visible tracks get indexed. ``quiet`` logs
+        a failure at debug rather than error, for a background retry against a
+        NAS known to be away: an error reaches every screen's banner.
         """
         share_id = share["id"]
         args = (
@@ -348,7 +358,8 @@ class StorageManager:
         stdin = self._encode_credentials(credentials) if credentials else None
         async with self._lock:
             mountpoint = await self._run_helper(
-                MILO_MOUNT_CMD, *args, capture=True, stdin=stdin
+                MILO_MOUNT_CMD, *args, capture=True, stdin=stdin,
+                failure_level=logging.DEBUG if quiet else logging.ERROR,
             )
             if not mountpoint:
                 return None
@@ -388,6 +399,16 @@ class StorageManager:
             await self._run_helper(
                 MILO_MOUNT_CMD, "--forget", "--id", share_id, capture=False
             )
+
+    def recorded_share_ids(self) -> set:
+        """Ids of the shares this session mounted (or found mounted) through
+        :meth:`mount_share` and has not unmounted since.
+
+        Not the same as :meth:`get_mounted_share_ids`: a mount left from before a
+        backend restart is in /proc/mounts but was never recorded, and recording
+        it is what milo-mount's idempotent answer is for.
+        """
+        return set(self._share_mounts)
 
     def get_mounted_share_ids(self) -> set:
         """Ids currently mounted under the mount root, read live from /proc/mounts.

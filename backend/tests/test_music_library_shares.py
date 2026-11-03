@@ -1,8 +1,8 @@
 """Unit tests for the Music Library network-share service (NetworkShareService).
 
-Covers the boot remount of configured SMB/NFS shares plus its bounded catch-up
-retry for a NAS that was still offline when the backend booted, and the liveness
-probe that keeps ``mounted`` honest for a share whose far side died. The config store and the
+Covers the boot remount of configured SMB/NFS shares plus the retry that keeps
+trying a share whose NAS does not answer for as long as it is configured, the
+liveness probe that keeps ``mounted`` honest for a share whose far side died. The config store and the
 storage layer are driven through their own public API; nothing privileged is
 touched (milo-mount is behind StorageManager, which has its own tests) and the
 filesystem is stubbed at ``os.statvfs``, the one call the probe makes.
@@ -35,52 +35,256 @@ def shares():
     return service
 
 
+REMOUNT_TASK = "music_library.shares.share-remount"
+RAMP = "backend.sources.music_library.shares._SHARE_REMOUNT_RETRY_DELAYS_S"
+PLATEAU = "backend.sources.music_library.shares._SHARE_REMOUNT_PLATEAU_S"
+
+
+def _remount_tasks():
+    return [t for t in asyncio.all_tasks() if t.get_name() == REMOUNT_TASK]
+
+
+async def _remount_settled():
+    """Wait for the remount loop to end on its own. The bound only turns a loop
+    that never exits into a failure instead of a hung run; it is not a budget."""
+    tasks = _remount_tasks()
+    if tasks:
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=5)
+
+
+@pytest.fixture
+def remounting(shares):
+    """A share service ready to boot: one configured share, and a mount table
+    that answers what the mounts that succeeded put in it."""
+    configured = [{"id": "a"}]
+    mounted = set()
+    shares._data.list_shares = AsyncMock(side_effect=lambda: list(configured))
+    shares._storage.get_mounted_share_ids = Mock(side_effect=lambda: set(mounted))
+    shares._storage.recorded_share_ids = Mock(side_effect=lambda: set(mounted))
+    shares._libraries.reconcile = AsyncMock(return_value=True)
+    shares._storage.cleanup = AsyncMock()
+    shares._libraries.cleanup = AsyncMock()
+    shares.configured = configured
+
+    def answering(*answers):
+        """mount_share answering these in turn, recording each success."""
+        pending = list(answers)
+
+        async def _mount(share, credentials=None, **_):
+            path = pending.pop(0)
+            if path is not None:
+                mounted.add(share["id"])
+            return path
+
+        return AsyncMock(side_effect=_mount)
+
+    shares.answering = answering
+    yield shares
+    shares._probe_pool.shutdown(wait=False, cancel_futures=True)
+
+
 class TestBootRemountRetry:
-    """Boot remount of configured network shares + the bounded catch-up retry
-    for a NAS that was still offline when the backend booted (reboot race)."""
+    """Boot remount of configured network shares, and the retry that keeps a
+    share whose NAS is not answering in reach for as long as it is configured.
+
+    A power cut brings the Pi, the router and the NAS back together, and the Pi
+    is up first; a router or a NAS routinely takes minutes. The retry used to
+    stop after ~1.75 min, after which nothing ever mounted the share again for
+    the whole session, and every share still offline held the boot (and with it
+    the API, the WebSocket and the kiosk) for one mount timeout each."""
 
     @pytest.mark.asyncio
-    async def test_all_mounted_spawns_no_retry(self, shares):
-        shares._data.list_shares = AsyncMock(return_value=[
-            {"id": "a"}, {"id": "b"},
-        ])
-        shares._storage.mount_share = AsyncMock(return_value="/media/milo/x")
+    async def test_initialize_does_not_wait_on_an_offline_share(self, remounting):
+        """A mount that never answers must not hold initialize(): the lifespan
+        awaits it before the API serves anything."""
+        never = asyncio.Event()
 
-        await shares._mount_configured()
+        async def _hung(*_a, **_k):
+            await never.wait()
 
-        assert shares._storage.mount_share.await_count == 2
-        assert shares._retry_task is None
+        remounting._storage.mount_share = AsyncMock(side_effect=_hung)
 
-    @pytest.mark.asyncio
-    async def test_offline_share_spawns_retry(self, shares):
-        shares._data.list_shares = AsyncMock(return_value=[{"id": "a"}])
-        shares._storage.mount_share = AsyncMock(return_value=None)  # offline
-
-        with patch(
-            "backend.sources.music_library.shares._SHARE_REMOUNT_RETRY_DELAYS_S", ()
-        ):
-            await shares._mount_configured()
-            assert shares._retry_task is not None
-            await shares._retry_task  # exhausted schedule → gives up cleanly
+        try:
+            # A hung initialize() fails here rather than hanging the run.
+            await asyncio.wait_for(remounting.initialize(), timeout=5)
+            await asyncio.sleep(0)
+            remounting._storage.mount_share.assert_awaited_once()
+            assert _remount_tasks()
+        finally:
+            await remounting._bg.cancel_all()
 
     @pytest.mark.asyncio
-    async def test_retry_remounts_when_nas_comes_up(self, shares):
-        share = {"id": "a"}
-        # Offline on the first two attempts, then reachable.
-        shares._storage.mount_share = AsyncMock(
-            side_effect=[None, None, "/media/milo/a"]
+    async def test_retry_keeps_trying_past_the_ramp_until_the_nas_answers(
+        self, remounting
+    ):
+        """The boot pass and the three ramp attempts fail, then two plateau
+        attempts, and the seventh mounts it. The ramp used to be the end."""
+        remounting._storage.mount_share = remounting.answering(
+            None, None, None, None, None, None, "/media/milo/a"
         )
 
-        with patch(
-            "backend.sources.music_library.shares.asyncio.sleep", AsyncMock()
-        ), patch(
-            "backend.sources.music_library.shares._SHARE_REMOUNT_RETRY_DELAYS_S",
-            (1, 1, 1),
-        ):
-            await shares._retry_offline([share])
+        with patch(RAMP, (0, 0, 0)), patch(PLATEAU, 0):
+            await remounting.initialize()
+            try:
+                await _remount_settled()
+            finally:
+                await remounting._bg.cancel_all()
 
-        # Two retry rounds, the second one connects → stops early (3rd delay unused).
-        assert shares._storage.mount_share.await_count == 3
+        assert remounting._storage.mount_share.await_count == 7
+        assert [s["mounted"] for s in await remounting.list()] == [True]
+
+    @pytest.mark.asyncio
+    async def test_retry_drops_a_share_removed_meanwhile(self, remounting):
+        """Each attempt reads the config again: a share removed while the loop
+        runs is never mounted again, so it cannot come back as an orphan mount
+        with no config entry, no library and no way to remove it from the UI."""
+        remounting.configured[:] = [{"id": "a"}, {"id": "b"}]
+
+        async def _mount(share, credentials=None, **_):
+            if share["id"] == "a" and len(attempted) == 0:
+                # Removed while a's first attempt held the mount helper.
+                remounting.configured[:] = [{"id": "a"}]
+                attempted.append("a")
+                return None
+            attempted.append(share["id"])
+            return f"/media/milo/{share['id']}"
+
+        attempted = []
+        remounting._storage.mount_share = AsyncMock(side_effect=_mount)
+
+        with patch(RAMP, (0, 0, 0)), patch(PLATEAU, 0):
+            await remounting.initialize()
+            try:
+                await _remount_settled()
+            finally:
+                await remounting._bg.cancel_all()
+
+        assert attempted == ["a", "a"]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_cancels_the_remount_retry(self, remounting):
+        """The retry no longer ends on its own while a NAS stays away, so the
+        lifespan teardown is what has to stop it."""
+        remounting._storage.mount_share = AsyncMock(return_value=None)
+
+        await remounting.initialize()
+        await asyncio.sleep(0)
+        assert _remount_tasks()
+
+        await remounting.cleanup()
+
+        assert not _remount_tasks()
+        assert not asyncio.all_tasks() - {asyncio.current_task()}
+
+    @pytest.mark.asyncio
+    async def test_all_mounted_spawns_no_retry(self, remounting):
+        remounting.configured[:] = [{"id": "a"}, {"id": "b"}]
+        remounting._storage.mount_share = remounting.answering(
+            "/media/milo/a", "/media/milo/b"
+        )
+
+        await remounting.initialize()
+        try:
+            # With the real ramp: a loop that went on to wait would time out here.
+            await _remount_settled()
+        finally:
+            await remounting._bg.cancel_all()
+
+        assert remounting._storage.mount_share.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_share_still_mounted_from_before_a_restart_is_reattached(
+        self, remounting
+    ):
+        """A backend restart leaves the mounts in place, unrecorded, and the
+        helper's idempotent answer is what records one and asks for its scan.
+        Its NAS may have died meanwhile: the share is asked again, never taken
+        as done because /proc/mounts still lists it."""
+        remounting._storage.get_mounted_share_ids = Mock(return_value={"a"})
+        remounting._storage.recorded_share_ids = Mock(return_value=set())
+        remounting._storage.mount_share = remounting.answering(
+            None, "/media/milo/a"
+        )
+
+        with patch(RAMP, (0, 0, 0)), patch(PLATEAU, 0):
+            await remounting.initialize()
+            try:
+                await _remount_settled()
+            finally:
+                await remounting._bg.cancel_all()
+
+        assert remounting._storage.mount_share.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_share_mounted_in_the_meantime_is_not_asked_again(
+        self, remounting
+    ):
+        """A share an edit mounted while the loop waited is done: asking again
+        would hold the storage lock for nothing."""
+        remounting.configured[:] = [{"id": "a"}, {"id": "b"}]
+
+        async def _mount(share, credentials=None, **_):
+            attempted.append(share["id"])
+            if share["id"] == "a" and attempted.count("a") == 1:
+                # An edit mounted b while a's attempt held the mount helper.
+                recorded.add("b")
+                return None
+            return f"/media/milo/{share['id']}"
+
+        attempted = []
+        remounting._storage.mount_share = AsyncMock(side_effect=_mount)
+        recorded = set()
+        remounting._storage.recorded_share_ids = Mock(side_effect=lambda: set(recorded))
+        remounting._storage.get_mounted_share_ids = Mock(
+            side_effect=lambda: set(recorded)
+        )
+
+        with patch(RAMP, (0, 0, 0)), patch(PLATEAU, 0):
+            await remounting.initialize()
+            try:
+                await _remount_settled()
+            finally:
+                await remounting._bg.cancel_all()
+
+        assert attempted == ["a", "a"]
+
+    @pytest.mark.asyncio
+    async def test_retry_remounts_when_nas_comes_up(self, remounting):
+        # Offline at boot and on the first retry, then reachable.
+        remounting._storage.mount_share = remounting.answering(
+            None, None, "/media/milo/a"
+        )
+
+        with patch(RAMP, (0, 0, 0)), patch(PLATEAU, 0):
+            await remounting.initialize()
+            try:
+                await _remount_settled()
+            finally:
+                await remounting._bg.cancel_all()
+
+        # Stops at the mount that worked: the third ramp delay is never used.
+        assert remounting._storage.mount_share.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_only_the_plateau_attempts_are_quiet(self, remounting):
+        """milo-mount's failure is an error, which reaches every screen's
+        banner. Past the ramp a NAS that stays away would raise one every five
+        minutes for as long as it is off, so those attempts ask for quiet."""
+        remounting._storage.mount_share = remounting.answering(
+            None, None, None, None, None, "/media/milo/a"
+        )
+
+        with patch(RAMP, (0, 0, 0)), patch(PLATEAU, 0):
+            await remounting.initialize()
+            try:
+                await _remount_settled()
+            finally:
+                await remounting._bg.cancel_all()
+
+        assert [
+            c.kwargs.get("quiet", False)
+            for c in remounting._storage.mount_share.await_args_list
+        ] == [False, False, False, False, True, True]
 
     @pytest.mark.asyncio
     async def test_try_mount_is_fail_open(self, shares):
@@ -88,21 +292,27 @@ class TestBootRemountRetry:
         assert await shares._try_mount({"id": "a"}) is False
 
     @pytest.mark.asyncio
-    async def test_a_share_config_that_cannot_be_read_mounts_nothing(self, shares):
-        """The boot remount's own fail-open: an unreadable store leaves the
-        mounts alone and schedules no retry, rather than propagating into the
-        gather that would turn it into the reset banner.
+    async def test_a_share_config_that_cannot_be_read_is_read_again(
+        self, remounting
+    ):
+        """A pass whose config read fails mounts nothing and does not end the
+        loop: the next pass reads it again. It never propagates either — the
+        gather that awaits initialize() would turn it into the reset banner."""
+        reads = []
 
-        Note what this does NOT buy: initialize() reads the same store again
-        through _sync_libraries, unguarded, so a read that keeps failing takes
-        the source down one line later anyway (constat T16-5)."""
-        shares._data.list_shares = AsyncMock(side_effect=OSError("boom"))
-        shares._storage.mount_share = AsyncMock()
+        async def _list():
+            reads.append(1)
+            if len(reads) == 1:
+                raise OSError("boom")
+            return [{"id": "a"}]
 
-        await shares._mount_configured()
+        remounting._data.list_shares = AsyncMock(side_effect=_list)
+        remounting._storage.mount_share = remounting.answering("/media/milo/a")
 
-        shares._storage.mount_share.assert_not_awaited()
-        assert shares._retry_task is None
+        with patch(RAMP, (0, 0, 0)), patch(PLATEAU, 0):
+            await remounting._remount_configured(boot=True)
+
+        remounting._storage.mount_share.assert_awaited_once()
 
 
 @pytest.fixture
@@ -417,6 +627,21 @@ class TestUnmountRunsNoScan:
         assert updated["mounted"] is False
         removable._libraries.reconcile.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_an_edit_that_does_not_mount_is_retried(self, removable):
+        """The edit that fixes a host typo while the NAS is asleep must not wait
+        for a reboot to be tried again."""
+        removable._data.update_share = AsyncMock(return_value={"id": "nas"})
+        removable._storage.mount_share = AsyncMock(return_value=None)
+
+        try:
+            await removable.update("nas", ShareRequest(
+                type="cifs", host="10.0.0.3", path="music", name="NAS-Leo",
+            ))
+            assert len(_remount_tasks()) == 1
+        finally:
+            await removable._bg.cancel_all()
+
 
 class TestBoot:
     """initialize() — the method that mounts the owner's NAS on every boot.
@@ -452,6 +677,7 @@ class TestBoot:
         )
 
         await bootable.initialize()
+        await _remount_settled()
 
         assert order == ["data", "storage", "mount"]
 
@@ -462,6 +688,7 @@ class TestBoot:
         )
 
         await bootable.initialize()
+        await _remount_settled()
 
         assert [c.args[0]["id"] for c in bootable._storage.mount_share.await_args_list] \
             == ["nas", "backup"]
@@ -891,6 +1118,22 @@ class TestShareCreation:
 
         assert created["mounted"] is False
         creatable._libraries.reconcile.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_share_added_while_its_nas_is_down_is_retried(self, creatable):
+        """Without this, a share added on a boot where every other share had
+        mounted would only be tried again by an edit or a reboot. A second
+        failure while the retry runs rearms it rather than starting another."""
+        creatable._storage.mount_share = AsyncMock(return_value=None)
+        request = ShareRequest(type="cifs", host="10.0.0.2", path="music", name="NAS-Leo")
+
+        try:
+            await creatable.add(request)
+            assert len(_remount_tasks()) == 1
+            await creatable.add(request)
+            assert len(_remount_tasks()) == 1
+        finally:
+            await creatable._bg.cancel_all()
 
     @pytest.mark.asyncio
     async def test_a_mount_that_succeeded_does_not_reconcile_twice(self, creatable):

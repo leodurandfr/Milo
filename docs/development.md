@@ -608,8 +608,10 @@ standing in for the podcast catalogue and a mount layer underneath.**
 - **`shares.py` (`NetworkShareService`) owns where the music comes from** — it holds
   `data.py` (config), `storage.py` (mounts) and `libraries.py` (Navidrome libraries)
   together, so "config first, then mount, then library" is one decision rather than
-  an ordering every caller must remember. It runs the boot remount and its bounded
-  catch-up retry (a NAS often boots slower than the Pi), exposes the uniform
+  an ordering every caller must remember. It runs the share remount in the
+  background, so an offline NAS never holds the boot, and keeps retrying a configured
+  share that is not mounted (a 15/30/60 s ramp, then every 5 min, for as long as it is
+  configured — a NAS or a router can take minutes to come back), exposes the uniform
   `storages()` list the UI filters by, and `routes.py` reaches it as `source.shares`
   — the same shape as radio's `source.station_data`. The audio source keeps no share
   state.
