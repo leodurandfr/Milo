@@ -486,3 +486,39 @@ def test_manifest_is_self_consistent():
         if not path.startswith("_") and path not in declared
     ]
     assert not orphans, f"payload invariants for undeclared routes: {orphans}"
+
+
+# --------------------------------------------------------------------------- #
+# The Lock Screen card has two authors.
+# --------------------------------------------------------------------------- #
+
+def test_the_two_apps_decode_the_state_with_one_file():
+    """Milo-iOS and Milo-Mac share `MiloAudioState.swift` byte for byte, which
+    is what lets the Mac manifest's `details_keys` pin what the iOS card reads
+    from `details` (an untitled CD track's `current_track`): this manifest pins
+    no `details` key of its own. Two copies that drift leave the iOS side
+    pinned by nothing."""
+    mac_copy = CONTRACTS_DIR / "vendor" / "milo-mac" / "MiloAudioState.swift"
+    ios_copy = VENDOR_DIR / "MiloAudioState.swift"
+    assert "struct MiloAudioState" in ios_copy.read_text(), "vendored decoder unreadable"
+    assert ios_copy.read_bytes() == mac_copy.read_bytes(), (
+        "the vendored decoders differ: refresh both snapshots from the same "
+        "MiloAudioState.swift, or pin the iOS app's details keys here"
+    )
+
+
+def test_an_untitled_cd_track_is_spelled_as_the_app_spells_it():
+    """The push (`payloads.shown_track`) and the app's own card
+    (`MiloSourceCard.untitledTrack`) name an untitled CD track for the same
+    session: two spellings make the Lock Screen flip between them at every
+    round trip."""
+    from backend.core.push.payloads import UNTITLED_CD_TRACK
+
+    bridge = (VENDOR_DIR / "MiloNowPlayingBridge.swift").read_text()
+    found = re.search(
+        r'static func untitledTrack\(_ (\w+): Int\) -> String \{ "([^"]*)" \}', bridge,
+    )
+    assert found, "MiloSourceCard.untitledTrack not found in the vendored bridge"
+    swift = found.group(2).replace(f"\\({found.group(1)})", "{}")
+    assert "{}" in swift, f"the app's label does not interpolate the number: {swift!r}"
+    assert swift == UNTITLED_CD_TRACK

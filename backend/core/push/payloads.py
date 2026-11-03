@@ -53,6 +53,12 @@ SOURCE_CARDS: Dict[str, Tuple[str, str]] = {
 # is sent for it: see `source_card`.
 MILO_CARD: Tuple[str, str] = ("Milō", "milo")
 
+# The title of a CD track nothing names (a burned disc, a disc read offline):
+# its number, under the screen's French word (`audioSources.cdSource.trackN`).
+# Fixed for the same reason as SOURCE_CARDS, and spelled as Milo-iOS spells it
+# (`MiloSourceCard.untitledTrack`). Change both or neither.
+UNTITLED_CD_TRACK = "Morceau {}"
+
 
 @dataclass
 class NowPlayingDevice:
@@ -79,11 +85,18 @@ def widget_payload() -> Dict[str, Any]:
 def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """What the card shows: the session if it names something, else the
     resume point, else nothing (docs: "le fil", §9 — the rule Milo-iOS'
-    `MiloAudioState.shown` follows too)."""
+    `MiloAudioState.shown` follows too). An untitled CD track is named by its
+    number, `details.current_track`."""
+    details = state.get("details") or {}
+    number = details.get("current_track") if details.get("kind") == "cd" else None
     for key in ("session", "resume"):
         candidate = state.get(key)
-        if candidate and candidate.get("title"):
+        if not candidate:
+            continue
+        if candidate.get("title"):
             return candidate
+        if number is not None:
+            return {**candidate, "title": UNTITLED_CD_TRACK.format(number)}
     return None
 
 

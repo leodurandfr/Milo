@@ -58,7 +58,7 @@ of the manifest and a manifest ahead of the snapshot both fail
 that the backend does not serve would be named in `_broken_calls`; the section
 held one until `741f8dc1` and is absent while there is none.
 
-Captured from upstream `1ad45218f12e66ca2c676ef691a49c1cb5754c7a` on 2026-11-02.
+Captured from upstream `c77e9aa4c44fcdd355c4311e28200bfe6f5ba85f` on 2026-11-03.
 
 **This line was two refreshes stale when 4b9e73f was taken**, and it is worth saying
 where: it still named `be15c1f` after `741f8dc1 -> 0edead3` and again after

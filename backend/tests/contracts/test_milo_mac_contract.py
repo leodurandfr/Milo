@@ -303,6 +303,7 @@ def test_invariant_source_state():
             missing_decoder.append(dotted)
     details = {
         "radio": audio_wire.RadioDetails, "music_library": audio_wire.MusicLibraryDetails,
+        "cd": audio_wire.CdDetails,
     }
     for kind, keys in inv["details_keys"].items():
         for dotted in keys:
@@ -479,8 +480,8 @@ def test_every_consumer_named_exists_in_the_snapshot():
             value = event.get(field)
             if not value:
                 continue
-            # `didReceiveMultiroomTransitionComplete(success: false)` names the
-            # call, not just the symbol: take the identifier and drop the args.
+            # `didReceiveMultiroomFailed()` names the call, not just the
+            # symbol: take the identifier and drop the args.
             symbol = re.split(r"[ (+]", value.split(".")[-1])[0]
             if not re.search(rf"\b{re.escape(symbol)}\b", corpus):
                 missing.append(
