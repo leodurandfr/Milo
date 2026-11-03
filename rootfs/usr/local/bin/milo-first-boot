@@ -470,8 +470,9 @@ configure_client_with_hardware() {
 
     _apply_client_filesystem
 
-    # Read marker, write hardware.json + identity.json, then drop the marker so
-    # subsequent boots return to the standard skip-check fast-path.
+    # Read marker, write hardware.json + identity.json, apply the audio overlay
+    # they name, then drop the marker so subsequent boots return to the standard
+    # skip-check fast-path.
     if ! /usr/bin/python3 << PY
 import json
 import os
@@ -511,8 +512,6 @@ atomic_write(
     f"{client_dir}/identity.json",
     {"name": m["speaker_name"], "speaker_type": m["speaker_type"]},
 )
-
-os.remove(marker_path)
 PY
     then
         log "ERROR: failed to apply marker — leaving marker in place for retry"
@@ -520,7 +519,17 @@ PY
     fi
 
     chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
-    log "Hardware + identity written from marker, marker removed"
+    log "Hardware + identity written from marker"
+
+    # hardware.json alone plays nothing: the satellite then reports
+    # hardware_configured, so the server never offers the configure step that
+    # would run this, and a card without an EEPROM gets no overlay at all.
+    if ! /usr/local/bin/milo-client-apply-hardware --no-reboot; then
+        log "ERROR: milo-client-apply-hardware failed — leaving marker in place for retry"
+        exit 1
+    fi
+    rm -f "$PENDING_CLIENT_ROLE_FILE"
+    log "Audio overlay applied, marker removed"
 
     log "Client configuration with adopted hardware complete — rebooting"
     /sbin/reboot
