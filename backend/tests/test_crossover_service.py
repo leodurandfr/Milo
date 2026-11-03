@@ -565,14 +565,16 @@ class TestPendingSettingsQueue:
         assert not service.has_pending_settings("sat-1")
 
     @pytest.mark.asyncio
-    async def test_a_pending_record_the_registry_no_longer_holds_is_dropped(
+    async def test_a_pending_record_for_a_client_without_one_pushes_the_neutral_record(
         self, crossover_service_with_registry, mock_proxy_service
     ):
-        """A client deleted and added again since the failed push has no record.
+        """No stored record is the neutral record the UI shows, so it is replayed.
 
-        Deleting a client deletes its record, so replaying the queued one would
-        hand the re-added speaker an EQ nobody can see or edit, and requeueing it
-        would keep the retries alive for a record that no longer exists.
+        The admission pushes EqualizerSettings.default() to a satellite that has
+        no record, because its CamillaDSP reloads its own config.yml (mono, a
+        curve, a compressor) at every start. When that push fails it is queued,
+        and dropping it here left the satellite on its config.yml until its next
+        admission while GET /api/equalizer/target/<mac> said neutral.
         """
         from backend.core.multiroom.models import EqualizerSettings
 
@@ -583,8 +585,88 @@ class TestPendingSettingsQueue:
         await service.queue_pending_settings("sat-1", "record", EqualizerSettings.default())
 
         assert await service.apply_pending_settings("sat-1") is True
+        mock_proxy_service.apply_record.assert_awaited_once()
+        hostname, record = mock_proxy_service.apply_record.await_args.args
+        assert hostname == "192.168.1.20"
+        assert record.to_dict() == EqualizerSettings.default().to_dict()
+        assert not service.has_pending_settings("sat-1")
+
+    @pytest.mark.asyncio
+    async def test_a_refused_neutral_record_stays_queued(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """A neutral push the satellite refused is retried like a real record."""
+        from backend.core.multiroom.models import EqualizerSettings
+
+        service, registry = crossover_service_with_registry
+        registry._clients["sat-1"] = Client(
+            mac_id="sat-1", name="Bedroom", ip="192.168.1.20", online=True
+        )
+        mock_proxy_service.apply_record = AsyncMock(return_value=False)
+        await service.queue_pending_settings("sat-1", "record", EqualizerSettings.default())
+
+        assert await service.apply_pending_settings("sat-1") is False
+        assert service.has_pending_settings("sat-1")
+
+    @pytest.mark.asyncio
+    async def test_a_pending_record_for_a_deleted_client_is_dropped(
+        self, crossover_service_with_registry, mock_proxy_service
+    ):
+        """A client deleted since the failed push has nothing left to receive.
+
+        Requeueing would keep the retries alive for a speaker the registry no
+        longer holds; it is pushed the neutral record at its next admission.
+        """
+        from backend.core.multiroom.models import EqualizerSettings
+
+        service, _registry = crossover_service_with_registry
+        await service.queue_pending_settings("sat-1", "record", EqualizerSettings.default())
+
+        assert await service.apply_pending_settings("sat-1") is True
         mock_proxy_service.apply_record.assert_not_awaited()
         assert not service.has_pending_settings("sat-1")
+
+    @pytest.mark.asyncio
+    async def test_a_failed_neutral_push_at_admission_is_pushed_again_on_connect(self):
+        """The admission's failed neutral push converges on CLIENT_CONNECTED.
+
+        Real registry, crossover service and admission sync; only the satellite
+        (apply_record, try_request) is mocked. The first push fails as it does
+        when the satellite's CamillaDSP is reloading, and the replay must push the
+        neutral record again rather than drop it for want of a stored record.
+        """
+        from backend.core.multiroom.models import EqualizerSettings
+        from backend.core.multiroom.websocket import SnapcastWebSocketService
+
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        mac = "d8:3a:dd:68:e7:e4"
+        await registry.register_client(mac, "Office", "192.168.1.60", host="milo-client")
+        assert registry.get_client_equalizer(mac) is None
+
+        proxy = MagicMock()
+        proxy.try_request = AsyncMock(return_value=200)
+        proxy.apply_record = AsyncMock(side_effect=[False, True])
+        crossover = CrossoverService(settings_service=settings, proxy_service=proxy)
+        crossover.set_registry(registry)
+
+        sm = MagicMock()
+        sm.broadcast = AsyncMock()
+        ws = SnapcastWebSocketService(state_machine=sm, routing_service=MagicMock())
+        ws.set_registry(registry)
+        ws._equalizer_client_proxy_service = proxy
+        ws._crossover_service = crossover
+
+        assert await ws._sync_standalone_equalizer_to_client(mac) is False
+        await crossover._handle_registry_event(RegistryEventType.CLIENT_CONNECTED, {"mac_id": mac})
+
+        assert proxy.apply_record.await_count == 2
+        hostname, record = proxy.apply_record.await_args.args
+        assert hostname == "192.168.1.60"
+        assert record.to_dict() == EqualizerSettings.default().to_dict()
+        assert not crossover.has_pending_settings(mac)
 
     @pytest.mark.asyncio
     async def test_unknown_setting_type_fails_loud(self, crossover_service):

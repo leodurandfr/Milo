@@ -23,6 +23,7 @@ from backend.core.models.ws_events import MultiroomZoneChanged
 from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCY,
+    EqualizerSettings,
 )
 
 if TYPE_CHECKING:
@@ -549,10 +550,15 @@ class CrossoverService:
             # queued record would put the satellite back on an older EQ.
             record = self._registry.get_client_equalizer(client_id) if self._registry else None
             client = self._registry.get_client(client_id) if self._registry else None
+            if record is None and client is not None and not client.is_local:
+                # No record is the neutral one the UI shows, which the admission
+                # pushed and failed to: the satellite's CamillaDSP otherwise stays
+                # on whatever its own config.yml held.
+                record = EqualizerSettings.default()
             applied = False
             if record is None:
-                # Deleted with its client since: nothing is left to push.
-                self.logger.info(f"Dropped pending EQ record for {client_id}: the registry holds none")
+                # Deleted since, or the local client: nothing is left to push.
+                self.logger.info(f"Dropped pending EQ record for {client_id}: no remote client left to push it to")
             elif client and client.ip and self._proxy_service:
                 applied = await self._proxy_service.apply_record(client.ip, record)
                 if not applied:
