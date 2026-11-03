@@ -54,6 +54,12 @@ def _shell_hardware_file(path: Path) -> str:
     return match[1]
 
 
+def _apply_reads() -> set[str]:
+    keys = set(re.findall(r'read_json "([^"]+)"', APPLY_HARDWARE.read_text()))
+    assert keys, f"no read_json key found in {APPLY_HARDWARE.name}"
+    return keys
+
+
 # volume_control False on purpose: True is the readers' default and would hide a rename.
 CARD = {"audio_id": "hifiberry-dacplus-std", "overlay": "hifiberry-dacplus-std", "volume_control": False}
 NO_CARD = {"audio_id": "none"}
@@ -83,11 +89,17 @@ def test_what_the_wizard_writes_is_what_its_readers_read(body, registered, tmp_p
         assert out.stdout.strip() == audio_id, unit.name
 
     if audio_id != "none":
-        out = subprocess.run(
-            ["bash", "-c", f'HARDWARE_FILE="{hardware_file}"; source "{HARDWARE_HELPERS}"; '
-                           'read_json audio.overlay'],
-            capture_output=True, text=True, check=True)
-        assert out.stdout.strip() == body["overlay"]
+        # read_json answers "" for a missing key, and the apply then removes the
+        # overlay in place and writes none back: every key it reads must resolve.
+        read = {
+            key: subprocess.run(
+                ["bash", "-c", 'HARDWARE_FILE="$1"; source "$2"; read_json "$3"',
+                 "read", str(hardware_file), str(HARDWARE_HELPERS), key],
+                capture_output=True, text=True, check=True).stdout.strip()
+            for key in _apply_reads()
+        }
+        assert all(read.values()), f"{APPLY_HARDWARE.name} reads keys PUT /audio does not store: {read}"
+        assert read.get("audio.overlay") == body["overlay"]
 
     # backend/api/multiroom.py reads the card from this answer, by the same keys.
     assert client.get("/api/hardware").json()["audio"]["id"] == audio_id

@@ -24,6 +24,10 @@ Nothing else catches this class, and one existing guardrail actively hides it:
 both shell copies are *equally* stale — it proves the twins agree, not that they
 are right.
 
+`milo-apply-hardware` restates `registry.py::SCREENS` the same way, twice
+(`VALID_SCREENS` and the arms of its screen `case`), so that set is held here
+too.
+
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing
 on an empty surface.
@@ -34,7 +38,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.hardware.registry import AUDIO_CARDS
+from backend.hardware.registry import AUDIO_CARDS, SCREENS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -43,6 +47,7 @@ SHELL_TWINS = {
     "milo-client": REPO_ROOT / "milo-client/rootfs/usr/local/lib/milo/hardware-helpers.sh",
 }
 SATELLITE_ROUTE = REPO_ROOT / "milo-client/app/routes/hardware.py"
+APPLY_SCRIPT = REPO_ROOT / "rootfs/usr/local/bin/milo-apply-hardware"
 
 # Overlays no card selects any more, still swept out of config.txt because units
 # installed before the kernel 6.1.77 overlay split carry the line. They are
@@ -136,4 +141,34 @@ def test_legacy_sweep_covers_the_allowlist_and_the_aliases(tree):
     assert lists["sweep"] == _registry_overlays() | DEPRECATED_ALIASES, (
         f"{SHELL_TWINS[tree].relative_to(REPO_ROOT)}: LEGACY_SWEEP_OVERLAYS must cover every "
         f"overlay Milō can write plus the deprecated aliases — got {sorted(lists['sweep'])}"
+    )
+
+
+def test_the_apply_script_screen_types_match_the_registry():
+    """`registry.SCREENS` is what the UI offers and the route validates; the
+    script restates it twice. A screen missing from `VALID_SCREENS` makes the
+    apply exit 1 after hardware.json was written; one listed there but with no
+    `case` arm writes no MILO SCREEN block and still enables the kiosk, exit 0."""
+    text = APPLY_SCRIPT.read_text()
+    listed = re.search(r'^VALID_SCREENS="([^"]*)"', text, re.MULTILINE)
+    assert listed, "no VALID_SCREENS= assignment in milo-apply-hardware"
+    valid = set(listed[1].split())
+
+    arms_block = re.search(r'^case "\$SCREEN_TYPE" in\n(.*?)^esac', text, re.MULTILINE | re.DOTALL)
+    assert arms_block, 'no `case "$SCREEN_TYPE" in … esac` in milo-apply-hardware'
+    arms = {
+        label
+        for labels in re.findall(r'^\s+([\w|"]+)\)\s*(?:#.*)?$', arms_block[1], re.MULTILINE)
+        for label in labels.split("|")
+        if label != '""'
+    }
+
+    assert len(valid) >= 2 and len(arms) >= 2, (sorted(valid), sorted(arms))
+    assert valid == set(SCREENS), (
+        f"VALID_SCREENS disagrees with SCREENS — offered but rejected: {sorted(set(SCREENS) - valid)}; "
+        f"granted but never offered: {sorted(valid - set(SCREENS))}"
+    )
+    assert arms == set(SCREENS), (
+        f"the screen `case` disagrees with SCREENS — no arm: {sorted(set(SCREENS) - arms)}; "
+        f"arm never offered: {sorted(arms - set(SCREENS))}"
     )

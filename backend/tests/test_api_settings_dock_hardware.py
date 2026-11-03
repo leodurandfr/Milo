@@ -31,6 +31,9 @@ a fallback that cannot happen in production.
 import asyncio
 import copy
 import logging
+import re
+import subprocess
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call
 
 import httpx
@@ -705,6 +708,38 @@ class TestTheHardwareConfig:
         assert reread.get_audio_id() == "hifiberry_amp2"
         assert reread.get_volume_control() is True
         systemd.power.assert_not_awaited()
+
+    def test_every_key_the_apply_script_reads_is_one_the_routes_store(
+        self, real_hardware, systemd, state_machine, routing, equalizer, settings,
+        monkeypatch
+    ):
+        """`milo-apply-hardware` names the stored keys by string, and `read_json`
+        answers "" for a missing one. A renamed `audio.overlay` then removes the
+        card's overlay and writes none back (exit 0, no sound after the reboot),
+        and a renamed `ir_remote.enabled` drops the IR block the same way. So the
+        script's own reader runs on the file this route wrote, for a card with an
+        overlay (the one key the route writes conditionally), and each key must
+        come back non-empty."""
+        repo_root = Path(__file__).resolve().parents[2]
+        script = (repo_root / "rootfs/usr/local/bin/milo-apply-hardware").read_text()
+        helpers = repo_root / "rootfs/usr/local/lib/milo/hardware-helpers.sh"
+        keys = sorted(set(re.findall(r'read_json "([^"]+)"', script)))
+        assert len(keys) >= 6, f"only {keys} extracted from milo-apply-hardware"
+        self._spawn(monkeypatch, [], returncode=0)
+        client = self._client_over(real_hardware, systemd, state_machine, routing, equalizer, settings)
+
+        assert client.put("/api/settings/hardware-config", json=self.PAYLOAD).status_code == 200
+
+        out = subprocess.run(
+            ["bash", "-c", 'source "$1"; HARDWARE_FILE="$2"; shift 2; '
+                           'for key; do printf "%s\\t%s\\n" "$key" "$(read_json "$key")"; done',
+             "read", str(helpers), str(real_hardware.hardware_file), *keys],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        read = dict(line.split("\t", 1) for line in out.splitlines())
+        assert sorted(read) == keys, out
+        empty = sorted(key for key, value in read.items() if not value.strip())
+        assert not empty, f"milo-apply-hardware reads keys PUT /hardware-config does not store: {empty}"
 
     def test_an_unknown_card_is_refused_before_anything_is_written(
         self, client, hardware
