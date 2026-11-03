@@ -1746,7 +1746,7 @@ def _tasks_named(label):
 @pytest.fixture
 async def library_origins(monkeypatch, tmp_path):
     """The outside world of a real share service and storage manager: udev with
-    nothing plugged in, no Navidrome cred file, one configured share whose NAS
+    nothing plugged in, an empty mount root, no Navidrome cred file, one configured share whose NAS
     is offline (milo-mount refuses it), the shares file on tmp_path. Returns a
     builder of a MusicLibrarySource whose dock read is `dock_apps`."""
     monkeypatch.setitem(sys.modules, "pyudev", _Pyudev())
@@ -1758,6 +1758,8 @@ async def library_origins(monkeypatch, tmp_path):
         return _MountRefused()
 
     monkeypatch.setattr(storage_module.asyncio, "create_subprocess_exec", _milo_mount)
+    (tmp_path / "media").mkdir()
+    monkeypatch.setattr(storage_module, "MUSIC_LIBRARY_MOUNT_ROOT", tmp_path / "media")
     shares_file = tmp_path / "music_library.json"
     monkeypatch.setattr(data_module, "MUSIC_LIBRARY_DATA_FILE", shares_file)
     await save_versioned_json(shares_file, {

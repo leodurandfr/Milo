@@ -27,7 +27,9 @@ never crash the backend.
 import asyncio
 import contextlib
 import logging
+import os
 import re
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.config.constants import (
@@ -76,6 +78,8 @@ _SCAN_WAIT_POLL_S = 5.0
 _SCAN_WAIT_CEILING_S = 1800.0
 
 
+_MOUNTINFO = Path("/proc/self/mountinfo")
+
 # The kernel's mount table escapes these four bytes of a mountpoint as octal
 # (\040 for a space); milo-mount and milo-umount escape their target the same way.
 _MOUNT_TABLE_ESCAPE_RE = re.compile(r"\\(040|011|012|134)")
@@ -97,6 +101,39 @@ def mount_table_targets(mountinfo: str) -> List[str]:
             _MOUNT_TABLE_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 8)), fields[4])
         )
     return targets
+
+
+def _mounted_paths() -> set:
+    """The mountpoints the kernel's mount table lists right now.
+
+    Raises OSError when the table cannot be read: "nothing is mounted" is a
+    different answer, and the one that would send a mounted share to milo-umount.
+    """
+    with open(_MOUNTINFO, "r", encoding="utf-8", errors="ignore") as fh:
+        return set(mount_table_targets(fh.read()))
+
+
+def _leftover_mountpoints(root: Path) -> List[str]:
+    """The empty, unmounted directories directly under ``root``, sorted.
+
+    An entry the table lists is skipped before anything stats it: on a dead CIFS
+    share a stat blocks ~10 s. An entry that cannot be listed is skipped; raises
+    OSError when the root or the table cannot be read.
+    """
+    mounted = _mounted_paths()
+    leftovers = []
+    with os.scandir(root) as entries:
+        for entry in entries:
+            if entry.path in mounted or not entry.is_dir(follow_symlinks=False):
+                continue
+            try:
+                empty = not os.listdir(entry.path)
+            except OSError as exc:
+                logger.warning("Leftover mountpoint %s not checked: %s", entry.path, exc)
+                continue
+            if empty:
+                leftovers.append(entry.path)
+    return sorted(leftovers)
 
 
 class StorageManager:
@@ -138,12 +175,14 @@ class StorageManager:
         self._scan_lock = asyncio.Lock()
 
     async def initialize(self) -> bool:
-        """Mount any USB drive already present, then start the hotplug monitor.
+        """Remove the mountpoints a shutdown left empty, mount any USB drive
+        already present, then start the hotplug monitor.
 
         Returns False (auto-mount disabled) when udev is unavailable — e.g. a dev
         host without libudev — so the backend keeps running, just without USB.
         """
         self._loop = asyncio.get_running_loop()
+        await self._remove_leftover_mountpoints()
 
         try:
             import pyudev
@@ -191,6 +230,32 @@ class StorageManager:
             except Exception as exc:
                 self.logger.debug("USB monitor stop error: %s", exc)
             self._observer = None
+
+    async def _remove_leftover_mountpoints(self) -> None:
+        """Remove the empty mountpoints a shutdown left under the mount root.
+
+        Only milo-umount removes a mountpoint, and a reboot or a power cut
+        unmounts without it: the key or the NAS that is away at the next boot
+        leaves an empty directory, which marks its library missing
+        (provisioning/navidrome.sh). Runs before any mount or scan; milo-mount
+        recreates the directory when the storage comes back.
+        """
+        async with self._lock:
+            try:
+                leftovers = await asyncio.to_thread(
+                    _leftover_mountpoints, MUSIC_LIBRARY_MOUNT_ROOT
+                )
+            except OSError as exc:
+                self.logger.warning(
+                    "Leftover mountpoints under %s not checked: %s",
+                    MUSIC_LIBRARY_MOUNT_ROOT, exc,
+                )
+                return
+            for path in leftovers:
+                if await self._run_helper(
+                    MILO_UMOUNT_CMD, path, capture=False, failure_level=logging.WARNING
+                ) == "":
+                    self.logger.info("Removed leftover mountpoint %s", path)
 
     # =========================================================================
     # udev detection
@@ -453,12 +518,9 @@ class StorageManager:
         """
         root = f"{MUSIC_LIBRARY_MOUNT_ROOT}/"
         try:
-            with open(
-                "/proc/self/mountinfo", "r", encoding="utf-8", errors="ignore"
-            ) as fh:
-                targets = mount_table_targets(fh.read())
+            targets = _mounted_paths()
         except OSError as exc:
-            self.logger.debug("Could not read /proc/self/mountinfo: %s", exc)
+            self.logger.debug("Could not read %s: %s", _MOUNTINFO, exc)
             return set()
         # Only the first path segment is the id.
         return {

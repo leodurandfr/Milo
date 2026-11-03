@@ -23,6 +23,7 @@ against them; and `create_subprocess_exec` is a recorder that never reaches the
 operating system.
 """
 import asyncio
+import os
 import sys
 
 import pytest
@@ -135,15 +136,23 @@ class _Pyudev:
 
 
 @pytest.fixture(autouse=True)
-def no_real_udev_and_no_real_spawn(monkeypatch):
+def no_real_udev_and_no_real_spawn(monkeypatch, tmp_path):
     """Neither the appliance's udev nor its mount helper is reachable by default.
 
     The real `pyudev.Context().list_devices()` here returns this Pi's own block
     devices, and the very next thing `initialize` does with one is `sudo -n
     milo-mount /dev/…`. A test that forgets its double must fail, not mount the
-    boot medium.
+    boot medium. The mount root and the mount table are this test's too: an
+    empty directory left in the unit's real /media/milo would otherwise reach
+    the helper from every boot test.
     """
     _Observer.instances.clear()
+    root = tmp_path / "media"
+    root.mkdir()
+    mountinfo = tmp_path / "mountinfo"
+    mountinfo.write_text("")
+    monkeypatch.setattr(storage_mod, "MUSIC_LIBRARY_MOUNT_ROOT", root)
+    monkeypatch.setattr(storage_mod, "_MOUNTINFO", mountinfo)
 
     def _never(*args, **kwargs):
         raise AssertionError(f"a subprocess was spawned: {args}")
@@ -244,6 +253,88 @@ class TestBoot:
 
         assert _Observer.instances[-1].daemon is True
         assert _Observer.instances[-1].started is True
+
+    @pytest.fixture
+    def leftovers(self, tmp_path, monkeypatch):
+        """/media/milo after a reboot with an iPod unplugged meanwhile: its empty
+        mountpoint stayed behind, next to a mounted share that happens to be
+        empty, a mounted key whose label has a space, and a directory that is
+        not a mount but holds a file. Returns the helper calls and the log."""
+        root = storage_mod.MUSIC_LIBRARY_MOUNT_ROOT
+        for name in ("iPod", "nas", "My Key", "keep"):
+            (root / name).mkdir()
+        (root / "keep" / "notes.txt").write_text("x")
+        (tmp_path / "mountinfo").write_text(
+            f"1 0 179:2 / / rw - ext4 /dev/root rw\n"
+            f"40 1 0:50 / {root}/nas ro - cifs //nas/music ro\n"
+            f"41 1 8:1 / {root}/My\\040Key ro - vfat /dev/sdb1 ro\n"
+        )
+        calls = []
+        log = []
+
+        class _Done:
+            returncode = 0
+
+            async def communicate(self, input=None):
+                return b"", b""
+
+        async def _spawn(*argv, **kwargs):
+            calls.append(argv)
+            log.append(("helper", argv))
+            return _Done()
+
+        monkeypatch.setattr(storage_mod.asyncio, "create_subprocess_exec", _spawn)
+        return root, calls, log
+
+    async def test_initialize_removes_an_empty_leftover_mountpoint_before_any_scan(
+        self, manager, monkeypatch, leftovers
+    ):
+        """Navidrome reads an empty directory as a library whose every track is
+        missing, and the first scan after a boot walks it — 10 069 iPod tracks
+        marked gone until the next replug. Only the empty directory that nothing
+        is mounted on goes, through milo-umount, before the key present at boot
+        is mounted (which scans) and before the monitor starts: a mounted share
+        is never stat'd (a dead CIFS blocks ~10 s) and a non-empty directory is
+        never touched."""
+        root, calls, log = leftovers
+        fake = use(monkeypatch, _Pyudev([_Dev("/dev/sda1", **USB)]))
+        fake.log = log
+        monkeypatch.setattr(manager, "_mount", AsyncMock(
+            side_effect=lambda node, *a: log.append(("mount", node))
+        ))
+
+        assert await manager.initialize() is True
+
+        assert calls == [("sudo", "-n", storage_mod.MILO_UMOUNT_CMD, f"{root}/iPod")]
+        steps = [name for name, _ in log]
+        assert steps.index("helper") < steps.index("mount") < steps.index("observer")
+
+    async def test_leftover_mountpoints_are_removed_without_udev(
+        self, manager, leftovers
+    ):
+        """An offline NAS leaves its mountpoint behind exactly like a key, and
+        has nothing to do with udev: a host where pyudev is unusable still
+        sweeps."""
+        root, calls, _ = leftovers
+
+        assert await manager.initialize() is False
+
+        assert calls == [("sudo", "-n", storage_mod.MILO_UMOUNT_CMD, f"{root}/iPod")]
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root lists a mode-000 directory")
+    async def test_a_directory_that_cannot_be_listed_does_not_stop_the_sweep(
+        self, manager, leftovers
+    ):
+        """One unreadable entry must not leave the iPod's empty mountpoint in
+        place for the first scan to walk."""
+        root, calls, _ = leftovers
+        (root / "locked").mkdir(mode=0)
+        try:
+            await manager.initialize()
+        finally:
+            (root / "locked").chmod(0o755)
+
+        assert calls == [("sudo", "-n", storage_mod.MILO_UMOUNT_CMD, f"{root}/iPod")]
 
     async def test_a_host_without_libudev_boots_without_usb(self, manager):
         """The documented dev-host case: no pyudev, no auto-mount, and a backend
