@@ -805,8 +805,10 @@ class VolumeService:
         level = self._state_store.get_client_volume(mac_id)
         if level is None:
             return False
-        mute = self._state_store.get_client_mute(mac_id)
         level_taken = await self._equalizer_controller.set_equalizer_volume(mac_id, level, force=True)
+        # Read after the level's round trip, as the reconnection sync does: a
+        # mute set during it would otherwise be overwritten by the old one.
+        mute = self._state_store.get_client_mute(mac_id)
         mute_taken = await self._equalizer_controller.set_equalizer_mute(mac_id, mute, force=True)
         return level_taken and mute_taken
 

@@ -713,7 +713,7 @@ async def dac_return(tmp_path, monkeypatch):
     transport = httpx.ASGITransport(app=app)
     with patch("backend.api.multiroom.aiohttp.ClientSession", return_value=satellite):
         async with httpx.AsyncClient(transport=transport, base_url="http://milo") as client:
-            yield client, registry, satellite
+            yield client, registry, satellite, volume
 
 
 class TestHandingTheLevelBackToMilo:
@@ -726,7 +726,7 @@ class TestHandingTheLevelBackToMilo:
     """
 
     async def test_handing_the_level_back_to_milo_sends_the_stored_level(self, dac_return):
-        client, registry, satellite = dac_return
+        client, registry, satellite, _ = dac_return
 
         resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
 
@@ -740,11 +740,32 @@ class TestHandingTheLevelBackToMilo:
             ("PUT", "/equalizer/mute", {"muted": False}),
         ]
 
+    async def test_a_mute_set_while_the_level_travels_is_the_last_mute_sent(self, dac_return):
+        """The mute is read when it leaves, not before the level's round trip:
+        read first, a mute set during that trip was overwritten by the old one,
+        and the room played while every screen said muted."""
+        client, registry, satellite, volume = dac_return
+        original = satellite.proxy_request
+
+        async def mute_during_the_level(ip, method, path, body=None):
+            answer = await original(ip, method, path, body)
+            if path == "/equalizer/volume":
+                await volume.set_client_mute(BUREAU, True, broadcast=False)
+            return answer
+
+        satellite.proxy_request = mute_during_the_level
+        resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
+
+        assert resp.status_code == 200
+        assert volume.state_store.get_client_mute(BUREAU) is True
+        mutes = [b for _, _, p, b in satellite.wire if p == "/equalizer/mute"]
+        assert mutes and mutes[-1] == {"muted": True}
+
     async def test_a_refused_level_is_reported(self, dac_return, caplog):
         """The flag has moved by then, so the answer stays 200 (the screen would
         otherwise roll its toggle back to DAC over a flag that is not); the
         banner is what says the room is not at the level it shows."""
-        client, registry, satellite = dac_return
+        client, registry, satellite, _ = dac_return
         original = satellite.proxy_request
 
         async def refuse_the_level(ip, method, path, body=None):
@@ -765,7 +786,7 @@ class TestHandingTheLevelBackToMilo:
         assert "-51.47 dB" in errors[0].getMessage()
 
     async def test_a_flag_already_managed_sends_no_level(self, dac_return):
-        client, registry, satellite = dac_return
+        client, registry, satellite, _ = dac_return
         await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
         satellite.wire.clear()
 
