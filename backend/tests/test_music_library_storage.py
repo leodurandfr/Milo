@@ -8,7 +8,10 @@ events and is exercised on the Pi, not here.
 """
 import logging
 import asyncio
+import getpass
 import re
+import socket
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -185,25 +188,133 @@ def test_the_helper_timeout_outlasts_milo_mounts_worst_case():
     """milo-mount survives sudo's death (it runs as root, reparented to PID 1),
     so a backend bound shorter than its worst case answers "not mounted" for a
     share that mounts a few seconds later — and is then never scanned. The worst
-    case is the network type with the most mount attempts in series (CIFS: a
-    modern SMB attempt, then a vers=2.0 fallback), each capped at
-    NET_MOUNT_TIMEOUT."""
+    case is a host that answers the reachability probe at its last second, then
+    the network type with the most mount attempts in series (CIFS: a modern SMB
+    attempt, then a vers=2.0 fallback), each capped at NET_MOUNT_TIMEOUT."""
     script = MILO_MOUNT_SCRIPT.read_text()
     found = re.search(r"^NET_MOUNT_TIMEOUT=(\d+)$", script, re.MULTILINE)
     assert found, f"NET_MOUNT_TIMEOUT not found in {MILO_MOUNT_SCRIPT}"
     per_attempt = int(found.group(1))
+    probe = re.search(r"^PROBE_TIMEOUT=(\d+)$", script, re.MULTILINE)
+    assert probe, f"PROBE_TIMEOUT not found in {MILO_MOUNT_SCRIPT}"
     attempts = {}
     for fstype in re.findall(r'timeout "\$NET_MOUNT_TIMEOUT" mount -t (\w+)', script):
         attempts[fstype] = attempts.get(fstype, 0) + 1
     assert attempts.get("cifs", 0) >= 2 and attempts.get("nfs", 0) >= 1, (
         f"mount attempts not found in {MILO_MOUNT_SCRIPT}: {attempts}"
     )
-    worst_case = max(attempts.values()) * per_attempt
+    worst_case = int(probe.group(1)) + max(attempts.values()) * per_attempt
     assert storage._HELPER_TIMEOUT_S > worst_case, (
         f"_HELPER_TIMEOUT_S={storage._HELPER_TIMEOUT_S} does not outlast milo-mount's "
-        f"worst case of {worst_case} s ({attempts}, {per_attempt} s each)"
+        f"worst case of {worst_case} s (probe {probe.group(1)} s, {attempts}, "
+        f"{per_attempt} s each)"
     )
 
+
+
+# --- milo-mount over a host that does not answer -----------------------------
+
+def _closed_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _milo_mount_copy(tmp_path: Path, port: int) -> tuple[Path, dict]:
+    """milo-mount as it ships, pointed at tmp_path and at ``port``, with a stub
+    mount(8) that records whether the mountpoint existed when it ran.
+
+    Only the paths, the user, the root check and the two share ports are
+    rewritten; each rewrite is asserted to have applied, so a renamed line fails
+    here instead of leaving the real /media/milo in the copy."""
+    script = MILO_MOUNT_SCRIPT.read_text()
+    root = tmp_path / "media"
+    rewrites = {
+        'MOUNT_ROOT="/media/milo"': f'MOUNT_ROOT="{root}"',
+        'CRED_DIR="/var/lib/milo/shares"': f'CRED_DIR="{tmp_path / "creds"}"',
+        'MILO_USER="milo"': f'MILO_USER="{getpass.getuser()}"',
+        '[ "$(id -u)" -eq 0 ] || die "must run as root"': ":",
+        "CIFS_PORT=445": f"CIFS_PORT={port}",
+        "NFS_PORT=2049": f"NFS_PORT={port}",
+    }
+    for old, new in rewrites.items():
+        assert script.count(old) == 1, f"{old!r} not found once in {MILO_MOUNT_SCRIPT}"
+        script = script.replace(old, new)
+    copy = tmp_path / "milo-mount"
+    copy.write_text(script)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "mount"
+    stub.write_text(
+        '#!/bin/bash\n'
+        'target="${@: -1}"\n'
+        '[ -d "$target" ] && echo present >> "$MOUNT_LOG" || echo absent >> "$MOUNT_LOG"\n'
+        'exit "$MOUNT_RC"\n'
+    )
+    stub.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "MOUNT_LOG": str(tmp_path / "mount.log"),
+        "MOUNT_RC": "32",
+    }
+    return copy, env
+
+
+def _run_milo_mount(copy: Path, env: dict, fstype: str, stdin: str = ""):
+    return subprocess.run(
+        ["bash", str(copy), "--network", fstype, "--id", "nas-1",
+         "--host", "127.0.0.1", "--path", "music"],
+        input=stdin, capture_output=True, text=True, env=env, timeout=30,
+    )
+
+
+@pytest.mark.parametrize("fstype", ["cifs", "nfs"])
+def test_a_mute_host_never_gets_an_empty_mountpoint(tmp_path, fstype):
+    """Every remount pass against an offline NAS goes through milo-mount, and
+    the plateau retries it every 5 min with no end. Navidrome reads a present but
+    empty /media/milo/<id> as a library whose every track is missing, and nothing
+    stops its 6-hourly schedule or the source's open-rescan from landing while a
+    mount attempt is in flight — so the mountpoint must not exist until the host
+    answers. Fails when milo-mount creates it before asking, as it did for the
+    30-40 s of two CIFS timeouts. Consumer: SharesService's remount task."""
+    copy, env = _milo_mount_copy(tmp_path, _closed_port())
+    result = _run_milo_mount(copy, env, fstype)
+
+    assert result.returncode != 0
+    assert "does not answer" in result.stderr, result.stderr
+    assert not (tmp_path / "mount.log").exists(), "mount(8) ran against a mute host"
+    assert not (tmp_path / "media" / "nas-1").exists()
+
+
+@pytest.mark.parametrize("fstype", ["cifs", "nfs"])
+def test_a_host_that_answers_is_mounted_on_its_mountpoint(tmp_path, fstype):
+    """The probe must not stand between a reachable NAS and its mount: the
+    mountpoint exists when mount(8) runs and its path is the helper's answer."""
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        copy, env = _milo_mount_copy(tmp_path, listener.getsockname()[1])
+        env["MOUNT_RC"] = "0"
+        result = _run_milo_mount(copy, env, fstype)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(tmp_path / "media" / "nas-1")
+    assert (tmp_path / "mount.log").read_text().split() == ["present"]
+
+
+def test_credentials_are_kept_when_the_host_does_not_answer(tmp_path):
+    """A share added while its NAS is off is saved and left to the remount task,
+    whose attempts feed milo-mount an empty stdin and rely on the cred file. A
+    probe that refused before persisting the credentials would leave every later
+    attempt mounting as guest, refused for good once the NAS is back."""
+    copy, env = _milo_mount_copy(tmp_path, _closed_port())
+    result = _run_milo_mount(copy, env, "cifs", stdin="username=leo\npassword=secret\n")
+
+    assert result.returncode != 0
+    assert (tmp_path / "creds" / "nas-1.cred").read_text().split() == [
+        "username=leo", "password=secret",
+    ]
 
 # === Navidrome unavailable (not yet provisioned) ==================================
 

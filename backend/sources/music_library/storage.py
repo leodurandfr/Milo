@@ -59,9 +59,10 @@ _MOUNTABLE_FSTYPES = frozenset(
 
 # Ceiling on a single mount/unmount helper call (a hang must not wedge the
 # monitor). It must outlast milo-mount's worst case, because killing sudo does
-# not stop the root helper under it: a CIFS share is two mount attempts in
-# series of NET_MOUNT_TIMEOUT (20 s) each, so a shorter bound answered "not
-# mounted" for a share that mounted seconds later and was then never scanned.
+# not stop the root helper under it: a CIFS share is a reachability probe of up
+# to PROBE_TIMEOUT (5 s), then two mount attempts in series of NET_MOUNT_TIMEOUT
+# (20 s) each, so a shorter bound answered "not mounted" for a share that
+# mounted seconds later and was then never scanned.
 _HELPER_TIMEOUT_S = 50.0
 
 # Cadence and ceiling for waiting out a scan that was already running when a

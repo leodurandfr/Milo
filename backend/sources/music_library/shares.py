@@ -45,9 +45,11 @@ class ShareLoginNeedsPassword(Exception):
 # the Pi); the plateau covers a router and a NAS that take minutes to come back
 # after a power cut, and keeps going until every configured share is mounted —
 # giving up left one out of the library for the rest of the session.
-# Slow on purpose: each attempt is one milo-mount held under the storage lock
-# (up to the helper timeout against a host that does not answer), which a USB
-# hotplug or a share edit waits behind.
+# Slow on purpose: each attempt is one milo-mount held under the storage lock,
+# which a USB hotplug or a share edit waits behind. Against a host that does not
+# answer, milo-mount refuses after its reachability probe (a few seconds) and
+# never creates the mountpoint: an empty one is a library Navidrome marks
+# missing, and these attempts never end while the NAS stays away.
 _SHARE_REMOUNT_RETRY_DELAYS_S = (15, 30, 60)
 _SHARE_REMOUNT_PLATEAU_S = 300
 

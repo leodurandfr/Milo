@@ -47,6 +47,12 @@ ALLOWED_FSTYPES="vfat exfat ntfs ext2 ext3 ext4 hfsplus"
 # helper (the backend also times out, but killing sudo won't kill an in-kernel
 # mount stuck in D state).
 NET_MOUNT_TIMEOUT=20
+# How long a share's host gets to accept a TCP connection before the mount is
+# refused without creating its mountpoint (see prepare_mountpoint), and the port
+# asked for each type: SMB, and nfsd's for every NFS version.
+PROBE_TIMEOUT=5
+CIFS_PORT=445
+NFS_PORT=2049
 
 log() { echo "milo-mount: $*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -68,6 +74,26 @@ in_mount_table() {
 }
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
+
+# Whether host $1 accepts a TCP connection on port $2 within PROBE_TIMEOUT. The
+# host reaches /dev/tcp as an argument of the inner shell, never as part of its
+# script, so nothing in it is parsed as shell.
+host_answers() {
+    timeout "$PROBE_TIMEOUT" bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$1" "$2" 2>/dev/null
+}
+
+# Create share mountpoint $3 only once its host $1 answers on port $2.
+#
+# Navidrome skips a library whose directory is absent and marks every track of
+# one whose directory is present but empty as missing (see milo-umount). The
+# backend retries an offline share every few minutes for as long as it stays
+# away, and a mount attempt against a host that does not answer lasts up to two
+# NET_MOUNT_TIMEOUTs: creating the directory first left it empty for that long
+# on every retry, open to the scheduled scan or the source's open-rescan.
+prepare_mountpoint() {
+    host_answers "$1" "$2" || die "host $1 does not answer on port $2"
+    mkdir -p "$MOUNT_ROOT" "$3"
+}
 
 # Sanitize any caller-supplied string to a single safe path component (no
 # traversal, no shell/glob metacharacters).
@@ -220,7 +246,6 @@ mount_network() {
         return 0
     fi
 
-    mkdir -p "$MOUNT_ROOT" "$MOUNTPOINT"
     path="${path#/}"  # normalize; we add the single separator ourselves
 
     if [ "$type" = "cifs" ]; then
@@ -241,6 +266,9 @@ mount_network() {
             opts="$opts,guest"
         fi
         local src="//$host/$path"
+        # After the credentials: a share saved while its NAS is off is retried
+        # with an empty stdin, and needs the file this attempt was handed.
+        prepare_mountpoint "$host" "$CIFS_PORT" "$MOUNTPOINT"
         # Modern SMB first; fall back one protocol version for older NAS boxes.
         timeout "$NET_MOUNT_TIMEOUT" mount -t cifs -o "$opts" "$src" "$MOUNTPOINT" 2>/dev/null \
             || timeout "$NET_MOUNT_TIMEOUT" mount -t cifs -o "$opts,vers=2.0" "$src" "$MOUNTPOINT" \
@@ -250,6 +278,7 @@ mount_network() {
         # dead server fails instead of hanging the mount indefinitely.
         local opts="ro,nosuid,nodev,noexec,soft,timeo=50,retrans=2"
         local src="$host:/$path"
+        prepare_mountpoint "$host" "$NFS_PORT" "$MOUNTPOINT"
         timeout "$NET_MOUNT_TIMEOUT" mount -t nfs -o "$opts" "$src" "$MOUNTPOINT" \
             || { rmdir "$MOUNTPOINT" 2>/dev/null || true; die "nfs mount failed for $src"; }
     fi
