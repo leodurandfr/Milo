@@ -72,7 +72,7 @@ CHROOT
 on_chroot << 'CHROOT'
 mkdir -p /var/lib/milo-client
 VERSION=$(sudo -u milo git -C /home/milo/milo describe --tags --always)
-PAYLOAD=$(sudo -u milo git -C /home/milo/milo log -1 --format=%h -- milo-client/app milo-client/system milo-client/rootfs milo-client/configs ':(exclude,glob)milo-client/**/tests/**')
+PAYLOAD=$(sudo -u milo git -C /home/milo/milo log -1 --format=%H -- milo-client/app milo-client/system milo-client/rootfs milo-client/configs ':(exclude,glob)milo-client/**/tests/**')
 printf '%s' "$VERSION" > /var/lib/milo-client/app-version
 printf '%s' "$PAYLOAD" > /var/lib/milo-client/app-payload
 CHROOT

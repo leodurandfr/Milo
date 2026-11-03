@@ -23,7 +23,9 @@ Per this directory's doctrine, every extractor asserts its own output is
 non-trivial before asserting anything about it: a guardrail that silently found
 nothing to look at is worse than no guardrail.
 """
+import ast
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -267,3 +269,60 @@ def test_both_image_builders_hand_the_stage_the_same_file(stage_scripts):
     # The local builder has no CI job to take the artefact from, so it builds it
     # — from the lockfile, like the workflow does.
     assert "npm ci" in local, "the local builder re-resolves its dependencies"
+
+
+
+SATELLITE_UPDATES = REPO_ROOT / "backend" / "core" / "updates" / "satellite.py"
+IMAGE_INSTALLER = STAGE_DIR / "02-install-milo" / "00-run.sh"
+
+
+def _format_flag(argv, where) -> str:
+    flags = [arg for arg in argv if isinstance(arg, str) and arg.startswith(("--format", "--pretty"))]
+    assert len(flags) == 1, f"{where}: expected one --format flag, found {flags} in {argv}"
+    return flags[0]
+
+
+def test_the_payload_fingerprint_is_spelled_once_on_both_sides():
+    """A satellite is pushed (and its speaker restarted) when the payload it
+    reports differs from the server's, compared as strings. Two programs write
+    that string: the backend for a pushed unit, the image stage for a flashed
+    one. Any difference between the two spellings offers a freshly flashed
+    satellite a push of the code it already runs.
+
+    `%h` is refused on either side: its length follows `core.abbrev=auto`, so
+    the same commit reads one character longer once the object store passes
+    65 535 objects, and every unit in the field is offered a push at the fetch
+    that crosses it. That the backend's `log`, `status` and `diff` all read
+    `PAYLOAD_PATHSPEC` is pinned in test_satellite_updates.py; what only this
+    file can see is the bash copy.
+    """
+    from backend.core.updates.satellite import PAYLOAD_PATHSPEC
+
+    tree = ast.parse(SATELLITE_UPDATES.read_text(encoding="utf-8"))
+    function = next(
+        (node for node in ast.walk(tree)
+         if isinstance(node, ast.AsyncFunctionDef) and node.name == "get_client_payload_version"),
+        None,
+    )
+    assert function, f"get_client_payload_version was not found in {SATELLITE_UPDATES.name}"
+    logs = [
+        [arg.value for arg in node.args if isinstance(arg, ast.Constant)]
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_git" and node.args
+        and isinstance(node.args[0], ast.Constant) and node.args[0].value == "log"
+    ]
+    assert len(logs) == 1, f"expected the payload's one `git log`, found {logs}"
+    python_format = _format_flag(logs[0], SATELLITE_UPDATES.name)
+
+    line = re.search(r"^PAYLOAD=\$\((.*)\)\s*$", IMAGE_INSTALLER.read_text(), re.MULTILINE)
+    assert line, f"{IMAGE_INSTALLER.name} no longer seeds the payload"
+    shell = shlex.split(line.group(1))
+    assert "log" in shell and "--" in shell, f"the seed is not a `git log` any more: {shell}"
+    shell_format = _format_flag(shell, IMAGE_INSTALLER.name)
+
+    for side, spelled in ((SATELLITE_UPDATES.name, python_format), (IMAGE_INSTALLER.name, shell_format)):
+        assert spelled == "--format=%H", f"{side} names the commit by {spelled}, not its full hash"
+    assert shell[shell.index("--") + 1:] == list(PAYLOAD_PATHSPEC), (
+        f"the image seeds a payload over other trees than the backend: {shell}"
+    )

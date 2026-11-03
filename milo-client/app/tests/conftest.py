@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # TestClient still runs on httpx, and the replacement is upstream's to ship. It
 # is raised once, at the first import, so that import is made here with the
 # warning silenced — not from a milo-client/pytest.ini, which would ship to
-# every satellite and move its payload fingerprint for a test setting.
+# every satellite in each update tarball for a test setting.
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", message="Using `httpx` with `starlette.testclient`")
     import fastapi.testclient  # noqa: F401 -- imported for the side effect above

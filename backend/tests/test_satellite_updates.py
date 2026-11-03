@@ -7,7 +7,10 @@ Every assertion here is about a machine CI can never reach — a second physical
 Pi — so the mocks stand for the satellite's HTTP surface and for git, and the
 assertion is always what the service concluded from what the satellite said.
 """
+import asyncio
 import logging
+import os
+import subprocess
 import tarfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -264,7 +267,7 @@ class TestTheTwoSatelliteIdentities:
     *Which version does it run* is the release, and it is what the row prints —
     in the server's own numbering, because both halves ship from one commit.
     *Does its code differ from the server's* is the payload: the commit that
-    last touched `milo-client/`, the tarball's only content.
+    last touched the `milo-client/` trees a push installs.
 
     Collapsing them either way breaks something measured. Deciding on the
     release lit the update button on the whole fleet every time the server
@@ -276,12 +279,12 @@ class TestTheTwoSatelliteIdentities:
 
     async def test_the_payload_is_the_last_commit_touching_the_client_tree(
             self, satellite_service):
-        git = _fake_git(payload="c6247d9")
+        git = _fake_git(payload="c6247d9e1a0b4f2d8c3e5a7b9d1f3e5c7a9b0d2f")
 
         with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", git):
             payload = await satellite_service.get_client_payload_version()
 
-        assert payload == "c6247d9"
+        assert payload == "c6247d9e1a0b4f2d8c3e5a7b9d1f3e5c7a9b0d2f"
         log = next(argv for argv in git.calls if "log" in argv)
         assert log[log.index("--") + 1:] == list(PAYLOAD_PATHSPEC), (
             "unscoped, this fingerprints HEAD again"
@@ -299,6 +302,66 @@ class TestTheTwoSatelliteIdentities:
         for verb in ("status", "diff"):
             argv = next(a for a in git.calls if verb in a)
             assert argv[argv.index("--") + 1:] == list(PAYLOAD_PATHSPEC), verb
+
+    async def test_a_tests_only_commit_does_not_change_the_payload(
+            self, satellite_service, tmp_path):
+        """The payload decides whether a speaker is restarted, so it must be a
+        function of the trees a push installs and nothing else.
+
+        Read from a real repository, because both ways it went wrong were git's
+        doing, not Milō's: an abbreviated hash grows a character once the object
+        store passes 65 535 objects, and a commit touching only `app/tests/`
+        (which the tarball leaves out) named a new commit. Either one changed
+        the string, and a string compare offered the whole fleet a push of
+        byte-identical code.
+        """
+        # A GIT_DIR or GIT_INDEX_FILE inherited from a hook outranks `-C` and
+        # would commit into the live checkout; the user's config could add hooks.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+
+        def git(*args):
+            return subprocess.run(
+                ["git", "-C", str(tmp_path), "-c", "user.name=milo", "-c", "user.email=milo@localhost",
+                 *args],
+                check=True, capture_output=True, text=True, env=env,
+            ).stdout.strip()
+
+        def commit(relative, body):
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body)
+            git("add", relative)
+            git("commit", "-q", "-m", relative)
+            return git("rev-parse", "HEAD")
+
+        async def spawn_in_tmp_repo(program, *args, **kwargs):
+            # The file's spawn guard stands for the live checkout; this test
+            # runs git for real, and only ever against its own repository.
+            assert (program, args[:2]) == ("git", ("-C", str(tmp_path))), args
+            return await asyncio.subprocess.create_subprocess_exec(
+                program, *args, **{**kwargs, "env": env})
+
+        git("init", "-q")
+        shipped = commit("milo-client/app/main.py", "v1\n")
+
+        with patch("backend.core.updates.satellite.MILO_REPO_DIR", tmp_path), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      new=spawn_in_tmp_repo):
+            assert await satellite_service.get_client_payload_version() == shipped, (
+                "the payload is not the full hash of the last commit touching the shipped trees"
+            )
+
+            commit("milo-client/app/tests/test_x.py", "def test_x(): pass\n")
+            assert await satellite_service.get_client_payload_version() == shipped
+
+            (tmp_path / "milo-client/app/tests/test_y.py").write_text("def test_y(): pass\n")
+            assert await satellite_service.get_client_payload_version() == shipped, (
+                "an untracked test file marks the payload dirty"
+            )
+
+            changed = commit("milo-client/app/main.py", "v2\n")
+            assert await satellite_service.get_client_payload_version() == changed != shipped
 
     async def test_uncommitted_client_work_is_marked_dirty(self, satellite_service):
         """The tarball is built from the working tree, so an edit no commit

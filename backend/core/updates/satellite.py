@@ -268,8 +268,14 @@ class SatelliteUpdateService:
         return stdout.decode().strip()
 
     async def get_client_payload_version(self) -> Optional[str]:
-        """Fingerprint of what a satellite update actually installs: the commit
-        that last touched `PAYLOAD_PATHSPEC`.
+        """Fingerprint of what a satellite update actually installs: the full
+        hash of the commit that last touched `PAYLOAD_PATHSPEC`.
+
+        Full, because it is compared as a string and `%h` is not a function of
+        the commit: its length follows `core.abbrev=auto`, so the same commit
+        reads a character longer once the object store passes 65 535 objects,
+        and the fetch that crosses it would offer every satellite a push of the
+        code it already runs.
 
         Two different questions are asked of a satellite, and one string used to
         answer both — badly. *Which version does it run* is displayed, and comes
@@ -295,7 +301,7 @@ class SatelliteUpdateService:
         "up to date" in the UI, while neither carried the route added to that
         directory half an hour earlier.
         """
-        commit = await self._git("log", "-1", "--format=%h", "--", *PAYLOAD_PATHSPEC)
+        commit = await self._git("log", "-1", "--format=%H", "--", *PAYLOAD_PATHSPEC)
         if not commit:
             return None
 
