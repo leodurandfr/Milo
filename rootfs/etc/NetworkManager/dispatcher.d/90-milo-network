@@ -63,14 +63,17 @@ set_avahi_interface() {
     local current
     current=$(get_avahi_interface)
 
-    # Skip if already configured correctly
-    [ "$current" = "$interface" ] && return 0
+    # Both must agree: milo-first-boot rewrites the state and an update the
+    # conf, neither restarting Avahi, so either one alone can be stale.
+    [ "$(cat "$AVAHI_STATE_FILE" 2>/dev/null)" = "$interface" ] && [ "$current" = "$interface" ] && return 0
 
     # Write desired interface to state file (applied by systemd ExecStartPre)
     echo "$interface" > "$AVAHI_STATE_FILE"
 
-    # Restart Avahi - ExecStartPre will read state file and apply correct interface
-    systemctl restart avahi-daemon.service
+    # Restart Avahi - ExecStartPre will read state file and apply correct interface.
+    # --no-block: milo-first-boot runs Before=avahi-daemon, so a blocking restart
+    # would hold this script behind it.
+    systemctl restart --no-block avahi-daemon.service
 }
 
 # Wait while NetworkManager is still bringing eth0 up (device states 40-90,
