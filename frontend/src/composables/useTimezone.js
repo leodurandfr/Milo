@@ -18,6 +18,9 @@ import { isKiosk } from '@/utils/kiosk';
  *   * the kiosk is skipped, because its browser *is* this system and would
  *     only ever report the value already in place.
  *
+ * A zone the unit does not ship is left alone too: Chromium reports legacy
+ * CLDR ids (`Asia/Calcutta`) and bare `UTC`, which the backend would refuse.
+ *
  * It is deliberately not a wizard step. Nothing in Milō breaks on a wrong zone
  * — there is no clock and no wall-clock schedule, only journal timestamps and
  * podcast "today/yesterday" — so it does not earn a question, and every
@@ -39,6 +42,7 @@ export async function adoptBrowserTimezone() {
   });
   if (!current.ok || !current.data.data.is_default) return false;
   if (browserZone === current.data.data.timezone) return false;
+  if (!current.data.data.available.includes(browserZone)) return false;
 
   const applied = await apiCall.put('/api/system/timezone', { timezone: browserZone }, {
     category: 'system',

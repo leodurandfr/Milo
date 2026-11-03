@@ -29,6 +29,7 @@ What breaks when these fail:
 import asyncio
 import builtins
 import io
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -866,13 +867,35 @@ class TestTimezone:
         assert "Europe/Paris" in available
         assert "localtime" not in available
 
-    def test_an_unknown_zone_is_refused_without_spawning_anything(self, client, spawn, localtime):
+    @pytest.mark.parametrize("zone", ["UTC", "Middle/Earth"])
+    def test_an_unknown_timezone_is_refused_without_a_banner(
+        self, client, spawn, localtime, caplog, zone
+    ):
+        """A zone the unit does not offer is the caller's mistake, not a fault.
+
+        Chromium reports bare `UTC` and legacy CLDR ids (`Asia/Calcutta`,
+        absent without tzdata-legacy), which the list does not carry. Only
+        `UTC` is refused on every host. Logged at error, the refusal
+        became `system/backend_error` — the red banner on every open screen,
+        kiosk included, each time such a browser opened the UI. The warning
+        still lands in `errors.log`.
+        """
+        caplog.set_level(logging.WARNING)
         localtime("Etc/UTC")
 
-        response = client.put("/api/system/timezone", json={"timezone": "Middle/Earth"})
+        response = client.put("/api/system/timezone", json={"timezone": zone})
 
         assert response.status_code == 400
         assert spawn.calls == []
+        banner = [
+            r.getMessage() for r in caplog.records
+            if r.levelno >= logging.ERROR and r.name.startswith("backend")
+        ]
+        assert banner == [], "a refused zone reaches the error banner"
+        assert any(
+            r.levelno == logging.WARNING and r.name == "backend.api.system"
+            for r in caplog.records
+        ), "the refusal leaves no trace in errors.log"
 
     def test_a_known_zone_reaches_the_helper(self, client, spawn, localtime):
         localtime("Etc/UTC")

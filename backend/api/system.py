@@ -515,7 +515,7 @@ def create_system_router(
     async def set_timezone(payload: TimezoneRequest):
         """Apply an IANA timezone."""
         if payload.timezone not in _available_timezones():
-            logger.error("Rejected unknown timezone %r", payload.timezone)
+            logger.warning("Rejected unknown timezone %r", payload.timezone)
             raise HTTPException(status_code=400, detail=f"Unknown timezone: {payload.timezone}")
 
         async with api_error_handler("Error setting the timezone", logger):

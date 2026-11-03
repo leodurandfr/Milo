@@ -34,8 +34,12 @@ function stubBrowserZone(zone) {
   });
 }
 
-function systemTimezone({ timezone, is_default }) {
-  return ok({ status: 'success', data: { timezone, is_default, available: [] } });
+// What the backend offers: Area/Location names only, so no legacy CLDR alias
+// (`Asia/Calcutta`) and no bare `UTC`.
+const AVAILABLE = [BROWSER_ZONE, 'Asia/Kolkata', 'Etc/UTC', 'Europe/Paris'];
+
+function systemTimezone({ timezone, is_default, available = AVAILABLE }) {
+  return ok({ status: 'success', data: { timezone, is_default, available } });
 }
 
 beforeEach(() => {
@@ -58,6 +62,19 @@ describe('adoptBrowserTimezone', () => {
       expect.anything()
     );
   });
+
+  // Chromium reports these where the unit ships `Asia/Kolkata` and `Etc/UTC`;
+  // sent, each is refused, every time a browser opens the UI.
+  it.each(['Asia/Calcutta', 'UTC'])(
+    'skips a browser zone this unit does not ship (%s)',
+    async (zone) => {
+      stubBrowserZone(zone);
+      apiCall.get.mockResolvedValueOnce(systemTimezone({ timezone: 'Etc/UTC', is_default: true }));
+
+      expect(await adoptBrowserTimezone()).toBe(false);
+      expect(apiCall.put).not.toHaveBeenCalled();
+    }
+  );
 
   it('never overwrites a zone somebody chose', async () => {
     apiCall.get.mockResolvedValueOnce(
