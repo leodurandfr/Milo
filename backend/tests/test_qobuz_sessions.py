@@ -339,6 +339,28 @@ async def test_a_login_made_in_the_sidecar_outlives_it(monkeypatch, tmp_path):
     await world.source.shutdown()
 
 
+async def test_a_login_made_in_the_sidecar_outlives_a_reroute(monkeypatch, tmp_path):
+    """A multiroom toggle stops the sidecar and starts it again from the token
+    cache: a login made while Qobuz played must be in it by then, or every
+    toggle draws "connect an account" until the first authenticated poll."""
+    world = QobuzWorld(monkeypatch, tmp_path, logged_in=False)
+    await world.boot()
+    await world.select()
+    await world.advance(3)
+    assert world.availability() == "no_account"
+    world.sidecar_logs_in()
+    await world.advance(1)
+    assert world.availability() is None
+    before = len(world.published())
+    for _ in range(2):
+        await world.reroute()
+    after = world.published()[before:]
+    assert after and all(p["availability"]["qobuz"] is None for p in after)
+    assert world.availability() is None
+    assert world.sidecar.up
+    await world.source.shutdown()
+
+
 async def test_a_logout_from_the_settings_screen_is_published(world):
     """The settings screen clears the cache while the sidecar is down, then
     tells the source (api/qobuz_account.py): the state must say so at once,

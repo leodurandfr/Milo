@@ -186,6 +186,10 @@ class QobuzSource(BaseAudioSource):
 
     async def _do_release(self) -> bool:
         await self.end_session(EndReason.REROUTE)
+        # Before _cleanup(): once the monitor is gone availability() reads the
+        # cache, and a state composed during the stop carries it (a reroute's
+        # states go out, unlike a transition's).
+        self._account_cached = is_connected(await read_credentials())
         await self._cleanup()
         return await self._stop_service()
 

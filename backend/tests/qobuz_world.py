@@ -332,9 +332,12 @@ class QobuzWorld(WireReader):
         await settle()
 
     async def reroute(self) -> None:
+        """A multiroom toggle, under the switch AudioRoutingService holds: what
+        the source publishes in between goes out, as on the unit."""
         async def apply_mode() -> None:
             return None
-        await self.machine.reroute_active_source(apply_mode)
+        async with self.machine.multiroom_switch():
+            await self.machine.reroute_active_source(apply_mode)
         await self.advance(1)
 
     def availability(self) -> Optional[str]:
