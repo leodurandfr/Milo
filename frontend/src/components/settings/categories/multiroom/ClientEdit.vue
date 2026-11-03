@@ -201,6 +201,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import { needsHardwareRead } from '@/utils/clientHardware';
 import { logger } from '@/services/logger';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -268,7 +269,8 @@ const client = computed(() =>
 );
 
 // Audio card state
-const isLoadingAudio = ref(!!(client.value && !client.value.is_local && client.value.online));
+const isLoadingAudio = ref(false);
+let hardwareReadInFlight = false;
 const audioCards = ref([]);
 const selectedAudioId = ref('');
 const savedAudioId = ref('');
@@ -621,15 +623,46 @@ async function handleSshToggle(enabled) {
   sshBusy.value = false;
 }
 
+async function readHardware() {
+  hardwareReadInFlight = true;
+  if (!audioCards.value.length) isLoadingAudio.value = true;
+  try {
+    // A forced reload that fails clears the shared config, so only ask while
+    // the cards are missing.
+    const [config, hardware] = await Promise.all([
+      audioCards.value.length ? null : loadHardwareConfig(true),
+      multiroomClientStore.fetchClientHardware(props.macId).catch(() => null),
+    ]);
+    if (config?.options?.audio_cards) {
+      audioCards.value = config.options.audio_cards;
+    }
+    if (hardware?.audio?.id) {
+      savedAudioId.value = hardware.audio.id;
+      // A card picked while the read was failing is the user's, not stale.
+      if (!selectedAudioId.value) selectedAudioId.value = hardware.audio.id;
+    }
+  } finally {
+    isLoadingAudio.value = false;
+    hardwareReadInFlight = false;
+  }
+}
+
 // Read whenever the satellite is (back) online with no state yet: the panel can
-// open on a speaker that is rebooting, or before the client list arrived. The
-// links are read again on every return: a satellite that lost its cable comes
-// back on the WiFi, and that is exactly what the rows are there to show.
+// open on a speaker that is rebooting, or before the client list arrived, and a
+// failed hardware read is retried on the next return. The links are read again
+// on every return: a satellite that lost its cable comes back on the WiFi, and
+// that is exactly what the rows are there to show.
 watch(
   () => !!client.value && !client.value.is_local && client.value.online,
   async (reachable) => {
     if (!reachable) return;
     await Promise.all([
+      needsHardwareRead({
+        reachable,
+        cardsLoaded: audioCards.value.length > 0,
+        savedAudioId: savedAudioId.value,
+        inFlight: hardwareReadInFlight,
+      }) && readHardware(),
       !sshState.value && (async () => {
         sshError.value = null;
         sshState.value = await multiroomClientStore.fetchClientSsh(props.macId, { errorRef: sshError });
@@ -642,7 +675,7 @@ watch(
   { immediate: true }
 );
 
-onMounted(async () => {
+onMounted(() => {
   if (client.value) {
     clientName.value = client.value.name || client.value.host;
     originalClientName.value = clientName.value;
@@ -654,28 +687,6 @@ onMounted(async () => {
     gainEnabled.value = gainDb.value !== 0;
     if (gainDb.value !== 0) lastGain.value = gainDb.value;
     if (delayMs.value > 0) lastDelay.value = delayMs.value;
-
-    // Load audio card options and current card for remote clients
-    if (!client.value.is_local && client.value.online) {
-      try {
-        const [config, hardware] = await Promise.all([
-          loadHardwareConfig(true),
-          multiroomClientStore.fetchClientHardware(props.macId).catch(() => null),
-        ]);
-
-        if (config?.options?.audio_cards) {
-          audioCards.value = config.options.audio_cards;
-        }
-        if (hardware?.audio?.id) {
-          selectedAudioId.value = hardware.audio.id;
-          savedAudioId.value = hardware.audio.id;
-        }
-      } finally {
-        isLoadingAudio.value = false;
-      }
-    } else {
-      isLoadingAudio.value = false;
-    }
   }
 });
 
