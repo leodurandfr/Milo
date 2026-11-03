@@ -20,6 +20,7 @@ What breaks when these fail:
   file destined for a public issue.
 """
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -174,6 +175,22 @@ def test_the_identity_lines_name_the_code_that_answers(client, identity_at_start
 
     assert "app version     : v0.1.0" in text
     assert "app payload     : OLDPAYLOAD" in text
+
+
+def test_the_report_names_when_the_app_started(client, monkeypatch):
+    """After a push a maintainer reads this report to learn since when the new
+    code runs; a line that printed the request time answered that question with
+    a different value on every report."""
+    import routes.health as health
+
+    monkeypatch.setattr(health, "APP_STARTED_AT", 1_000_000_000)
+
+    text = client.get("/diagnostic").json()["text"]
+    line = next(line for line in text.splitlines() if line.startswith("api started at"))
+    value = line.split(":", 1)[1].strip()
+
+    assert "(now)" not in line
+    assert datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z").timestamp() == 1_000_000_000
 
 
 class _Systemd:

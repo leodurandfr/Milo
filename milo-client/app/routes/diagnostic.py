@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Sequence
 
 from fastapi import APIRouter
 
-from routes.health import APP_PAYLOAD, APP_VERSION
+from routes import health
 
 logger = logging.getLogger(__name__)
 
@@ -258,9 +258,9 @@ async def _identity() -> List[str]:
     return [
         f"uptime          : {seconds // 86400}d {(seconds % 86400) // 3600}h "
         f"{(seconds % 3600) // 60}m",
-        f"app version     : {APP_VERSION or '-'}",
-        f"app payload     : {APP_PAYLOAD or '-'}",
-        f"api started at  : {time.strftime('%Y-%m-%dT%H:%M:%S%z')} (now)",
+        f"app version     : {health.APP_VERSION or '-'}",
+        f"app payload     : {health.APP_PAYLOAD or '-'}",
+        f"api started at  : {time.strftime('%Y-%m-%dT%H:%M:%S%z', time.localtime(health.APP_STARTED_AT))}",
         f"kernel          : {(kernel or '-').strip()}",
     ]
 
