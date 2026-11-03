@@ -167,6 +167,8 @@ class NetworkService:
         # lease — bounds how long that reads as "connecting".
         self._lease_wait_since: Optional[float] = None
         self._connect_lock = asyncio.Lock()
+        # One country change at a time: the helper rewrites the boot cmdline.txt.
+        self._country_lock = asyncio.Lock()
 
         # D-Bus state
         self._bus: Optional[MessageBus] = None
@@ -652,30 +654,36 @@ class NetworkService:
           - Update cfg80211.ieee80211_regdom=<CC> in /boot/firmware/cmdline.txt.
 
         The caller is responsible for triggering a reboot if needed.
+
+        Serialized, helper and setting together: two calls at once (the setup
+        wizard's network step fires one on mount while its picker sends
+        another) would run the helper twice concurrently and could persist
+        the earlier country last.
         """
-        self.logger.info("Setting WiFi country code to %s", country_code)
+        async with self._country_lock:
+            self.logger.info("Setting WiFi country code to %s", country_code)
 
-        proc = None
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "/usr/local/bin/milo-set-wifi-country", country_code,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-        except asyncio.TimeoutError:
-            if proc:
-                proc.kill()
-            self.logger.error("milo-set-wifi-country timed out for country %s", country_code)
-            raise RuntimeError("WiFi country script timed out")
+            proc = None
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "/usr/local/bin/milo-set-wifi-country", country_code,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            except asyncio.TimeoutError:
+                if proc:
+                    proc.kill()
+                self.logger.error("milo-set-wifi-country timed out for country %s", country_code)
+                raise RuntimeError("WiFi country script timed out")
 
-        if proc.returncode != 0:
-            error_msg = stderr.decode().strip() or "Unknown error"
-            self.logger.error("milo-set-wifi-country failed (rc=%d): %s", proc.returncode, error_msg)
-            raise RuntimeError(f"Failed to set WiFi country: {error_msg}")
+            if proc.returncode != 0:
+                error_msg = stderr.decode().strip() or "Unknown error"
+                self.logger.error("milo-set-wifi-country failed (rc=%d): %s", proc.returncode, error_msg)
+                raise RuntimeError(f"Failed to set WiFi country: {error_msg}")
 
-        self.logger.info("WiFi country set to %s: %s", country_code, stdout.decode().strip())
-        await self.settings_service.set_setting("wifi.country", country_code)
+            self.logger.info("WiFi country set to %s: %s", country_code, stdout.decode().strip())
+            await self.settings_service.set_setting("wifi.country", country_code)
 
     # =========================================================================
     # Hotspot management

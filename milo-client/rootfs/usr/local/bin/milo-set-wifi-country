@@ -16,6 +16,8 @@
 set -euo pipefail
 
 CMDLINE_FILE="/boot/firmware/cmdline.txt"
+# Not on cmdline.txt itself: the rename below gives that path a new inode.
+LOCK_FILE="/run/lock/milo-set-wifi-country.lock"
 
 # Fallback for older Pi OS layouts
 if [[ ! -f "$CMDLINE_FILE" ]]; then
@@ -43,6 +45,24 @@ if [[ ! -f "$CMDLINE_FILE" ]]; then
     exit 1
 fi
 
+# Two runs at once (the setup wizard's mount and its picker) each read the file
+# the other was rewriting, and could leave the radio on one country and the
+# next boot on the other: serialize the whole change, and read under the lock.
+exec 9>"$LOCK_FILE"
+if ! flock -w 10 9; then
+    echo "ERROR: another milo-set-wifi-country still holds $LOCK_FILE" >&2
+    exit 1
+fi
+
+CURRENT=$(cat "$CMDLINE_FILE")
+
+# Without root= the next boot finds no root filesystem: never write that back,
+# and change nothing else either.
+if ! [[ "$CURRENT" =~ (^|[[:space:]])root= ]]; then
+    echo "ERROR: $CMDLINE_FILE is empty or carries no root=, left untouched" >&2
+    exit 1
+fi
+
 # =============================================================================
 # Apply regulatory domain for current session
 # =============================================================================
@@ -58,7 +78,10 @@ echo "Regulatory domain set to $COUNTRY_CODE (current session)"
 # Persist to cmdline.txt for next boot
 # =============================================================================
 
-CURRENT=$(cat "$CMDLINE_FILE")
+if [[ "$CURRENT" =~ (^|[[:space:]])cfg80211\.ieee80211_regdom=$COUNTRY_CODE([[:space:]]|$) ]]; then
+    echo "cmdline.txt already carries cfg80211.ieee80211_regdom=$COUNTRY_CODE"
+    exit 0
+fi
 
 if echo "$CURRENT" | grep -q "cfg80211.ieee80211_regdom="; then
     NEW_CONTENT=$(echo "$CURRENT" | sed "s/cfg80211\.ieee80211_regdom=[A-Z0-9]*/cfg80211.ieee80211_regdom=$COUNTRY_CODE/")
@@ -66,6 +89,16 @@ else
     NEW_CONTENT="${CURRENT% } cfg80211.ieee80211_regdom=$COUNTRY_CODE"
 fi
 
-printf '%s\n' "$NEW_CONTENT" > "$CMDLINE_FILE"
+# The boot partition is vfat, with no journal: a file truncated in place and
+# cut by a power loss before writeback is a unit that no longer boots. Write a
+# sibling, flush it, rename it over, then flush the partition and the file
+# (syncfs sends no cache flush on vfat, the file's fsync does).
+TMP="$CMDLINE_FILE.milo-new"
+trap 'rm -f "$TMP"' EXIT
+printf '%s\n' "$NEW_CONTENT" > "$TMP"
+sync "$TMP"
+mv -f "$TMP" "$CMDLINE_FILE"
+sync -f "$CMDLINE_FILE"
+sync "$CMDLINE_FILE"
 
 echo "cmdline.txt updated with cfg80211.ieee80211_regdom=$COUNTRY_CODE"

@@ -624,3 +624,56 @@ def test_apply_hardware_syncs_the_boot_partition_before_it_returns(script):
                 f"{lines[exit_at].strip() if exit_at < len(lines) else 'the end of the script'!r} "
                 f"with no top-level line matching {rx.pattern!r} in between"
             )
+
+
+# --------------------------------------------------------------------------- #
+# No helper truncates a boot partition file in place.
+# --------------------------------------------------------------------------- #
+
+# A `>` (not `>>`, which the apply-hardware guardrail above owns) whose target
+# is a boot partition file: an O_TRUNC on the inode the next boot reads.
+BOOT_FILE_TRUNCATE_RE = re.compile(
+    r'(?<![>&0-9])>\|?\s*"?(?:\$CMDLINE_FILE|\$CONFIG_FILE|\S*(?:cmdline|config)\.txt)"?(?:\s|$)'
+)
+CMDLINE_SYNCS = (
+    re.compile(r'^sync\s+-f\s+"\$CMDLINE_FILE"\s*$'),
+    re.compile(r'^sync\s+"\$CMDLINE_FILE"\s*$'),
+)
+CMDLINE_RENAME_RE = re.compile(r'^mv\s+-f\s+"\$\w+"\s+"\$CMDLINE_FILE"\s*$')
+
+
+def test_no_helper_truncates_a_boot_partition_file_in_place():
+    """cmdline.txt and config.txt are rewritten through a renamed, flushed sibling.
+
+    /boot/firmware is vfat, with no journal. A helper that truncates one of
+    those files in place and is cut there — by a power loss before writeback,
+    or by a second run reading it empty in between — leaves a unit that does
+    not boot (no `root=`) or boots without its overlay, recoverable only from
+    another computer. Every script that writes cmdline.txt renames a sibling
+    over it, then runs `sync -f "$CMDLINE_FILE"` and `sync "$CMDLINE_FILE"` at
+    top level after the rename. Consumers: `milo-set-wifi-country` in both
+    trees (the server's WiFi country, a satellite's admission).
+    """
+    scripts = [p for tree in TREES.values() for p in _shell_files(tree)]
+    assert len(scripts) >= 20, f"shell scripts not extracted: {scripts}"
+
+    truncations = [
+        f"{p.relative_to(REPO_ROOT)}: {line.strip()}"
+        for p in scripts for line in _code_lines(p)
+        if BOOT_FILE_TRUNCATE_RE.search(line)
+    ]
+    assert not truncations, "in-place truncation of a boot file:\n" + "\n".join(truncations)
+
+    writers = [p for p in scripts if any("CMDLINE_FILE" in line for line in _code_lines(p))]
+    assert [p.name for p in writers].count("milo-set-wifi-country") == 2, (
+        f"cmdline.txt writers not extracted: {writers}"
+    )
+    for path in writers:
+        lines = _code_lines(path)
+        renames = [i for i, line in enumerate(lines) if CMDLINE_RENAME_RE.match(line)]
+        assert renames, f"{path.relative_to(REPO_ROOT)}: no rename over $CMDLINE_FILE"
+        for rx in CMDLINE_SYNCS:
+            assert any(rx.match(line) for line in lines[renames[-1] + 1:]), (
+                f"{path.relative_to(REPO_ROOT)}: no top-level line matching {rx.pattern!r} "
+                "after the rename"
+            )

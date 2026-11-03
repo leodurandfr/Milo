@@ -2337,6 +2337,39 @@ async def test_a_helper_that_fails_without_stderr_still_says_something(service):
 
 
 @pytest.mark.asyncio
+async def test_set_country_calls_are_serialized(service):
+    """The setup wizard's network step sends one country on mount, unawaited,
+    while its picker sends another. Two helpers at once each rewrite
+    `/boot/firmware/cmdline.txt`, and the setting could be persisted in the
+    other order: the second call runs only once the first has persisted."""
+    events = []
+    release = asyncio.Event()
+
+    async def spawn(program, *args, **kwargs):
+        events.append(("spawn", args[-1]))
+
+        async def answer():
+            await release.wait()
+            return 0, "ok", ""
+        return FakeProc(0, "", "", answer=answer())
+
+    service.settings_service.set_setting.side_effect = (
+        lambda key, value: events.append(("set_setting", value))
+    )
+    with patch("backend.core.network.service.asyncio.create_subprocess_exec", new=spawn):
+        calls = asyncio.gather(service.set_country("FR"), service.set_country("BE"))
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert events == [("spawn", "FR")]
+        release.set()
+        await calls
+
+    assert events == [
+        ("spawn", "FR"), ("set_setting", "FR"), ("spawn", "BE"), ("set_setting", "BE"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_the_stored_country_is_read_back_from_settings(service):
     service.settings_service.get_setting = AsyncMock(return_value="FR")
     assert await service.get_country() == "FR"
