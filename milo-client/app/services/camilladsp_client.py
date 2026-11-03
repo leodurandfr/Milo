@@ -133,6 +133,13 @@ class CamillaDspClient:
                 raise ConnectionError(
                     f"Lost connection to CamillaDSP during {command}: {err}"
                 ) from err
+            except asyncio.CancelledError:
+                # A caller's budget ran out first, and the reply may still come.
+                # Nothing is awaited under a cancel: a close would wait on the
+                # very daemon that is not answering.
+                self._forget(ws, f"{command} was cancelled mid-reply")
+                ws.transport.abort()
+                raise
 
             return await self._parse(ws, command, raw)
 
@@ -143,11 +150,14 @@ class CamillaDspClient:
         failed DSP call with a cached value and no log of their own, so a stream
         that went out of step would otherwise be repaired in complete silence.
         """
+        self._forget(ws, reason)
+        with contextlib.suppress(Exception):
+            await ws.close()
+
+    def _forget(self, ws, reason: str) -> None:
         if self._ws is ws:
             self._ws = None
             logger.warning("Dropping the CamillaDSP connection: %s", reason)
-        with contextlib.suppress(Exception):
-            await ws.close()
 
     async def _parse(self, ws, command: str, raw) -> Any:
         try:

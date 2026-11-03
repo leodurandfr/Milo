@@ -42,6 +42,7 @@ class DaemonDouble:
         self.replies = {"GetVersion": ok("GetVersion", "4.1.3")}
         self.silent: set = set()
         self.hang_up: set = set()
+        self.delayed: dict[str, float] = {}
         self.port = None
 
     def answers(self, command: str, value=None) -> None:
@@ -68,6 +69,8 @@ class DaemonDouble:
                 return
             if command in self.silent:
                 continue
+            if command in self.delayed:
+                await asyncio.sleep(self.delayed[command])
             await ws.send(self.replies.get(command, ok(command)))
 
 
@@ -221,7 +224,7 @@ class TestTheTwelveCalls:
 
 
 class TestWhenTheDaemonWillNotAnswer:
-    """Four ways a call fails. None of them may end in a plausible default."""
+    """Five ways a call fails. None of them may end in a plausible default."""
 
     async def test_a_refusal_raises_instead_of_answering_with_a_default(
         self, daemon, client
@@ -291,3 +294,20 @@ class TestWhenTheDaemonWillNotAnswer:
 
         # The late reply would answer the next command, so the socket is dropped.
         assert client.connected is False
+
+    async def test_an_outer_cancel_during_recv_drops_the_socket(self, daemon):
+        """A caller's budget can run out before the client's own: it covers the
+        wait for the lock too. The reply still on its way would then answer the
+        next command — measured on the unit, a SetConfigJson that read a
+        GetConfigJson reply and was announced as refused. So a cancel costs the
+        socket exactly as a timeout does."""
+        client = CamillaDspClient("127.0.0.1", daemon.port)
+        await client.connect()
+        daemon.delayed["GetState"] = 0.3
+
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(client.get_state(), timeout=0.1)
+
+        assert client.connected is False
+        with pytest.raises(ConnectionError, match="Not connected"):
+            await client.get_volume()

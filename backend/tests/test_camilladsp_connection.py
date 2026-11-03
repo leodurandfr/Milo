@@ -671,6 +671,29 @@ class TestDroppingTheClient:
 
         client.disconnect.assert_awaited_once()
 
+    async def test_a_cancelled_command_that_cost_the_socket_marks_the_service_disconnected(
+        self, service, client_factory
+    ):
+        """A caller's `wait_for` that expires mid-reply cancels the command, and
+        the client drops the socket the late reply would arrive on. Left
+        connected, the service would hand the next command to a client with no
+        socket and wait for that one to fail before reconnecting."""
+        _, client = client_factory
+        await service._connect_once()
+        never = asyncio.Event()
+
+        async def _loses_the_socket_then_waits():
+            client.connected = False
+            await never.wait()
+
+        client.get_state.side_effect = _loses_the_socket_then_waits
+
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(service._run(service._client.get_state), 0.05)
+
+        assert service.connected is False
+        assert service.state == CamillaDspState.DISCONNECTED
+
 
 class TestInitialize:
     """Startup: what must happen before the loop is allowed to run."""

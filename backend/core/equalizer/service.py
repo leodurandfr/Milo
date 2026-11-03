@@ -179,13 +179,24 @@ class CamillaDSPService:
         """Await one daemon call. Marks disconnected on failure."""
         try:
             return await call(*args)
+        except asyncio.CancelledError:
+            # A caller's budget that expires mid-reply costs the client its
+            # socket, already aborted, so there is nothing left to close; a
+            # cancel that left the socket in step changes nothing.
+            if self._connected and self._client is not None and not self._client.connected:
+                self._mark_disconnected("CamillaDSP command cancelled mid-reply")
+                self._client = None
+            raise
         except Exception:
             if self._connected:
-                self.logger.warning("CamillaDSP command failed, marking disconnected")
-                self._connected = False
-                self._state = CamillaDspState.DISCONNECTED
+                self._mark_disconnected("CamillaDSP command failed")
                 self._drop_client()
             raise
+
+    def _mark_disconnected(self, reason: str) -> None:
+        self.logger.warning("%s, marking disconnected", reason)
+        self._connected = False
+        self._state = CamillaDspState.DISCONNECTED
 
     def _drop_client(self) -> None:
         """Let go of the client, and close the socket it may still be holding.
