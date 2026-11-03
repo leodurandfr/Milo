@@ -216,7 +216,7 @@ async def test_a_storage_still_mounted_stops_nothing(monkeypatch):
 def _reconciler(admin):
     from backend.sources.music_library.libraries import NavidromeLibraryService
 
-    service = NavidromeLibraryService()
+    service = NavidromeLibraryService(AsyncMock())
     service._get_admin = AsyncMock(return_value=admin)
     return service
 

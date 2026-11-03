@@ -18,10 +18,13 @@ desired says what is kept, mounted says what can be created.
 import pytest
 from unittest.mock import AsyncMock, Mock
 
+from backend.sources.music_library import libraries as libraries_module
 from backend.sources.music_library.libraries import NavidromeLibraryService
+from backend.tests.golden.harness import settle
 
 NAS = "/media/milo/nas-leo"
 IPOD = "/media/milo/IPOD_CLAIRE"
+MUSIC = "/media/milo/MUSIC"
 
 
 @pytest.fixture
@@ -38,7 +41,7 @@ def admin():
 
 @pytest.fixture
 def service(admin):
-    svc = NavidromeLibraryService()
+    svc = NavidromeLibraryService(AsyncMock())
     svc._get_admin = AsyncMock(return_value=admin)
     svc._schedule_retry = Mock()
     return svc
@@ -125,3 +128,102 @@ class TestAnAbsentSpaceKeepsWhatItHas:
 
         assert await service.reconcile({NAS: "NAS-Leo"}, {NAS}) is True
         admin.delete_library.assert_awaited_once_with(9)
+
+
+class TestARetryThatLandsIsAnnounced:
+    """The storages push carries each space's library id, and the frontend drops
+    a space whose id is null. When Navidrome listens late, the scan watcher's
+    "regained" push can go out before the retry converges, with null ids; if the
+    convergence then says nothing, the kiosk keeps an empty library and
+    availability stays "no_storage" until some unrelated push."""
+
+    @pytest.fixture
+    def retry_now(self, monkeypatch):
+        monkeypatch.setattr(libraries_module, "_RETRY_DELAYS_S", (0,))
+        monkeypatch.setattr(libraries_module, "_RETRY_PLATEAU_S", 3600)
+
+    async def test_a_reconcile_that_lands_on_retry_announces_the_library_ids(
+        self, admin, retry_now
+    ):
+        library = {"id": 3, "path": MUSIC, "name": "MUSIC"}
+        admin.list_libraries = AsyncMock(side_effect=[
+            None,       # the inline reconcile: Navidrome not listening yet
+            [library],  # the retry
+            [library],  # the push's own stats() read
+        ])
+        seen = []
+
+        async def announce():
+            # What the real push does: read the ids, then the stats, which take
+            # the reconcile lock. Called under that lock it would never return.
+            seen.append((service.library_id(MUSIC), list(await service.stats())))
+
+        announced = AsyncMock(side_effect=announce)
+        service = NavidromeLibraryService(announced)
+        service._get_admin = AsyncMock(return_value=admin)
+        try:
+            assert await service.reconcile({MUSIC: "MUSIC"}, {MUSIC}) is False
+            await settle()
+
+            announced.assert_awaited_once()
+            assert seen == [(3, [MUSIC])]
+        finally:
+            await service.cleanup()
+
+    async def test_ids_a_retry_lands_without_converging_are_announced(
+        self, admin, retry_now
+    ):
+        """One space created, the other refused: the loop stays on its plateau,
+        and the space that did get its library must not wait for it."""
+        library = {"id": 3, "path": MUSIC, "name": "MUSIC"}
+        admin.list_libraries = AsyncMock(side_effect=[None, [library]])
+        admin.create_library = AsyncMock(return_value=None)  # NAS refused
+        seen = []
+
+        async def announce():
+            seen.append(service.library_id(MUSIC))
+
+        announced = AsyncMock(side_effect=announce)
+        service = NavidromeLibraryService(announced)
+        service._get_admin = AsyncMock(return_value=admin)
+        try:
+            await service.reconcile({MUSIC: "MUSIC", NAS: "NAS-Leo"}, {MUSIC, NAS})
+            await settle()
+
+            assert seen == [3]
+        finally:
+            await service.cleanup()
+
+    async def test_a_retry_that_moves_no_id_announces_nothing(self, admin, retry_now):
+        """Every Navidrome start asks for a retry (`reconcile_soon`) on a mapping
+        usually already in place; a push there would change nothing."""
+        library = {"id": 3, "path": MUSIC, "name": "MUSIC"}
+        admin.list_libraries = AsyncMock(return_value=[library])
+        announced = AsyncMock()
+        service = NavidromeLibraryService(announced)
+        service._get_admin = AsyncMock(return_value=admin)
+        try:
+            assert await service.reconcile({MUSIC: "MUSIC"}, {MUSIC}) is True
+            service.reconcile_soon()
+            await settle()
+
+            assert admin.list_libraries.await_count == 2, "the retry did not run"
+            announced.assert_not_awaited()
+        finally:
+            await service.cleanup()
+
+    async def test_an_inline_reconcile_leaves_the_push_to_its_caller(self, admin):
+        """`_sync_libraries` pushes right after an inline reconcile; a second
+        push from here would be a duplicate for every mount."""
+        library = {"id": 3, "path": MUSIC, "name": "MUSIC"}
+        admin.list_libraries = AsyncMock(return_value=[library])
+        announced = AsyncMock()
+        service = NavidromeLibraryService(announced)
+        service._get_admin = AsyncMock(return_value=admin)
+        try:
+            assert await service.reconcile({MUSIC: "MUSIC"}, {MUSIC}) is True
+            await settle()
+
+            announced.assert_not_awaited()
+        finally:
+            await service.cleanup()

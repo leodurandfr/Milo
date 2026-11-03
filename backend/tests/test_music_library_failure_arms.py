@@ -368,7 +368,7 @@ class TestReconcilerPlumbing:
 
     @pytest.fixture
     def service(self):
-        return NavidromeLibraryService()
+        return NavidromeLibraryService(AsyncMock())
 
     async def test_the_admin_client_is_built_once_and_late(self, service):
         """The cred file is the same one the Subsonic client waits for, and

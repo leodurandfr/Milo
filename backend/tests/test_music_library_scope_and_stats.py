@@ -163,7 +163,7 @@ class TestPerStorageCounts:
 
     @pytest.fixture
     def service(self, admin):
-        svc = NavidromeLibraryService()
+        svc = NavidromeLibraryService(AsyncMock())
         svc._get_admin = AsyncMock(return_value=admin)
         return svc
 
@@ -222,7 +222,7 @@ class TestOnlyOurOwnLibrariesAreManaged:
 
     @pytest.fixture
     def service(self):
-        return NavidromeLibraryService()
+        return NavidromeLibraryService(AsyncMock())
 
     def test_a_library_under_the_mount_root_is_ours(self, service):
         assert service._is_managed(f"{MUSIC_LIBRARY_MOUNT_ROOT}/nas-leo") is True

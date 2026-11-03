@@ -40,7 +40,7 @@ must never fail because the catalog engine was busy.
 import asyncio
 import contextlib
 import logging
-from typing import Any, Dict, Optional, Set
+from typing import Any, Awaitable, Callable, Dict, Optional, Set
 
 from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
 from backend.shared.background import BackgroundTaskSet
@@ -64,8 +64,11 @@ _RETRY_PLATEAU_S = 60
 class NavidromeLibraryService:
     """Maps mountpoints to Navidrome libraries, and keeps that mapping true."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_ids_changed: Callable[[], Awaitable[None]]) -> None:
         self.logger = logger
+        # Announces the ids a retry pass lands: an inline reconcile is announced
+        # by its caller, a retry has nobody else to do it.
+        self._on_ids_changed = on_ids_changed
         # Built lazily: the admin cred file is the same one the Subsonic client
         # waits for, and first-boot provisioning may not have written it yet.
         self._admin: Optional[NavidromeAdminClient] = None
@@ -288,6 +291,10 @@ class NavidromeLibraryService:
         empty desired set: there is nothing to map, and any mount change calls
         reconcile() again anyway. Each pass re-reads `_desired`, so a set that
         changed while we slept is the one we converge on.
+
+        Any pass here that moves an id is announced through ``on_ids_changed``,
+        converged or not: nobody else pushes the ids it lands, and a push made
+        before it carried null ones. A pass that moves none announces nothing.
         """
         try:
             attempt = 0
@@ -306,7 +313,16 @@ class NavidromeLibraryService:
                     continue
                 attempt += 1
                 async with self._lock:
-                    if await self._converge():
+                    before = self._by_path
+                    converged = await self._converge()
+                    if self._by_path != before:
+                        # Its own task: the push reads stats(), which takes the
+                        # lock, and awaiting it here would hold `_retrying` set
+                        # while a failed reconcile's rearm went unheard.
+                        self._bg.spawn(
+                            self._on_ids_changed(), label="library-ids-push"
+                        )
+                    if converged:
                         self.logger.info("Navidrome libraries reconciled on retry")
                         return
                     if not self._desired:

@@ -106,16 +106,18 @@ class NetworkShareService:
     ) -> None:
         self._logger = logging.getLogger("source.music_library.shares")
         self._data = MusicLibraryDataService()
-        self._libraries = NavidromeLibraryService()
+        self._libraries = NavidromeLibraryService(on_storages_changed)
         self._storage = StorageManager(navidrome_provider, self._sync_libraries)
         self._navidrome_provider = navidrome_provider
         # The merged-album cache lives with the catalog, not here; a share change
         # invalidates it through this callback rather than reaching back up.
         self._on_catalog_changed = on_catalog_changed
         # Announces a new storage/scan picture to whoever broadcasts it. Called
-        # from exactly two places — the end of _sync_libraries (every mount,
-        # unmount, rename, forget and share write funnels through it) and the
-        # scan watcher — so there is one push per change, not one per caller.
+        # from the end of _sync_libraries (every mount, unmount, rename, forget
+        # and share write funnels through it), the scan and liveness watchers,
+        # and the library reconciler's retry when it lands the ids the inline
+        # reconcile could not — so there is one push per change, not one per
+        # caller.
         self._on_storages_changed = on_storages_changed
         # Last scan state seen by the watcher, so it only pushes on a change.
         # Optimistic until the watcher's first poll, which runs immediately:
