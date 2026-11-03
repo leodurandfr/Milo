@@ -35,6 +35,9 @@ MAX_RECONNECT_DELAY = 30.0
 # A connect nothing listened to: at startup the daemon is ~0.2 s away, since
 # its unit is ordered After= this one and starts only at our READY=1.
 REFUSED_RETRY_DELAY = 0.5
+# Biquad types that take no `gain`: CamillaDSP refuses the whole config when one
+# carries it ("unknown field `gain`, expected `freq` or `q`").
+PASS_TYPES = ("Lowpass", "Highpass")
 
 # What the main fader holds the moment CamillaDSP starts, set by `--gain` in
 # milo-client-camilladsp.service. Mirrored here because a systemd unit and a
@@ -668,6 +671,8 @@ class EqualizerService:
                 params["q"] = q
             if filter_type is not None:
                 params["type"] = filter_type
+            if params.get("type") in PASS_TYPES:
+                params.pop("gain", None)
             if headroom_db is not None:
                 self._config_apply_headroom(config, headroom_db, self._equalizer_enabled)
 
@@ -712,6 +717,8 @@ class EqualizerService:
                         params["q"] = f["q"]
                     if f.get("filter_type") is not None:
                         params["type"] = f["filter_type"]
+                    if params.get("type") in PASS_TYPES:
+                        params.pop("gain", None)
                     applied += 1
             if headroom_db is not None:
                 self._config_apply_headroom(config, headroom_db, self._equalizer_enabled)

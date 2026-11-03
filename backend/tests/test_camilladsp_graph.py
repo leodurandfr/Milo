@@ -17,6 +17,7 @@ the effects master toggle, and both survive a bypass.
 These run against `CamillaDaemonDouble`, so `_get_config` / `_set_config` execute
 for real and the assertions are on the graph that was pushed.
 """
+import ast
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -25,7 +26,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 import yaml
 
+from backend.core.equalizer.config_builder import PASS_TYPES
 from backend.core.equalizer.service import CamillaDSPService
+from backend.core.multiroom.models import FilterType
 
 REPO = Path(__file__).resolve().parents[2]
 SHIPPED_CONFIGS = (
@@ -485,3 +488,66 @@ class TestRestoreAfterReconnect:
         await service._restore_after_reconnect()
 
         assert "gain_trim" not in camilla_daemon.last_pushed["filters"]
+
+
+# The parameters CamillaDSP 4.1.3 takes on each Biquad type an EQ band can be
+# set to, measured with `camilladsp -c` on 2026-11-03. Peaking and the shelves
+# refuse a band without `gain`; Lowpass and Highpass refuse one with it.
+BIQUAD_KEYS_4_1_3 = {
+    "Peaking": {"type", "freq", "gain", "q"},
+    "Lowshelf": {"type", "freq", "gain", "q"},
+    "Highshelf": {"type", "freq", "gain", "q"},
+    "Notch": {"type", "freq", "gain", "q"},
+    "Allpass": {"type", "freq", "gain", "q"},
+    "Lowpass": {"type", "freq", "q"},
+    "Highpass": {"type", "freq", "q"},
+}
+
+
+class TestBandTypes:
+    """An EQ band set to a type the API validates must be a graph the daemon runs.
+
+    A refusal drops the connection, and the band stays in equalizer.json, so the
+    reconnect replays it into the same refusal every ~5 s: the volume lags, the
+    other effects are not restored, and the master toggle fails until a preset
+    overwrites the band.
+    """
+
+    @pytest.mark.parametrize("filter_type", list(FilterType), ids=lambda t: t.value)
+    async def test_pass_types_carry_no_gain(self, service, camilla_daemon, filter_type):
+        camilla_daemon.load({"filters": {}, "pipeline": []})
+
+        assert await service.set_filter(
+            "eq_band_03", 250.0, 3.0, 0.7, filter_type=filter_type.value, persist=False
+        ) is True
+
+        parameters = camilla_daemon.active_config["filters"]["eq_band_03"]["parameters"]
+        assert set(parameters) == BIQUAD_KEYS_4_1_3[filter_type.value]
+
+    async def test_a_cached_highpass_band_is_restored(self, service, camilla_daemon):
+        """`restore_effects` replays the cache at every reconnect: a band it
+        cannot push is a reconnect loop."""
+        camilla_daemon.load({"filters": {}, "pipeline": []})
+        await service.set_filter("eq_band_03", 250.0, 3.0, 0.7, filter_type="Highpass", persist=False)
+        camilla_daemon.load({"filters": {}, "pipeline": []})  # a restarted daemon
+
+        assert await service.restore_effects() is True
+
+        assert camilla_daemon.active_config["filters"]["eq_band_03"]["parameters"] == {
+            "type": "Highpass", "freq": 250.0, "q": 0.7,
+        }
+
+    def test_both_trees_drop_the_gain_on_the_measured_types(self):
+        """The satellite builds its band graph itself, from its own copy of the
+        list (a separate deployment tree), so a type added on one side only is
+        refused on every satellite and found only on a second unit."""
+        measured = {t for t, keys in BIQUAD_KEYS_4_1_3.items() if "gain" not in keys}
+        tree = ast.parse((REPO / "milo-client/app/services/equalizer.py").read_text())
+        satellite = next(
+            ast.literal_eval(node.value) for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(getattr(t, "id", None) == "PASS_TYPES" for t in node.targets)
+        )
+        assert measured
+        assert set(PASS_TYPES) == measured
+        assert set(satellite) == measured

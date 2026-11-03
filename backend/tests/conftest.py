@@ -16,6 +16,7 @@ import aiofiles.threadpool
 import pytest
 from unittest.mock import Mock, AsyncMock
 from backend.config.constants import ERROR_LOG_FILE, MILO_DATA_DIR
+from backend.core.equalizer.camilladsp_client import CamillaDspError
 from typing import Any, Dict, List
 
 from backend.core.models.audio_state import AudioSource, NetworkRequirement
@@ -593,6 +594,12 @@ class CamillaDaemonDouble:
     WebSocket round-trip does: a caller that mutates the graph it read cannot
     reach back into the daemon's copy, so a write-then-read assertion means
     something.
+
+    `set_config()` refuses what the daemon refuses, so a graph it would never
+    run cannot pass here. Measured with `camilladsp -c` on 4.1.3
+    (`CAMILLADSP_VERSION`), 2026-11-03: a Lowpass or Highpass Biquad carrying
+    `gain` is "unknown field `gain`, expected `freq` or `q`", a Peaking or a
+    shelf without one matches no variant, and either rejects the whole config.
     """
 
     FILE_PATH = "/var/lib/milo/camilladsp/config.yml"
@@ -634,6 +641,21 @@ class CamillaDaemonDouble:
         return copy.deepcopy(self._active)
 
     def set_config(self, config):
+        for definition in (config.get("filters") or {}).values():
+            if definition.get("type") != "Biquad":
+                continue
+            parameters = definition.get("parameters") or {}
+            kind = parameters.get("type")
+            if kind in ("Lowpass", "Highpass") and "gain" in parameters:
+                raise CamillaDspError(
+                    "CamillaDSP refused SetConfigJson: ConfigError: "
+                    "unknown field `gain`, expected `freq` or `q`"
+                )
+            if kind in ("Peaking", "Lowshelf", "Highshelf") and "gain" not in parameters:
+                raise CamillaDspError(
+                    "CamillaDSP refused SetConfigJson: ConfigError: "
+                    f"data did not match any variant of {kind}"
+                )
         self._active = copy.deepcopy(config)
         self.pushed_configs.append(copy.deepcopy(config))
 

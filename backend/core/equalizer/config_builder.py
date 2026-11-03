@@ -10,8 +10,15 @@ drift between the two. Stateless and side-effect free.
 from typing import Any, Dict
 
 
+# Biquad types that take no `gain`: CamillaDSP refuses the whole config when one
+# carries it ("unknown field `gain`, expected `freq` or `q`").
+PASS_TYPES = ("Lowpass", "Highpass")
+
+
 def eq_filter_def(freq: float, gain: float, q: float, filter_type: str = "Peaking") -> Dict[str, Any]:
     """Build a Biquad EQ filter definition."""
+    if filter_type in PASS_TYPES:
+        return {"type": "Biquad", "parameters": {"type": filter_type, "freq": freq, "q": q}}
     return {
         "type": "Biquad",
         "parameters": {"type": filter_type, "freq": freq, "gain": gain, "q": q},

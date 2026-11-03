@@ -1154,6 +1154,48 @@ class TestEqualizerServiceFilterTuning:
         assert "eq_band_1" not in config["pipeline"][0]["names"]
         assert equalizer_service._equalizer_enabled is False
 
+    @staticmethod
+    def _pushed_band(mock_camilla_client, band="eq_band_1"):
+        return mock_camilla_client.set_config.call_args.args[0]["filters"][band]["parameters"]
+
+    @pytest.mark.asyncio
+    async def test_a_band_switched_to_highpass_drops_its_gain(self, equalizer_service, mock_camilla_client):
+        """CamillaDSP 4.1.3 refuses the whole config when a Lowpass or Highpass
+        carries `gain` ("unknown field `gain`"), and the server sends one with
+        every band, so the band must lose it here."""
+        assert await equalizer_service.set_filter("eq_band_1", gain=3.0, filter_type="Highpass") is True
+        assert self._pushed_band(mock_camilla_client) == {"type": "Highpass", "freq": 100, "q": 1.0}
+
+    @pytest.mark.asyncio
+    async def test_a_highpass_band_retuned_without_a_type_stays_gainless(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """The UI sends a band's gain on every slider move, with or without its type."""
+        await equalizer_service.set_filter("eq_band_1", gain=3.0, filter_type="Highpass")
+        assert await equalizer_service.set_filter("eq_band_1", gain=5.0, freq=120) is True
+        assert "gain" not in self._pushed_band(mock_camilla_client)
+
+    @pytest.mark.asyncio
+    async def test_a_band_back_to_peaking_takes_its_gain_again(self, equalizer_service, mock_camilla_client):
+        """Peaking is refused without `gain`, so switching back must restore it."""
+        await equalizer_service.set_filter("eq_band_1", gain=3.0, filter_type="Highpass")
+        assert await equalizer_service.set_filter("eq_band_1", gain=2.0, filter_type="Peaking") is True
+        assert self._pushed_band(mock_camilla_client)["gain"] == 2.0
+
+    @pytest.mark.asyncio
+    async def test_a_batch_drops_the_gain_of_its_pass_bands(self, equalizer_service, mock_camilla_client):
+        """The whole-record push (apply_record) takes the same rule as a single band."""
+        result = await equalizer_service.set_filters_batch([
+            {"id": "eq_band_1", "gain": 3.0, "freq": 80, "q": 0.7, "filter_type": "Lowpass"},
+            {"id": "eq_band_2", "gain": 1.5, "freq": 1000, "q": 1.0, "filter_type": "Peaking"},
+        ])
+        assert result["success"] is True
+        assert "gain" not in self._pushed_band(mock_camilla_client)
+        assert self._pushed_band(mock_camilla_client, "eq_band_2")["gain"] == 1.5
+
+        await equalizer_service.set_filters_batch([{"id": "eq_band_1", "gain": 4.0}])
+        assert "gain" not in self._pushed_band(mock_camilla_client)
+
 
 class TestEqualizerServiceConfigPersistence:
     """The DSP config is the satellite's only durable state.
