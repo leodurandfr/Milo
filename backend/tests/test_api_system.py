@@ -42,6 +42,7 @@ import backend.main as main
 from backend.api import system as api_system
 from backend.api.route_helpers import RecoveryAccessPointGate
 from backend.api.system import create_system_router
+from backend.core.system import localtime as localtime_module
 from backend.tests.conftest import shortened_wait_for
 
 
@@ -573,10 +574,10 @@ def marker(tmp_path, monkeypatch):
 
 @pytest.fixture
 def localtime(tmp_path, monkeypatch):
-    """`/etc/localtime`, relocated — the symlink itself, so `_current_timezone`
+    """`/etc/localtime`, relocated — the symlink itself, so `current_timezone`
     runs its real readlink rather than a stubbed answer."""
     link = tmp_path / "localtime"
-    monkeypatch.setattr(api_system, "LOCALTIME_LINK", str(link))
+    monkeypatch.setattr(localtime_module, "LOCALTIME_LINK", str(link))
 
     def point_at(zone, relative=False):
         """`relative=True` is the link timedated writes (`../usr/share/zoneinfo/…`),
@@ -584,7 +585,7 @@ def localtime(tmp_path, monkeypatch):
         still lands on the real zoneinfo tree."""
         if link.is_symlink() or link.exists():
             link.unlink()
-        target = f"{api_system.ZONEINFO_PREFIX}{zone}"
+        target = f"{localtime_module.ZONEINFO_PREFIX}{zone}"
         link.symlink_to(os.path.relpath(target, start=link.parent) if relative else target)
 
     return point_at

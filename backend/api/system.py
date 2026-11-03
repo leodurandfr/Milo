@@ -15,6 +15,7 @@ from typing import Optional, TYPE_CHECKING
 from backend.api.models import DevicePasswordRequest, SshRequest, TimezoneRequest
 from backend.api.route_helpers import RecoveryAccessPointGate, api_error_handler
 from backend.core.models.ws_events import SystemTimezoneChanged
+from backend.core.system.localtime import current_timezone
 from backend.core.system.zone_coordinates import read_zone_coordinates
 from backend.config.constants import (
     PASSWORD_CHANGED_MARKER,
@@ -37,8 +38,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SSH_UNIT = "ssh.service"
-LOCALTIME_LINK = "/etc/localtime"
-ZONEINFO_PREFIX = "/usr/share/zoneinfo/"
 SYSFS_NET = "/sys/class/net"
 
 # The zone the image ships. Not a location — with no TIMEZONE_CHOSEN_MARKER it
@@ -61,32 +60,9 @@ def _available_timezones() -> list:
     return sorted(tz for tz in zoneinfo.available_timezones() if "/" in tz)
 
 
-def _current_timezone() -> Optional[str]:
-    """The zone in force, read from what the C library actually follows.
-
-    `/etc/localtime` is the file every timestamp on this box resolves through,
-    so it cannot disagree with reality the way a second copy in /etc/timezone
-    can. Returns None when it is not a symlink into the zoneinfo tree — an
-    answer, not a guess.
-
-    timedated writes the link relative (`../usr/share/zoneinfo/…`), so it is
-    joined to where the link sits — never `realpath`'d, which would follow an
-    alias (`UTC` → `Etc/UTC`) and report a zone nobody picked.
-    """
-    try:
-        target = os.readlink(LOCALTIME_LINK)
-    except OSError:
-        return None
-    if not os.path.isabs(target):
-        target = os.path.normpath(os.path.join(os.path.dirname(LOCALTIME_LINK), target))
-    if not target.startswith(ZONEINFO_PREFIX):
-        return None
-    return target[len(ZONEINFO_PREFIX):]
-
-
 async def _daylight_location() -> dict:
     """The zone in force and the tz database's point for it (nulls without one)."""
-    zone = _current_timezone()
+    zone = current_timezone()
     coordinates = await read_zone_coordinates(zone)
     latitude, longitude = coordinates if coordinates else (None, None)
     return {"latitude": latitude, "longitude": longitude, "timezone": zone}
@@ -498,7 +474,7 @@ def create_system_router(
         list rides along so the settings dropdowns are built from the zones this
         system actually has rather than a table restated in the frontend.
         """
-        current = _current_timezone()
+        current = current_timezone()
         return {
             "status": "success",
             "data": {
@@ -546,6 +522,6 @@ def create_system_router(
                 logger.warning("Could not record the timezone as chosen: %s", e)
             if state_machine is not None:
                 await state_machine.broadcast(SystemTimezoneChanged(**await _daylight_location()))
-            return {"status": "success", "data": {"timezone": _current_timezone()}}
+            return {"status": "success", "data": {"timezone": current_timezone()}}
 
     return router

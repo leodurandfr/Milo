@@ -41,6 +41,7 @@ from backend.core.system.diagnostic.whitelist import (
     project,
     strip_global_ipv6,
 )
+from backend.core.system.localtime import current_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ async def identity(ctx) -> str:
         "hostname": platform.node(),
         "role": "server",
         "uptime": _duration(uptime_s),
-        "timezone": _readlink_timezone(),
+        "timezone": current_timezone(),
         "language": settings.get("language"),
         "model": (model or "-").strip("\x00 "),
         "os": pretty,
@@ -150,16 +151,6 @@ async def _identity_commands(repo: str):
         probes.run(["git", "-C", repo, "describe", "--tags", "--exact-match"], timeout=5.0),
         probes.run(["git", "-C", repo, "describe", "--tags", "--always"], timeout=5.0),
     )
-
-
-def _readlink_timezone() -> str:
-    import os
-    try:
-        target = os.readlink("/etc/localtime")
-    except OSError:
-        return "-"
-    prefix = "/usr/share/zoneinfo/"
-    return target[len(prefix):] if target.startswith(prefix) else target
 
 
 def _duration(seconds: Optional[int]) -> str:

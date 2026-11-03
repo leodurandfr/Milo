@@ -21,6 +21,7 @@ What breaks when these fail:
 """
 import asyncio
 import json
+import os
 
 
 from backend.core.multiroom.models import Client, EqualizerSettings, Zone
@@ -416,3 +417,25 @@ async def test_a_camilladsp_level_that_cannot_be_read_says_so(
     report = (await _generate(monkeypatch, tmp_path, camilladsp_service=service))["report"]
 
     assert _field(report, "volume dB") == "(read failed: socket gone)"
+
+
+# --------------------------------------------------------------------------- #
+# Identity
+# --------------------------------------------------------------------------- #
+
+async def test_the_identity_names_the_zone_timedated_wrote(monkeypatch, tmp_path):
+    """A zone chosen in Settings goes through timedated, which writes
+    /etc/localtime relative (`../usr/share/zoneinfo/…`). The report read that
+    link with its own parse and printed the raw path where the API printed the
+    zone, so the one document a stranger's misbehaving unit sends disagreed
+    with the screen about the zone every timestamp in it is written in."""
+    from backend.core.system import localtime
+
+    link = tmp_path / "localtime"
+    target = f"{localtime.ZONEINFO_PREFIX}America/Montevideo"
+    link.symlink_to(os.path.relpath(target, start=tmp_path))
+    monkeypatch.setattr(localtime, "LOCALTIME_LINK", str(link))
+
+    report = (await _generate(monkeypatch, tmp_path))["report"]
+
+    assert _field(report, "timezone") == "America/Montevideo"
