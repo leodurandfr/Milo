@@ -73,6 +73,19 @@ server {
         try_files $uri =404;
     }
 
+    # WiFi adoption is synchronous and runs well past 60 s on a path that
+    # succeeds; the client waits 120 s. Under /api/'s 60 s default nginx
+    # answered 504 while the speaker had accepted and was rebooting.
+    location = /api/discovery/adopt-speaker {
+        proxy_pass http://milo_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 150s;
+    }
+
     # Backend API endpoints
     location /api/ {
         proxy_pass http://milo_backend;
