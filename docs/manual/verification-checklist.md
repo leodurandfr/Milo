@@ -155,6 +155,7 @@ These are shared by every source; they break for all of them at once.
 | Transport | −15 s / +30 s buttons move playback by that amount; progress bar seek works | targeted |
 | Normal pace | An episode plays at its normal pace, including after a resume; neither the bar nor the full player shows a speed control | targeted |
 | Resume | Leaving mid-episode and returning resumes within a few seconds of where it stopped, after a reboot too | targeted |
+| Listened episodes | Every room at -50 dB or below. Play on an "already listened" episode starts it from 0:00 (`session.position.ms` under 5000 in `GET /api/audio/state`) and it keeps playing past 10 s; pausing it halfway puts it back in Continue listening, and Play then resumes there. "Mark as listened" on an episode in progress, then 25 s of another episode: the marked one stays out of Continue listening and keeps `completed: true` in `/var/lib/milo/podcast_data.json`. Before, a listened episode reloaded at its last second and ended at once, and the next progress save took the mark back | targeted |
 | Quota | Settings > Podcasts shows a plausible request count and reset date | targeted |
 
 ### CD (C) ⚠ drive + discs

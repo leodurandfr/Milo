@@ -611,6 +611,47 @@ async def test_podcast_play_without_a_position_resumes_where_it_was(podcast):
     assert podcast.loads()[-1][3] == 300
 
 
+async def test_podcast_play_of_a_listened_episode_starts_from_the_beginning(podcast):
+    """An episode played to its end keeps its last second in the progress file;
+    Play on its "already listened" card loaded it there, so it ended at once."""
+    podcast.data.progress[EPISODE_A["uuid"]] = {"position": 1797, "duration": 1800, "completed": True}
+    await podcast.select()
+
+    await podcast.command("play_episode", {"episode_uuid": EPISODE_A["uuid"]})
+
+    assert not podcast.loads()[-1][3]
+    assert podcast.state()["session"]["position"]["ms"] == 0
+    await podcast.tick()
+    assert podcast.data.progress[EPISODE_A["uuid"]]["completed"] is False
+
+
+async def test_podcast_a_replay_rerouted_before_its_first_second_is_still_reopened(podcast):
+    """A multiroom toggle replays the episode from its resume point: a reopen
+    still pending then was dropped, and the whole replay stayed "listened"."""
+    podcast.data.progress[EPISODE_A["uuid"]] = {"position": 1797, "duration": 1800, "completed": True}
+    await podcast.select()
+    await podcast.command("play_episode", {"episode_uuid": EPISODE_A["uuid"]})
+
+    await podcast.reroute()
+    await podcast.tick()
+
+    assert podcast.data.progress[EPISODE_A["uuid"]]["completed"] is False
+
+
+async def test_podcast_a_refused_replay_keeps_the_episode_listened(podcast):
+    """The replay reopens the episode only once mpv took the file: a URL that
+    does not open must not strip its "already listened" badge."""
+    podcast.data.progress[EPISODE_A["uuid"]] = {"position": 1797, "duration": 1800, "completed": True}
+    podcast.mpv.broken["daily-0921"] = "loading failed"
+    await podcast.select()
+
+    await podcast.command("play_episode", {"episode_uuid": EPISODE_A["uuid"]})
+    await podcast.tick(2)
+
+    assert podcast.errors() == ["stream_load_failed"]
+    assert podcast.data.progress[EPISODE_A["uuid"]]["completed"] is True
+
+
 async def test_podcast_reroute_mid_play_resumes_at_the_same_second(podcast):
     """Decision 2026-09-23: a multiroom toggle mid-play comes back playing, on
     the same episode, at the same second."""

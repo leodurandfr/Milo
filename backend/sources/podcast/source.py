@@ -41,6 +41,7 @@ PROGRESS_SAVE_TICKS = 10
 class PodcastSession(MpvSession):
     """One episode loaded, from the play to a named end."""
     episode: Dict[str, Any] = field(default_factory=dict)
+    reopen: bool = False     # a listened episode played again: reopened once heard
 
 
 class PodcastSource(MpvAudioSource):
@@ -121,7 +122,7 @@ class PodcastSource(MpvAudioSource):
         return (
             session.episode.get('uuid') or "",
             session.position * 1000,
-            {"episode": session.episode, "duration": session.duration},
+            {"episode": session.episode, "duration": session.duration, "reopen": session.reopen},
         )
 
     async def _do_start(self) -> bool:
@@ -143,7 +144,10 @@ class PodcastSource(MpvAudioSource):
                 and point.phase is not Phase.PAUSED
             ):
                 # A multiroom toggle comes back playing, at the same second.
-                await self._play(point.content["episode"], point.position_ms // 1000)
+                await self._play(
+                    point.content["episode"], point.position_ms // 1000,
+                    reopen=point.content["reopen"],
+                )
                 return True
             self._publish()
             return True
@@ -236,15 +240,19 @@ class PodcastSource(MpvAudioSource):
                 await self._sync_position(self._session)
                 await self._save_progress(self._session)
 
-            # None is "resume where it was"; 0 is the start (E65).
+            # None is "resume where it was"; 0 is the start (E65). A listened
+            # episode has nothing to resume: it is played again, and reopened
+            # at its first second of sound, so a load mpv refuses (announced
+            # after the load was accepted) keeps it "listened".
             start_position = params.position or 0
-            if params.position is None:
-                progress = await self._podcast_data.get_playback_progress(episode_uuid)
+            progress = await self._podcast_data.get_playback_progress(episode_uuid)
+            listened = bool(progress and progress.get('completed'))
+            if params.position is None and not listened:
                 if progress and progress.get('position', 0) > RESUME_MIN_POSITION_S:
                     start_position = progress['position']
                     self._logger.info(f"Resuming from {start_position}s")
 
-            return await self._play(episode, start_position)
+            return await self._play(episode, start_position, reopen=listened)
 
         except SourceNotStarted:
             raise
@@ -253,7 +261,9 @@ class PodcastSource(MpvAudioSource):
             self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
             return self.error_response(str(e))
 
-    async def _play(self, episode: Dict[str, Any], start_position: int) -> Dict[str, Any]:
+    async def _play(
+        self, episode: Dict[str, Any], start_position: int, reopen: bool = False
+    ) -> Dict[str, Any]:
         """Open a session on `episode` and load it at `start_position`: one
         command, no wait-then-seek (E57)."""
         # Replaced, not stopped: the load below replaces the entry in mpv.
@@ -261,6 +271,7 @@ class PodcastSource(MpvAudioSource):
         session = PodcastSession(
             phase=Phase.LOADING, episode=episode,
             position=int(start_position), duration=int(episode.get('duration') or 0),
+            reopen=reopen,
         )
         self.open_session(session)
         self._anchor_position(int(start_position) * 1000)
@@ -477,12 +488,15 @@ class PodcastSource(MpvAudioSource):
 
     async def _on_playing_tick(self, session: PodcastSession) -> None:
         await self._read_playhead(session)
-        if session.ticks % PROGRESS_SAVE_TICKS == 0:
-            try:
+        try:
+            if session.reopen:
+                await self._podcast_data.reopen_episode(session.episode['uuid'], session.position)
+                session.reopen = False
+            if session.ticks % PROGRESS_SAVE_TICKS == 0:
                 await self._save_progress(session)
-            except Exception as e:
-                # Per tick, like any loop body: a disk hiccup costs this save.
-                self._logger.error(f"Progress save failed: {e}")
+        except Exception as e:
+            # Per tick, like any loop body: a disk hiccup costs this save.
+            self._logger.error(f"Progress save failed: {e}")
 
     # === Public API ===
 

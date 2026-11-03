@@ -164,6 +164,28 @@ class TestMarkingAnEpisodeFinished:
 
         assert await store.get_in_progress_episodes() == []
 
+    async def test_a_completed_mark_survives_the_next_progress_save(self, store):
+        """"Mark as listened" on an episode still playing: its next periodic
+        save recomputed the flag from the position alone, and the episode came
+        back to the queue without its badge."""
+        _write(store, playback_progress={"ep-1": _row(1200, 3600)})
+
+        await store.mark_episode_completed("ep-1")
+        await store.update_playback_progress("ep-1", 1210, 3600)
+
+        assert _read(store)["playback_progress"]["ep-1"]["completed"] is True
+        assert await store.get_in_progress_episodes() == []
+
+    async def test_a_reopened_episode_is_back_in_progress_at_its_next_save(self, store):
+        """A listened episode played again is a fresh listen: paused halfway,
+        it belongs to the queue and resumes there."""
+        _write(store, playback_progress={"ep-1": _row(3590, 3600, completed=True)})
+
+        await store.reopen_episode("ep-1", 1)
+        await store.update_playback_progress("ep-1", 600, 3600)
+
+        assert [e["episode_uuid"] for e in await store.get_in_progress_episodes()] == ["ep-1"]
+
     async def test_an_episode_with_no_row_writes_nothing(self, store):
         """Constat, kept from the Lot A sweep and now pinned: this answers
         `True` either way — its `apply` returns `(False, True)`, so "nothing

@@ -58,11 +58,21 @@ class MemoryPodcastData:
         return self.progress.get(episode_uuid)
 
     async def update_playback_progress(self, episode_uuid, position, duration, **_):
-        self.progress[episode_uuid] = {"position": position, "duration": duration}
+        row = {"position": position, "duration": duration}
+        if self.progress.get(episode_uuid, {}).get("completed"):
+            row["completed"] = True
+        self.progress[episode_uuid] = row
         return True
 
     async def mark_episode_completed(self, episode_uuid) -> bool:
         self.completed.append(episode_uuid)
+        if episode_uuid in self.progress:
+            self.progress[episode_uuid]["completed"] = True
+        return True
+
+    async def reopen_episode(self, episode_uuid, position) -> bool:
+        if episode_uuid in self.progress:
+            self.progress[episode_uuid].update(completed=False, position=position)
         return True
 
     def __getattr__(self, name):

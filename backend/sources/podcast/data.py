@@ -232,8 +232,12 @@ class PodcastDataService:
             # Get existing entry to preserve metadata
             existing = data['playback_progress'].get(episode_uuid, {})
 
-            # Mark as completed if within 30 seconds of end
-            completed = position >= (duration - 30) if duration > 0 else False
+            # Completed within 30 seconds of the end; an explicit mark (the end
+            # of the file, "mark as listened") outlives every later save, and
+            # only `reopen_episode` takes it back.
+            completed = existing.get('completed', False) or (
+                position >= (duration - 30) if duration > 0 else False
+            )
 
             data['playback_progress'][episode_uuid] = {
                 'position': position,
@@ -295,6 +299,20 @@ class PodcastDataService:
                 return False, True
             entry['completed'] = True
             entry['last_played'] = int(time.time())
+            return True, True
+
+        return await self._mutate(apply)
+
+    async def reopen_episode(self, episode_uuid: str, position: int) -> bool:
+        """Take back the completed mark of an episode played again, at the
+        second its replay is: a replay paused halfway is in progress, and
+        resumes there."""
+        def apply(data: Dict[str, Any]) -> Tuple[bool, bool]:
+            entry = data.get('playback_progress', {}).get(episode_uuid)
+            if entry is None:
+                return False, True
+            entry['completed'] = False
+            entry['position'] = position
             return True, True
 
         return await self._mutate(apply)
