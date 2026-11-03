@@ -222,7 +222,7 @@ class TestSnapclientConfigBounds:
             proc.returncode = 0
             return proc
 
-        monkeypatch.setattr("routes.snapclient.asyncio.create_subprocess_exec", _ok)
+        monkeypatch.setattr("asyncio.create_subprocess_exec", _ok)
 
         response = client.put("/snapclient/config", json={"buffer_time": 300, "fragments": 8})
 
@@ -232,6 +232,78 @@ class TestSnapclientConfigBounds:
         assert "MILO_SNAPCLIENT_BUFFER_TIME=300" in written
         assert "MILO_SNAPCLIENT_FRAGMENTS=8" in written
         assert "MILO_PRINCIPAL_IP=192.168.1.10" in written
+
+
+class TestSnapclientConfigFailedRestart:
+    """A push whose restart fails must neither stick nor leave the room silent.
+
+    The handler writes the env file, then stops and starts snapclient. A start
+    that fails used to leave the new values on disk with the unit stopped, so the
+    server's next push of the same pair answered `changed: False` and restarted
+    nothing — the room stayed silent until the satellite was rebooted.
+    """
+
+    STOP = ("sudo", "systemctl", "stop", "milo-client-snapclient.service")
+    START = ("sudo", "systemctl", "start", "milo-client-snapclient.service")
+    OLD_ENV = "MILO_PRINCIPAL_IP=192.168.1.10\nMILO_SNAPCLIENT_BUFFER_TIME=80\nMILO_SNAPCLIENT_FRAGMENTS=4\n"
+
+    @pytest.fixture(autouse=True)
+    def _forget_owed_start(self):
+        import services.server_address_watch as watch
+        watch._start_owed = False
+        yield
+        watch._start_owed = False
+
+    @pytest.fixture
+    def systemd(self, tmp_path, monkeypatch):
+        """systemd behind sudo: records every argv, fails the next `start` on demand."""
+        env = tmp_path / "env"
+        env.write_text(self.OLD_ENV)
+        monkeypatch.setattr("routes.snapclient.ENV_FILE", env)
+        world = {"calls": [], "fail_starts": 0, "env": env}
+
+        async def _spawn(*argv, **kwargs):
+            world["calls"].append(argv)
+            proc = Mock()
+            proc.returncode = 0
+            if argv == self.START and world["fail_starts"]:
+                world["fail_starts"] -= 1
+                proc.returncode = 1
+            if argv[0] == "systemctl":  # the watcher's unprivileged MainPID read
+                proc.communicate = AsyncMock(return_value=(b"0\n", b""))
+            else:
+                proc.communicate = AsyncMock(return_value=(b"", b"Job failed"))
+            return proc
+
+        monkeypatch.setattr("asyncio.create_subprocess_exec", _spawn)
+        return world
+
+    def test_snapclient_config_failed_restart_is_retried_on_same_values(self, client, systemd):
+        systemd["fail_starts"] = 1
+        payload = {"buffer_time": 300, "fragments": 8}
+
+        assert client.put("/snapclient/config", json=payload).status_code == 500
+        assert systemd["env"].read_text() == self.OLD_ENV, "a failed restart keeps the old values"
+
+        systemd["calls"].clear()
+        response = client.put("/snapclient/config", json=payload)
+
+        assert response.status_code == 200
+        assert response.json()["changed"] is True
+        assert systemd["calls"] == [self.STOP, self.START]
+
+    @pytest.mark.asyncio
+    async def test_snapclient_config_failed_start_leaves_a_start_owed(self, client, systemd):
+        """The unit the route stopped is dead, so it has no address for the watcher
+        to compare: only a start the route left owed brings it back."""
+        from services.server_address_watch import _reconcile
+
+        systemd["fail_starts"] = 1
+        assert client.put("/snapclient/config", json={"buffer_time": 300, "fragments": 8}).status_code == 500
+
+        systemd["calls"].clear()
+        assert await _reconcile() is True
+        assert [argv for argv in systemd["calls"] if argv[0] == "sudo"] == [self.STOP, self.START]
 
 
 class TestEqualizerRoutes:

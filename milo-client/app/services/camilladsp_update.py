@@ -221,36 +221,45 @@ class CamillaDSPUpdateService:
             return {"success": False, "error": str(e)}
 
     async def _rollback(self) -> bool:
-        """Restores the backed-up binary and restarts the service."""
+        """Restores the backed-up binary, then starts the service whatever came of it.
+
+        Every caller has stopped the unit, and `Restart=on-failure` does not undo
+        an explicit stop: a rollback that left before the start would keep the
+        room silent until a reboot, so the start runs even when the reinstall
+        failed — on whichever binary is in place.
+        """
+        restored = False
         try:
             backup_file = BACKUP_DIR / "camilladsp.backup"
             if not backup_file.exists():
                 self.logger.error("No backup found for rollback")
-                return False
+            else:
+                await self._stop_service()
+                await asyncio.sleep(0.5)
 
-            await self._stop_service()
-            await asyncio.sleep(0.5)
-
-            # Copy backup to /tmp for the install wrapper
-            fd, tmp_backup_str = tempfile.mkstemp(prefix="milo-rollback-", dir="/tmp")
-            os.close(fd)
-            tmp_backup = Path(tmp_backup_str)
-            shutil.copy2(backup_file, tmp_backup)
-            try:
-                result = await self._install_binary(str(tmp_backup))
-                if not result["success"]:
+                # Copy backup to /tmp, the only source the install wrapper accepts
+                fd, tmp_backup_str = tempfile.mkstemp(prefix="milo-rollback-", dir="/tmp")
+                tmp_backup = Path(tmp_backup_str)
+                try:
+                    os.close(fd)
+                    shutil.copy2(backup_file, tmp_backup)
+                    result = await self._install_binary(str(tmp_backup))
+                finally:
+                    tmp_backup.unlink(missing_ok=True)
+                restored = result["success"]
+                if not restored:
                     self.logger.error(f"Rollback install failed: {result['error']}")
-                    return False
-            finally:
-                tmp_backup.unlink(missing_ok=True)
-
-            await self._start_service()
-            self.logger.info("CamillaDSP rollback completed, service restarted")
-            return True
-
         except Exception as e:
             self.logger.error(f"CamillaDSP rollback failed: {e}")
+        finally:
+            started = await self._start_service()
+
+        if not started:
+            self.logger.error("CamillaDSP did not start after the rollback")
             return False
+        if restored:
+            self.logger.info("CamillaDSP rollback completed, service restarted")
+        return restored
 
     async def _stop_service(self) -> bool:
         """Stops the CamillaDSP service."""

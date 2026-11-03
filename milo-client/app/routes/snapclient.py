@@ -1,12 +1,12 @@
 """
 Snapclient management routes for Milo Client.
 """
-import asyncio
 import time
 import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
+from services.server_address_watch import restart_snapclient
 from services.snapclient import SnapclientService
 from models import ProgramUpdateRequest, SnapclientConfigUpdate
 
@@ -117,16 +117,15 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
 
             ENV_FILE.write_text(new_content)
 
-            # Restart snapclient service (sudoers allows stop/start, not restart)
-            for action in ["stop", "start"]:
-                proc = await asyncio.create_subprocess_exec(
-                    "sudo", "systemctl", action, "milo-client-snapclient.service",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                _, stderr = await proc.communicate()
-                if proc.returncode != 0:
-                    raise HTTPException(status_code=500, detail=f"Failed to {action} snapclient: {stderr.decode()}")
+            try:
+                await restart_snapclient()
+            except Exception as e:
+                # The old values go back, so the next push of the same pair reads
+                # as a change and restarts again; a unit left stopped is started
+                # by the address watcher, which now owes it a start.
+                ENV_FILE.write_text(content)
+                logger.error(f"Snapclient config not applied: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
 
             logger.info(f"Snapclient config updated: buffer_time={buffer_time}ms, fragments={fragments}")
             return {"status": "success", "buffer_time": buffer_time, "fragments": fragments, "changed": True}

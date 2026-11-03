@@ -51,6 +51,9 @@ COOLDOWN_INTERVAL = 60
 # watcher would be unable to recover the very unit it just stopped, and the room
 # would stay silent until someone rebooted it.
 _start_owed = False
+# The config route restarts the unit too; two interleaved stop/start pairs could
+# leave it stopped with no debt recorded.
+_restart_lock = asyncio.Lock()
 
 
 def _server_arg(cmdline: bytes) -> Optional[str]:
@@ -124,7 +127,7 @@ async def _running_server_address() -> Optional[str]:
     return _server_arg(cmdline)
 
 
-async def _restart_snapclient() -> None:
+async def _stop_then_start() -> None:
     """Stop then start the unit — sudoers grants those two verbs, not `restart`."""
     global _start_owed
     for action in ("stop", "start"):
@@ -139,13 +142,23 @@ async def _restart_snapclient() -> None:
         _start_owed = action == "stop"
 
 
+async def restart_snapclient() -> None:
+    """Restart the unit; a start that fails raises and leaves the start owed, so
+    the next pass of `follow_server_address` brings it back whoever stopped it."""
+    async with _restart_lock:
+        await _stop_then_start()
+
+
 async def _reconcile() -> bool:
     """Restart snapclient if its server address is stale. True if it was restarted."""
-    global _start_owed
     if _start_owed:
-        logger.warning("Starting the snapclient a failed restart left stopped")
-        await _restart_snapclient()
-        return True
+        async with _restart_lock:
+            # Read again under the lock: a restart in flight clears its own debt.
+            if not _start_owed:
+                return False
+            logger.warning("Starting the snapclient a failed restart left stopped")
+            await _stop_then_start()
+            return True
 
     running = await _running_server_address()
     if running is None:
@@ -169,7 +182,7 @@ async def _reconcile() -> bool:
         return False
 
     logger.warning(f"Main Milo moved {running} -> {current}, restarting snapclient")
-    await _restart_snapclient()
+    await restart_snapclient()
     return True
 
 
