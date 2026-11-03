@@ -150,3 +150,54 @@ def test_the_client_hostname_marks_a_conversion_in_progress():
         "the client hostname is set after the server units are disabled: an interrupted conversion "
         "with the server off is no longer recovered"
     )
+
+
+SERVER_HOSTNAME_SET = "hostnamectl set-hostname milo\n"
+AS_MILO_GIT = r'runuser -u milo -- git -C "\$MILO_APP_DIR"'
+CHECKOUT_CHOWN = re.compile(r'^\s*chown (?![^\n]*-h\b)[^\n]*"\$MILO_APP_DIR/([^"]+)"', re.MULTILINE)
+
+
+def test_every_checkout_change_of_the_client_role_is_undone_by_the_revert():
+    """`configure_server` hands back to milo whatever the client role took in the checkout.
+
+    `_apply_client_filesystem` gives `milo-client/` to the milo-client user so
+    the satellite can update itself, and every app update then rewrites
+    `milo-client/app` through the repo link. A unit that reverts to a server
+    keeps that subtree as it was left: owned by milo-client, and with
+    `git status --porcelain` non-empty, which makes every Milō update answer
+    "Local changes detected". The revert must give the subtree back to milo and
+    reset it to what git tracks, as milo (a root git rewrites `.git/index` as
+    root, and the backend's next checkout, as milo, fails on it), without `-x`,
+    which would also wipe the prebuilt, ignored `milo-client/venv`. All of it
+    before the hostname flips back to milo, so a revert cut by a power loss is
+    retried in full, and inside one `if` condition: under `set -e` a bare
+    failure would exit before the hostname and loop the revert on every boot.
+    """
+    functions = _functions(FIRST_BOOT.read_text())
+    taken = CHECKOUT_CHOWN.findall(functions["_apply_client_filesystem"])
+    assert taken, (
+        "could not find the chown of the checkout in _apply_client_filesystem; the extractor is broken"
+    )
+    revert = functions["configure_server"]
+    assert SERVER_HOSTNAME_SET in revert, "configure_server no longer sets the hostname back to milo"
+    hostname_at = revert.index(SERVER_HOSTNAME_SET)
+
+    for path in taken:
+        chown = f'chown -R milo:milo "$MILO_APP_DIR/{path}"'
+        assert chown in revert, f"configure_server never gives {path} back to milo"
+        checkout = re.search(rf"{AS_MILO_GIT} checkout -- {re.escape(path)}(?=[\s;]|$)", revert)
+        assert checkout, f"configure_server never restores the tracked content of {path}, as milo"
+        clean = re.search(rf"{AS_MILO_GIT} clean -(\w+) -- {re.escape(path)}(?=[\s;]|$)", revert)
+        assert clean, f"configure_server never removes what an app update added to {path}, as milo"
+        flags = clean.group(1)
+        assert {"f", "d"} <= set(flags), f"`git clean -{flags}` does not remove untracked directories"
+        assert not {"x", "X"} & set(flags), f"`git clean -{flags}` also wipes ignored files, the prebuilt venv among them"
+        guarded = [c for c in re.findall(r"^\s*if (.*?); then$", revert, re.MULTILINE | re.DOTALL) if chown in c]
+        assert guarded and checkout.group(0) in guarded[0] and clean.group(0) in guarded[0], (
+            f"the chown, checkout and clean of {path} must share one `if` condition, so a failure "
+            "warns instead of exiting before the hostname"
+        )
+        assert revert.index(chown) < checkout.start() < clean.start() < hostname_at, (
+            f"configure_server must chown {path}, then check it out, then clean it, before the hostname "
+            "flips back to milo"
+        )

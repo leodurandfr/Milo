@@ -640,6 +640,19 @@ configure_server() {
     chown -R milo:milo "$MILO_DATA_DIR"
     log "Server data directory reset"
 
+    # 4a. The checkout's milo-client/ is not inert: the client role gave it to
+    # milo-client and every app update rewrote app/ through the repo link, so a
+    # dirty tree here makes every Milō update stop on "Local changes detected".
+    # git runs as milo so .git/index stays milo's; no -x, which would wipe the venv.
+    # A failure only warns: exiting here would skip the hostname and loop the revert.
+    if chown -R milo:milo "$MILO_APP_DIR/milo-client" \
+        && runuser -u milo -- git -C "$MILO_APP_DIR" checkout -- milo-client \
+        && runuser -u milo -- git -C "$MILO_APP_DIR" clean -fdq -- milo-client; then
+        log "Checkout milo-client/ handed back to milo"
+    else
+        log "Warning: could not restore milo-client/ — Milō updates will refuse a dirty tree"
+    fi
+
     # 5. Set hostname back to milo (last — see top of function)
     hostnamectl set-hostname milo
     echo "milo" > /etc/hostname
