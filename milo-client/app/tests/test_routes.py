@@ -316,3 +316,35 @@ class TestEqualizerRoutes:
             enabled=True, threshold=None, ratio=None,
             attack=None, release=None, makeup_gain=None,
         )
+
+    @pytest.mark.parametrize("path, setter", [
+        ("/equalizer/crossover", "set_crossover"),
+        ("/equalizer/lowpass", "set_lowpass"),
+    ])
+    def test_every_crossover_field_reaches_the_service_under_its_own_name(
+        self, client, mock_equalizer_service, path, setter
+    ):
+        """The server's CrossoverService pushes a zone's crossover
+        here. A frequency handed over as the Q (or the reverse) still answers 200
+        and plays a filter nobody asked for, on a sub/sat zone's satellite only."""
+        response = client.put(path, json={"enabled": True, "frequency": 120.0, "q": 0.5})
+
+        assert response.status_code == 200
+        getattr(mock_equalizer_service, setter).assert_called_once_with(
+            enabled=True, frequency=120.0, q=0.5
+        )
+
+    def test_every_loudness_field_reaches_the_service_under_its_own_name(
+        self, client, mock_equalizer_service
+    ):
+        """The server's EqualizerRouter pushes a client's loudness here. The two
+        boosts are both dB and both optional, so crossing them is invisible to the
+        contract test and to the response — only the curve moves."""
+        response = client.put("/equalizer/loudness", json={
+            "enabled": True, "high_boost": 4.0, "low_boost": 9.0, "reference_level": -25.0,
+        })
+
+        assert response.status_code == 200
+        mock_equalizer_service.set_loudness.assert_called_once_with(
+            enabled=True, high_boost=4.0, low_boost=9.0, reference_level=-25.0
+        )

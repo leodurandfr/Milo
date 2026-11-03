@@ -14,6 +14,17 @@ from services.camilladsp_client import CamillaDspError
 from tests.conftest import SHIPPED_CONFIG
 
 
+@pytest.fixture
+def shipped_daemon_config(mock_camilla_client):
+    """The daemon running the config.yml this tree ships: a Mixer, then one
+    Filter step per channel — the shape a one-step fixture cannot tell apart
+    from a setter that fills only the first channel."""
+    config = yaml.safe_load(SHIPPED_CONFIG.read_text())
+    mock_camilla_client.get_config.return_value = config
+    mock_camilla_client.read_config_file.return_value = config
+    return config
+
+
 class TestEqualizerServiceProperties:
     """Test EqualizerService property accessors."""
 
@@ -96,20 +107,43 @@ class TestEqualizerServiceCompressor:
     """Test EqualizerService compressor operations."""
 
     @pytest.mark.asyncio
-    async def test_set_compressor_enabled(self, equalizer_service, mock_camilla_client):
-        """Should enable compressor and add to pipeline."""
-        result = await equalizer_service.set_compressor(enabled=True, threshold=-15.0)
-        assert result is True
-        assert equalizer_service.compressor["enabled"] is True
-        assert equalizer_service.compressor["threshold"] == -15.0
+    @pytest.mark.parametrize("eq_enabled", [True, False])
+    async def test_an_enabled_compressor_is_piped_unless_the_eq_is_bypassed(
+        self, equalizer_service, mock_camilla_client, shipped_daemon_config, eq_enabled
+    ):
+        """What breaks when this fails: a compressor shown on whose processor is
+        defined but never piped compresses nothing, and one piped through a
+        master bypass compresses with the EQ shown off — both heard only on a
+        second physical unit. The times cross the wire in ms, CamillaDSP reads s."""
+        if not eq_enabled:
+            assert await equalizer_service.set_equalizer_enabled(False) is True
+
+        assert await equalizer_service.set_compressor(
+            enabled=True, threshold=-18.0, ratio=3.0, attack=12.0, release=250.0, makeup_gain=2.0
+        ) is True
+
+        pushed = mock_camilla_client.set_config.call_args.args[0]
+        assert pushed["processors"]["compressor"]["parameters"] == {
+            "channels": 2, "threshold": -18.0, "factor": 3.0,
+            "attack": 0.012, "release": 0.25, "makeup_gain": 2.0,
+        }
+        piped = {"type": "Processor", "name": "compressor"} in pushed["pipeline"]
+        assert piped is eq_enabled
 
     @pytest.mark.asyncio
-    async def test_set_compressor_disabled(self, equalizer_service, mock_camilla_client):
-        """Should disable compressor and remove from pipeline."""
-        equalizer_service._compressor["enabled"] = True
-        result = await equalizer_service.set_compressor(enabled=False)
-        assert result is True
-        assert equalizer_service.compressor["enabled"] is False
+    async def test_a_disabled_compressor_leaves_both_the_pipeline_and_the_processors(
+        self, equalizer_service, mock_camilla_client, shipped_daemon_config
+    ):
+        """A pipeline step naming a processor no longer defined is a config the
+        daemon refuses; one still defined and piped keeps compressing with the
+        compressor shown off."""
+        assert await equalizer_service.set_compressor(enabled=True) is True
+
+        assert await equalizer_service.set_compressor(enabled=False) is True
+
+        pushed = mock_camilla_client.set_config.call_args.args[0]
+        assert "compressor" not in pushed["processors"]
+        assert {"type": "Processor", "name": "compressor"} not in pushed["pipeline"]
 
 
 class TestEqualizerServiceLoudness:
@@ -134,20 +168,31 @@ class TestEqualizerServiceCrossover:
     """Test EqualizerService crossover operations."""
 
     @pytest.mark.asyncio
-    async def test_set_crossover_enabled(self, equalizer_service, mock_camilla_client):
-        """Should enable crossover highpass filter."""
-        result = await equalizer_service.set_crossover(enabled=True, frequency=100.0, q=0.707)
-        assert result is True
-        assert equalizer_service.crossover["enabled"] is True
-        assert equalizer_service.crossover["frequency"] == 100.0
+    @pytest.mark.parametrize("setter, name, kind", [
+        ("set_crossover", "crossover_highpass", "Highpass"),
+        ("set_lowpass", "crossover_lowpass", "Lowpass"),
+    ])
+    @pytest.mark.parametrize("eq_enabled", [True, False])
+    async def test_a_crossover_filter_is_piped_on_every_channel(
+        self, equalizer_service, mock_camilla_client, shipped_daemon_config,
+        setter, name, kind, eq_enabled
+    ):
+        """What breaks when this fails: a sub/sat zone whose satellite plays full
+        range (no highpass) or a sub that plays everything (no lowpass) — the
+        filter defined but unpiped, piped on one channel of the shipped config's
+        per-channel Filter steps, or held back by the EQ bypass, which gates the
+        effects and never the crossover. Only a second physical unit shows it."""
+        if not eq_enabled:
+            assert await equalizer_service.set_equalizer_enabled(False) is True
 
-    @pytest.mark.asyncio
-    async def test_set_lowpass_enabled(self, equalizer_service, mock_camilla_client):
-        """Should enable lowpass filter for subwoofer."""
-        result = await equalizer_service.set_lowpass(enabled=True, frequency=80.0, q=0.707)
-        assert result is True
-        assert equalizer_service.lowpass["enabled"] is True
-        assert equalizer_service.lowpass["frequency"] == 80.0
+        assert await getattr(equalizer_service, setter)(enabled=True, frequency=120.0, q=0.5) is True
+
+        pushed = mock_camilla_client.set_config.call_args.args[0]
+        assert pushed["filters"][name]["parameters"] == {"type": kind, "freq": 120.0, "q": 0.5}
+        filter_steps = [step for step in pushed["pipeline"] if step["type"] == "Filter"]
+        for channel in range(pushed["devices"]["playback"]["channels"]):
+            step = next(step for step in filter_steps if channel in step["channels"])
+            assert name in step["names"], f"channel {channel} plays without {name}"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("setter", ["set_crossover", "set_lowpass"])
