@@ -31,6 +31,23 @@ async def data(tmp_path):
     return svc
 
 
+def _blocked(tmp_path):
+    """A data file path no write can reach: its parent is an ordinary file."""
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("")
+    return blocker / "radio_data.json"
+
+
+def _on_disk(data, *, raw=False):
+    text = data._data_file.read_text(encoding="utf-8")
+    return text if raw else json.loads(text)
+
+
+async def _save_something_else(data, tmp_path):
+    data._data_file = tmp_path / "radio_data.json"
+    assert await data.add_favorite("api-2", {"id": "api-2", "name": "Other"}) is True
+
+
 async def _create_then_edit(data, *, image="", new_image=None):
     created = await data.add_custom_station(
         name="Created", url="http://example.invalid/s", image_filename=image,
@@ -499,6 +516,100 @@ class TestFavorites:
 
         assert data.is_favorite(station_id) is True
         assert station_id in data._manual_stations
+
+    async def test_an_addition_that_cannot_be_written_is_not_kept(self, data, tmp_path):
+        """The route answers 500 and the heart stays off; kept in memory, the
+        second tap answered success from the already-a-favorite shortcut with
+        nothing written and nothing announced."""
+        data._data_file = _blocked(tmp_path)
+
+        assert await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"}) is False
+
+        assert data.is_favorite("api-1") is False
+        assert data.get_local_station("api-1") is None
+        data._state_machine.broadcast.assert_not_awaited()
+
+        data._data_file = tmp_path / "radio_data.json"
+        assert await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"}) is True
+        event = data._state_machine.broadcast.await_args.args[0]
+        assert (event.TYPE, event.station_id) == ("favorite_added", "api-1")
+        assert _on_disk(data)["favorites"] == ["api-1"]
+
+    async def test_a_creation_that_cannot_be_written_is_not_kept(self, data, tmp_path):
+        """The route answers 400 and deletes the upload; kept in memory, the
+        station was still served with a dead image, and the retry wrote both."""
+        data._data_file = _blocked(tmp_path)
+        created = await data.add_custom_station(
+            name="Mine", url="http://example.invalid/m", image_filename="up.webp",
+        )
+
+        assert created["success"] is False
+        assert data.get_manual_stations() == {}
+        assert data.favorite_ids == []
+        data._state_machine.broadcast.assert_not_awaited()
+
+        data._data_file = tmp_path / "radio_data.json"
+        again = await data.add_custom_station(name="Mine", url="http://example.invalid/m")
+        assert again["success"] is True
+        stored = _on_disk(data)
+        assert list(stored["manual_stations"]) == [again["station"]["id"]]
+        assert stored["favorites"] == [again["station"]["id"]]
+
+    async def test_an_edit_that_cannot_be_written_is_not_kept(self, data, tmp_path):
+        """The route answers 400 and deletes the new upload; kept in memory,
+        the refused edit was played, and written by the next unrelated save."""
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
+        await data.modify_favorite_metadata("api-1", name="Renamed", url="http://example.invalid/s")
+        data._state_machine.broadcast.reset_mock()
+        data._data_file = _blocked(tmp_path)
+
+        refused = await data.modify_favorite_metadata(
+            "api-1", name="Refused", url="http://example.invalid/s", image_filename="new.webp",
+        )
+
+        assert refused["success"] is False
+        assert data.get_local_station("api-1")["name"] == "Renamed"
+        data.image_manager.delete_image.assert_not_awaited()
+        data._state_machine.broadcast.assert_not_awaited()
+        await _save_something_else(data, tmp_path)
+        assert "Refused" not in _on_disk(data, raw=True)
+
+    async def test_an_edit_of_an_added_station_that_cannot_be_written_is_not_kept(
+        self, data, tmp_path,
+    ):
+        """An added station's edit replaces its one record; refused, the
+        record it replaced must be the one played and written next."""
+        station_id = await _create_then_edit(data)
+        data._data_file = _blocked(tmp_path)
+
+        refused = await data.modify_favorite_metadata(
+            station_id, name="Refused", url="http://example.invalid/s",
+        )
+
+        assert refused["success"] is False
+        assert data.get_local_station(station_id)["name"] == "Renamed"
+        await _save_something_else(data, tmp_path)
+        assert _on_disk(data)["manual_stations"][station_id]["name"] == "Renamed"
+
+    async def test_an_edit_back_to_the_original_that_cannot_be_written_keeps_the_edit(
+        self, data, tmp_path,
+    ):
+        """Off the favorites, an edit back to the original drops the station's
+        override and cached original; refused, both must come back, or the
+        edit Réglages lists could no longer be restored."""
+        original = {"name": "Origin", "url": "http://example.invalid/s"}
+        await data.add_favorite("api-1", {"id": "api-1", **original})
+        await data.modify_favorite_metadata("api-1", name="Renamed", url=original["url"])
+        await data.remove_favorite("api-1")
+        data._data_file = _blocked(tmp_path)
+
+        assert (await data.modify_favorite_metadata("api-1", **original))["success"] is False
+
+        assert data.get_local_station("api-1")["name"] == "Renamed"
+        await _save_something_else(data, tmp_path)
+        assert _on_disk(data)["modified_metadata"]["api-1"]["name"] == "Renamed"
+        assert (await data.restore_favorite_metadata("api-1"))["success"] is True
+        assert data.get_local_station("api-1") is None
 
     async def test_removing_a_station_that_is_not_a_favourite_announces_nothing(self, data):
         assert await data.remove_favorite("api-1") is True

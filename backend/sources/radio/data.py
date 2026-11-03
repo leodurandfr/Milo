@@ -744,7 +744,13 @@ class StationDataService:
             self._favorites.append(station_id)
             success = await self._save()
 
-            if success:
+            if not success:
+                # The route deletes the upload on failure: left in memory, the
+                # station would be served with a dead image and written by the
+                # next save, beside the one a retry creates.
+                del self._manual_stations[station_id]
+                self._favorites.remove(station_id)
+            else:
                 self._favorites_moved()
                 await self._broadcast(RadioFavoriteAdded(station_id=station_id))
 
@@ -871,6 +877,19 @@ class StationDataService:
                 if original_kept is not None:
                     station = original_kept
             success = await self._save()
+
+            if not success:
+                # Left in memory, the refused edit would play and be written by
+                # the next save — after the route deleted its upload.
+                if custom:
+                    self._manual_stations[station_id] = record
+                else:
+                    if record is None:
+                        self._modified_metadata.pop(station_id, None)
+                    else:
+                        self._modified_metadata[station_id] = record
+                    if original_kept is not None:
+                        self._favorites_cache[station_id] = original_kept
 
             # The upload this save replaces is now unreachable — no read can
             # name the old file again. Only this write knows it became garbage.
