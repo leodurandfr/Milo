@@ -119,6 +119,14 @@ _SVG_RENDERER = (
 LOGO_TTL_S = 30 * 24 * 3600
 MISS_TTL_S = 6 * 3600
 
+# What the cache may hold on the SD card, logos, renditions and misses together.
+# The route answers a plain `<img>` from any page open on the LAN, so the URLs
+# it is asked about are not bounded; past either bound the oldest written goes
+# (a read keeps its mtime, which is the TTL's clock). Measured 2026-11-03:
+# 2.3 MB in 267 files.
+CACHE_MAX_BYTES = 64 * 1024 * 1024
+CACHE_MAX_FILES = 2000
+
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 # A browser-like header set: many station hosts sit behind a WAF (Akamai,
@@ -366,6 +374,8 @@ class StationLogos:
         self._inflight: Dict[str, asyncio.Task] = {}
         self._bg = BackgroundTaskSet(logger, "radio_logos")
         self._pil = asyncio.Semaphore(PIL_CONCURRENCY)
+        # One writer at a time, or two could each count the room the other takes.
+        self._room = asyncio.Lock()
 
     @handle_errors(default=None)
     async def initialize(self) -> None:
@@ -382,6 +392,40 @@ class StationLogos:
             ttl = MISS_TTL_S if path.suffix == ".miss" else LOGO_TTL_S
             if path.suffix == ".tmp" or not self._fresh(path, ttl):
                 path.unlink(missing_ok=True)
+
+    async def _store(self, path: Path, data: bytes) -> None:
+        """Write one cache file, within the cache's bounds."""
+        async with self._room:
+            await asyncio.to_thread(self._make_room, path, len(data))
+            await write_bytes_atomically(path, data)
+
+    def _make_room(self, path: Path, size: int) -> None:
+        """Evict the oldest written files until `size` more bytes at `path` fit.
+
+        A temp file is a write in flight, counted once it lands; `path` itself
+        is about to be replaced, so what it holds now is not counted. The other
+        files of the same logo are counted but kept: a rendition written must
+        not evict the logo it renders.
+        """
+        self.LOGOS_DIR.mkdir(parents=True, exist_ok=True)
+        entries = []
+        for entry in self.LOGOS_DIR.iterdir():
+            if entry.suffix == ".tmp" or entry == path:
+                continue
+            with contextlib.suppress(FileNotFoundError):
+                stat = entry.stat()
+                entries.append((stat.st_mtime, entry, stat.st_size))
+        entries.sort()
+        count = len(entries) + 1
+        total = sum(size for _, _, size in entries) + size
+        for _, entry, entry_size in entries:
+            if count <= CACHE_MAX_FILES and total <= CACHE_MAX_BYTES:
+                break
+            if entry.stem == path.stem:
+                continue
+            entry.unlink(missing_ok=True)
+            count -= 1
+            total -= entry_size
 
     async def cleanup(self) -> None:
         """Cancel the fetches in flight (backend teardown)."""
@@ -445,9 +489,9 @@ class StationLogos:
         try:
             if data is None:
                 logger.debug("Station logo %s is not a usable image", url)
-                await write_bytes_atomically(self.LOGOS_DIR / f"{key}.miss", b"")
+                await self._store(self.LOGOS_DIR / f"{key}.miss", b"")
             else:
-                await write_bytes_atomically(self.LOGOS_DIR / f"{key}.webp", data)
+                await self._store(self.LOGOS_DIR / f"{key}.webp", data)
                 # A rendition of the previous version must not outlive it.
                 (self.LOGOS_DIR / f"{key}.jpg").unlink(missing_ok=True)
                 (self.LOGOS_DIR / f"{key}.miss").unlink(missing_ok=True)
@@ -468,7 +512,7 @@ class StationLogos:
         async with self._pil:
             jpeg = await asyncio.to_thread(_convert)
         try:
-            await write_bytes_atomically(path, jpeg)
+            await self._store(path, jpeg)
         except OSError as e:
             logger.warning("Could not keep JPEG rendition %s: %s", path.name, e)
         return jpeg

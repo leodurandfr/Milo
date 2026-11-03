@@ -117,7 +117,8 @@ def test_a_foreign_origin_cannot_write(client):
 
 
 def test_a_foreign_origin_may_still_read(client):
-    """CORS already stops the page reading the reply; a GET changes nothing."""
+    """CORS stops the page reading the reply; a GET changes no state, and the one
+    cache it can fill is bounded (radio logos)."""
     assert client.get("/api/thing", headers=headers("milo.local", "http://evil.example")).status_code == 200
 
 

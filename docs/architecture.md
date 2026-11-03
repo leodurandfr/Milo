@@ -916,7 +916,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 
 **radio_data.json** - Radio favorites and custom stations. Durable (`schema_version: 1`).
 **radio_images/** - Station artwork the user uploaded (custom stations, edited favorites), stored as WebP ≤1024×1024 with a JPEG rendition beside each for callers that cannot draw WebP. Durable — it is the user's own work.
-**radio_logos/** - External station logos (radio-browser's `favicon` URLs) as `GET /api/radio/favicon` serves them: fetched once, checked, padded to a square, WebP plus a lazy JPEG rendition, keyed by the SHA-256 of the repaired URL; `.miss` files remember a host that answered without a logo for 6 h. Disposable derived cache: no `schema_version`, safe to wipe, entries expire after 30 days. See `backend/sources/radio/logos.py`.
+**radio_logos/** - External station logos (radio-browser's `favicon` URLs) as `GET /api/radio/favicon` serves them: fetched once, checked, padded to a square, WebP plus a lazy JPEG rendition, keyed by the SHA-256 of the repaired URL; `.miss` files remember a host that answered without a logo for 6 h. Disposable derived cache: no `schema_version`, safe to wipe, entries expire after 30 days. Bounded at 64 MiB and 2,000 files (`.webp`, `.jpg` and `.miss` together): past either, the oldest written is evicted before a new write. See `backend/sources/radio/logos.py`.
 **podcast_data.json** - Subscriptions, favorites, playback progress. Durable (`schema_version: 3`).
 **cd_data.json** - MusicBrainz disc-TOC/metadata lookup cache, keyed by disc ID. Disposable — no `schema_version`; re-fetched on next disc read if lost.
 **cd_covers/** - Downloaded CD cover art, keyed by disc ID. Disposable cache (re-downloadable from Cover Art Archive).

@@ -501,10 +501,10 @@ async def get_station_image(
 
 # `nosniff` + a CSP that runs nothing: the bytes come from a host the directory
 # named, and are served from Milō's own origin. An `<img>` never executes them,
-# but a tab opened on this URL would.
+# but a tab opened on this URL would. No CORS header: the frontend is
+# same-origin and Milo-Mac and Milo-iOS are native, so a foreign page has no
+# business reading what the proxy fetched.
 _FAVICON_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
     # The same URL answers WebP to a browser and JPEG to iOS.

@@ -31,6 +31,7 @@ from backend.sources.radio.routes import setup_radio_routes
 BROWSER = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
 URLSESSION = "*/*"
 LOGO_URL = "http://cdn.example.com/logo.png"
+FOREIGN_ORIGIN = "http://evil.example"
 
 
 def _png(width, height, mode="RGB", background=(10, 20, 30), center=(220, 30, 30)):
@@ -558,6 +559,59 @@ class TestTheCache:
 
         assert sorted(p.name for p in logos_dir.iterdir()) == ["a.webp"]
 
+    @staticmethod
+    def _stamp_new(logos_dir, seen, n):
+        """Give the files the last call wrote the nth write time, oldest first:
+        calls inside one second would otherwise all share one mtime."""
+        written = time.time() - 3600 + n
+        for path in logos_dir.iterdir():
+            if path not in seen:
+                os.utime(path, (written, written))
+                seen.add(path)
+
+    async def test_the_logo_cache_stays_within_its_file_bound(
+            self, fetches, public, logos_dir, monkeypatch):
+        """Any page open on the LAN can name new URLs through an `<img>` for as long
+        as it stays open, and each one is a file on the SD card that holds
+        settings.json: past the bound, the oldest written makes room."""
+        monkeypatch.setattr(logos_module, "CACHE_MAX_FILES", 3)
+        urls = [LOGO_URL + f"?i={n}" for n in range(4)]
+        session = fetches(*(_Resp(200, _png(200, 200)) for _ in range(len(urls) + 1)))
+        logos = StationLogos()
+        seen = set()
+        for n, url in enumerate(urls):
+            assert await logos.get(url, BROWSER) is not None
+            self._stamp_new(logos_dir, seen, n)
+
+        assert len(list(logos_dir.iterdir())) <= 3
+        await logos.get(urls[-1], BROWSER)
+        assert len(session.fetched) == len(urls)
+        await logos.get(urls[0], BROWSER)
+        assert len(session.fetched) == len(urls) + 1
+
+    async def test_the_logo_cache_stays_within_its_byte_bound(
+            self, fetches, public, logos_dir, monkeypatch):
+        """The same bound in bytes, the JPEG rendition iOS is served included."""
+        urls = [LOGO_URL + f"?i={n}" for n in range(4)]
+        session = fetches(*(_Resp(200, _png(200, 200)) for _ in range(len(urls) + 1)))
+        logos = StationLogos()
+        seen = set()
+        await logos.get(urls[0], URLSESSION)
+        self._stamp_new(logos_dir, seen, 0)
+        pair = sum(path.stat().st_size for path in logos_dir.iterdir())
+        cap = int(2.5 * pair)
+        monkeypatch.setattr(logos_module, "CACHE_MAX_BYTES", cap)
+
+        for n, url in enumerate(urls[1:], start=1):
+            assert await logos.get(url, URLSESSION) is not None
+            self._stamp_new(logos_dir, seen, n)
+            assert sum(path.stat().st_size for path in logos_dir.iterdir()) <= cap
+
+        await logos.get(urls[-1], URLSESSION)
+        assert len(session.fetched) == len(urls)
+        await logos.get(urls[0], URLSESSION)
+        assert len(session.fetched) == len(urls) + 1
+
 
 class TestTheRoute:
     @pytest.fixture
@@ -574,19 +628,28 @@ class TestTheRoute:
         fetches(_Resp(200, _png(200, 200)))
 
         response = client.get("/api/radio/favicon", params={"url": LOGO_URL},
-                              headers={"Accept": BROWSER})
+                              headers={"Accept": BROWSER, "Origin": FOREIGN_ORIGIN})
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/webp"
         assert response.headers["x-content-type-options"] == "nosniff"
         assert response.headers["content-security-policy"].startswith("default-src 'none'")
         assert response.headers["vary"] == "Accept"
-        assert response.headers["access-control-allow-origin"] == "*"
+        self._unreadable_cross_site(response)
 
     def test_no_logo_is_204_so_every_client_draws_its_avatar(self, client, fetches, public):
         fetches(_Resp(404))
 
-        response = client.get("/api/radio/favicon", params={"url": LOGO_URL})
+        response = client.get("/api/radio/favicon", params={"url": LOGO_URL},
+                              headers={"Origin": FOREIGN_ORIGIN})
 
         assert response.status_code == 204
         assert response.content == b""
+        self._unreadable_cross_site(response)
+
+    @staticmethod
+    def _unreadable_cross_site(response):
+        """The kiosk is same-origin and Milo-Mac and Milo-iOS are native: a reply
+        any page could read would hand a foreign site what the proxy fetched."""
+        assert "access-control-allow-origin" not in response.headers
+        assert "access-control-allow-methods" not in response.headers
