@@ -222,6 +222,8 @@ class MusicLibrarySource(MpvAudioSource):
         # playlist id → its first track's album id, for placing a playlist Milō
         # did not create in a storage space (see playlists_in_scope).
         self._playlist_album: Dict[str, Optional[str]] = {}
+        # The one initialization (see initialize), awaited by every caller.
+        self._init_task: Optional[asyncio.Task] = None
 
     # =========================================================================
     # NAVIDROME CLIENT (shared with routes.py)
@@ -599,6 +601,23 @@ class MusicLibrarySource(MpvAudioSource):
     # =========================================================================
 
     async def initialize(self) -> bool:
+        """Run the one initialization, or wait for the one already in flight.
+
+        The IR remote's MENU listens before the boot's init is done, and a
+        selection reaching this source calls initialize() again while
+        `is_initialized` is false, under the transition timeout. A second run
+        started a second udev observer and a second set of share watchers, for
+        the backend's life; the shield keeps that timeout from cancelling the
+        boot's run. A run that failed is not shared: the next caller tries
+        again.
+        """
+        if self._init_task is None or (self._init_task.done() and not self.is_initialized):
+            self._init_task = asyncio.create_task(
+                self._initialize_once(), name="source.music_library.initialize"
+            )
+        return await asyncio.shield(self._init_task)
+
+    async def _initialize_once(self) -> bool:
         """Start or stop the catalog as the dock says, bring up the music origins
         (shares + USB watcher), then base init.
 

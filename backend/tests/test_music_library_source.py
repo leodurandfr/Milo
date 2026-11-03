@@ -16,6 +16,8 @@ reaches the outside: the published state, the error banners, what mpv was
 sent, what Navidrome was told, and the command's answer.
 """
 import asyncio
+import contextlib
+import sys
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -23,12 +25,17 @@ import pytest
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.shared.mpv_audio_source import MpvAudioSource
+from backend.shared.persistence import save_versioned_json
+from backend.sources.music_library import data as data_module
+from backend.sources.music_library import libraries as libraries_module
 from backend.sources.music_library import source as library_module
+from backend.sources.music_library import storage as storage_module
 from backend.sources.music_library.navidrome_client import NavidromeUnreachable
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.tests.golden.harness import AsyncioProxy, settle
 from backend.tests.golden.test_wire_music_library import FakeNavidrome
 from backend.tests.test_mpv_sessions import LibraryRig
+from backend.tests.test_music_library_hotplug import _Observer, _Pyudev
 
 _real_sleep = asyncio.sleep
 
@@ -1706,3 +1713,136 @@ async def test_a_reorder_mpv_cannot_read_back_ends_the_session(rig):
     assert session(rig) is None
     assert rig.errors() == ["stream_disconnected"]
     assert [t["id"] for t in details(rig)["queue"]] == ["s1", "s2", "s3"]
+
+
+class _NoAdminCred:
+    """Navidrome's admin cred file is not there either: the library reconcile
+    stays off whatever Navidrome this host runs."""
+
+    @classmethod
+    def from_cred_file(cls, *a, **k):
+        return None
+
+
+class _MountRefused:
+    """What `sudo -n milo-mount` answers for a share whose NAS is offline."""
+
+    returncode = 1
+
+    async def communicate(self, input=None):
+        return b"", b"mount error(113): could not connect"
+
+    def kill(self):
+        pass
+
+
+def _tasks_named(label):
+    return [
+        t for t in asyncio.all_tasks()
+        if t.get_name() == f"music_library.shares.{label}" and not t.done()
+    ]
+
+
+@pytest.fixture
+async def library_origins(monkeypatch, tmp_path):
+    """The outside world of a real share service and storage manager: udev with
+    nothing plugged in, no Navidrome cred file, one configured share whose NAS
+    is offline (milo-mount refuses it), the shares file on tmp_path. Returns a
+    builder of a MusicLibrarySource whose dock read is `dock_apps`."""
+    monkeypatch.setitem(sys.modules, "pyudev", _Pyudev())
+    monkeypatch.setattr(_Observer, "instances", [])
+    monkeypatch.setattr(library_module, "NavidromeClient", NoCredFile)
+    monkeypatch.setattr(libraries_module, "NavidromeAdminClient", _NoAdminCred)
+
+    async def _milo_mount(*argv, **kwargs):
+        return _MountRefused()
+
+    monkeypatch.setattr(storage_module.asyncio, "create_subprocess_exec", _milo_mount)
+    shares_file = tmp_path / "music_library.json"
+    monkeypatch.setattr(data_module, "MUSIC_LIBRARY_DATA_FILE", shares_file)
+    await save_versioned_json(shares_file, {
+        "shares": [{
+            "id": "nas", "name": "NAS", "type": "smb", "host": "192.0.2.1",
+            "path": "music",
+        }],
+        "known_usb": {},
+        "playlist_storages": {},
+    }, data_module.MusicLibraryDataService.SCHEMA_VERSION)
+
+    def build(dock_apps):
+        settings = Mock(get_setting=AsyncMock(side_effect=dock_apps))
+        systemd = Mock(start=AsyncMock(return_value=True), stop=AsyncMock(return_value=True))
+        return MusicLibrarySource({}, None, settings, systemd)
+
+    return build
+
+
+async def _tear_down(src):
+    await src.shares.cleanup()
+    await src.shutdown()
+
+
+async def test_a_selection_during_boot_init_does_not_start_the_watchers_twice(
+    library_origins,
+):
+    """The IR remote's MENU listens while the boot still initializes, and a
+    selection reaching Music Library runs initialize() a second time
+    (`_start_source` does while `is_initialized` is false), under the
+    transition timeout. Two inits started a second udev observer nothing ever
+    stopped — every hotplug event handled twice for the backend's life — and a
+    second scan watcher and liveness probe, which halves the probe's
+    hysteresis. The boot init must also outlive the timeout that gives up on
+    the second caller."""
+    booting = asyncio.Event()
+    reads = []
+
+    async def _dock_apps(key):
+        # The boot's read is the one held; a later caller's would answer.
+        reads.append(key)
+        if len(reads) == 1:
+            await booting.wait()
+        return []
+
+    src = library_origins(_dock_apps)
+    boot = asyncio.create_task(src.initialize())
+    await settle()
+    # The start_timeout giving up on the selection's init (shortened).
+    with contextlib.suppress(TimeoutError):
+        async with asyncio.timeout(0.5):
+            await src.initialize()
+    booting.set()
+    try:
+        assert await asyncio.wait_for(boot, timeout=5) is True
+        await settle()
+
+        assert src.is_initialized
+        assert [o.started for o in _Observer.instances] == [True]
+        assert len(_tasks_named("scan-watcher")) == 1
+        assert len(_tasks_named("share-liveness")) == 1
+        assert len(_tasks_named("share-remount")) == 1
+    finally:
+        await _tear_down(src)
+
+
+async def test_an_init_that_failed_at_boot_is_run_again_by_the_next_selection(
+    library_origins,
+):
+    """The boot logs a failed init and carries on, and selecting the source is
+    what runs it again: sharing the failed run would leave Music Library
+    unselectable until the backend restarts."""
+    reads = []
+
+    async def _dock_apps(key):
+        reads.append(key)
+        if len(reads) == 1:
+            raise OSError("settings unreadable")
+        return []
+
+    src = library_origins(_dock_apps)
+    with pytest.raises(OSError):
+        await src.initialize()
+    try:
+        assert await src.initialize() is True
+        assert src.is_initialized
+    finally:
+        await _tear_down(src)
