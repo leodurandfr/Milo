@@ -417,21 +417,51 @@ def _client_model_fields() -> dict[str, set[str]]:
     return fields
 
 
-def _dict_keys_read_in(node) -> set[str]:
-    """Strings this subtree uses as a dict key: `f["g"]`, `f.get("g")`, `"g" in f`."""
+def _dict_keys_read_in(fn) -> set[str]:
+    """Keys `fn` reads from an item of a list it was handed: `f["g"]`, `f.get("g")`, `"g" in f`.
+
+    Only on the name a `for` or a comprehension binds while iterating one of
+    `fn`'s parameters, inside that loop, and only a subscript in Load: the batch
+    handler also writes `params["type"]` and reads `params.get("type")` on the
+    CamillaDSP config it edits, and neither is a key the item supplies. A loop
+    spelled any other way (`enumerate`, a local alias) yields nothing, which the
+    non-vacuity test reports rather than letting the contract pass on an empty set.
+    """
+    args = fn.args
+    params = {a.arg for a in [*args.posonlyargs, *args.args, *args.kwonlyargs]}
+
+    def over_param(loop) -> bool:
+        return (isinstance(loop.target, ast.Name)
+                and isinstance(loop.iter, ast.Name) and loop.iter.id in params)
+
+    scopes = []
+    for node in ast.walk(fn):
+        if isinstance(node, (ast.For, ast.AsyncFor)) and over_param(node):
+            scopes.append((node.target.id, node.body))
+        elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            scopes.extend((gen.target.id, [node]) for gen in node.generators if over_param(gen))
+
     keys = set()
-    for sub in ast.walk(node):
-        if isinstance(sub, ast.Subscript) and isinstance(sub.slice, ast.Constant):
-            if isinstance(sub.slice.value, str):
-                keys.add(sub.slice.value)
-        elif (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
-              and sub.func.attr == "get" and sub.args
-              and isinstance(sub.args[0], ast.Constant)
-              and isinstance(sub.args[0].value, str)):
-            keys.add(sub.args[0].value)
-        elif isinstance(sub, ast.Compare) and isinstance(sub.left, ast.Constant):
-            if isinstance(sub.left.value, str) and any(isinstance(op, ast.In) for op in sub.ops):
-                keys.add(sub.left.value)
+    for item, body in scopes:
+        def on_item(expr) -> bool:
+            return isinstance(expr, ast.Name) and expr.id == item
+
+        for sub in (n for stmt in body for n in ast.walk(stmt)):
+            if (isinstance(sub, ast.Subscript) and isinstance(sub.ctx, ast.Load)
+                    and on_item(sub.value) and isinstance(sub.slice, ast.Constant)):
+                if isinstance(sub.slice.value, str):
+                    keys.add(sub.slice.value)
+            elif (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                  and sub.func.attr == "get" and on_item(sub.func.value) and sub.args
+                  and isinstance(sub.args[0], ast.Constant)
+                  and isinstance(sub.args[0].value, str)):
+                keys.add(sub.args[0].value)
+            elif isinstance(sub, ast.Compare) and isinstance(sub.left, ast.Constant):
+                if isinstance(sub.left.value, str) and any(
+                    isinstance(op, (ast.In, ast.NotIn)) and on_item(right)
+                    for op, right in zip(sub.ops, sub.comparators)
+                ):
+                    keys.add(sub.left.value)
     return keys
 
 
@@ -606,6 +636,22 @@ def test_payload_extractors_are_not_vacuous():
     # the targeted setter reached the satellite.
     for path in ("/equalizer/compressor", "/equalizer/loudness", "/equalizer/mono"):
         assert len(_SENT.get(("PUT", path), [])) == 2, f"targeted {path} body not captured"
+
+
+def test_the_inner_key_walk_ignores_keys_the_handler_writes():
+    """A band key renamed to CamillaDSP's own spelling must fail the contract.
+
+    The batch handler writes `params["type"]` and reads `params.get("type")` on
+    the CamillaDSP config it edits, so a walk that counts every key in the
+    function accepts a band sent as `type` — which the satellite never reads,
+    leaving a Lowshelf band Peaking after every resync with `applied: 1`.
+    """
+    inner = _ACCEPTED[("PUT", "/equalizer/filters")][1]
+    band = dict(_SENT[("PUT", "/equalizer/filters")][0]["filters"][0])
+    assert "filter_type" in band, f"the band body no longer carries filter_type: {sorted(band)}"
+    band["type"] = band.pop("filter_type")
+    assert "type" in set(band) - inner
+    assert "parameters" not in inner and "filters" not in inner
 
 
 @pytest.mark.parametrize("method,path", sorted(_SENT))
