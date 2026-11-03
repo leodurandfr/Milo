@@ -38,7 +38,7 @@ from backend.api.responses import (
     ZoneMutationResponse,
     ZoneOrMessageResponse,
 )
-from backend.config.constants import CLIENT_API_PORT
+from backend.config.constants import CLIENT_API_PORT, get_client_display_name
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.multiroom.models import EqualizerSettings
 
@@ -965,7 +965,11 @@ def create_multiroom_router(
         - hardware_configured=false → store as pending (user must configure via wizard).
           If the mac_id already exists in the registry (reinstall scenario),
           the old entry is removed so the client appears fresh.
-        - hardware_configured=true → no action needed (snapclient will reconnect).
+        - hardware_configured=true, unknown → stage the identity it carries
+          (wifi-adopted, heartbeat ahead of snapclient).
+        - hardware_configured=true, known → sync volume_control, and apply the
+          identity it carries if the record still holds the fallback name
+          (wifi-adopted, snapclient admitted ahead of the heartbeat).
         """
         async with api_error_handler("Error registering client", logger):
             # Validate that the declared IP matches the actual request origin
@@ -998,6 +1002,19 @@ def create_multiroom_router(
                         else:
                             await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
                             logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
+                    # A wifi-adopted satellite's snapclient connects ~5 s before
+                    # this first heartbeat, so OnConnect admitted it under the
+                    # fallback name. Its identity lands once: applying the name
+                    # leaves the fallback, and a later rename is never reverted.
+                    if (request.name and request.name != existing.name
+                            and existing.name == get_client_display_name(existing.host)):
+                        await registry_service.update_client(
+                            request.mac_id, name=request.name, speaker_type=request.speaker_type
+                        )
+                        logger.info(
+                            f"Client {request.mac_id} adopted identity applied: "
+                            f"{request.name} ({request.speaker_type or existing.speaker_type})"
+                        )
                     logger.debug(f"Client {request.mac_id} heartbeat, hardware configured, skipping pending")
                     return {"status": "success", "message": "Hardware configured, snapclient will reconnect"}
 

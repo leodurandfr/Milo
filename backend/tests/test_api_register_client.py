@@ -20,6 +20,7 @@ that nothing separated:
 `validate_mac_id` is the other half: the registry, the per-client EQ records and
 `settings.json: multiroom.client_equalizer[mac]` are all keyed by this string.
 """
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -29,6 +30,7 @@ from unittest.mock import AsyncMock, Mock
 from backend.api.models import RegisterClientRequest
 from backend.api.multiroom import create_multiroom_router
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import Client
 
@@ -254,6 +256,106 @@ class TestConfiguredClient:
             SAT_MAC, name="Bureau", speaker_type="tower"
         )
         assert response.json()["client"]["name"] == "Bureau"
+
+
+class TestIdentityAfterAdmission:
+    """The other order of a wifi-adopted first boot, the one measured on Bureau:
+    the satellite signals READY, snapclient starts and connects, and the first
+    heartbeat leaves 5 s later. `Client.OnConnect` has then admitted the speaker
+    under the fallback name, so the identity can only land on the heartbeat.
+
+    The registry is the real one: what is asserted is the record the multiroom
+    list and the crossover read, not the arguments of a call.
+    """
+
+    @pytest.fixture
+    async def admitted(self):
+        """A registry where OnConnect admitted the satellite before any heartbeat,
+        with no pending identity: under its host's display name, the
+        "Milō Client" Bureau was measured to carry."""
+        reg = ClientRegistryService(settings_service=None)
+        await reg.register_client(SAT_MAC, "Milō Client", SAT_IP, host="milo-client")
+        events = []
+
+        async def record(event_type, data):
+            events.append((event_type, data))
+
+        reg.subscribe(record)
+        return reg, events
+
+    @staticmethod
+    def _satellite(registry, pending):
+        app = FastAPI()
+        app.include_router(create_multiroom_router(registry, pending_clients_service=pending))
+        transport = httpx.ASGITransport(app=app, client=(SAT_IP, 41000))
+        return httpx.AsyncClient(transport=transport, base_url="http://milo")
+
+    async def _heartbeat(self, registry, pending, **identity):
+        async with self._satellite(registry, pending) as satellite:
+            response = await satellite.post("/api/multiroom/register-client", json={
+                **BODY, "hardware_configured": True, **identity,
+            })
+        assert response.status_code == 200
+        return response
+
+    async def test_a_wifi_adopted_identity_lands_when_its_snapclient_was_admitted_first(
+        self, admitted, pending
+    ):
+        """Without it the speaker stays "Milō Client" for good, and a subwoofer
+        stays a bookshelf: `apply_zone_crossover` gives it no filter and it
+        plays full range.
+        """
+        reg, _ = admitted
+
+        await self._heartbeat(reg, pending, name="Salon", speaker_type="subwoofer")
+
+        landed = reg.get_client(SAT_MAC)
+        assert (landed.name, landed.speaker_type) == ("Salon", "subwoofer")
+        pending.register_client.assert_not_awaited()
+
+    async def test_a_heartbeat_never_reverts_a_rename(self, admitted, pending):
+        """identity.json is never rewritten by the server, so the satellite sends
+        the wizard's name at every heartbeat for as long as it lives. A rename
+        the operator made afterwards must survive them.
+        """
+        reg, _ = admitted
+        await self._heartbeat(reg, pending, name="Salon", speaker_type="subwoofer")
+        await reg.update_client(SAT_MAC, name="Cuisine")
+
+        for _ in range(3):
+            await self._heartbeat(reg, pending, name="Salon", speaker_type="subwoofer")
+
+        assert reg.get_client(SAT_MAC).name == "Cuisine"
+
+    async def test_a_heartbeat_with_no_name_never_reverts_a_hand_picked_type(
+        self, admitted, pending
+    ):
+        """Only a name closes the window: a type alone would leave the record on
+        the fallback name, and every heartbeat would set the wizard's type back
+        over the one the operator picked, rebroadcasting the crossover each time.
+        """
+        reg, events = admitted
+        await reg.update_client(SAT_MAC, speaker_type="tower")
+        events.clear()
+
+        for _ in range(3):
+            await self._heartbeat(reg, pending, speaker_type="subwoofer")
+
+        assert reg.get_client(SAT_MAC).speaker_type == "tower"
+        assert events == []
+
+    async def test_an_identity_already_applied_writes_nothing_again(self, admitted, pending):
+        """The heartbeat runs every 15 s: a write each time would persist
+        settings.json and broadcast a `client_updated` four times a minute.
+        """
+        reg, events = admitted
+        await self._heartbeat(reg, pending, name="Salon", speaker_type="subwoofer")
+        events.clear()
+
+        for _ in range(3):
+            await self._heartbeat(reg, pending, name="Salon", speaker_type="subwoofer")
+
+        assert events == []
 
 
 class TestReinstall:
