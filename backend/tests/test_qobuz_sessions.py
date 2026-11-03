@@ -210,6 +210,51 @@ async def test_a_resume_withdraws_the_end_request(world):
     assert world.playing() and world.restarts == []
 
 
+async def test_a_resume_the_poll_has_not_shown_yet_is_not_cut(world):
+    """The pause timer decided on the last poll, up to a second old: a play
+    pressed in the app within that second was cut by the restart, the music
+    that had just come back stopping in the room."""
+    await world.app_plays(ON_AND_ON)
+    await world.app_pauses()
+    await world.advance(DELAY - 1)
+    world.sidecar.player_state = "playing"
+    await world.advance(1.5)
+    assert world.restarts == []
+    assert world.playing()
+    assert world.session_ends() == []
+
+
+async def test_an_idle_end_the_old_sidecar_answers_after_stays_an_idle_end(world):
+    """A play the old sidecar reported while the restart was under way, handled
+    after it, withdrew a request already carried out: the exit Milō ordered read
+    as a death, with its banner."""
+    await world.app_plays(ON_AND_ON)
+    await world.app_pauses()
+    world.poll_lands_during_restart = True
+    world.app_resumes_during_restart = True
+    await world.advance(DELAY + 3)
+    assert len(world.restarts) == 1
+    assert world.session_ends() == ["idle_timeout"]
+    assert world.errors() == []
+
+
+async def test_a_poll_the_old_sidecar_answers_opens_nothing_after_an_idle_end(world):
+    """An answer the old sidecar gave before it exited, handled after the end,
+    reopened the session it described — a paused phantom between two idle
+    states, and a second session_ended."""
+    await world.app_plays(ON_AND_ON)
+    await world.app_pauses()
+    world.poll_lands_during_restart = True
+    world.old_answer_lands_after_exit = True
+    await world.advance(DELAY - 1)
+    before = len(world.published())
+    await world.advance(4)
+    after = world.published()[before:]
+    assert len(world.restarts) == 1
+    assert after and all(p["session"] is None for p in after)
+    assert world.session_ends() == ["idle_timeout"]
+
+
 async def test_the_app_picking_another_output_ends_the_session_at_once(world):
     """SET_ACTIVE(false) is the app leaving, not a between-tracks blip: the old
     source held ACTIVE three more ticks on a speaker nobody was using."""

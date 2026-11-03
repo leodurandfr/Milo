@@ -1218,6 +1218,8 @@ class BaseAudioSource(ABC):
         session = self._session
         if session is None or session.phase is not Phase.PAUSED:
             return
+        if not await self._still_idle(session):
+            return
         session.end_requested = EndReason.IDLE_TIMEOUT
         self._logger.info(
             f"Paused for {self.auto_stop_delay:.0f}s — asking {self.service_name} to end the session"
@@ -1244,6 +1246,16 @@ class BaseAudioSource(ABC):
         if self._daemon_watch is None and self._session is session:
             await self.end_session(session.end_requested or EndReason.IDLE_TIMEOUT)
             self._publish()
+
+    async def _still_idle(self, session: Session) -> bool:
+        """Whether `session` is still paused now, just before its end is asked.
+
+        The phase is a mirror of what the daemon last said: a source that only
+        polls its daemon can be a poll behind a play pressed on the sender,
+        and reads it once more here. A source whose daemon pushes every change
+        has nothing to add.
+        """
+        return True
 
     async def _request_end(self, session: Session) -> bool:
         """Ask the daemon to end `session`. True when it took the request."""

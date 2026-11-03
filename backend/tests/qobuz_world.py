@@ -154,6 +154,12 @@ class QobuzWorld(WireReader):
         # A poll the old sidecar answers between Milō asking for the restart
         # and systemd stopping it (the restart takes ~0.5-1 s at 1 Hz polls).
         self.poll_lands_during_restart = False
+        # The app pressing play while that restart is under way, after Milō
+        # read the sidecar one last time.
+        self.app_resumes_during_restart = False
+        # That answer reaching Milō only once the old process has exited (a
+        # backend loop busy across the stop).
+        self.old_answer_lands_after_exit = False
 
         class Watch:
             def __init__(self, pid: int, on_exit: Callable[[], None], *a: Any, **k: Any) -> None:
@@ -238,13 +244,22 @@ class QobuzWorld(WireReader):
 
     async def _unit_restart(self, *_: Any) -> bool:
         self.restarts.append(self.clock.now)
+        if self.app_resumes_during_restart:
+            self.sidecar.player_state = "playing"
+        payload = None
         if self.poll_lands_during_restart:
             async with self.sidecar.get("status") as response:
                 payload = await response.json()
-            await self.source._on_status(payload["speakers"][0], payload["auth"]["authenticated"])
+            if not self.old_answer_lands_after_exit:
+                await self._answer(payload)
         self._die()
+        if payload is not None and self.old_answer_lands_after_exit:
+            await self._answer(payload)
         self._spawn()
         return True
+
+    async def _answer(self, payload: Dict[str, Any]) -> None:
+        await self.source._on_status(payload["speakers"][0], payload["auth"]["authenticated"])
 
     async def kill_sidecar(self) -> None:
         self.unit_state = ("activating", "signal")

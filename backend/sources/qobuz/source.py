@@ -33,6 +33,8 @@ free account):
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+import aiohttp
+
 from backend.config.constants import MILO_DATA_DIR
 from backend.core.audio_source import BaseAudioSource, Result
 from backend.core.models.audio_state import NetworkRequirement
@@ -41,7 +43,7 @@ from backend.core.models.session import (
 )
 from backend.sources.qobuz.account import is_connected, read_credentials
 from backend.core.models.ws_events import SourceErrorReason
-from backend.sources.qobuz.monitor import QobuzMonitor
+from backend.sources.qobuz.monitor import QobuzMonitor, StatusUnanswered
 
 # One-byte volume-policy flag the patched qobuz-proxy stream reads
 # ($QOBUZPROXY_DATA_DIR/allow_app_volume): "1" → honor the Qobuz app's volume
@@ -197,7 +199,35 @@ class QobuzSource(BaseAudioSource):
         """REQUEST_END: restart the sidecar — the only thing, measured, that
         makes the app let go. Its exit ends the session under the reason asked
         for."""
-        return await self._restart_service_and_wait()
+        return await self._restart_sidecar()
+
+    async def _restart_sidecar(self) -> bool:
+        """Restart the sidecar under a session Milō is ending."""
+        restarted = await self._restart_service_and_wait()
+        # The poll kept running across the restart: an answer the old sidecar
+        # gave meanwhile describes the session just ended — a track would
+        # reopen it, a play would withdraw an idle end already carried out.
+        self._discard_feed()
+        return restarted
+
+    async def _still_idle(self, session: Session) -> bool:
+        """The phase is a poll up to a second old: read the sidecar once more,
+        through the feed, so a play pressed since moves the session (and the
+        pause timer) as any poll would. A sidecar that does not answer is what
+        the restart is for."""
+        if self._monitor is None:
+            return True
+        try:
+            snapshot = await self._monitor.fetch_once()
+        except (aiohttp.ClientError, OSError, ValueError, StatusUnanswered) as e:
+            self._logger.warning(f"Could not read the sidecar before ending the session: {e}")
+            return True
+        # Polls answered since the timer fired are older than this read: they
+        # go first, or one of them would put the pause back over the play.
+        events = [*self._feed_pending, snapshot]
+        self._discard_feed()
+        await self._handle_feed(events)
+        return self._session is session and session.phase is Phase.PAUSED
 
     # ------------------------------------------------------------------
     # Volume policy (allow the mobile app to control volume, or pin unity)
@@ -253,11 +283,7 @@ class QobuzSource(BaseAudioSource):
             return True
         if await self.end_session(EndReason.USER_STOP) is not None:
             self._publish()
-        restarted = await self._restart_service_and_wait()
-        # The poll kept running across the restart: an answer the old sidecar
-        # gave meanwhile describes the session just ended and would reopen it.
-        self._discard_feed()
-        return restarted
+        return await self._restart_sidecar()
 
     # ------------------------------------------------------------------
     # Status feed

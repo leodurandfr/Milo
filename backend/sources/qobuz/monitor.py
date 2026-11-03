@@ -107,6 +107,10 @@ class QobuzMonitor:
                     logger.debug("Qobuz status not answered: %s", e)
             await asyncio.sleep(self._poll_interval)
 
+    async def fetch_once(self) -> tuple[Optional[Dict[str, Any]], bool]:
+        """One status read outside the loop, raising as the loop's own does."""
+        return await self._fetch_status()
+
     async def _fetch_status(self) -> tuple[Optional[Dict[str, Any]], bool]:
         """Return (our speaker dict | None, account authenticated).
 

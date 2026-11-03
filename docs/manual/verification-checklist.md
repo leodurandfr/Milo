@@ -218,6 +218,7 @@ These are shared by every source; they break for all of them at once.
 | Web UI gate | With Qobuz selected, Settings > Qobuz > Connect completes the sign-in on `milo.local:8689`; `curl -s -o /dev/null -w '%{http_code}' -H 'Origin: http://evil.example' -X POST http://localhost:8689/api/speakers -d x` and `curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://localhost:8689/api/status` both answer 403 (never probe `/api/auth/logout`: without the gate it signs the account out) | targeted |
 | Discovery | Milō appears in the Qobuz app's device list | targeted |
 | Playback + metadata | Audio plays; artwork, title, artist, album shown; progress advances; no transport buttons | targeted |
+| Pause auto-stop | Auto-stop delay set short, cast from the Qobuz app and paused past the delay: the app lets go of Milō (the sidecar is restarted: no request ends a session), no banner, and the journal records an idle end, never `exited under the session`. Once more, play pressed in the app about 1 s before the deadline: the music continues and the sidecar is not restarted. Put the delay back afterwards | targeted |
 
 ### Tidal Connect (C)
 
