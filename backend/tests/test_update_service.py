@@ -424,9 +424,11 @@ class TestRollbackBinaryProgram:
         config = _rollback_config(tmp_path)
         (tmp_path / "backups").mkdir()
 
-        with patch.object(update_service, "_stop_service", return_value=True):
+        with patch.object(update_service, "_stop_service", return_value=True), \
+             patch.object(update_service, "_start_service", return_value=True) as mock_start:
             result = await update_service._rollback_binary_program(config, restart_service=True)
         assert result is False
+        mock_start.assert_awaited_once_with("milo-spotify.service")
 
     @pytest.mark.asyncio
     async def test_rollback_with_active_service(self, update_service, tmp_path):
@@ -483,12 +485,79 @@ class TestRollbackBinaryProgram:
         (tmp_path / "backups").mkdir()
         (tmp_path / "backups" / "go-librespot.backup").write_text("old binary")
 
-        with patch.object(update_service, "_stop_service", return_value=False):
+        with patch.object(update_service, "_stop_service", return_value=False), \
+             patch.object(update_service, "_start_service", return_value=True):
             with patch.object(update_service, "_run_deploy") as mock_deploy:
                 result = await update_service._rollback_binary_program(config, restart_service=True)
 
         assert result is False
         mock_deploy.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_rollback_install_still_starts_the_unit(self, update_service, tmp_path):
+        """The update stopped the unit, and `Restart=on-failure` does not undo an
+        explicit stop: a rollback that left before its start kept every room
+        silent until a reboot. One start, and the rollback is still not claimed."""
+        config = _rollback_config(tmp_path)
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "go-librespot.backup").write_text("old binary")
+
+        with patch.object(update_service, "_stop_service", return_value=True), \
+             patch.object(update_service, "_run_deploy", return_value=(False, "install-binary refused")), \
+             patch.object(update_service, "_start_service", return_value=True) as mock_start:
+            result = await update_service._rollback_binary_program(config, restart_service=True)
+
+        assert result is False
+        mock_start.assert_awaited_once_with("milo-spotify.service")
+
+    @pytest.mark.asyncio
+    async def test_a_rollback_whose_copy_raises_still_starts_the_unit(self, update_service, tmp_path):
+        config = _rollback_config(tmp_path)
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "go-librespot.backup").write_text("old binary")
+
+        with patch.object(update_service, "_stop_service", return_value=True), \
+             patch("backend.core.updates.update.shutil.copy2",
+                   side_effect=OSError(errno.ENOSPC, "No space left on device")), \
+             patch.object(update_service, "_run_deploy") as mock_deploy, \
+             patch.object(update_service, "_start_service", return_value=True) as mock_start:
+            result = await update_service._rollback_binary_program(config, restart_service=True)
+
+        assert result is False
+        mock_deploy.assert_not_called()
+        mock_start.assert_awaited_once_with("milo-spotify.service")
+
+    @pytest.mark.asyncio
+    async def test_a_rollback_needs_no_new_space_in_tmp(self, update_service, tmp_path):
+        """/tmp is RAM, and the rollback runs exactly when an update may just have
+        filled it (a shairport-sync build tree, a download): the copy install-binary
+        is handed lives on disk, and does not outlive the rollback."""
+        config = _rollback_config(tmp_path)
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "go-librespot.backup").write_text("old binary")
+        handed, asked = [], []
+        real_mkstemp = tempfile.mkstemp
+
+        def _mkstemp(*args, dir=None, **kwargs):
+            # The directory asked for is recorded; the file itself stays in tmp_path.
+            asked.append(Path(dir))
+            return real_mkstemp(*args, dir=tmp_path, **kwargs)
+
+        async def _deploy(*args, **kwargs):
+            handed.append(Path(args[1]))
+            return True, ""
+
+        with patch.object(update_service, "_stop_service", return_value=True), \
+             patch("backend.core.updates.update.tempfile.mkstemp", side_effect=_mkstemp), \
+             patch.object(update_service, "_run_deploy", side_effect=_deploy), \
+             patch.object(update_service, "_start_service", return_value=True):
+            assert await update_service._rollback_binary_program(config, restart_service=True) is True
+
+        assert asked and not asked[0].is_relative_to("/tmp")
+        # milo-deploy-update's validate_temp_path accepts /tmp/* and /var/tmp/* only.
+        assert asked[0].is_relative_to("/var/tmp")
+        assert len(handed) == 1 and handed[0].name.startswith("milo-rollback-")
+        assert not handed[0].exists(), "the copy does not outlive the rollback"
 
 
 class TestRunDeploy:
@@ -1929,8 +1998,10 @@ class TestRollbackShairportSync:
         }
         (tmp_path / "backups").mkdir()
 
-        result = await update_service._rollback_shairport_sync(config)
+        with patch.object(update_service, "_start_service", return_value=True) as mock_start:
+            result = await update_service._rollback_shairport_sync(config)
         assert result is False
+        mock_start.assert_awaited_once_with("milo-airplay.service")
 
     @pytest.mark.asyncio
     async def test_rollback_restarts_if_was_active(self, update_service, tmp_path):
@@ -1998,12 +2069,71 @@ class TestRollbackShairportSync:
         (tmp_path / "backups").mkdir()
         (tmp_path / "backups" / "shairport-sync.backup").write_text("old")
 
-        with patch.object(update_service, "_stop_service", return_value=False):
+        with patch.object(update_service, "_stop_service", return_value=False), \
+             patch.object(update_service, "_start_service", return_value=True):
             with patch.object(update_service, "_run_deploy") as mock_deploy:
                 result = await update_service._rollback_shairport_sync(config, service_was_active=True)
 
         assert result is False
         mock_deploy.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failing", ["nqptp", "shairport-sync"])
+    async def test_a_failed_rollback_install_still_starts_the_unit(self, update_service, tmp_path, failing):
+        """Each unit the rollback stopped is started again once, whichever install
+        failed: NQPTP is the AirPlay clock, and shairport-sync the receiver."""
+        config = {
+            "backup_path": str(tmp_path / "backups"),
+            "binary_path": "/usr/local/bin/shairport-sync",
+            "service_name": "milo-airplay.service",
+            "nqptp": {"binary_path": "/usr/local/bin/nqptp", "service_name": "nqptp.service"},
+        }
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "shairport-sync.backup").write_text("old")
+        (tmp_path / "backups" / "nqptp.backup").write_text("old")
+
+        async def _deploy(*args, **kwargs):
+            return (False, "install-binary refused") if args[2].endswith(failing) else (True, "")
+
+        with patch.object(update_service, "_stop_service", return_value=True), \
+             patch.object(update_service, "_run_deploy", side_effect=_deploy), \
+             patch.object(update_service, "_start_service", return_value=True) as mock_start:
+            result = await update_service._rollback_shairport_sync(
+                config, service_was_active=True, restore_nqptp=True
+            )
+
+        assert result is False
+        assert sorted(c.args[0] for c in mock_start.await_args_list) == [
+            "milo-airplay.service", "nqptp.service"
+        ]
+
+
+    @pytest.mark.asyncio
+    async def test_an_nqptp_that_will_not_start_still_gets_its_shairport_back(self, update_service, tmp_path):
+        """Once the old NQPTP is on disk, the new shairport-sync speaks the wrong
+        interface: it goes back too, and the rollback is not claimed."""
+        config = {
+            "backup_path": str(tmp_path / "backups"),
+            "binary_path": "/usr/local/bin/shairport-sync",
+            "service_name": "milo-airplay.service",
+            "nqptp": {"binary_path": "/usr/local/bin/nqptp", "service_name": "nqptp.service"},
+        }
+        (tmp_path / "backups").mkdir()
+        (tmp_path / "backups" / "shairport-sync.backup").write_text("old")
+        (tmp_path / "backups" / "nqptp.backup").write_text("old")
+
+        with patch.object(update_service, "_stop_service", return_value=True), \
+             patch.object(update_service, "_run_deploy", return_value=(True, "")) as mock_deploy, \
+             patch.object(update_service, "_start_service",
+                          side_effect=lambda name: name != "nqptp.service"):
+            result = await update_service._rollback_shairport_sync(
+                config, service_was_active=True, restore_nqptp=True
+            )
+
+        assert result is False
+        assert [c.args[2] for c in mock_deploy.call_args_list] == [
+            "/usr/local/bin/nqptp", "/usr/local/bin/shairport-sync"
+        ]
 
 
 class TestUpdateShairportSync:
@@ -2044,6 +2174,29 @@ class TestUpdateShairportSync:
                 name: stack.enter_context(patch.object(service, name, return_value=value))
                 for name, value in returns.items()
             }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", ["install", "start", "verify", "raise"])
+    async def test_a_shairport_rollback_runs_after_its_build_tree_is_freed(self, update_service, failure):
+        """The build tree sits in /tmp, which is RAM: a rollback run beside it is
+        one that may find no room for its own copy."""
+        with self._flow(update_service) as mocks:
+            order = []
+            mocks["_cleanup_temp_files"].side_effect = lambda *a: order.append("cleanup")
+            mocks["_rollback_shairport_sync"].side_effect = lambda *a, **k: order.append("rollback") or True
+            if failure == "install":
+                mocks["_install_shairport_sync"].return_value = {"success": False, "error": "refused"}
+            elif failure == "start":
+                mocks["_start_service"].return_value = False
+            elif failure == "verify":
+                mocks["_verify_shairport_sync_update"].return_value = {"success": False, "error": "not running"}
+            else:
+                mocks["_install_shairport_sync"].side_effect = OSError(errno.ENOSPC, "No space left on device")
+
+            result = await update_service._update_shairport_sync(self.STATUS)
+
+        assert result["success"] is False
+        assert order == ["cleanup", "rollback"]
 
     @pytest.mark.asyncio
     async def test_a_rollback_that_failed_reads_differently_from_one_that_worked(self, update_service):

@@ -26,6 +26,7 @@ from backend.core.multiroom.routing import (
     resolve_snapclient_config,
 )
 from backend.core.multiroom.snapcast import NETWORK_PRESETS, SUPPORTED_CODECS
+from backend.shared.fanout import failed_members
 
 if TYPE_CHECKING:
     from backend.core.multiroom.calibration_service import CalibrationService
@@ -126,20 +127,23 @@ def create_routing_router(
         payload = {"buffer_time": buffer_time, "fragments": fragments}
         timeout = aiohttp.ClientTimeout(total=10)
 
-        async def _push_to_client(client):
+        async def _push_to_client(client) -> bool:
             try:
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     url = f"http://{client.ip}:{CLIENT_API_PORT}/snapclient/config"
                     async with session.put(url, json=payload) as response:
                         if response.status == 200:
                             logger.info(f"Snapclient config pushed to {client.name} ({client.ip})")
-                        else:
-                            body = await response.text()
-                            logger.warning(f"Failed to push config to {client.name}: {response.status} {body}")
+                            return True
+                        body = await response.text()
+                        logger.warning(f"Failed to push config to {client.name}: {response.status} {body}")
+                        return False
             except Exception as e:
                 logger.warning(f"Could not reach {client.name} ({client.ip}): {e}")
+                return False
 
-        await asyncio.gather(*[_push_to_client(c) for c in remote_clients], return_exceptions=True)
+        results = await asyncio.gather(*[_push_to_client(c) for c in remote_clients], return_exceptions=True)
+        failed_members(logger, "Snapclient config", [c.name for c in remote_clients], results)
 
     # === Snapcast server config ===
 

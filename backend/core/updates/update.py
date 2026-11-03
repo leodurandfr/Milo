@@ -924,48 +924,40 @@ class UpdateService(VersionService):
 
     async def _rollback_binary_program(self, config: Dict[str, Any], restart_service: bool = True) -> bool:
         """Restores the backed-up binary, and restarts the service if the caller
-        ran it or it runs now."""
+        ran it or it runs now.
+
+        The start is made whatever the restore gave, once: the update stopped the
+        unit, and `Restart=on-failure` does not undo an explicit stop, so a
+        rollback that left before it kept every room silent until a reboot.
+        """
         display_name = config["log_name"]
+        service_name = config["service_name"]
+        restored = False
         try:
             binary_path = Path(config["binary_path"])
             binary_backup = Path(config["backup_path"]) / f"{binary_path.name}.backup"
+            restart_service = await self._restart_after_rollback(service_name, restart_service)
             if not binary_backup.exists():
                 self.update_logger.error("No backup found for rollback")
-                return False
-
-            restart_service = await self._restart_after_rollback(config["service_name"], restart_service)
-
             # A unit that refuses to stop keeps its image loaded: install-binary
             # writes a file nothing is running, and the start below would report
             # the *new* binary still up. That is not a rollback, so it does not
             # claim one.
-            if not await self._stop_service(config["service_name"]):
+            elif not await self._stop_service(service_name):
                 self.update_logger.error(f"{display_name} did not stop, cannot restore its binary")
-                return False
-
-            # Copy backup to /tmp for install-binary (requires temp path)
-            tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
-            shutil.copy2(binary_backup, tmp_backup)
-            try:
-                success, output = await self._run_deploy(
-                    "install-binary", str(tmp_backup), str(binary_path)
-                )
-                if not success:
-                    self.update_logger.error(f"Rollback install failed: {output}")
-                    return False
-            finally:
-                tmp_backup.unlink(missing_ok=True)
-
-            if restart_service and not await self._start_service(config["service_name"]):
-                self.update_logger.error(f"{display_name} binary restored but the service did not start")
-                return False
-
-            self.update_logger.info(f"{display_name} rollback completed (service {'restarted' if restart_service else 'left stopped'})")
-            return True
-
+            else:
+                restored = await self._install_backup(binary_backup, str(binary_path))
         except Exception as e:
             self.update_logger.error(f"{display_name} rollback failed: {e}")
+        finally:
+            started = not restart_service or await self._start_service(service_name)
+
+        if not started:
+            self.update_logger.error(f"{display_name} did not start after the rollback")
             return False
+        if restored:
+            self.update_logger.info(f"{display_name} rollback completed (service {'restarted' if restart_service else 'left stopped'})")
+        return restored
 
     async def _restore_multiroom_services(self) -> bool:
         """Starts the multiroom units back exactly when multiroom is on.
@@ -1176,29 +1168,29 @@ class UpdateService(VersionService):
                 nqptp_swapped = True
                 nqptp_result = await self._install_nqptp(pair["build"])
                 if not nqptp_result["success"]:
+                    await self._cleanup_temp_files(temp_dir)
                     rolled_back = await self._rollback_shairport_sync(
                         config, service_was_active, restore_nqptp=True
                     )
-                    await self._cleanup_temp_files(temp_dir)
                     return self._failure_after_rollback(f"{nqptp_result['error']}.", rolled_back)
 
             # Phase 6: Install (80%)
             install_result = await self._install_shairport_sync(source_dir)
             if not install_result["success"]:
+                await self._cleanup_temp_files(temp_dir)
                 rolled_back = await self._rollback_shairport_sync(
                     config, service_was_active, restore_nqptp=nqptp_swapped
                 )
-                await self._cleanup_temp_files(temp_dir)
                 return self._failure_after_rollback(f"{install_result['error']}.", rolled_back)
 
             # Phase 7: Restart service if it was active (85%)
             if service_was_active:
                 start_result = await self._start_service(config["service_name"])
                 if not start_result:
+                    await self._cleanup_temp_files(temp_dir)
                     rolled_back = await self._rollback_shairport_sync(
                         config, service_was_active, restore_nqptp=nqptp_swapped
                     )
-                    await self._cleanup_temp_files(temp_dir)
                     return self._failure_after_rollback(
                         "Failed to start service after update.", rolled_back
                     )
@@ -1208,10 +1200,10 @@ class UpdateService(VersionService):
                 config, service_was_active, expected_nqptp=pair["expected"]
             )
             if not verify_result["success"]:
+                await self._cleanup_temp_files(temp_dir)
                 rolled_back = await self._rollback_shairport_sync(
                     config, service_was_active, restore_nqptp=nqptp_swapped
                 )
-                await self._cleanup_temp_files(temp_dir)
                 return self._failure_after_rollback(f"{verify_result['error']}.", rolled_back)
 
             # Write version file for reliable version tracking
@@ -1228,11 +1220,10 @@ class UpdateService(VersionService):
 
         except Exception as e:
             self.update_logger.error(f"shairport-sync update failed: {e}")
+            await self._cleanup_temp_files(temp_dir)
             rolled_back = await self._rollback_shairport_sync(
                 config, service_was_active, restore_nqptp=nqptp_swapped
             )
-            if temp_dir:
-                await self._cleanup_temp_files(temp_dir)
             return self._failure_after_rollback(f"{e}.", rolled_back)
 
     async def _backup_shairport_sync(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -1600,60 +1591,82 @@ class UpdateService(VersionService):
     ) -> bool:
         """Rollback shairport-sync to the backed up version — and NQPTP with it
         when the update had already replaced it, since the old shairport-sync
-        speaks the old interface only."""
+        speaks the old interface only.
+
+        As in `_rollback_binary_program`, each unit this flow stopped is started
+        again whatever the restore gave, once.
+        """
+        service_name = config["service_name"]
+        restored = False
         try:
-            backup_dir = Path(config["backup_path"])
-            binary_backup = backup_dir / "shairport-sync.backup"
-            nqptp_backup = backup_dir / "nqptp.backup"
-            if not binary_backup.exists():
-                self.update_logger.error("No backup found for rollback")
-                return False
-            # A unit that had no NQPTP before has none to go back to: the
-            # shairport-sync binary is still put back, and the rollback is
-            # not claimed.
-            nqptp_restorable = not restore_nqptp or nqptp_backup.exists()
-            if not nqptp_restorable:
-                self.update_logger.error("No NQPTP backup to roll back to")
-
-            service_was_active = await self._restart_after_rollback(
-                config["service_name"], service_was_active
-            )
-            # Same as _rollback_binary_program: a unit that will not stop makes
-            # the restore unverifiable, so it is not claimed.
-            if not await self._stop_service(config["service_name"]):
-                self.update_logger.error("shairport-sync did not stop, cannot restore its binary")
-                return False
-
-            if restore_nqptp and nqptp_restorable:
-                nqptp = config["nqptp"]
-                if not await self._stop_service(nqptp["service_name"]):
-                    self.update_logger.error("NQPTP did not stop, cannot restore its binary")
-                    return False
-                if not await self._install_backup(nqptp_backup, nqptp["binary_path"]):
-                    return False
-                if not await self._start_service(nqptp["service_name"]):
-                    self.update_logger.error("NQPTP binary restored but the service did not start")
-                    return False
-
-            if not await self._install_backup(binary_backup, config["binary_path"]):
-                return False
-
-            if service_was_active and not await self._start_service(config["service_name"]):
-                self.update_logger.error("shairport-sync binary restored but the service did not start")
-                return False
-
-            self.update_logger.info(f"shairport-sync rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
-            return nqptp_restorable
-
+            service_was_active = await self._restart_after_rollback(service_name, service_was_active)
+            restored = await self._restore_shairport_sync_backups(config, restore_nqptp)
         except Exception as e:
             self.update_logger.error(f"shairport-sync rollback failed: {e}")
+        finally:
+            started = not service_was_active or await self._start_service(service_name)
+
+        if not started:
+            self.update_logger.error("shairport-sync did not start after the rollback")
+            return False
+        if restored:
+            self.update_logger.info(f"shairport-sync rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
+        return restored
+
+    async def _restore_shairport_sync_backups(self, config: Dict[str, Any], restore_nqptp: bool) -> bool:
+        """Put the backed-up binaries back; the caller starts shairport-sync."""
+        backup_dir = Path(config["backup_path"])
+        binary_backup = backup_dir / "shairport-sync.backup"
+        nqptp_backup = backup_dir / "nqptp.backup"
+        if not binary_backup.exists():
+            self.update_logger.error("No backup found for rollback")
+            return False
+        # A unit that had no NQPTP before has none to go back to: the
+        # shairport-sync binary is still put back, and the rollback is
+        # not claimed.
+        nqptp_restorable = not restore_nqptp or nqptp_backup.exists()
+        if not nqptp_restorable:
+            self.update_logger.error("No NQPTP backup to roll back to")
+
+        # Same as _rollback_binary_program: a unit that will not stop makes
+        # the restore unverifiable, so it is not claimed.
+        if not await self._stop_service(config["service_name"]):
+            self.update_logger.error("shairport-sync did not stop, cannot restore its binary")
             return False
 
+        nqptp_started = True
+        if restore_nqptp and nqptp_restorable:
+            nqptp = config["nqptp"]
+            if not await self._stop_service(nqptp["service_name"]):
+                self.update_logger.error("NQPTP did not stop, cannot restore its binary")
+                return False
+            nqptp_restored = False
+            try:
+                nqptp_restored = await self._install_backup(nqptp_backup, nqptp["binary_path"])
+            finally:
+                nqptp_started = await self._start_service(nqptp["service_name"])
+            if not nqptp_restored:
+                return False
+            # The old NQPTP is on disk now, so the old shairport-sync still goes
+            # back with it: the new one would be started against the wrong clock.
+            if not nqptp_started:
+                self.update_logger.error("NQPTP binary restored but the service did not start")
+
+        if not await self._install_backup(binary_backup, config["binary_path"]):
+            return False
+        return nqptp_restorable and nqptp_started
+
     async def _install_backup(self, backup: Path, binary_path: str) -> bool:
-        """Put a backed-up binary back, through /tmp as install-binary requires."""
-        tmp_backup = Path(tempfile.mktemp(prefix="milo-rollback-", dir="/tmp"))
-        shutil.copy2(backup, tmp_backup)
+        """Put a backed-up binary back, through a copy install-binary accepts.
+
+        The copy goes to /var/tmp, on disk: /tmp is RAM, and a rollback runs
+        exactly when an update may just have filled it.
+        """
+        fd, tmp_backup_str = tempfile.mkstemp(prefix="milo-rollback-", dir="/var/tmp")
+        tmp_backup = Path(tmp_backup_str)
         try:
+            os.close(fd)
+            shutil.copy2(backup, tmp_backup)
             success, output = await self._run_deploy("install-binary", str(tmp_backup), binary_path)
             if not success:
                 self.update_logger.error(f"Rollback install failed: {output}")

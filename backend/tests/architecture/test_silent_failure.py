@@ -207,10 +207,7 @@ def _reads_expression(scope, expression: str, attribute: str, window=None) -> bo
 # --------------------------------------------------------------------------- #
 
 # One line per entry, and each must still match something (asserted below).
-EXEMPT_FANOUTS = {
-    "backend/api/routing.py::_push_snapclient_config_to_remotes":
-        "each arm is a local closure that catches and logs its own satellite by name",
-}
+EXEMPT_FANOUTS = {}
 
 
 def _fanouts():

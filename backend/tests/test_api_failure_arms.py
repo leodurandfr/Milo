@@ -354,6 +354,8 @@ class TestTheSnapclientConfigPush:
 
         assert any("Failed to push config to Canapé" in r.message and "400" in r.message
                    for r in caplog.records)
+        # At error level, which is what raises the UI's banner.
+        assert any(r.levelno == logging.ERROR and "Canapé" in r.message for r in caplog.records)
 
     async def test_a_satellite_that_cannot_be_reached_does_not_stop_the_others(
         self, pieces, caplog
