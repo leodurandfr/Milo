@@ -21,6 +21,7 @@ from backend.core.multiroom.client_registry import (
     ClientRegistryService,
     REGISTRY_EVENT_CLASSES,
 )
+from backend.core.multiroom.models import EqualizerSettings
 from backend.config.constants import (
     CLIENT_API_PORT,
     DEFAULT_VOLUME_DB,
@@ -964,11 +965,14 @@ class SnapcastWebSocketService:
 
             eq = self.registry.get_client_equalizer(mac_id) if self.registry else None
             self._note_sent(mac_id, "record", eq)
-            if not eq:
-                self.logger.info(f"SYNC_EQ: No saved settings for {mac_id}, defaults apply")
-                return True
-
-            self.logger.info(f"SYNC_EQ: Applying saved settings for {mac_id}")
+            if eq is None:
+                # No record is the neutral one the UI shows, and it is pushed like
+                # any other: the satellite would otherwise keep whatever its own
+                # config.yml held when the record was deleted.
+                eq = EqualizerSettings.default()
+                self.logger.info(f"SYNC_EQ: No saved settings for {mac_id}, applying the neutral record")
+            else:
+                self.logger.info(f"SYNC_EQ: Applying saved settings for {mac_id}")
 
             if not self._equalizer_client_proxy_service:
                 return False

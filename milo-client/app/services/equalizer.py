@@ -9,6 +9,7 @@ Controls local CamillaDSP daemon via WebSocket for:
 - Crossover filters (highpass/lowpass)
 """
 import asyncio
+import copy
 import functools
 import logging
 import os
@@ -975,6 +976,7 @@ class EqualizerService:
 
             if "filters" not in config:
                 config["filters"] = {}
+            original = copy.deepcopy(config)
 
             if enabled:
                 # Add highpass crossover filter
@@ -987,15 +989,23 @@ class EqualizerService:
                     }
                 }
                 self._add_filter_to_pipeline(config, "crossover_highpass")
-                self.logger.info(f"Crossover highpass filter enabled at {frequency} Hz (Q={q})")
             else:
                 # Remove crossover filter
                 if "crossover_highpass" in config.get("filters", {}):
                     del config["filters"]["crossover_highpass"]
                 self._remove_filter_from_pipeline(config, "crossover_highpass")
-                self.logger.info("Crossover highpass filter disabled")
+
+            # The server re-sends both filters on every admission (disabled for
+            # a client with no zone), so a push that changes nothing must not
+            # reload the pipeline.
+            if config == original:
+                return True
 
             await self._apply_config(config)
+            if enabled:
+                self.logger.info(f"Crossover highpass filter enabled at {frequency} Hz (Q={q})")
+            else:
+                self.logger.info("Crossover highpass filter disabled")
             return True
 
         except Exception as e:
@@ -1030,6 +1040,7 @@ class EqualizerService:
 
             if "filters" not in config:
                 config["filters"] = {}
+            original = copy.deepcopy(config)
 
             if enabled:
                 # Add lowpass filter for subwoofer
@@ -1042,15 +1053,20 @@ class EqualizerService:
                     }
                 }
                 self._add_filter_to_pipeline(config, "crossover_lowpass")
-                self.logger.info(f"Lowpass filter enabled at {frequency} Hz (Q={q})")
             else:
                 # Remove lowpass filter
                 if "crossover_lowpass" in config.get("filters", {}):
                     del config["filters"]["crossover_lowpass"]
                 self._remove_filter_from_pipeline(config, "crossover_lowpass")
-                self.logger.info("Lowpass filter disabled")
+
+            if config == original:
+                return True
 
             await self._apply_config(config)
+            if enabled:
+                self.logger.info(f"Lowpass filter enabled at {frequency} Hz (Q={q})")
+            else:
+                self.logger.info("Lowpass filter disabled")
             return True
 
         except Exception as e:

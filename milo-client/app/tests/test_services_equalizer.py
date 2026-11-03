@@ -149,6 +149,46 @@ class TestEqualizerServiceCrossover:
         assert equalizer_service.lowpass["enabled"] is True
         assert equalizer_service.lowpass["frequency"] == 80.0
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("setter", ["set_crossover", "set_lowpass"])
+    async def test_disabling_an_absent_crossover_does_not_reload_the_pipeline(
+        self, equalizer_service, mock_camilla_client, setter
+    ):
+        """The server disables both filters on every admission of a client with
+        no zone, and applying a config restarts CamillaDSP's processing — so a
+        push that changes nothing must reach the daemon not at all."""
+        assert await getattr(equalizer_service, setter)(enabled=False) is True
+
+        mock_camilla_client.set_config.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("setter", ["set_crossover", "set_lowpass"])
+    async def test_re_enabling_an_identical_crossover_does_not_reload_the_pipeline(
+        self, equalizer_service, mock_camilla_client, setter
+    ):
+        """A zone's crossover is re-applied on every admission of its members."""
+        await getattr(equalizer_service, setter)(enabled=True, frequency=90.0, q=0.707)
+        mock_camilla_client.set_config.reset_mock()
+
+        assert await getattr(equalizer_service, setter)(enabled=True, frequency=90.0, q=0.707) is True
+
+        mock_camilla_client.set_config.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("setter", ["set_crossover", "set_lowpass"])
+    async def test_disabling_a_present_crossover_still_reloads_the_pipeline(
+        self, equalizer_service, mock_camilla_client, setter
+    ):
+        """The early return must not swallow the change it exists to deliver."""
+        config = mock_camilla_client.get_config.return_value
+        await getattr(equalizer_service, setter)(enabled=True, frequency=90.0)
+        mock_camilla_client.set_config.reset_mock()
+
+        assert await getattr(equalizer_service, setter)(enabled=False) is True
+
+        mock_camilla_client.set_config.assert_called_once()
+        assert not any(name.startswith("crossover_") for name in config["filters"])
+
 
 class TestEqualizerServiceLevels:
     """Test EqualizerService audio level operations."""

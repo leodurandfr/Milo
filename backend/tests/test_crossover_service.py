@@ -1862,3 +1862,80 @@ class TestAZoneLostInOneSweep:
         assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
         mock_proxy_service.try_request.assert_not_called()
         assert registry.get_online_client_ids() == []
+
+
+# =============================================================================
+# A client with no zone carries no crossover, whatever it missed while away
+# =============================================================================
+
+class TestAZonelessClientIsHeldWithoutFilters:
+    """A zone deleted while one of its members was unplugged leaves that member's
+    disable in the pending queue only, which lives in memory. When this fails, a
+    backend restart in between (a Milō update) lets the satellite reload the
+    highpass its own config.yml persisted, and it plays without bass for good,
+    with no screen to show it: the server calls it zoneless."""
+
+    BOOKSHELF, SUBWOOFER = "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"
+
+    @pytest.mark.asyncio
+    async def test_a_zoneless_client_reconnecting_after_a_restart_gets_its_filters_disabled(
+        self, mock_settings_service, mock_camilladsp_service, mock_proxy_service
+    ):
+        registry = ClientRegistryService(settings_service=mock_settings_service)
+        await registry.initialize()
+        crossover = CrossoverService(
+            settings_service=mock_settings_service,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=mock_proxy_service,
+        )
+        crossover.set_registry(registry)
+        await registry.register_client(self.BOOKSHELF, "Salon", "192.168.1.50", speaker_type="bookshelf")
+        await registry.register_client(self.SUBWOOFER, "Caisson", "192.168.1.51", speaker_type="subwoofer")
+        await registry.set_client_online(self.BOOKSHELF, True)
+        await registry.set_client_online(self.SUBWOOFER, True)
+        await registry.create_zone("zone-1", "Salon", [self.BOOKSHELF, self.SUBWOOFER])
+        assert any(
+            c.args[2] == "/equalizer/crossover" and c.args[3]["enabled"]
+            for c in mock_proxy_service.try_request.await_args_list
+        ), "the zone never put a highpass on the bookshelf"
+
+        await registry.set_client_online(self.BOOKSHELF, False)
+        await registry.delete_zone("zone-1")
+        # The backend restarts: whatever was queued for the absent member is gone.
+        await crossover.cleanup()
+        assert not crossover.has_pending_settings(self.BOOKSHELF)
+        assert registry.get_zone_for_client(self.BOOKSHELF) is None
+        mock_proxy_service.try_request.reset_mock()
+
+        await registry.set_client_online(self.BOOKSHELF, True)
+
+        pushed = {
+            c.args[2]: c.args[3]["enabled"]
+            for c in mock_proxy_service.try_request.await_args_list
+            if c.args[0] == "192.168.1.50"
+        }
+        assert pushed == {"/equalizer/crossover": False, "/equalizer/lowpass": False}
+
+    @pytest.mark.asyncio
+    async def test_a_zoneless_client_going_offline_queues_nothing(
+        self, mock_settings_service, mock_camilladsp_service, mock_proxy_service
+    ):
+        """The disable is for a client that can take it: queued for an offline
+        one, it would be replayed on top of the disable its next admission
+        already sends."""
+        registry = ClientRegistryService(settings_service=mock_settings_service)
+        await registry.initialize()
+        crossover = CrossoverService(
+            settings_service=mock_settings_service,
+            camilladsp_service=mock_camilladsp_service,
+            proxy_service=mock_proxy_service,
+        )
+        crossover.set_registry(registry)
+        await registry.register_client(self.BOOKSHELF, "Salon", "192.168.1.50", speaker_type="bookshelf")
+        await registry.set_client_online(self.BOOKSHELF, True)
+        mock_proxy_service.try_request.reset_mock()
+
+        await registry.set_client_online(self.BOOKSHELF, False)
+
+        mock_proxy_service.try_request.assert_not_called()
+        assert not crossover.has_pending_settings(self.BOOKSHELF)

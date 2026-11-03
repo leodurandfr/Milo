@@ -107,6 +107,7 @@ class CrossoverService:
                     await self.apply_pending_settings(mac_id)
 
                 await self._recalculate_zones_for_client(mac_id)
+                await self._disable_filters_if_zoneless(mac_id)
 
                 # If recalculation queued settings (CamillaDSP not fully ready,
                 # e.g. after audio card change), schedule a delayed retry
@@ -475,6 +476,22 @@ class CrossoverService:
                     zone_id=zone.id,
                     zone=self._registry.zone_to_enriched_dict(zone),
                 ))
+
+    @handle_errors(default=None)
+    async def _disable_filters_if_zoneless(self, client_id: str) -> None:
+        """Tell an admitted remote client with no zone that it carries no crossover.
+
+        The satellite reloads its persisted config.yml at every start, and the
+        disable sent when its zone went away may only have been queued — in
+        memory, gone with a backend restart. The local client is left out: its
+        CamillaDSP persists no filter of its own.
+        """
+        if not self._registry or self._registry.get_zone_for_client(client_id):
+            return
+        client = self._registry.get_client(client_id)
+        if client and not client.is_local and self._registry.is_client_online(client_id):
+            await self._set_client_filter(client_id, "crossover", False, DEFAULT_CROSSOVER_FREQUENCY)
+            await self._set_client_filter(client_id, "lowpass", False, DEFAULT_CROSSOVER_FREQUENCY)
 
     # === Pending Settings Queue for Offline Clients ===
 

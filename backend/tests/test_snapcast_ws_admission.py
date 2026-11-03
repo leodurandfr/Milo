@@ -708,8 +708,8 @@ class TestThePushesNothingRetries:
         Pushing to it over HTTP would target this host's own client API, which
         does not exist on a server."""
         await registry.register_client(MAC, "Milō", "127.0.0.1")
-        # A stored record is what separates the two answers: without one the
-        # method returns True from the "no saved settings" arm either way.
+        # With or without a stored record a remote client is pushed one, so the
+        # local check alone is what keeps this push from happening.
         await registry.set_client_equalizer(MAC, _eq_record())
         service._equalizer_client_proxy_service = MagicMock()
         service._equalizer_client_proxy_service.apply_record = AsyncMock()

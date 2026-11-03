@@ -1030,15 +1030,23 @@ class TestReconnectSyncAppliesMonoAndEnabled:
         assert by_path.get("/equalizer/enabled") == {"enabled": False}
 
     @pytest.mark.asyncio
-    async def test_standalone_sync_noop_when_no_saved_settings(self, mock_settings_service, mock_state_machine):
-        """No persisted standalone EQ → nothing is pushed (defaults stay on the satellite)."""
+    async def test_standalone_sync_pushes_the_neutral_record_when_none_is_saved(
+        self, mock_settings_service, mock_state_machine
+    ):
+        """No stored record → the neutral one is pushed, mono and master flag
+        included: the satellite's own config.yml may still hold the mono and
+        bypass of the record that was deleted, and the UI shows neutral."""
         registry = await _setup_registry(
             mock_settings_service, mock_state_machine,
             clients=[("ee:ff", "Speaker3", "192.168.1.52", True)],
         )
         ws, proxy = _make_ws_with_proxy(registry)
-        # No set_client_equalizer → get_client_equalizer returns None.
+        assert registry.get_client_equalizer("ee:ff") is None
+        neutral = EqualizerSettings.default()
 
         result = await ws._sync_standalone_equalizer_to_client("ee:ff")
         assert result is True
-        assert proxy.request.call_count == 0
+
+        by_path = {c.args[2]: c.args[3] for c in proxy.request.call_args_list}
+        assert by_path.get("/equalizer/mono") == {"enabled": neutral.mono}
+        assert by_path.get("/equalizer/enabled") == {"enabled": neutral.enabled}

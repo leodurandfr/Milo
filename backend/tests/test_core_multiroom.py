@@ -2300,12 +2300,23 @@ class TestSyncStandaloneDspToClient:
         return ws
 
     @pytest.mark.asyncio
-    async def test_no_saved_settings_returns_true(self, mock_state_machine, mock_registry, mock_proxy, mock_crossover):
-        """No persisted EQ record → nothing pushed, returns True (defaults apply)."""
+    async def test_a_client_without_a_record_is_pushed_the_neutral_record(
+        self, mock_state_machine, mock_registry, mock_proxy, mock_crossover
+    ):
+        """No stored record is the neutral record GET /api/equalizer/target/<mac>
+        shows — and the satellite reloads its own persisted config.yml at every
+        start, so pushing nothing leaves it on whatever mono, curve or compressor
+        it held before its record was deleted, while the UI says neutral."""
+        from backend.core.multiroom.models import EqualizerSettings
         ws = self._make_ws(mock_state_machine, mock_registry, mock_proxy, mock_crossover)
+
         result = await ws._sync_standalone_equalizer_to_client("test-client")
+
         assert result is True
-        mock_proxy.apply_record.assert_not_called()
+        mock_proxy.apply_record.assert_awaited_once()
+        hostname, record = mock_proxy.apply_record.await_args.args
+        assert hostname == "192.168.1.100"
+        assert record.to_dict() == EqualizerSettings.default().to_dict()
 
     @pytest.mark.asyncio
     async def test_saved_settings_applied_via_proxy(self, mock_state_machine, mock_registry, mock_proxy, mock_crossover):
