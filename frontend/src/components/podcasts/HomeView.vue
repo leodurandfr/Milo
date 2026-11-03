@@ -24,6 +24,17 @@
             />
           </div>
 
+          <MessageContent
+            v-else-if="latestEpisodesUnavailable"
+            key="api-error-sub"
+            icon="network"
+            :title="t('podcasts.catalogUnavailable')"
+            :subtitle="t('podcasts.catalogUnavailableHint')"
+            :cta-label="t('podcasts.retry')"
+            cta-variant="control"
+            :cta-click="loadSubscriptionsBlock"
+          />
+
           <MessageContent v-else key="empty-sub" icon="checkCircle" :title="t('podcasts.noNewEpisodes')" />
         </Transition>
       </div>
@@ -125,6 +136,7 @@ const topPodcasts = computed(() => topCharts.value.slice(0, columns.value * 2))
 // Use store's computed for hasSubscriptions (preloaded in App.vue)
 const hasSubscriptions = computed(() => podcastStore.hasSubscriptions)
 const latestSubscriptionEpisodes = computed(() => podcastStore.latestSubscriptionEpisodes)
+const latestEpisodesUnavailable = computed(() => podcastStore.latestEpisodesUnavailable)
 
 const mainGenres = computed(() =>
   PODCAST_GENRE_IDS.map(id => ({ value: id, label: t(`podcasts.genres.${genreSlug(id)}`) }))
@@ -137,10 +149,9 @@ function browseGenre(genreValue) {
   }
 }
 
-async function loadData() {
-  // Note: Country/language is automatically derived from user settings on the backend
-
-  // Load subscriptions via store (cached, preloaded in App.vue)
+// Load subscriptions via store (cached, preloaded in App.vue). Also the retry of
+// the subscriptions block alone, so it never reloads the chart below.
+async function loadSubscriptionsBlock() {
   loadingSubscriptions.value = true
   try {
     await podcastStore.loadSubscriptions()
@@ -149,6 +160,12 @@ async function loadData() {
   } finally {
     loadingSubscriptions.value = false
   }
+}
+
+async function loadData() {
+  // Note: Country/language is automatically derived from user settings on the backend
+
+  await loadSubscriptionsBlock()
 
   // Load top podcasts (Bloc 2) - backend derives country from user's language setting
   loadingTopCharts.value = true

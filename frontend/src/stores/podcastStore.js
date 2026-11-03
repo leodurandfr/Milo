@@ -74,6 +74,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   const subscriptionsListLoaded = ref(false); // True when subscriptions list is loaded (no discovery API call)
   const subscriptionsLoaded = ref(false); // True when latest episodes are also loaded (with discovery API call)
   const subscriptionsFullLoading = ref(false); // Guard against concurrent loadSubscriptions calls
+  const latestEpisodesUnavailable = ref(false); // The last latest-episodes fetch failed or hit a catalog outage
 
   // === SEARCH STATE ===
   // Persisted across navigation within Podcasts module
@@ -311,16 +312,25 @@ export const usePodcastStore = defineStore('podcast', () => {
             params: { limit: 20 },
           },
         );
-        if (epResult.ok) {
-          // Hide episodes already listened to from "new episodes"
-          latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(
-            epResult.data.results || []
-          ).filter((ep) => !ep.playback_progress?.completed);
+        // An outage is not "no new episodes": keep the list already shown and
+        // leave the load unmarked, so the next call fetches again.
+        if (!epResult.ok || epResult.data.api_error) {
+          latestEpisodesUnavailable.value = true;
+          subscriptionsLoaded.value = false;
+          return {
+            subscriptions: subscriptionsList.value,
+            latestEpisodes: latestSubscriptionEpisodes.value,
+          };
         }
+        // Hide episodes already listened to from "new episodes"
+        latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(
+          epResult.data.results || []
+        ).filter((ep) => !ep.playback_progress?.completed);
       } else {
         latestSubscriptionEpisodes.value = [];
       }
 
+      latestEpisodesUnavailable.value = false;
       subscriptionsLoaded.value = true;
       return {
         subscriptions: subscriptionsList.value,
@@ -471,6 +481,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     progressCache,
     subscriptions: subscriptionsList, // exposed as array for iteration
     latestSubscriptionEpisodes,
+    latestEpisodesUnavailable,
     subscriptionsLoaded,
 
     // Catalogue state

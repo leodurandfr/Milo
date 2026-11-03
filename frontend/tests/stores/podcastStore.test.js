@@ -340,6 +340,58 @@ describe('podcastStore', () => {
       expect(apiCall.get).toHaveBeenCalledTimes(2);
       expect(store.subscriptionsLoaded).toBe(false);
     });
+
+    // HomeView reads the flag to draw "catalog unavailable" instead of the
+    // "no new episodes" check mark, and a cached outage would keep that lie
+    // on screen (the kiosk never reloads) until the next WS resync.
+    describe('an outage answer is neither "no new episodes" nor cached', () => {
+      const LATEST = '/api/podcast/subscriptions/latest-episodes';
+      let latestAnswer;
+
+      beforeEach(() => {
+        apiCall.get.mockImplementation(async (url) => {
+          if (url === '/api/podcast/subscriptions') {
+            return ok({ subscriptions: [{ uuid: 'p1', name: 'P1' }] });
+          }
+          return latestAnswer();
+        });
+      });
+
+      const latestCalls = () => apiCall.get.mock.calls.filter(([url]) => url === LATEST).length;
+
+      it.each([
+        ['the api_error sentinel', () => ok({ results: [], total: 0, api_error: true })],
+        ['an HTTP failure', () => fail('Bad Gateway', 502)],
+      ])('%s raises the flag and the next call fetches again', async (_label, answer) => {
+        latestAnswer = answer;
+
+        await store.loadSubscriptions();
+
+        expect(store.latestEpisodesUnavailable).toBe(true);
+        expect(store.subscriptionsLoaded).toBe(false);
+
+        await store.loadSubscriptions();
+        expect(latestCalls()).toBe(2);
+      });
+
+      it('keeps the list it had through an outage, and recovers on the next success', async () => {
+        latestAnswer = () => ok({ results: [{ uuid: 'ep1', podcast: { uuid: 'p1' } }] });
+        await store.loadSubscriptions();
+
+        latestAnswer = () => ok({ results: [], total: 0, api_error: true });
+        await store.loadSubscriptions(true);
+
+        expect(store.latestSubscriptionEpisodes.map(e => e.uuid)).toEqual(['ep1']);
+        expect(store.latestEpisodesUnavailable).toBe(true);
+
+        latestAnswer = () => ok({ results: [{ uuid: 'ep2', podcast: { uuid: 'p1' } }] });
+        await store.loadSubscriptions();
+
+        expect(store.latestEpisodesUnavailable).toBe(false);
+        expect(store.subscriptionsLoaded).toBe(true);
+        expect(store.latestSubscriptionEpisodes.map(e => e.uuid)).toEqual(['ep2']);
+      });
+    });
   });
 
   describe('resync', () => {
