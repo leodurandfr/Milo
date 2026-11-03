@@ -28,7 +28,7 @@ from backend.sources.podcast.models import PlayEpisodeParams, SeekParams
 from backend.sources.podcast.data import PodcastDataService
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
-from backend.sources.podcast.podcast_catalog import PodcastCatalog
+from backend.sources.podcast.podcast_catalog import PodcastCatalog, is_upstream_error
 
 # A position saved on disk is resumed only past this many seconds.
 RESUME_MIN_POSITION_S = 10
@@ -230,6 +230,10 @@ class PodcastSource(MpvAudioSource):
             episode = await self._podcast_api.get_episode(
                 episode_uuid, country=await self._itunes_country()
             )
+            if is_upstream_error(episode):
+                self._logger.error(f"Podcast catalog unreachable for episode: {episode_uuid}")
+                self.broadcast_error(SourceErrorReason.SERVICE_UNREACHABLE)
+                return self.error_response("Podcast catalog unavailable")
             if not episode:
                 return self.error_response(f"Episode not found: {episode_uuid}")
             if not episode.get('audio_url'):

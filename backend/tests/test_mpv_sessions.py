@@ -20,6 +20,8 @@ from backend.shared import mpv_audio_source
 from backend.shared.mpv_audio_source import MpvAudioSource
 from backend.sources.music_library import source as library_module
 from backend.sources.music_library.source import MusicLibrarySource
+from backend.sources.podcast.podcast_catalog import PodcastCatalog
+from backend.sources.podcast.rss_parser import make_episode_id
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.radio import source as radio_module
 from backend.sources.radio.source import RadioSource
@@ -35,6 +37,7 @@ from backend.tests.golden.test_wire_podcast import (
 )
 from backend.tests.golden.test_wire_radio import FIP, NOVA, FakeShazam, _RadioAsyncio
 from backend.tests.mpv_sim import MpvSim
+from backend.tests.test_podcast_catalogue import _FakeResponse, _answers_with, _lookup, _raises
 
 # The loading watchdog, shortened: the timers below 1 s run at once here
 # (instant_short_sleep), so a stall that outlives it ends inside settle().
@@ -567,6 +570,30 @@ async def test_podcast_load_that_raises_is_one_failure_not_a_stuck_spinner(podca
     assert result["success"] is False
     assert not podcast.active()
     assert podcast.errors() == ["stream_load_failed"]
+
+
+@pytest.mark.parametrize("outage", ["feed_503", "timeout"])
+async def test_podcast_play_during_a_feed_outage_reports_the_catalog(podcast, outage, caplog):
+    """The catalog's outage sentinel is a non-empty dict, so it passed the
+    "not found" check and answered "No audio URL": no banner, and a timeout
+    left only an INFO line. The play path reads it as the outage it is: one
+    service_unreachable, nothing loaded."""
+    catalog = PodcastCatalog()
+    if outage == "feed_503":
+        _answers_with(catalog, _lookup(), _FakeResponse(503, body=b""))
+    else:
+        _raises(catalog, asyncio.TimeoutError())
+    podcast.source._podcast_api = catalog
+    await podcast.select()
+
+    result = await podcast.command(
+        "play_episode", {"episode_uuid": make_episode_id("152249110", "a")}
+    )
+
+    assert result["success"] is False
+    assert podcast.loads() == []
+    assert podcast.errors() == ["service_unreachable"]
+    assert any(r.name == "source.podcast" and r.levelname == "ERROR" for r in caplog.records)
 
 
 async def test_podcast_play_starts_at_the_position_it_carries(podcast, monkeypatch):
