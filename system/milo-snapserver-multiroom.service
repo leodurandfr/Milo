@@ -13,6 +13,10 @@ Restart=on-failure
 RestartSec=5
 MemoryMax=256M
 
+# Security hardening: no sudo (the backend's grants stay its own). No
+# ProtectHome: snapserver persists its groups in ~/.config/snapserver/server.json.
+NoNewPrivileges=true
+
 CPUSchedulingPolicy=fifo
 CPUSchedulingPriority=10
 LimitRTPRIO=20

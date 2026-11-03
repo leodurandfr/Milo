@@ -10,6 +10,18 @@
 # Suppress sudo + PAM session logs (noisy in journalctl)
 Defaults:milo !syslog, !pam_session
 
+# What the grants below amount to: the backend is root by construction. A bare
+# `systemctl` takes any argv (`link`, `edit --full`), milo-deploy-update installs
+# as root a checkout `milo` can write, and milo-set-password asks for no old
+# password. Scoping one of them closes nothing while the other two stand, so they
+# stay unscoped on purpose. The boundary is elsewhere: the LAN, since nothing on
+# the API authenticates (api/system.py::set_ssh_state), and NoNewPrivileges=true
+# on every other unit running as `milo`, which keeps a compromised daemon out of
+# this file (backend/tests/architecture/test_unit_hardening.py). Its limits: a
+# process of the same uid can still ptrace the backend, and the units without
+# ProtectHome (kiosk, snapserver, snapclient, camilladsp, navidrome) can still
+# write the checkout the backend and milo-navidrome-config (root) run.
+
 # Take back the image's blanket grant. Raspberry Pi OS ships
 # /etc/sudoers.d/010_pi-nopasswd (a conffile of raspberrypi-sys-mods) and
 # userconf-pi rewrites the username inside it on first boot, so on a flashed

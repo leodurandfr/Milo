@@ -22,5 +22,10 @@ StandardError=journal
 SyslogIdentifier=milo-airplay
 MemoryMax=128M
 
+# Security hardening: no sudo (the backend's grants stay its own), and the
+# backend's checkout under /home stays out of reach.
+NoNewPrivileges=true
+ProtectHome=read-only
+
 [Install]
 WantedBy=multi-user.target

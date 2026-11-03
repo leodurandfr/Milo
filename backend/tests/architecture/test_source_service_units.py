@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 
 from backend.core.models.audio_state import AudioSource
+from backend.sources.bluetooth import BluetoothSource
+from backend.tests.architecture.test_unit_hardening import service_section, sets_no_new_privileges
 
 SYSTEM_ROOT = Path(__file__).resolve().parents[3] / "system"
 
@@ -90,3 +92,40 @@ def test_no_two_sources_claim_the_same_unit():
         f"sources share a systemd unit: {shared} — stopping one source would "
         f"tear down the other's daemon"
     )
+
+
+def source_units():
+    """Every unit a source starts: its `service_name`, plus Bluetooth's player."""
+    units = {declared_service_name(source_id) for source_id in SOURCE_IDS}
+    units.add(BluetoothSource().bluealsa_aplay_service)
+    assert len(units) >= 11, f"only {sorted(units)} extracted — the extractor is broken"
+    return sorted(units)
+
+
+@pytest.mark.parametrize("unit_name", source_units())
+def test_every_source_unit_runs_without_new_privileges_and_a_read_only_home(unit_name):
+    """A source daemon parses what the network or the radio sends it.
+
+    `NoNewPrivileges` keeps a compromised daemon out of the backend's sudo grants,
+    and `ProtectHome=read-only` keeps it from rewriting the backend's own code in
+    /home/milo/milo, which systemd would then run with those grants. A daemon that
+    needs a writable HOME is given one under /var/lib/milo, never a hole in /home.
+    """
+    directives = service_section(SYSTEM_ROOT / unit_name)
+    assert directives.get("User") == ["milo"], (
+        f"{unit_name}'s [Service] section did not parse (User={directives.get('User')})"
+    )
+    assert sets_no_new_privileges(directives), (
+        f"{unit_name} lacks NoNewPrivileges=true: it can run the backend's sudo grants"
+    )
+    assert directives.get("ProtectHome", [""])[-1] == "read-only", (
+        f"{unit_name} lacks ProtectHome=read-only: it can rewrite the backend's checkout"
+    )
+    reopened = [
+        path
+        for key in ("ReadWritePaths", "BindPaths")
+        for value in directives.get(key, [])
+        for path in value.split()
+        if path.lstrip("-+").startswith("/home")
+    ]
+    assert not reopened, f"{unit_name} reopens /home: {reopened}"

@@ -16,7 +16,10 @@ UMask=0077
 # position/duration in /api/status) and refuses to start on a release
 # that moved either of them.
 ExecStart=/var/lib/milo/qobuz/venv/bin/python /usr/local/bin/milo-qobuz --config /var/lib/milo/qobuz/config.yaml
-Environment=HOME=/home/milo
+# PortAudio's device scan opens ALSA's `pulse` PCM, whose libpulse client writes
+# ~/.config/pulse (measured 2026-11-03): HOME sits in the data dir, since
+# ProtectHome below makes /home read-only.
+Environment=HOME=/var/lib/milo/qobuz
 # Force qobuz-proxy's config + OAuth token cache under the D3 data dir
 # (/var/lib/milo/qobuz), owned/writable by the milo user (see PLAN_QOBUZ D3).
 Environment=QOBUZPROXY_DATA_DIR=/var/lib/milo/qobuz
@@ -32,6 +35,11 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=milo-qobuz
 MemoryMax=256M
+
+# Security hardening: no sudo (the backend's grants stay its own), and the
+# backend's checkout under /home stays out of reach.
+NoNewPrivileges=true
+ProtectHome=read-only
 
 [Install]
 WantedBy=multi-user.target

@@ -327,9 +327,9 @@ When modifying service files:
 
 ## Security Notes
 
-- All services run as `milo` user (not root)
+- Every service that is not a root oneshot runs as the `milo` user, which on the server is root by construction through the backend's sudo grants (see `rootfs/etc/sudoers.d/milo-backend`). Every `User=milo` unit but `milo-backend` therefore sets `NoNewPrivileges=true`, and every source unit also sets `ProtectHome=read-only`; both are pinned by `backend/tests/architecture/test_unit_hardening.py` and `test_source_service_units.py`
 - Audio services use group `audio` for ALSA access
-- Kiosk Chromium runs with its sandbox (the setuid `chrome-sandbox` helper or user namespaces); never add `--no-sandbox`
+- Kiosk Chromium runs with its sandbox, the user-namespace one: `NoNewPrivileges` keeps the setuid `chrome-sandbox` helper from running, so a host that refuses unprivileged user namespaces leaves the kiosk without a browser. Never add `--no-sandbox`
 - Sensitive credentials stored in `/var/lib/milo/settings.json` (not in Git)
 
 ## Additional Resources

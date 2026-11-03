@@ -14,7 +14,11 @@ which is why it belongs in a test rather than in the manual checklist.
 The two sides are asymmetric and that is the point:
 
   * the **server** policy grants bare command paths, so any argv is permitted
-    once the binary matches — the contract there is which binaries;
+    once the binary matches — the contract there is which binaries. The
+    backend is therefore root by construction (a bare `systemctl`,
+    `milo-deploy-update`, `milo-set-password`), and what keeps the other
+    `milo` processes out of it is `NoNewPrivileges=true` on their units,
+    pinned by `tests/architecture/test_unit_hardening.py`;
   * the **satellite** policy grants argument-scoped commands
     (`systemctl stop milo-client-snapclient.service`), so a verb or a unit name
     that moves on one side alone *is* a denial. `routes/snapclient.py` already

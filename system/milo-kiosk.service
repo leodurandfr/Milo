@@ -88,5 +88,9 @@ RestartSec=3
 TimeoutStopSec=5
 MemoryMax=1536M
 
+# Security hardening: no sudo (the backend's grants stay its own). Chromium's
+# setuid chrome-sandbox cannot run under it; its user-namespace sandbox does.
+NoNewPrivileges=true
+
 [Install]
 WantedBy=graphical.target

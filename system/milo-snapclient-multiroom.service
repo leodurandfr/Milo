@@ -14,6 +14,9 @@ Restart=on-failure
 RestartSec=5
 MemoryMax=128M
 
+# Security hardening: no sudo (the backend's grants stay its own).
+NoNewPrivileges=true
+
 CPUSchedulingPolicy=fifo
 CPUSchedulingPriority=12
 LimitRTPRIO=20

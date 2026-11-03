@@ -48,6 +48,7 @@ MemoryMax=256M
 
 # Security hardening
 NoNewPrivileges=true
+ProtectHome=read-only
 PrivateTmp=true
 
 # Logging
