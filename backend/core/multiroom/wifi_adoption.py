@@ -32,7 +32,9 @@ from typing import Optional, Tuple
 
 import aiohttp
 
-from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME, OWN_PROFILES, _parse_nmcli_line
+from backend.core.network.service import (
+    ADOPTION_PROFILE, HOTSPOT_NAME, OWN_PROFILES, _parse_nmcli_line, is_rebuildable_wifi_profile,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,16 @@ class WifiAdoptionService:
                 raise AdoptionError(
                     "server_in_hotspot_mode",
                     "Cannot adopt while broadcasting the setup hotspot",
+                )
+            # The speaker rebuilds its target as a visible wpa-psk profile. Only
+            # the server's own network can be judged from here, a typed one
+            # cannot; read under the lock, while no other adoption holds wlan0.
+            profile = await self.network_service.get_active_wifi_profile()
+            if profile is not None and profile["ssid"] == wifi_ssid and not is_rebuildable_wifi_profile(profile):
+                kind = "hidden" if profile["hidden"] else profile["key_mgmt"]
+                raise AdoptionError(
+                    "unsupported_target_wifi",
+                    f"'{wifi_ssid}' is a {kind} network: the speaker could not rebuild it from its name and key",
                 )
             return await self._adopt_impl(
                 ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password

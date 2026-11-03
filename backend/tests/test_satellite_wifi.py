@@ -8,11 +8,13 @@ satellite that refuses or is gone breaks the admission that pushed to it, or
 the satellite is handed a network other than the one the server is on.
 """
 import asyncio
+import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
 
 from backend.core.multiroom.satellite_wifi import SatelliteWifiService
+from backend.core.network.service import NetworkService
 
 
 class _Response:
@@ -134,3 +136,41 @@ async def test_a_network_its_name_and_key_cannot_rebuild_is_never_handed_over():
             await _service(profile=profile).push("192.168.1.60")
 
         assert satellite.requests == [], profile
+
+
+class _Nmcli:
+    """`nmcli` as the server's NetworkManager answers the two reads, the key line given verbatim (or absent)."""
+
+    def __init__(self, psk_line):
+        self._profile = (
+            "802-11-wireless.ssid:Freebox-CA3555\n"
+            "802-11-wireless.hidden:no\n"
+            "802-11-wireless-security.key-mgmt:wpa-psk"
+            + ("" if psk_line is None else "\n" + psk_line)
+        )
+
+    async def __call__(self, program, *args, **kwargs):
+        out = "milo-Freebox-CA3555:wlan0" if "--active" in args else self._profile
+        proc = Mock(returncode=0)
+        proc.communicate = AsyncMock(return_value=(out.encode(), b""))
+        return proc
+
+
+async def test_an_empty_key_on_a_wpa_psk_profile_is_never_handed_over(caplog):
+    """Measured on Bureau: a PSK read back empty (rc 0) was pushed as is, and its helper replaced the
+    working wpa-psk profile by an open one — the standby link lost until the next admission."""
+    for psk_line in ("802-11-wireless-security.psk:", None):
+        satellite = _Satellite()
+        settings = AsyncMock()
+        registry = Mock()
+        caplog.clear()
+
+        with _session(satellite), caplog.at_level(logging.WARNING), \
+                patch("backend.core.network.service.asyncio.create_subprocess_exec", new=_Nmcli(psk_line)):
+            await SatelliteWifiService(NetworkService(AsyncMock(), settings), registry).push("192.168.1.60")
+
+        assert satellite.requests == [], psk_line
+        assert any(
+            r.levelno == logging.WARNING and "milo-Freebox-CA3555" in r.getMessage() for r in caplog.records
+        ), psk_line
+        settings.get_setting.assert_not_awaited()

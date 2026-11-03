@@ -171,6 +171,7 @@
       "errors": {
         "invalidSsid": "This network is not a Milō speaker's setup network.",
         "invalidTargetWifi": "Choose the WiFi network this speaker should join, then try again.",
+        "unsupportedTargetWifi": "Milō's WiFi network is hidden or uses a security mode a speaker cannot join with a password alone. Choose another network, or connect the speaker with a cable.",
         "alreadyConfigured": "This speaker is already set up. Reset it, then try again.",
         "serverInHotspotMode": "Milō is broadcasting its own setup network. Connect it to your WiFi, then try again.",
         "pushRejected": "The speaker refused the configuration. Restart it, then try again.",

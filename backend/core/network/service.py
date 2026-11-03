@@ -551,11 +551,12 @@ class NetworkService:
 
         Returns a dict ``{"ssid": str, "password": str}`` or ``None`` when
         wlan0 has no active client connection (e.g. ethernet-only server, or
-        only the setup hotspot is up). ``password`` is an empty string for
-        open networks.
+        only the setup hotspot is up), or when that network is not one the
+        speaker can rebuild from these two (`is_rebuildable_wifi_profile`).
+        ``password`` is an empty string for open networks.
         """
         profile = await self.get_active_wifi_profile()
-        if profile is None:
+        if profile is None or not is_rebuildable_wifi_profile(profile):
             return None
         return {"ssid": profile["ssid"], "password": profile["password"]}
 
@@ -567,6 +568,10 @@ class NetworkService:
         profile then has no security setting at all), ``wpa-psk`` for WPA2 —
         anything else (SAE alone, 802.1X, WEP) is a network an SSID and a PSK
         cannot rebuild.
+
+        ``None`` too when the key of a visible ``wpa-psk`` profile reads back
+        empty: that is a read that failed, not an open network, and handed
+        over it would rebuild the network as an open one.
         """
         rc, stdout, _ = await self._run_nmcli(
             "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"
@@ -625,6 +630,12 @@ class NetworkService:
                 key_mgmt = value
 
         if not ssid:
+            return None
+        # A hidden one is still returned: its callers refuse it for being hidden.
+        if key_mgmt == "wpa-psk" and not password and not hidden:
+            self.logger.warning(
+                "WiFi profile '%s' is wpa-psk but its key read back empty: not handed over", active_name
+            )
             return None
 
         return {"ssid": ssid, "password": password, "hidden": hidden, "key_mgmt": key_mgmt}
@@ -1710,6 +1721,17 @@ def _parse_nmcli_line(line: str) -> List[str]:
             i += 1
     fields.append("".join(current))
     return fields
+
+
+def is_rebuildable_wifi_profile(profile: dict) -> bool:
+    """Whether a peer handed this network's SSID and PSK alone joins it.
+
+    A satellite or an adopted speaker writes what it is given as a visible
+    ``wpa-psk`` profile (or an open one, for an empty key): a hidden network is
+    never probed for, and SAE alone, 802.1X or WEP refuses the PSK, so the peer
+    would keep a profile that never associates.
+    """
+    return not profile["hidden"] and profile["key_mgmt"] in ("", "wpa-psk")
 
 
 def _ssid_from_profile(connection: str) -> str:

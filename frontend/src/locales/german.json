@@ -171,6 +171,7 @@
       "errors": {
         "invalidSsid": "Dieses Netzwerk ist nicht das Einrichtungsnetzwerk eines Milō-Lautsprechers.",
         "invalidTargetWifi": "Wählen Sie das WLAN, mit dem sich dieser Lautsprecher verbinden soll, und versuchen Sie es erneut.",
+        "unsupportedTargetWifi": "Das WLAN von Milō ist verborgen oder nutzt einen Sicherheitsmodus, dem ein Lautsprecher nicht allein mit einem Passwort beitreten kann. Wählen Sie ein anderes Netzwerk oder verbinden Sie den Lautsprecher mit einem Kabel.",
         "alreadyConfigured": "Dieser Lautsprecher ist bereits eingerichtet. Setzen Sie ihn zurück und versuchen Sie es erneut.",
         "serverInHotspotMode": "Milō sendet gerade sein eigenes Einrichtungsnetzwerk. Verbinden Sie es mit Ihrem WLAN und versuchen Sie es erneut.",
         "pushRejected": "Der Lautsprecher hat die Konfiguration abgelehnt. Starten Sie ihn neu und versuchen Sie es erneut.",

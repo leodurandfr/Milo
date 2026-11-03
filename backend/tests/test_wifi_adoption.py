@@ -1,4 +1,4 @@
-"""WifiAdoptionService — the three guards that stand in front of nmcli.
+"""WifiAdoptionService — the guards that stand in front of nmcli.
 
 What breaks when these fail: `POST /api/discovery/adopt-speaker` carries a
 caller-chosen `ssid` (`AdoptSpeakerRequest.ssid` is a free-form `str`), and the
@@ -19,7 +19,7 @@ import asyncio
 import contextlib
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from backend.core.multiroom import wifi_adoption
 from backend.core.multiroom.wifi_adoption import AdoptionError, WifiAdoptionService
@@ -48,6 +48,7 @@ def service(monkeypatch):
     monkeypatch.setattr(wifi_adoption.asyncio, "create_subprocess_exec", _never)
     network = MagicMock()
     network.hotspot_active = False
+    network.get_active_wifi_profile = AsyncMock(return_value=None)
     return WifiAdoptionService(network_service=network)
 
 
@@ -86,6 +87,39 @@ async def test_an_empty_target_wifi_is_refused_before_nmcli_runs(service):
         )
 
     assert exc.value.code == "invalid_target_wifi"
+
+
+@pytest.mark.parametrize("unbuildable", [{"hidden": True}, {"key_mgmt": "sae"}])
+async def test_a_hidden_or_wpa3_server_network_is_refused_before_the_speaker_reboots(
+    service, speaker, unbuildable
+):
+    """The speaker rebuilds its target from an SSID and a PSK alone, as
+    wpa-psk and never hidden: handed the server's hidden or WPA3 network, it
+    answers 200, reboots onto a profile that never associates, and only a cable
+    or a reflash brings it back. Refused before the server leaves its network
+    (the fixture fails any spawn) and before the push."""
+    service.network_service.get_active_wifi_profile.return_value = {
+        "ssid": "Maison", "password": "secret", "hidden": False, "key_mgmt": "wpa-psk", **unbuildable,
+    }
+
+    with pytest.raises(AdoptionError) as exc:
+        await service.adopt_speaker(
+            ssid=HOTSPOT_NAME, wifi_ssid="Maison", wifi_password="secret", **AUDIO
+        )
+
+    assert exc.value.code == "unsupported_target_wifi"
+    assert speaker.posts == []
+
+
+async def test_a_target_wifi_other_than_the_servers_own_is_not_judged_by_it(adopting, speaker):
+    """A network typed by hand cannot be read from here: the server's own
+    profile says nothing about it, so a hidden server network refuses nothing
+    else."""
+    adopting.network_service.get_active_wifi_profile.return_value = {**MAISON, "ssid": "Grenier", "hidden": True}
+
+    await _adopt(adopting)
+
+    assert [body["wifi_ssid"] for _, body in speaker.posts] == ["Maison"]
 
 
 # =============================================================================
@@ -228,10 +262,15 @@ def speaker(monkeypatch):
     return speaker
 
 
+# What `NetworkService.get_active_wifi_profile` reads for the home wifi above.
+MAISON = {"ssid": "Maison", "password": "secret", "hidden": False, "key_mgmt": "wpa-psk"}
+
+
 @pytest.fixture
 def adopting(spawns, speaker):
     network = MagicMock()
     network.hotspot_active = False
+    network.get_active_wifi_profile = AsyncMock(return_value=MAISON)
     return WifiAdoptionService(network_service=network)
 
 

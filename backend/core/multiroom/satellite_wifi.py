@@ -23,6 +23,7 @@ import logging
 import aiohttp
 
 from backend.config.constants import CLIENT_API_PORT
+from backend.core.network.service import is_rebuildable_wifi_profile
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class SatelliteWifiService:
         profile = await self._network.get_active_wifi_profile()
         if profile is None:
             return None
-        if profile["hidden"] or profile["key_mgmt"] not in ("", "wpa-psk"):
+        if not is_rebuildable_wifi_profile(profile):
             if self._unsupported_reported != profile["ssid"]:
                 self._unsupported_reported = profile["ssid"]
                 logger.info(

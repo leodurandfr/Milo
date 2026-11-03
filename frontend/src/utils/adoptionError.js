@@ -15,6 +15,7 @@
 export const ADOPTION_ERROR_KEYS = {
   invalid_ssid: 'multiroom.adopt.errors.invalidSsid',
   invalid_target_wifi: 'multiroom.adopt.errors.invalidTargetWifi',
+  unsupported_target_wifi: 'multiroom.adopt.errors.unsupportedTargetWifi',
   already_configured: 'multiroom.adopt.errors.alreadyConfigured',
   server_in_hotspot_mode: 'multiroom.adopt.errors.serverInHotspotMode',
   push_rejected: 'multiroom.adopt.errors.pushRejected',

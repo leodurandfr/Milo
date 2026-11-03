@@ -52,6 +52,7 @@ class AdoptSpeakerRequest(BaseModel):
 _ADOPTION_CLIENT_ERROR_CODES = {
     "invalid_ssid": 400,
     "invalid_target_wifi": 400,
+    "unsupported_target_wifi": 400,
     "already_configured": 409,
     "server_in_hotspot_mode": 409,
     "push_rejected": 502,
@@ -104,9 +105,10 @@ def create_discovery_router(
         When adopting a wifi-only speaker, the UI pre-fills the speaker's
         target WiFi with the server's home network so the user typically only
         confirms instead of retyping the password. When the server is
-        ethernet-only (or otherwise has no active WiFi client connection),
-        responds with ``available: false`` so the UI falls back to manual
-        credentials entry.
+        ethernet-only (or otherwise has no active WiFi client connection), or
+        on a network the speaker cannot rebuild from an SSID and a PSK
+        (hidden, WPA3 alone, 802.1X), responds with ``available: false`` so
+        the UI falls back to manual credentials entry.
         """
         async with api_error_handler("Discovery server wifi creds", logger):
             creds = await network_service.get_active_wifi_credentials()

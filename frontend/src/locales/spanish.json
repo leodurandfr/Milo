@@ -171,6 +171,7 @@
       "errors": {
         "invalidSsid": "Esta red no es la red de configuración de un altavoz Milō.",
         "invalidTargetWifi": "Elija la red WiFi a la que debe unirse este altavoz y vuelva a intentarlo.",
+        "unsupportedTargetWifi": "La red WiFi de Milō está oculta o usa un modo de seguridad al que un altavoz no puede unirse solo con una contraseña. Elija otra red o conecte el altavoz con un cable.",
         "alreadyConfigured": "Este altavoz ya está configurado. Restablézcalo y vuelva a intentarlo.",
         "serverInHotspotMode": "Milō está emitiendo su propia red de configuración. Conéctelo a su WiFi y vuelva a intentarlo.",
         "pushRejected": "El altavoz rechazó la configuración. Reinícielo y vuelva a intentarlo.",

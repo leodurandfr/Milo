@@ -1957,7 +1957,7 @@ ACTIVE_CONNECTIONS = (
 
 
 def creds_router(active=ACTIVE_CONNECTIONS, ssid="Freebox-CA3555", psk="hunter2",
-                 profile_rc=0):
+                 profile_rc=0, key_mgmt=None, hidden=None):
     def router(args):
         if "--active" in args:
             return (0, active, "")
@@ -1965,6 +1965,10 @@ def creds_router(active=ACTIVE_CONNECTIONS, ssid="Freebox-CA3555", psk="hunter2"
             body = ""
             if ssid is not None:
                 body += f"802-11-wireless.ssid:{ssid}\n"
+            if hidden is not None:
+                body += f"802-11-wireless.hidden:{hidden}\n"
+            if key_mgmt is not None:
+                body += f"802-11-wireless-security.key-mgmt:{key_mgmt}\n"
             if psk is not None:
                 body += f"802-11-wireless-security.psk:{psk}"
             return (profile_rc, body, "" if profile_rc == 0 else "not found")
@@ -2017,6 +2021,49 @@ async def test_an_open_home_network_yields_an_empty_password_not_none(service):
     with patcher:
         assert await service.get_active_wifi_credentials() == {
             "ssid": "Freebox-CA3555", "password": "",
+        }
+
+
+@pytest.mark.parametrize("psk", ["", None])
+@pytest.mark.asyncio
+async def test_a_wpa_psk_profile_whose_key_reads_back_empty_is_unreadable(service, psk, caplog):
+    """A WPA network has a key: read back empty (rc 0), it is a read that
+    failed, not an open network. Handed over, it rebuilt Bureau's standby link
+    as an open profile that never associates."""
+    fake, patcher = with_nmcli(creds_router(key_mgmt="wpa-psk", hidden="no", psk=psk))
+    with patcher, caplog.at_level(logging.WARNING):
+        assert await service.get_active_wifi_profile() is None
+    assert "milo-Freebox-CA3555" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_hidden_network_whose_key_reads_back_empty_is_still_named_hidden(service):
+    """Read as None, the adoption would have nothing to refuse and push the
+    hidden SSID to a speaker that can never join it."""
+    fake, patcher = with_nmcli(creds_router(key_mgmt="wpa-psk", hidden="yes", psk=""))
+    with patcher:
+        profile = await service.get_active_wifi_profile()
+    assert profile["hidden"] is True
+
+
+@pytest.mark.parametrize("hidden, key_mgmt", [("yes", "wpa-psk"), ("no", "sae"), ("no", "wpa-eap")])
+@pytest.mark.asyncio
+async def test_a_network_its_name_and_key_cannot_rebuild_offers_no_credentials(service, hidden, key_mgmt):
+    """The adoption form pre-fills from these and the speaker rebuilds the
+    network from an SSID and a PSK alone, as wpa-psk and never hidden: it would
+    reboot onto a profile that never associates. `available: false` sends the
+    user to manual entry instead."""
+    fake, patcher = with_nmcli(creds_router(hidden=hidden, key_mgmt=key_mgmt))
+    with patcher:
+        assert await service.get_active_wifi_credentials() is None
+
+
+@pytest.mark.asyncio
+async def test_a_visible_wpa_psk_network_still_offers_its_credentials(service):
+    fake, patcher = with_nmcli(creds_router(hidden="no", key_mgmt="wpa-psk"))
+    with patcher:
+        assert await service.get_active_wifi_credentials() == {
+            "ssid": "Freebox-CA3555", "password": "hunter2",
         }
 
 

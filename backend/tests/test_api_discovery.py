@@ -25,12 +25,12 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from backend.api.discovery import _ADOPTION_CLIENT_ERROR_CODES, create_discovery_router
 from backend.core.multiroom.wifi_adoption import AdoptionError
 from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
-from backend.core.network.service import HOTSPOT_NAME
+from backend.core.network.service import HOTSPOT_NAME, NetworkService
 
 
 WIFI_ADOPTION = Path(__file__).resolve().parents[1] / "core/multiroom/wifi_adoption.py"
@@ -234,3 +234,33 @@ class TestServerCredentials:
         data = client.get("/api/discovery/server-wifi-creds").json()["data"]
 
         assert data == {"available": True, "ssid": "Maison", "password": "secret"}
+
+    @pytest.mark.parametrize("hidden, key_mgmt", [("yes", "wpa-psk"), ("no", "sae")])
+    def test_a_network_the_speaker_cannot_rebuild_is_not_offered(
+        self, adoption, calibration, hidden, key_mgmt
+    ):
+        """The speaker rebuilds the pre-filled network as wpa-psk, never hidden:
+        offered, it would reboot onto a profile that never associates. Read
+        through the real service, over nmcli as NetworkManager answers it."""
+        profile = (
+            "802-11-wireless.ssid:Maison\n"
+            f"802-11-wireless.hidden:{hidden}\n"
+            f"802-11-wireless-security.key-mgmt:{key_mgmt}\n"
+            "802-11-wireless-security.psk:secret"
+        )
+
+        async def nmcli(program, *args, **kwargs):
+            out = "milo-Maison:wlan0" if "--active" in args else profile
+            proc = Mock(returncode=0)
+            proc.communicate = AsyncMock(return_value=(out.encode(), b""))
+            return proc
+
+        app = FastAPI()
+        app.include_router(create_discovery_router(
+            NetworkService(AsyncMock(), AsyncMock()), adoption, calibration,
+        ))
+
+        with patch("backend.core.network.service.asyncio.create_subprocess_exec", new=nmcli):
+            data = TestClient(app).get("/api/discovery/server-wifi-creds").json()["data"]
+
+        assert data == {"available": False}
