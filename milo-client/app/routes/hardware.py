@@ -12,9 +12,10 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
 
+from services import registration
+
 logger = logging.getLogger(__name__)
 
-HARDWARE_FILE = "/var/lib/milo-client/hardware.json"
 MILO_SETTINGS_FILE = "/var/lib/milo/settings.json"
 APPLY_HARDWARE_SCRIPT = "/usr/local/bin/milo-client-apply-hardware"
 
@@ -56,7 +57,7 @@ class AudioUpdate(BaseModel):
 def _read_hardware_json() -> dict:
     """Read hardware.json, returning defaults if missing or invalid."""
     try:
-        with open(HARDWARE_FILE, "r") as f:
+        with open(registration.HARDWARE_FILE, "r") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {"audio": {"id": "none"}}
@@ -64,12 +65,12 @@ def _read_hardware_json() -> dict:
 
 def _write_hardware_json(data: dict) -> None:
     """Atomic write to hardware.json."""
-    tmp_path = HARDWARE_FILE + ".tmp"
+    tmp_path = registration.HARDWARE_FILE + ".tmp"
     with open(tmp_path, "w") as f:
         json.dump(data, f, indent=2)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp_path, HARDWARE_FILE)
+    os.replace(tmp_path, registration.HARDWARE_FILE)
 
 
 def _set_setup_completed_in_milo_settings() -> None:
