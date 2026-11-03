@@ -167,7 +167,18 @@
       "changeNetwork": "Changer",
       "enterCredentials": "Le serveur n'est pas connecté en WiFi. Entrez les identifiants du réseau pour ce haut-parleur.",
       "adopting": "Configuration en cours…",
-      "errorPush": "Le haut-parleur n'a pas accepté la configuration"
+      "errorPush": "Le haut-parleur n'a pas accepté la configuration",
+      "errors": {
+        "invalidSsid": "Ce réseau n'est pas le réseau de configuration d'un haut-parleur Milō.",
+        "invalidTargetWifi": "Choisissez le réseau WiFi que ce haut-parleur doit rejoindre, puis réessayez.",
+        "alreadyConfigured": "Ce haut-parleur est déjà configuré. Réinitialisez-le, puis réessayez.",
+        "serverInHotspotMode": "Milō diffuse son propre réseau de configuration. Connectez-le à votre WiFi, puis réessayez.",
+        "pushRejected": "Le haut-parleur a refusé la configuration. Redémarrez-le, puis réessayez.",
+        "pushFailed": "Milō n'a pas pu joindre le haut-parleur par son réseau de configuration. Rapprochez-le, puis réessayez.",
+        "noGateway": "Milō a rejoint le réseau de configuration du haut-parleur sans en obtenir d'adresse. Redémarrez le haut-parleur, puis réessayez.",
+        "hotspotConnectFailed": "Milō n'a pas pu rejoindre le réseau de configuration du haut-parleur. Vérifiez qu'il est allumé et à proximité, puis réessayez.",
+        "internalError": "Une erreur est survenue sur Milō pendant la configuration de ce haut-parleur. Réessayez."
+      }
     },
     "systemOffline": "« {name} » est hors ligne",
     "systemOfflineDescription": "Ce système audio n'est actuellement pas connecté à Milō.<br>IP : {ip}",

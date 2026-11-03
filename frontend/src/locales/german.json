@@ -167,7 +167,18 @@
       "changeNetwork": "Ändern",
       "enterCredentials": "Der Server ist nicht über WLAN verbunden. Geben Sie die Netzwerkdaten für diesen Lautsprecher ein.",
       "adopting": "Konfiguration läuft…",
-      "errorPush": "Der Lautsprecher hat die Konfiguration nicht akzeptiert"
+      "errorPush": "Der Lautsprecher hat die Konfiguration nicht akzeptiert",
+      "errors": {
+        "invalidSsid": "Dieses Netzwerk ist nicht das Einrichtungsnetzwerk eines Milō-Lautsprechers.",
+        "invalidTargetWifi": "Wählen Sie das WLAN, mit dem sich dieser Lautsprecher verbinden soll, und versuchen Sie es erneut.",
+        "alreadyConfigured": "Dieser Lautsprecher ist bereits eingerichtet. Setzen Sie ihn zurück und versuchen Sie es erneut.",
+        "serverInHotspotMode": "Milō sendet gerade sein eigenes Einrichtungsnetzwerk. Verbinden Sie es mit Ihrem WLAN und versuchen Sie es erneut.",
+        "pushRejected": "Der Lautsprecher hat die Konfiguration abgelehnt. Starten Sie ihn neu und versuchen Sie es erneut.",
+        "pushFailed": "Milō konnte den Lautsprecher über sein Einrichtungsnetzwerk nicht erreichen. Stellen Sie ihn näher auf und versuchen Sie es erneut.",
+        "noGateway": "Milō hat sich mit dem Einrichtungsnetzwerk des Lautsprechers verbunden, aber keine Adresse erhalten. Starten Sie den Lautsprecher neu und versuchen Sie es erneut.",
+        "hotspotConnectFailed": "Milō konnte sich nicht mit dem Einrichtungsnetzwerk des Lautsprechers verbinden. Prüfen Sie, ob er eingeschaltet und in der Nähe ist, und versuchen Sie es erneut.",
+        "internalError": "Beim Einrichten dieses Lautsprechers ist auf Milō ein Fehler aufgetreten. Versuchen Sie es erneut."
+      }
     },
     "systemOffline": "„{name}“ ist offline",
     "systemOfflineDescription": "Dieses Audiosystem ist derzeit nicht mit Milō verbunden.<br>IP: {ip}",

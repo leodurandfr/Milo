@@ -167,7 +167,18 @@
       "changeNetwork": "更改",
       "enterCredentials": "服务器未通过 WiFi 连接。请输入此扬声器的网络凭据。",
       "adopting": "配置中…",
-      "errorPush": "扬声器未接受该配置"
+      "errorPush": "扬声器未接受该配置",
+      "errors": {
+        "invalidSsid": "此网络不是 Milō 扬声器的设置网络。",
+        "invalidTargetWifi": "请选择您希望此扬声器加入的 WiFi 网络，然后重试。",
+        "alreadyConfigured": "此扬声器已设置过。请先将其重置，然后重试。",
+        "serverInHotspotMode": "Milō 正在广播自己的设置网络。请将其连接到您的 WiFi，然后重试。",
+        "pushRejected": "扬声器拒绝了该配置。请重启扬声器，然后重试。",
+        "pushFailed": "Milō 无法通过设置网络连接到扬声器。请将其移近，然后重试。",
+        "noGateway": "Milō 已加入扬声器的设置网络，但未获得地址。请重启扬声器，然后重试。",
+        "hotspotConnectFailed": "Milō 无法加入扬声器的设置网络。请确认扬声器已开机且在附近，然后重试。",
+        "internalError": "Milō 在配置此扬声器时出错。请重试。"
+      }
     },
     "systemOffline": "「{name}」已离线",
     "systemOfflineDescription": "此音频系统当前未连接到Milō。<br>IP：{ip}",

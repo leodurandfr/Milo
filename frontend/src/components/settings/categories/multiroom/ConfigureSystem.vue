@@ -125,6 +125,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
+import { adoptionErrorKey } from '@/utils/adoptionError';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Button from '@/components/ui/Button.vue';
@@ -319,8 +320,9 @@ async function applyConfiguration() {
       rebootTimeoutId = null;
     }
     isRebooting.value = false;
-    error.value = e?.response?.data?.detail
-      || (props.mode === 'wifi' ? t('multiroom.adopt.errorPush') : t('multiroom.pending.errorGeneric'));
+    error.value = props.mode === 'wifi'
+      ? t(adoptionErrorKey(e?.response?.data?.detail))
+      : t('multiroom.pending.errorGeneric');
   }
 }
 

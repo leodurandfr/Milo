@@ -167,7 +167,18 @@
       "changeNetwork": "Cambiar",
       "enterCredentials": "El servidor no está conectado por WiFi. Introduzca las credenciales de red para este altavoz.",
       "adopting": "Configurando…",
-      "errorPush": "El altavoz no aceptó la configuración"
+      "errorPush": "El altavoz no aceptó la configuración",
+      "errors": {
+        "invalidSsid": "Esta red no es la red de configuración de un altavoz Milō.",
+        "invalidTargetWifi": "Elija la red WiFi a la que debe unirse este altavoz y vuelva a intentarlo.",
+        "alreadyConfigured": "Este altavoz ya está configurado. Restablézcalo y vuelva a intentarlo.",
+        "serverInHotspotMode": "Milō está emitiendo su propia red de configuración. Conéctelo a su WiFi y vuelva a intentarlo.",
+        "pushRejected": "El altavoz rechazó la configuración. Reinícielo y vuelva a intentarlo.",
+        "pushFailed": "Milō no pudo comunicarse con el altavoz a través de su red de configuración. Acérquelo y vuelva a intentarlo.",
+        "noGateway": "Milō se unió a la red de configuración del altavoz, pero no obtuvo ninguna dirección. Reinicie el altavoz y vuelva a intentarlo.",
+        "hotspotConnectFailed": "Milō no pudo unirse a la red de configuración del altavoz. Compruebe que esté encendido y cerca, y vuelva a intentarlo.",
+        "internalError": "Se produjo un error en Milō al configurar este altavoz. Vuelva a intentarlo."
+      }
     },
     "systemOffline": "«{name}» está desconectado",
     "systemOfflineDescription": "Este sistema de audio no está conectado actualmente a Milō.<br>IP: {ip}",
