@@ -3092,6 +3092,30 @@ def test_a_forget_nm_refused_answers_an_error_on_the_route(service):
     assert "milo-Maison" in response.json()["detail"]
 
 
+def test_forget_takes_an_ssid_with_a_slash(service):
+    """`useNetwork.js` sends the SSID through `encodeURIComponent`, and uvicorn
+    decodes `%2F` before routing: a default `{ssid}` stops at the slash, so
+    forgetting "Livebox/5GHz" answered 404 with no log and the profile kept
+    autoconnecting."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend.api.network import create_network_router
+
+    def route(args):
+        if args[:2] == ("connection", "delete"):
+            return (0, "", "")
+        return (0, "milo-Livebox/5GHz:802-11-wireless", "")
+
+    app = FastAPI()
+    app.include_router(create_network_router(service))
+    fake, patcher = with_nmcli(route)
+    with patcher:
+        response = TestClient(app).delete("/api/network/wifi/saved/Livebox%2F5GHz")
+    assert response.status_code == 200
+    assert ("connection", "delete", "milo-Livebox/5GHz") in fake.calls
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["listing", "delete"])
 @pytest.mark.parametrize("call", ["save_network", "connect"])

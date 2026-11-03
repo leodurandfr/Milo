@@ -72,7 +72,7 @@ def create_network_router(network_service: "NetworkService"):
             await network_service.save_network(request.ssid, request.password)
             return {"status": "success", "data": {"ssid": request.ssid}}
 
-    @router.delete("/wifi/saved/{ssid}", response_model=StatusResponse)
+    @router.delete("/wifi/saved/{ssid:path}", response_model=StatusResponse)
     async def forget_network(ssid: str):
         """Forget a saved WiFi network."""
         async with api_error_handler("WiFi forget", logger):
