@@ -4,7 +4,9 @@
   qobuz-proxy needs a one-time Qobuz account login before "Milō" advertises in
   the Qobuz app. This screen drives the backend relay (backend/api/qobuz_account.py):
     - GET  /api/qobuz/account            → login status (from the cached token,
-                                           so it holds when the sidecar is down)
+                                           so it holds when the sidecar is down;
+                                           whether the token still works is the
+                                           running source's availability)
     - GET  /api/qobuz/account/login-url  → OAuth URL to open in the browser
     - POST /api/qobuz/account/logout     → clear token + stop the speaker
   The OAuth flow itself runs on qobuz-proxy (:8689); Connect opens it in a new
@@ -14,12 +16,13 @@
   <!-- Checking status -->
   <MessageContent v-if="loading" loading :title="t('qobuzSettings.loading')" />
 
-  <!-- Not connected: a single message-content card carries its own Connect CTA.
-       The CTA is dropped unless Qobuz is the active source: the OAuth page is
-       served by the sidecar, which only runs while the source is selected, and
-       the backend no longer starts it on this screen's behalf. -->
+  <!-- Not connected, or a cached token the running sidecar refused: a single
+       message-content card carries its own Connect CTA. The CTA is dropped
+       unless Qobuz is the active source: the OAuth page is served by the
+       sidecar, which only runs while the source is selected, and the backend
+       no longer starts it on this screen's behalf. -->
   <MessageContent
-    v-else-if="!account.authenticated"
+    v-else-if="view !== 'connected'"
     :title="t('qobuzSettings.notConnectedTitle')"
     :details="canConnect ? t('qobuzSettings.notConnectedDetails') : t('qobuzSettings.selectSourceFirst')"
     :cta-label="canConnect ? t('qobuzSettings.connect') : ''"
@@ -65,6 +68,7 @@ import { useTimer } from '@/composables/useTimer';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { accountView, sidecarWantsLogin } from '@/utils/qobuzAccount';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
@@ -88,24 +92,21 @@ async function handleAppVolumeToggle(enabled) {
 }
 
 const account = ref({ authenticated: false, email: null });
+const view = computed(() => accountView(account.value, unifiedStore.systemState));
 // The CTA opens a page served by qobuz-proxy on :8689, so it is armed only while
-// the sidecar runs: the source selected AND its service running. The selection
-// alone is set before the source starts and survives a failed start, which would
-// offer a button whose only possible answer is the backend's 409. Whether an
-// account is missing is the source's availability — from the sidecar's own
-// polls while it runs, never flashed by the ~0.3 s it answers before loading
+// the sidecar runs and misses an account — a failed start would answer the
+// button with the backend's 409. That is the source's availability, from the
+// sidecar's own polls, never flashed by the ~0.3 s it answers before loading
 // its credentials.
-const canConnect = computed(() => {
-  const { source, service, availability } = unifiedStore.systemState;
-  return source === 'qobuz' && service === 'running' && availability.qobuz === 'no_account';
-});
+const canConnect = computed(() => sidecarWantsLogin(unifiedStore.systemState));
 const loading = ref(true);
 const connecting = ref(false);
 const disconnecting = ref(false);
 
 // Bounded status poll after opening the OAuth tab: the callback lands on
 // qobuz-proxy, not here, so we can't observe completion directly — poll until
-// authenticated or the window elapses.
+// the account reads connected or the window elapses. Not on the route alone: it
+// answers from the cache, which a refused token leaves in place.
 const POLL_MS = 3000;
 const POLL_MAX_MS = 120000;
 let pollHandle = null;
@@ -123,7 +124,6 @@ async function fetchStatus() {
     };
   }
   loading.value = false;
-  return account.value.authenticated;
 }
 
 function stopPoll() {
@@ -142,7 +142,8 @@ function startPoll() {
       stopPoll();
       return;
     }
-    if (await fetchStatus()) stopPoll();
+    await fetchStatus();
+    if (view.value === 'connected') stopPoll();
   }, POLL_MS);
 }
 
