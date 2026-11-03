@@ -493,9 +493,13 @@ def _bodies_the_backend_sends() -> dict[tuple[str, str], list[dict]]:
     """(method, path) → every real body sent there, by driving the producers.
 
     Driven rather than parsed: the payloads are assembled from dataclass
-    `to_dict()`s and comprehensions that no AST walk resolves faithfully, and
-    both producers are single functions, so running them is both simpler and
-    truer than re-deriving what they would send.
+    `to_dict()`s and comprehensions that no AST walk resolves faithfully, so
+    running the producers is both simpler and truer than re-deriving what they
+    would send. The whole record is `EqualizerClientProxyService.apply_record`'s;
+    a targeted EQ body is built by `MultiroomEqualizerService` and passed on by
+    `EqualizerRouter` (which adds `reference_level` to loudness, and builds the
+    volume and mute bodies itself), so both run here — a body typed into this
+    test would check the test, not what reaches a satellite.
 
     A list, not one body: two producers write to /equalizer/mono (the record
     push and the targeted setter) and keeping only the last would leave the
@@ -505,6 +509,7 @@ def _bodies_the_backend_sends() -> dict[tuple[str, str], list[dict]]:
     from unittest.mock import AsyncMock, Mock
 
     from backend.core.equalizer.client_proxy import EqualizerClientProxyService
+    from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
     from backend.core.multiroom.equalizer_router import EqualizerRouter
     from backend.core.multiroom.models import (
         EqFilter, EqualizerSettings, FilterType,
@@ -525,20 +530,31 @@ def _bodies_the_backend_sends() -> dict[tuple[str, str], list[dict]]:
     proxy = EqualizerClientProxyService()
     proxy.request = AsyncMock(side_effect=capture)
 
-    client = Mock(is_local=False, online=True, ip="192.168.1.100", volume_control=True)
-    registry = Mock(get_client=Mock(return_value=client))
+    client = Mock(is_local=False, online=True, ip="192.168.1.100", volume_control=True,
+                  eq_independent=False)
+    # `is_local_client` must answer False: a bare Mock is truthy, which makes
+    # the service treat the satellite as this unit and drop `headroom_db`.
+    registry = Mock(
+        get_client=Mock(return_value=client),
+        is_local_client=Mock(return_value=False),
+        get_client_equalizer=Mock(return_value=record),
+        set_clients_equalizer=AsyncMock(),
+    )
     router = EqualizerRouter(registry, Mock(), proxy)
 
     async def drive():
+        # Built here so its locks and task set belong to this loop.
+        service = MultiroomEqualizerService(
+            client_registry_service=registry, proxy_service=proxy, equalizer_router=router,
+        )
         await proxy.apply_record("192.168.1.100", record)
         await router.set_volume("mac", -20.0)
         await router.set_mute("mac", True)
-        await router.update_filter("mac", "eq_band_00", {
-            "freq": 100, "gain": 1.0, "q": 1.41, "filter_type": "Peaking",
-        })
-        await router.set_compressor("mac", record.compressor.to_dict())
-        await router.set_loudness("mac", record.loudness.to_dict())
-        await router.set_mono("mac", {"enabled": True})
+        await service.update_filter("client", "mac", "eq_band_00", gain=6.0)
+        await service.update_compressor("client", "mac", enabled=True)
+        await service.update_loudness("client", "mac", enabled=True)
+        await service.update_mono("client", "mac", True)
+        await service.cleanup()
 
     asyncio.run(drive())
     return sent
@@ -581,6 +597,15 @@ def test_payload_extractors_are_not_vacuous():
     # captured, or its handler stops resolving, the check below covers nothing.
     assert ("PUT", "/equalizer/filters") in _SENT
     assert _ACCEPTED[("PUT", "/equalizer/filters")][1], "batch handler's key reads not resolved"
+    # A band edit carries the whole curve's headroom; a body without it was not
+    # assembled by the service that sends it to a satellite.
+    assert "headroom_db" in _SENT.get(("PUT", "/equalizer/filter/eq_band_00"), [{}])[0], (
+        "the band body was not built by MultiroomEqualizerService.update_filter"
+    )
+    # The record push writes these too, so the path alone would not show that
+    # the targeted setter reached the satellite.
+    for path in ("/equalizer/compressor", "/equalizer/loudness", "/equalizer/mono"):
+        assert len(_SENT.get(("PUT", path), [])) == 2, f"targeted {path} body not captured"
 
 
 @pytest.mark.parametrize("method,path", sorted(_SENT))
