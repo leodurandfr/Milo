@@ -165,7 +165,7 @@
       "networkSection": "WiFi कनेक्शन",
       "useServerWifi": "सर्वर का नेटवर्क उपयोग करें ({ssid})",
       "changeNetwork": "बदलें",
-      "enterCredentials": "सर्वर WiFi से कनेक्ट नहीं है। इस स्पीकर के लिए नेटवर्क क्रेडेंशियल दर्ज करें।",
+      "enterCredentials": "वह WiFi नेटवर्क चुनें जिससे यह स्पीकर जुड़े।",
       "adopting": "कॉन्फ़िगर किया जा रहा है…",
       "errorPush": "स्पीकर ने कॉन्फ़िगरेशन स्वीकार नहीं किया",
       "errors": {

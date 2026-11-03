@@ -165,7 +165,7 @@
       "networkSection": "Conexión WiFi",
       "useServerWifi": "Usar la red del servidor ({ssid})",
       "changeNetwork": "Cambiar",
-      "enterCredentials": "El servidor no está conectado por WiFi. Introduzca las credenciales de red para este altavoz.",
+      "enterCredentials": "Elija la red WiFi a la que debe unirse este altavoz.",
       "adopting": "Configurando…",
       "errorPush": "El altavoz no aceptó la configuración",
       "errors": {

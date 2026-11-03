@@ -165,7 +165,7 @@
       "networkSection": "Connessione WiFi",
       "useServerWifi": "Usa la rete del server ({ssid})",
       "changeNetwork": "Cambia",
-      "enterCredentials": "Il server non è connesso via WiFi. Inserisca le credenziali di rete per questo altoparlante.",
+      "enterCredentials": "Scelga la rete WiFi a cui questo altoparlante deve connettersi.",
       "adopting": "Configurazione in corso…",
       "errorPush": "L'altoparlante non ha accettato la configurazione",
       "errors": {

@@ -165,7 +165,7 @@
       "networkSection": "WiFi connection",
       "useServerWifi": "Use the server's network ({ssid})",
       "changeNetwork": "Change",
-      "enterCredentials": "The server is not connected via WiFi. Enter the network credentials for this speaker.",
+      "enterCredentials": "Choose the WiFi network this speaker should join.",
       "adopting": "Configuring…",
       "errorPush": "The speaker did not accept the configuration",
       "errors": {

@@ -165,7 +165,7 @@
       "networkSection": "Connexion WiFi",
       "useServerWifi": "Utiliser le réseau du serveur ({ssid})",
       "changeNetwork": "Changer",
-      "enterCredentials": "Le serveur n'est pas connecté en WiFi. Entrez les identifiants du réseau pour ce haut-parleur.",
+      "enterCredentials": "Choisissez le réseau WiFi que ce haut-parleur doit rejoindre.",
       "adopting": "Configuration en cours…",
       "errorPush": "Le haut-parleur n'a pas accepté la configuration",
       "errors": {

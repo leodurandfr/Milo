@@ -165,7 +165,7 @@
       "networkSection": "WLAN-Verbindung",
       "useServerWifi": "Netzwerk des Servers verwenden ({ssid})",
       "changeNetwork": "Ändern",
-      "enterCredentials": "Der Server ist nicht über WLAN verbunden. Geben Sie die Netzwerkdaten für diesen Lautsprecher ein.",
+      "enterCredentials": "Wählen Sie das WLAN, mit dem sich dieser Lautsprecher verbinden soll.",
       "adopting": "Konfiguration läuft…",
       "errorPush": "Der Lautsprecher hat die Konfiguration nicht akzeptiert",
       "errors": {

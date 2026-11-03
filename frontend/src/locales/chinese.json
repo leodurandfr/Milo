@@ -165,7 +165,7 @@
       "networkSection": "WiFi 连接",
       "useServerWifi": "使用服务器网络 ({ssid})",
       "changeNetwork": "更改",
-      "enterCredentials": "服务器未通过 WiFi 连接。请输入此扬声器的网络凭据。",
+      "enterCredentials": "请选择您希望此扬声器加入的 WiFi 网络。",
       "adopting": "配置中…",
       "errorPush": "扬声器未接受该配置",
       "errors": {

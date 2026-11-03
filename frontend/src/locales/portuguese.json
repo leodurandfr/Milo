@@ -165,7 +165,7 @@
       "networkSection": "Ligação WiFi",
       "useServerWifi": "Usar a rede do servidor ({ssid})",
       "changeNetwork": "Alterar",
-      "enterCredentials": "O servidor não está ligado por WiFi. Introduza as credenciais de rede para este altifalante.",
+      "enterCredentials": "Escolha a rede WiFi a que este altifalante se deve ligar.",
       "adopting": "A configurar…",
       "errorPush": "O altifalante não aceitou a configuração",
       "errors": {
