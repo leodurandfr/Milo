@@ -1060,6 +1060,35 @@
    {
     "category": "source",
     "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
     "origin": "cd",
     "data": {
      "source": "cd",
@@ -1070,7 +1099,7 @@
       "radio": null,
       "podcast": null,
       "music_library": null,
-      "cd": "reading_disc",
+      "cd": null,
       "spotify": null,
       "tidal": null,
       "qobuz": null,
@@ -2046,6 +2075,35 @@
    {
     "category": "source",
     "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
     "origin": "cd",
     "data": {
      "source": "cd",
@@ -2056,7 +2114,7 @@
       "radio": null,
       "podcast": null,
       "music_library": null,
-      "cd": "reading_disc",
+      "cd": null,
       "spotify": null,
       "tidal": null,
       "qobuz": null,
@@ -3400,6 +3458,35 @@
    {
     "category": "source",
     "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
     "origin": "cd",
     "data": {
      "source": "cd",
@@ -3410,7 +3497,7 @@
       "radio": null,
       "podcast": null,
       "music_library": null,
-      "cd": "reading_disc",
+      "cd": null,
       "spotify": null,
       "tidal": null,
       "qobuz": null,
@@ -4384,6 +4471,35 @@
    {
     "category": "source",
     "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
     "origin": "cd",
     "data": {
      "source": "cd",
@@ -4394,7 +4510,7 @@
       "radio": null,
       "podcast": null,
       "music_library": null,
-      "cd": "reading_disc",
+      "cd": null,
       "spotify": null,
       "tidal": null,
       "qobuz": null,
@@ -5154,6 +5270,35 @@
    {
     "category": "source",
     "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
     "origin": "cd",
     "data": {
      "source": "cd",
@@ -5164,7 +5309,7 @@
       "radio": null,
       "podcast": null,
       "music_library": null,
-      "cd": "reading_disc",
+      "cd": null,
       "spotify": null,
       "tidal": null,
       "qobuz": null,
@@ -6218,6 +6363,35 @@
    {
     "category": "source",
     "type": "state",
+    "origin": "none",
+    "data": {
+     "source": "none",
+     "switching": false,
+     "service": "stopped",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": null,
+     "controls": [],
+     "resume": null,
+     "details": null,
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
     "origin": "cd",
     "data": {
      "source": "cd",
@@ -6228,7 +6402,7 @@
       "radio": null,
       "podcast": null,
       "music_library": null,
-      "cd": "reading_disc",
+      "cd": null,
       "spotify": null,
       "tidal": null,
       "qobuz": null,

@@ -164,7 +164,7 @@ browser sources give their view up for a missing link only.
 | `no_internet` | Radio, Podcast, Spotify, Tidal, Qobuz | connectivity × `NETWORK_REQUIREMENT` | Network settings |
 | `no_account` | Qobuz | the relay's account while it runs (two unauthenticated polls in a row), the credentials cache otherwise — the predicate `GET /api/qobuz/account` uses | Qobuz login |
 | `no_drive`, `no_disc` | CD | the drive's `DiscState` (`NO_DRIVE`, `EMPTY`) | none — the UI cannot plug a drive in or insert a disc |
-| `reading_disc`, `ejecting` | CD | `DiscState` `READING`/`IDENTIFYING`, `EJECTING` | none — drawn as an operation under way, with a spinner |
+| `reading_disc`, `ejecting` | CD | `DiscState` `READING`, `IDENTIFYING` while its lookup runs (started only once CD is active, so a disc awaiting it under another source reads as ready), `EJECTING` | none — drawn as an operation under way, with a spinner |
 | `unreadable_disc` | CD | `DiscState.UNREADABLE` | Eject |
 | `no_storage`, `catalog_unavailable` | Music Library | no mounted storage carrying a library; Navidrome not answering or not provisioned | none on the card — the library's own view draws both, with the storage wizard at hand |
 

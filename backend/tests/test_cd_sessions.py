@@ -514,6 +514,44 @@ async def test_a_disc_inserted_while_the_source_is_closed_is_not_looked_up(world
     assert not w.playing()
 
 
+async def test_a_disc_read_while_another_source_is_on_is_not_shown_as_reading(world):
+    """A disc whose TOC is read under another source waits for CD to be opened
+    before any lookup, so `GET /api/audio/state` saying "reading_disc" for it
+    never ended. Once CD is open, the lookup is under way and the status
+    card's "loading the album" spinner says so until it answers."""
+    w = await world(disc=None)
+    await w.insert()
+    await w.advance(1.1)
+    assert w.lookups == 0
+    assert w.availability() is None
+
+    w.lookup_gate = asyncio.Event()
+    await w.select()
+    assert w.lookups == 1
+    assert w.availability() == "reading_disc"
+
+    w.lookup_gate.set()
+    await w.advance(1.1)
+    assert w.availability() is None
+    assert w.disc()["id"] == DISC_ID
+
+
+async def test_a_lookup_still_running_after_leaving_the_source_ends_as_ready(world):
+    """A lookup outlives a switch away (it is the drive's work): the disc reads
+    as under way until it answers, then as ready — never stuck reading."""
+    w = await world(disc=None)
+    await w.select()
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    await w.leave()
+    assert w.availability() == "reading_disc"
+
+    w.lookup_gate.set()
+    await w.advance(1.1)
+    assert w.availability() is None
+    assert w.lookups == 1
+
+
 async def test_an_unknown_disc_is_named_by_the_retry_once_musicbrainz_knows_it(world):
     w = await world()
     w.named = False

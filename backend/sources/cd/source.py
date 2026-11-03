@@ -457,9 +457,9 @@ class CdSource(MpvAudioSource):
         if point is not None and point.identity != disc_id:
             self._set_resume_point(None)
         self._set_disc_state(DiscState.IDENTIFYING)
-        await self._publish_device()
         if self._is_active_source:
             self._identify()
+        await self._publish_device()
 
     def _identify(self) -> None:
         """Name the disc (cache, then MusicBrainz) in the background: an
@@ -1069,7 +1069,15 @@ class CdSource(MpvAudioSource):
     }
 
     def availability(self) -> Optional[str]:
+        # The lookup starts only once CD is active (module rules): until then a
+        # read disc has nothing under way, and saying "reading" never ends.
+        if self._disc_state is DiscState.IDENTIFYING and not self._looking_up:
+            return None
         return self._AVAILABILITY[self._disc_state]
+
+    @property
+    def _looking_up(self) -> bool:
+        return self._lookup_for is not None and self._lookup_for is self._generation
 
     def _track_of(self, track: int) -> Optional[TrackInfo]:
         tracks = self._disc.tracks if self._disc else []
