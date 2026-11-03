@@ -212,7 +212,12 @@ class EqualizerRouter:
         unit, `api/multiroom.py::_drop_trim_before_dac` for a satellite). The
         flag is read where `set_volume` reads it: the local one for this unit,
         the registry's for a satellite.
+
+        A trim only cuts. The bound is applied here as well as on each DSP
+        because a satellite on an older release clamps to +12 dB, and the
+        registry can still hold a positive trim the admission replays.
         """
+        gain_db = min(gain_db, 0.0)
         client = self._get_client(mac_id)
         skipped = {"status": "skipped", "reason": "external_volume_control"}
 

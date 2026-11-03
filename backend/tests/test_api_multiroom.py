@@ -397,10 +397,22 @@ class TestClientGainEndpoint:
             return_value={"status": "skipped", "reason": "client_offline"}
         )
 
-        resp = client.patch("/api/multiroom/clients/mac-off/gain", json={"gain_db": 2.0})
+        resp = client.patch("/api/multiroom/clients/mac-off/gain", json={"gain_db": -2.0})
 
         assert resp.status_code == 200
-        registry.set_client_gain.assert_awaited_once_with("mac-off", 2.0)
+        registry.set_client_gain.assert_awaited_once_with("mac-off", -2.0)
+
+    def test_a_positive_trim_is_refused(self, gain_client):
+        """A trim above unity is a gain stage nothing reserves headroom for:
+        Bureau at +8 dB clipped as soon as the fader passed -8 dB. A balance is
+        made by lowering the louder speakers, so nothing reaches the DSP or the
+        record."""
+        client, registry, eq_router = gain_client
+        resp = client.patch("/api/multiroom/clients/mac-1/gain", json={"gain_db": 8.0})
+
+        assert resp.status_code == 422
+        eq_router.set_gain.assert_not_awaited()
+        registry.set_client_gain.assert_not_awaited()
 
     def test_a_dac_client_carries_no_trim(self, gain_client):
         """Milō promised to attenuate nothing on that path (EqualizerRouter skips

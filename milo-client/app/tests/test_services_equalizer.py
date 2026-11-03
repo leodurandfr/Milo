@@ -301,8 +301,8 @@ class TestEqualizerServiceConnection:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("change, landed", [
         pytest.param(
-            lambda service: service.set_gain(2.0),
-            lambda config: config["filters"]["gain_trim"]["parameters"]["gain"] == 2.0,
+            lambda service: service.set_gain(-2.0),
+            lambda config: config["filters"]["gain_trim"]["parameters"]["gain"] == -2.0,
             id="trim",
         ),
         pytest.param(
@@ -1512,6 +1512,39 @@ class TestEqualizerServiceLevelTrim:
         await equalizer_service._load_state_from_config()
 
         assert equalizer_service.gain_db == 6.0
+
+    @pytest.mark.asyncio
+    async def test_a_positive_trim_never_enters_the_pipeline(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """A trim above unity is a gain stage the headroom reserve never covers:
+        Bureau at +8 dB clipped as soon as the fader passed -8 dB."""
+        config = mock_camilla_client.get_config.return_value
+
+        assert await equalizer_service.set_gain(8.0) is True
+
+        assert "gain_trim" not in config["filters"]
+        step = next(s for s in config["pipeline"] if s["type"] == "Filter")
+        assert "gain_trim" not in step["names"]
+
+    @pytest.mark.asyncio
+    async def test_a_stored_positive_trim_is_taken_out_when_pushed_again(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """Bureau's own config already holds +8 dB, and the server pushes the
+        same +8 again at every admission: that push is what has to remove it."""
+        config = mock_camilla_client.get_config.return_value
+        config["filters"]["gain_trim"] = {
+            "type": "Gain",
+            "parameters": {"gain": 8.0, "inverted": False, "mute": False},
+        }
+        step = next(s for s in config["pipeline"] if s["type"] == "Filter")
+        step["names"].append("gain_trim")
+
+        assert await equalizer_service.set_gain(8.0) is True
+
+        assert "gain_trim" not in config["filters"]
+        assert all("gain_trim" not in s.get("names", []) for s in config["pipeline"])
 
     @pytest.mark.asyncio
     async def test_the_trim_reaches_the_disk(self, equalizer_service, mock_camilla_client):

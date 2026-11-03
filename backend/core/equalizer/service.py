@@ -948,9 +948,10 @@ class CamillaDSPService:
         `Client.gain_db` in the multiroom registry — and it is VolumeService that
         re-derives it from there on every event that can empty the graph
         (`sync_local_gain`). This is the primitive that writes it, nothing more,
-        exactly like `_set_passband_filter`.
+        exactly like `_set_passband_filter`. A trim only cuts, as on a satellite:
+        a registry written before that bound can still replay a positive one.
         """
-        gain_db = max(-12.0, min(12.0, gain_db))
+        gain_db = max(-12.0, min(0.0, gain_db))
 
         if not self._connected:
             return False

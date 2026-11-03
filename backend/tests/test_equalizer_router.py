@@ -368,6 +368,23 @@ class TestRemoteRouting:
                            "set_loudness", "set_mono"):
             getattr(camilladsp, dsp_method).assert_not_awaited()
 
+    async def test_a_stored_positive_trim_reaches_a_satellite_as_unity(
+        self, router, proxy, registry
+    ):
+        """The registry can still hold a trim written before the trim became
+        cut-only (Bureau's +8 dB), and the admission replays it as it is. A
+        satellite running an older release clamps to +12 dB, so the bound has
+        to be applied before the value leaves the server."""
+        registry.get_client.return_value = Client(
+            mac_id=REMOTE_MAC, name="Bureau", ip="192.168.1.60", online=True
+        )
+
+        await router.set_gain(REMOTE_MAC, 8.0)
+
+        proxy.request.assert_awaited_once_with(
+            "192.168.1.60", "PUT", "/equalizer/gain", {"gain_db": 0.0}
+        )
+
 
 class TestReads:
     """The read half of the same dispatch — status and levels.

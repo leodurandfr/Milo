@@ -735,10 +735,12 @@ class ClientDelayRequest(BaseModel):
 class ClientGainRequest(BaseModel):
     """Set a remote client's level trim (a fixed CamillaDSP Gain stage, in dB).
 
-    The +/-12 dB range is the speaker-level-trim convention of AV receivers, and
-    is what a sensitivity spread between two speakers actually needs.
+    A trim only lowers a speaker: the rooms are balanced by lowering the louder
+    ones. A stage above unity is gain nothing reserves headroom for, so a
+    speaker trimmed up clips as soon as the fader nears the top (Bureau at
+    +8 dB clipped past a -8 dB fader).
     """
-    gain_db: float = Field(..., ge=-12.0, le=12.0, description="Level trim in dB")
+    gain_db: float = Field(..., ge=-12.0, le=0.0, description="Level trim in dB, cut only")
 
 
 class RegisterClientRequest(BaseModel):

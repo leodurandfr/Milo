@@ -537,11 +537,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /**
    * Set a client's level trim (a fixed CamillaDSP Gain stage, in dB).
-   * Compensates a speaker that plays louder or quieter than the others; the
-   * main unit carries one too, a DAC client does not (its amp owns the level).
+   * Lowers a speaker that plays louder than the others; the main unit carries
+   * one too, a DAC client does not (its amp owns the level).
    * State updates arrive via the client_state_changed WS event.
    * @param {string} macId - Client mac_id
-   * @param {number} gainDb - Level trim in dB (-12 to +12)
+   * @param {number} gainDb - Level trim in dB (-12 to 0, cut only)
    * @returns {Promise<Object>} Updated client data
    */
   async function setClientGain(macId, gainDb) {

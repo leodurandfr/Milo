@@ -875,10 +875,12 @@ class EqualizerService:
         separation is the whole point, since a shared level change can then move
         every client without one of them reaching a limit before the others.
 
-        A trim of 0 removes the filter entirely rather than writing a 0 dB one,
-        so the config of an untrimmed speaker is the config it always had.
+        A trim only cuts: a stage above unity is gain the headroom reserve never
+        covers. A positive value, which an older server can still send, applies
+        as 0 — and a trim of 0 removes the filter entirely rather than writing a
+        0 dB one, so the config of an untrimmed speaker is the config it always had.
         """
-        self._gain_db = max(-12.0, min(12.0, gain_db))
+        self._gain_db = max(-12.0, min(0.0, gain_db))
 
         try:
             config = await self._get_config()

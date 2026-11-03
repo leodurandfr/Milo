@@ -47,7 +47,11 @@ class MonoUpdate(BaseModel):
 
 class GainUpdate(BaseModel):
     """Level trim in dB — a fixed Gain stage compensating this speaker's
-    sensitivity against the others. Not a volume: the fader is untouched."""
+    sensitivity against the others. Not a volume: the fader is untouched.
+
+    The trim only cuts, but the bound is `set_gain`'s, not this model's: a
+    positive trim an older server still pushes must reach `set_gain`, which
+    takes it out of the config, rather than a 422 that leaves it there."""
 
     gain_db: float = Field(..., ge=-12.0, le=12.0)
 

@@ -373,6 +373,22 @@ class TestLevelTrim:
 
         assert camilla_daemon.last_pushed["filters"]["gain_trim"]["parameters"]["gain"] == -12.0
 
+    async def test_a_positive_trim_never_enters_the_graph(self, service, camilla_daemon):
+        """A trim above unity is a gain stage the headroom reserve never covers,
+        and the registry can still hold one written before the bound: the
+        reconnect restore replays it here as it is."""
+        camilla_daemon.load({
+            "filters": {"gain_trim": {"type": "Gain", "parameters": {"gain": 8.0}}},
+            "pipeline": [{"type": "Filter", "channels": [0, 1], "names": ["gain_trim"]}],
+        })
+
+        assert await service.set_gain(8.0) is True
+
+        pushed = camilla_daemon.last_pushed
+        assert "gain_trim" not in pushed["filters"]
+        names = [n for s in pushed["pipeline"] for n in s.get("names", [])]
+        assert "gain_trim" not in names
+
 
 class TestRestoreAfterReconnect:
     """What the server puts back, or takes out, when the connection comes back.

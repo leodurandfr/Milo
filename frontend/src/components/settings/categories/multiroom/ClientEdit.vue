@@ -117,7 +117,7 @@
           :enabled="gainEnabled"
           @change="handleGainToggle"
         >
-          <RangeSlider :label="t('multiroom.tuning.gainHint')" v-model="gainDb" :min="-12" :max="12" :step="0.5" unit="dB"
+          <RangeSlider :label="t('multiroom.tuning.gainHint')" v-model="gainDb" :min="-12" :max="0" :step="0.5" unit="dB"
             @change="handleGainChange" />
         </ToggleSection>
 
