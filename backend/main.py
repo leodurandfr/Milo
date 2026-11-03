@@ -366,7 +366,9 @@ app.include_router(setup_router)
 network_router = create_network_router(network_service)
 app.include_router(network_router)
 
-discovery_router = create_discovery_router(network_service, wifi_adoption_service)
+discovery_router = create_discovery_router(
+    network_service, wifi_adoption_service, get_service("calibration_service")
+)
 app.include_router(discovery_router)
 
 app.include_router(create_qobuz_account_router(

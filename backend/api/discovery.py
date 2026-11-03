@@ -3,7 +3,8 @@
 Speaker discovery API routes — finds new Milō speakers on the network.
 
 GET /api/discovery/wifi-speakers → list devices broadcasting the `Milō` setup
-hotspot (fresh devices waiting to be adopted as multiroom clients). Because
+hotspot (fresh devices waiting to be adopted as multiroom clients), from a
+fresh wifi scan only when the radio carries nothing that matters. Because
 the SSID is shared across devices, the scanner only ever returns 0 or 1
 adoptable hotspot (NetworkManager deduplicates by SSID).
 
@@ -27,6 +28,7 @@ from backend.core.multiroom.wifi_adoption import AdoptionError
 from backend.core.network.service import HOTSPOT_NAME
 
 if TYPE_CHECKING:
+    from backend.core.multiroom.calibration_service import CalibrationService
     from backend.core.multiroom.wifi_adoption import WifiAdoptionService
     from backend.core.network.service import NetworkService
 
@@ -59,7 +61,11 @@ _ADOPTION_CLIENT_ERROR_CODES = {
 }
 
 
-def create_discovery_router(network_service: "NetworkService", wifi_adoption_service: "WifiAdoptionService"):
+def create_discovery_router(
+    network_service: "NetworkService",
+    wifi_adoption_service: "WifiAdoptionService",
+    calibration_service: "CalibrationService",
+):
     """Create discovery router with injected services."""
     router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -67,15 +73,23 @@ def create_discovery_router(network_service: "NetworkService", wifi_adoption_ser
     async def list_wifi_speakers():
         """List Milō devices broadcasting their setup hotspot.
 
-        Filters a fresh wifi scan to the `Milō` SSID. Returns an empty list
-        while this device is itself broadcasting the setup hotspot (a fresh
-        server cannot adopt anything). The scan dedupes by SSID, so the
-        result contains at most one adoptable hotspot.
+        Filters a wifi scan to the `Milō` SSID. Returns an empty list while
+        this device is itself broadcasting the setup hotspot (a fresh server
+        cannot adopt anything). The scan dedupes by SSID, so the result
+        contains at most one adoptable hotspot.
+
+        The scan is fresh only while eth0 holds the link and no latency
+        analysis is probing: otherwise the radio carries the multiroom stream
+        or the measurement, and the list is read from NetworkManager's cache,
+        so a speaker just switched on can take until NetworkManager's next
+        background scan (a few minutes) to appear.
         """
         async with api_error_handler("Discovery wifi speakers", logger):
             if network_service.hotspot_active:
                 return {"status": "success", "data": {"hotspots": []}}
-            networks = await network_service.scan_networks()
+            status = await network_service.get_network_status()
+            rescan = status.ethernet.connected and not calibration_service.running
+            networks = await network_service.scan_networks(rescan=rescan)
             hotspots = [
                 {"ssid": n.ssid, "signal": n.signal}
                 for n in networks

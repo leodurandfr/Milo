@@ -222,15 +222,20 @@ class NetworkService:
     # Public API
     # =========================================================================
 
-    async def scan_networks(self) -> List[WifiNetwork]:
+    async def scan_networks(self, rescan: bool = True) -> List[WifiNetwork]:
         """Scan for available WiFi networks.
+
+        `rescan=False` reads NetworkManager's cache (`--rescan no`), filled by
+        its own background scans: an active scan takes the radio off its
+        channel for up to ~130 ms at a time, which a link carrying audio cannot
+        absorb.
 
         Deduplicates SSIDs (the associated AP, else the strongest) and sorts by
         signal descending.
         """
         rc, stdout, stderr = await self._run_nmcli(
             "-t", "-f", "SSID,SIGNAL,SECURITY,IN-USE",
-            "device", "wifi", "list", "--rescan", "yes",
+            "device", "wifi", "list", "--rescan", "yes" if rescan else "no",
             timeout=15.0
         )
 

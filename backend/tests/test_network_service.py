@@ -346,6 +346,25 @@ async def test_scan_survives_a_non_numeric_signal(service):
 
 
 @pytest.mark.asyncio
+async def test_a_scan_without_rescan_never_asks_nm_to_rescan(service):
+    """An active scan takes the radio off its channel for 70 to 127 ms, 23 times
+    in ~3.6 s (measured on wlan0): on a WiFi-only server that is the link
+    carrying multiroom audio. The discovery poll must be able to read
+    NetworkManager's cache instead, while the WiFi picker keeps its rescan.
+    """
+    fake, patcher = with_nmcli(lambda args: (0, "Home:70:WPA2:", ""))
+    with patcher:
+        await service.scan_networks(rescan=False)
+        cached = list(fake.calls)
+        await service.scan_networks()
+
+    assert len(cached) == 1
+    assert cached[0][cached[0].index("--rescan") + 1] == "no"
+    fresh = fake.calls[1]
+    assert fresh[fresh.index("--rescan") + 1] == "yes"
+
+
+@pytest.mark.asyncio
 async def test_scan_failure_is_raised_not_swallowed(service):
     """The wizard must show an error, not an empty list that looks like "no networks"."""
     fake, patcher = with_nmcli(lambda args: (1, "", "wifi disabled"))

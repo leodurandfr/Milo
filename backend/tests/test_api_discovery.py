@@ -29,6 +29,7 @@ from unittest.mock import AsyncMock, Mock
 
 from backend.api.discovery import _ADOPTION_CLIENT_ERROR_CODES, create_discovery_router
 from backend.core.multiroom.wifi_adoption import AdoptionError
+from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
 from backend.core.network.service import HOTSPOT_NAME
 
 
@@ -44,13 +45,27 @@ ADOPT = {
 }
 
 
+def _status(ethernet: bool, wifi: bool) -> NetworkStatus:
+    return NetworkStatus(
+        wifi_enabled=True,
+        ethernet=EthernetStatus(connected=ethernet, ip_address="192.168.1.10" if ethernet else None),
+        wifi=WifiConnectionStatus(connected=wifi, ssid="Maison" if wifi else None),
+    )
+
+
 @pytest.fixture
 def network():
     service = Mock()
     service.hotspot_active = False
     service.scan_networks = AsyncMock(return_value=[])
+    service.get_network_status = AsyncMock(return_value=_status(ethernet=True, wifi=True))
     service.get_active_wifi_credentials = AsyncMock(return_value=None)
     return service
+
+
+@pytest.fixture
+def calibration():
+    return Mock(running=False)
 
 
 @pytest.fixture
@@ -61,9 +76,9 @@ def adoption():
 
 
 @pytest.fixture
-def client(network, adoption):
+def client(network, adoption, calibration):
     app = FastAPI()
-    app.include_router(create_discovery_router(network, adoption))
+    app.include_router(create_discovery_router(network, adoption, calibration))
     return TestClient(app)
 
 
@@ -166,6 +181,36 @@ class TestScan:
         data = client.get("/api/discovery/wifi-speakers").json()["data"]
 
         assert data["hotspots"] == []
+
+    def test_a_wired_server_with_nothing_measuring_rescans(self, client, network):
+        """The radio carries no audio while eth0 holds the link, so a fresh scan
+        costs nothing and a speaker just switched on shows up within one poll.
+        """
+        client.get("/api/discovery/wifi-speakers")
+
+        network.scan_networks.assert_awaited_once_with(rescan=True)
+
+    def test_a_wifi_only_server_lists_hotspots_from_the_cache(self, client, network):
+        """With no cable, wlan0 carries the multiroom stream: an active scan every
+        10 s left its channel 23 times for up to 127 ms against ~120 ms of buffer
+        margin, and every room ran out of chunks.
+        """
+        network.get_network_status.return_value = _status(ethernet=False, wifi=True)
+
+        client.get("/api/discovery/wifi-speakers")
+
+        network.scan_networks.assert_awaited_once_with(rescan=False)
+
+    def test_no_rescan_while_an_analysis_probes(self, client, network, calibration):
+        """The latency analysis is started from the same page that polls: three
+        scans inside its 30 s probe raised rtt_max from 5 to 125 ms and the
+        proposed buffer from 280 to 760 ms.
+        """
+        calibration.running = True
+
+        client.get("/api/discovery/wifi-speakers")
+
+        network.scan_networks.assert_awaited_once_with(rescan=False)
 
 
 class TestServerCredentials:

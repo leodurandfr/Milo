@@ -5,12 +5,15 @@
  * Tracks 'Milō' setup hotspots visible from the server and the server's own
  * WiFi credentials (used to auto-fill the adoption form). The hotspot list is
  * refreshed on demand and via an opt-in 10s polling loop activated while the
- * multiroom discovery UI is open. Because the SSID is shared, the list will
- * contain at most one adoptable hotspot at a time.
+ * multiroom discovery UI is open, which skips its ticks while nobody can see
+ * the page (hidden tab, kiosk panel asleep): each one may be a WiFi scan on the
+ * server. Because the SSID is shared, the list will contain at most one
+ * adoptable hotspot at a time.
  */
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { apiCall } from '@/services/apiCall';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 const POLL_INTERVAL_MS = 10000;
 // Worst-case server-side adoption: ~30s hotspot connect + ~20s push + ~30s
@@ -19,6 +22,8 @@ const POLL_INTERVAL_MS = 10000;
 const ADOPT_TIMEOUT_MS = 120000;
 
 export const useDiscoveryStore = defineStore('discovery', () => {
+  const settingsStore = useSettingsStore();
+
   // === STATE ===
 
   // Hotspots currently visible from the server (always 'Milō').
@@ -98,10 +103,13 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     pollSubscribers += 1;
     if (pollTimer !== null) return;
     // Kick an immediate scan so the UI doesn't wait 10s for the first refresh.
+    pollTick();
+    pollTimer = setInterval(pollTick, POLL_INTERVAL_MS);
+  }
+
+  function pollTick() {
+    if (document.visibilityState !== 'visible' || settingsStore.isScreenSleeping) return;
     scanHotspots();
-    pollTimer = setInterval(() => {
-      scanHotspots();
-    }, POLL_INTERVAL_MS);
   }
 
   /**
