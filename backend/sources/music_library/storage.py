@@ -54,9 +54,12 @@ _MOUNTABLE_FSTYPES = frozenset(
     {"vfat", "exfat", "ntfs", "ext2", "ext3", "ext4", "hfsplus"}
 )
 
-# Ceiling on a single mount/unmount helper call (a slow spin-up USB key still
-# mounts well within this; a hang must not wedge the monitor).
-_HELPER_TIMEOUT_S = 30.0
+# Ceiling on a single mount/unmount helper call (a hang must not wedge the
+# monitor). It must outlast milo-mount's worst case, because killing sudo does
+# not stop the root helper under it: a CIFS share is two mount attempts in
+# series of NET_MOUNT_TIMEOUT (20 s) each, so a shorter bound answered "not
+# mounted" for a share that mounted seconds later and was then never scanned.
+_HELPER_TIMEOUT_S = 50.0
 
 # Cadence and ceiling for waiting out a scan that was already running when a
 # mount landed (see _scan_when_idle). Past the ceiling the mount is left to
@@ -299,6 +302,9 @@ class StorageManager:
                 proc.communicate(input=stdin), timeout=_HELPER_TIMEOUT_S
             )
         except asyncio.TimeoutError:
+            # No wait() after the kill: the orphaned helper still holds the
+            # pipes, so it would block until the helper exits (never, on a mount
+            # stuck in D state). asyncio's child watcher reaps sudo on its own.
             if proc:
                 proc.kill()
             self.logger.error("%s timed out for %s", helper, arg_str)

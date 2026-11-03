@@ -8,13 +8,20 @@ events and is exercised on the Pi, not here.
 """
 import logging
 import asyncio
+import re
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from backend.config.constants import MILO_MOUNT_CMD, MILO_UMOUNT_CMD
 from backend.sources.music_library.navidrome_client import ScanRequest, ScanStatus
+from backend.sources.music_library import storage
 from backend.sources.music_library.storage import StorageManager
+
+MILO_MOUNT_SCRIPT = (
+    Path(__file__).resolve().parents[2] / "rootfs" / "usr" / "local" / "bin" / "milo-mount"
+)
 
 
 class _Dev(dict):
@@ -172,6 +179,30 @@ async def test_run_helper_times_out(manager):
     with patch("asyncio.create_subprocess_exec", return_value=proc):
         out = await manager._run_helper(MILO_MOUNT_CMD, "/dev/sda1", capture=True)
     assert out is None
+
+
+def test_the_helper_timeout_outlasts_milo_mounts_worst_case():
+    """milo-mount survives sudo's death (it runs as root, reparented to PID 1),
+    so a backend bound shorter than its worst case answers "not mounted" for a
+    share that mounts a few seconds later — and is then never scanned. The worst
+    case is the network type with the most mount attempts in series (CIFS: a
+    modern SMB attempt, then a vers=2.0 fallback), each capped at
+    NET_MOUNT_TIMEOUT."""
+    script = MILO_MOUNT_SCRIPT.read_text()
+    found = re.search(r"^NET_MOUNT_TIMEOUT=(\d+)$", script, re.MULTILINE)
+    assert found, f"NET_MOUNT_TIMEOUT not found in {MILO_MOUNT_SCRIPT}"
+    per_attempt = int(found.group(1))
+    attempts = {}
+    for fstype in re.findall(r'timeout "\$NET_MOUNT_TIMEOUT" mount -t (\w+)', script):
+        attempts[fstype] = attempts.get(fstype, 0) + 1
+    assert attempts.get("cifs", 0) >= 2 and attempts.get("nfs", 0) >= 1, (
+        f"mount attempts not found in {MILO_MOUNT_SCRIPT}: {attempts}"
+    )
+    worst_case = max(attempts.values()) * per_attempt
+    assert storage._HELPER_TIMEOUT_S > worst_case, (
+        f"_HELPER_TIMEOUT_S={storage._HELPER_TIMEOUT_S} does not outlast milo-mount's "
+        f"worst case of {worst_case} s ({attempts}, {per_attempt} s each)"
+    )
 
 
 # === Navidrome unavailable (not yet provisioned) ==================================
