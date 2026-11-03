@@ -24,7 +24,9 @@ wpa_supplicant log the SSID, and neither is in it.
 """
 import asyncio
 import contextlib
+import grp
 import logging
+import os
 import platform
 import time
 from pathlib import Path
@@ -172,6 +174,23 @@ async def _journal(units: Sequence[str]) -> List[str]:
     return blocks
 
 
+def _journal_readable() -> bool:
+    """Whether this account reads the whole journal, not only its own file.
+
+    Outside `adm` and `systemd-journal`, journalctl still exits 0 and prints its
+    hint on stderr: every systemd[1] line and the whole kernel ring are simply
+    missing from what `_journal` returns.
+    """
+    if os.geteuid() == 0:
+        return True
+    groups = {os.getegid(), *os.getgroups()}
+    for name in ("adm", "systemd-journal"):
+        with contextlib.suppress(KeyError):
+            if grp.getgrnam(name).gr_gid in groups:
+                return True
+    return False
+
+
 def create_diagnostic_router() -> APIRouter:
     router = APIRouter(tags=["diagnostic"])
 
@@ -211,6 +230,11 @@ def create_diagnostic_router() -> APIRouter:
         await add("alsa", asyncio.to_thread(_alsa_states))
         await add("camilladsp", _camilladsp())
         await add("journal", _journal(units))
+        if not _journal_readable():
+            unavailable.append({
+                "section": "journal",
+                "reason": "account in neither adm nor systemd-journal: systemd and kernel lines are unreadable",
+            })
 
         text = "\n\n".join(blocks)
         raw = text.encode("utf-8")

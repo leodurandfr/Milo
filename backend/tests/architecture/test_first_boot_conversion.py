@@ -201,3 +201,32 @@ def test_every_checkout_change_of_the_client_role_is_undone_by_the_revert():
             f"configure_server must chown {path}, then check it out, then clean it, before the hostname "
             "flips back to milo"
         )
+
+
+CLIENT_USER_CREATED = re.compile(r'^\s*if ! id "\$MILO_CLIENT_USER"[^\n]*; then\n.*?^\s*fi$', re.MULTILINE | re.DOTALL)
+GROUPS_ADDED = re.compile(r'^\s*usermod -aG (\S+) "\$MILO_CLIENT_USER"\s*$', re.MULTILINE)
+
+
+def test_the_client_account_can_read_the_whole_journal():
+    """The account the satellite app runs as is put in `adm`, even when it already exists.
+
+    Outside `adm` an account reads only its own journal file, and journalctl
+    still exits 0: `GET /diagnostic` then returns each unit's block without its
+    systemd[1] lines (Started/Stopped/Failed — 89 lines of 204 measured on a
+    satellite) and no kernel block at all, so a CamillaDSP stuck failing or a
+    USB/DMA error no longer says why. The group must be added outside the
+    `if ! id` guard, so a unit whose account was created before the change is
+    corrected by the next conversion too.
+    """
+    body = _functions(FIRST_BOOT.read_text())["_apply_client_filesystem"]
+    created = CLIENT_USER_CREATED.search(body)
+    assert created, (
+        "could not find the creation of $MILO_CLIENT_USER in _apply_client_filesystem; "
+        "the extractor is broken"
+    )
+    outside = body[: created.start()] + body[created.end():]
+    added = [groups.split(",") for groups in GROUPS_ADDED.findall(outside)]
+    assert any("adm" in groups for groups in added), (
+        "_apply_client_filesystem never adds $MILO_CLIENT_USER to adm outside its creation guard: "
+        "the satellite's /diagnostic journal then misses every systemd and kernel line"
+    )

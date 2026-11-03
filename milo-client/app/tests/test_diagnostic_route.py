@@ -21,6 +21,7 @@ What breaks when these fail:
 """
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -70,20 +71,67 @@ def test_a_probe_that_fails_costs_its_own_line_and_not_the_block(client, monkeyp
     assert "[identity]" in body["text"]
 
 
-def test_a_journal_that_does_not_answer_is_named_rather_than_silent(client, monkeypatch):
-    """journalctl needs the `adm` group, and the two satellites are not
-    provisioned identically — one runs its app as `milo-client`, the other as
-    `milo`. A satellite whose account cannot read the journal must say so, not
-    return a report that looks complete and holds no logs."""
+def test_a_satellite_whose_probes_answer_nothing_says_so(client, monkeypatch):
+    """A satellite whose units systemd does not list is the opposite of
+    healthy, and a journal that returned no line is not a quiet one: both must
+    be named in `unavailable` rather than leave a report that reads as complete
+    with no `[units]` or `[journal]` block."""
     async def nothing(*args, **kwargs):
         return None
 
     monkeypatch.setattr(diagnostic, "_run", nothing)
     body = client.get("/diagnostic").json()
 
-    reasons = {item["section"] for item in body["unavailable"]}
-    assert "journal" in reasons
+    reasons = {item["section"]: item["reason"] for item in body["unavailable"]}
     assert "units" in reasons
+    assert "milo-client" in reasons["units"]
+    assert "journal" in reasons
+
+
+ADM_GID, JOURNAL_GID = 4, 101
+
+
+def _groups(monkeypatch, *gids):
+    """The account's groups, as the kernel reports them, on a host whose group
+    database knows `adm` and `systemd-journal`."""
+    known = {"adm": ADM_GID, "systemd-journal": JOURNAL_GID}
+
+    def getgrnam(name):
+        if name not in known:
+            raise KeyError(name)
+        return SimpleNamespace(gr_gid=known[name])
+
+    monkeypatch.setattr(diagnostic.os, "geteuid", lambda: 1234)
+    monkeypatch.setattr(diagnostic.os, "getgroups", lambda: list(gids))
+    monkeypatch.setattr(diagnostic.os, "getegid", lambda: 1234)
+    monkeypatch.setattr(diagnostic.grp, "getgrnam", getgrnam)
+
+
+def _journal_reasons(body):
+    return [item["reason"] for item in body["unavailable"] if item["section"] == "journal"]
+
+
+def test_a_journal_read_without_adm_is_named_partial(client, monkeypatch):
+    """An account outside `adm` reads only its own journal file: journalctl
+    exits 0 with every systemd[1] line and the whole kernel ring missing, and
+    the hint it prints goes to stderr. The block then looks complete while it
+    no longer says why a unit failed, so the gap must be named under the
+    satellite's heading in the server's report."""
+    _groups(monkeypatch, 1234, 29)
+    response = client.get("/diagnostic")
+
+    assert response.status_code == 200
+    reasons = _journal_reasons(response.json())
+    assert any("adm" in reason for reason in reasons), reasons
+
+
+def test_a_journal_read_from_adm_is_not_flagged(client, monkeypatch):
+    """The counterpart: an account in `adm` (both satellites since 2026-09-20)
+    reads the whole journal and must not be reported as partial."""
+    _groups(monkeypatch, 1234, ADM_GID)
+    reasons = _journal_reasons(client.get("/diagnostic").json())
+
+    assert not any("adm" in reason for reason in reasons), reasons
 
 
 def test_the_journal_is_restricted_to_the_satellites_own_units(client, monkeypatch):

@@ -241,6 +241,9 @@ _apply_client_filesystem() {
         useradd -m -s /bin/bash -G audio,sudo "$MILO_CLIENT_USER"
         log "User $MILO_CLIENT_USER created"
     fi
+    # Outside the guard so an existing account is corrected too: without adm,
+    # journalctl answers /diagnostic with no systemd[1] and no kernel lines.
+    usermod -aG adm "$MILO_CLIENT_USER"
 
     # 3. Set up repo structure (symlink to pre-installed files)
     # chown BEFORE creating symlinks to avoid traversing into shared source tree
