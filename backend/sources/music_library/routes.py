@@ -76,6 +76,7 @@ from backend.sources.music_library.navidrome_client import (
     NavidromeUnreachable,
     ScanRequest,
 )
+from backend.sources.music_library.shares import ShareLoginNeedsPassword
 from backend.sources.music_library.source import MusicLibrarySource
 
 logger = logging.getLogger(__name__)
@@ -906,9 +907,17 @@ async def update_share(
     """Replace a share's config, remount, and rescan (404 if unknown).
 
     Idempotent: a request that omits the password keeps the existing cred file.
+    An empty username turns the share guest; a new username without its
+    password is a 400, answered before the share is unmounted.
     """
     async with api_error_handler("Error updating share", logger):
-        share = await source.shares.update(share_id, request)
+        try:
+            share = await source.shares.update(share_id, request)
+        except ShareLoginNeedsPassword:
+            logger.error("Share %s: a new username was sent without its password", share_id)
+            raise HTTPException(
+                status_code=400, detail="A new username needs its password"
+            )
         if share is None:
             logger.error("Share not found: %s", share_id)
             raise HTTPException(status_code=404, detail="Share not found")

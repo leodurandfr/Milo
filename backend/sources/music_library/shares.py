@@ -34,6 +34,12 @@ from backend.sources.music_library.models import ShareRequest
 from backend.sources.music_library.navidrome_client import CATALOG_UNREACHABLE
 from backend.sources.music_library.storage import NavidromeProvider, StorageManager
 
+
+class ShareLoginNeedsPassword(Exception):
+    """A CIFS edit names a new username without its password: milo-mount would
+    keep the saved cred file and authenticate as the old account."""
+
+
 # Retry schedule (seconds between attempts) for configured network shares that
 # are not mounted. The ramp covers the usual boot race (a NAS boots slower than
 # the Pi); the plateau covers a router and a NAS that take minutes to come back
@@ -834,8 +840,11 @@ class NetworkShareService:
     ) -> Optional[Dict[str, Any]]:
         """Replace a share's mutable fields, remount, and rescan.
 
-        Returns the updated share, or None if no share has that id. A request that
-        omits the password keeps the existing cred file (idempotent PUT).
+        Returns the updated share, or None if no share has that id. A CIFS request
+        that omits the password keeps the existing cred file (idempotent PUT) as
+        long as its username is the stored one or absent; an empty username turns
+        the share guest, and a new one without its password raises
+        ShareLoginNeedsPassword before anything is touched.
         """
         async with self._write_lock:
             existing = await self._data.get_share(share_id)
@@ -848,14 +857,25 @@ class NetworkShareService:
                 "name": req.name,
             }
             # Credentials move as a unit with the password (which rewrites the cred
-            # file): a new password stores the new username/domain too; NFS clears
-            # them; a CIFS edit that omits the password keeps the existing login.
-            if req.type == "nfs":
+            # file): a new password stores the new username/domain too; NFS and an
+            # emptied username clear them; a CIFS edit that omits the password
+            # keeps the existing login, which a different username cannot do.
+            # A password-only login stores no username, so "" is a change only
+            # when one was stored.
+            username = req.username
+            if username is not None and not username.strip():
+                username = ""
+            login_moved = (
+                username is not None and username != (existing.get("username") or "")
+            )
+            if req.type == "nfs" or (not req.password and login_moved and not username):
                 updates.update(has_credentials=False, username=None, domain=None)
             elif req.password:
                 updates.update(
-                    has_credentials=True, username=req.username, domain=req.domain
+                    has_credentials=True, username=username or None, domain=req.domain
                 )
+            elif login_moved:
+                raise ShareLoginNeedsPassword(share_id)
             share = await self._data.update_share(share_id, updates)
             if share is None:
                 return None
@@ -863,7 +883,8 @@ class NetworkShareService:
             # the file exists, whatever the share now says. Left behind, it would
             # remount a share switched back to CIFS with the old password while the
             # edit screen — which reads has_credentials — says none is saved.
-            if req.type == "nfs" and existing.get("has_credentials"):
+            dropped = updates.get("has_credentials") is False
+            if dropped and existing.get("has_credentials"):
                 await self._storage.forget_share_credentials(share_id)
             # Unmount first so a changed host/path/credentials actually takes effect.
             await self._unmount_share(share_id)

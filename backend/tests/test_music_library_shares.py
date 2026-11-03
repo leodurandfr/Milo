@@ -19,7 +19,10 @@ import pytest
 
 from backend.sources.music_library.models import ShareRequest
 from backend.sources.music_library.navidrome_client import ScanStatus
-from backend.sources.music_library.shares import NetworkShareService
+from backend.sources.music_library.shares import (
+    NetworkShareService,
+    ShareLoginNeedsPassword,
+)
 
 STATVFS = "backend.sources.music_library.shares.os.statvfs"
 
@@ -797,7 +800,7 @@ class TestShareCredentialsMoveWithThePassword:
     @pytest.fixture
     def editable(self, shares):
         shares._data.get_share = AsyncMock(
-            return_value={"id": "nas", "has_credentials": True}
+            return_value={"id": "nas", "has_credentials": True, "username": "claire"}
         )
         shares._data.update_share = AsyncMock(
             side_effect=lambda sid, up: {"id": sid, **up}
@@ -866,6 +869,85 @@ class TestShareCredentialsMoveWithThePassword:
 
         assert editable._storage.mount_share.await_args.kwargs["credentials"] is None
         editable._storage.forget_share_credentials.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_new_login_without_its_password_is_refused(self, editable):
+        """milo-mount keeps the saved cred file when handed nothing, so storing
+        "bob" would remount as claire while the edit screen shows bob — a change
+        that did nothing, answered 200. Refused before the share is touched: an
+        unmount here would cut a share that was working, for nothing."""
+        with pytest.raises(ShareLoginNeedsPassword):
+            await editable.update("nas", ShareRequest(
+                type="cifs", host="10.0.0.2", path="music", name="NAS",
+                username="bob",
+            ))
+
+        editable._data.update_share.assert_not_awaited()
+        editable._storage.unmount_share.assert_not_awaited()
+        editable._storage.mount_share.assert_not_awaited()
+        editable._storage.forget_share_credentials.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_clearing_the_login_turns_the_share_guest_and_forgets_its_cred_file(
+        self, editable
+    ):
+        """An empty username is the way back to guest access. The cred file goes
+        before the mount, because milo-mount attaches it whenever it exists: forgot
+        after, the share would be mounted once more as claire."""
+        calls = []
+        editable._storage.forget_share_credentials = AsyncMock(
+            side_effect=lambda sid: calls.append(("forget", sid))
+        )
+        editable._storage.mount_share = AsyncMock(
+            side_effect=lambda *a, **kw: calls.append(("mount", kw["credentials"]))
+            or "/media/milo/nas"
+        )
+
+        await editable.update("nas", ShareRequest(
+            type="cifs", host="10.0.0.2", path="music", name="NAS", username="",
+        ))
+
+        stored = editable._data.update_share.await_args[0][1]
+        assert stored["has_credentials"] is False
+        assert (stored["username"], stored["domain"]) == (None, None)
+        assert calls == [("forget", "nas"), ("mount", None)]
+
+    @pytest.mark.asyncio
+    async def test_clearing_the_login_of_a_guest_share_forgets_nothing(
+        self, editable
+    ):
+        """A username saved without a password mounts as guest and wrote no cred
+        file, so no privileged helper is spawned to drop one."""
+        editable._data.get_share = AsyncMock(
+            return_value={"id": "nas", "has_credentials": False, "username": "claire"}
+        )
+
+        await editable.update("nas", ShareRequest(
+            type="cifs", host="10.0.0.2", path="music", name="NAS", username="  ",
+        ))
+
+        editable._storage.forget_share_credentials.assert_not_awaited()
+        stored = editable._data.update_share.await_args[0][1]
+        assert (stored["has_credentials"], stored["username"]) == (False, None)
+
+    @pytest.mark.asyncio
+    async def test_an_edit_of_a_password_only_login_keeps_its_cred_file(
+        self, editable
+    ):
+        """The edit screen sends the empty username it shows; for a login made
+        of a password alone that is the unchanged login, and reading it as
+        "turn guest" would drop the password on a mere rename."""
+        editable._data.get_share = AsyncMock(
+            return_value={"id": "nas", "has_credentials": True, "username": None}
+        )
+
+        await editable.update("nas", ShareRequest(
+            type="cifs", host="10.0.0.2", path="music", name="Renamed", username="",
+        ))
+
+        editable._storage.forget_share_credentials.assert_not_awaited()
+        assert "has_credentials" not in editable._data.update_share.await_args[0][1]
+        assert editable._storage.mount_share.await_args.kwargs["credentials"] is None
 
     @pytest.mark.asyncio
     async def test_a_password_with_no_username_is_a_guest_login_password(

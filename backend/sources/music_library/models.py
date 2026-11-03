@@ -112,7 +112,8 @@ class ShareRequest(BaseModel):
     Credentials are optional — a public share needs none. The password is never
     stored here or echoed back over the API; it is handed to milo-mount on stdin
     and persisted only to a root-only cred file. On a ``PUT`` that omits the
-    password, the existing cred file is kept.
+    password, the existing cred file is kept — unless ``username`` is empty,
+    which turns the share guest; a changed ``username`` needs its password.
 
     ``host``/``path`` become arguments to the mount syscall, so they are rejected
     if they carry whitespace or control characters (defense-in-depth — milo-mount

@@ -745,6 +745,7 @@
       "password": "Password",
       "passwordPlaceholder": "Facoltativo",
       "passwordKeepHint": "Lasci vuoto per mantenere la password salvata",
+      "passwordRequiredHint": "Inserisca la password di questo nome utente",
       "nfsNoCredentials": "NFS si autentica tramite server e indirizzo IP — non viene usato alcun nome utente o password.",
       "add": "Aggiungi server",
       "save": "Salva",

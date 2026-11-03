@@ -7,7 +7,9 @@
   - SMB (cifs) accepts optional credentials; NFS (AUTH_SYS) takes none, so the
     credential fields are hidden and never sent for NFS.
   - The password is write-only: on edit, an empty field keeps the saved password
-    (the backend treats an omitted password as "keep the existing cred file").
+    (the backend treats an omitted password as "keep the existing cred file") —
+    as long as the username is unchanged. A new username needs its password
+    (Save stays hidden until one is typed), and an emptied one turns the share guest.
   - Save is a deliberate action (it remounts + rescans), and — like the multiroom
     server config — it only appears once something actually changed, pinned to the
     bottom so it's reachable from anywhere in the form.
@@ -39,8 +41,7 @@
             <InputText v-model="form.username" :placeholder="t('musicLibrary.shares.usernamePlaceholder')" :maxlength="128" />
           </SettingItem>
 
-          <SettingItem :label="t('musicLibrary.shares.password')"
-            :hint="isEditMode && share?.has_credentials ? t('musicLibrary.shares.passwordKeepHint') : ''">
+          <SettingItem :label="t('musicLibrary.shares.password')" :hint="passwordHint">
             <InputText v-model="form.password" type="password" :maxlength="256"
               :placeholder="passwordPlaceholder" />
           </SettingItem>
@@ -137,8 +138,25 @@ const passwordPlaceholder = computed(() =>
     : t('musicLibrary.shares.passwordPlaceholder')
 );
 
+// milo-mount keeps the saved cred file when no password comes with the edit, so
+// a changed username alone would remount with the old login.
+const loginNeedsPassword = computed(() => {
+  if (!isEditMode.value || form.type !== 'cifs' || form.password) return false;
+  const username = form.username.trim();
+  return !!username && username !== (props.share?.username || '');
+});
+
+// An emptied username turns the share guest, so nothing saved is kept then.
+const passwordHint = computed(() => {
+  if (loginNeedsPassword.value) return t('musicLibrary.shares.passwordRequiredHint');
+  const loginCleared = !form.username.trim() && !!props.share?.username;
+  return isEditMode.value && props.share?.has_credentials && !loginCleared
+    ? t('musicLibrary.shares.passwordKeepHint')
+    : '';
+});
+
 const isValid = computed(
-  () => form.name.trim() && form.host.trim() && form.path.trim()
+  () => form.name.trim() && form.host.trim() && form.path.trim() && !loginNeedsPassword.value
 );
 
 // Edit mode: does the form differ from the saved server? A typed password always
@@ -203,7 +221,9 @@ function buildPayload() {
     path: form.path.trim(),
   };
   if (form.type === 'cifs') {
-    if (form.username.trim()) payload.username = form.username.trim();
+    // On edit an empty username is sent: it is what turns the share guest.
+    const username = form.username.trim();
+    if (username || isEditMode.value) payload.username = username;
     if (form.password) payload.password = form.password; // omitted → keep existing (edit) / guest (add)
   }
   return payload;

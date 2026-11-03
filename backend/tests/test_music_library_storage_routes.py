@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 
 from backend.sources.music_library.data import MusicLibraryDataService
 from backend.sources.music_library.routes import router, setup_music_library_routes
+from backend.sources.music_library.shares import ShareLoginNeedsPassword
 
 USB_UUID = "1234-ABCD"
 
@@ -206,6 +207,17 @@ class TestShareRoutes:
         shares.update = AsyncMock(return_value=None)
 
         assert api.put("/api/music-library/shares/gone", json=SHARE_BODY).status_code == 404
+
+    def test_a_new_username_without_its_password_is_a_400(self, api, shares):
+        """api_error_handler would turn it into a 500 — a server fault, for a
+        request the settings screen can correct by asking for the password."""
+        shares.update = AsyncMock(side_effect=ShareLoginNeedsPassword("nas-leo"))
+
+        response = api.put(
+            "/api/music-library/shares/nas-leo", json={**SHARE_BODY, "username": "bob"},
+        )
+
+        assert response.status_code == 400
 
     def test_a_deleted_share_is_unmounted_and_forgotten(self, api, shares):
         response = api.delete("/api/music-library/shares/nas-leo")
