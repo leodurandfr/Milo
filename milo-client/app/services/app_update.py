@@ -4,7 +4,8 @@ App update service for Milo Client.
 Handles deploying app updates pushed from the main Milo server:
 - Extract tarball, sync app/ and configs/
 - Install Python dependencies, then deploy system/rootfs files
-- Write version file and schedule service restart
+- Write the two identity files (version and payload), then schedule the
+  service restart
 """
 import asyncio
 import contextlib
