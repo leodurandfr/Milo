@@ -8,6 +8,10 @@ BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON console=tty3 loglevel=0 consoleblank=0"
 BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON logo.nologo vt.global_cursor_default=0"
 BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON fbcon=map:99 vt.handoff=7"
 BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON cfg80211.ieee80211_regdom=00"
+# The Raspberry Pi device tree passes cgroup_disable=memory ahead of cmdline.txt, so
+# without this every unit's MemoryMax= is accepted by systemd and enforced by nothing.
+# The last occurrence wins, which appending after the firmware's guarantees.
+BOOT_PARAMS_COMMON="$BOOT_PARAMS_COMMON cgroup_enable=memory"
 
 # Screen-specific cmdline parameters. Empty by default: the pi-gen stage passes
 # "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN" to configure_cmdline, so a screen that

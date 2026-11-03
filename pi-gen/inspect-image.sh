@@ -91,6 +91,9 @@ if [[ -f "$CMDLINE" ]]; then
     # The token that drifted: FR was restated in the stage, 00 declared in the module.
     check "regdom is the world domain (00)" "grep -q 'cfg80211.ieee80211_regdom=00' '$CMDLINE'"
     check "regdom appears exactly once"    "[ \$(grep -o 'ieee80211_regdom=' '$CMDLINE' | wc -l) -eq 1 ]"
+    # The device tree disables the memory controller ahead of this line; the last
+    # memory token here must re-enable it, or every unit's MemoryMax= is inert.
+    check "cmdline enables the memory cgroup" "[ \"\$(grep -o 'cgroup_[a-z]*=memory' '$CMDLINE' | tail -1)\" = cgroup_enable=memory ]"
 else
     bad "cmdline.txt not found under $BOOT"
 fi
