@@ -72,7 +72,8 @@ class TestSyncAppFiles:
 
     @pytest.mark.asyncio
     async def test_the_tree_it_replaced_is_kept_for_the_rollback(self, repo_dir, incoming):
-        """pip and the version write still come after this, and both can fail."""
+        """pip, the root deploy and the version write still come after this,
+        and each can fail."""
         await AppUpdateService()._sync_tree(incoming, "app")
 
         assert not (repo_dir / "app.new").exists(), "the staging copy is consumed by the swap"
@@ -114,11 +115,13 @@ class TestSyncAppFiles:
         assert not (repo_dir / "app" / "junk.py").exists()
 
 
-def _make_tarball(tmp_path, app_files: dict, config_files: dict = None) -> str:
-    """Builds an update tarball holding milo-client/app/ (and configs/ if given).
+def _make_tarball(tmp_path, app_files: dict, config_files: dict = None,
+                  root_files: dict = None) -> str:
+    """Builds an update tarball holding milo-client/app/, plus configs/ and the
+    root deploy's system/ and rootfs/ trees when given.
 
-    No system/ or rootfs/ entries: the deploy-script leg needs sudo, and the
-    failure these tests cover is upstream of it.
+    `root_files` maps a path under milo-client/ (``system/…``, ``rootfs/…``) to
+    its body; with any of them present, the update runs the sudo deploy script.
     """
     staged = tmp_path / "tarball-src" / "milo-client" / "app"
     staged.mkdir(parents=True)
@@ -128,11 +131,55 @@ def _make_tarball(tmp_path, app_files: dict, config_files: dict = None) -> str:
         path = staged.parent / "configs" / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body)
+    for rel, body in (root_files or {}).items():
+        path = staged.parent / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
 
     tarball = tmp_path / "update.tar.gz"
     with tarfile.open(tarball, "w:gz") as tar:
         tar.add(str(staged.parent), arcname="milo-client")
     return str(tarball)
+
+
+# What a release that changes the satellite's units and sudo policy carries.
+ROOT_FILES = {
+    "system/milo-client.service": "[Service]\nExecStart=/bin/true\n",
+    "rootfs/etc/sudoers.d/milo-client": "milo-client ALL=(root) NOPASSWD: /bin/true\n",
+}
+
+
+def _spawner(pip_returncode: int):
+    """Stands in for sudo and pip — the outside world — answering by argv.
+
+    sudo succeeds; pip answers `pip_returncode`. Every argv spawned is kept, in
+    order, so a test can read which of the two ran and when.
+    """
+    spawned = []
+
+    async def _spawn(*argv, **kwargs):
+        spawned.append(argv)
+        proc = AsyncMock()
+        if argv[0] == str(app_update_module.VENV_PIP):
+            proc.returncode = pip_returncode
+            stderr = b"" if pip_returncode == 0 else (
+                b"ERROR: No matching distribution found for aiohttp>=99.0"
+            )
+        else:
+            proc.returncode = 0
+            stderr = b""
+        proc.communicate = AsyncMock(return_value=(b"", stderr))
+        return proc
+
+    return spawned, _spawn
+
+
+def _ran_deploy_script(argv) -> bool:
+    return app_update_module.DEPLOY_SCRIPT in argv
+
+
+def _ran_pip(argv) -> bool:
+    return argv[0] == str(app_update_module.VENV_PIP)
 
 
 class TestDeployUpdateDependencyFailure:
@@ -165,14 +212,9 @@ class TestDeployUpdateDependencyFailure:
     @pytest.fixture
     def failing_pip(self):
         """Stands in for pip itself — the outside world, not a method of ours."""
-        proc = AsyncMock()
-        proc.returncode = 1
-        proc.communicate = AsyncMock(
-            return_value=(b"", b"ERROR: No matching distribution found for aiohttp")
-        )
-        with patch.object(app_update_module.asyncio, "create_subprocess_exec",
-                          AsyncMock(return_value=proc)) as spawn:
-            yield spawn
+        _, spawn = _spawner(pip_returncode=1)
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            yield
 
     @pytest.mark.asyncio
     async def test_a_failed_pip_install_fails_the_update(
@@ -249,6 +291,43 @@ class TestDeployUpdateDependencyFailure:
         assert not (repo_dir / "app.new").exists()
 
 
+    @pytest.mark.asyncio
+    async def test_a_failed_pip_install_never_runs_the_root_deploy(
+        self, repo_dir, tmp_path, identity_files
+    ):
+        """The rollback puts back app/ and configs/, never what the root deploy
+        installed — units, sudoers, helpers. Run before pip, a pip failure left
+        the old code under the new release's argument-scoped sudo policy, and
+        every retry replayed the root deploy into the same failure."""
+        version, payload = identity_files
+        live_configs = repo_dir / "configs" / "camilladsp"
+        live_configs.mkdir(parents=True)
+        (live_configs / "config.yml").write_text("live devices\n")
+        tarball = _make_tarball(
+            tmp_path,
+            {"main.py": "new main\n", "requirements.txt": "aiohttp>=99.0\n"},
+            {"camilladsp/config.yml": "new devices\n"},
+            ROOT_FILES,
+        )
+        spawned, spawn = _spawner(pip_returncode=1)
+
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+
+        assert any(_ran_pip(argv) for argv in spawned), "pip must have been reached"
+        assert not any(_ran_deploy_script(argv) for argv in spawned), (
+            "the root deploy ran although pip failed"
+        )
+        assert result["success"] is False
+        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
+        assert (live_configs / "config.yml").read_text() == "live devices\n"
+        for name in ("app", "configs"):
+            assert not (repo_dir / f"{name}.old").exists()
+            assert not (repo_dir / f"{name}.new").exists()
+        assert version.read_text() == "v0.1.0"
+        assert payload.read_text() == "aaaa111"
+
+
 class TestDeployUpdateSuccess:
     """The committed path, and the floor the failure tests above stand on."""
 
@@ -270,11 +349,8 @@ class TestDeployUpdateSuccess:
 
     @pytest.fixture
     def working_pip(self):
-        proc = AsyncMock()
-        proc.returncode = 0
-        proc.communicate = AsyncMock(return_value=(b"", b""))
-        with patch.object(app_update_module.asyncio, "create_subprocess_exec",
-                          AsyncMock(return_value=proc)):
+        _, spawn = _spawner(pip_returncode=0)
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
             yield
 
     @pytest.mark.asyncio
@@ -322,6 +398,29 @@ class TestDeployUpdateSuccess:
         assert not (live / "dropped.yml").exists()
         assert not (repo_dir / "configs.old").exists()
         assert not (repo_dir / "configs.new").exists()
+
+
+    @pytest.mark.asyncio
+    async def test_dependencies_are_installed_before_the_root_deploy(
+        self, repo_dir, tmp_path, identity_files
+    ):
+        """The root deploy is the one step the rollback cannot undo, so it must
+        be the last one that can fail before the identity is written."""
+        tarball = _make_tarball(
+            tmp_path,
+            {"main.py": "new main\n", "requirements.txt": "aiohttp==3.9.0\n"},
+            root_files=ROOT_FILES,
+        )
+        spawned, spawn = _spawner(pip_returncode=0)
+
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+
+        assert result["success"] is True
+        pip_at = [i for i, argv in enumerate(spawned) if _ran_pip(argv)]
+        deploy_at = [i for i, argv in enumerate(spawned) if _ran_deploy_script(argv)]
+        assert len(pip_at) == 1 and len(deploy_at) == 1, spawned
+        assert pip_at[0] < deploy_at[0]
 
 
 class TestRestartOutcome:

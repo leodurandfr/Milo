@@ -2,8 +2,8 @@
 App update service for Milo Client.
 
 Handles deploying app updates pushed from the main Milo server:
-- Extract tarball, sync app/ and configs/, deploy system/rootfs files
-- Install Python dependencies
+- Extract tarball, sync app/ and configs/
+- Install Python dependencies, then deploy system/rootfs files
 - Write version file and schedule service restart
 """
 import asyncio
@@ -80,8 +80,8 @@ class AppUpdateService:
         Steps:
         1. Extract tarball to temp dir (with security validation)
         2. Sync app/ and configs/ (staged, then swapped in, skip __pycache__)
-        3. Run sudo deploy script for system/rootfs files
-        4. Install Python dependencies via pip
+        3. Install Python dependencies via pip
+        4. Run sudo deploy script for system/rootfs files
         5. Write the identity files
         6. Schedule service restart with delay
         """
@@ -116,14 +116,17 @@ class AppUpdateService:
                 else:
                     self.logger.warning(f"No {name}/ directory in tarball, skipping its sync")
 
-            # 3. Run deploy script for system/rootfs files
-            if (extracted_root / "system").is_dir() or (extracted_root / "rootfs").is_dir():
-                await self._deploy_system_files(temp_dir)
-
-            # 4. Install Python dependencies
+            # 3. Install Python dependencies
             requirements_file = REPO_DIR / "app" / "requirements.txt"
             if requirements_file.exists():
                 await self._install_dependencies(requirements_file)
+
+            # 4. Run deploy script for system/rootfs files, after pip: the
+            # rollback puts back app/ and configs/, never the units, sudoers and
+            # helpers this installs as root, so only the identity write may
+            # still fail behind it.
+            if (extracted_root / "system").is_dir() or (extracted_root / "rootfs").is_dir():
+                await self._deploy_system_files(temp_dir)
 
             # 5. Write the identity files. The payload goes last: it is what
             # the server polls to decide the deployment landed, so writing it
@@ -224,8 +227,8 @@ class AppUpdateService:
             os.rename(staging, target)
 
             # The unit's WorkingDirectory is app/, so the running process is
-            # now holding the renamed-away inode as its cwd. pip runs two steps
-            # later and calls getcwd(); re-anchor now.
+            # now holding the renamed-away inode as its cwd. pip runs in the
+            # next step and calls getcwd(); re-anchor now.
             if name == "app":
                 os.chdir(target)
 
