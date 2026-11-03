@@ -174,3 +174,63 @@ def test_the_identity_lines_name_the_code_that_answers(client, identity_at_start
 
     assert "app version     : v0.1.0" in text
     assert "app payload     : OLDPAYLOAD" in text
+
+
+class _Systemd:
+    """systemctl as systemd 257 was measured to answer, for one unit state:
+    `is-active` prints the state and exits 3 unless it is `active`, while
+    `show` exits 0 in every state."""
+
+    SUB_STATES = {"active": "running", "inactive": "dead", "failed": "failed", "activating": "start"}
+
+    def __init__(self, state):
+        self.state = state
+        self.sub = self.SUB_STATES[state]
+
+    def answer(self, args):
+        unit = "milo-client-camilladsp.service"
+        if args[:2] == ["systemctl", "list-units"]:
+            return 0, f"{unit} loaded {self.state} {self.sub} Milo DSP\n"
+        if args[:2] == ["systemctl", "is-active"]:
+            return (0 if self.state == "active" else 3), f"{self.state}\n"
+        if args[:2] == ["systemctl", "show"] and "--value" in args:
+            values = {"ActiveState": self.state, "SubState": self.sub}
+            return 0, f"{values.get(args[args.index('-p') + 1], '')}\n"
+        if args[:2] == ["systemctl", "show"]:
+            return 0, f"Id={unit}\nActiveState={self.state}\nSubState={self.sub}\nNRestarts=5\n"
+        return 0, ""
+
+
+class _FakeProc:
+    def __init__(self, returncode, stdout):
+        self.returncode = returncode
+        self._stdout = stdout.encode()
+
+    async def communicate(self):
+        return self._stdout, b""
+
+
+@pytest.mark.parametrize("state", ["active", "inactive", "failed", "activating"])
+def test_camilladsp_section_names_the_state_systemd_reports(client, monkeypatch, state):
+    """The DSP line is read in the states a maintainer opens a report for: a
+    unit that failed or sits inactive must not read `unknown` two lines below
+    the `[units]` block that names its real state."""
+    systemd = _Systemd(state)
+
+    async def fake_exec(*args, **kwargs):
+        return _FakeProc(*systemd.answer(list(args)))
+
+    monkeypatch.setattr(diagnostic.asyncio, "create_subprocess_exec", fake_exec)
+    text = client.get("/diagnostic").json()["text"]
+
+    blocks = {block.split("\n", 1)[0]: block for block in text.split("\n\n")}
+    units_line = next(
+        line for line in blocks["[units]"].splitlines()
+        if line.startswith("milo-client-camilladsp.service")
+    )
+    dsp_line = next(
+        line for line in blocks["[camilladsp]"].splitlines()
+        if line.startswith("milo-client-camilladsp.service")
+    )
+    assert units_line.split()[1] == state
+    assert dsp_line.split(":", 1)[1].strip() == units_line.split()[1]

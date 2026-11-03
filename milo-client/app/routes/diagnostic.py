@@ -272,7 +272,11 @@ async def _camilladsp() -> List[str]:
     the equalizer routes, and a diagnostic that opened a second WebSocket to a
     CamillaDSP that is wedged would hang on exactly the fault it is reporting.
     """
-    active = await _run(["systemctl", "is-active", "milo-client-camilladsp.service"])
+    # `show`, not `is-active`: is-active exits 3 in every state but active, and
+    # `_run` drops the stdout of a non-zero exit.
+    active = await _run([
+        "systemctl", "show", "-p", "ActiveState", "--value", "milo-client-camilladsp.service"
+    ])
     version = await _run(["camilladsp", "--version"])
     return [
         f"milo-client-camilladsp.service : {(active or 'unknown').strip()}",
