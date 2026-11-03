@@ -125,6 +125,7 @@
             v-if="!isOffline"
             :model-value="!client.equalizerMuted"
             variant="secondary"
+            :disabled="isLoading"
             @change="handleMuteToggle"
           />
           <div v-else class="toggle-offline-placeholder"></div>
@@ -194,6 +195,7 @@
             v-if="zoneClient.online"
             :model-value="!zoneClient.equalizerMuted"
             variant="secondary"
+            :disabled="isLoading"
             @change="(enabled) => handleClientMuteToggle(zoneClient.mac_id, !enabled)"
           />
           <div v-else class="toggle-offline-placeholder"></div>
