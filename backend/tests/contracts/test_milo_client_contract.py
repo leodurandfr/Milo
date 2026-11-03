@@ -877,7 +877,7 @@ def _json_read_path(node, bindings, resp_var):
 
     Resolves the three forms the backend uses, through any depth of chaining:
     the root itself, `.get("k")` (with or without a default) and `["k"]`. So
-    `data.get("app", {}).get("started_at")` reads as `app.started_at`.
+    `data.get("app", {}).get("payload")` reads as `app.payload`.
     """
     if isinstance(node, ast.Await):
         call = node.value

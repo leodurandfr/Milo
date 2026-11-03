@@ -36,6 +36,22 @@ DEPLOY_SCRIPT = "/usr/local/bin/milo-client-deploy-update"
 SYNCED_TREES = ("app", "configs")
 
 
+def read_identity(path: Path) -> Optional[str]:
+    """One of the two identity files, or None when it is missing or empty.
+
+    None on a satellite that has never been pushed is the truth: it runs
+    whatever the image gave it.
+    """
+    try:
+        if path.exists():
+            value = path.read_text().strip()
+            return value if value else None
+        return None
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Error reading {path}: {e}")
+        return None
+
+
 class AppUpdateService:
     """Service for deploying app updates pushed from the main server."""
 
@@ -46,28 +62,6 @@ class AppUpdateService:
     @property
     def update_in_progress(self) -> bool:
         return self._update_in_progress
-
-    def get_app_version(self) -> Optional[str]:
-        """The version string this satellite was deployed from, or None.
-
-        None means the file is missing or empty, which on a satellite that has
-        never been pushed is the truth: it runs whatever the image gave it.
-        """
-        return self._read_identity(VERSION_FILE, "version")
-
-    def get_app_payload(self) -> Optional[str]:
-        """Fingerprint of the `milo-client/` tree this satellite runs, or None."""
-        return self._read_identity(PAYLOAD_FILE, "payload")
-
-    def _read_identity(self, path: Path, label: str) -> Optional[str]:
-        try:
-            if path.exists():
-                value = path.read_text().strip()
-                return value if value else None
-            return None
-        except Exception as e:
-            self.logger.error(f"Error reading app {label}: {e}")
-            return None
 
     async def deploy_update(self, tarball_path: str, payload: str, version: str = "") -> dict:
         """Deploys an app update from a tarball.
@@ -128,10 +122,9 @@ class AppUpdateService:
             if (extracted_root / "system").is_dir() or (extracted_root / "rootfs").is_dir():
                 await self._deploy_system_files(temp_dir)
 
-            # 5. Write the identity files. The payload goes last: it is what
-            # the server polls to decide the deployment landed, so writing it
-            # before the version would let a poll succeed against a satellite
-            # still displaying the previous one.
+            # 5. Write the identity files. They name the code the *next* process
+            # runs: this one keeps reporting what it read when it started, so
+            # nothing written here is announced unless the restart lands.
             VERSION_FILE.write_text(version)
             PAYLOAD_FILE.write_text(payload)
             self.logger.info(f"Identity updated: payload {payload}, version {version or 'unknown'}")
@@ -333,9 +326,10 @@ class AppUpdateService:
         not happen: a unit file the deploy step made invalid, a masked unit, a
         policy that no longer grants the verb. There is nobody left to tell —
         the HTTP response went out two seconds ago — so the log is what a
-        `sat logs` can find, and the started_at the server compares stays put,
-        so the update reads as failed rather than succeeded on a satellite still
-        running the old code. Same distinction the reboot route already draws.
+        `sat logs` can find, and /status keeps the payload this process started
+        with, so the server reads the update as failed and keeps offering it to
+        a satellite still running the old code. Same distinction the reboot
+        route already draws.
         """
         self.logger.info("Restarting milo-client.service...")
 

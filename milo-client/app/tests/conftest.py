@@ -83,3 +83,33 @@ def snapclient_service():
     """SnapclientService instance."""
     from services.snapclient import SnapclientService
     return SnapclientService()
+
+
+@pytest.fixture
+def identity_at_startup(tmp_path):
+    """A satellite that came up on v0.1.0 / OLDPAYLOAD, with the identity files
+    left writable the way a deploy writes them.
+
+    The two routes that report the identity are re-imported under the patched
+    paths, which is what a process start does; they are re-imported again on the
+    way out so the next test sees the real paths and a fresh process start.
+    """
+    import importlib
+
+    import routes.diagnostic
+    import routes.health
+    import services.app_update as app_update_module
+
+    version = tmp_path / "app-version"
+    payload = tmp_path / "app-payload"
+    version.write_text("v0.1.0")
+    payload.write_text("OLDPAYLOAD")
+    try:
+        with patch.object(app_update_module, "VERSION_FILE", version), \
+                patch.object(app_update_module, "PAYLOAD_FILE", payload):
+            importlib.reload(routes.health)
+            importlib.reload(routes.diagnostic)
+            yield version, payload
+    finally:
+        importlib.reload(routes.health)
+        importlib.reload(routes.diagnostic)

@@ -112,3 +112,17 @@ def test_the_journal_is_restricted_to_the_satellites_own_units(client, monkeypat
             if token == "-u":
                 assert call[index + 1].startswith("milo-client"), call
     assert UNIT_GLOB == "milo-client*"
+
+
+def test_the_identity_lines_name_the_code_that_answers(client, identity_at_startup):
+    """A maintainer reads these lines to learn why a push did not take. An update
+    whose restart was refused has already written the next identity; reading the
+    files per request would print the code this process never ran."""
+    version, payload = identity_at_startup
+    version.write_text("v0.2.0")
+    payload.write_text("NEWPAYLOAD")
+
+    text = client.get("/diagnostic").json()["text"]
+
+    assert "app version     : v0.1.0" in text
+    assert "app payload     : OLDPAYLOAD" in text

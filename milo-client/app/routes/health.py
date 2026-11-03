@@ -9,17 +9,18 @@ from fastapi import APIRouter, HTTPException
 
 from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
-from services.app_update import AppUpdateService
+from services.app_update import PAYLOAD_FILE, VERSION_FILE, AppUpdateService, read_identity
 from services.camilladsp_update import CamillaDSPUpdateService
 
 logger = logging.getLogger(__name__)
 
-# The moment this process came up. `app.version` is a file the update writes
-# before it schedules the restart, so it attests that an update ran, never that
-# the code it shipped is the code answering — nothing an update does can move
-# this without the process having actually been replaced. The server compares it
-# across a push; see SatelliteUpdateService._wait_for_app_update_completion.
+# What this process is, read once when it came up. An update writes the identity
+# files before it schedules the restart, so read per request they would name the
+# code a refused restart never ran — and the server, which compares the payload,
+# would call the unit current and never push it again.
 APP_STARTED_AT = int(time.time())
+APP_VERSION = read_identity(VERSION_FILE)
+APP_PAYLOAD = read_identity(PAYLOAD_FILE)
 
 
 def get_system_uptime() -> int:
@@ -81,8 +82,8 @@ def create_health_router(
                 "app": {
                     # `version` is what the server displays beside its own row;
                     # `payload` is what it compares to decide on a push.
-                    "version": app_update_service.get_app_version(),
-                    "payload": app_update_service.get_app_payload(),
+                    "version": APP_VERSION,
+                    "payload": APP_PAYLOAD,
                     "started_at": APP_STARTED_AT,
                     "update_in_progress": app_update_service.update_in_progress
                 },

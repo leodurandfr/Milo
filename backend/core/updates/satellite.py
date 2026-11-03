@@ -88,7 +88,6 @@ class SatelliteUpdateService:
                 "snapclient_version": result.get("version"),
                 "app_version": result.get("app_version"),
                 "app_payload": result.get("app_payload"),
-                "app_started_at": result.get("app_started_at"),
                 "camilladsp_version": result.get("camilladsp_version"),
                 "online": True,
                 "uptime": result.get("uptime"),
@@ -116,7 +115,6 @@ class SatelliteUpdateService:
                         "uptime": data.get("uptime"),
                         "app_version": data.get("app", {}).get("version"),
                         "app_payload": data.get("app", {}).get("payload"),
-                        "app_started_at": data.get("app", {}).get("started_at"),
                         "camilladsp_version": data.get("camilladsp", {}).get("version")
                     }
 
@@ -407,9 +405,6 @@ class SatelliteUpdateService:
                 }
 
             ip = satellite["ip"]
-            # Read before the push: the satellite cannot move this without
-            # restarting, which is the one step the version file cannot attest.
-            started_at_before = satellite.get("app_started_at")
 
             tarball_path, payload = await self._create_client_tarball()
             version = await self.get_server_version() or ""
@@ -433,9 +428,7 @@ class SatelliteUpdateService:
                                 "error": f"Satellite rejected update: HTTP {response.status} - {error_text}"
                             }
 
-            result = await self._wait_for_app_update_completion(
-                mac_id, ip, payload, started_at_before
-            )
+            result = await self._wait_for_app_update_completion(mac_id, ip, payload)
             return result
 
         except Exception as e:
@@ -638,22 +631,20 @@ class SatelliteUpdateService:
         self,
         mac_id: str,
         ip: str,
-        expected_payload: str,
-        started_at_before: Optional[int]
+        expected_payload: str
     ) -> Dict[str, Any]:
         """Polls satellite /status until the payload just sent is the one *running*.
 
-        The payload it reports cannot say that on its own. The satellite writes
-        it to a file at step 5 of its own deployment and only schedules the
-        restart at step 6, so a restart that never lands — an invalid unit file
-        the same update just deployed, a masked unit — leaves a satellite
-        answering with the new fingerprint out of the old process, forever.
-        `app.started_at` is the process itself, and only a real restart moves it.
+        A satellite reports the payload its process read when it started, so the
+        new one answers only from the restarted process. The deploy itself
+        already succeeded — the satellite answered the POST with 200 — so a
+        payload that never moves is a restart that never landed: an invalid unit
+        file the same update just deployed, a masked unit, or a new process that
+        never came up.
         """
         max_wait_time = 90
         check_interval = 5
         elapsed = 0
-        payload_seen = False
 
         while elapsed < max_wait_time:
             await asyncio.sleep(check_interval)
@@ -667,34 +658,22 @@ class SatelliteUpdateService:
                     async with session.get(url) as response:
                         if response.status == 200:
                             data = await response.json()
-                            app = data.get("app", {})
-                            payload = app.get("payload")
-
-                            if payload == expected_payload:
-                                payload_seen = True
-
-                            if payload == expected_payload and app.get("started_at") != started_at_before:
+                            if data.get("app", {}).get("payload") == expected_payload:
                                 return {
                                     "success": True,
                                     "message": f"Satellite {mac_id} app updated successfully",
-                                    "new_version": payload
+                                    "new_version": expected_payload
                                 }
 
             except Exception as e:
                 self.logger.debug(f"Waiting for satellite {mac_id} restart: {e}")
                 continue
 
-        if payload_seen:
-            self.logger.error(
-                f"Satellite {mac_id} deployed {expected_payload} but never restarted into it"
-            )
-            return {
-                "success": False,
-                "error": f"Satellite {mac_id} deployed the update but never restarted into it"
-            }
-
+        self.logger.error(
+            f"Satellite {mac_id} deployed {expected_payload} but never restarted into it"
+        )
         return {
             "success": False,
-            "error": f"App update timeout for {mac_id}"
+            "error": f"Satellite {mac_id} deployed the update but never restarted into it"
         }
 

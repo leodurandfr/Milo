@@ -707,11 +707,10 @@ class TestAppUpdateAvailableFlag:
 class TestAppUpdateOutcome:
     """What counts as "the satellite is running the new app".
 
-    Not the version it reports: the satellite writes that file at step 5 of its
-    own deployment and only schedules the restart at step 6. A restart that
-    never lands — a unit file the same update just made invalid, a masked unit —
-    leaves it answering the new version out of the old process. `started_at` is
-    the process, so it is the half the satellite cannot write ahead of itself.
+    Its payload: a satellite reports the one its process read when it started,
+    so the pushed payload answers only once the restart has landed. A restart
+    that never lands — a unit file the same update just made invalid, a masked
+    unit — leaves the old payload in place, which the fleet then pushes again.
     """
 
     @pytest.fixture
@@ -747,37 +746,22 @@ class TestAppUpdateOutcome:
         assert result["success"] is True
         assert result["new_version"] == SERVER_PAYLOAD
 
-    async def test_a_version_file_written_by_a_process_that_never_restarted_is_not(
+    async def test_a_satellite_that_keeps_its_old_payload_never_restarted(
         self, satellite_service, client_tree
     ):
-        """The defect: the deploy landed, the restart did not, and the satellite
-        keeps serving the old code while the fleet view calls it current."""
+        """The 200 to the POST is the deploy succeeding, so a payload that never
+        moves is a restart that never landed. Read as a timeout, the UI offered
+        a retry for a unit that needs somebody to look at why it stays put."""
         satellite = _FakeSatellite(
             status_payload={"app": {"payload": "0ae3872", "version": "v0.1.0", "started_at": 1000},
                             "snapclient": {"version": "0.28.0"}},
-            status_after_post={"app": {"payload": SERVER_PAYLOAD, "version": SERVER_VERSION, "started_at": 1000},
-                               "snapclient": {"version": "0.28.0"}},
         )
 
         result = await self._push(satellite_service, satellite, client_tree)
 
+        assert satellite.posts == ["http://192.168.1.153:8001/app/update"]
         assert result["success"] is False
         assert "never restarted" in result["error"]
-
-    async def test_a_satellite_that_answers_nothing_is_a_timeout(
-        self, satellite_service, client_tree
-    ):
-        """The two failures read differently in the UI: one needs a retry, the
-        other needs somebody to look at why the unit will not come back."""
-        satellite = _FakeSatellite(
-            status_payload={"app": {"payload": "0ae3872", "version": "v0.1.0", "started_at": 1000},
-                            "snapclient": {"version": "0.28.0"}},
-        )
-
-        result = await self._push(satellite_service, satellite, client_tree)
-
-        assert result["success"] is False
-        assert "timeout" in result["error"]
 
     async def test_an_app_push_reaches_a_satellite_the_registry_holds_offline(self, client_tree):
         """The update-app route and the fleet push both land here, and in direct
@@ -869,7 +853,6 @@ class TestDiscoverSatellites:
             "snapclient_version": "0.31.0",
             "app_version": "v0.2.0",
             "app_payload": "deadbee",
-            "app_started_at": 1787000000,
             "camilladsp_version": "3.0.1",
             "online": True,
             "uptime": 4242,

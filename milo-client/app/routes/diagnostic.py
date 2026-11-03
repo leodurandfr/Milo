@@ -32,6 +32,8 @@ from typing import Dict, List, Optional, Sequence
 
 from fastapi import APIRouter
 
+from routes.health import APP_PAYLOAD, APP_VERSION
+
 logger = logging.getLogger(__name__)
 
 # The satellite's own units, and nothing else. A glob would also catch a unit a
@@ -226,17 +228,14 @@ def create_diagnostic_router() -> APIRouter:
 
 
 async def _identity() -> List[str]:
-    from services.app_update import AppUpdateService
-
     uptime = _read(Path("/proc/uptime"))
     seconds = int(float(uptime.split()[0])) if uptime else 0
-    service = AppUpdateService()
     kernel = await _run(["uname", "-r"])
     return [
         f"uptime          : {seconds // 86400}d {(seconds % 86400) // 3600}h "
         f"{(seconds % 3600) // 60}m",
-        f"app version     : {service.get_app_version() or '-'}",
-        f"app payload     : {service.get_app_payload() or '-'}",
+        f"app version     : {APP_VERSION or '-'}",
+        f"app payload     : {APP_PAYLOAD or '-'}",
         f"api started at  : {time.strftime('%Y-%m-%dT%H:%M:%S%z')} (now)",
         f"kernel          : {(kernel or '-').strip()}",
     ]

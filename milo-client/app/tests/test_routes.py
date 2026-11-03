@@ -63,8 +63,6 @@ def mock_app_update_service():
     """Mock AppUpdateService for route tests."""
     service = Mock(spec=AppUpdateService)
     service.update_in_progress = False
-    service.get_app_version = Mock(return_value="v0.2.0")
-    service.get_app_payload = Mock(return_value="bbbb222")
     return service
 
 
@@ -121,10 +119,10 @@ class TestHealthRoutes:
         assert "update_in_progress" in data
 
     def test_status_carries_the_process_start(self, client):
-        """The server compares app.started_at across an app push to tell a
-        satellite that restarted into the new code from one that only wrote the
-        version file. Drop the field and every app update reports "deployed but
-        never restarted", because both sides of that comparison become None."""
+        """app.started_at is how a push is checked on a unit (the checklist's
+        "Satellite push lands in a new process"): a payload can already equal
+        the one pushed, and only the process start says the push replaced the
+        process that answers. The server itself no longer reads it."""
         data = client.get("/status").json()
 
         started_at = data["app"]["started_at"]
