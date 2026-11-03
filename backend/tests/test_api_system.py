@@ -30,6 +30,7 @@ import asyncio
 import builtins
 import io
 import logging
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -577,10 +578,14 @@ def localtime(tmp_path, monkeypatch):
     link = tmp_path / "localtime"
     monkeypatch.setattr(api_system, "LOCALTIME_LINK", str(link))
 
-    def point_at(zone):
+    def point_at(zone, relative=False):
+        """`relative=True` is the link timedated writes (`../usr/share/zoneinfo/…`),
+        the image's is absolute. Relative to where the relocated link sits, so it
+        still lands on the real zoneinfo tree."""
         if link.is_symlink() or link.exists():
             link.unlink()
-        link.symlink_to(f"{api_system.ZONEINFO_PREFIX}{zone}")
+        target = f"{api_system.ZONEINFO_PREFIX}{zone}"
+        link.symlink_to(os.path.relpath(target, start=link.parent) if relative else target)
 
     return point_at
 
@@ -827,6 +832,43 @@ class TestRecoveryAccessPoint:
 
 class TestTimezone:
     """`GET`/`PUT /api/system/timezone`."""
+
+    @pytest.fixture(autouse=True)
+    def chosen_marker(self, tmp_path, monkeypatch):
+        """The timezone-chosen marker, relocated: every successful PUT writes it."""
+        path = tmp_path / "timezone-chosen"
+        monkeypatch.setattr(api_system, "TIMEZONE_CHOSEN_MARKER", path)
+        return path
+
+    def test_a_relative_localtime_link_is_read_as_its_zone(self, client, localtime):
+        """timedated writes `/etc/localtime` as a relative link, so every zone
+        set from Settings came back as `null` — on screen, in the PUT's answer,
+        and in the daylight location the kiosk's theme reads sunset from."""
+        localtime("Europe/Paris", relative=True)
+
+        assert client.get("/api/system/timezone").json()["data"]["timezone"] == "Europe/Paris"
+        assert client.get("/api/system/daylight-location").json()["timezone"] == "Europe/Paris"
+
+    def test_a_chosen_utc_is_not_reported_as_default(self, client, spawn, localtime):
+        """`Etc/UTC` is both the shipped zone and one an owner can pick; only
+        the choice tells them apart. Reported as default, the next browser to
+        open the UI overwrites it with its own zone, silently."""
+        localtime("Etc/UTC")
+        spawn.script(returncode=0)
+
+        assert client.put("/api/system/timezone", json={"timezone": "Etc/UTC"}).status_code == 200
+
+        assert client.get("/api/system/timezone").json()["data"]["is_default"] is False
+
+    def test_a_failed_set_leaves_the_zone_unchosen(self, client, spawn, localtime):
+        """A helper that refused changed nothing, so the shipped zone still
+        invites the browser's."""
+        localtime("Etc/UTC")
+        spawn.script(returncode=1, stderr=b"Unknown timezone")
+
+        client.put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
+
+        assert client.get("/api/system/timezone").json()["data"]["is_default"] is True
 
     def test_the_current_zone_is_read_from_the_link_the_c_library_follows(self, client, localtime):
         """`/etc/localtime` is what every timestamp on the box resolves

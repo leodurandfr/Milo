@@ -21,6 +21,7 @@ from backend.config.constants import (
     RESET_SETUP_MARKER,
     SET_PASSWORD_CMD,
     SET_TIMEZONE_CMD,
+    TIMEZONE_CHOSEN_MARKER,
 )
 
 if TYPE_CHECKING:
@@ -40,9 +41,9 @@ LOCALTIME_LINK = "/etc/localtime"
 ZONEINFO_PREFIX = "/usr/share/zoneinfo/"
 SYSFS_NET = "/sys/class/net"
 
-# The zone the image ships. Not a location — it is the value that means "nobody
-# has told us yet", which is what lets the first browser to open the UI supply
-# the real one without ever overwriting a deliberate choice.
+# The zone the image ships. Not a location — with no TIMEZONE_CHOSEN_MARKER it
+# means "nobody has told us yet", which is what lets the first browser to open
+# the UI supply the real one without ever overwriting a deliberate choice.
 DEFAULT_TIMEZONE = "Etc/UTC"
 
 
@@ -67,11 +68,17 @@ def _current_timezone() -> Optional[str]:
     so it cannot disagree with reality the way a second copy in /etc/timezone
     can. Returns None when it is not a symlink into the zoneinfo tree — an
     answer, not a guess.
+
+    timedated writes the link relative (`../usr/share/zoneinfo/…`), so it is
+    joined to where the link sits — never `realpath`'d, which would follow an
+    alias (`UTC` → `Etc/UTC`) and report a zone nobody picked.
     """
     try:
         target = os.readlink(LOCALTIME_LINK)
     except OSError:
         return None
+    if not os.path.isabs(target):
+        target = os.path.normpath(os.path.join(os.path.dirname(LOCALTIME_LINK), target))
     if not target.startswith(ZONEINFO_PREFIX):
         return None
     return target[len(ZONEINFO_PREFIX):]
@@ -487,16 +494,16 @@ def create_system_router(
 
         `is_default` is what the frontend gates its one-shot adoption on: a
         browser reports the zone it lives in, and it is taken only while nobody
-        has chosen one. The list rides along so the settings dropdowns are built
-        from the zones this system actually has rather than a table restated in
-        the frontend.
+        has chosen one — the shipped zone with no successful PUT behind it. The
+        list rides along so the settings dropdowns are built from the zones this
+        system actually has rather than a table restated in the frontend.
         """
         current = _current_timezone()
         return {
             "status": "success",
             "data": {
                 "timezone": current,
-                "is_default": current == DEFAULT_TIMEZONE,
+                "is_default": current == DEFAULT_TIMEZONE and not TIMEZONE_CHOSEN_MARKER.exists(),
                 "available": _available_timezones(),
             },
         }
@@ -531,6 +538,12 @@ def create_system_router(
                 raise HTTPException(status_code=500, detail=f"Failed to set timezone: {detail}")
 
             logger.info("Timezone set to %s", payload.timezone)
+            try:
+                await asyncio.to_thread(TIMEZONE_CHOSEN_MARKER.write_bytes, b"")
+            except OSError as e:
+                # The zone is applied either way; unmarked, a shipped Etc/UTC
+                # is merely offered to the next browser again.
+                logger.warning("Could not record the timezone as chosen: %s", e)
             if state_machine is not None:
                 await state_machine.broadcast(SystemTimezoneChanged(**await _daylight_location()))
             return {"status": "success", "data": {"timezone": _current_timezone()}}
