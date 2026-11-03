@@ -555,3 +555,72 @@ def test_every_payload_directory_lands():
         f"fingerprinted but never installed: {sorted(fingerprinted - synced - deployed)}; "
         f"installed but never fingerprinted: {sorted((synced | deployed) - fingerprinted)}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# The hardware helpers flush the boot partition before they hand back.
+# --------------------------------------------------------------------------- #
+
+APPLY_HARDWARE_SCRIPTS = (
+    REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-apply-hardware",
+    REPO_ROOT / "milo-client" / "rootfs" / "usr" / "local" / "bin" / "milo-client-apply-hardware",
+)
+SHELL_FUNC_RE = re.compile(r"^([a-z0-9_]+)\(\) \{\n(.*?)^\}\n", re.MULTILINE | re.DOTALL)
+CONFIG_WRITE_RE = re.compile(r"(?:\bsed\s+-i\b|>>|\bcp\b).*\"\$CONFIG_FILE\"|\"\$CONFIG_FILE\".*>>")
+# At column 0, so every path that reaches the line runs it (never one branch's).
+# Both: syncfs writes the whole partition back but sends no cache flush on vfat,
+# the fsync of the file does.
+BOOT_SYNCS = (
+    re.compile(r'^sync\s+-f\s+"\$CONFIG_FILE"\s*$'),
+    re.compile(r'^sync\s+"\$CONFIG_FILE"\s*$'),
+)
+EXIT_RE = re.compile(r"^\s*(?:exit|return|exec)\b|^\s*(?:\S*/)?reboot\b|\bsystemctl\s+reboot\b")
+
+
+def _config_writing_helpers(tree_root: Path) -> set[str]:
+    """The hardware-helpers.sh functions that write config.txt, read from their body."""
+    text = (tree_root / "usr" / "local" / "lib" / "milo" / "hardware-helpers.sh").read_text(
+        encoding="utf-8"
+    )
+    return {
+        name for name, body in SHELL_FUNC_RE.findall(text)
+        if "CONFIG_FILE" in body and re.search(r"\bsed\s+-i\b|\bcp\b", body)
+    }
+
+
+@pytest.mark.parametrize("script", APPLY_HARDWARE_SCRIPTS, ids=lambda p: p.name)
+def test_apply_hardware_syncs_the_boot_partition_before_it_returns(script):
+    """Both apply helpers flush config.txt to disk before every way out.
+
+    /boot/firmware is vfat, with no journal, and the backend makes
+    `setup_completed` durable on ext4 the moment the helper returns, then
+    reboots. With the pages of config.txt still in the cache, a power cut in the
+    seconds before the shutdown unmounts the partition left a unit marked
+    configured over the image's config.txt: no overlay, no sound, no wizard.
+    Fails when a write to config.txt can reach an exit, a reboot or the end of
+    the script with no `sync -f "$CONFIG_FILE"` and `sync "$CONFIG_FILE"` at
+    top level after it. Consumers: milo-backend's setup wizard and Hardware page
+    (server); the satellite's `POST /api/hardware/reboot` and its first-boot
+    conversion (satellite).
+    """
+    tree_root = script.parents[3]
+    writers = _config_writing_helpers(tree_root)
+    assert {"remove_block", "backup_config", "disable_vc4_audio"} <= writers, (
+        f"helpers not extracted: {writers}"
+    )
+
+    lines = _code_lines(script)
+    call_re = re.compile(rf"^\s*(?:{'|'.join(sorted(writers))})\b")
+    writes = [i for i, line in enumerate(lines) if CONFIG_WRITE_RE.search(line) or call_re.match(line)]
+    assert len(writes) >= 3, f"{script.name}: config.txt writes not extracted: {writes}"
+
+    syncs = [[i for i, line in enumerate(lines) if rx.match(line)] for rx in BOOT_SYNCS]
+    exits = [i for i, line in enumerate(lines) if EXIT_RE.search(line) and i > writes[0]]
+    for exit_at in [*exits, len(lines)]:
+        last_write = max(i for i in writes if i < exit_at)
+        for rx, found in zip(BOOT_SYNCS, syncs):
+            assert any(last_write < s < exit_at for s in found), (
+                f"{script.name}: line {lines[last_write].strip()!r} reaches "
+                f"{lines[exit_at].strip() if exit_at < len(lines) else 'the end of the script'!r} "
+                f"with no top-level line matching {rx.pattern!r} in between"
+            )

@@ -75,6 +75,13 @@ fi
 # Reboot (unless --no-reboot)
 # =============================================================================
 
+# /boot/firmware is vfat, with no journal: flush it before the caller reboots,
+# or a power cut before the shutdown unmounts it keeps the old config.txt.
+# syncfs writes everything back but sends no cache flush on vfat; the fsync of
+# the file is what flushes the card.
+sync -f "$CONFIG_FILE"
+sync "$CONFIG_FILE"
+
 if [[ "$NO_REBOOT" == "true" ]]; then
     echo "Hardware configuration applied (reboot skipped)."
 else

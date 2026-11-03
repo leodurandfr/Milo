@@ -309,6 +309,14 @@ fi
 # Reboot
 # =============================================================================
 
+# /boot/firmware is vfat, with no journal, and the caller makes setup_completed
+# durable on ext4 as soon as this returns: flush the partition first, or a power
+# cut before the shutdown unmounts it keeps the old config.txt under the flag.
+# syncfs writes everything back (pieeprom.upd and the renames included) but sends
+# no cache flush on vfat; the fsync of the file is what flushes the card.
+sync -f "$CONFIG_FILE"
+sync "$CONFIG_FILE"
+
 if ! $REBOOT_WHEN_DONE; then
     echo "Hardware configuration applied. Reboot deferred to the caller."
     exit 0
