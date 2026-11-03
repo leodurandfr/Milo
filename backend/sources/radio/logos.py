@@ -45,7 +45,7 @@ import socket
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import aiofiles
@@ -173,7 +173,9 @@ async def target_allowed(url: str) -> bool:
     The URL comes from a public directory anyone may add to, so without this the
     route is a request-forgery primitive: a station naming
     `http://192.168.1.1/` would make this appliance fetch it. Checked on every
-    redirect hop, so a public host cannot bounce the fetch onto the LAN.
+    redirect hop, so a public host cannot bounce the fetch onto the LAN, and
+    held again by `_GlobalOnlyResolver` on the answer the connection uses, so a
+    name cannot rebind onto the LAN between the check and the connect.
     """
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
@@ -186,11 +188,17 @@ async def target_allowed(url: str) -> bool:
         )
     except (OSError, UnicodeError):
         return False
-    if not infos:
+    return _all_global(info[4][0] for info in infos)
+
+
+def _all_global(hosts: Iterable[str]) -> bool:
+    """True when there is an address and every one is on the public internet."""
+    hosts = list(hosts)
+    if not hosts:
         return False
-    for info in infos:
+    for host in hosts:
         try:
-            address = ipaddress.ip_address(info[4][0])
+            address = ipaddress.ip_address(host)
         except ValueError:
             return False
         # `is_global` is the one predicate that covers loopback, RFC1918,
@@ -198,6 +206,30 @@ async def target_allowed(url: str) -> bool:
         if not address.is_global:
             return False
     return True
+
+
+class _GlobalOnlyResolver(aiohttp.abc.AbstractResolver):
+    """aiohttp's threaded resolver, refusing what `target_allowed` refuses.
+
+    The check and the connection each ask DNS, and a name answered with a TTL
+    of 0 can be public for the first and on this LAN for the second: the rule
+    must judge the answer the connection uses. aiohttp skips the resolver for an
+    address literal, which cannot rebind and is left to `target_allowed`.
+    """
+
+    def __init__(self) -> None:
+        self._inner = aiohttp.ThreadedResolver()
+
+    async def resolve(
+        self, host: str, port: int = 0, family: socket.AddressFamily = socket.AF_INET
+    ) -> List[aiohttp.abc.ResolveResult]:
+        results = await self._inner.resolve(host, port, family)
+        if not _all_global(result["host"] for result in results):
+            raise OSError(f"{host} resolves off the public internet")
+        return results
+
+    async def close(self) -> None:
+        await self._inner.close()
 
 
 class _NoAnswer(Exception):
@@ -228,7 +260,8 @@ async def _download(url: str) -> Optional[bytes]:
     hops = 0
     retried = False
     try:
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(resolver=_GlobalOnlyResolver())
+        async with aiohttp.ClientSession(connector=connector) as session:
             while True:
                 if not await target_allowed(target):
                     raise _NoAnswer(f"refused target {target}")

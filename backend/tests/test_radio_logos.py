@@ -110,7 +110,7 @@ def fetches(monkeypatch):
     """Replace the HTTP client; every call opens the same recording session."""
     def _install(*responses):
         session = _Session(responses)
-        monkeypatch.setattr(logos_module.aiohttp, "ClientSession", lambda: session)
+        monkeypatch.setattr(logos_module.aiohttp, "ClientSession", lambda *a, **kw: session)
         return session
 
     return _install
@@ -225,6 +225,42 @@ class TestTheFetch:
 
         assert await StationLogos().get(LOGO_URL, BROWSER) is None
         assert session.fetched == [LOGO_URL]
+
+    async def test_a_name_that_rebinds_to_the_lan_after_the_check_is_not_fetched(
+        self, monkeypatch
+    ):
+        """A name answered with a TTL of 0 can pass the check on a public address
+        and resolve to this machine when the fetch connects: the connection must
+        be held to the same rule as the check. A real session against a real
+        server on loopback, since the faked one never connects."""
+        received = []
+
+        async def _serve(reader, writer):
+            request_line = await reader.readline()
+            received.append(request_line.split()[1].decode())
+            body = _png(200, 200)
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n"
+                         b"Content-Length: %d\r\nConnection: close\r\n\r\n" % len(body) + body)
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(_serve, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        answers = iter(["93.184.216.34"])
+
+        def _rebinding(host, port, *a, **kw):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                     (next(answers, "127.0.0.1"), port or 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", _rebinding)
+        try:
+            result = await StationLogos().get(f"http://rebind.test:{port}/probe", BROWSER)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        assert result is None
+        assert received == [], "the appliance fetched this machine through a rebound name"
 
     async def test_a_redirect_between_public_hosts_is_followed(self, fetches, public):
         """HTTP→HTTPS redirects are routine in the directory."""
