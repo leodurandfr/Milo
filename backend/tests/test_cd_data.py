@@ -398,6 +398,79 @@ class TestLookupMetadata:
         info = await service.lookup_metadata("d1", "toc", self.TOC)
         assert info.track_count == 2 and info.album is None
 
+    @staticmethod
+    def _stalled_musicbrainz(monkeypatch, release):
+        """MusicBrainz over a half-open connection: musicbrainzngs sets no
+        socket timeout, so the call returns only once `release` is set."""
+        import backend.sources.cd.data as data_module
+        monkeypatch.setattr(data_module, "LOOKUP_TIMEOUT_S", 0.05)
+        calls = []
+
+        def get_releases_by_discid(disc_id, includes=None, toc=None):
+            calls.append(disc_id)
+            release.wait(5)
+            return {"disc": {"release-list": [TestTheMusicBrainzQuery.RELEASE]}}
+
+        monkeypatch.setattr(musicbrainzngs, "get_releases_by_discid", get_releases_by_discid)
+        return calls
+
+    async def test_a_stalled_musicbrainz_lookup_falls_back_to_an_unnamed_disc(
+            self, service, monkeypatch):
+        """The source holds the disc in reading_disc — eject the only command
+        it takes — until this returns: a lookup that never answers left a
+        disc unplayable until it was ejected."""
+        import threading
+        release = threading.Event()
+        self._stalled_musicbrainz(monkeypatch, release)
+        try:
+            info = await asyncio.wait_for(
+                service.lookup_metadata("d1", "toc", self.TOC), 2.0)
+            assert info.album is None
+            assert (info.track_count, info.total_duration) == (2, 350)
+            assert "d1" not in service._cache, "a fallback was cached as if it were known"
+        finally:
+            release.set()
+
+    async def test_a_stalled_lookup_never_starts_a_second_thread(self, service, monkeypatch):
+        """musicbrainzngs holds its rate-limit lock for the whole request: a
+        second disc's thread would queue behind the stalled one and park one
+        more worker of the executor the whole backend shares."""
+        import threading
+        release = threading.Event()
+        calls = self._stalled_musicbrainz(monkeypatch, release)
+        try:
+            await asyncio.wait_for(service.lookup_metadata("d1", "toc", self.TOC), 2.0)
+            info = await asyncio.wait_for(
+                service.lookup_metadata("d2", "toc", self.TOC), 2.0)
+            assert info.album is None and info.track_count == 2
+            assert calls == ["d1"], "a second lookup started behind the stalled one"
+        finally:
+            release.set()
+
+    async def test_a_retry_joins_the_lookup_in_flight_and_is_named_by_it(
+            self, service, tmp_path, monkeypatch):
+        """The source's retry for the same disc must wait on the thread
+        already asking, so the answer that thread finally brings names it."""
+        import threading
+        import backend.sources.cd.data as data_module
+        service._data_file = str(tmp_path / "cd_data.json")
+        release = threading.Event()
+        calls = self._stalled_musicbrainz(monkeypatch, release)
+        try:
+            first = await asyncio.wait_for(
+                service.lookup_metadata("d1", "toc", self.TOC), 2.0)
+            assert first.album is None
+            monkeypatch.setattr(data_module, "LOOKUP_TIMEOUT_S", 2.0)
+            retry = asyncio.ensure_future(service.lookup_metadata("d1", "toc", self.TOC))
+            await asyncio.sleep(0.05)
+            release.set()
+            info = await asyncio.wait_for(retry, 2.0)
+        finally:
+            release.set()
+
+        assert info.album == "Spaces"
+        assert calls == ["d1"], "the retry started a second lookup"
+
     async def test_a_found_disc_is_cached_and_persisted_for_the_next_insertion(
             self, service, tmp_path, monkeypatch):
         service._data_file = str(tmp_path / "cd_data.json")

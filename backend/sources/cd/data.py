@@ -34,6 +34,13 @@ logger = logging.getLogger("source.cd.data")
 # for as long as the source stays open.
 COVER_FETCH_TIMEOUT_S = 150.0
 
+# How long a caller waits for MusicBrainz to name a disc before playing it
+# with generic titles; the source's own retry names it later. Past the ~100 s
+# its retries last in an outage, for the same missing socket timeout. Only one
+# lookup is ever in flight: musicbrainzngs holds its rate-limit lock for the
+# whole request, so a second thread would only queue behind a stalled one.
+LOOKUP_TIMEOUT_S = 120.0
+
 # What lookup_metadata writes into every cache entry. An entry missing one was
 # written by an earlier release and is dropped on load — its disc is simply
 # looked up again. The cache is disposable: it degrades, it never stops the
@@ -49,7 +56,7 @@ class CdDataService:
     Service for CD disc detection, metadata lookup, and local caching.
 
     Uses an in-memory cache backed by cd_data.json for persistence.
-    Blocking I/O (discid, musicbrainzngs) is offloaded via asyncio.to_thread().
+    Blocking I/O (discid, musicbrainzngs) is offloaded to threads.
     """
 
     def __init__(self):
@@ -61,6 +68,7 @@ class CdDataService:
         # source closed and reopened during an outage waits on the same
         # thread instead of parking one more in the default executor.
         self._cover_downloads: Dict[str, asyncio.Future] = {}
+        self._lookup_inflight: Optional[Tuple[str, asyncio.Future]] = None
 
         # Configure MusicBrainz user agent (module-level, idempotent)
         try:
@@ -135,17 +143,40 @@ class CdDataService:
         Never reaches the Cover Art Archive: the caller cannot publish the disc
         until this returns, and the archive's retries once held a known disc
         (and its auto-play) for 97 s. The jacket is `fetch_cover`'s job.
+
+        Answers within LOOKUP_TIMEOUT_S, and at once while another disc's
+        lookup is still in flight: past that, the disc comes back unnamed and
+        the source's retry asks again.
         """
         cached = self._cache.get(disc_id)
         if cached:
             logger.info(f"Cache hit for disc {disc_id}")
             return self._disc_info_from_cache(disc_id, cached)
 
-        # Try MusicBrainz lookup (in thread to avoid blocking)
-        try:
-            result = await asyncio.to_thread(
-                self._lookup_musicbrainz_sync, disc_id, toc_string
+        inflight = self._lookup_inflight
+        if inflight is not None and inflight[0] != disc_id:
+            logger.warning(
+                f"MusicBrainz lookup for disc {inflight[0]} still pending, "
+                f"disc {disc_id} plays unnamed until a retry"
             )
+            return self._build_fallback_disc_info(disc_id, tracks)
+        if inflight is None:
+            lookup = asyncio.get_running_loop().run_in_executor(
+                None, self._lookup_musicbrainz_sync, disc_id, toc_string)
+            self._lookup_inflight = (disc_id, lookup)
+            lookup.add_done_callback(self._forget_lookup)
+        else:
+            lookup = inflight[1]
+
+        try:
+            # Shielded like fetch_cover: a retry joins the same thread.
+            result = await asyncio.wait_for(asyncio.shield(lookup), LOOKUP_TIMEOUT_S)
+        except TimeoutError:
+            logger.warning(
+                f"MusicBrainz did not answer for disc {disc_id} within "
+                f"{LOOKUP_TIMEOUT_S:.0f} s, playing it unnamed until a retry"
+            )
+            result = None
         except Exception as e:
             logger.warning(f"MusicBrainz lookup failed: {e}")
             result = None
@@ -173,6 +204,12 @@ class CdDataService:
 
         # Fallback: generic track names with TOC durations
         return self._build_fallback_disc_info(disc_id, tracks)
+
+    def _forget_lookup(self, done: asyncio.Future) -> None:
+        if self._lookup_inflight is not None and self._lookup_inflight[1] is done:
+            self._lookup_inflight = None
+        if not done.cancelled():
+            done.exception()  # retrieved here: its caller may be gone
 
     def _lookup_musicbrainz_sync(
         self, disc_id: str, toc_string: str
