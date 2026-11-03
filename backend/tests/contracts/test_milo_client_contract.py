@@ -35,6 +35,7 @@ still calls (restore it, or update the caller). Do not add a compatibility shim.
 import ast
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -802,13 +803,32 @@ def _multipart_surface() -> dict[tuple[str, str], set[str]]:
     return surface
 
 
-def _client_form_fields_by_route() -> dict[tuple[str, str], set[str]]:
-    """(method, path) → the form parameters milo-client's handler declares.
+class _FormFields(NamedTuple):
+    declared: set[str]
+    required: set[str]
+
+
+def _is_required_form_param(default: ast.Call) -> bool:
+    """`Form(...)`, `Form()` and `Form(default=...)` are required; `Form(None)` is not."""
+    if default.args:
+        first = default.args[0]
+        return isinstance(first, ast.Constant) and first.value is Ellipsis
+    keywords = {kw.arg: kw.value for kw in default.keywords}
+    if "default_factory" in keywords:
+        return False
+    given = keywords.get("default")
+    return given is None or (isinstance(given, ast.Constant) and given.value is Ellipsis)
+
+
+def _client_form_fields_by_route() -> dict[tuple[str, str], _FormFields]:
+    """(method, path) → the form parameters milo-client's handler declares, and the required ones.
 
     A `File(...)` / `Form(...)` default is what makes a parameter part of the
-    multipart body rather than a query argument, and FastAPI makes each of them
-    required — so a field the server stops sending is a 422, and one it renames
-    is a 422 too.
+    multipart body rather than a query argument. Only a default with no value
+    makes it required — a required field the server does not send is a 422, and
+    so is one it renames; `Form(None)` or `Form("")` is simply left at its
+    default. Read from parameter defaults only, so a form parameter spelled any
+    other way fails `test_every_milo_client_form_parameter_is_read_from_its_default`.
     """
     by_route = {}
     for path in sorted(CLIENT_ROUTES_DIR.glob("*.py")):
@@ -825,13 +845,20 @@ def _client_form_fields_by_route() -> dict[tuple[str, str], set[str]]:
                 for arg, default in zip(args.kwonlyargs, args.kw_defaults)
                 if default is not None
             ]
-            fields = {
-                arg.arg for arg, default in pairs
+            form_params = {
+                arg.arg: default for arg, default in pairs
                 if isinstance(default, ast.Call)
                 and getattr(default.func, "id", None) in _FORM_PARAM_FACTORIES
             }
-            if not fields:
+            if not form_params:
                 continue
+            fields = _FormFields(
+                declared=set(form_params),
+                required={
+                    name for name, default in form_params.items()
+                    if _is_required_form_param(default)
+                },
+            )
             for dec in node.decorator_list:
                 if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)):
                     continue
@@ -854,23 +881,87 @@ def test_multipart_extractors_are_not_vacuous():
         "the client-app push's form fields were not captured — the backend stopped "
         f"building a FormData for a satellite endpoint, or the walk broke: {_MULTIPART_SENT}"
     )
-    assert _MULTIPART_ACCEPTED.get(endpoint), (
+    declared, required = _MULTIPART_ACCEPTED.get(endpoint, _FormFields(set(), set()))
+    assert declared, (
         "milo-client's app-update handler declares no File()/Form() parameter — "
         f"either it stopped taking a multipart body, or the walk broke: {_MULTIPART_ACCEPTED}"
+    )
+    assert required, (
+        "milo-client's app-update handler requires no File()/Form() parameter — "
+        f"either every field became optional, or the required-field read broke: {_MULTIPART_ACCEPTED}"
+    )
+
+
+def test_every_milo_client_form_parameter_is_read_from_its_default():
+    """A form parameter the extractor cannot see is a required field no check covers.
+
+    FastAPI also takes a body part from `Annotated[str, Form()]` and from a bare
+    `UploadFile` annotation; both would vanish from the declared and required
+    sets, and every multipart check above would pass on a handler answering 422.
+    """
+    unread = []
+    for path in sorted(CLIENT_ROUTES_DIR.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            args = node.args
+            defaults = dict(zip(
+                [a.arg for a in args.args[len(args.args) - len(args.defaults):]], args.defaults,
+            ))
+            defaults.update(
+                (a.arg, d) for a, d in zip(args.kwonlyargs, args.kw_defaults) if d is not None
+            )
+            for arg in args.args + args.kwonlyargs:
+                default = defaults.get(arg.arg)
+                if (
+                    isinstance(default, ast.Call)
+                    and getattr(default.func, "id", None) in _FORM_PARAM_FACTORIES
+                ) or arg.annotation is None:
+                    continue
+                names = {
+                    n.id if isinstance(n, ast.Name) else n.attr
+                    for n in ast.walk(arg.annotation)
+                    if isinstance(n, (ast.Name, ast.Attribute))
+                }
+                if "UploadFile" in names or ("Annotated" in names and names & _FORM_PARAM_FACTORIES):
+                    unread.append(f"{path.name}:{node.name}({arg.arg})")
+    assert not unread, (
+        f"milo-client declares form parameters outside a File()/Form() default: {unread} — "
+        "write them as `name: T = Form(...)`, or teach _client_form_fields_by_route the new shape"
     )
 
 
 @pytest.mark.parametrize("method,path", sorted(_MULTIPART_SENT))
 def test_every_form_field_the_backend_sends_is_declared_by_milo_client(method, path):
-    """A form field the handler does not declare is a 422 on a real satellite only."""
+    """A form field the handler does not declare is ignored in silence: a field that did nothing."""
     accepted = _MULTIPART_ACCEPTED.get((method, path))
     assert accepted is not None, f"no milo-client multipart handler found for {method} {path}"
+    declared = accepted.declared
 
-    unread = _MULTIPART_SENT[(method, path)] - accepted
+    unread = _MULTIPART_SENT[(method, path)] - declared
     assert not unread, (
         f"backend sends the form field(s) {sorted(unread)} to {method} {path}, but "
-        f"milo-client's handler declares {sorted(accepted)} — FastAPI answers 422 and "
-        "the push never lands"
+        f"milo-client's handler declares {sorted(declared)} — FastAPI drops the "
+        "undeclared part and answers 200, so whatever it carried never reaches the satellite"
+    )
+
+
+@pytest.mark.parametrize("method,path", sorted(_MULTIPART_ACCEPTED))
+def test_every_form_field_milo_client_requires_is_sent_by_the_backend(method, path):
+    """A required form field the server does not send is a 422 on every satellite."""
+    required = _MULTIPART_ACCEPTED[(method, path)].required
+    sent = _MULTIPART_SENT.get((method, path))
+    assert sent is not None, (
+        f"milo-client's {method} {path} handler takes a multipart body, but no backend "
+        "FormData call to it was found — the server stopped calling it, or calls it in "
+        "a shape _multipart_calls cannot read"
+    )
+
+    missing = required - sent
+    assert not missing, (
+        f"milo-client's {method} {path} handler requires the form field(s) "
+        f"{sorted(missing)}, but the backend sends {sorted(sent)} — the handler "
+        "answers 422 \"Field required\" to every server that does not send them"
     )
 
 
@@ -892,9 +983,13 @@ def test_every_form_field_the_backend_sends_is_declared_by_milo_client(method, p
 # to a server that had just updated itself. Nothing else could have caught it —
 # no version negotiation exists, and by doctrine none should.
 #
-# Hence: these names are frozen, and the rule is append-only. *Adding* a field
-# is safe, because FastAPI binds multipart parts by name and ignores the ones no
-# parameter declares — a satellite one release behind simply does not see it.
+# Hence: these names are frozen, and the rule is append-only. *Sending* a new
+# field is safe, because FastAPI binds multipart parts by name and ignores the
+# ones no parameter declares — a satellite one release behind simply does not
+# see it. A new *required* field on the handler is never safe: retracting the
+# release that added it offers every server the one before, which does not send
+# it. It is declared optional, and joins the frozen set only once no published
+# release that omits it can be offered again.
 # Renaming or removing one is a 422 on every unit, after the push that carried
 # it, with no way back except a reflash.
 #
@@ -924,6 +1019,26 @@ def test_the_app_update_form_fields_are_frozen():
         "the change, which is the moment it can no longer be taken back. Add a "
         "field instead of renaming one; if the rename is truly wanted, it costs a "
         "reflash of every unit."
+    )
+
+
+def test_every_required_app_update_field_is_frozen():
+    """A required field outside the frozen set is a 422 fleet-wide once a release is retracted.
+
+    Retracting a release offers every unit the server before it, which never
+    sends the new field. The frozen set is what every server a unit can be
+    offered sends, so a required field has to be in it.
+    """
+    required = _MULTIPART_ACCEPTED.get(("POST", "/app/update"), _FormFields(set(), set())).required
+    assert required, "the app-update handler requires nothing — see the vacuity check above"
+
+    unfrozen = required - FROZEN_APP_UPDATE_FIELDS
+    assert not unfrozen, (
+        f"milo-client's POST /app/update handler requires {sorted(unfrozen)}, which "
+        "FROZEN_APP_UPDATE_FIELDS does not hold. A server from an earlier release "
+        "never sends it, so once this release is retracted the push answers 422 on "
+        "every satellite that took it. Declare it optional (`Form(None)`); it joins "
+        "the frozen set only once no release that omits it can be offered again."
     )
 
 
