@@ -791,6 +791,25 @@ class VolumeService:
         self.logger.info(f"Local volume_control set to {enabled}")
         await self.broadcast_volume_state(show_bar=False)
 
+    @handle_errors(default=False)
+    async def reapply_client_volume(self, mac_id: str) -> bool:
+        """Send a satellite its stored level and mute again; False if either was not taken.
+
+        The way back from DAC mode, where the router held its fader at unity:
+        the flag flips in hardware.json and in the registry, the stored level
+        never moved, and nothing else sends it until the next admission or the
+        next level change. Called after the registry flag says managed, since
+        the router reads it when each command leaves. `force`, as for an
+        admission: the satellite has just answered, whatever `online` says.
+        """
+        level = self._state_store.get_client_volume(mac_id)
+        if level is None:
+            return False
+        mute = self._state_store.get_client_mute(mac_id)
+        level_taken = await self._equalizer_controller.set_equalizer_volume(mac_id, level, force=True)
+        mute_taken = await self._equalizer_controller.set_equalizer_mute(mac_id, mute, force=True)
+        return level_taken and mute_taken
+
     async def _pin_local_at_unity(self, local_mac: Optional[str]) -> None:
         """DAC mode: CamillaDSP at 0 dB, with the stored mute (the amp owns the level).
 

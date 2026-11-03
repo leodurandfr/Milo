@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from backend.core.multiroom.equalizer_router import EqualizerRouter
     from backend.core.multiroom.pending_clients import PendingClientsService
     from backend.core.multiroom.snapcast import SnapcastService
+    from backend.core.volume import VolumeService
 
 
 logger = logging.getLogger(__name__)
@@ -243,7 +244,8 @@ def create_multiroom_router(
     pending_clients_service: Optional["PendingClientsService"] = None,
     crossover_service: Optional["CrossoverService"] = None,
     snapcast_service: Optional["SnapcastService"] = None,
-    equalizer_router: Optional["EqualizerRouter"] = None
+    equalizer_router: Optional["EqualizerRouter"] = None,
+    volume_service: Optional["VolumeService"] = None,
 ):
     """
     Creates multiroom router with dependency injection.
@@ -358,6 +360,11 @@ def create_multiroom_router(
 
             if request.volume_control is False:
                 await _drop_trim_before_dac(mac_id, client)
+            leaving_dac = (
+                request.volume_control is True
+                and not client.volume_control
+                and not client.is_local
+            )
 
             # A remote client's volume_control lives on the satellite; push it
             # there first, or its heartbeat reverts the registry (see
@@ -379,6 +386,20 @@ def create_multiroom_router(
                 speaker_type=request.speaker_type,
                 volume_control=request.volume_control
             )
+
+            # Its fader was held at unity while DAC, and the stored level is
+            # what every screen shows. After the registry write: the router
+            # reads the flag there when the level leaves. The flag has moved
+            # either way, so a refusal is reported, not answered as an error
+            # (the next admission or level change sends it again).
+            if leaving_dac and volume_service:
+                if not await volume_service.reapply_client_volume(mac_id):
+                    level = volume_service.state_store.get_client_volume(mac_id)
+                    logger.error(
+                        f"{updated_client.name or mac_id} is volume-managed again but did not "
+                        f"take its stored level ({level} dB) or mute; its next level change "
+                        f"or admission sends them again"
+                    )
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 

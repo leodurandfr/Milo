@@ -12,6 +12,7 @@ import dataclasses
 import logging
 import pytest
 import aiohttp
+import httpx
 from unittest.mock import Mock, AsyncMock, patch
 from urllib.parse import urlsplit
 from fastapi.testclient import TestClient
@@ -648,6 +649,130 @@ class TestTrimDroppedBeforeADacFlip:
         assert satellite.wire == []
         assert clients["mac-local"].gain_db == 0.0
         assert clients["mac-local"].volume_control is False
+
+
+BUREAU = "d8:3a:dd:68:e7:e4"
+BUREAU_IP = "192.168.1.60"
+
+
+@pytest.fixture
+async def dac_return(tmp_path, monkeypatch):
+    """A satellite in DAC mode, its level held by Milō at -51.47 dB.
+
+    The real VolumeService, EqualizerRouter and ClientRegistryService, wired as
+    dependencies.py does; only the satellite (both transports, one wire), the
+    settings file and the snapserver are faked. The level is set through the
+    production path while the flag says DAC, so the satellite's fader was sent
+    unity and the store keeps -51.47: the state Bureau was measured in.
+    """
+    from backend.core.multiroom.client_registry import ClientRegistryService
+    from backend.core.settings import SettingsService
+    from backend.core.volume import VolumeService, VolumeStateStore
+
+    monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
+    registry = ClientRegistryService(
+        settings_service=AsyncMock(get_setting=AsyncMock(return_value=None))
+    )
+    await registry.initialize()
+    await registry.register_client(BUREAU, "Bureau", BUREAU_IP, volume_control=False)
+    await registry.set_client_online(BUREAU, True)
+
+    satellite = _WireSatellite()
+
+    async def request(*args, **kwargs):
+        return await satellite.proxy_request(*args, **kwargs)
+
+    proxy = Mock(request=AsyncMock(side_effect=request))
+    eq_router = EqualizerRouter(registry, None, proxy)
+    settings = Mock()
+    settings.get_setting = AsyncMock(
+        side_effect=lambda key, *a, **kw: SettingsService().defaults["volume"] if key == "volume" else None
+    )
+    state_machine = Mock(broadcast=AsyncMock())
+    volume = VolumeService(
+        state_machine=state_machine,
+        snapcast_service=Mock(),
+        settings_service=settings,
+        camilladsp_service=None,
+        equalizer_client_proxy_service=proxy,
+        equalizer_router=eq_router,
+    )
+    volume.attach_registry(registry)
+    eq_router.set_local_mac_source(lambda: "aa:bb:cc:dd:ee:ff")
+    eq_router.set_local_volume_control_source(lambda: True)
+
+    assert await volume.update_client_volume_db(BUREAU, -51.47, broadcast=False)
+    assert satellite.wire[-1][2:] == ("/equalizer/volume", {"volume": 0.0}), \
+        "the DAC client was not sent unity: the setup is not the measured state"
+    satellite.wire.clear()
+
+    app = FastAPI()
+    app.include_router(create_multiroom_router(
+        registry, None, None, None, None, eq_router, volume
+    ))
+    transport = httpx.ASGITransport(app=app)
+    with patch("backend.api.multiroom.aiohttp.ClientSession", return_value=satellite):
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as client:
+            yield client, registry, satellite
+
+
+class TestHandingTheLevelBackToMilo:
+    """PATCH volume_control true on a DAC satellite sends it its stored level.
+
+    A DAC client's fader is held at unity, and the flip back wrote only its
+    hardware.json: Bureau stayed about two minutes at 0 dB plus its trim while
+    the registry and /api/volume/state said -51.47 dB, until the next admission
+    or level change happened to send it.
+    """
+
+    async def test_handing_the_level_back_to_milo_sends_the_stored_level(self, dac_return):
+        client, registry, satellite = dac_return
+
+        resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
+
+        assert resp.status_code == 200
+        assert registry.get_client(BUREAU).volume_control is True
+        assert [(m, p, b) for _, m, p, b in satellite.wire] == [
+            ("GET", "/api/hardware", None),
+            ("PUT", "/api/hardware/audio",
+             {"audio_id": "hifiberry_amp2", "overlay": "hifiberry-amp", "volume_control": True}),
+            ("PUT", "/equalizer/volume", {"volume": -51.47}),
+            ("PUT", "/equalizer/mute", {"muted": False}),
+        ]
+
+    async def test_a_refused_level_is_reported(self, dac_return, caplog):
+        """The flag has moved by then, so the answer stays 200 (the screen would
+        otherwise roll its toggle back to DAC over a flag that is not); the
+        banner is what says the room is not at the level it shows."""
+        client, registry, satellite = dac_return
+        original = satellite.proxy_request
+
+        async def refuse_the_level(ip, method, path, body=None):
+            if path == "/equalizer/volume":
+                satellite.wire.append((ip, method, path, body))
+                raise SatelliteUnreachable(ip, "Client error: 400", status_code=400)
+            return await original(ip, method, path, body)
+
+        satellite.proxy_request = refuse_the_level
+        with caplog.at_level(logging.ERROR, logger="backend.api.multiroom"):
+            resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
+
+        assert resp.status_code == 200
+        assert registry.get_client(BUREAU).volume_control is True
+        errors = [r for r in caplog.records
+                  if r.levelno >= logging.ERROR and r.name == "backend.api.multiroom"]
+        assert errors and "Bureau" in errors[0].getMessage()
+        assert "-51.47 dB" in errors[0].getMessage()
+
+    async def test_a_flag_already_managed_sends_no_level(self, dac_return):
+        client, registry, satellite = dac_return
+        await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
+        satellite.wire.clear()
+
+        resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
+
+        assert resp.status_code == 200
+        assert satellite.wire == []
 
 
 class TestClientDelayEndpoint:
