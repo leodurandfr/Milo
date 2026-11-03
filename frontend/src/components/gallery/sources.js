@@ -1075,9 +1075,9 @@ export const SOURCE_PAGES = [
         condition: ['favoritesInitialized=false'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
-        // The view's guard is `isLoading || !favoritesInitialized`, so a prop
-        // and a seed here would be one fact told twice — either alone draws the
-        // skeletons. The seed is the half kept: it is the half the name states.
+        // The view's guard is `!favoritesInitialized` alone — the search's
+        // `loading` flag never reaches the favorites — so the seed is the
+        // whole of this state.
         seed: { radio: { favoritesInitialized: false } },
         player: null
       }),

@@ -353,6 +353,51 @@ describe('radioStore', () => {
     });
   });
 
+  /**
+   * The directory retry is armed by the search and must end with it: left
+   * running, every attempt flipped the search's `loading` back on behind the
+   * favorites grid, twelve times over while radio-browser.info was down.
+   */
+  describe('leaveSearch', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      publishState(useUnifiedAudioStore(), { source: 'radio', service: 'running' });
+    });
+
+    it('leaving the search stops the directory retry and leaves loading false', async () => {
+      apiCall.get.mockResolvedValue(ok({ api_error: true, stations: [], total: 0 }));
+      await store.loadStations();
+
+      store.leaveSearch();
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(apiCall.get).toHaveBeenCalledTimes(1);
+      expect(store.loading).toBe(false);
+    });
+
+    it('leaving the search mid-request aborts it and arms no retry', async () => {
+      let signal;
+      let resolve;
+      apiCall.get.mockImplementation((url, options) => {
+        signal = options.signal;
+        return new Promise(r => { resolve = r; });
+      });
+
+      const pending = store.loadStations();
+      store.leaveSearch();
+      expect(signal.aborted).toBe(true);
+      expect(store.loading).toBe(false);
+
+      // apiCall swallows an AbortController cancellation into this exact shape.
+      resolve({ ok: false, data: null, error: null });
+      await pending;
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(apiCall.get).toHaveBeenCalledTimes(1);
+      expect(store.hasError).toBe(false);
+    });
+  });
+
   describe('preloadFavorites', () => {
     it('fetches once and marks favorites initialised', async () => {
       apiCall.get.mockResolvedValue(ok({ stations: [STATION('s1')] }));

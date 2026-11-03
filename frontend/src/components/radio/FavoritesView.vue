@@ -3,7 +3,7 @@
     <div class="swap-stack">
       <Transition name="fade-slide">
         <!-- Loading state: skeleton grid while favorites load -->
-        <div v-if="isLoading || !radioStore.favoritesInitialized" key="loading" class="favorites-grid swap-skeleton">
+        <div v-if="!radioStore.favoritesInitialized" key="loading" class="favorites-grid swap-skeleton">
           <SkeletonStationCard v-for="i in 16" :key="`skeleton-${i}`" />
         </div>
 
@@ -61,14 +61,6 @@ defineProps({
   bufferingStationId: {
     type: [String, Number],
     default: null
-  },
-
-  /**
-   * Whether stations are currently loading
-   */
-  isLoading: {
-    type: Boolean,
-    default: false
   }
 })
 

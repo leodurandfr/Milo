@@ -160,6 +160,23 @@ export const useRadioStore = defineStore('radio', () => {
     genreFilter.value = '';
   }
 
+  /**
+   * Leave the search view: what it armed ends with it. Its retry and its
+   * request in flight both drive `loading`, so either one outliving the view
+   * would keep flipping a flag nothing on screen reads any more.
+   */
+  function leaveSearch() {
+    stopRetry();
+    if (currentAbortController) {
+      currentAbortController.abort();
+      // Nulled so the cancelled request bows out as superseded: still current,
+      // it would fall into the failure branch with no error to read.
+      currentAbortController = null;
+    }
+    loading.value = false;
+    resetFilters();
+  }
+
   function startRetry() {
     if (retryTimer !== null) return;
     retryAttempts = 0;
@@ -588,7 +605,7 @@ export const useRadioStore = defineStore('radio', () => {
     addCustomStation,
     removeCustomStation,
     setLoading,
-    resetFilters,
+    leaveSearch,
     handleFavoriteEvent,
     handleMetadataModified
   };

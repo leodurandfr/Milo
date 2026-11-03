@@ -16,7 +16,7 @@
         <!-- Content slot: scrollable views -->
         <template #content>
           <!-- Favorites View -->
-          <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
+          <FavoritesView v-if="!isSearchMode" key="favorites"
             :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
             :buffering-station-id="bufferingStationId" @play-station="playStation" />
 
@@ -173,6 +173,9 @@ async function openSearch() {
   // Load countries if not yet loaded
   if (availableCountries.value.length === 0) {
     await loadAvailableCountries()
+    // Closed while the countries were loading: a search started now would run
+    // behind the favorites, and its retry with it.
+    if (!isSearchMode.value) return
   }
 
   // Load top 500 stations
@@ -181,11 +184,11 @@ async function openSearch() {
 
 function closeSearch() {
   isSearchMode.value = false
-  radioStore.resetFilters()
+  radioStore.leaveSearch()
 
   // Reload favorites only if preload never completed (edge case: opened very early)
   if (!radioStore.favoritesInitialized) {
-    radioStore.loadStations(true)
+    radioStore.preloadFavorites()
   }
 }
 
