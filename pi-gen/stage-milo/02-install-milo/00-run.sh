@@ -61,9 +61,10 @@ CHROOT
 
 # Seed the satellite's own identity, for the half of this unified image that
 # may become a client. Both values are what the server would have sent it: the
-# release this image was built at, and the fingerprint of the milo-client/ tree
-# it carries. Without them a freshly flashed satellite reports no version and is
-# offered a push of the code it is already running.
+# release this image was built at, and the fingerprint of the milo-client/ trees
+# a push installs (backend/core/updates/satellite.py::PAYLOAD_PATHSPEC, spelled
+# identically). Without them a freshly flashed satellite reports no version and
+# is offered a push of the code it is already running.
 #
 # The server needs no equivalent: `git describe` on its checkout is the answer,
 # and it is what the backend already asks. /var/lib/milo/app-version was written
@@ -71,7 +72,7 @@ CHROOT
 on_chroot << 'CHROOT'
 mkdir -p /var/lib/milo-client
 VERSION=$(sudo -u milo git -C /home/milo/milo describe --tags --always)
-PAYLOAD=$(sudo -u milo git -C /home/milo/milo log -1 --format=%h -- milo-client)
+PAYLOAD=$(sudo -u milo git -C /home/milo/milo log -1 --format=%h -- milo-client/app milo-client/system milo-client/rootfs milo-client/configs ':(exclude,glob)milo-client/**/tests/**')
 printf '%s' "$VERSION" > /var/lib/milo-client/app-version
 printf '%s' "$PAYLOAD" > /var/lib/milo-client/app-payload
 CHROOT

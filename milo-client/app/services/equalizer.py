@@ -12,6 +12,7 @@ import asyncio
 import functools
 import logging
 import os
+from pathlib import Path
 import yaml
 from typing import Dict, Any, Optional, List
 
@@ -21,6 +22,14 @@ from services.camilladsp_client import CamillaDspClient
 CAMILLADSP_HOST = "127.0.0.1"
 CAMILLADSP_PORT = 1234
 CONFIG_FILE = "/var/lib/milo-client/camilladsp/config.yml"
+# The config this release ships, in the milo-client/ tree this module was loaded
+# from (a push swaps configs/ in beside app/), never in the server's own tree.
+SHIPPED_CONFIG_FILE = str(
+    Path(__file__).resolve().parents[2] / "configs" / "camilladsp" / "config.yml"
+)
+# The sections of the live config that belong to the release rather than to the
+# room: the rest (filters, processors, pipeline) is the EQ the server pushed.
+SHIPPED_SECTIONS = ("devices", "mixers")
 RECONNECT_DELAY = 5.0
 MAX_RECONNECT_DELAY = 30.0
 # A connect nothing listened to: at startup the daemon is ~0.2 s away, since
@@ -56,6 +65,15 @@ def serialised_config_write(method):
     return wrapper
 
 
+def _without_nulls(value):
+    """`value` with every null-valued key dropped, at any depth."""
+    if isinstance(value, dict):
+        return {k: _without_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_without_nulls(v) for v in value]
+    return value
+
+
 class EqualizerService:
     """
     CamillaDSP control service.
@@ -69,11 +87,14 @@ class EqualizerService:
     - Crossover filters
     """
 
-    def __init__(self, host: str = None, port: int = None, config_file: str = None):
+    def __init__(self, host: str = None, port: int = None, config_file: str = None,
+                 shipped_config_file: str = None):
         self.logger = logging.getLogger(f"{__name__}.EqualizerService")
         self.host = host or CAMILLADSP_HOST
         self.port = port or CAMILLADSP_PORT
         self.config_file = config_file or CONFIG_FILE
+        self.shipped_config_file = shipped_config_file or SHIPPED_CONFIG_FILE
+        self._shipped_refused = False
 
         self._client = None
         self._connected = False
@@ -387,6 +408,8 @@ class EqualizerService:
                 if not config:
                     return
 
+                await self._adopt_shipped_sections(config)
+
                 # A section the YAML leaves out comes back as null, not absent: the
                 # shipped config has no `processors`, which CamillaDSP returns as None.
                 processors = config.get("processors") or {}
@@ -454,6 +477,73 @@ class EqualizerService:
 
             except Exception as e:
                 self.logger.warning(f"Could not load state from config: {e}")
+
+    async def _adopt_shipped_sections(self, config: Dict[str, Any]) -> None:
+        """Replace the live `devices` and `mixers` with the shipped ones if they differ.
+
+        The live config.yml is copied from the shipped one once, at first boot,
+        and rewritten by every EQ change after that, so this is the only path
+        by which a release's correction to those sections (a silence timeout, a
+        Loopback slot, the mono mixer) reaches a unit already in service.
+
+        Compared with unset keys dropped: GetConfigJson hands back every
+        optional key, the unset ones as null, and a reload of the devices cuts
+        the sound — once per release is the price, once per connect is not.
+        New devices make the daemon reopen both ends, so the cached level is
+        sent again behind them: a room's fader never rests on the daemon
+        keeping it across that.
+
+        A refusal is tried once per process: `_exec` drops the link on it, and
+        retrying at every reconnect would keep the satellite out of reach of
+        the server for as long as the release it runs.
+        """
+        if self._shipped_refused:
+            return
+        try:
+            shipped = await asyncio.get_running_loop().run_in_executor(
+                None, self._read_shipped_config
+            )
+        except (OSError, yaml.YAMLError, ValueError) as e:
+            self.logger.error(
+                f"Shipped CamillaDSP config {self.shipped_config_file} unreadable, "
+                f"live devices and mixers kept: {e}"
+            )
+            return
+
+        stale = [
+            name for name in SHIPPED_SECTIONS
+            if _without_nulls(config.get(name)) != _without_nulls(shipped[name])
+        ]
+        if not stale:
+            return
+
+        sections = " and ".join(stale)
+        for name in SHIPPED_SECTIONS:
+            config[name] = shipped[name]
+        try:
+            await self._exec(lambda c: c.set_config(config))
+        except Exception as e:
+            self._shipped_refused = True
+            self.logger.error(
+                f"CamillaDSP refused the shipped {sections}, kept the live ones "
+                f"until the app restarts: {e}"
+            )
+            return
+        await self._restore_after_reconnect()
+        try:
+            await self._save_config_to_file(config)
+        except OSError as e:
+            self.logger.error(f"Applied the shipped {sections} but could not persist them: {e}")
+            return
+        self.logger.info(f"Applied the shipped {sections}")
+
+    def _read_shipped_config(self) -> Dict[str, Any]:
+        with open(self.shipped_config_file) as f:
+            shipped = yaml.safe_load(f)
+        missing = [name for name in SHIPPED_SECTIONS if not (shipped or {}).get(name)]
+        if missing:
+            raise ValueError(f"no {', '.join(missing)} section")
+        return shipped
 
     async def get_status(self) -> Dict[str, Any]:
         """Get equalizer status."""
@@ -747,24 +837,6 @@ class EqualizerService:
             config = await self._get_config()
             if not config:
                 return False
-
-            config.setdefault("mixers", {})
-
-            # Ensure mono mixer definition exists (backwards compat for old configs)
-            if "mono" not in config["mixers"]:
-                config["mixers"]["mono"] = {
-                    "channels": {"in": 2, "out": 2},
-                    "mapping": [
-                        {"dest": 0, "sources": [
-                            {"channel": 0, "gain": -6, "inverted": False},
-                            {"channel": 1, "gain": -6, "inverted": False}
-                        ]},
-                        {"dest": 1, "sources": [
-                            {"channel": 0, "gain": -6, "inverted": False},
-                            {"channel": 1, "gain": -6, "inverted": False}
-                        ]}
-                    ]
-                }
 
             # Swap the pipeline's Mixer step name
             target_name = "mono" if enabled else "stereo"

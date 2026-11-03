@@ -114,10 +114,9 @@ cmd_sync_system_files() {
     while read -r rel_path; do
         rel_path="${rel_path#./}"
 
-        # Skip user config. This script is the one file a plain copy cannot
-        # install — see install_self.
+        # Every rootfs file is installed; these two are the ones a plain copy
+        # cannot install — see install_self and install_sudoers.
         case "$rel_path" in
-            var/lib/milo/camilladsp/*) echo "  Skipping /$rel_path (user config)"; continue ;;
             usr/local/bin/milo-deploy-update) install_self "$rel_path"; continue ;;
             etc/sudoers.d/*) install_sudoers "$rel_path"; continue ;;
         esac
@@ -136,9 +135,9 @@ cmd_sync_system_files() {
                 ;;
         esac
 
-        # Set ownership for home directory files
+        # Set ownership for the files the milo user owns on the image
         case "$target" in
-            /home/milo/*)
+            /home/milo/*|/var/lib/milo/*)
                 chown milo:milo "$target"
                 ;;
         esac

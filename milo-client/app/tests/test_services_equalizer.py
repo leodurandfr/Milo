@@ -11,6 +11,7 @@ import yaml
 from unittest.mock import AsyncMock, call, patch
 
 from services.camilladsp_client import CamillaDspError
+from tests.conftest import SHIPPED_CONFIG
 
 
 class TestEqualizerServiceProperties:
@@ -953,6 +954,134 @@ class TestEqualizerServiceHeadroomAndLoudness:
         assert self._heads(config) == ["headroom"]
 
 
+class TestShippedDeviceSections:
+    """The `devices` and `mixers` this tree ships reach a unit already in service.
+
+    The satellite's live config.yml is copied from the shipped one once, at
+    first boot, and rewritten by every EQ change after that, so nothing else
+    carries a correction to those two sections: a release that set
+    `silence_timeout` to 0 left every paired satellite pausing on silence. They
+    belong to the release; `filters` and `pipeline` are the room's EQ and
+    belong to the unit.
+    """
+
+    @staticmethod
+    def _shipped():
+        return yaml.safe_load(SHIPPED_CONFIG.read_text())
+
+    @pytest.mark.asyncio
+    async def test_a_stale_devices_section_is_replaced_by_the_shipped_one(
+        self, equalizer_service, mock_camilla_client
+    ):
+        live = mock_camilla_client.get_config.return_value
+        live["devices"] = {**copy.deepcopy(live["devices"]), "silence_timeout": 10.0}
+        live["mixers"] = {"stereo": copy.deepcopy(live["mixers"]["stereo"])}
+        room_filters = copy.deepcopy(live["filters"])
+        room_pipeline = copy.deepcopy(live["pipeline"])
+
+        await equalizer_service._load_state_from_config()
+
+        shipped = self._shipped()
+        pushed = mock_camilla_client.set_config.await_args.args[0]
+        assert pushed["devices"] == shipped["devices"]
+        assert pushed["mixers"] == shipped["mixers"]
+        assert pushed["filters"] == room_filters, "the room's EQ is the unit's, never the release's"
+        assert pushed["pipeline"] == room_pipeline
+        persisted = yaml.safe_load(Path(equalizer_service.config_file).read_text())
+        assert persisted["devices"] == shipped["devices"], "the next boot would read the stale one"
+        assert persisted["mixers"] == shipped["mixers"]
+
+    @pytest.mark.asyncio
+    async def test_the_level_is_sent_again_after_the_devices_reopen(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """New devices make CamillaDSP close and reopen both ends. The fader is
+        sent again behind it, so the room's level never rests on the daemon
+        keeping it across that (invariant 7: a bare fader is full scale)."""
+        live = mock_camilla_client.get_config.return_value
+        live["devices"] = {**copy.deepcopy(live["devices"]), "silence_timeout": 10.0}
+        equalizer_service._volume = {"main": -52.8, "mute": False}
+
+        await equalizer_service._load_state_from_config()
+
+        names = [c[0] for c in mock_camilla_client.method_calls]
+        assert "set_config" in names
+        after = names[names.index("set_config"):]
+        assert "set_volume" in after and "set_mute" in after, names
+        mock_camilla_client.set_volume.assert_awaited_with(-52.8)
+        mock_camilla_client.set_mute.assert_awaited_with(False)
+
+    @pytest.mark.asyncio
+    async def test_a_refused_shipped_section_is_not_retried_at_every_connect(
+        self, equalizer_service, mock_camilla_client, caplog
+    ):
+        """A refusal drops the link (`_exec`), so trying again at the next
+        connect would refuse again and keep every `/equalizer/*` call from the
+        server answering 400 for as long as the release runs."""
+        live = mock_camilla_client.get_config.return_value
+        live["devices"] = {**copy.deepcopy(live["devices"]), "silence_timeout": 10.0}
+        # A snapshot per call, as the daemon answers: it kept the stale sections.
+        mock_camilla_client.get_config.side_effect = lambda: copy.deepcopy(live)
+        mock_camilla_client.set_config.side_effect = CamillaDspError("SetConfigJson: Invalid config")
+
+        with caplog.at_level(logging.ERROR):
+            await equalizer_service._load_state_from_config()
+        equalizer_service._connected = True  # the loop's reconnect
+        await equalizer_service._load_state_from_config()
+
+        assert mock_camilla_client.set_config.await_count == 1
+        assert equalizer_service.connected
+        assert any("refused the shipped devices" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_a_config_the_daemon_filled_in_is_not_stale(
+        self, equalizer_service, mock_camilla_client
+    ):
+        """GetConfigJson hands back every optional key, unset ones as null
+        (measured on CamillaDSP 3: `queuelimit`, `labels`, a source's `mute`).
+        Read as a difference, that would reload the devices, and cut the sound,
+        on every connect."""
+        live = mock_camilla_client.get_config.return_value
+        devices = copy.deepcopy(live["devices"])
+        devices.update({"queuelimit": None, "resampler": None, "volume_limit": None})
+        devices["capture"].update({"labels": None, "stop_on_inactive": None})
+        mixers = copy.deepcopy(live["mixers"])
+        for mixer in mixers.values():
+            mixer.update({"description": None, "labels": None})
+            for mapping in mixer["mapping"]:
+                mapping["mute"] = None
+                for source in mapping["sources"]:
+                    source.update({"mute": None, "scale": None, "gain": float(source["gain"])})
+        live["devices"], live["mixers"] = devices, mixers
+
+        await equalizer_service._load_state_from_config()
+
+        mock_camilla_client.set_config.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_shipped_config_is_reported_and_changes_nothing(
+        self, mock_camilla_client, tmp_path, caplog
+    ):
+        live = mock_camilla_client.get_config.return_value
+        live["devices"] = {**copy.deepcopy(live["devices"]), "silence_timeout": 10.0}
+        with patch("services.equalizer.CamillaDspClient", return_value=mock_camilla_client):
+            from services.equalizer import EqualizerService
+            service = EqualizerService(
+                config_file=str(tmp_path / "config.yml"),
+                shipped_config_file=str(tmp_path / "missing.yml"),
+            )
+        service._client = mock_camilla_client
+        service._connected = True
+        live["filters"]["gain_trim"] = {"type": "Gain", "parameters": {"gain": 2.0}}
+
+        with caplog.at_level(logging.ERROR):
+            await service._load_state_from_config()
+
+        mock_camilla_client.set_config.assert_not_awaited()
+        assert any("missing.yml" in r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR)
+        assert service.gain_db == 2.0, "the room's own state is still read"
+
+
 class TestEqualizerServiceMasterBypass:
     """Master EQ enable/disable = pipeline-only bypass mirroring the backend's
     bypass_effects/restore_effects: EQ bands + compressor + loudness leave the
@@ -1244,21 +1373,6 @@ class TestEqualizerMono:
         mixer = [s for s in config["pipeline"] if s["type"] == "Mixer"]
         assert [s["name"] for s in mixer] == ["stereo"]
         assert equalizer_service.mono is False
-
-    @pytest.mark.asyncio
-    async def test_the_mono_mixer_is_defined_when_the_config_lacks_it(
-        self, equalizer_service, mock_camilla_client
-    ):
-        """The pipeline names a mixer that must exist in `mixers`, or CamillaDSP
-        refuses the whole config and the satellite goes silent — so the definition
-        is written before the step is pointed at it."""
-        config = self._with_mixer(mock_camilla_client)
-        assert "mixers" not in config
-
-        await equalizer_service.set_mono(True)
-
-        assert "mono" in config["mixers"]
-        assert config["mixers"]["mono"]["channels"] == {"in": 2, "out": 2}
 
     @pytest.mark.asyncio
     async def test_mono_reaches_the_disk(self, equalizer_service, mock_camilla_client):

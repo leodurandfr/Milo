@@ -2,6 +2,7 @@
 Pytest fixtures for Milo Client tests.
 """
 import pytest
+import yaml
 from unittest.mock import AsyncMock, patch
 import sys
 import warnings
@@ -20,6 +21,10 @@ with warnings.catch_warnings():
     import fastapi.testclient  # noqa: F401 -- imported for the side effect above
 
 
+# The CamillaDSP config this tree ships, read and never rewritten by a test.
+SHIPPED_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "camilladsp" / "config.yml"
+
+
 @pytest.fixture
 def mock_camilla_client():
     """Mock of CamillaDspClient — the daemon, as the client hands it over.
@@ -32,7 +37,11 @@ def mock_camilla_client():
 
     client.get_state.return_value = "Running"
 
+    shipped = yaml.safe_load(SHIPPED_CONFIG.read_text())
     client.get_config.return_value = {
+        # A unit already on the shipped device sections: the connect leaves them.
+        "devices": shipped["devices"],
+        "mixers": shipped["mixers"],
         "filters": {
             "eq_band_1": {"parameters": {"type": "Peaking", "freq": 100, "gain": 0, "q": 1.0}},
             "eq_band_2": {"parameters": {"type": "Peaking", "freq": 1000, "gain": 0, "q": 1.0}},

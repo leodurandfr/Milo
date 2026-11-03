@@ -35,6 +35,7 @@ Doctrine note (same as the Milo-Mac / milo-client contract tests): every
 extractor asserts its own output is non-trivial first, so a broken parse fails
 loudly instead of passing on an empty surface.
 """
+import ast
 import re
 import shlex
 import subprocess
@@ -464,3 +465,93 @@ def test_the_mount_table_check_escapes_the_target_as_the_kernel_does(
         capture_output=True, text=True, timeout=10,
     )
     assert result.returncode == (0 if listed else 1), result.stderr
+
+
+# --------------------------------------------------------------------------- #
+# What an update installs, against what it says it installs.
+# --------------------------------------------------------------------------- #
+
+SERVER_DEPLOY_SCRIPT = REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-deploy-update"
+CLIENT_DEPLOY_SCRIPT = (
+    REPO_ROOT / "milo-client" / "rootfs" / "usr" / "local" / "bin" / "milo-client-deploy-update"
+)
+CLIENT_APP_UPDATE = REPO_ROOT / "milo-client" / "app" / "services" / "app_update.py"
+
+# One branch of a shell `case`: `pattern) action ;;` on a single line.
+CASE_BRANCH_RE = re.compile(r"^[ \t]*([^\s()#][^)\n]*)\)[ \t]*(.*?)[ \t]*;;[ \t]*$", re.MULTILINE)
+
+
+def _rootfs_case_branches() -> list[tuple[str, str]]:
+    """The `case "$rel_path"` that decides, per rootfs file, what sync-system-files does."""
+    text = SERVER_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    loop = text[text.index('echo "Deploying rootfs files..."'):]
+    block = loop[loop.index('case "$rel_path" in') + len('case "$rel_path" in'):]
+    block = block[:block.index("esac")]
+    return CASE_BRANCH_RE.findall(block)
+
+
+def test_sync_system_files_skips_no_static_config():
+    """Every file under rootfs/ reaches the unit on a Milō update.
+
+    Fails when the rootfs loop of `milo-deploy-update` grows a branch that
+    leaves a path out instead of installing it. The one there was
+    `var/lib/milo/camilladsp/*`, skipped as "user config" although nothing
+    writes that file at run time: a release that corrected CamillaDSP's
+    `devices` reached a freshly flashed card and no running unit, and the same
+    release moving a Loopback slot in asound.conf, which is synced, left the
+    capture reading a slot nobody played into. Only two branches are admitted,
+    the two files a plain copy cannot install.
+    """
+    branches = _rootfs_case_branches()
+    actions = {action.split()[0] for _, action in branches}
+    assert {"install_self", "install_sudoers"} <= actions, (
+        f"the rootfs case was not read: {branches}"
+    )
+    skipped = [
+        pattern for pattern, action in branches
+        if action.split()[0] not in {"install_self", "install_sudoers"}
+    ]
+    assert not skipped, f"sync-system-files leaves these rootfs paths out: {skipped}"
+
+
+def _satellite_synced_trees() -> set[str]:
+    """`SYNCED_TREES`, the trees the satellite app installs itself, read from source."""
+    tree = ast.parse(CLIENT_APP_UPDATE.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "SYNCED_TREES" for t in node.targets
+        ):
+            return set(ast.literal_eval(node.value))
+    return set()
+
+
+def test_every_payload_directory_lands():
+    """The satellite's payload fingerprint covers exactly what a push installs.
+
+    The fingerprint decides whether a satellite is offered a push, and a push
+    restarts a speaker in an occupied room. It covered the whole of
+    `milo-client/` while the app installed `app/` and the deploy script
+    `system/` and `rootfs/`: a commit touching only `configs/` lit the update
+    on every satellite, restarted it, and marked it up to date with nothing
+    installed. Fails both ways: a fingerprinted directory nothing installs, and
+    an installed one a change to which would never be offered.
+    """
+    from backend.core.updates.satellite import PAYLOAD_PATHSPEC
+
+    fingerprinted = {
+        spec.removeprefix("milo-client/") for spec in PAYLOAD_PATHSPEC if not spec.startswith(":")
+    }
+    synced = _satellite_synced_trees()
+    deployed = set(re.findall(
+        r'"\$MILO_DIR/([A-Za-z0-9_-]+)', CLIENT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    ))
+    assert "app" in synced, f"SYNCED_TREES was not read from {CLIENT_APP_UPDATE.name}: {synced}"
+    assert {"system", "rootfs"} <= deployed, f"the deploy script was not read: {deployed}"
+    assert len(fingerprinted) >= 3, f"PAYLOAD_PATHSPEC was not read: {PAYLOAD_PATHSPEC}"
+
+    for name in fingerprinted:
+        assert (REPO_ROOT / "milo-client" / name).is_dir(), f"milo-client/{name} does not exist"
+    assert fingerprinted == synced | deployed, (
+        f"fingerprinted but never installed: {sorted(fingerprinted - synced - deployed)}; "
+        f"installed but never fingerprinted: {sorted((synced | deployed) - fingerprinted)}"
+    )

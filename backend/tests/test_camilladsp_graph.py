@@ -19,11 +19,19 @@ for real and the assertions are on the graph that was pushed.
 """
 import logging
 from dataclasses import replace
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import yaml
 
 from backend.core.equalizer.service import CamillaDSPService
+
+REPO = Path(__file__).resolve().parents[2]
+SHIPPED_CONFIGS = (
+    REPO / "rootfs/var/lib/milo/camilladsp/config.yml",
+    REPO / "milo-client/configs/camilladsp/config.yml",
+)
 
 
 @pytest.fixture
@@ -191,22 +199,18 @@ class TestMono:
 
         assert camilla_daemon.last_pushed["pipeline"][0]["name"] == "stereo"
 
-    async def test_a_config_without_a_mono_mixer_gets_one_defined(
-        self, service, camilla_daemon
-    ):
-        """The definition carries −6 dB per source: summing two channels at unity
-        clips. A mixer synthesised at the wrong gain is audible distortion, not a
-        missing feature.
+    @pytest.mark.parametrize("shipped", SHIPPED_CONFIGS, ids=["server", "milo-client"])
+    def test_the_shipped_configs_define_the_mono_mixer(self, shipped):
+        """`set_mono` only points the pipeline at `mono`; the definition comes
+        from the shipped config.yml, which every update installs (the server's
+        through sync-system-files, a satellite's at its next DSP connect). A
+        config without it is one CamillaDSP refuses whole, silencing the room
+        at the first mono switch. The −6 dB per source is load-bearing:
+        summing two channels at unity clips.
         """
-        camilla_daemon.load({
-            "mixers": {"stereo": {}},
-            "filters": {},
-            "pipeline": [{"type": "Mixer", "name": "stereo"}],
-        })
-
-        await service.set_mono(enabled=True)
-
-        mono = camilla_daemon.last_pushed["mixers"]["mono"]
+        mixers = yaml.safe_load(shipped.read_text())["mixers"]
+        assert set(mixers) >= {"stereo", "mono"}
+        mono = mixers["mono"]
         assert mono["channels"] == {"in": 2, "out": 2}
         assert [src["gain"] for m in mono["mapping"] for src in m["sources"]] == [-6] * 4
         assert {src["channel"] for m in mono["mapping"] for src in m["sources"]} == {0, 1}

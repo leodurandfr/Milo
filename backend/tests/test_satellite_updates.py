@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from backend.api.programs import create_programs_router
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import Client
-from backend.core.updates.satellite import SatelliteUpdateService
+from backend.core.updates.satellite import PAYLOAD_PATHSPEC, SatelliteUpdateService
 
 # What the server names in the call. It resolves the version against its own
 # manifest — including a trial of an unvalidated release — because a satellite
@@ -283,7 +283,22 @@ class TestTheTwoSatelliteIdentities:
 
         assert payload == "c6247d9"
         log = next(argv for argv in git.calls if "log" in argv)
-        assert log[-2:] == ["--", "milo-client"], "unscoped, this fingerprints HEAD again"
+        assert log[log.index("--") + 1:] == list(PAYLOAD_PATHSPEC), (
+            "unscoped, this fingerprints HEAD again"
+        )
+
+    async def test_the_dirty_suffix_reads_the_same_trees_as_the_commit(
+            self, satellite_service):
+        """An edit to a file no push installs must not mark the payload dirty,
+        or the button lights for it exactly as a commit would."""
+        git = _fake_git(dirty=True)
+
+        with patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", git):
+            await satellite_service.get_client_payload_version()
+
+        for verb in ("status", "diff"):
+            argv = next(a for a in git.calls if verb in a)
+            assert argv[argv.index("--") + 1:] == list(PAYLOAD_PATHSPEC), verb
 
     async def test_uncommitted_client_work_is_marked_dirty(self, satellite_service):
         """The tarball is built from the working tree, so an edit no commit

@@ -22,7 +22,7 @@ from services.app_update import AppUpdateService
 
 @pytest.fixture(autouse=True)
 def restore_cwd():
-    """_sync_app_files re-anchors the process cwd (the unit's WorkingDirectory
+    """_sync_tree re-anchors the process cwd (the unit's WorkingDirectory
     is the directory it renames), so the test process must be put back."""
     cwd = os.getcwd()
     yield
@@ -61,7 +61,7 @@ class TestSyncAppFiles:
     @pytest.mark.asyncio
     async def test_the_new_release_replaces_the_old_one(self, repo_dir, incoming):
         """Sanity floor for the failure test below: the swap must really swap."""
-        await AppUpdateService()._sync_app_files(incoming)
+        await AppUpdateService()._sync_tree(incoming, "app")
 
         live = repo_dir / "app"
         assert (live / "main.py").read_text() == "new main\n"
@@ -73,7 +73,7 @@ class TestSyncAppFiles:
     @pytest.mark.asyncio
     async def test_the_tree_it_replaced_is_kept_for_the_rollback(self, repo_dir, incoming):
         """pip and the version write still come after this, and both can fail."""
-        await AppUpdateService()._sync_app_files(incoming)
+        await AppUpdateService()._sync_tree(incoming, "app")
 
         assert not (repo_dir / "app.new").exists(), "the staging copy is consumed by the swap"
         assert (repo_dir / "app.old" / "main.py").read_text() == "live main\n"
@@ -95,7 +95,7 @@ class TestSyncAppFiles:
 
         with patch.object(app_update_module.shutil, "copytree", _die_midway):
             with pytest.raises(OSError):
-                await AppUpdateService()._sync_app_files(incoming)
+                await AppUpdateService()._sync_tree(incoming, "app")
 
         live = repo_dir / "app"
         assert (live / "main.py").read_text() == "live main\n"
@@ -109,13 +109,13 @@ class TestSyncAppFiles:
         stale.mkdir()
         (stale / "junk.py").write_text("from a run that died\n")
 
-        await AppUpdateService()._sync_app_files(incoming)
+        await AppUpdateService()._sync_tree(incoming, "app")
 
         assert not (repo_dir / "app" / "junk.py").exists()
 
 
-def _make_tarball(tmp_path, app_files: dict) -> str:
-    """Builds an update tarball holding only milo-client/app/, as the server sends it.
+def _make_tarball(tmp_path, app_files: dict, config_files: dict = None) -> str:
+    """Builds an update tarball holding milo-client/app/ (and configs/ if given).
 
     No system/ or rootfs/ entries: the deploy-script leg needs sudo, and the
     failure these tests cover is upstream of it.
@@ -124,6 +124,10 @@ def _make_tarball(tmp_path, app_files: dict) -> str:
     staged.mkdir(parents=True)
     for name, body in app_files.items():
         (staged / name).write_text(body)
+    for rel, body in (config_files or {}).items():
+        path = staged.parent / "configs" / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
 
     tarball = tmp_path / "update.tar.gz"
     with tarfile.open(tarball, "w:gz") as tar:
@@ -205,6 +209,27 @@ class TestDeployUpdateDependencyFailure:
         assert payload.read_text() == "aaaa111"
 
     @pytest.mark.asyncio
+    async def test_the_previous_configs_are_put_back_too(
+        self, repo_dir, tmp_path, identity_files, failing_pip
+    ):
+        """configs/ is swapped beside app/, so a failed update must not leave
+        the new release's CamillaDSP sections under the old release's code."""
+        live = repo_dir / "configs" / "camilladsp"
+        live.mkdir(parents=True)
+        (live / "config.yml").write_text("live devices\n")
+        tarball = _make_tarball(
+            tmp_path,
+            {"main.py": "new main\n", "requirements.txt": "aiohttp==3.9.0\n"},
+            {"camilladsp/config.yml": "new devices\n"},
+        )
+
+        await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+
+        assert (live / "config.yml").read_text() == "live devices\n"
+        assert not (repo_dir / "configs.old").exists()
+        assert not (repo_dir / "configs.new").exists()
+
+    @pytest.mark.asyncio
     async def test_the_previous_tree_is_put_back(
         self, repo_dir, tmp_path, identity_files, failing_pip
     ):
@@ -272,6 +297,31 @@ class TestDeployUpdateSuccess:
         assert payload.read_text() == "bbbb222"
         assert not (repo_dir / "app.old").exists()
         assert not (repo_dir / "app.new").exists()
+
+    @pytest.mark.asyncio
+    async def test_the_shipped_configs_land_beside_the_app(
+        self, repo_dir, tmp_path, identity_files, working_pip
+    ):
+        """configs/ is part of the payload fingerprint. Left out of the sync, a
+        commit touching only the CamillaDSP config offered every satellite a
+        push, restarted it, and marked it up to date with nothing installed."""
+        live = repo_dir / "configs" / "camilladsp"
+        live.mkdir(parents=True)
+        (live / "config.yml").write_text("live devices\n")
+        (live / "dropped.yml").write_text("dropped in the new release\n")
+        tarball = _make_tarball(
+            tmp_path,
+            {"main.py": "new main\n", "requirements.txt": "aiohttp==3.9.0\n"},
+            {"camilladsp/config.yml": "new devices\n"},
+        )
+
+        result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+
+        assert result["success"] is True
+        assert (live / "config.yml").read_text() == "new devices\n"
+        assert not (live / "dropped.yml").exists()
+        assert not (repo_dir / "configs.old").exists()
+        assert not (repo_dir / "configs.new").exists()
 
 
 class TestRestartOutcome:

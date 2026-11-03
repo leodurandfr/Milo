@@ -645,23 +645,11 @@ class CamillaDSPService:
             config["filters"].pop("headroom", None)
 
     def _config_apply_mono(self, config: Dict) -> None:
-        """Swap the pipeline Mixer step between stereo passthrough and mono sum."""
-        config.setdefault("mixers", {})
-        # Ensure mono mixer definition exists (backwards compat for old configs)
-        if "mono" not in config["mixers"]:
-            config["mixers"]["mono"] = {
-                "channels": {"in": 2, "out": 2},
-                "mapping": [
-                    {"dest": 0, "sources": [
-                        {"channel": 0, "gain": -6, "inverted": False},
-                        {"channel": 1, "gain": -6, "inverted": False}
-                    ]},
-                    {"dest": 1, "sources": [
-                        {"channel": 0, "gain": -6, "inverted": False},
-                        {"channel": 1, "gain": -6, "inverted": False}
-                    ]}
-                ]
-            }
+        """Swap the pipeline Mixer step between stereo passthrough and mono sum.
+
+        Both mixers are defined by the shipped config.yml, which every Milō
+        update installs.
+        """
         target_name = "mono" if self._mono else "stereo"
         for step in config.get("pipeline", []):
             if step.get("type") == "Mixer":

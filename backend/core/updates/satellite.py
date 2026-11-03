@@ -25,6 +25,18 @@ MILO_CLIENT_DIR = MILO_REPO_DIR / "milo-client"
 # every app update's payload.
 TARBALL_EXCLUDE_PATTERNS = {"__pycache__", ".pyc", ".pytest_cache", "tests", ".git", "venv"}
 
+# What the payload fingerprint covers: the trees a push installs (the app swaps
+# in app/ and configs/, its deploy script system/ and rootfs/), less the tests
+# the tarball leaves out. Spelled identically in
+# pi-gen/stage-milo/02-install-milo/00-run.sh, which seeds a flashed card's.
+PAYLOAD_PATHSPEC = (
+    "milo-client/app",
+    "milo-client/system",
+    "milo-client/rootfs",
+    "milo-client/configs",
+    ":(exclude,glob)milo-client/**/tests/**",
+)
+
 
 class SatelliteUpdateService:
     """Service to manage satellites and their updates.
@@ -256,8 +268,8 @@ class SatelliteUpdateService:
         return stdout.decode().strip()
 
     async def get_client_payload_version(self) -> Optional[str]:
-        """Fingerprint of what a satellite update actually ships: the commit
-        that last touched `milo-client/`.
+        """Fingerprint of what a satellite update actually installs: the commit
+        that last touched `PAYLOAD_PATHSPEC`.
 
         Two different questions are asked of a satellite, and one string used to
         answer both — badly. *Which version does it run* is displayed, and comes
@@ -283,7 +295,7 @@ class SatelliteUpdateService:
         "up to date" in the UI, while neither carried the route added to that
         directory half an hour earlier.
         """
-        commit = await self._git("log", "-1", "--format=%h", "--", "milo-client")
+        commit = await self._git("log", "-1", "--format=%h", "--", *PAYLOAD_PATHSPEC)
         if not commit:
             return None
 
@@ -294,13 +306,13 @@ class SatelliteUpdateService:
         # case this fingerprint exists to catch. Without `-z`, git quotes paths
         # holding accents or spaces, and the quoted name reads as a missing file.
         dirty = await self._git(
-            "status", "--porcelain", "--untracked-files=all", "-z", "--", "milo-client"
+            "status", "--porcelain", "--untracked-files=all", "-z", "--", *PAYLOAD_PATHSPEC
         )
         if not dirty:
             return commit
 
         digest = hashlib.sha256()
-        digest.update((await self._git("diff", "HEAD", "--", "milo-client") or "").encode())
+        digest.update((await self._git("diff", "HEAD", "--", *PAYLOAD_PATHSPEC) or "").encode())
         for entry in dirty.split("\0"):
             # Untracked files are absent from the diff, and a brand new module is
             # the most common shape of satellite work under test.
