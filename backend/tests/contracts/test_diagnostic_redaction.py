@@ -21,15 +21,30 @@ matters as much — the allowed sentinels MUST survive, or a broken extractor
 would pass this file by producing nothing at all.
 """
 import ast
+import functools
 import json
 import re
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from backend.api.settings import create_settings_router
 from backend.core.multiroom.models import Client, EqualizerSettings, Zone
 from backend.core.settings import SettingsService
 from backend.core.system.diagnostic import whitelist as wl
+from backend.hardware.registry import (
+    AUDIO_CARDS,
+    DEFAULT_IR_REMOTE,
+    DEFAULT_POWER_BUTTON,
+    DEFAULT_ROTARY_PINS,
+    SCREENS,
+    reserved_pins,
+)
+from backend.hardware.service import HardwareService
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SETTINGS_MODULE = REPO_ROOT / "backend" / "core" / "settings.py"
@@ -93,19 +108,63 @@ def _settings_paths() -> frozenset:
     return frozenset(paths)
 
 
+@functools.cache
 def _hardware_paths() -> frozenset:
-    """hardware.json's normalised shape, from the accessor that defines it."""
-    from backend.hardware.registry import AUDIO_CARDS  # noqa: F401 -- import guard
+    """hardware.json's normalised shape, as the Hardware page writes it and the
+    collector reads it back.
 
-    paths = set()
-    for section, keys in {
-        "audio": ("id", "volume_control"),
-        "screen": ("type", "resolution"),
-        "rotary_encoder": ("enabled", "clk_pin", "dt_pin", "sw_pin"),
-        "ir_remote": ("enabled", "gpio_pin"),
-    }.items():
-        paths.update(f"{section}.{key}" for key in keys)
-    return frozenset(paths)
+    The record is written by `PUT /api/settings/hardware-config` and read by
+    `HardwareService.get_full_config()`, both real, on a temporary file: a field
+    either one gains reaches this set without anyone listing it. The payload
+    takes a card with an overlay (the branch that writes the most keys) whose
+    reserved pins leave the default ones free, and every peripheral enabled.
+    Only the world outside is mocked: `apply` shells `sudo milo-apply-hardware`,
+    and `power` reboots this Pi.
+    """
+    default_pins = {
+        *DEFAULT_ROTARY_PINS.values(),
+        DEFAULT_IR_REMOTE["gpio_pin"],
+        DEFAULT_POWER_BUTTON["led_gpio_pin"],
+    }
+    card = next(
+        key for key, entry in AUDIO_CARDS.items()
+        if entry["overlay"] and not reserved_pins(key) & default_pins
+    )
+    screen = next(key for key, entry in SCREENS.items() if entry["resolution"])
+    payload = {
+        "audio": {"id": card},
+        "screen": {"type": screen},
+        "rotary_encoder": {"enabled": True, **DEFAULT_ROTARY_PINS},
+        "ir_remote": dict(DEFAULT_IR_REMOTE),
+        "power_button": {**DEFAULT_POWER_BUTTON, "enabled": True},
+    }
+    with tempfile.TemporaryDirectory() as directory:
+        hardware_file = Path(directory) / "hardware.json"
+        hardware_service = HardwareService()
+        hardware_service.hardware_file = hardware_file
+        hardware_service.apply = AsyncMock()
+        systemd_manager = Mock()
+        systemd_manager.power = AsyncMock()
+        app = FastAPI()
+        app.include_router(
+            create_settings_router(
+                volume_service=Mock(),
+                state_machine=Mock(),
+                screen_controller=Mock(),
+                systemd_manager=systemd_manager,
+                routing_service=Mock(),
+                hardware_service=hardware_service,
+                settings_service=Mock(),
+                multiroom_equalizer_service=Mock(),
+                mac_link_calibration=Mock(),
+            ),
+            prefix="/api/settings",
+        )
+        response = TestClient(app).put("/api/settings/hardware-config", json=payload)
+        assert response.status_code == 200, response.text
+        reader = HardwareService()
+        reader.hardware_file = hardware_file
+        return frozenset(_leaf_paths(reader.get_full_config()))
 
 
 UPSTREAM = {
@@ -176,7 +235,7 @@ def test_the_upstream_extractors_are_not_vacuous():
     """
     counts = {name: len(derive()) for name, (derive, _, _) in UPSTREAM.items()}
     assert counts["settings.json"] > 30, counts
-    assert counts["hardware.json"] == 10, counts
+    assert counts["hardware.json"] == 14, counts
     assert counts["multiroom Client"] >= 10, counts
     assert counts["multiroom Zone"] == 4, counts
     assert counts["EqualizerSettings"] == 7, counts

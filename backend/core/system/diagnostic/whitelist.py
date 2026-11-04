@@ -107,6 +107,8 @@ SETTINGS_EXCLUDED = {
 
 HARDWARE_ALLOWED = frozenset({
     "audio.id",
+    "audio.card_name",
+    "audio.overlay",
     "audio.volume_control",
     "screen.type",
     "screen.resolution",
@@ -116,6 +118,8 @@ HARDWARE_ALLOWED = frozenset({
     "rotary_encoder.sw_pin",
     "ir_remote.enabled",
     "ir_remote.gpio_pin",
+    "power_button.enabled",
+    "power_button.led_gpio_pin",
 })
 
 HARDWARE_EXCLUDED = {}
