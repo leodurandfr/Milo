@@ -353,6 +353,28 @@ async def test_a_refusal_from_the_run_restart_brought_back_forgets_nothing(world
     assert world.errors().count("credentials_refused") == 1
 
 
+async def test_a_refusal_heard_while_the_source_stops_still_forgets_the_refused_profile(world, monkeypatch):
+    """A line read while a STOP is in hand is handled after it, and what it
+    says about the daemon left with the source — except a refusal: left in
+    state.json, the refused account would be the next start's, and the
+    profile signed in after it is the one kept."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    close = world.source._library.close
+
+    async def close_while_a_line_arrives():
+        await world.journal_says(REFUSED)
+        await close()
+
+    monkeypatch.setattr(world.source._library, "close", close_while_a_line_arrives)
+
+    await world.leave()
+    await world.idle()
+
+    assert set(kept(world)) == {ACCOUNT}
+    assert world.stored_account() == ACCOUNT
+
+
 async def test_a_spotify_outage_at_sign_in_forgets_nothing(world):
     """Spotify down is not the account's fault: the profile stays, signed in
     again at the next start."""

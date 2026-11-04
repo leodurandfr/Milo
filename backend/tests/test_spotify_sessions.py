@@ -581,6 +581,30 @@ async def test_a_track_load_banner_leaves_with_the_source(world):
     assert world.envelopes("source", "error_cleared")
 
 
+async def test_a_track_load_line_heard_while_the_source_stops_leaves_no_banner(world, monkeypatch):
+    """journald hands a line on seconds late, so a line the daemon wrote before
+    the stop can reach the journal task while the STOP is in hand. Posted, it
+    runs after `_cleanup` cleared the banners, and nothing clears it again: the
+    monitor is gone and Spotify is no longer the source, so the banner sat over
+    the next one."""
+    close = world.source._library.close
+
+    async def close_while_a_line_arrives():
+        await world.journal_says('level=error msg="failed loading current track" error="no tracks"')
+        await close()
+
+    monkeypatch.setattr(world.source._library, "close", close_while_a_line_arrives)
+
+    await world.leave()
+    await world.idle()
+
+    banners = [
+        e["type"] for e in world.recorder.envelopes
+        if e["category"] == "source" and e["type"] in ("error", "error_cleared")
+    ]
+    assert not banners or banners[-1] == "error_cleared"
+
+
 # === Another device of the account ===
 
 @pytest.fixture

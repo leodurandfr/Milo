@@ -406,6 +406,9 @@ class SpotifySource(BaseAudioSource):
 
         # Log monitor for error detection
         self._log_monitor_task: Optional[asyncio.Task] = None
+        # Moves at each stop of the monitor: a line posted by the monitor of an
+        # earlier generation is handled after the stop that ended it.
+        self._log_generation = 0
         self._connection_error_count = 0
         self._last_error_time = 0.0
         # The banner standing, and the last refused login: the Spotify app
@@ -1861,12 +1864,14 @@ class SpotifySource(BaseAudioSource):
 
     def _stop_log_monitor(self) -> None:
         """Stop log monitoring."""
+        self._log_generation += 1
         if self._log_monitor_task:
             self._log_monitor_task.cancel()
             self._log_monitor_task = None
 
     async def _monitor_logs(self) -> None:
         """Monitor journalctl for go-librespot errors."""
+        generation = self._log_generation
         try:
             async for entry in follow_unit(
                 "milo-spotify",
@@ -1887,7 +1892,9 @@ class SpotifySource(BaseAudioSource):
                         continue
                     invocation = fields.get("_SYSTEMD_INVOCATION_ID")
                     self._post_result(
-                        lambda line=message, run=invocation: self._handle_log_line(line, run)
+                        lambda line=message, run=invocation: self._handle_journal_line(
+                            line, run, generation
+                        )
                     )
                 except Exception as e:
                     self._logger.error(f"Unreadable journal entry: {e}")
@@ -1896,6 +1903,24 @@ class SpotifySource(BaseAudioSource):
             pass
         except Exception as e:
             self._logger.error(f"Log monitor error: {e}")
+
+    async def _handle_journal_line(self, line: str, invocation: Optional[str], generation: int) -> None:
+        """A line the monitor of `generation` posted. One read while a STOP was
+        in hand runs after it: what it says about the daemon left with the
+        source, and a banner it put up would stand after `_cleanup` cleared
+        them, with no monitor left to clear it. A refused account still costs
+        its profile, whenever the line comes."""
+        if generation == self._log_generation:
+            await self._handle_log_line(line, invocation)
+        elif (reason := self._account_refusal(line)) is not None:
+            await self._drop_refused(reason, line, invocation)
+
+    @staticmethod
+    def _account_refusal(line: str) -> Optional[str]:
+        """The refusal of the stored account a line reports, if it reports one."""
+        if "with stored credentials" in line and login_failure(line) in ACCOUNT_REFUSALS:
+            return login_failure(line)
+        return None
 
     async def _handle_log_line(self, line: str, invocation: Optional[str]) -> None:
         """Parse and handle a log line from go-librespot, written by the daemon
@@ -1927,8 +1952,8 @@ class SpotifySource(BaseAudioSource):
             return
 
         # The stored account refused, at a start or a sign-in after a session end
-        if "with stored credentials" in line and login_failure(line) in ACCOUNT_REFUSALS:
-            await self._drop_refused(login_failure(line), line, invocation)
+        if (reason := self._account_refusal(line)) is not None:
+            await self._drop_refused(reason, line, invocation)
             return
 
         # A Connect attempt from the Spotify app was refused
