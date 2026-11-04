@@ -447,27 +447,57 @@ class TestConcurrency:
     """Test the transition lock."""
 
     @pytest.mark.asyncio
-    async def test_concurrent_transitions_are_serialized(self, state_machine, mock_source):
-        """Two transitions fired at once must not interleave.
+    async def test_a_second_source_waits_for_the_first_start_to_end(self, state_machine):
+        """A second source pressed while the first is starting waits its turn.
 
-        _transition_lock is what keeps two sources from being started against
-        the same ALSA device; without it the second caller reads a half-applied
-        state and both end up believing they own the output.
+        Two quick presses on two sources (an IR key, then the Dock) would
+        otherwise start the second while the first still opens the same ALSA
+        device: `_transition_lock` orders the second transition — the first
+        source's stop, then the second's start — behind the first start.
         """
-        async def slow_start():
-            await asyncio.sleep(0.05)
+        order = []
+        spotify_starting = asyncio.Event()
+        released = asyncio.Event()
+
+        async def start_spotify():
+            order.append(("start-in", "spotify"))
+            spotify_starting.set()
+            await released.wait()
+            order.append(("start-out", "spotify"))
             return True
 
-        mock_source.start = slow_start
-        state_machine.register_source(AudioSource.SPOTIFY, mock_source)
+        async def stop_spotify():
+            order.append(("stop-in", "spotify"))
+            order.append(("stop-out", "spotify"))
+            return True
 
-        results = await asyncio.gather(
-            state_machine.transition_to_source(AudioSource.SPOTIFY),
-            state_machine.transition_to_source(AudioSource.SPOTIFY),
+        async def start_radio():
+            order.append(("start-in", "radio"))
+            order.append(("start-out", "radio"))
+            return True
+
+        state_machine.register_source(
+            AudioSource.SPOTIFY, make_source(start=start_spotify, stop=stop_spotify)
         )
+        state_machine.register_source(AudioSource.RADIO, make_source(start=start_radio))
 
-        assert all(results)
-        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
+        first = asyncio.ensure_future(state_machine.transition_to_source(AudioSource.SPOTIFY))
+        async with asyncio.timeout(5):          # a hang guard, not a budget
+            await spotify_starting.wait()
+        second = asyncio.ensure_future(state_machine.transition_to_source(AudioSource.RADIO))
+        # Released late, so that without the lock the radio transition would
+        # run whole inside Spotify's start rather than race its wakeup.
+        asyncio.get_running_loop().call_later(0.05, released.set)
+        async with asyncio.timeout(5):          # a hang guard, not a budget
+            results = await asyncio.gather(first, second)
+
+        assert order == [
+            ("start-in", "spotify"), ("start-out", "spotify"),
+            ("stop-in", "spotify"), ("stop-out", "spotify"),
+            ("start-in", "radio"), ("start-out", "radio"),
+        ]
+        assert results == [True, True]
+        assert state_machine.system_state.active_source == AudioSource.RADIO
         assert state_machine.system_state.transitioning is False
 
 
