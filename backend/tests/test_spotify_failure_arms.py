@@ -31,6 +31,7 @@ import pytest
 from aiohttp.client_reqrep import ConnectionKey
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+from backend.core.audio_source import Result
 from backend.core.models.audio_state import AudioSource
 from backend.sources.spotify.source import SpotifySource
 from backend.tests.golden.harness import make_state_machine
@@ -385,7 +386,8 @@ class TestSendingACommand:
 
 class TestTheJournalBridge:
     """`_monitor_logs` — the only thing that turns a go-librespot failure into
-    the UI's error banner."""
+    the UI's error banner. It reads on the journal's task and posts each line
+    to the actor, so a test drains the mailbox before reading what was handled."""
 
     async def test_every_line_reaches_the_parser_with_the_run_that_wrote_it(self, source):
         """journald's JSON: the message, and the run (`_SYSTEMD_INVOCATION_ID`)
@@ -405,15 +407,17 @@ class TestTheJournalBridge:
 
         with patch("backend.sources.spotify.source.follow_unit", follow):
             await source._monitor_logs()
+        await source._submit(Result(AsyncMock()))
 
         assert seen == [
             ("authenticated AP", "2c7e0f58"), ("loaded", "2c7e0f58"), ("loaded track", "3d8f1a69"),
         ]
 
     async def test_a_line_that_throws_costs_only_that_line(self, source, caplog):
-        """Background-loop doctrine. Without the body guard, one unparsable
-        journal line ends the bridge and Spotify stops reporting failures for
-        the rest of the process — with nothing to say so."""
+        """A line whose handling raises is logged by the mailbox, and the next
+        line is still handled: a handler that killed the bridge or the actor
+        would leave Spotify reporting no failure for the rest of the process,
+        with nothing to say so."""
         seen = []
 
         async def follow(unit, *, consequence, output, logger=None):
@@ -430,8 +434,10 @@ class TestTheJournalBridge:
         with patch("backend.sources.spotify.source.follow_unit", follow):
             with caplog.at_level("ERROR", logger="source.spotify"):
                 await source._monitor_logs()
+                await source._submit(Result(AsyncMock()))
 
         assert seen == ["bad", "authenticated AP"]
+        assert "unparsable" in caplog.text
 
     async def test_the_journal_going_away_is_logged_not_raised(self, source, caplog):
         """The bridge runs as a bare task; an exception escaping it dies

@@ -1163,15 +1163,11 @@ class SpotifySource(BaseAudioSource):
         if running:
             await self._start_service()
 
-    def _stored_credentials_refused(self, reason: str, line: str, invocation: Optional[str]) -> None:
+    async def _drop_refused(self, reason: str, line: str, invocation: Optional[str]) -> None:
         """Spotify refused the stored account (a changed password, Premium
         gone): left in state.json, the daemon would exit on it at every start.
         The profile is forgotten — a new cast from the account brings it back —
-        and the next one signs in. Runs on the journal task, so it posts what
-        it heard, with the run that logged it."""
-        self._post(Result(lambda: self._drop_refused(reason, line, invocation)))
-
-    async def _drop_refused(self, reason: str, line: str, invocation: Optional[str]) -> None:
+        and the next one signs in."""
         # The line names the run, not the account. A run Milō has since handed
         # other credentials (read before its stop, in _sign_in_as) or already
         # moved on from refused someone state.json no longer holds: journald
@@ -1878,8 +1874,10 @@ class SpotifySource(BaseAudioSource):
                 output="json",
                 logger=self._logger,
             ):
-                # Per background-loop doctrine: a transient parse/broadcast
-                # error on one line must not kill the whole monitor.
+                # Per background-loop doctrine: a line that will not parse must
+                # not kill the whole monitor. What it says is the actor's to
+                # handle (an exception there is logged by the mailbox, and
+                # costs that line only).
                 try:
                     fields = json.loads(entry)
                     message = fields.get("MESSAGE")
@@ -1887,9 +1885,12 @@ class SpotifySource(BaseAudioSource):
                         message = bytes(message).decode(errors="ignore")
                     if not isinstance(message, str):
                         continue
-                    await self._handle_log_line(message, fields.get("_SYSTEMD_INVOCATION_ID"))
+                    invocation = fields.get("_SYSTEMD_INVOCATION_ID")
+                    self._post_result(
+                        lambda line=message, run=invocation: self._handle_log_line(line, run)
+                    )
                 except Exception as e:
-                    self._logger.error(f"Log line handling error: {e}")
+                    self._logger.error(f"Unreadable journal entry: {e}")
 
         except asyncio.CancelledError:
             pass
@@ -1927,7 +1928,7 @@ class SpotifySource(BaseAudioSource):
 
         # The stored account refused, at a start or a sign-in after a session end
         if "with stored credentials" in line and login_failure(line) in ACCOUNT_REFUSALS:
-            self._stored_credentials_refused(login_failure(line), line, invocation)
+            await self._drop_refused(login_failure(line), line, invocation)
             return
 
         # A Connect attempt from the Spotify app was refused
