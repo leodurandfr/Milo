@@ -610,6 +610,38 @@ class TestPrerollProbe:
         process.kill.assert_called_once()
         process.wait.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_a_probe_cancelled_by_the_session_end_kills_ffprobe(self, radio_source):
+        """The probe runs in the session's task set, which `end_session`
+        cancels. Cancellation walks past every `except`, so without a kill on
+        that path ffprobe outlives the session still connected to the station —
+        for good if the server accepts and then sends nothing."""
+        process = Mock(returncode=None)
+
+        async def _hangs():
+            await asyncio.sleep(30)
+
+        process.communicate = _hangs
+        process.kill = Mock()
+        process.wait = AsyncMock()
+        spawn = AsyncMock(return_value=process)
+
+        with patch("asyncio.create_subprocess_exec", spawn):
+            task = asyncio.create_task(
+                radio_source._detect_preroll("http://stream.example/live")
+            )
+            for _ in range(100):
+                if spawn.await_count:
+                    break
+                await asyncio.sleep(0)
+            assert spawn.await_count, "the probe never spawned ffprobe"
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        process.kill.assert_called_once()
+        process.wait.assert_awaited_once()
 
 
 class TestTransportOnAnIdleSource:

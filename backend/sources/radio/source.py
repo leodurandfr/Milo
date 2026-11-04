@@ -512,13 +512,14 @@ class RadioSource(MpvAudioSource):
             )
             try:
                 stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
-            except asyncio.TimeoutError:
+            finally:
                 # ffprobe is holding an open HTTP connection to the station.
-                # Left running it keeps pulling the stream for the rest of the
-                # session, and the station counts a listener that is not there.
-                process.kill()
-                await process.wait()
-                raise
+                # Left running — timed out, or cancelled with the session — it
+                # keeps pulling the stream, and the station counts a listener
+                # that is not there.
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
             if process.returncode == 0 and stdout:
                 tags = json.loads(stdout).get("format", {}).get("tags", {})
                 if tags.get("insertionType") == "preroll":

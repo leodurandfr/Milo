@@ -34,7 +34,9 @@ class _FakeProcess:
 
     def __init__(self, stdout=b"", stderr=b"", returncode=0, hangs_for=None):
         self._stdout, self._stderr = stdout, stderr
-        self.returncode = returncode
+        # Like a real child: no exit status until it has exited.
+        self._exit_status = returncode
+        self.returncode = None
         self._hangs_for = hangs_for
         self.killed = False
         self.waited = False
@@ -45,6 +47,7 @@ class _FakeProcess:
             # turns a mutation that drops `wait_for` into a very long wait
             # instead of a red test.
             await asyncio.sleep(self._hangs_for)
+        self.returncode = self._exit_status
         return self._stdout, self._stderr
 
     def kill(self):
@@ -222,6 +225,36 @@ class TestCaptureFailures:
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _boom)
 
         assert await service._capture_audio("http://stream/fip") is None
+
+
+class TestCaptureCancelled:
+    """The loop is cancelled by `stop()` — on every station change, source
+    switch, session end and Shazam toggle — and a capture runs for 12 s of
+    each 20 s round, so the cut usually lands inside one."""
+
+    @pytest.mark.asyncio
+    async def test_a_capture_cut_by_stop_kills_and_reaps_ffmpeg(
+        self, service, spawns, monkeypatch
+    ):
+        """Cancellation is a BaseException and walks past every `except`. Left
+        alive, ffmpeg keeps pulling the previous station — a phantom listener
+        — for the rest of its segment, and for the life of the backend when
+        the server accepts and then sends nothing."""
+        monkeypatch.setattr(shazam_mod, "INITIAL_DELAY_SECONDS", 0)
+        capturing = _FakeProcess(hangs_for=30)
+        spawns.process = capturing
+
+        await service.start("http://stream/fip")
+        for _ in range(100):
+            if spawns:
+                break
+            await asyncio.sleep(0)
+        assert spawns, "the loop never reached the capture"
+
+        await asyncio.wait_for(service.stop(), timeout=5)
+
+        assert capturing.killed is True
+        assert capturing.waited is True   # reaped, not left a zombie
 
 
 class TestSettingsGate:

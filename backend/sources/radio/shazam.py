@@ -325,17 +325,17 @@ class ShazamRecognitionService:
             return wav_buffer.getvalue()
 
         except asyncio.TimeoutError:
-            if process:
-                process.kill()
-                await process.wait()
             logger.debug("Audio capture timed out")
             return None
         except Exception as e:
-            if process and process.returncode is None:
-                process.kill()
-                await process.wait()
             logger.debug(f"Audio capture failed: {e}")
             return None
+        finally:
+            # Also on cancellation (stop() at every station change), which no
+            # `except` above sees: a live ffmpeg keeps pulling the old stream.
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
 
     def _parse_result(self, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
