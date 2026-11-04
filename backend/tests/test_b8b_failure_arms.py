@@ -263,7 +263,7 @@ class TestVolumeStoreGuards:
         writes. A raise here would surface as a failed volume change over a
         durability problem the user cannot act on."""
         monkeypatch.setattr(
-            "backend.core.volume.state.aiofiles.open",
+            "backend.shared.persistence.os.replace",
             Mock(side_effect=OSError("read-only filesystem")),
         )
 

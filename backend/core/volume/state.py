@@ -29,7 +29,7 @@ from dataclasses import dataclass
 import aiofiles
 
 from backend.shared.background import BackgroundTaskSet
-from backend.shared.decorators import handle_errors
+from backend.shared.persistence import write_bytes_atomically
 
 # Use existing domain models
 from backend.core.models.volume import VolumeConfig
@@ -89,12 +89,10 @@ class VolumeStateStore:
         self._persist_debounce_task: Optional[asyncio.Task] = None
         self._bg = BackgroundTaskSet(self.logger, "volume")
         self._PERSIST_DEBOUNCE_S = 2.0
+        self._persist_lock = asyncio.Lock()
 
         # Concurrency control
         self._lock = asyncio.Lock()
-
-        # Ensure storage directory exists
-        self._ensure_storage_directory()
 
         self.logger.info("VolumeStateStore initialized (SSOT for volume)")
 
@@ -152,17 +150,14 @@ class VolumeStateStore:
                     self._schedule_persist()
                 self.logger.info(f"Deleted client {mac_id} from volume state")
 
-    @handle_errors(default=None)
-    def _ensure_storage_directory(self) -> None:
-        """Create storage directory if it doesn't exist."""
-        self.STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
     # ========== Lifecycle ==========
 
     async def cleanup(self) -> None:
         """Flush pending volume state to disk on shutdown."""
-        if self._persist_debounce_task and not self._persist_debounce_task.done():
-            self._persist_debounce_task.cancel()
+        pending = self._persist_debounce_task
+        if pending and not pending.done():
+            pending.cancel()
+            await asyncio.wait({pending})
             await self._persist_state_async()
             self.logger.info("Flushed pending volume state on shutdown")
         await self._bg.cancel_all()
@@ -277,30 +272,41 @@ class VolumeStateStore:
         self._persist_debounce_task = self._bg.spawn(_debounced(), label="persist_state")
 
     async def _persist_state_async(self) -> None:
-        """Persist current volume state to disk using async I/O."""
+        """Persist current volume state to disk using async I/O.
+
+        The write runs in a worker thread, which a cancellation does not stop:
+        a cancelled persist still waits for its file to land, and the lock
+        keeps every later write behind it, so the newest state is the last
+        one renamed into place.
+        """
+        cancelled = False
         try:
-            data = {
-                "local_mac_id": self._local_mac_id,
-                "clients": {
-                    mac_id: {
-                        "volume_db": client.volume_db,
-                        "mute": client.mute
+            async with self._persist_lock:
+                data = {
+                    "local_mac_id": self._local_mac_id,
+                    "clients": {
+                        mac_id: {
+                            "volume_db": client.volume_db,
+                            "mute": client.mute
+                        }
+                        for mac_id, client in self._clients.items()
                     }
-                    for mac_id, client in self._clients.items()
                 }
-            }
-
-            temp_path = self.STORAGE_PATH.with_suffix(".tmp")
-            self.STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-            async with aiofiles.open(temp_path, 'w') as f:
-                await f.write(json.dumps(data, indent=2))
-
-            temp_path.replace(self.STORAGE_PATH)
+                write = asyncio.create_task(
+                    write_bytes_atomically(self.STORAGE_PATH, json.dumps(data, indent=2).encode())
+                )
+                while not write.done():
+                    try:
+                        await asyncio.wait({write})
+                    except asyncio.CancelledError:
+                        cancelled = True
+                write.result()
             self.logger.debug(f"Persisted volume state: local={self.local_volume_db:.1f}dB, {len(self._clients)} clients")
 
         except Exception as e:
             self.logger.error(f"Error persisting volume state: {e}", exc_info=True)
+        if cancelled:
+            raise asyncio.CancelledError
 
     # ========== Client Management ==========
 

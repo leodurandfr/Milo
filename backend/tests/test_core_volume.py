@@ -5,7 +5,10 @@ Unit tests for core.volume module.
 Tests the migrated VolumeService, VolumeStateStore,
 and EqualizerController in the new core/volume/ location.
 """
+import json
 import logging
+import os
+import threading
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 import asyncio
@@ -25,6 +28,7 @@ from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 from backend.tests.volume_world import Registry, world
 from backend.core.volume.state import StoredLevel
+from backend.shared import persistence
 
 
 # ============================================================================
@@ -501,6 +505,114 @@ class TestVolumeStateStore:
 
         state = await state_store.get_complete_state(multiroom=True)
         assert state.any_volume_control is False
+
+    async def test_last_volume_is_fsynced_through_a_unique_temp(self, tmp_path, monkeypatch):
+        """last_volume.json goes through the shared atomic primitive: a temp no
+        other writer shares, fsynced before it is renamed into place.
+
+        A fixed `last_volume.tmp` written without fsync lets two writers
+        truncate each other, and a power cut after the rename can leave an
+        empty file: the next boot then restores no room's level and forgets
+        the local mac.
+        """
+        monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
+        calls = []
+        real_fsync, real_replace = os.fsync, os.replace
+
+        def fsync(fd):
+            calls.append(("fsync", None))
+            return real_fsync(fd)
+
+        def replace(src, dst):
+            calls.append(("replace", os.fspath(src)))
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(persistence.os, "fsync", fsync)
+        monkeypatch.setattr(persistence.os, "replace", replace)
+
+        store = VolumeStateStore()
+        store.set_volume_config(VolumeConfig())
+        store.ensure_local_client("aa:bb:cc:dd:ee:ff", -50.0)
+        store.set_local_volume(-42.0)
+        await store._persist_state_async()
+        await store.cleanup()
+
+        kinds = [kind for kind, _ in calls]
+        assert "fsync" in kinds and "replace" in kinds
+        assert kinds.index("fsync") < kinds.index("replace")
+        replaced_from = next(src for kind, src in calls if kind == "replace")
+        assert not replaced_from.endswith("last_volume.tmp")
+
+        reloaded = VolumeStateStore()
+        reloaded.set_volume_config(VolumeConfig(restore_last_volume=True))
+        await reloaded.initialize()
+        assert reloaded.local_volume_db == -42.0
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    async def test_cleanup_flush_cannot_interleave_with_the_debounced_write(
+        self, tmp_path, monkeypatch
+    ):
+        """A shutdown landing while the debounced write is on disk must leave the
+        last level, in a file that parses.
+
+        The debounced write runs in a worker thread that a task cancellation
+        does not stop: cancelling it and writing again at once put two writers
+        on one file — an invalid JSON at the next boot (every room back at the
+        startup level, the local mac lost), or the older write landing last
+        and silently restoring a stale level.
+        """
+        monkeypatch.setattr(VolumeStateStore, "STORAGE_PATH", tmp_path / "last_volume.json")
+        # The first write is held inside fsync; a second one reaching fsync
+        # meanwhile is also held, then let land first — the order in which an
+        # unserialized flush loses the last level to the older write.
+        first_in, first_go = threading.Event(), threading.Event()
+        second_in, second_go = threading.Event(), threading.Event()
+        landed = threading.Event()
+        real_fsync, real_replace = os.fsync, os.replace
+        fsyncs = []
+
+        def fsync(fd):
+            fsyncs.append(fd)
+            gate = {1: (first_in, first_go), 2: (second_in, second_go)}.get(len(fsyncs))
+            if gate:
+                gate[0].set()
+                gate[1].wait(5)  # deadlock guard, not a time budget
+            return real_fsync(fd)
+
+        def replace(src, dst):
+            real_replace(src, dst)
+            landed.set()
+
+        monkeypatch.setattr(persistence.os, "fsync", fsync)
+        monkeypatch.setattr(persistence.os, "replace", replace)
+
+        store = VolumeStateStore()
+        store.set_volume_config(VolumeConfig())
+        store._PERSIST_DEBOUNCE_S = 0
+        mac = "aa:bb:cc:dd:ee:ff"
+        store.ensure_local_client(mac, -50.0)
+        store.set_local_volume(-39.5)
+        assert await asyncio.to_thread(first_in.wait, 5), "the debounced write never reached fsync"
+
+        store.set_local_volume(-40.0)
+        await store.set_client_mute(mac, True)
+        shutdown = asyncio.ensure_future(store.cleanup())
+        # How long a flush that does not wait is given to overtake; a correct
+        # one never reaches fsync here, and this wait simply runs out.
+        overtaken = await asyncio.to_thread(second_in.wait, 0.5)
+        second_go.set()
+        if overtaken:
+            assert await asyncio.to_thread(landed.wait, 5)
+        first_go.set()
+        await asyncio.wait_for(shutdown, 5)
+
+        json.loads((tmp_path / "last_volume.json").read_text())
+        reloaded = VolumeStateStore()
+        reloaded.set_volume_config(VolumeConfig(restore_last_volume=True))
+        await reloaded.initialize()
+        assert reloaded.local_volume_db == -40.0
+        assert reloaded.get_client_mute(mac) is True
+        assert list(tmp_path.glob("*.tmp")) == []
 
 # ============================================================================
 # VolumeService Tests
