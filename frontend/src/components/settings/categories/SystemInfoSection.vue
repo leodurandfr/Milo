@@ -124,6 +124,7 @@ import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import { useTimer } from '@/composables/useTimer';
+import { miloVersionLabel } from '@/utils/miloRelease';
 
 const { t, formatNumber, formatUnit } = useI18n();
 
@@ -191,7 +192,7 @@ async function loadMiloVersion() {
     category: 'system',
     message: 'Error loading Milo version'
   });
-  miloVersion.value = result.ok ? (result.data.installed?.versions?.main || null) : null;
+  miloVersion.value = result.ok ? miloVersionLabel(result.data.installed) : null;
   versionLoading.value = false;
   versionRead.value = true;
 }

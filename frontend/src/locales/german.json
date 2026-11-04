@@ -488,6 +488,7 @@
     "updating": "Aktualisierung…",
     "errorDetectingSatellites": "Fehler beim Erkennen von Satelliten",
     "upToDate": "Aktuell",
+    "developmentBuild": "Entwicklungsversion",
     "dependenciesHint": "Installiert die App und die damit validierten Programmversionen.",
     "clientsHint": "Die Milō Clients erhalten sie ebenfalls.",
     "revertTo": "Zurück zu {version}",

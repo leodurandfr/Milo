@@ -488,6 +488,7 @@
     "updating": "Updating…",
     "errorDetectingSatellites": "Error detecting satellites",
     "upToDate": "Up to date",
+    "developmentBuild": "Development build",
     "dependenciesHint": "Installs the app and the program versions validated with it.",
     "clientsHint": "The Milō Clients receive it too.",
     "revertTo": "Back to {version}",

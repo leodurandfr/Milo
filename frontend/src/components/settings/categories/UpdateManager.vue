@@ -15,7 +15,7 @@
               <!-- Shown only alongside the button, because it describes what pressing
                    it does: one Milō update carries the whole validated set, and the
                    satellites with it — but only say so where there are any. -->
-              <p v-if="!localProgramsLoading && localPrograms.milo?.update_available && !isLocalUpdateCompleted('milo')"
+              <p v-if="!localProgramsLoading && miloAction === 'update' && !isLocalUpdateCompleted('milo')"
                 class="text-body-medium section-note">
                 {{ t('updates.dependenciesHint') }}
                 <template v-if="anticipatedSatellites.length"> {{ t('updates.clientsHint') }}</template>
@@ -37,16 +37,16 @@
                         <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
                         <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
                         <span class="program-version text-mono-medium">
-                          milo {{ miloVersionLabel }}
+                          milo {{ miloVersion }}
                           <template
-                            v-if="localPrograms.milo.update_available && !isLocalUpdateCompleted('milo')">
+                            v-if="miloAction === 'update' && !isLocalUpdateCompleted('milo')">
                             <span class="version-new">> {{ stripTagPrefix(localPrograms.milo.latest?.tag_name) }}</span>
                           </template>
                         </span>
                       </div>
 
                       <div class="program-actions">
-                        <template v-if="isLocalUpdating('milo') || debugForceUpdating || (localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))">
+                        <template v-if="isLocalUpdating('milo') || debugForceUpdating || (miloAction === 'update' && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))">
                           <Button size="small" variant="brand" class="program-button action-wide"
                             :loading="isLocalUpdating('milo') || debugForceUpdating"
                             @click="startLocalUpdate('milo')"
@@ -60,7 +60,7 @@
                             :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()" />
                         </template>
                         <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
-                          {{ t('updates.upToDate') }}
+                          {{ miloAction === 'developmentBuild' ? t('updates.developmentBuild') : t('updates.upToDate') }}
                         </Button>
                       </div>
                     </div>
@@ -338,6 +338,7 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
+import { stripTagPrefix, miloVersionLabel, miloRowAction } from '@/utils/miloRelease';
 
 function getProgramIcon(programKey) {
   const iconMap = {
@@ -400,27 +401,10 @@ const {
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// Every other row prints the number upstream states and no "v" — the catalog's
-// `version_regex` took it off before the value ever reached here. Milo's rows
-// print the git TAG instead, and these tags carry one, so the column only reads
-// as one thing if the prefix comes off at the point of display.
-//
-// The prefix, and nothing else. Parsing "X.Y.Z" out of the tag is the mistake
-// this guards: it draws `v0.2.0-rc1` and the `v0.2.0` it is a candidate for as
-// the same string. Dropping one leading character keeps those apart, and keeps
-// a development build's `-<n>-g<sha>` visible.
-function stripTagPrefix(tag) {
-  return typeof tag === 'string' ? tag.replace(/^v(?=\d)/, '') : tag;
-}
+const miloVersion = computed(() =>
+  miloVersionLabel(localPrograms.value.milo?.installed) || t('updates.notAvailable'));
 
-// On a tree the backend reports as outside the channel — a development checkout
-// — there is no tag, and the raw `git describe` is the only honest answer.
-const miloVersionLabel = computed(() => {
-  const milo = localPrograms.value.milo;
-  if (!milo) return t('updates.notAvailable');
-  return stripTagPrefix(milo.installed?.release_tag || milo.installed?.raw_version)
-    || t('updates.notAvailable');
-});
+const miloAction = computed(() => miloRowAction(localPrograms.value.milo));
 
 // The offer points both ways. A release GitHub stops publishing — withdrawn
 // because it turned out bad — is offered back to every unit that took it, and
