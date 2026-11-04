@@ -1008,21 +1008,21 @@ class SpotifySource(BaseAudioSource):
 
     # === The Spotify app's slider ===
 
-    async def _follow_app_volume(self, status: LibrespotStatus) -> None:
+    async def _follow_app_volume(self, status: LibrespotStatus) -> bool:
         """The slider moved on the phone: Milō's volume follows. Only a move
         is followed, never a position: the first one a run of the daemon
         reports is where Milō put it (go-librespot 0.10.5 starts a session from
         the last volume it was given), and a read for another reason reports
-        the same one again."""
+        the same one again. True when the house was moved."""
         if status.volume is None:
-            return
+            return False
         self._volume_steps = status.volume_steps or self._volume_steps
         seen, self._volume_seen = self._volume_seen, status.volume
         volume = self._volume_service
         if not self._app_volume or volume is None or seen is None or status.volume == seen:
-            return
+            return False
         if status.volume == self._volume_sent:
-            return
+            return False
         echo_ends = self._volume_sent_at + self.VOLUME_ECHO_S
         if audio_source.wall_time() < echo_ends:
             # Perhaps an older push written back, perhaps the phone: looked at
@@ -1031,15 +1031,16 @@ class SpotifySource(BaseAudioSource):
             self._volume_seen = seen
             if not self._timer_armed("status"):
                 self._arm_timer("status", echo_ends - audio_source.wall_time())
-            return
+            return False
         # Milō's level moves to the slider's, and is not sent back to it —
         # neither the step the phone chose nor the level the house landed on,
         # which differs from it by a rounding or a room held at its limit.
         self._volume_sent = status.volume
         level = status.volume / self._volume_steps
-        await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
+        moved = await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
         state = await volume.get_volume_state()
         self._volume_landed = volume.volume_config.normalize(state.global_volume_db)
+        return moved
 
     async def _sync_app_volume(self) -> None:
         """Put the slider at Milō's level, whatever it was last put at."""
@@ -1264,7 +1265,10 @@ class SpotifySource(BaseAudioSource):
         if self._http is None:
             return
         # Milō's own volume moves arrive on the same mailbox: a knob turn is
-        # dozens of states, and the slider goes to the last.
+        # dozens of states, and the slider goes to the last — unless the house
+        # followed the phone in this burst: every move here was posted before
+        # that follow, which set the house after them, and pushing one would
+        # put the slider back under the finger.
         mine = (MiloVolume, AppVolumeSetting)
         milo = [e for e in events if isinstance(e, mine)]
         events = [e for e in events if not isinstance(e, mine)]
@@ -1273,8 +1277,7 @@ class SpotifySource(BaseAudioSource):
             if isinstance(e, AppVolumeSetting):
                 sync = sync or (e.allowed and not self._app_volume)
                 self._app_volume = e.allowed
-        if events:
-            await self._handle_daemon_events(events)
+        followed = await self._handle_daemon_events(events) if events else False
         # A daemon that answers again (a start, a restart) is put at Milō's
         # level: the volume may have moved while it was down.
         if any(e.get("type") == "connected" for e in events):
@@ -1282,10 +1285,11 @@ class SpotifySource(BaseAudioSource):
         moves = [e for e in milo if isinstance(e, MiloVolume)]
         if sync:
             await self._sync_app_volume()
-        elif moves:
+        elif moves and not followed:
             await self._push_app_volume(moves[-1].level)
 
-    async def _handle_daemon_events(self, events) -> None:
+    async def _handle_daemon_events(self, events) -> bool:
+        """True when the house followed a move of the phone's slider."""
         gone = False
         for event in events:
             kind = event.get("type")
@@ -1313,9 +1317,10 @@ class SpotifySource(BaseAudioSource):
             self._logger.warning("go-librespot status unavailable — keeping the session as it stands")
             if not self._timer_armed("status"):
                 self._arm_timer("status", self.STATUS_RETRY_DELAY)
-            return
-        await self._apply_status(status)
+            return False
+        followed = await self._apply_status(status)
         self._publish_changes()
+        return followed
 
     async def _on_timer(self, name: str, token: object) -> None:
         """`status`: the one re-read after a failed one — go-librespot emits an
@@ -1360,11 +1365,12 @@ class SpotifySource(BaseAudioSource):
         await self._apply_status(status)
         self._publish_changes()
 
-    async def _apply_status(self, status: Optional[LibrespotStatus]) -> None:
+    async def _apply_status(self, status: Optional[LibrespotStatus]) -> bool:
         """Make the session and the account match what /status said (None: a
         204, or the `inactive` that needs no read). The session first: ending
         it disarms the timers, and the sign-in watch armed below must outlive
-        that end."""
+        that end. True when the house followed the phone's slider."""
+        followed = False
         if status is None:
             # The order belonged to the session that ended.
             self._order, self._order_stale = PlayOrder(), True
@@ -1372,11 +1378,12 @@ class SpotifySource(BaseAudioSource):
         else:
             self._device_id = status.device_id or self._device_id
             await self._apply_session(status)
-            await self._follow_app_volume(status)
+            followed = await self._follow_app_volume(status)
         await self._follow_account(status)
         self._follow_remote(status)
         self._list_started_tracks()
         await self._follow_jam()
+        return followed
 
     def _list_started_tracks(self) -> None:
         """List the tracks that started in the history, under the account this

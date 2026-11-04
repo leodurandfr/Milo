@@ -56,6 +56,17 @@ class _Volume:
             listener(self.level(), self.muted)
 
 
+class _SlowVolume(_Volume):
+    """A house that takes 150 ms to move (a loaded CPU, a slow satellite):
+    longer than go-librespot's 100 ms between two reports of a moving slider."""
+
+    clock = None
+
+    async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
+        await self.clock.sleep(0.15)
+        return await super().set_volume_db(volume_db, show_bar)
+
+
 def _slider_posts(world: SpotifyWorld) -> List[int]:
     """Every position Milō put the app's slider at, in go-librespot's steps."""
     return [body["volume"] for command, body in world.daemon.posted if command == "volume"]
@@ -168,6 +179,43 @@ class TestShared:
         await shared.advance(0)
         assert len(volume.sets) == 1
         assert len(_slider_posts(shared)) == posts
+
+    async def test_the_phones_last_press_survives_a_slow_house_move(self, monkeypatch, tmp_path):
+        """Three quick presses on the phone while the house is slower to move
+        than the phone to report: the level the house landed on for one press
+        is not sent back over the next one. Sent back, it moves the slider
+        under the finger and the last press is lost — the room ends a step
+        short of where the phone was put."""
+        volume = _SlowVolume(volume_db=-50.0)
+        world = await _world(monkeypatch, tmp_path, True, volume)
+        volume.clock = world.clock
+        try:
+            await world.phone_plays(PARAPLUIE)
+            await world.advance(2)
+            posts = len(_slider_posts(world))
+            for value in (55, 62, 70):
+                await world.phone_moves_volume(value)
+                await world.advance(0.12)
+            await world.advance(2)
+            assert volume.sets[-1] == pytest.approx(volume.volume_config.denormalize(0.70))
+            assert _slider_posts(world)[posts:] == []
+        finally:
+            await world.source.shutdown()
+
+    async def test_a_milo_level_older_than_a_followed_phone_move_is_not_pushed(self, shared, volume):
+        """A knob turn and a phone press read in one burst: Milō's level was
+        posted before the house followed the phone, so it is the older of the
+        two. Pushed after the follow, it would put the slider back under the
+        finger."""
+        await shared.phone_plays(PARAPLUIE)
+        await shared.advance(2)
+        posts = len(_slider_posts(shared))
+        shared.daemon.volume = 62
+        shared.daemon.says(shared.daemon.volume_event())
+        volume.moved_in_milo(volume.volume_config.denormalize(0.55))
+        await shared.advance(0)
+        assert _slider_posts(shared)[posts:] == []
+        assert volume.sets[-1] == pytest.approx(volume.volume_config.denormalize(0.62))
 
     async def test_a_burst_of_milo_moves_sends_the_last(self, shared, volume):
         await shared.phone_plays(PARAPLUIE)
