@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.settings import create_settings_router
 from backend.core.models.audio_state import AudioSource
+from backend.core.models.ws_events import DockAppsChanged
 from backend.core.settings import SettingsService
 
 
@@ -447,6 +448,27 @@ class TestTheDockAtomicity:
         )
 
         assert response.status_code == 500
+
+    def test_a_failure_before_any_commit_still_announces_the_stored_dock(
+        self, client, settings, equalizer, state_machine
+    ):
+        """The screen that sent the request already moved the tile, and only
+        this event moves it back: Milō's own Dock and settings home, and
+        Milo-Mac's dock, all read `settings/dock_apps_changed`. A first effect
+        that fails commits nothing, which is no reason to stay silent."""
+        _dock(settings, ["radio", "equalizer", "multiroom"])
+        equalizer.set_local_equalizer_effects_enabled = AsyncMock(return_value=False)
+
+        response = client.put(
+            "/api/settings/dock-apps", json={"enabled_apps": ["radio", "multiroom"]}
+        )
+
+        assert response.status_code == 500
+        stored = asyncio.run(settings.load_settings())["dock"]["enabled_apps"]
+        state_machine.broadcast.assert_awaited_once()
+        event = state_machine.broadcast.await_args.args[0]
+        assert isinstance(event, DockAppsChanged)
+        assert event.config.enabled_apps == stored
 
 
 class TestTheDockOverTheRealStore:

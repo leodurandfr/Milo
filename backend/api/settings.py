@@ -563,14 +563,14 @@ def create_settings_router(
                     # Stop here: nothing is compensated and operations_log is
                     # diagnostic text, never replayed. The effects that ran are
                     # already persisted — including the tile list — so all that is
-                    # left is to tell the consumers which dock they are looking at.
+                    # left is to tell the consumers which dock they are looking at —
+                    # even when nothing landed: the sender already moved its tile.
                     logger.error(f"Error during dock-apps update: {e}")
                     logger.error(f"Operations completed before error: {operations_log}")
 
-                    if persisted != old_enabled_apps:
-                        await state_machine.broadcast(DockAppsChanged(
-                            config=DockAppsConfig(enabled_apps=list(persisted))
-                        ))
+                    await state_machine.broadcast(DockAppsChanged(
+                        config=DockAppsConfig(enabled_apps=list(persisted))
+                    ))
 
                     raise HTTPException(
                         status_code=500,

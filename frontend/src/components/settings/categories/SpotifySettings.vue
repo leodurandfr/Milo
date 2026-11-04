@@ -119,8 +119,8 @@ async function applyNow() {
   if (isApplying.value) return;
   isApplying.value = true;
   try {
-    await save(true);
-    appliedSeconds.value = crossfadeSeconds.value;
+    const { applied } = await save(true);
+    if (applied) appliedSeconds.value = crossfadeSeconds.value;
   } finally {
     isApplying.value = false;
   }

@@ -142,7 +142,11 @@ function canDisableAudioSource(sourceId) {
 
 function saveDockApps() {
   const enabledApps = settingsStore.buildEnabledAppsArray();
-  debouncedUpdate('dock-apps', 'dock-apps', { enabled_apps: enabledApps }, 500);
+  // The tile moved before the request: a rejection the server announces no
+  // dock for (network, a failed save) is undone by reading the stored one.
+  debouncedUpdate('dock-apps', 'dock-apps', { enabled_apps: enabledApps }, 500, {
+    onError: () => settingsStore.loadAllSettings()
+  });
 }
 
 function handleToggle(appName, value) {
