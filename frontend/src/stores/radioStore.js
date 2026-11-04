@@ -271,6 +271,12 @@ export const useRadioStore = defineStore('radio', () => {
       const cacheAge = Math.round((Date.now() - topStationsCacheTimestamp.value) / 1000);
       logger.debug('radio', `Using cached top stations (age: ${cacheAge}s)`);
 
+      // A search still in flight is older than this answer: landing after it,
+      // it would draw its results under the field just emptied.
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+      }
       searchResults.value = topStationsCache.value;
       displayedCount.value = 40;
       loading.value = false;

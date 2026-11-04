@@ -286,6 +286,26 @@ describe('radioStore', () => {
       expect(store.displayedStations).toHaveLength(1);
     });
 
+    it('a search that lands after the field was cleared back to the cached top stations is dropped', async () => {
+      // Emptying the field is served from the cache with no request of its
+      // own, so nothing else retires the search still in flight: landing, it
+      // drew jazz stations under an empty field.
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION('top1')], total: 1 }));
+      await store.loadStations();
+      let resolveSearch;
+      apiCall.get.mockImplementationOnce(() => new Promise(resolve => { resolveSearch = resolve; }));
+      store.searchQuery = 'jazz';
+      const search = store.loadStations();
+
+      store.searchQuery = '';
+      await store.loadStations();
+      resolveSearch(ok({ stations: [STATION('jazz1')], total: 1 }));
+      await search;
+
+      expect(store.displayedStations.map(s => s.id)).toEqual(['top1']);
+      expect(store.loading).toBe(false);
+    });
+
     it('refetches once the top-stations cache has expired', async () => {
       vi.useFakeTimers();
       apiCall.get.mockResolvedValue(ok({ stations: [STATION('s1')], total: 1 }));
