@@ -22,26 +22,23 @@ from typing import Any, Dict, List
 from backend.core.models.audio_state import AudioSource, NetworkRequirement
 from backend.core.models.audio_wire import SourceView
 from backend.core.state import AudioStateMachine
+import backend.main  # noqa: F401 -- the app must be imported before any fixture, whichever file is run
 
-
-@pytest.fixture(scope="session", autouse=True)
-def keep_the_suite_out_of_the_operator_log():
-    """Detach the production errors.log handler for the whole run.
-
-    `backend/main.py` attaches a RotatingFileHandler on /var/lib/milo/errors.log
-    at import time, and three test modules import it. On CI that path does not
-    exist and the handler fails open — but this repo is also checked out *on the
-    appliance*, where it does exist, so a plain `pytest` writes its own fixtures
-    ("Multiroom update failed: network down", "unknown zone: nonexistent") into
-    the log an operator reads. Session-scoped rather than module-level: the
-    import happens during collection, before any fixture can run.
-    """
-    root = logging.getLogger()
-    for handler in [
-        h for h in root.handlers
-        if getattr(h, "baseFilename", None) == str(ERROR_LOG_FILE)
-    ]:
-        root.removeHandler(handler)
+# `backend/main.py` attaches a RotatingFileHandler on /var/lib/milo/errors.log at
+# import time. On CI that path does not exist and the handler fails open — but
+# this repo is also checked out *on the appliance*, where it does exist, so a
+# plain `pytest` would write its own fixtures ("Multiroom update failed: network
+# down", "unknown zone: nonexistent") into the log an operator reads. The import
+# is made here, at collection, whichever file is run: left to a test body, its
+# writes land inside `fail_when_a_test_writes_appliance_state` and are blamed on
+# that test. The handler is detached at once, before any other module is
+# collected, so nothing the run logs reaches the operator's file.
+for _handler in [
+    h for h in logging.getLogger().handlers
+    if getattr(h, "baseFilename", None) == str(ERROR_LOG_FILE)
+]:
+    logging.getLogger().removeHandler(_handler)
+    _handler.close()
 
 
 @pytest.fixture(scope="session", autouse=True)
