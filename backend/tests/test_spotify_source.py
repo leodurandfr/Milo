@@ -1296,10 +1296,45 @@ class TestLogBridge:
         assert spotify_source._error_active is False
         assert isinstance(self._broadcast(spotify_source), SourceErrorCleared)
 
+    # The journal line of 2026-10-29: logrus escapes the quotes of Go's URL error.
+    LOGIN5_NETWORK_DOWN = (
+        'time="2026-10-29T01:21:19+01:00" level=warning msg="login5 request failed, '
+        'retrying in 300ms" error="failed requesting login5: Post '
+        '\\"https://login5.spotify.com/v3/login\\": dial tcp 212.27.38.252:443: '
+        'connect: network is unreachable"'
+    )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cause", [
+        "dial tcp 212.27.38.252:443: connect: network is unreachable",
+        "dial tcp 212.27.38.252:443: connect: no route to host",
+        "dial tcp 212.27.38.252:443: connect: network is down",
+        "dial tcp: lookup login5.spotify.com: no such host",
+    ])
+    async def test_a_local_network_outage_during_login5_is_unreachable_not_provider(
+        self, spotify_source, wired, caplog, cause
+    ):
+        """login5's transport error wraps the unit's own network failure: read
+        by its envelope, a cable pulled on Milō said "the Spotify service is
+        unavailable", and the cause was cut at the first escaped quote."""
+        line = self.LOGIN5_NETWORK_DOWN.replace(
+            "dial tcp 212.27.38.252:443: connect: network is unreachable", cause
+        )
+
+        await spotify_source._handle_log_line(line)
+
+        assert self._banners(spotify_source) == [SourceErrorReason.SERVICE_UNREACHABLE]
+        errors = [r for r in caplog.records if r.levelname == "ERROR"]
+        assert errors[-1].getMessage().endswith(cause)
+
     @pytest.mark.parametrize("line, expected", [
         ('msg="failed loading current track" error="no tracks"',
          "failed loading current track: no tracks"),
         ('msg="failed loading current track"', "failed loading current track"),
+        (LOGIN5_NETWORK_DOWN,
+         'login5 request failed, retrying in 300ms: failed requesting login5: Post '
+         '"https://login5.spotify.com/v3/login": dial tcp 212.27.38.252:443: '
+         'connect: network is unreachable'),
         ('level=error something entirely different', "Unknown error"),
     ])
     def test_the_banner_text_is_the_daemon_own_words(self, spotify_source, line, expected):

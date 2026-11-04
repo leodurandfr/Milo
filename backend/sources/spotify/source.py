@@ -221,8 +221,11 @@ def login_failure(line: str) -> Optional[str]:
     `LoginError` name verbatim. A login5 error page (measured 2026-09-29: a
     503 "no healthy upstream") is Spotify down, not a refusal: go-librespot
     names its status (`login5 returned HTTP 503: …`) and retries 5xx and 429;
-    another 4xx fails at once and says nothing about why. Wording is
-    go-librespot 0.10.3's — re-read it on every bump.
+    another 4xx fails at once and says nothing about why. login5's transport
+    error wraps the unit's own network failure (`failed requesting login5:
+    Post "…": dial tcp …: connect: network is unreachable`), so that cause is
+    read before the envelope. Wording is go-librespot 0.10.3's — re-read it
+    on every bump.
     """
     if "PremiumAccountRequired" in line:
         return SourceErrorReason.PREMIUM_REQUIRED
@@ -230,12 +233,17 @@ def login_failure(line: str) -> Optional[str]:
         "BadCredentials", "CouldNotValidateCredentials", "login5: INVALID_CREDENTIALS",
     )):
         return SourceErrorReason.CREDENTIALS_REFUSED
+    # Milō's own network down: it outranks the login5 envelope that wraps it
+    if any(m in line for m in (
+        "network is unreachable", "network is down", "no route to host", "no such host",
+    )):
+        return SourceErrorReason.SERVICE_UNREACHABLE
     if LOGIN5_UNAVAILABLE.search(line) or any(m in line for m in (
         "failed requesting login5:", "failed reading login5 response",
         "login5: TRY_AGAIN_LATER", "TryAnotherAP",
     )):
         return SourceErrorReason.PROVIDER_UNAVAILABLE
-    if any(m in line for m in ("dial tcp", "i/o timeout", "no such host")):
+    if any(m in line for m in ("dial tcp", "i/o timeout")):
         return SourceErrorReason.SERVICE_UNREACHABLE  # Milō's own network, not a refusal
     return None
 
@@ -1954,14 +1962,16 @@ class SpotifySource(BaseAudioSource):
         Extract the msg and error fields from a go-librespot log line.
 
         Log format: level=warning msg="..." error="..."
-        Returns the message exactly as it appears in the logs.
+        Both are logrus quoted fields, whose inner quotes are escaped (a Go URL
+        error quotes its URL): read up to the closing quote and unescape, so
+        the message is the daemon's, whole.
         """
-        msg_match = re.search(r'msg="([^"]+)"', line)
-        msg = msg_match.group(1) if msg_match else ""
+        def field(name: str) -> str:
+            match = re.search(name + r'="((?:[^"\\]|\\.)*)"', line)
+            return re.sub(r'\\(["\\])', r"\1", match.group(1)) if match else ""
 
-        # Extract error="..." (may not exist)
-        error_match = re.search(r'error="([^"]+)"', line)
-        error = error_match.group(1) if error_match else ""
+        msg = field("msg")
+        error = field("error")  # may not exist
 
         if error:
             return f'{msg}: {error}'
