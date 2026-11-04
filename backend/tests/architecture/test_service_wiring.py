@@ -1,4 +1,4 @@
-"""Structural guardrail: how `core/` services are wired, and what they own.
+"""Structural guardrail: how `core/` and `hardware/` services are wired, and what they own.
 
 `CLAUDE.md § Core code rules` states four rules that nothing verified. The
 first three had already been broken in production code when this test was
@@ -9,9 +9,10 @@ written:
     `self._station_data._loaded`.
   * **Background tasks** — no raw `asyncio.create_task` for fire-and-forget;
     a service owning a `BackgroundTaskSet` drains it in `cleanup()`, and the
-    lifespan handler calls that `cleanup()`. `CrossoverService.cleanup()` was
-    never called; `AudioRoutingService` and `HostnameConflictService` had no
-    `cleanup()` at all.
+    lifespan handler calls that `cleanup()` — for every registry service under
+    `core/` and the controllers under `hardware/`, which have no other owner.
+    `CrossoverService.cleanup()` was never called; `AudioRoutingService` and
+    `HostnameConflictService` had no `cleanup()` at all.
   * **One wiring path** — `dependencies.py::_create_service` injects the
     acyclic dependencies and `initialize_services()` breaks the real cycles
     with setters. Ten setters existed for dependencies the factory already
@@ -330,13 +331,74 @@ def _classes_owning_a_task_set():
 _TEARDOWN_NAMES = ("cleanup", "shutdown", "stop", "stop_connection", "close")
 
 
+def _built_class(call, factories):
+    """The class a creator's call constructs, or None if the shape is unknown.
+
+    Two shapes build a service: `_import("mod", "Cls")(…)`, and a
+    `_create_x()` helper whose body does it — through `_import` too (the
+    rotary encoder's) or through a class it imports itself (the equalizer
+    router's `from … import EqualizerRouter`).
+    """
+    if not isinstance(call, ast.Call):
+        return None
+    func = call.func
+    if (
+        isinstance(func, ast.Call)
+        and isinstance(func.func, ast.Name)
+        and func.func.id == "_import"
+        and len(func.args) == 2
+        and isinstance(func.args[1], ast.Constant)
+    ):
+        return func.args[1].value
+    if isinstance(func, ast.Name) and func.id in factories:
+        helper = factories[func.id]
+        imported = {
+            alias.asname or alias.name
+            for node in ast.walk(helper) if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
+        built = {
+            name for node in ast.walk(helper)
+            if (name := _built_class(node, {})) is not None
+        } | {
+            node.func.id for node in ast.walk(helper)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in imported
+        }
+        return built.pop() if len(built) == 1 else None
+    return None
+
+
 def _registry_class_names():
-    """Class names `dependencies.py` builds — the ones main.py can tear down."""
-    src = (BACKEND_ROOT / "dependencies.py").read_text()
-    # `\s*` between the arguments: a creator wrapped over several lines (the
-    # Snapcast analysis's is) was invisible to both tests below.
-    names = dict(re.findall(r'"([a-z_]+)": lambda: _import\(\s*"[^"]+",\s*"(\w+)"\s*\)', src))
+    """Class names `dependencies.py` builds — the ones main.py can tear down.
+
+    Read from the `creators` dict by AST rather than by a pattern: a regex
+    over `_import(...)` alone never saw an entry routed through a `_create_x()`
+    helper, which hid the rotary encoder from the cleanup rule below.
+    """
+    tree = ast.parse((BACKEND_ROOT / "dependencies.py").read_text())
+    factories = {
+        node.name: node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("_create_")
+    }
+    creators = next(
+        node.value for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "creators" for t in node.targets)
+        and isinstance(node.value, ast.Dict)
+    )
+    names, unread = {}, []
+    for key, value in zip(creators.keys, creators.values):
+        built = _built_class(value.body, factories) if isinstance(value, ast.Lambda) else None
+        if built is None:
+            unread.append(ast.unparse(key))
+        else:
+            names[key.value] = built
+    assert not unread, f"registry entries whose class the extractor cannot read: {unread}"
     assert len(names) >= 25, f"service registry extraction looks broken: {names}"
+    # A factory function read as a class would drop out of every rule here.
+    classes = _class_index()
+    not_classes = sorted(n for n in names.values() if n not in classes)
+    assert not not_classes, f"registry entries that build no backend class: {not_classes}"
     return names
 
 
@@ -376,19 +438,16 @@ def test_task_set_owners_drain_where_they_tear_down():
     )
 
 
-def test_registry_services_with_cleanup_are_called_on_shutdown():
-    """A cleanup() nobody calls is not a cleanup.
-
-    `CrossoverService.cleanup()` existed for months while the lifespan handler
-    never invoked it, so its per-client retry tasks outlived every shutdown.
-
-    The shutdown block registers each entry as a bound method in a list that
-    `run_teardown` then calls, so a bare `.cleanup` reference counts here — in
-    that block, a mention *is* the registration.
-    """
-    main_src = (BACKEND_ROOT / "main.py").read_text()
+def _shutdown_block(main_src):
     shutdown = main_src.split("yield", 1)[1] if "yield" in main_src else ""
     assert "cleanup" in shutdown, "could not locate main.py's shutdown block"
+    return shutdown
+
+
+def _uncalled_cleanups(main_src):
+    """Registry classes under `core/` or `hardware/` whose cleanup() main.py's
+    shutdown never reaches, one line each."""
+    shutdown = _shutdown_block(main_src)
 
     # Map a registry name to the class it builds, then to its module.
     class_of = _registry_class_names()
@@ -400,8 +459,11 @@ def test_registry_services_with_cleanup_are_called_on_shutdown():
         if entry is None:
             continue
         path, cls = entry
-        if "core/" not in _rel(path):
-            continue  # sources and hardware are torn down by their own owners
+        # Sources are ended by `state_machine.shutdown_sources`, held by the
+        # next test. The hardware controllers have no other owner: main.py's
+        # table is the only place their cleanup() runs.
+        if not _rel(path).startswith(("backend/core/", "backend/hardware/")):
+            continue
         has_cleanup = any(m.name in ("cleanup", "shutdown") for m in _methods(cls, classes))
         if not has_cleanup:
             continue
@@ -414,8 +476,56 @@ def test_registry_services_with_cleanup_are_called_on_shutdown():
             called = re.search(rf'\b{local.group(1)}\b\.(cleanup|shutdown)\b', shutdown)
         if not called:
             uncalled.append(f"{cls_name}.cleanup() is never called in main.py's shutdown")
+    return sorted(uncalled)
 
-    assert not uncalled, "\n  ".join(["services that clean up nothing:"] + sorted(uncalled))
+
+def hardware_controllers_with_cleanup():
+    """Registry names of the classes under `backend/hardware/` that declare a
+    cleanup() or shutdown() — the ones only main.py's teardown table hands back.
+    `test_main_lifespan` reads it to assert each is actually reached."""
+    classes = _class_index()
+    found = {}
+    for service_name, cls_name in _registry_class_names().items():
+        entry = classes.get(cls_name)
+        if entry is None or not _rel(entry[0]).startswith("backend/hardware/"):
+            continue
+        if any(m.name in ("cleanup", "shutdown") for m in _methods(entry[1], classes)):
+            found[service_name] = cls_name
+    # Screen, BT remote, IR remote, fan, rotary encoder (HardwareService has none).
+    assert len(found) >= 5, f"hardware controller extraction looks broken: {found}"
+    return found
+
+
+def test_registry_services_with_cleanup_are_called_on_shutdown():
+    """A cleanup() nobody calls is not a cleanup.
+
+    `CrossoverService.cleanup()` existed for months while the lifespan handler
+    never invoked it, so its per-client retry tasks outlived every shutdown.
+
+    The shutdown block registers each entry as a bound method in a list that
+    `run_teardown` then calls, so a bare `.cleanup` reference counts here — in
+    that block, a mention *is* the registration.
+    """
+    uncalled = _uncalled_cleanups((BACKEND_ROOT / "main.py").read_text())
+    assert not uncalled, "\n  ".join(["services that clean up nothing:"] + uncalled)
+
+
+def test_the_cleanup_rule_sees_hardware_controllers():
+    """The rule above once skipped everything outside `core/`, on the belief
+    that hardware controllers are torn down by their own owners — they have
+    none but main.py's table — and its registry regex never saw the rotary
+    encoder, built through `_create_rotary_controller()`. A controller dropped
+    from the table then left the fan governor disabled at its last duty with
+    both tests green. Each case is the real main.py with one line removed.
+    """
+    main_src = (BACKEND_ROOT / "main.py").read_text()
+    for line, cls_name in (
+        ('("fan", fan_controller.cleanup),', "FanController"),
+        ('teardown.append(("rotary", rotary_controller.cleanup))', "RotaryVolumeController"),
+    ):
+        assert main_src.count(line) == 1, f"main.py no longer holds {line!r}: update this test"
+        drifted = main_src.replace(line, "")
+        assert f"{cls_name}.cleanup() is never called in main.py's shutdown" in _uncalled_cleanups(drifted)
 
 
 def test_every_source_mailbox_is_ended_on_shutdown():

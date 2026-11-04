@@ -637,8 +637,8 @@ class TestCleanupHandsTheFanBack:
     disabled and pwm-fan still in manual on whatever duty we last wrote — so
     nothing watches the SoC temperature, and the config.txt curve that is meant
     to be the safety fallback never resumes. Only the SoC hard-throttle is
-    left. `architecture/test_service_wiring.py` checks that main.py *calls*
-    this cleanup; nothing checked what it does.
+    left. `architecture/test_service_wiring.py::test_registry_services_with_cleanup_are_called_on_shutdown`
+    checks that main.py *calls* this cleanup; nothing checked what it does.
     """
 
     async def test_the_governor_is_re_enabled_and_the_loop_is_gone(self, monkeypatch):

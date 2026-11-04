@@ -32,6 +32,7 @@ import pytest
 import backend.main as main
 from backend.core.models.audio_state import AudioSource
 from backend.core.state import AudioStateMachine
+from backend.tests.architecture.test_service_wiring import hardware_controllers_with_cleanup
 from backend.tests.test_audio_state_machine import Systemd, unit_source
 
 
@@ -368,8 +369,11 @@ class TestShutdownTable:
 
     async def test_every_service_with_a_cleanup_is_in_the_table(self, boot):
         """A `cleanup()` nobody calls is not a cleanup — and the AST guardrail in
-        `test_service_wiring` proves the CALL is written here, never that the
-        table is reached. This is the executed half of that pair.
+        `test_service_wiring` proves the CALL is written here for the `core/`
+        and `hardware/` services, never that the table is reached. This is the
+        executed half of that pair, for the entries the fixture doubles only:
+        a new entry with no double runs its real cleanup and logs nothing, so
+        the set below cannot see it — the next test covers the controllers.
         """
         await _run_lifespan(boot)
 
@@ -382,6 +386,23 @@ class TestShutdownTable:
             "crossover_service", "hostname_conflict",
             "music_library_shares", "rotary_controller", "apns", "push_service",
         }
+
+    async def test_every_hardware_controller_is_torn_down(self, boot):
+        """The hardware controllers have no owner but main.py's table: a fan left
+        out keeps the kernel governor disabled at its last duty after the
+        backend exits. The names come from the registry, so a sixth controller
+        fails here until the fixture doubles it — checked before the lifespan
+        runs, since an undoubled one would run its real cleanup on this host —
+        and the table is seen reaching it.
+        """
+        controllers = set(hardware_controllers_with_cleanup())
+        undoubled = sorted(controllers - set(boot["named"]))
+        assert not undoubled, f"double these in the boot fixture: {undoubled}"
+
+        await _run_lifespan(boot)
+
+        missing = sorted(controllers - set(boot["order"]))
+        assert not missing, f"hardware controllers never torn down: {missing}"
 
     async def test_a_unit_with_no_encoder_tears_down_without_one(self, boot):
         """`rotary_controller` is None on a unit with no encoder — the creator
