@@ -14,6 +14,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useTimer } from '@/composables/useTimer';
 import { anyModalOpen } from '@/composables/useModalPresence';
 import { remoteRecordOf } from '@/utils/nowPlayingMetadata';
+import { serverNowMs } from '@/services/serverClock';
 
 // How often the playhead is read while it moves, at most and at least. Between
 // the two, a bar that told its width is redrawn when its fill gains a device
@@ -34,7 +35,8 @@ const SEEK_HOLD_MS = 3000;
 export const SEEK_AGREEMENT_MS = 2000;
 
 /**
- * Where an anchor puts the playhead at `nowMs` (epoch milliseconds). Pure, and
+ * Where an anchor puts the playhead at `nowMs` (epoch milliseconds, on the
+ * server's clock the anchor is stamped on — `serverNowMs()`). Pure, and
  * exported for the one other reader of a playhead (podcastStore, for the
  * episode cards).
  */
@@ -67,7 +69,7 @@ export function useSourceProgress(source) {
   );
   const live = computed(() => session.value ?? remote.value);
 
-  const now = ref(Date.now());
+  const now = ref(serverNowMs());
   let tickId = null;
   // The width of the bar this playhead is drawn on, in device pixels (0: none
   // told, every tick is TICK_MS — the lyrics follow the playhead finer than a bar).
@@ -113,7 +115,7 @@ export function useSourceProgress(source) {
 
   function scheduleTick() {
     tickId = timer.setTimeout(() => {
-      now.value = Date.now();
+      now.value = serverNowMs();
       scheduleTick();
     }, nextTickMs());
   }
@@ -132,7 +134,7 @@ export function useSourceProgress(source) {
     [moving, () => live.value?.position, () => live.value?.phase, seekTarget, duration, trackWidthPx],
     () => {
       stopTicking();
-      now.value = Date.now();
+      now.value = serverNowMs();
       if (moving.value) scheduleTick();
     },
     { immediate: true },
@@ -151,7 +153,7 @@ export function useSourceProgress(source) {
   watch(() => `${session.value?.title}|${session.value?.duration_ms}`, () => clearSeek());
   watch(() => session.value?.phase, (_phase, before) => {
     if (!seekTarget.value) return;
-    const nowMs = Date.now();
+    const nowMs = serverNowMs();
     seekTarget.value = {
       ...seekTarget.value,
       ms: positionAt(seekTarget.value, before, duration.value || null, nowMs),
@@ -164,7 +166,7 @@ export function useSourceProgress(source) {
     return anchor ? `${anchor.ms}:${anchor.at}:${anchor.rate}` : null;
   }, (anchor) => {
     if (!seekTarget.value || anchor === null) return;
-    const nowMs = Date.now();
+    const nowMs = serverNowMs();
     if (Math.abs(anchoredAt(nowMs) - targetAt(nowMs)) <= SEEK_AGREEMENT_MS) clearSeek();
   });
 
@@ -191,7 +193,7 @@ export function useSourceProgress(source) {
   // SEEK_HOLD_MS after the last press. Answers the press's number.
   function hold(ms) {
     if (seekTimer) timer.clear(seekTimer);
-    seekTarget.value = { ms, at: Date.now() / 1000, rate: session.value?.position?.rate ?? 1 };
+    seekTarget.value = { ms, at: serverNowMs() / 1000, rate: session.value?.position?.rate ?? 1 };
     seekTimer = timer.setTimeout(clearSeek, SEEK_HOLD_MS);
     return ++presses;
   }

@@ -4,6 +4,7 @@ import { ref, computed, watch } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { positionAt } from '@/composables/useSourceProgress';
+import { serverNowMs } from '@/services/serverClock';
 
 // Maximum progress entries to cache (prevents unbounded memory growth)
 const MAX_PROGRESS_ENTRIES = 200;
@@ -43,7 +44,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   /** Where `view` puts the playhead now (ms), or null when it has none. */
   function playheadMs(view) {
     return view.sessionId !== null
-      ? positionAt(view.anchor, view.phase, view.durationMs, Date.now())
+      ? positionAt(view.anchor, view.phase, view.durationMs, serverNowMs())
       : view.positionMs;
   }
 

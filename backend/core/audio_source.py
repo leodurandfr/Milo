@@ -207,6 +207,13 @@ def monotonic() -> float:
     return time.monotonic()
 
 
+def step_reference() -> float:
+    """The clock a step of `wall_time` is read against (CLOCK_MONOTONIC,
+    seconds): NTP steps the wall clock, never this one. Apart from `monotonic`
+    so a test world keeps it on the same virtual clock as `wall_time`."""
+    return time.monotonic()
+
+
 class BaseAudioSource(ABC):
     """
     Base implementation for audio sources.
@@ -349,6 +356,9 @@ class BaseAudioSource(ABC):
         # The view at the last publish, for the net after a message; None
         # until the source first published.
         self._published: Optional[SourceView] = None
+        # wall_time() - step_reference() at the last message; None before the
+        # first, so a clock set before it is not read as a step.
+        self._wall_offset: Optional[float] = None
 
     @property
     def view(self) -> SourceView:
@@ -642,6 +652,7 @@ class BaseAudioSource(ABC):
         return await self._dispatch(message)
 
     async def _dispatch(self, message) -> Any:
+        self._follow_clock_step()
         if isinstance(message, Command):
             return await self._run_command(message.name, message.params)
         if isinstance(message, Lifecycle):
@@ -946,6 +957,25 @@ class BaseAudioSource(ABC):
         session.anchor = Anchor(
             ms=ms, at=wall_time(), moving=session.phase is Phase.PLAYING,
         )
+
+    def _follow_clock_step(self) -> None:
+        """Re-date a moving anchor across a step of the wall clock: a unit with
+        no RTC battery boots on the time it last stopped at, and timesyncd
+        steps it once the internet answers. Aged across the step, the anchor
+        put the playhead past the end of the track. Its `at` is on the old
+        scale, so the playhead is read there and anchored again on the new
+        one; a still anchor reads the same on either."""
+        offset = wall_time() - step_reference()
+        before, self._wall_offset = self._wall_offset, offset
+        if before is None:
+            return
+        step = offset - before
+        session = self._session
+        anchor = session.anchor if session is not None else None
+        if anchor is None or not anchor.moving or abs(step) * 1000 <= POSITION_TOLERANCE_MS:
+            return
+        self._logger.info(f"Wall clock stepped {step:+.0f} s: playhead re-dated")
+        self._anchor_position(anchor.now(wall_time() - step, None))
 
     def _observe_position(self, ms: Optional[int]) -> None:
         """A playhead reading (mpv's time-pos, a daemon's report). One more

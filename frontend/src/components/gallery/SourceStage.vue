@@ -119,6 +119,7 @@ import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { sourcePageById, replayedState } from './sources';
 import { setApiFixtures } from './canvasHttp';
+import { serverNowMs } from '@/services/serverClock';
 import FavoritesView from '@/components/radio/FavoritesView.vue';
 import LibraryHome from '@/components/music-library/views/LibraryHome.vue';
 import PodcastHome from '@/components/podcasts/HomeView.vue';
@@ -243,7 +244,7 @@ const DISPATCH = {
 watch(current, (scenario) => {
   if (!scenario) return;
 
-  const now = Date.now() / 1000;
+  const now = serverNowMs() / 1000;
   for (const event of scenario.events) {
     DISPATCH[`${event.category}.${event.type}`]?.({ ...event, data: replayedState(event.data, now) });
   }

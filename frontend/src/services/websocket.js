@@ -1,6 +1,7 @@
 // frontend/src/services/websocket.js
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { logger } from '@/services/logger';
+import { serverClock } from '@/services/serverClock';
 
 /**
  * WebSocket singleton that reconnects with a jittered backoff, and reopens at
@@ -51,6 +52,7 @@ class WebSocketSingleton {
     this.maxReconnectDelay = 30000; // Max 30 seconds
     this.pingStaleMs = 90000; // 3x the backend keepalive interval (30s)
     this.disconnectedGraceMs = 2500; // see armDisconnectedBanner()
+    this.serverClockStale = false;
   }
 
   addSubscriber(subscriberId) {
@@ -118,6 +120,10 @@ class WebSocketSingleton {
       this.lastPingTime = Date.now();
       this.reconnectAttempts = 0; // Reset backoff counter on successful connection
       this.startPingCheck();
+      // The server may be on another clock now (restarted, stepped by NTP):
+      // its first envelope starts the estimate again — not this open, or the
+      // playhead would be read on this client's clock until it arrives.
+      this.serverClockStale = true;
 
       // Send ready signal to request initial state
       if (socket.readyState === WebSocket.OPEN) {
@@ -361,6 +367,14 @@ class WebSocketSingleton {
       logger.warn('websocket', 'Missing or invalid message.type', { message });
       return;
     }
+
+    // Before anything reads it: the anchor this envelope carries and the
+    // clock it is read against move together.
+    if (this.serverClockStale) {
+      serverClock.reset();
+      this.serverClockStale = false;
+    }
+    serverClock.note(message.timestamp, Date.now());
 
     // Keepalive ping: refresh liveness timestamp and skip handler dispatch
     if (message.category === 'system' && message.type === 'ping') {

@@ -58,6 +58,7 @@ class Rig(WireReader):
         # Anchors stamped on a frozen wall clock: the playhead the wire gives
         # moves only when mpv's does, so a position reads exactly.
         monkeypatch.setattr(audio_source, "wall_time", lambda: EPOCH)
+        monkeypatch.setattr(audio_source, "step_reference", lambda: 0.0)
         monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", WATCHDOG_S, raising=False)
         monkeypatch.setattr(state_module.AudioStateMachine, "ALSA_RELEASE_SETTLE_S", 0)
         self.machine, self.recorder = make_state_machine()

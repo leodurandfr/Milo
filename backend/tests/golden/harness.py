@@ -65,6 +65,7 @@ def use_virtual_wall(monkeypatch, clock: "VirtualClock") -> None:
     """Stamp anchors on `clock`, so an anchor ages as the scenario lets time pass."""
     from backend.core import audio_source
     monkeypatch.setattr(audio_source, "wall_time", lambda: EPOCH + clock.now)
+    monkeypatch.setattr(audio_source, "step_reference", lambda: clock.now)
 
 
 class WireRecorder:

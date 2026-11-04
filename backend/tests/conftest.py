@@ -865,3 +865,4 @@ def golden_wall(request, monkeypatch):
 
     GOLDEN_WALL[0] = EPOCH
     monkeypatch.setattr(audio_source, "wall_time", lambda: GOLDEN_WALL[0])
+    monkeypatch.setattr(audio_source, "step_reference", lambda: GOLDEN_WALL[0] - EPOCH)

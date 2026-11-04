@@ -53,6 +53,7 @@
  * Vue imports live here rather than in catalog.js, which stays plain data so the
  * architecture test can read it under Node.
  */
+import { serverNowMs } from '@/services/serverClock';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
@@ -378,7 +379,7 @@ const NOW_PLAYING_STATE = {
     stores.unified.updateState({
       category: 'source',
       type: 'state',
-      data: replayedState(state, Date.now() / 1000)
+      data: replayedState(state, serverNowMs() / 1000)
     });
     // Applied to the props too — see NOW_PLAYING. Only on the change, so
     // pointing the prop elsewhere by hand still holds.

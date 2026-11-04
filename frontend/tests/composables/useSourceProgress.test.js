@@ -32,6 +32,8 @@ import { useModalPresence } from '@/composables/useModalPresence';
 import { resetApiCallMock, ok } from '../helpers/apiCallMock';
 import { apiCall } from '@/services/apiCall';
 import { makeSession, publishState } from '../helpers/audioState';
+import useWebSocket from '@/services/websocket';
+import { serverClock } from '@/services/serverClock';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
@@ -53,6 +55,44 @@ function mountProgress(source) {
 
 function anchor(ms, { at = T0, rate = 1 } = {}) {
   return { ms, at, rate };
+}
+
+// The backend's end of the WebSocket: only what opening it and receiving an
+// envelope take.
+class FakeSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSED = 3;
+  static last = null;
+
+  constructor() {
+    this.readyState = FakeSocket.CONNECTING;
+    FakeSocket.last = this;
+  }
+
+  send() {}
+
+  close() {
+    this.readyState = FakeSocket.CLOSED;
+  }
+
+  accept() {
+    this.readyState = FakeSocket.OPEN;
+    this.onopen?.();
+  }
+
+  receive(envelope) {
+    this.onmessage?.({ data: JSON.stringify(envelope) });
+  }
+}
+
+/** Open the app's WebSocket, as App.vue does. */
+function connectWebSocket() {
+  global.WebSocket = FakeSocket;
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+  const wrapper = mount(defineComponent({ setup: () => useWebSocket(), render: () => null }));
+  FakeSocket.last.accept();
+  return { socket: FakeSocket.last, wrapper };
 }
 
 describe('positionAt', () => {
@@ -90,6 +130,7 @@ describe('useSourceProgress', () => {
 
   beforeEach(() => {
     resetApiCallMock();
+    serverClock.reset();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
     vi.setSystemTime(T0 * 1000);
     store = useUnifiedAudioStore();
@@ -125,6 +166,21 @@ describe('useSourceProgress', () => {
       const { progress } = mountProgress('spotify');
 
       expect(progress.currentPosition.value).toBe(40000);
+    });
+
+    it("positionAt reads the playhead on the server's clock", () => {
+      // A unit with no RTC battery that booted without internet: its clock,
+      // and every anchor it stamps, half an hour behind this client's.
+      const { socket, wrapper } = connectWebSocket();
+      const serverNow = T0 - 1800;
+      socket.receive({ category: 'system', type: 'ping', origin: 'system', data: {}, timestamp: serverNow });
+      publish({ session: playing(anchor(10000, { at: serverNow })) });
+      const { progress } = mountProgress('spotify');
+
+      vi.advanceTimersByTime(5000);
+
+      expect(progress.currentPosition.value).toBe(15000);
+      wrapper.unmount();
     });
 
     it('is 0 % for a stream with no duration, not NaN', () => {

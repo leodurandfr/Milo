@@ -408,8 +408,11 @@ class TestThePlayheadReachesBothSinks:
 
     @pytest.fixture
     def clock(self, monkeypatch):
-        now = [1700000000.0]
-        monkeypatch.setattr(audio_source, "wall_time", lambda: now[0])
+        """`clock[0]` is time passing, on both of the unit's clocks;
+        `clock[1]` is a step of its wall clock alone, as NTP makes one."""
+        now = [1700000000.0, 0.0]
+        monkeypatch.setattr(audio_source, "wall_time", lambda: now[0] + now[1])
+        monkeypatch.setattr(audio_source, "step_reference", lambda: now[0])
         return now
 
     @pytest.fixture
@@ -491,6 +494,34 @@ class TestThePlayheadReachesBothSinks:
         envelopes = self._envelopes(state_machine)
         assert [(e["category"], e["type"]) for e in envelopes] == [("source", "position")]
         assert envelopes[0]["data"]["position"]["ms"] == 40000
+
+
+    @pytest.mark.asyncio
+    async def test_a_wall_clock_step_does_not_move_the_playhead(self, wired, clock):
+        """A unit with no RTC battery boots on the time it last stopped at, and
+        timesyncd steps the clock forward once it reaches the internet. Aged
+        across that step, a playing anchor read 46 minutes on: the kiosk's bar
+        sat at the end of the track, and a pause published the duration as
+        its position. The step is the wall clock moving against the monotonic
+        one, and the anchor is re-dated across it before the next message."""
+        source, state_machine = wired
+        await source.command("test_command", {})
+
+        clock[0] += 10.0
+        clock[1] += 2750.0
+        await source.command("test_command", {})
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert abs(source._position_now(source._session) - 10000) <= 1000
+        positions = [
+            e["data"]["position"] for e in self._envelopes(state_machine)
+            if (e["category"], e["type"]) == ("source", "position")
+        ]
+        assert positions, "the re-dated anchor was never published"
+        anchor = positions[-1]
+        read = anchor["ms"] + (clock[0] + clock[1] - anchor["at"]) * 1000 * anchor["rate"]
+        assert abs(read - 10000) <= 1000
 
 
 class TestBaseAudioSourceServiceManager:
