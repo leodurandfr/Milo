@@ -12,12 +12,22 @@ the manifest against the real app **with no network**:
 | `Models.swift` | every response field the app decodes by name |
 | `MiloNowPlayingBridge.swift` | the lock screen's device list (`/api/volume/state`) **and** the rule that decides whether the card exists |
 | `MiloAudioState.swift` | no route: the one decoder of `/api/audio/state`, vendored for the payload invariants |
+| `ViewController.swift` | the app's launch probe (`probeMilo`), a whole URL to `/api/audio/state` |
 
-Every call goes through `MiloAPIClient` — the three App Intents and the widget's
-timeline provider build no URL of their own — but it is **no longer one file**,
-and the vendored set is matched by the patterns
-`("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift")` rather
-than a frozen list.
+Every call but one goes through `MiloAPIClient` — the three App Intents and the
+widget's timeline provider build no URL of their own — but it is **no longer one
+file**, and the vendored set is matched by the patterns
+`("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift", "ViewController.swift")`
+rather than a frozen list.
+
+The one exception is `ViewController.probeMilo`, which asks
+`"http://milo.local/api/audio/state"` whether the backend is up before loading the
+page. The guard used to read only literals starting with `/api/`, so that whole URL
+escaped it (and the discovery probe `MiloAPIClient.respondsAsMilo`, spelled
+`"http://\(ip)/api/volume/state"`, escaped the extractor); once it read whole URLs it
+refused to compare until the file was vendored and named in the patterns
+(2026-11-04). Expect it to show up in `content_drift` often: it is mostly web-view
+plumbing around that one route.
 
 The third is a filename, not a glob, and it is the guard's own find: the Now
 Playing bridge is not named like a client file, yet it calls

@@ -83,15 +83,20 @@ VENDOR_DIR = HERE / "vendor" / "milo-ios"
 # pins is read there. Left out, the vendored corpus mentions none of them and
 # test_an_invariant_names_a_key_the_app_mentions has nothing to check against.
 #
+# The fifth is the app target's own view controller, and the guard found it the
+# day it learned to read a whole URL: `probeMilo` asks
+# "http://milo.local/api/audio/state" whether the backend is up before loading
+# the page. The web-view plumbing around it moves far more often than its one
+# route, so most refreshes will flag it for content alone; that is the price of
+# not ignoring a route literal.
+#
 # A glob is still a bet on a naming convention, so it is not left as one:
 # `unvendored_surface()` below reads EVERY .swift in a checkout and fails on
 # any route literal living outside these patterns.
 SOURCE_FILES = (
     "MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift",
+    "ViewController.swift",
 )
-
-# Where a route literal can appear at all. Used only by the completeness guard.
-_ROUTE_LITERAL = re.compile(r'"(/api/[^"]*)"')
 
 
 def _load_shared():
@@ -128,12 +133,14 @@ _HELPER_CALL = re.compile(
 _WRAPPED_CALL = re.compile(r'\b(\w+)\(\s*path:\s*"(/api/[^"]*)"')
 # `func name(… path: String …)` — where such a helper is declared.
 _HELPER_DEF = re.compile(r'\bfunc\s+(\w+)\s*\([^)]*\bpath:\s*String')
-# URL(string: … "/api/…") with `request.httpMethod = "…"` somewhere after it.
+# URL(string: … "…/api/…") with `request.httpMethod = "…"` somewhere after it.
 # `[^"]*?` and not `[^)]*?`: the prefix is an expression, and the real call is
 # `URL(string: baseURL() + "/api/volume/adjust")` — a class excluding `)` stops
 # at baseURL()'s own parenthesis and never reaches the literal, so the route
-# vanished from the extracted surface without any error.
-_HAND_BUILT = re.compile(r'URL\(\s*string:[^"]*?"(/api/[^"]*)"')
+# vanished from the extracted surface without any error. The literal may also
+# carry its own scheme and host (`"http://\\(ip)/api/volume/state"`, the
+# discovery probe): only the path from `/api/` on is the route.
+_HAND_BUILT = re.compile(r'URL\(\s*string:[^"]*?"[^"\n]*?(/api/[^"\n]*)"')
 _HTTP_METHOD = re.compile(r'httpMethod\s*=\s*"(\w+)"')
 _NEXT_FUNC = re.compile(r'\bfunc\s')
 # How far past a hand-built URL to look for its method. The assignment sits in
@@ -273,9 +280,10 @@ def unvendored_surface(root: Path) -> dict[str, set[str]]:
     to leave, because a route the snapshot cannot see is a route the backend
     believes nobody calls.
 
-    Deliberately crude: it greps for `"/api/…"` anywhere, so a path in a comment
-    is reported too. That direction is safe — a false positive is a line to
-    read, a false negative is the defect this exists for.
+    Deliberately crude: it greps for any string literal containing `/api/`,
+    scheme and host included (the Milo-Mac twin's `_ANY_ROUTE_LITERAL`), so a
+    path quoted in a comment is reported too. That direction is safe — a false
+    positive is a line to read, a false negative is the defect this exists for.
 
     The app's own test targets are the one exception, and it is stated on the
     DIRECTORY rather than on a route: a test target is not client code, and its
@@ -288,7 +296,7 @@ def unvendored_surface(root: Path) -> dict[str, set[str]]:
     for path in sorted(root.rglob("*.swift")):
         if path in vendored or _is_test_target(path.relative_to(root)):
             continue
-        literals = set(_ROUTE_LITERAL.findall(path.read_text()))
+        literals = set(_SHARED._ANY_ROUTE_LITERAL.findall(path.read_text()))
         if literals:
             escaped[str(path.relative_to(root))] = literals
     return escaped

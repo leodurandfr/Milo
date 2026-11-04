@@ -243,10 +243,11 @@ def test_the_extractor_reads_every_client_file_not_just_the_first():
 
 def _upstream_copy(tmp_path: Path) -> Path:
     """A Milo-iOS checkout holding the vendored snapshot, laid out as the real
-    app lays it out (the bridge in the app target, the rest in Shared/): the
-    stand-in for an upstream that has not moved."""
+    app lays it out (the bridge and the view controller in the app target, the
+    rest in Shared/): the stand-in for an upstream that has not moved."""
+    app_target = {"MiloNowPlayingBridge.swift", "ViewController.swift"}
     for path in _FRESHNESS.matching_files(VENDOR_DIR):
-        target = "Milo-iOS" if path.name == "MiloNowPlayingBridge.swift" else "Shared"
+        target = "Milo-iOS" if path.name in app_target else "Shared"
         (tmp_path / target).mkdir(exist_ok=True)
         (tmp_path / target / path.name).write_text(path.read_text())
     return tmp_path
@@ -295,6 +296,53 @@ def test_freshness_flags_a_content_drift_that_moves_no_route(tmp_path, capsys, d
     out = capsys.readouterr().out
     assert "matches upstream" not in out
     assert moved in out
+
+
+def test_unvendored_surface_sees_an_absolute_url(tmp_path, capsys):
+    """A route spelled as a whole URL outside the vendored files must stop the
+    comparison, exactly as a bare `"/api/…"` literal does.
+
+    The guard only matched literals that START with `/api/`, so
+    `"http://milo.local/api/…"` escaped it: Milo-iOS' `ViewController.probeMilo`
+    calls `/api/audio/state` that way, outside every pattern, and the script
+    answered "matches upstream". A route nobody vendored reads as a route nobody
+    calls. `test_freshness_reports_an_unmoved_upstream_in_sync` is the control.
+    """
+    _upstream_copy(tmp_path)
+    (tmp_path / "Milo-iOS" / "RadioIntent.swift").write_text(
+        'let url = URL(string: "http://milo.local/api/radio/play")\n'
+    )
+
+    assert "Milo-iOS/RadioIntent.swift" in _FRESHNESS.unvendored_surface(tmp_path)
+    assert _FRESHNESS.main(["x", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "OUTSIDE" in out
+    assert "matches upstream" not in out
+
+
+def _swift_function(name: str) -> str:
+    """The vendored body of `func <name>`, up to the next `func`."""
+    start = re.search(rf"\bfunc\s+{name}\b", _VENDORED_SWIFT)
+    assert start, f"func {name} is no longer in the vendored snapshot"
+    end = _FRESHNESS._NEXT_FUNC.search(_VENDORED_SWIFT, start.end())
+    return _VENDORED_SWIFT[start.start(): end.start() if end else None]
+
+
+@pytest.mark.parametrize(("function", "route"), [
+    ("respondsAsMilo", ("GET", "/api/volume/state")),
+    ("probeMilo", ("GET", "/api/audio/state")),
+])
+def test_the_extractor_reads_an_absolute_hand_built_url(function, route):
+    """A hand-built URL that carries its scheme and host is still a route.
+
+    `_HAND_BUILT` only read a literal starting with `/api/`, so the discovery
+    probe `MiloAPIClient.respondsAsMilo` (`"http://\\(ip)/api/volume/state"`) and
+    the app's launch probe `ViewController.probeMilo`
+    (`"http://milo.local/api/audio/state"`) extracted nothing. Both routes are
+    pinned today only because other calls also reach them; a route the app
+    reached this way alone would read as unused.
+    """
+    assert route in _FRESHNESS.extract_rest(_swift_function(function))
 
 
 def test_manifest_matches_the_vendored_surface_exactly():
