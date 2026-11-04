@@ -7,7 +7,7 @@
     <div class="station-action-menu-region"
       :class="{ 'station-action-menu-region--open': showActionMenu && actionIcon }">
       <div class="station-action-menu-items">
-        <ListItemButton v-if="actionIcon" :title="actionTitle" variant="glass" @click="$emit('confirm-action')">
+        <ListItemButton v-if="actionIcon" :title="actionTitle" variant="glass" @click="confirmAction">
           <template #icon>
             <SvgIcon :name="actionIcon" :size="40" />
           </template>
@@ -96,7 +96,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, watch, computed, nextTick } from 'vue';
-import { useTimer } from '@/composables/useTimer';
+import { useDebouncedAutosave } from '@/composables/useDebouncedAutosave';
 import { useI18n } from '@/services/i18n';
 import { logger } from '@/services/logger';
 import { useRadioStore } from '@/stores/radioStore';
@@ -146,6 +146,14 @@ const actionTitle = computed(() =>
     ? t('radio.manageStation.confirmRestore')
     : t('radio.manageStation.confirmDelete')
 );
+
+// A restore or delete supersedes the pending edit: flushed on unmount, it would
+// undo the restore or write to a deleted station.
+function confirmAction() {
+  autosave.cancel();
+  pendingSave.value = false;
+  emit('confirm-action');
+}
 
 const { t, getCurrentLanguage, formatUnit } = useI18n();
 const radioStore = useRadioStore();
@@ -252,26 +260,14 @@ const isInitialized = ref(false);
 const isSaving = ref(false);
 const pendingSave = ref(false);
 const SAVE_DEBOUNCE_MS = 500;
-const timer = useTimer();
-let saveDebounceTimer = null;
-
-function clearDebounce() {
-  if (saveDebounceTimer) {
-    timer.clear(saveDebounceTimer);
-    saveDebounceTimer = null;
-  }
-}
+const autosave = useDebouncedAutosave(saveEdit, SAVE_DEBOUNCE_MS);
 
 function triggerSave({ instant = false } = {}) {
   if (!isEditMode.value || !isInitialized.value) return;
-  clearDebounce();
   if (instant) {
-    saveEdit();
+    autosave.flush();
   } else {
-    saveDebounceTimer = timer.setTimeout(() => {
-      saveDebounceTimer = null;
-      saveEdit();
-    }, SAVE_DEBOUNCE_MS);
+    autosave.trigger();
   }
 }
 
@@ -401,10 +397,7 @@ function handleFileSelect(event) {
 
 async function handleFormSubmit() {
   if (isEditMode.value) {
-    if (saveDebounceTimer) {
-      clearDebounce();
-      await saveEdit();
-    }
+    if (autosave.isPending()) await autosave.flush();
     return;
   }
   await handleAddSubmit();
