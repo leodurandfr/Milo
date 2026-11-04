@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
+import { reportError } from '@/services/errorReporter';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { AudioStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
 import { DEFAULT_VOLUME_DB, MAX_ADJUST_DB } from '@/constants/volume';
@@ -158,12 +159,18 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   // === STATE UPDATE ===
   // Strict: a state that does not parse is refused whole and the last good one
-  // stays, with a warning in the journal — never half-applied with defaults.
+  // stays — never half-applied with defaults. The first refusal of the page is
+  // reported to /api/errors (errors.log): the kiosk's console reaches no log.
+  let refusalReported = false;
   function updateSystemState(newState, origin = 'unknown') {
     const result = validateSchema(AudioStateSchema, newState, `AudioState from ${origin}`);
     if (!result.success) {
       logger.warn('store', `Audio state from ${origin} refused: it does not match the wire`,
         result.error?.issues);
+      if (!refusalReported) {
+        refusalReported = reportError('audio-state', `AudioState from ${origin} refused by AudioStateSchema`,
+          JSON.stringify(result.error?.issues));
+      }
       return false;
     }
     systemState.value = result.data;
@@ -249,6 +256,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
    * current. A playhead is not a whole state: the snapshot still lands, and the
    * last anchor received meanwhile is put back on top of it unless the snapshot
    * carries a later one.
+   *
+   * A snapshot the schema refuses still counts as the server reached: the
+   * refusal is deterministic, so a retry would refuse it again and hold
+   * serverSync's second stage back for the whole session. It is reported by
+   * updateSystemState instead.
    */
   async function resync() {
     const audioSeen = audioDeltas;

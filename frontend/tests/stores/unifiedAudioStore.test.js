@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { apiCall } from '@/services/apiCall';
+import { reportError } from '@/services/errorReporter';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 import { makeAudioState, makeSession } from '../helpers/audioState';
 import { DEFAULT_VOLUME_DB } from '@/constants/volume';
@@ -119,6 +120,54 @@ describe('unifiedAudioStore', () => {
         // Restored even when an assertion fails: left mocked, it would swallow
         // the warnings of every later test in the file.
         warn.mockRestore();
+      }
+    });
+
+    it('a refused snapshot is reported to the server once', () => {
+      // The kiosk's console reaches no log: without this the UI freezes on the
+      // last good state and the appliance keeps no trace of why. The reporter
+      // sends at most one report a second across the page, so the clock is
+      // moved past any report an earlier test sent.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + 5000);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        store.updateState(stateEvent(VALID_STATE));
+        store.updateState(stateEvent({ ...VALID_STATE, source: 'gramophone' }));
+        vi.setSystemTime(Date.now() + 5000);
+        store.updateState(stateEvent({ ...VALID_STATE, session: { ...VALID_STATE.session, phase: 'stopped' } }));
+
+        const reports = apiCall.post.mock.calls.filter(([url]) => url === '/api/errors');
+        expect(reports).toHaveLength(1);
+        const [, body] = reports[0];
+        expect(body.source).toBe('audio-state');
+        expect(JSON.parse(body.info).map((issue) => issue.path)).toEqual([['source']]);
+        expect(store.systemState).toEqual(VALID_STATE);
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it('a refusal dropped by the reporter\'s rate limit is reported at the next one', () => {
+      // Another error reported in the same second takes the slot; latching then
+      // would leave the refusal unreported for the whole page.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + 5000);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const refused = stateEvent({ ...VALID_STATE, source: 'gramophone' });
+      const audioReports = () => apiCall.post.mock.calls.filter(([, body]) => body?.source === 'audio-state');
+      try {
+        reportError('window.onerror', 'boom');
+        store.updateState(refused);
+        expect(audioReports()).toHaveLength(0);
+
+        vi.setSystemTime(Date.now() + 5000);
+        store.updateState(refused);
+        expect(audioReports()).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
       }
     });
 
