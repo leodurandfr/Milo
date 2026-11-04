@@ -152,6 +152,59 @@ async def test_an_exception_with_no_message_still_names_its_type(caplog):
     assert any("TimeoutError" in r.message for r in caplog.records)
 
 
+def _key_error_raiser(is_async, **decorator_kwargs):
+    if is_async:
+        @handle_errors(default=False, **decorator_kwargs)
+        async def f():
+            raise KeyError("volume")
+    else:
+        @handle_errors(default=False, **decorator_kwargs)
+        def f():
+            raise KeyError("volume")
+    return f
+
+
+async def _call(f):
+    result = f()
+    return await result if asyncio.iscoroutine(result) else result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_async", [True, False], ids=["async", "sync"])
+async def test_a_swallowed_error_is_logged_with_its_traceback(caplog, is_async):
+    """errors.log only prints a stack when the record carries `exc_info`: without it
+    `Error in f: 'volume'` names neither the exception type nor the line that raised,
+    and the caller carries on with the default. The message itself must not move —
+    the WebSocket banner and the triage signatures read `getMessage()`."""
+    f = _key_error_raiser(is_async)
+
+    with caplog.at_level(logging.DEBUG):
+        assert await _call(f) is False
+
+    records = [r for r in caplog.records if "Error in f" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].exc_info is not None
+    assert records[0].exc_info[0] is KeyError
+    assert records[0].getMessage() == "Error in f: 'volume'"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_async", [True, False], ids=["async", "sync"])
+@pytest.mark.parametrize("level", ["warning", "debug"])
+async def test_an_expected_failure_below_error_stays_one_line(caplog, is_async, level):
+    """Below error the decorator marks an expected failure (a snapserver 503, a
+    timeout); a stack per occurrence would crowd the newest lines out of errors.log,
+    whose tail is all the diagnostic report reads."""
+    f = _key_error_raiser(is_async, level=level)
+
+    with caplog.at_level(logging.DEBUG):
+        assert await _call(f) is False
+
+    records = [r for r in caplog.records if "Error in f" in r.getMessage()]
+    assert len(records) == 1
+    assert records[0].exc_info is None
+
+
 def test_an_unknown_level_fails_at_decoration_time():
     """A typo'd level must not wait for the first failure to surface."""
     with pytest.raises(ValueError, match="Invalid log level"):

@@ -50,6 +50,8 @@ def handle_errors(
     Args:
         default: Value to return on error. If omitted, the exception is re-raised.
         level: Log level: 'error' (default), 'warning', 'info', or 'debug'.
+            At error level a swallowed failure carries its traceback; below it,
+            an expected failure stays one line.
 
     Usage:
         @handle_errors(default=False)
@@ -63,6 +65,8 @@ def handle_errors(
 
     has_default = default is not _MISSING
     needs_copy = has_default and not isinstance(default, _IMMUTABLE_TYPES)
+    # A re-raised error keeps its stack for whoever catches it; printing it here would double it.
+    with_traceback = has_default and level == 'error'
 
     def decorator(fn: F) -> F:
         method_name = fn.__name__
@@ -75,7 +79,10 @@ def handle_errors(
                 except Exception as e:
                     logger = _get_logger(fn, args[0] if args else None)
                     msg = str(e) or type(e).__name__
-                    getattr(logger, level)(f"Error in {method_name}: {msg}")
+                    getattr(logger, level)(
+                        f"Error in {method_name}: {msg}",
+                        exc_info=e if with_traceback else None,
+                    )
                     if has_default:
                         return copy.copy(default) if needs_copy else default
                     raise
@@ -88,7 +95,10 @@ def handle_errors(
                 except Exception as e:
                     logger = _get_logger(fn, args[0] if args else None)
                     msg = str(e) or type(e).__name__
-                    getattr(logger, level)(f"Error in {method_name}: {msg}")
+                    getattr(logger, level)(
+                        f"Error in {method_name}: {msg}",
+                        exc_info=e if with_traceback else None,
+                    )
                     if has_default:
                         return copy.copy(default) if needs_copy else default
                     raise
