@@ -80,6 +80,10 @@ TREES = {
 # An argument the extractor could not resolve to a literal.
 UNKNOWN = None
 
+# The heads an argv is recognized by. A call that reaches sudo any other way
+# (a shell string, a path held in a variable) is not seen at all.
+SUDO_SPELLINGS = ("sudo", "/usr/bin/sudo")
+
 
 # --------------------------------------------------------------------------- #
 # Side A: the argv the code builds.
@@ -272,8 +276,34 @@ def _argv_sources(tree: ast.Module):
             elements = node.args
         elif isinstance(node, (ast.List, ast.Tuple)) and node.elts:
             elements = node.elts
-        if elements and _string_of(elements[0]) == "sudo":
+        if elements and _string_of(elements[0]) in SUDO_SPELLINGS:
             yield elements[1:]
+
+
+def _argvs_of(tree: ast.Module, consts, params, loops) -> list[tuple]:
+    """Every argv one module hands to sudo, sudo's own options dropped.
+
+    An argv whose command hides behind a starred tail — `("sudo", *argv)` in a
+    `_sudo(*argv)` helper — comes out as `(UNKNOWN,)` rather than not at all:
+    the commands that helper runs are spelled at its call sites, which this
+    reads nowhere, so dropping it would let any of them pass unchecked.
+    """
+    found = []
+    for elements in _argv_sources(tree):
+        words = []
+        for element in elements:
+            if isinstance(element, ast.Starred):
+                break  # unknown tail — the args below are all we can see
+            words.append(_resolve(element, consts, params, loops))
+        # Drop sudo's own options (`-n`); the command starts after them.
+        while words and words[0] and all(
+            w is not None and w.startswith("-") for w in words[0]
+        ):
+            words.pop(0)
+        if not words:
+            words = [{UNKNOWN}]
+        found.extend(itertools.product(*words))
+    return found
 
 
 @functools.cache
@@ -284,24 +314,9 @@ def _issued_argvs(tree_name: str) -> list[tuple[str, tuple]]:
     for path in _modules(tree_name):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         consts = {**_imported_constants(tree, path, index), **_module_constants(tree)}
-        params = _param_values(tree, consts)
-        loops = _loop_values(tree)
-        rel = path.relative_to(REPO_ROOT)
-        for elements in _argv_sources(tree):
-            # Drop sudo's own options (`-n`); the command starts after them.
-            words = []
-            for element in elements:
-                if isinstance(element, ast.Starred):
-                    break  # unknown tail — the args below are all we can see
-                words.append(_resolve(element, consts, params, loops))
-            while words and words[0] and all(
-                w is not None and w.startswith("-") for w in words[0]
-            ):
-                words.pop(0)
-            if not words:
-                continue
-            for argv in itertools.product(*words):
-                found.append((str(rel), argv))
+        rel = str(path.relative_to(REPO_ROOT))
+        for argv in _argvs_of(tree, consts, _param_values(tree, consts), _loop_values(tree)):
+            found.append((rel, argv))
     return found
 
 
@@ -368,8 +383,10 @@ def test_argument_scoped_grants_stay_argument_scoped():
     the parser dropped a grant's arguments, every grant would read as "any
     args", both directions would still pass, and `systemctl restart` on a unit
     the policy never named would look permitted. Everything else — an argv left
-    UNKNOWN, a call missed, a grant missed — makes one of the two rules fail
-    loudly, which is the safe direction.
+    UNKNOWN, a grant missed — makes one of the two rules fail loudly, which is
+    the safe direction. What no rule here can see is a call that does not
+    start with a `SUDO_SPELLINGS` literal: a shell string, or a sudo path held
+    in a variable, is not extracted at all.
     """
     scoped = [g for g in _all_grants("milo-client") if g[2]]
     assert len(scoped) >= 3, f"only {len(scoped)} argument-scoped grants parsed"
@@ -379,6 +396,43 @@ def test_argument_scoped_grants_stay_argument_scoped():
     _, command, args = scoped[0]
     assert _matches((command, *args), command, args)
     assert not _matches((command, "restart", *args[1:]), command, args)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'async def _sudo(*argv):\n'
+        '    await asyncio.create_subprocess_exec("sudo", *argv)\n',
+        'async def _sudo(*argv):\n'
+        '    await asyncio.create_subprocess_exec("sudo", "-n", *argv)\n',
+        'def _sudo(*argv):\n'
+        '    cmd = ["sudo"] + list(argv)\n',
+    ],
+    ids=["starred", "option-then-starred", "list-concatenation"],
+)
+def test_a_sudo_helper_with_a_starred_tail_is_not_dropped(source):
+    """A `_sudo(*argv)` helper must reach the contract, not vanish from it.
+
+    Its command is spelled at the helper's call sites, which the extractor
+    does not follow; dropped, `_sudo("systemctl", "restart", unit)` on the
+    satellite — where only stop and start are granted — would pass CI and be
+    refused by sudo on the unit.
+    """
+    argvs = _argvs_of(ast.parse(source), {}, {}, {})
+    assert argvs, "the helper's sudo call was not extracted at all"
+    assert all(argv[0] is UNKNOWN for argv in argvs), argvs
+
+
+@pytest.mark.parametrize("tree_name", sorted(TREES))
+def test_every_sudo_argv_has_a_resolvable_command(tree_name):
+    """A command the extractor cannot name is one no grant can be checked against."""
+    unnamed = [where for where, argv in _issued_argvs(tree_name) if argv[0] is UNKNOWN]
+    assert not unnamed, (
+        "these sudo calls hide their command (a tail the extractor cannot read, "
+        "or an unresolved name after sudo's options); write the argv literally at the call "
+        "site, or resolve the helper's call sites in this extractor:\n"
+        + "\n".join(unnamed)
+    )
 
 
 # --------------------------------------------------------------------------- #
