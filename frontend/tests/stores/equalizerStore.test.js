@@ -1179,4 +1179,75 @@ describe('equalizerStore', () => {
       expect(apiCall.post).not.toHaveBeenCalled();
     });
   });
+
+  describe('levels monitor', () => {
+    // An empty client list is the backend's word for "the local DAC", so a
+    // selection whose every client is muted must never reach it as []: the
+    // meters of a muted satellite would then follow the living room's music.
+    const MONITOR = '/api/equalizer/levels/monitor';
+    const monitorPosts = () => apiCall.post.mock.calls.filter(([url]) => url === MONITOR);
+
+    it('does not arm the local meter when every selected client is muted', async () => {
+      setMultiroom(true, { [REMOTE_MAC]: { mute: true, volume_db: -30 } });
+
+      await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC]);
+      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
+
+      expect(monitorPosts()).toEqual([]);
+      expect(equalizerStore.outputPeak).toEqual([-80, -80]);
+    });
+
+    it('does not arm the local meter for a zone of muted satellites', async () => {
+      setMultiroom(true, {
+        [REMOTE_MAC]: { mute: true, volume_db: -30 },
+        [OTHER_MAC]: { mute: true, volume_db: -30 },
+      });
+
+      await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC, OTHER_MAC]);
+      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
+
+      expect(monitorPosts()).toEqual([]);
+      expect(equalizerStore.outputPeak).toEqual([-80, -80]);
+    });
+
+    it('silences meters a monitor armed on another selection keeps feeding', async () => {
+      // The monitor runs ~15 s past its last keepalive: the local DAC's samples
+      // keep arriving after the selection moved to a muted satellite.
+      setMultiroom(true, { [REMOTE_MAC]: { mute: true, volume_db: -30 } });
+      await equalizerStore.keepLevelsMonitorAlive([LOCAL_MAC]);
+      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
+
+      await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC]);
+      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-10, -11] });
+
+      expect(equalizerStore.outputPeak).toEqual([-80, -80]);
+    });
+
+    it('arms the monitor on the unmuted members only', async () => {
+      setMultiroom(true, {
+        [REMOTE_MAC]: { mute: false, volume_db: -30 },
+        [OTHER_MAC]: { mute: true, volume_db: -30 },
+      });
+
+      await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC]);
+      await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC, OTHER_MAC]);
+
+      expect(monitorPosts().map(([, body]) => body)).toEqual([
+        { client_ids: [REMOTE_MAC] },
+        { client_ids: [REMOTE_MAC] },
+      ]);
+    });
+
+    it('takes levels again once the selection is unmuted', async () => {
+      setMultiroom(true, { [REMOTE_MAC]: { mute: true, volume_db: -30 } });
+      await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC]);
+      setMultiroom(true, { [REMOTE_MAC]: { mute: false, volume_db: -30 } });
+
+      await equalizerStore.keepLevelsMonitorAlive([REMOTE_MAC]);
+      equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
+
+      expect(monitorPosts().map(([, body]) => body)).toEqual([{ client_ids: [REMOTE_MAC] }]);
+      expect(equalizerStore.outputPeak).toEqual([-12, -14]);
+    });
+  });
 });

@@ -43,6 +43,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // Audio levels (for meters)
   const outputPeak = ref([-80, -80]);
+  // Set while every selected client is muted: the monitor is not armed then,
+  // but one armed before keeps pushing for its TTL and must not reach the meters.
+  let metersSilenced = false;
 
   // Advanced equalizer settings
   const compressor = ref({
@@ -795,16 +798,37 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @param {{available: boolean, output_peak: number[]}} payload
    */
   function handleLevelsChanged(payload) {
+    if (metersSilenced) return;
     outputPeak.value = payload.available ? payload.output_peak : [-80, -80];
+  }
+
+  /**
+   * The clients the meters aggregate for a selection: its unmuted members (a
+   * client with no volume state yet counts as unmuted), or null when every one
+   * of them is muted. Never [] for a non-empty selection — the backend reads an
+   * empty list as the local DAC.
+   * @param {string[]} selectedIds
+   * @returns {string[] | null}
+   */
+  function meterClientIds(selectedIds) {
+    const audible = selectedIds.filter(id => !audioStore.volumeState.clients[id]?.mute);
+    return selectedIds.length > 0 && audible.length === 0 ? null : audible;
   }
 
   /**
    * Keepalive for the backend levels monitor (WS push, ~4 Hz). Open meter
    * views re-call this every few seconds; the backend stops sampling ~15 s
-   * after the last call.
-   * @param {string[]} clientIds - clients to aggregate (empty = local DAC)
+   * after the last call. A selection whose every client is muted arms nothing
+   * and holds the meters at the floor.
+   * @param {string[]} selectedIds - the selected clients, muted ones included
    */
-  async function keepLevelsMonitorAlive(clientIds = []) {
+  async function keepLevelsMonitorAlive(selectedIds = []) {
+    const clientIds = meterClientIds(selectedIds);
+    metersSilenced = clientIds === null;
+    if (metersSilenced) {
+      outputPeak.value = [-80, -80];
+      return;
+    }
     await apiCall.post('/api/equalizer/levels/monitor', { client_ids: clientIds }, {
       category: 'equalizer',
       message: 'Error arming levels monitor',
@@ -957,6 +981,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     updateMono,
 
     // Levels monitor
+    meterClientIds,
     keepLevelsMonitorAlive,
 
     // WebSocket Handlers

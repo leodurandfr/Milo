@@ -26,7 +26,6 @@
 import { computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useEqualizerStore } from '@/stores/equalizerStore';
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import LevelMeter from './LevelMeter.vue';
 import { useTimer } from '@/composables/useTimer';
@@ -40,7 +39,6 @@ const props = defineProps({
 
 const { t } = useI18n();
 const equalizerStore = useEqualizerStore();
-const audioStore = useUnifiedAudioStore();
 const timer = useTimer();
 
 // Levels arrive over WS (`equalizer`/`levels`, ~10 Hz) while this keepalive is
@@ -63,17 +61,8 @@ const outputRight = computed(() => {
   return Array.isArray(levels) && levels.length > 1 ? levels[1] : outputLeft.value;
 });
 
-// Filter out muted clients - only get levels from clients that can produce audio
-const activeClientIds = computed(() => {
-  return props.clientIds.filter(id => {
-    const clientState = audioStore.volumeState.clients[id];
-    // Include client if we don't have state yet (assume not muted) or if not muted
-    return !clientState || !clientState.mute;
-  });
-});
-
 function keepalive() {
-  equalizerStore.keepLevelsMonitorAlive(activeClientIds.value);
+  equalizerStore.keepLevelsMonitorAlive(props.clientIds);
 }
 
 onMounted(() => {
@@ -81,11 +70,13 @@ onMounted(() => {
   timer.setInterval(keepalive, KEEPALIVE_INTERVAL); // auto-cleared on unmount
 });
 
-// Re-arm immediately when the set of clients it aggregates changes (updates the
-// aggregation target on the backend without waiting for the next interval).
-// Keyed on the set itself: activeClientIds is a new array on every volume
-// broadcast, and each one re-armed the monitor with the set it already had.
-watch(() => activeClientIds.value.join(','), keepalive);
+// Re-arm immediately when the set of clients it aggregates changes — a mute
+// toggled included — instead of waiting for the next interval. Keyed on the set
+// itself, so a volume broadcast that changes nothing re-arms nothing.
+watch(() => {
+  const ids = equalizerStore.meterClientIds(props.clientIds);
+  return ids === null ? 'muted' : ids.join(',');
+}, keepalive);
 </script>
 
 <style scoped>
