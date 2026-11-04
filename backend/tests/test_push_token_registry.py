@@ -7,6 +7,7 @@ accepts and delivers nowhere. There is no error to read on the phone and none
 in the journal — the emitter reports a 200.
 """
 import asyncio
+import errno
 import json
 import time
 
@@ -16,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.push import create_push_router
+from backend.core.push import token_registry as token_registry_module
 from backend.core.push.models import ApnsEnvironment, PushTokenKind
 from backend.core.push.token_registry import PushTokenRegistry
 from backend.shared.persistence import SchemaVersionMismatch
@@ -429,6 +431,87 @@ class TestLiveSessionReports:
         await restarted.initialize()
 
         assert restarted.token_for_session("ghost") is None
+
+
+class TestAnUnwritableFile:
+    """Memory is the registry; the file is its copy, written when it can be."""
+
+    @staticmethod
+    def refuse_writes(monkeypatch):
+        def full(*_args, **_kwargs):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        monkeypatch.setattr(token_registry_module, "save_versioned_json", full)
+
+    async def test_a_refused_write_raises_nothing_and_keeps_the_change(
+        self, registry, monkeypatch
+    ):
+        """The push path calls `mark_pushed` and `purge` after Apple answered.
+        Raised from there, a `start` Apple had delivered was forgotten and
+        every cycle opened another session on the Lock Screen."""
+        await registry.register("tok-p", PTS, ApnsEnvironment.SANDBOX, "phone-1")
+        self.refuse_writes(monkeypatch)
+
+        await registry.register(
+            "tok-s", SESSION, ApnsEnvironment.SANDBOX, "phone-1", session_id="sess-1")
+        await registry.mark_pushed(["tok-p"])
+
+        assert registry.token_for_session("sess-1").token == "tok-s"
+
+    async def test_a_token_dropped_during_the_outage_stays_dropped(
+        self, registry, monkeypatch
+    ):
+        """Re-read from the file before every write, the next write brought
+        back a token the one before had dropped, and the push service sent its
+        session's `end` again."""
+        await registry.register(
+            "tok-s", SESSION, ApnsEnvironment.SANDBOX, "phone-1", session_id="sess-1")
+        await registry.register("tok-p", PTS, ApnsEnvironment.SANDBOX, "phone-1")
+        self.refuse_writes(monkeypatch)
+
+        await registry.unregister("tok-s")
+        await registry.mark_pushed(["tok-p"])
+
+        assert registry.tokens_for_session("sess-1") == []
+
+    async def test_the_first_write_after_the_outage_carries_the_whole_registry(
+        self, registry, monkeypatch
+    ):
+        await registry.register(
+            "tok-s", SESSION, ApnsEnvironment.SANDBOX, "phone-1", session_id="sess-1")
+        await registry.register("tok-p", PTS, ApnsEnvironment.SANDBOX, "phone-1")
+        with monkeypatch.context() as outage:
+            self.refuse_writes(outage)
+            await registry.unregister("tok-s")
+
+        await registry.register("tok-w", WIDGET, ApnsEnvironment.SANDBOX, "phone-1")
+
+        restarted = reopened(registry)
+        await restarted.initialize()
+        assert restarted.tokens_for_session("sess-1") == []
+        assert [t.token for t in restarted.tokens_for(WIDGET)] == ["tok-w"]
+
+    async def test_a_registry_that_never_read_the_file_reads_it_before_writing(
+        self, registry, monkeypatch
+    ):
+        """`initialize` failing on anything but a schema mismatch is logged
+        and the backend carries on. Writing from an empty memory then would
+        overwrite every device's tokens with the one being registered."""
+        await registry.register("tok-p", PTS, ApnsEnvironment.SANDBOX, "phone-1")
+        never_loaded = reopened(registry)
+        with monkeypatch.context() as unreadable:
+            unreadable.setattr(
+                token_registry_module, "load_versioned_json",
+                AsyncMock(side_effect=OSError(errno.EIO, "Input/output error")),
+            )
+            with pytest.raises(OSError):
+                await never_loaded.initialize()
+
+        await never_loaded.register("tok-w", WIDGET, ApnsEnvironment.SANDBOX, "phone-1")
+
+        restarted = reopened(registry)
+        await restarted.initialize()
+        assert [t.token for t in restarted.tokens_for(PTS)] == ["tok-p"]
 
 
 class TestRoutes:

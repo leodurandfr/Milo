@@ -7,6 +7,7 @@ cannot be observed from this side: Apple throttles an app that pushes too
 often, and the degradation outlives the code change that caused it.
 """
 import asyncio
+import errno
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -21,8 +22,10 @@ from backend.core.models.ws_events import (
     SourcePosition,
     VolumeChanged,
 )
+from backend.core.push import token_registry as token_registry_module
 from backend.core.push.apns_client import ApnsResult
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
+from backend.core.push.token_registry import PushTokenRegistry
 from backend.core.state import AudioStateMachine
 from backend.core.push.service import (
     END_ATTEMPTS,
@@ -2361,6 +2364,77 @@ class TestCoalescing:
         await service.cleanup()
 
         assert sent_types(apns) == ["widgets"]
+
+
+class TestAnUnwritableRegistryFile:
+    """What Apple took stays taken when `push_tokens.json` cannot be written.
+
+    The real registry over `tmp_path`, its writes refused once the tokens are
+    in — a full SD card, a rootfs remounted read-only. The stamp and the purge
+    are bookkeeping; an exception out of them lost a `start` Apple had
+    delivered, so every cycle opened one more rival session on the Lock
+    Screen, and re-sent an `end` that kept any new `start` out for
+    `END_WATCH_S`.
+    """
+
+    @pytest.fixture
+    def real_registry(self, tmp_path):
+        reg = PushTokenRegistry()
+        reg.tokens_file = tmp_path / "push_tokens.json"
+        return reg
+
+    @pytest.fixture
+    def on_disk(self, real_registry, apns):
+        svc = PushService(token_registry=real_registry, apns_client=apns)
+        machine = MagicMock()
+        machine.get_current_state = MagicMock(return_value=dict(PLAYING))
+        svc.set_state_machine(machine)
+        svc.machine = machine
+        return svc
+
+    @staticmethod
+    def refuse_writes(monkeypatch):
+        def full(*_args, **_kwargs):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        monkeypatch.setattr(token_registry_module, "save_versioned_json", full)
+
+    async def test_a_start_apple_took_is_kept_when_the_stamp_cannot_be_written(
+        self, on_disk, real_registry, apns, monkeypatch
+    ):
+        await real_registry.register(
+            "pts", PushTokenKind.PUSH_TO_START, ApnsEnvironment.SANDBOX, "phone-1")
+        self.refuse_writes(monkeypatch)
+
+        for _ in range(3):
+            await on_disk._publish()
+
+        assert sent_events(apns) == ["start"]
+        assert on_disk._session_id == sent_sessions(apns)[0]
+
+    async def test_an_end_apple_took_is_not_resent_when_the_stamp_cannot_be_written(
+        self, on_disk, real_registry, apns, monkeypatch
+    ):
+        await real_registry.register(
+            "pts", PushTokenKind.PUSH_TO_START, ApnsEnvironment.SANDBOX, "phone-1")
+        await on_disk._publish()
+        ended = on_disk._session_id
+        await real_registry.register(
+            "sess", PushTokenKind.SESSION, ApnsEnvironment.SANDBOX, "phone-1",
+            session_id=ended)
+        self.refuse_writes(monkeypatch)
+        on_disk.machine.get_current_state.return_value = dict(STOPPED)
+        past_the_grace(on_disk)
+        apns.send.reset_mock()
+
+        await on_disk._publish()
+        on_disk.machine.get_current_state.return_value = dict(PLAYING)
+        for _ in range(3):
+            await on_disk._publish()
+
+        assert sent_events(apns) == ["end", "start"]
+        assert sent_sessions(apns)[0] == ended
+        assert on_disk._session_id == sent_sessions(apns)[1] != ended
 
 
 class TestPurge:

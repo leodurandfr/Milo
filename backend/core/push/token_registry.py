@@ -36,6 +36,10 @@ class PushTokenRegistry:
         # Tokens read from the file at boot and not registered again since:
         # this process cannot vouch for them. See `registered_before_start`.
         self._from_disk: Set[str] = set()
+        # Whether the file has been read. A registry that could not read it
+        # must not write it: an empty one would overwrite every token.
+        self._loaded = False
+        self._write_failing = False
 
     async def initialize(self) -> None:
         """Load the file so a schema mismatch surfaces at boot, not at first push.
@@ -47,8 +51,8 @@ class PushTokenRegistry:
         disk would only create a file to back up.
         """
         async with self._file_lock:
-            self._tokens = await self._load_locked()
-            self._from_disk = set(self._tokens)
+            if not self._loaded:
+                await self._load_into_memory_locked()
         self.logger.info(f"Push token registry loaded: {len(self._tokens)} token(s)")
 
     # =========================================================================
@@ -254,8 +258,10 @@ class PushTokenRegistry:
         nobody else's, and an empty list from one must not touch another's.
         """
         live = set(live_session_ids)
+        dropped = 0
 
         def apply(tokens: Dict[str, PushToken]) -> bool:
+            nonlocal dropped
             doomed = [
                 token for token, held in tokens.items()
                 if held.kind == PushTokenKind.SESSION
@@ -264,12 +270,11 @@ class PushTokenRegistry:
             ]
             for token in doomed:
                 tokens.pop(token)
+            dropped = len(doomed)
             return bool(doomed)
 
-        before = len(self._tokens)
         if not await self._mutate(apply):
             return 0
-        dropped = before - len(self._tokens)
         self.logger.info(
             f"Device {device_id} reports {len(live)} live session(s); "
             f"dropped {dropped} stale session token(s)"
@@ -383,30 +388,65 @@ class PushTokenRegistry:
         ]
 
     async def _mutate(self, apply: Callable[[Dict[str, PushToken]], bool]) -> bool:
-        """Read → mutate → write under a single hold of ``_file_lock``.
+        """Mutate → write under a single hold of ``_file_lock``.
 
-        ``apply`` edits the dict in place and returns whether anything changed;
-        the file is rewritten only when it did. It is deliberately synchronous:
-        an await inside it would reopen the window this closes.
+        ``apply`` edits a copy of the registry's dict in place and returns
+        whether anything changed; the copy becomes the registry once it
+        returns, and the file is rewritten only when it did. It is deliberately
+        synchronous: an await inside it would reopen the window this closes.
 
         Taking the lock once is the whole point, and the interleave it closes is
         this registry's own: a purge triggered by a failed push runs in the
-        background while a registration arrives over HTTP. Loading and saving
-        under two separate holds lets them read the same state and lets the
-        second write drop the first one's edit — which here means either a dead
-        token resurrected or a fresh one deleted.
+        background while a registration arrives over HTTP. Mutating and saving
+        under two separate holds lets them start from the same state and lets
+        the second write drop the first one's edit — which here means either a
+        dead token resurrected or a fresh one deleted.
+
+        **Memory is the registry; the file is its copy.** This process is the
+        file's only writer, so it is read once — by ``initialize``, or here if
+        that read failed — and never again. A write the disk refuses (full,
+        remounted read-only) is reported once per outage and changes nothing
+        else: the next write carries the whole registry. Re-read before every
+        write, a refused one was undone by the next — a token dropped came back
+        from the file, and its session was sent its `end` again. Raised to the
+        caller, it failed what the write only recorded: a `start` Apple had
+        delivered was forgotten, and every push cycle opened one more.
         """
         async with self._file_lock:
-            tokens = await self._load_locked()
+            if not self._loaded:
+                await self._load_into_memory_locked()
+            tokens = dict(self._tokens)
             changed = apply(tokens)
             self._tokens = tokens
             if changed:
-                await save_versioned_json(
-                    self.tokens_file,
-                    {"tokens": {k: v.to_dict() for k, v in tokens.items()}},
-                    self.SCHEMA_VERSION,
-                )
+                await self._save_locked()
         return changed
+
+    async def _save_locked(self) -> None:
+        """Write the registry to the file. The caller must hold ``_file_lock``."""
+        try:
+            await save_versioned_json(
+                self.tokens_file,
+                {"tokens": {k: v.to_dict() for k, v in self._tokens.items()}},
+                self.SCHEMA_VERSION,
+            )
+        except OSError as e:
+            if not self._write_failing:
+                self.logger.warning(
+                    f"Push tokens cannot be written to {self.tokens_file}, "
+                    f"kept in memory until a write succeeds: {e}"
+                )
+            self._write_failing = True
+            return
+        if self._write_failing:
+            self.logger.info(f"Push tokens written to {self.tokens_file} again")
+        self._write_failing = False
+
+    async def _load_into_memory_locked(self) -> None:
+        """Make the file's tokens the registry. The caller must hold ``_file_lock``."""
+        self._tokens = await self._load_locked()
+        self._from_disk = set(self._tokens)
+        self._loaded = True
 
     async def _load_locked(self) -> Dict[str, PushToken]:
         """Read and decode the file. The caller must already hold ``_file_lock``."""
