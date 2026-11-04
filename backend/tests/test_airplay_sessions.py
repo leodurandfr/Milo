@@ -638,6 +638,7 @@ def _unit_clock(monkeypatch, world: AirPlayWorld, skew_s: float) -> list:
     returns moves it, as NTP stepping it would."""
     skew = [skew_s]
     monkeypatch.setattr(audio_source, "wall_time", lambda: EPOCH + world.clock.now + skew[0])
+    monkeypatch.setattr(audio_source, "step_reference", lambda: world.clock.now)
     return skew
 
 

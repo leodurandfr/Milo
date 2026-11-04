@@ -356,9 +356,6 @@ class BaseAudioSource(ABC):
         # The view at the last publish, for the net after a message; None
         # until the source first published.
         self._published: Optional[SourceView] = None
-        # wall_time() - step_reference() at the last message; None before the
-        # first, so a clock set before it is not read as a step.
-        self._wall_offset: Optional[float] = None
 
     @property
     def view(self) -> SourceView:
@@ -939,9 +936,22 @@ class BaseAudioSource(ABC):
 
     def _position_now(self, session: Session) -> Optional[int]:
         """Where the anchor puts the playhead now, or None without one."""
-        if session.anchor is None:
+        anchor = session.anchor
+        if anchor is None:
             return None
-        return session.anchor.now(wall_time(), self._session_fields(session).get("duration_ms"))
+        now = wall_time()
+        return anchor.now(now - self._clock_step(anchor, now), self._session_fields(session).get("duration_ms"))
+
+    @staticmethod
+    def _clock_step(anchor: Anchor, now: float) -> float:
+        """How far the wall clock has stepped since `anchor` was taken, in
+        seconds, or 0 within POSITION_TOLERANCE_MS: the step is the wall clock
+        moving against the monotonic one (NTP steps the first, never the
+        second)."""
+        if anchor.scale is None:
+            return 0.0
+        step = (now - step_reference()) - anchor.scale
+        return step if abs(step) * 1000 > POSITION_TOLERANCE_MS else 0.0
 
     def _anchor_position(self, ms: int) -> None:
         """A discontinuity: the playhead is at `ms` now (a seek, a new track).
@@ -954,28 +964,30 @@ class BaseAudioSource(ABC):
         ms = max(0, int(ms))
         if duration is not None:
             ms = min(ms, duration)
+        now = wall_time()
         session.anchor = Anchor(
-            ms=ms, at=wall_time(), moving=session.phase is Phase.PLAYING,
+            ms=ms, at=now, moving=session.phase is Phase.PLAYING,
+            scale=now - step_reference(),
         )
 
     def _follow_clock_step(self) -> None:
         """Re-date a moving anchor across a step of the wall clock: a unit with
         no RTC battery boots on the time it last stopped at, and timesyncd
         steps it once the internet answers. Aged across the step, the anchor
-        put the playhead past the end of the track. Its `at` is on the old
-        scale, so the playhead is read there and anchored again on the new
-        one; a still anchor reads the same on either."""
-        offset = wall_time() - step_reference()
-        before, self._wall_offset = self._wall_offset, offset
-        if before is None:
-            return
-        step = offset - before
+        put the playhead past the end of the track. The step is measured
+        against the scale the anchor itself was taken on, so an anchor set
+        after the step — by a handler that was awaiting when it landed — is
+        not shifted a second time; a still anchor reads the same on either
+        scale. Run before each message and before each publish, so the wire's
+        `at` is on the current scale."""
         session = self._session
         anchor = session.anchor if session is not None else None
-        if anchor is None or not anchor.moving or abs(step) * 1000 <= POSITION_TOLERANCE_MS:
+        if anchor is None or not anchor.moving:
             return
-        self._logger.info(f"Wall clock stepped {step:+.0f} s: playhead re-dated")
-        self._anchor_position(anchor.now(wall_time() - step, None))
+        step = self._clock_step(anchor, wall_time())
+        if step:
+            self._logger.info(f"Wall clock stepped {step:+.0f} s: playhead re-dated")
+            self._anchor_position(self._position_now(session))
 
     def _observe_position(self, ms: Optional[int]) -> None:
         """A playhead reading (mpv's time-pos, a daemon's report). One more
@@ -1004,6 +1016,7 @@ class BaseAudioSource(ABC):
         session plays, so leaving or entering PLAYING re-stamps it where the
         playhead stands. Not a discontinuity: it rides the state that carries
         the phase change."""
+        self._follow_clock_step()
         session = self._session
         anchor = session.anchor if session is not None else None
         if anchor is None:
@@ -1011,8 +1024,10 @@ class BaseAudioSource(ABC):
         moving = session.phase is Phase.PLAYING
         if anchor.moving is moving:
             return
+        now = wall_time()
         session.anchor = Anchor(
-            ms=self._position_now(session), at=wall_time(), moving=moving,
+            ms=self._position_now(session), at=now, moving=moving,
+            scale=now - step_reference(),
         )
 
     # === Sessions (docs: source architecture, "the session") ===

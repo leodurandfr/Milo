@@ -162,10 +162,16 @@ def check_end(phase: Phase, reason: EndReason) -> None:
 class Anchor:
     """The session's playhead: `ms` at the wall-clock instant `at`, advancing
     in real time while `moving` (the phase was PLAYING when it was set). The
-    one implementation of playhead aging, kept by BaseAudioSource."""
+    one implementation of playhead aging, kept by BaseAudioSource.
+
+    `scale` is the wall clock's offset from the monotonic one when `at` was
+    read (None: unknown, never re-dated): what tells an anchor taken before a
+    step of the wall clock from one taken after it. Internal — the wire's
+    `PositionAnchor` carries `ms` and `at` only."""
     ms: int
     at: float
     moving: bool
+    scale: Optional[float] = field(default=None, compare=False)
 
     def now(self, at: float, duration_ms: Optional[int]) -> int:
         """Where the playhead is at `at`, bounded to [0, duration_ms]."""

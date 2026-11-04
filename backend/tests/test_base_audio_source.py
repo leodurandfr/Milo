@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from backend.core import audio_source
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import AudioSource
-from backend.core.models.session import EndReason, Phase, Session
+from backend.core.models.session import EndReason, Phase, PhaseEvent, Session
 from backend.core.state import AudioStateMachine
 
 
@@ -522,6 +522,66 @@ class TestThePlayheadReachesBothSinks:
         anchor = positions[-1]
         read = anchor["ms"] + (clock[0] + clock[1] - anchor["at"]) * 1000 * anchor["rate"]
         assert abs(read - 10000) <= 1000
+
+    @pytest.mark.asyncio
+    async def test_an_anchor_taken_after_a_step_is_not_re_dated_again(self, wired, clock):
+        """The step can land while a handler awaits — Spotify waits on
+        `GET /status` before it anchors, mpv on a load. The anchor that handler
+        sets is already on the new scale; compared against the offset read at
+        the start of its message, the next message saw the step again and
+        shifted it a second time, putting a daemon source's playhead at 0 until
+        its next report."""
+        source, state_machine = wired
+        gate, entered = asyncio.Event(), asyncio.Event()
+
+        async def anchor_after_gate(cmd, params):
+            entered.set()
+            await gate.wait()
+            source._anchor_position(5000)
+            return source.success_response("anchored")
+
+        await source.command("test_command", {})
+        source._handle_command = anchor_after_gate
+        pending = asyncio.ensure_future(source.command("test_command", {}))
+        await entered.wait()
+        clock[1] += 2750.0
+        gate.set()
+        await pending
+
+        clock[0] += 1.0
+        source._handle_command = ConcreteAudioSource._handle_command.__get__(source)
+        await source.command("test_command", {})
+
+        assert abs(source._position_now(source._session) - 6000) <= 1000
+
+    @pytest.mark.asyncio
+    async def test_a_pause_after_a_step_mid_handler_publishes_the_true_position(self, wired, clock):
+        """A pause is published while its handler still runs: when the step
+        landed during that handler's await, the anchor is still on the old
+        scale, and rebased across the step it published the duration as the
+        position."""
+        source, state_machine = wired
+        gate, entered = asyncio.Event(), asyncio.Event()
+
+        async def pause_after_gate(cmd, params):
+            entered.set()
+            await gate.wait()
+            source._session.advance(PhaseEvent.PAUSED)
+            source._publish()
+            return source.success_response("paused")
+
+        await source.command("test_command", {})
+        clock[0] += 10.0
+        source._handle_command = pause_after_gate
+        pending = asyncio.ensure_future(source.command("test_command", {}))
+        await entered.wait()
+        clock[1] += 2750.0
+        gate.set()
+        await pending
+
+        anchor = source._session.anchor
+        assert not anchor.moving
+        assert abs(anchor.ms - 10000) <= 1000
 
 
 class TestBaseAudioSourceServiceManager:
