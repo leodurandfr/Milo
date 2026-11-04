@@ -995,6 +995,43 @@ class TestManagedConfig:
 
         assert list(tmp_path.glob("*.tmp")) == []
 
+    @pytest.mark.asyncio
+    async def test_a_settings_save_writes_config_yml_only_from_the_source(self, spotify_source):
+        """The source is config.yml's only writer: a save landing while it
+        handles a message waits for it, so saves are applied one after the
+        other, each reading what the settings hold when its turn comes. Written
+        from the route's task instead, two saves' read-modify-writes overlap
+        and config.yml can keep the first one's crossfade over the value the
+        settings hold last — a parseable file is not enough to tell."""
+        spotify_source._settings_service = Mock()
+        spotify_source._settings_service.get_setting = AsyncMock(
+            side_effect=lambda key: 6000 if key == "spotify.crossfade_duration" else None
+        )
+        path = Path(spotify_source._config_path)
+        before = path.read_text()
+        held, release = asyncio.Event(), asyncio.Event()
+
+        async def hold():
+            async with spotify_source.hold_mailbox():
+                held.set()
+                await release.wait()
+
+        holder = asyncio.create_task(hold())
+        await held.wait()
+        save = asyncio.create_task(spotify_source.on_spotify_settings_changed(False))
+        # Until the save is queued behind the hold, or (written from here) done.
+        for _ in range(500):
+            if save.done() or spotify_source._actor_inbox:
+                break
+            await asyncio.sleep(0.01)
+
+        try:
+            assert path.read_text() == before
+        finally:
+            release.set()
+            await asyncio.gather(holder, save)
+        assert self._read(spotify_source._config_path)["crossfade_duration"] == 6000
+
 
 class TestTheEventThatIsNotRead:
     """go-librespot's event vocabulary, as the source reads it.
