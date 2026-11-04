@@ -264,7 +264,7 @@ async def test_refused_stored_credentials_forget_the_only_profile_and_free_the_d
     use, at every start. The profile goes, and with none left the daemon is
     handed nobody — the card, ready for a cast. What it played goes with it."""
     world.source.history.add(ACCOUNT, {"uri": "spotify:track:played"})
-    await world.source._handle_log_line(REFUSED)
+    await world.journal_says(REFUSED)
     await world.advance(2.1)
     await world.idle()
 
@@ -281,7 +281,7 @@ async def test_refused_stored_credentials_hand_the_daemon_to_the_profile_left(wo
     await world.cast_from(GUEST)
     await world.idle()
 
-    await world.source._handle_log_line(REFUSED)
+    await world.journal_says(REFUSED)
     await world.advance(2.1)
     await world.idle()
 
@@ -299,8 +299,8 @@ async def test_a_refusal_heard_twice_moves_the_daemon_once(world):
     await world.idle()
     world.systemd.stop.reset_mock()
 
-    await world.source._handle_log_line(REFUSED)
-    await world.source._handle_log_line(REFUSED)
+    await world.journal_says(REFUSED)
+    await world.journal_says(REFUSED)
     await world.advance(2.1)
     await world.idle()
 
@@ -309,10 +309,54 @@ async def test_a_refusal_heard_twice_moves_the_daemon_once(world):
     assert world.systemd.stop.await_count == 1
 
 
+async def test_a_refusal_delivered_after_the_move_forgets_nothing(world):
+    """journald can hand the refused run's line on again after Milō moved the
+    daemon to the next profile (a lag, or a line written during the stop):
+    the profile now signed in is not the one refused, and must stay — with it
+    went its listening history, and with none left, Spotify itself."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    refused_run = world.runs[-1]
+
+    await world.journal_says(REFUSED, invocation=refused_run)
+    await world.advance(2.1)
+    await world.idle()
+    await world.journal_says(REFUSED, invocation=refused_run)
+    await world.idle()
+
+    assert set(kept(world)) == {ACCOUNT}
+    assert world.stored_account() == ACCOUNT
+    assert world.state()["details"]["account"] == ACCOUNT
+    assert world.errors() == ["credentials_refused"]
+
+
+async def test_a_refusal_from_the_run_restart_brought_back_forgets_nothing(world):
+    """Restart= brings the refused account back up before Milō hears the
+    first refusal: the new run refuses it too, and its line, handed on after
+    Milō moved that run to the next profile, must not take that one out."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    first_run = world.runs[-1]
+    await world.kill_daemon()
+    await world.systemd_restarts_it()
+    second_run = world.runs[-1]
+
+    await world.journal_says(REFUSED, invocation=first_run)
+    await world.advance(2.1)
+    await world.idle()
+    await world.journal_says(REFUSED, invocation=second_run)
+    await world.idle()
+
+    assert set(kept(world)) == {ACCOUNT}
+    assert world.stored_account() == ACCOUNT
+    assert world.state()["details"]["account"] == ACCOUNT
+    assert world.errors().count("credentials_refused") == 1
+
+
 async def test_a_spotify_outage_at_sign_in_forgets_nothing(world):
     """Spotify down is not the account's fault: the profile stays, signed in
     again at the next start."""
-    await world.source._handle_log_line(
+    await world.journal_says(
         'level=warning msg="login5 request failed, retrying" '
         'error="login5 returned HTTP 503: no healthy upstream"'
     )
@@ -342,7 +386,7 @@ async def test_refused_credentials_while_the_daemon_restarts_itself_sign_in_nobo
     """go-librespot exits on credentials it cannot use and Restart= brings it
     back: the account must not be announced as signing in meanwhile."""
     await world.kill_daemon()
-    await world.source._handle_log_line(REFUSED)
+    await world.journal_says(REFUSED)
     await world.idle()
     await world.systemd_restarts_it()
 

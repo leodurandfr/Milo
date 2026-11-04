@@ -537,7 +537,7 @@ async def test_the_daemon_answering_late_leaves_a_newer_banner_standing(monkeypa
     comes_up = w.daemon.comes_up
     w.daemon.comes_up = lambda: None        # the process runs, its API stays deaf
     await w.select()
-    await w.source._handle_log_line('level=error msg="failed loading current track: no stream"')
+    await w.source._handle_log_line('level=error msg="failed loading current track: no stream"', None)
 
     comes_up()
     await w.advance(2.1)                    # the /events client retries every 2 s
@@ -557,7 +557,7 @@ async def test_a_refused_login_banner_leaves_with_the_source(world):
                'authenticating with login5: TRY_AGAIN_LATER"')
     from backend.tests.golden.harness import settle
 
-    await world.source._handle_log_line(refused)
+    await world.source._handle_log_line(refused, None)
     await settle()
     assert world.errors() == [SourceErrorReason.PROVIDER_UNAVAILABLE]
 
@@ -570,7 +570,8 @@ async def test_a_track_load_banner_leaves_with_the_source(world):
     """A track that failed to load belongs to the daemon the source stops:
     left standing, the banner would sit over the next source."""
     await world.source._handle_log_line(
-        'level=error msg="failed loading current track" error="no tracks"'
+        'level=error msg="failed loading current track" error="no tracks"',
+        None,
     )
     await settle()
     assert world.errors() == [SourceErrorReason.TRACK_LOAD_FAILED]

@@ -748,3 +748,44 @@ class TestMainStart:
             raise FileNotFoundError("no system bus")
         self._bus(monkeypatch, connect=refuse)
         assert await manager.main_start_usec("milo-mac.service") is None
+
+
+class TestInvocationId:
+    """The running run's identity, as journald stamps it on every line: a
+    Spotify refusal handed on late by journald is told from the run that
+    replaced it by this alone (the profile signed in after it is not the one
+    refused). systemd sends it as bytes; the journal writes it as hex."""
+
+    _bus = TestUnitState._bus
+    _Reply = TestUnitState._Reply
+
+    async def test_the_invocation_is_read_as_the_journal_writes_it(self, manager, monkeypatch):
+        from dbus_next import Variant
+        raw = bytes.fromhex("2c7e0f58a1b2c3d4e5f60718293a4b5c")
+        calls = self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/milo_2dspotify_2eservice"]),
+            self._Reply([Variant("ay", raw)]),
+        )
+        assert await manager.invocation_id("milo-spotify") == "2c7e0f58a1b2c3d4e5f60718293a4b5c"
+        assert calls[1] == ("Get", ["org.freedesktop.systemd1.Unit", "InvocationID"])
+        assert calls[-1][0] == "disconnect"
+
+    async def test_an_inactive_unit_has_no_invocation(self, manager, monkeypatch):
+        from dbus_next import Variant
+        self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/x"]),
+            self._Reply([Variant("ay", b"")]),
+        )
+        assert await manager.invocation_id("milo-spotify") is None
+
+    async def test_a_unit_that_is_not_loaded_has_no_invocation(self, manager, monkeypatch):
+        self._bus(monkeypatch, self._Reply(error="org.freedesktop.systemd1.NoSuchUnit"))
+        assert await manager.invocation_id("milo-spotify") is None
+
+    async def test_an_unreachable_bus_is_not_an_answer(self, manager, monkeypatch):
+        async def refuse():
+            raise FileNotFoundError("no system bus")
+        self._bus(monkeypatch, connect=refuse)
+        assert await manager.invocation_id("milo-spotify") is None

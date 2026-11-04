@@ -76,7 +76,7 @@ import time
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import aiofiles
 import aiohttp
@@ -421,6 +421,10 @@ class SpotifySource(BaseAudioSource):
         # (a cast writes the file before /status names it, measured), so it is
         # read from the file once per start and followed from /status after.
         self._persisted: Optional[str] = None
+        # The daemon runs (InvocationIDs) whose stored credentials are no
+        # longer state.json's: a refusal one of them logged names nobody now.
+        # Kept across a source stop, since journald hands a line on late.
+        self._replaced_runs: Set[str] = set()
         self._signing_in = False
         self._signin_restarted = False
         self._shuffle = False
@@ -1106,6 +1110,17 @@ class SpotifySource(BaseAudioSource):
         if self._history is not None and self._history.forget(account):
             self._bg.spawn(self._history.save(), label="spotify history")
 
+    async def _daemon_invocation(self) -> Optional[str]:
+        """The daemon run in place (systemd's InvocationID), or None when there
+        is none or systemd cannot say."""
+        if self._service_manager is None:
+            return None
+        try:
+            return await self._service_manager.invocation_id(self.service_name)
+        except Exception as e:
+            self._logger.warning(f"Could not read the invocation of {self.service_name}: {e}")
+            return None
+
     async def _sign_in_successor(self) -> None:
         """The signed-in profile is gone: the one signed in last on Milō takes
         its place, and nobody only when no profile is left — the browser then
@@ -1123,6 +1138,10 @@ class SpotifySource(BaseAudioSource):
         so the file is written between its stop and its start; a stopped
         daemon only gets the file, and reads it at its next start."""
         running = await self._is_service_active()
+        # Read before the stop: systemd empties it once the unit is inactive.
+        invocation = await self._daemon_invocation()
+        if invocation is not None:
+            self._replaced_runs.add(invocation)
         if running:
             if await self.end_session(EndReason.USER_STOP) is not None:
                 self._publish()
@@ -1144,22 +1163,29 @@ class SpotifySource(BaseAudioSource):
         if running:
             await self._start_service()
 
-    def _stored_credentials_refused(self, reason: str, line: str) -> None:
+    def _stored_credentials_refused(self, reason: str, line: str, invocation: Optional[str]) -> None:
         """Spotify refused the stored account (a changed password, Premium
         gone): left in state.json, the daemon would exit on it at every start.
         The profile is forgotten — a new cast from the account brings it back —
-        and the next one signs in. Runs on the journal task, so it posts."""
-        self._report_login_failure(reason, line)
-        account = self._persisted
-        self._post(Result(lambda: self._drop_refused(account)))
+        and the next one signs in. Runs on the journal task, so it posts what
+        it heard, with the run that logged it."""
+        self._post(Result(lambda: self._drop_refused(reason, line, invocation)))
 
-    async def _drop_refused(self, account: Optional[str]) -> None:
-        # The refused account is the one state.json held when the daemon
-        # started — also when the sign-in watch had already given up on it.
-        stored = await self._stored_account()
-        account = account or stored
-        if account is None or account not in (self._persisted, stored):
-            # A switch or a first refusal already moved the daemon on.
+    async def _drop_refused(self, reason: str, line: str, invocation: Optional[str]) -> None:
+        # The line names the run, not the account. A run Milō has since handed
+        # other credentials (read before its stop, in _sign_in_as) or already
+        # moved on from refused someone state.json no longer holds: journald
+        # hands lines on seconds late, and a run can log the refusal twice.
+        if invocation in self._replaced_runs:
+            self._logger.debug("Refusal from a daemon run already moved on, ignored")
+            return
+        if invocation is not None:
+            self._replaced_runs.add(invocation)
+        self._report_login_failure(reason, line)
+        # Otherwise state.json still holds what that run started with — also
+        # when the sign-in watch had already given up on it.
+        account = await self._stored_account() or self._persisted
+        if account is None:
             return
         if self._profiles is not None and await self._profiles.forget(account):
             self._harvested.discard(account)
@@ -1846,15 +1872,22 @@ class SpotifySource(BaseAudioSource):
     async def _monitor_logs(self) -> None:
         """Monitor journalctl for go-librespot errors."""
         try:
-            async for line in follow_unit(
+            async for entry in follow_unit(
                 "milo-spotify",
                 consequence="go-librespot error reporting is down until the source is restarted",
+                output="json",
                 logger=self._logger,
             ):
                 # Per background-loop doctrine: a transient parse/broadcast
                 # error on one line must not kill the whole monitor.
                 try:
-                    await self._handle_log_line(line)
+                    fields = json.loads(entry)
+                    message = fields.get("MESSAGE")
+                    if isinstance(message, list):  # journald's spelling of a line that is not UTF-8
+                        message = bytes(message).decode(errors="ignore")
+                    if not isinstance(message, str):
+                        continue
+                    await self._handle_log_line(message, fields.get("_SYSTEMD_INVOCATION_ID"))
                 except Exception as e:
                     self._logger.error(f"Log line handling error: {e}")
 
@@ -1863,8 +1896,9 @@ class SpotifySource(BaseAudioSource):
         except Exception as e:
             self._logger.error(f"Log monitor error: {e}")
 
-    async def _handle_log_line(self, line: str) -> None:
-        """Parse and handle a log line from go-librespot."""
+    async def _handle_log_line(self, line: str, invocation: Optional[str]) -> None:
+        """Parse and handle a log line from go-librespot, written by the daemon
+        run `invocation` (its `_SYSTEMD_INVOCATION_ID`)."""
         # The accesspoint is back. A refused login is not answered by it: a
         # Connect attempt authenticates the AP, then fails login5 10 ms later.
         if "authenticated AP" in line:
@@ -1893,7 +1927,7 @@ class SpotifySource(BaseAudioSource):
 
         # The stored account refused, at a start or a sign-in after a session end
         if "with stored credentials" in line and login_failure(line) in ACCOUNT_REFUSALS:
-            self._stored_credentials_refused(login_failure(line), line)
+            self._stored_credentials_refused(login_failure(line), line, invocation)
             return
 
         # A Connect attempt from the Spotify app was refused

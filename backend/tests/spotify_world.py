@@ -50,6 +50,14 @@ own ("q1", "q2", the same track queued twice included).
 
 Time is a VirtualClock the scenario advances; the daemon's death is heard
 through the same pidfd watch the source opens (patched here, as for AirPlay).
+
+The journal (`journalctl -o json`, read 2026-11-04 on the unit): every line
+go-librespot writes carries its run's `_SYSTEMD_INVOCATION_ID` (32 hex
+digits), and journald may hand a line on seconds after a newer run started
+(14 s of lag measured on this unit). systemd's InvocationID is the running
+run's, and empty once the unit is inactive (measured). After a crash, on the
+way to Restart=, the world keeps the dead run's — an assumption, not a
+measurement.
 """
 import asyncio
 import copy
@@ -630,14 +638,6 @@ class _AiohttpProxy:
         return getattr(aiohttp, name)
 
 
-def _silent_journal(unit: str, **_: Any):
-    async def stream():
-        await asyncio.Event().wait()
-        yield ""  # pragma: no cover — unreachable, makes this a generator
-
-    return stream()
-
-
 class SpotifyWorld(WireReader):
     """The Spotify source on a real state machine, in a world the scenario drives."""
 
@@ -664,6 +664,10 @@ class SpotifyWorld(WireReader):
             }))
         self._pids = itertools.count(FIRST_PID)
         self.pid: Optional[int] = None
+        self._invocations = itertools.count(0x2C7E0F58)
+        self.runs: List[str] = []                 # every run's invocation, in order
+        self.invocation: Optional[str] = None     # what systemd answers for the unit
+        self.journal: "asyncio.Queue[str]" = asyncio.Queue()
         self.watches: List[Tuple[int, Callable[[], None]]] = []
         self.restarts: List[float] = []
 
@@ -691,6 +695,7 @@ class SpotifyWorld(WireReader):
         # crash (auto-restart), `inactive`/`success` after a stop.
         self.unit_state = ("inactive", "success")
         systemd.unit_state = AsyncMock(side_effect=lambda *_: self.unit_state)
+        systemd.invocation_id = AsyncMock(side_effect=lambda *_: self.invocation)
         self.systemd = systemd
 
         async def sleep(delay: float, *a: Any, **k: Any) -> Any:
@@ -701,7 +706,7 @@ class SpotifyWorld(WireReader):
         monkeypatch.setattr(spotify_module, "aiohttp", _AiohttpProxy(self.daemon))
         monkeypatch.setattr(library_module, "aiohttp", _AiohttpProxy(self.daemon))
         monkeypatch.setattr(library_module, "asyncio", AsyncioProxy(sleep))
-        monkeypatch.setattr(spotify_module, "follow_unit", _silent_journal)
+        monkeypatch.setattr(spotify_module, "follow_unit", self._follow_journal)
         monkeypatch.setattr(spotify_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(websocket_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(jam_module, "asyncio", AsyncioProxy(sleep))
@@ -730,6 +735,8 @@ class SpotifyWorld(WireReader):
 
     def _spawn(self) -> None:
         self.pid = next(self._pids)
+        self.invocation = f"{next(self._invocations):032x}"
+        self.runs.append(self.invocation)
         self.unit_state = ("active", "success")
         self.daemon.stored = self.stored_account()   # go-librespot reads state.json at start
         self.daemon.comes_up()
@@ -750,6 +757,7 @@ class SpotifyWorld(WireReader):
 
     async def _unit_stop(self, *_: Any) -> bool:
         self.unit_state = ("inactive", "success")
+        self.invocation = None
         self._die()
         return True
 
@@ -776,6 +784,23 @@ class SpotifyWorld(WireReader):
         """Restart= brings a new process up; the /events client reconnects."""
         self._spawn()
         await self.advance(2.1)
+
+    # === the journal, as `journalctl -f -o json` hands it on ===
+
+    def _follow_journal(self, unit: str, **_: Any):
+        async def stream():
+            while True:
+                yield await self.journal.get()
+
+        return stream()
+
+    async def journal_says(self, message: str, invocation: Optional[str] = None) -> None:
+        """go-librespot logs `message`, from the run `invocation` (the latest
+        one by default) — an older run's line is one journald hands on late."""
+        self.journal.put_nowait(json.dumps({
+            "MESSAGE": message, "_SYSTEMD_INVOCATION_ID": invocation or self.runs[-1],
+        }))
+        await settle()
 
     async def idle(self) -> None:
         """Let the source finish what it started: the message in hand and the

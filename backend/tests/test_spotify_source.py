@@ -40,7 +40,7 @@ from backend.sources.spotify.source import SpotifySource
 from backend.sources.spotify.websocket import LibrespotWebSocket
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import SourceErrorReason, SourceError, SourceErrorCleared
-from backend.tests.golden.harness import AsyncioProxy, instant_short_sleep
+from backend.tests.golden.harness import AsyncioProxy, instant_short_sleep, settle
 from backend.tests.spotify_world import (
     ACCOUNT, LE_CHEMIN, PARAPLUIE, SpotifyWorld, track,
 )
@@ -1049,7 +1049,7 @@ class TestLogBridge:
         spotify_source.broadcast_error(SourceErrorReason.SERVICE_UNREACHABLE)
         assert spotify_source._error_active is True
 
-        await spotify_source._handle_log_line(line)
+        await spotify_source._handle_log_line(line, None)
 
         assert spotify_source._error_active is False
         assert isinstance(self._broadcast(spotify_source), SourceErrorCleared)
@@ -1062,13 +1062,15 @@ class TestLogBridge:
         that plays says `loaded episode`. Unread, the track-load banner stood
         over the episode until the next music track."""
         await spotify_source._handle_log_line(
-            'level=error msg="failed loading current track" error="context has no tracks"'
+            'level=error msg="failed loading current track" error="context has no tracks"',
+            None,
         )
         assert spotify_source._error_active is True
 
         await spotify_source._handle_log_line(
             'level=info msg="loaded episode \\"Ep\\" (paused: false, position: 0ms, '
-            'duration: 1000ms, prefetched: false)" uri="spotify:episode:x"'
+            'duration: 1000ms, prefetched: false)" uri="spotify:episode:x"',
+            None,
         )
 
         assert spotify_source._error_active is False
@@ -1085,7 +1087,7 @@ class TestLogBridge:
         """
         spotify_source._connection_error_count = 2
 
-        await spotify_source._handle_log_line('level=info msg="authenticated AP"')
+        await spotify_source._handle_log_line('level=info msg="authenticated AP"', None)
 
         assert spotify_source._connection_error_count == 0
 
@@ -1095,7 +1097,8 @@ class TestLogBridge:
     ):
         """No throttle here: the user pressed play and nothing happened."""
         await spotify_source._handle_log_line(
-            'level=error msg="failed loading current track" error="context has no tracks"'
+            'level=error msg="failed loading current track" error="context has no tracks"',
+            None,
         )
 
         event = self._broadcast(spotify_source)
@@ -1113,13 +1116,13 @@ class TestLogBridge:
         self, spotify_source, wired, line
     ):
         """Two failures are a restart; three inside 60 s are an outage."""
-        await spotify_source._handle_log_line(line)
-        await spotify_source._handle_log_line(line)
+        await spotify_source._handle_log_line(line, None)
+        await spotify_source._handle_log_line(line, None)
 
         assert spotify_source._error_active is False
         assert self._broadcast(spotify_source) is None
 
-        await spotify_source._handle_log_line(line)
+        await spotify_source._handle_log_line(line, None)
 
         assert isinstance(self._broadcast(spotify_source), SourceError)
         # Reset, so the next outage needs its own three rather than riding these.
@@ -1142,7 +1145,7 @@ class TestLogBridge:
         line = 'level=warning msg="failed connecting to accesspoint" error="timeout"'
 
         for _ in range(3):
-            await spotify_source._handle_log_line(line)
+            await spotify_source._handle_log_line(line, None)
 
         assert spotify_source._connection_error_count == 1
         assert self._broadcast(spotify_source) is None
@@ -1151,7 +1154,8 @@ class TestLogBridge:
     async def test_an_unremarkable_line_is_left_alone(self, spotify_source, wired):
         """The journal is mostly noise; only the patterns above may fire."""
         await spotify_source._handle_log_line(
-            'level=debug msg="websocket closed" error="StatusNormalClosure"'
+            'level=debug msg="websocket closed" error="StatusNormalClosure"',
+            None,
         )
 
         assert self._broadcast(spotify_source) is None
@@ -1187,8 +1191,10 @@ class TestLogBridge:
         """Picking Milō in the Spotify app and being refused was silent: the
         app shows nothing either, so the banner is the only place to say it."""
         await spotify_source._handle_log_line(
-            f'level=error msg="failed creating new session from Mac mini" error="{error}"'
+            f'level=error msg="failed creating new session from Mac mini" error="{error}"',
+            None,
         )
+        await settle()  # a stored account's refusal is the actor's to report
 
         assert self._banners(spotify_source) == [reason]
 
@@ -1212,7 +1218,7 @@ class TestLogBridge:
         ]
         for _ in range(3):
             for line in attempt:
-                await spotify_source._handle_log_line(line)
+                await spotify_source._handle_log_line(line, None)
 
         assert self._banners(spotify_source) == [SourceErrorReason.PROVIDER_UNAVAILABLE] * 3
         assert spotify_source._error_active is True
@@ -1235,15 +1241,15 @@ class TestLogBridge:
             'level=warning msg="login5 request failed, retrying in 1.6s" error="failed '
             'requesting login5: Post \\"https://login5.spotify.com/v3/login\\": EOF"',
         ]
-        await spotify_source._handle_log_line('level=info msg="authenticated AP" username="p6xy"')
+        await spotify_source._handle_log_line('level=info msg="authenticated AP" username="p6xy"', None)
         for line in retries:
-            await spotify_source._handle_log_line(line)
+            await spotify_source._handle_log_line(line, None)
 
         assert self._banners(spotify_source) == [SourceErrorReason.PROVIDER_UNAVAILABLE] * 3
         reports = [r for r in caplog.records if "login5 request failed" in r.getMessage()]
         assert [r.levelname for r in reports] == ["ERROR", "WARNING", "WARNING"]
 
-        await spotify_source._handle_log_line('level=info msg="authenticated Login5" username="p6xy"')
+        await spotify_source._handle_log_line('level=info msg="authenticated Login5" username="p6xy"', None)
 
         assert spotify_source._error_active is False
 
@@ -1255,9 +1261,9 @@ class TestLogBridge:
         that follows a success is a new outage and must reach errors.log."""
         refused = ('level=error msg="failed creating new session from Mac mini" '
                    'error="failed authenticating with login5: TRY_AGAIN_LATER"')
-        await spotify_source._handle_log_line(refused)
-        await spotify_source._handle_log_line('level=info msg="authenticated Login5"')
-        await spotify_source._handle_log_line(refused)
+        await spotify_source._handle_log_line(refused, None)
+        await spotify_source._handle_log_line('level=info msg="authenticated Login5"', None)
+        await spotify_source._handle_log_line(refused, None)
 
         refusals = [r for r in caplog.records if "failed creating new session" in r.getMessage()]
         assert [r.levelname for r in refusals] == ["ERROR", "ERROR"]
@@ -1274,7 +1280,8 @@ class TestLogBridge:
             'failed getting track metadata: spclient request failed: failed obtaining spclient '
             'access token: failed renewing login5 access token: failed requesting login5 '
             'endpoint: context deadline exceeded (last attempt: login5 returned HTTP 503: '
-            'no healthy upstream)"'
+            'no healthy upstream)"',
+            None,
         )
 
         assert self._banners(spotify_source) == [SourceErrorReason.PROVIDER_UNAVAILABLE]
@@ -1288,7 +1295,7 @@ class TestLogBridge:
         line = ('level=warning msg="failed connecting to accesspoint, retrying" '
                 'error="accesspoint login failed: PremiumAccountRequired <nil>"')
         for _ in range(3):
-            await spotify_source._handle_log_line(line)
+            await spotify_source._handle_log_line(line, None)
 
         assert self._banners(spotify_source) == []
 
@@ -1302,7 +1309,7 @@ class TestLogBridge:
     ):
         spotify_source.broadcast_error(SourceErrorReason.PROVIDER_UNAVAILABLE)
 
-        await spotify_source._handle_log_line(line)
+        await spotify_source._handle_log_line(line, None)
 
         assert spotify_source._error_active is False
         assert isinstance(self._broadcast(spotify_source), SourceErrorCleared)
@@ -1332,7 +1339,7 @@ class TestLogBridge:
             "dial tcp 212.27.38.252:443: connect: network is unreachable", cause
         )
 
-        await spotify_source._handle_log_line(line)
+        await spotify_source._handle_log_line(line, None)
 
         assert self._banners(spotify_source) == [SourceErrorReason.SERVICE_UNREACHABLE]
         errors = [r for r in caplog.records if r.levelname == "ERROR"]

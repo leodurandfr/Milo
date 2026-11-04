@@ -276,6 +276,25 @@ class SystemdServiceManager:
             return None
         return values[0] or None
 
+    async def invocation_id(self, service: str) -> Optional[str]:
+        """The running run's InvocationID (32 hex digits, the
+        `_SYSTEMD_INVOCATION_ID` journald stamps on every line it wrote), or
+        None when the unit is not loaded, inactive (systemd empties it,
+        measured) or cannot be read.
+
+        What it is for: a journal line names the run that wrote it, never the
+        moment it arrives — journald hands lines on seconds late (14 s
+        measured) — so a source that acts on a daemon's line tells a run it
+        has since replaced by this, read before it stops the unit. Read over
+        D-Bus like `unit_state`: the caller is a source's mailbox.
+        """
+        values = await self._unit_properties(
+            service, (("Unit", "InvocationID"),), "the invocation",
+        )
+        if values is None or values is _NOT_LOADED:
+            return None
+        return bytes(values[0]).hex() or None
+
     async def ambient_capabilities(self, service: str) -> Optional[int]:
         """The capability bitmask the unit hands its process (`AmbientCapabilities=`,
         bit N = capability N), 0 when it grants none or is not loaded, None when it

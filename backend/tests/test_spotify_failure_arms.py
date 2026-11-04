@@ -21,6 +21,7 @@ release that never actually pauses cannot pass. Where a live session is needed
 the scenario runs on `SpotifyWorld` (tests/spotify_world.py) instead.
 """
 import asyncio
+import json
 import math
 import time
 from types import SimpleNamespace
@@ -386,19 +387,28 @@ class TestTheJournalBridge:
     """`_monitor_logs` — the only thing that turns a go-librespot failure into
     the UI's error banner."""
 
-    async def test_every_line_reaches_the_parser(self, source):
+    async def test_every_line_reaches_the_parser_with_the_run_that_wrote_it(self, source):
+        """journald's JSON: the message, and the run (`_SYSTEMD_INVOCATION_ID`)
+        a refusal is attributed by. A message that is not UTF-8 comes as a
+        byte array, and is read as `-o cat` read it; one with no text at all
+        is no line."""
         seen = []
 
-        async def follow(unit, *, consequence, logger=None):
-            for line in ["authenticated AP", "loaded track"]:
-                yield line
+        async def follow(unit, *, consequence, output, logger=None):
+            assert output == "json"
+            yield json.dumps({"MESSAGE": "authenticated AP", "_SYSTEMD_INVOCATION_ID": "2c7e0f58"})
+            yield json.dumps({"MESSAGE": [108, 111, 97, 100, 101, 100, 0xFF], "_SYSTEMD_INVOCATION_ID": "2c7e0f58"})
+            yield json.dumps({"MESSAGE": None, "_SYSTEMD_INVOCATION_ID": "2c7e0f58"})
+            yield json.dumps({"MESSAGE": "loaded track", "_SYSTEMD_INVOCATION_ID": "3d8f1a69"})
 
-        source._handle_log_line = AsyncMock(side_effect=lambda ln: seen.append(ln))
+        source._handle_log_line = AsyncMock(side_effect=lambda ln, run: seen.append((ln, run)))
 
         with patch("backend.sources.spotify.source.follow_unit", follow):
             await source._monitor_logs()
 
-        assert seen == ["authenticated AP", "loaded track"]
+        assert seen == [
+            ("authenticated AP", "2c7e0f58"), ("loaded", "2c7e0f58"), ("loaded track", "3d8f1a69"),
+        ]
 
     async def test_a_line_that_throws_costs_only_that_line(self, source, caplog):
         """Background-loop doctrine. Without the body guard, one unparsable
@@ -406,11 +416,11 @@ class TestTheJournalBridge:
         the rest of the process — with nothing to say so."""
         seen = []
 
-        async def follow(unit, *, consequence, logger=None):
+        async def follow(unit, *, consequence, output, logger=None):
             for line in ["bad", "authenticated AP"]:
-                yield line
+                yield json.dumps({"MESSAGE": line, "_SYSTEMD_INVOCATION_ID": "2c7e0f58"})
 
-        async def handle(line):
+        async def handle(line, invocation):
             seen.append(line)
             if line == "bad":
                 raise ValueError("unparsable")
@@ -426,7 +436,7 @@ class TestTheJournalBridge:
     async def test_the_journal_going_away_is_logged_not_raised(self, source, caplog):
         """The bridge runs as a bare task; an exception escaping it dies
         unobserved except for asyncio's own warning."""
-        async def follow(unit, *, consequence, logger=None):
+        async def follow(unit, *, consequence, output, logger=None):
             raise RuntimeError("journalctl gone")
             yield  # pragma: no cover - generator marker
 
@@ -439,7 +449,7 @@ class TestTheJournalBridge:
     async def test_a_cancelled_bridge_ends_quietly(self, source, caplog):
         """`_stop_log_monitor` cancels it on every stop, so an error log here
         would put a banner up on an ordinary source switch."""
-        async def follow(unit, *, consequence, logger=None):
+        async def follow(unit, *, consequence, output, logger=None):
             raise asyncio.CancelledError
             yield  # pragma: no cover - generator marker
 
@@ -460,7 +470,7 @@ class TestTheJournalBridge:
         Counting the tasks that were created is what separates the two."""
         started = []
 
-        async def follow(unit, *, consequence, logger=None):
+        async def follow(unit, *, consequence, output, logger=None):
             started.append(True)
             return
             yield  # pragma: no cover - generator marker
