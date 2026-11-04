@@ -37,6 +37,8 @@ without checking the caller is one the appliance should have.
 import ast
 import functools
 import itertools
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -486,3 +488,86 @@ def test_granted_helpers_are_shipped_by_the_same_tree(tree_name):
     assert not missing, (
         f"granted but not shipped by {rootfs.relative_to(REPO_ROOT)}: " + ", ".join(missing)
     )
+
+
+# --------------------------------------------------------------------------- #
+# Syntax: every policy must be one sudo will read at all.
+# --------------------------------------------------------------------------- #
+
+ALL_POLICIES = sorted({p for tree in TREES.values() for p in tree["policies"]})
+ALL_POLICIES_BY_NAME = {p.name: p for p in ALL_POLICIES}
+
+
+@functools.cache
+def _visudo() -> str:
+    """visudo is the parser sudo itself uses; nothing else can stand in for it.
+
+    Absent, the check below fails rather than skips: a syntax check that
+    quietly stops running is the gap it exists to close. It is present on the
+    CI runner and on the appliance.
+    """
+    found = shutil.which("visudo") or (
+        "/usr/sbin/visudo" if Path("/usr/sbin/visudo").is_file() else None
+    )
+    if found is None:
+        pytest.fail("visudo not found on PATH or at /usr/sbin/visudo (install sudo)")
+    return found
+
+
+def _visudo_check(policy: Path) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            [_visudo(), "-c", "-f", str(policy)],
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"visudo did not answer within 30 s on {policy}")
+
+
+def test_every_shipped_policy_is_checked():
+    """A policy file TREES does not list would reach a unit unparsed."""
+    shipped = sorted(
+        policy
+        for tree in TREES.values()
+        for policy in (tree["rootfs"] / "etc" / "sudoers.d").iterdir()
+    )
+    assert shipped, "no sudoers policy found under either rootfs/etc/sudoers.d"
+    assert ALL_POLICIES == shipped, (
+        f"TREES lists {[str(p.relative_to(REPO_ROOT)) for p in ALL_POLICIES]}, "
+        f"the trees ship {[str(p.relative_to(REPO_ROOT)) for p in shipped]}"
+    )
+
+
+@pytest.mark.parametrize(
+    "policy", ALL_POLICIES, ids=[str(p.relative_to(REPO_ROOT)) for p in ALL_POLICIES]
+)
+def test_every_policy_parses_under_visudo(policy):
+    """A policy visudo rejects is one sudo skips whole, every grant in it lost.
+
+    `_grants` reads the files by splitting lines, which a dropped parenthesis
+    does not disturb, so every other test here stays green on a policy sudo
+    cannot parse. The only parsers run after the merge: the pi-gen stage
+    `03-configure` and `provisioning/ir-remote.sh` fail the tag build,
+    `milo-first-boot` leaves the policy out with a warning, `milo-deploy-update`
+    refuses the server copy, and `milo-client-deploy-update::install_sudoers`
+    refuses the satellite copy after the units are already installed — a
+    partial deploy that keeps the old policy, where a moved grant then asks
+    `sat restart` for a password.
+    """
+    result = _visudo_check(policy)
+    assert result.returncode == 0, (
+        f"visudo rejects {policy.relative_to(REPO_ROOT)}:\n{result.stdout}{result.stderr}"
+    )
+
+
+def test_the_visudo_check_rejects_a_malformed_policy(tmp_path):
+    """The syntax check must be able to go red, on exactly what `_grants` misses."""
+    good = ALL_POLICIES_BY_NAME["milo-client"]
+    text = good.read_text(encoding="utf-8")
+    broken_text = text.replace("(root) NOPASSWD:", "(root NOPASSWD:", 1)
+    assert broken_text != text, "no `(root) NOPASSWD:` rule left to break in milo-client"
+
+    broken = tmp_path / "milo-client"
+    broken.write_text(broken_text, encoding="utf-8")
+    assert _grants(broken, "milo-client") == _grants(good, "milo-client")
+    assert _visudo_check(broken).returncode != 0
