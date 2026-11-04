@@ -9,11 +9,14 @@ and Réglages lists it, favorite or not. What Réglages would not list is never
 kept: two records for one station, or a record nothing shows, is what left
 stale records and orphaned uploads.
 """
+import asyncio
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from backend.shared import persistence
 from backend.sources.radio.data import ImageManager, StationDataService
 
 
@@ -864,6 +867,54 @@ class TestJpegRendition:
         await manager.delete_image(name)
 
         assert not (manager.IMAGES_DIR / "station.jpg").exists()
+
+    async def test_an_empty_jpeg_rendition_is_rebuilt_not_served(self, manager):
+        """A rendition's existence is the cache hit, and the route answers it
+        with a year of `max-age`. A zero-byte one — what a power cut leaves of
+        an unsynced write — would be the phone's empty artwork for good."""
+        name = self._webp(manager)
+        (manager.IMAGES_DIR / "station.jpg").write_bytes(b"")
+
+        content = await manager.as_jpeg(name)
+
+        assert content.startswith(b"\xff\xd8\xff")
+        assert (manager.IMAGES_DIR / "station.jpg").stat().st_size > 0
+
+    async def test_two_concurrent_renditions_do_not_share_a_temp(self, manager, monkeypatch):
+        """The Lock Screen and the widget ask for the same station at once. A
+        shared `station.jpg.tmp` lets one request truncate the other's temp or
+        find it already renamed away."""
+        name = self._webp(manager)
+        sources = []
+        real_replace = persistence.os.replace
+
+        def replace(src, dst):
+            sources.append(os.fspath(src))
+            return real_replace(src, dst)
+
+        monkeypatch.setattr(persistence.os, "replace", replace)
+
+        await asyncio.gather(manager.as_jpeg(name), manager.as_jpeg(name))
+
+        assert len(set(sources)) == 2
+        assert (manager.IMAGES_DIR / "station.jpg").read_bytes().startswith(b"\xff\xd8\xff")
+
+    async def test_a_rendition_that_cannot_be_synced_is_not_kept(self, manager, monkeypatch):
+        """The fsync has to come before the rename: renamed first, a power cut
+        leaves a zero-byte `station.jpg` where the cache expects a picture.
+        A rendition that cannot be synced is still answered, and leaves
+        neither itself nor its temp."""
+        name = self._webp(manager)
+
+        def refuse(fd):
+            raise OSError(5, "Input/output error")
+
+        monkeypatch.setattr(persistence.os, "fsync", refuse)
+
+        content = await manager.as_jpeg(name)
+
+        assert content.startswith(b"\xff\xd8\xff")
+        assert sorted(p.name for p in manager.IMAGES_DIR.iterdir()) == [name]
 
 
 class TestFavoritesListener:

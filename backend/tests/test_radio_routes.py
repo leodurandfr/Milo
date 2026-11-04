@@ -207,6 +207,18 @@ class TestStationImageFormat:
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/webp"
 
+    def test_an_empty_rendition_is_not_served(self, tmp_path):
+        """An empty body under a year of `max-age` is an empty square the
+        phone keeps; the WebP at least fails visibly."""
+        client, _ = self._client(tmp_path, jpeg=b"")
+
+        response = client.get("/api/radio/images/station.webp",
+                              headers={"Accept": "*/*"})
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/webp"
+        assert response.content
+
     def test_a_missing_image_is_still_a_404(self, tmp_path):
         from backend.sources.radio import routes as radio_routes
 

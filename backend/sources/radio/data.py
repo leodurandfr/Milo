@@ -29,7 +29,11 @@ from backend.core.models.ws_events import (
     WsEvent,
 )
 from backend.shared.decorators import handle_errors
-from backend.shared.persistence import load_versioned_json, save_versioned_json
+from backend.shared.persistence import (
+    load_versioned_json,
+    save_versioned_json,
+    write_bytes_atomically,
+)
 
 REQUIRED_TOP_LEVEL_KEYS = ("favorites", "modified_metadata", "manual_stations", "favorites_cache")
 
@@ -138,9 +142,8 @@ class ImageManager:
             saved_filename = f"{unique_id}.webp"
             file_path = self.IMAGES_DIR / saved_filename
 
-            # Save the WebP file
-            async with aiofiles.open(file_path, 'wb') as f:
-                await f.write(webp_content)
+            # Written in full before the caller saves the record that names it.
+            await write_bytes_atomically(file_path, webp_content)
 
             self.logger.info(f"Image saved: {saved_filename}")
             return True, saved_filename, None
@@ -224,9 +227,11 @@ class ImageManager:
         if cached.exists():
             try:
                 async with aiofiles.open(cached, "rb") as f:
-                    return await f.read()
+                    kept = await f.read()
+                # An empty rendition would be served forever otherwise.
+                if kept:
+                    return kept
             except OSError as e:
-                # A truncated rendition would be served forever otherwise.
                 self.logger.warning(f"Unreadable JPEG rendition {cached.name}: {e}")
 
         def _convert() -> Optional[bytes]:
@@ -244,12 +249,9 @@ class ImageManager:
             return None
 
         try:
-            # `.tmp` then rename: a reader must never meet a half-written file,
-            # and this one is cached forever once it exists.
-            staging = cached.with_suffix(".jpg.tmp")
-            async with aiofiles.open(staging, "wb") as f:
-                await f.write(content)
-            staging.replace(cached)
+            # Atomic: a reader must never meet a half-written file, and this one
+            # is cached forever once it exists.
+            await write_bytes_atomically(cached, content)
         except OSError as e:
             self.logger.warning(f"Could not keep JPEG rendition {cached.name}: {e}")
 

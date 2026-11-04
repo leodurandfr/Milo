@@ -492,7 +492,7 @@ async def get_station_image(
                 logger.warning("JPEG rendition raised for %s: %s", filename, e)
                 jpeg = None
 
-            if jpeg is not None:
+            if jpeg:
                 return Response(content=jpeg, media_type="image/jpeg", headers=headers)
             logger.warning("JPEG rendition failed, serving WebP: %s", filename)
 

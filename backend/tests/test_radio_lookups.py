@@ -14,7 +14,7 @@ Also covers `StationDataService.restore_favorite_metadata` and
 two assertions restating the class's own constants.
 
 `ImageManager.IMAGES_DIR` is repointed at `tmp_path` everywhere: it defaults to
-`/var/lib/milo/radio_images` and the write goes through `aiofiles`.
+`/var/lib/milo/radio_images`.
 """
 import io
 from unittest.mock import AsyncMock, Mock, patch
@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from PIL import Image
 
+from backend.shared import persistence
 from backend.shared.network import NetworkUnavailableError
 from backend.sources.radio.browser_api import RadioBrowserAPI
 from backend.sources.radio.data import ImageManager, StationDataService
@@ -223,9 +224,7 @@ class TestClickCounter:
 def images(tmp_path, monkeypatch):
     """An ImageManager writing under `tmp_path`.
 
-    `IMAGES_DIR` is a class attribute pointing at `/var/lib/milo/radio_images`,
-    and the save goes through `aiofiles.open(..., 'wb')` — a direct write with
-    no rename to catch it.
+    `IMAGES_DIR` is a class attribute pointing at `/var/lib/milo/radio_images`.
     """
     monkeypatch.setattr(ImageManager, "IMAGES_DIR", tmp_path / "radio_images")
     return ImageManager()
@@ -352,15 +351,27 @@ class TestImageUpload:
             assert stored.convert("RGBA").getpixel((10, 10))[3] == 0
 
     @pytest.mark.asyncio
-    async def test_a_disk_that_refuses_the_write_is_reported_not_raised(self, images):
+    async def test_a_disk_that_refuses_the_write_is_reported_and_leaves_nothing(
+        self, images, monkeypatch
+    ):
         """The route turns a False into a 400 the user can read; an exception
-        escaping here is the red banner instead."""
-        images.IMAGES_DIR = images.IMAGES_DIR / "does" / "not" / "exist"
+        escaping here is the red banner instead.
+
+        The refusal is an fsync that fails. That the save fsyncs at all is the
+        point: a logo written in place without one can be a zero-byte file
+        after a power cut, while the station record naming it was synced.
+        A failed save leaves neither the logo nor its temp behind.
+        """
+        def refuse(fd):
+            raise OSError(5, "Input/output error")
+
+        monkeypatch.setattr(persistence.os, "fsync", refuse)
 
         ok, filename, error = await images.validate_and_save_image(_png(), "logo.png")
 
         assert (ok, filename) == (False, None)
         assert error.startswith("Error saving file")
+        assert list(images.IMAGES_DIR.iterdir()) == []
 
 
 class TestImageDeletion:
