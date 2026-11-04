@@ -30,6 +30,10 @@ class _Volume:
         # Where the house lands off the level asked: a room held at its limit
         # moves the average elsewhere (multiroom), by this many dB.
         self.lands_off_db = 0.0
+        # The local speaker refuses (a CamillaDSP that errs): the real service
+        # still writes every level, sends the satellites theirs and broadcasts,
+        # and only its answer says False.
+        self.local_refuses = False
 
     def add_state_listener(self, listener) -> None:
         self.listeners.append(listener)
@@ -41,7 +45,7 @@ class _Volume:
         self.sets.append(volume_db)
         self.volume_db = volume_db + self.lands_off_db
         self._broadcast()
-        return True
+        return not self.local_refuses
 
     def moved_in_milo(self, volume_db: float, muted: bool = False) -> None:
         """The knob, the slider, a remote: anything but the phone."""
@@ -205,11 +209,16 @@ class TestShared:
         finally:
             await world.source.shutdown()
 
-    async def test_a_milo_level_older_than_a_followed_phone_move_is_not_pushed(self, shared, volume):
+    @pytest.mark.parametrize("local_refuses", [False, True], ids=["moved", "local-refused"])
+    async def test_a_milo_level_older_than_a_followed_phone_move_is_not_pushed(
+        self, shared, volume, local_refuses
+    ):
         """A knob turn and a phone press read in one burst: Milō's level was
         posted before the house followed the phone, so it is the older of the
         two. Pushed after the follow, it would put the slider back under the
-        finger."""
+        finger — also when the local speaker refused the follow, since the
+        house's levels were written and broadcast all the same."""
+        volume.local_refuses = local_refuses
         await shared.phone_plays(PARAPLUIE)
         await shared.advance(2)
         posts = len(_slider_posts(shared))

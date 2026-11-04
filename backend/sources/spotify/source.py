@@ -1014,7 +1014,10 @@ class SpotifySource(BaseAudioSource):
         is followed, never a position: the first one a run of the daemon
         reports is where Milō put it (go-librespot 0.10.5 starts a session from
         the last volume it was given), and a read for another reason reports
-        the same one again. True when the house was moved."""
+        the same one again. True once the house was asked to move: a local
+        speaker that refuses still has its level written, the satellites still
+        get theirs and the state is broadcast, so the house stands at the
+        phone's level either way."""
         if status.volume is None:
             return False
         self._volume_steps = status.volume_steps or self._volume_steps
@@ -1038,10 +1041,10 @@ class SpotifySource(BaseAudioSource):
         # which differs from it by a rounding or a room held at its limit.
         self._volume_sent = status.volume
         level = status.volume / self._volume_steps
-        moved = await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
+        await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
         state = await volume.get_volume_state()
         self._volume_landed = volume.volume_config.normalize(state.global_volume_db)
-        return moved
+        return True
 
     async def _sync_app_volume(self) -> None:
         """Put the slider at Milō's level, whatever it was last put at."""
