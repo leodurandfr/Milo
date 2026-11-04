@@ -353,6 +353,28 @@ async def test_a_refusal_from_the_run_restart_brought_back_forgets_nothing(world
     assert world.errors().count("credentials_refused") == 1
 
 
+async def test_a_late_refusal_from_a_run_restart_already_replaced_forgets_nothing(world):
+    """Restart= replaced the refused run before Milō heard it, so the run
+    Milō stops to sign the next profile in is not the one that refused: only
+    the refusal itself can mark that run as moved on from. A second line of
+    it, handed on late, must not take out the profile just signed in."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    refused_run = world.runs[-1]
+    await world.kill_daemon()
+    await world.systemd_restarts_it()
+
+    await world.journal_says(REFUSED, invocation=refused_run)
+    await world.advance(2.1)
+    await world.idle()
+    await world.journal_says(REFUSED, invocation=refused_run)
+    await world.idle()
+
+    assert set(kept(world)) == {ACCOUNT}
+    assert world.stored_account() == ACCOUNT
+    assert world.errors().count("credentials_refused") == 1
+
+
 async def test_a_refusal_heard_while_the_source_stops_still_forgets_the_refused_profile(world, monkeypatch):
     """A line read while a STOP is in hand is handled after it, and what it
     says about the daemon left with the source — except a refusal: left in
