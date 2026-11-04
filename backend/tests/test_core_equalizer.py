@@ -776,11 +776,23 @@ class TestCamillaDSPService:
         The daemon graph is read-modify-written per caller; without serialization the
         two interleave (each reads the pre-change graph, the second write clobbers the
         first → last-writer-wins). `_config_lock` makes each RMW atomic so both survive.
-        The interleave needs no staging: every call to the daemon goes through
-        `_run`'s executor, so each read and each write is already a suspension
-        point, and the single worker orders them get/get/set/set.
+        The real client suspends on every `ws.send`/`ws.recv`, while the daemon
+        double answers synchronously, so the test restores that suspension with a
+        `sleep(0)` before each read and write: a switch point, not a clock. Without
+        the lock the two callers then run get/get/set/set and the band is lost.
         """
         import asyncio
+
+        async def yielding_get():
+            await asyncio.sleep(0)
+            return camilla_daemon.get_config()
+
+        async def yielding_set(config):
+            await asyncio.sleep(0)
+            return camilla_daemon.set_config(config)
+
+        mock_camilla_client.get_config.side_effect = yielding_get
+        mock_camilla_client.set_config.side_effect = yielding_set
 
         camilladsp_service._connected = True
         camilladsp_service._client = mock_camilla_client
