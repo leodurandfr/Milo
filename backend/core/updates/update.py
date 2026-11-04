@@ -751,23 +751,33 @@ class UpdateService(VersionService):
         if not ok:
             raise Exception(f"The new milo-qobuz refuses the installed qobuz-proxy: {out}")
 
-    async def _run_deploy(self, *args, timeout: int = 120) -> tuple[bool, str]:
-        """Run a milo-deploy-update subcommand via sudo."""
+    async def _run_deploy(self, *args, warn_after: float = 120) -> tuple[bool, str]:
+        """Run a milo-deploy-update subcommand via sudo and return its real exit.
+
+        ``warn_after`` is the threshold for a warning and bounds nothing: milo
+        cannot signal the root helper, and sudo does not relay SIGKILL, so a
+        step past it is still running and its verdict is the one it exits with.
+        """
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sudo", DEPLOY_UPDATE_CMD, *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            comm = asyncio.create_task(proc.communicate())
+            try:
+                done, _ = await asyncio.wait({comm}, timeout=warn_after)
+                if not done:
+                    self.update_logger.warning(
+                        f"milo-deploy-update {args[0]} still running after {warn_after}s; waiting for its exit"
+                    )
+                stdout, stderr = await comm
+            finally:
+                comm.cancel()
             if proc.returncode != 0:
                 error = stderr.decode().strip() or stdout.decode().strip()
                 return False, error
             return True, stdout.decode().strip()
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            return False, f"Timed out after {timeout}s"
         except Exception as e:
             return False, str(e)
 
@@ -786,7 +796,7 @@ class UpdateService(VersionService):
         sync that did not happen is an update that did not happen. The caller
         turns it into a failed update and a rollback.
         """
-        success, output = await self._run_deploy("sync-system-files", timeout=60)
+        success, output = await self._run_deploy("sync-system-files", warn_after=60)
         if not success:
             raise Exception(f"System files sync failed: {output}")
         self.update_logger.info("System files sync completed")
@@ -2013,7 +2023,7 @@ class UpdateService(VersionService):
         """Installs a .deb package via milo-deploy-update (one `apt-get install`
         that refuses removals, then a dpkg-query of the .deb's own version)."""
         self.update_logger.info(f"Installing {Path(deb_path).name}...")
-        success, output = await self._run_deploy("install-deb", deb_path, timeout=300)
+        success, output = await self._run_deploy("install-deb", deb_path, warn_after=300)
         if not success:
             return {"success": False, "error": f"Package installation failed: {output}"}
         self.update_logger.info("Package installed successfully")
@@ -2068,7 +2078,7 @@ class UpdateService(VersionService):
             return {"can_update": False, "reason": "Update not supported"}
 
         # Verify the deploy wrapper is reachable via sudo NOPASSWD
-        success, _ = await self._run_deploy("check", timeout=5)
+        success, _ = await self._run_deploy("check", warn_after=5)
         if not success:
             return {"can_update": False, "reason": "Deploy wrapper not accessible"}
 

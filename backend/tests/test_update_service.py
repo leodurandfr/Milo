@@ -4166,17 +4166,42 @@ class TestDownloadSnapcastComponent:
         assert not staging.exists()
 
 
-class TestRunDeployTimeout:
+class TestRunDeployVerdict:
 
     @pytest.mark.asyncio
-    async def test_a_deploy_wrapper_that_hangs_is_killed_and_reaped(self, update_service):
-        """Every privileged step goes through this. `install-deb` runs
-        `apt-get -f install`, which can sit on a lock for ever."""
-        with spawning(hang=["sudo"]) as spawn:
-            ok, out = await update_service._run_deploy("install-deb", "/tmp/x.deb", timeout=7)
+    @pytest.mark.parametrize("exit_code, stream, expected", [
+        (0, "stdout", (True, "installed")),
+        (1, "stderr", (False, "E: dpkg was interrupted")),
+    ])
+    async def test_a_deploy_that_outlives_its_timeout_reports_its_real_exit(
+            self, update_service, tmp_path, caplog, exit_code, stream, expected):
+        """milo cannot signal the root helper and sudo does not relay SIGKILL,
+        so a step that runs past its bound keeps running. Reporting "Timed out"
+        there made `_update_multiroom` restore the services and announce a
+        failure over a package `apt` had in fact installed."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        sudo = bin_dir / "sudo"
+        # Like the real sudo: the command is a child that inherits the pipes.
+        sudo.write_text('#!/bin/sh\n"$@" &\nwait $!\nexit $?\n')
+        sudo.chmod(0o755)
+        helper = tmp_path / "milo-deploy-update"
+        text = expected[1]
+        redirect = "" if stream == "stdout" else " >&2"
+        helper.write_text(f"#!/bin/sh\nsleep 0.5\necho '{text}'{redirect}\nexit {exit_code}\n")
+        helper.chmod(0o755)
 
-        assert (ok, out) == (False, "Timed out after 7s")
-        assert spawn.killed == ["sudo"]
+        async def through_the_fake_sudo(program, *args, **kwargs):
+            assert program == "sudo"
+            return await asyncio.subprocess.create_subprocess_exec(str(sudo), *args, **kwargs)
+
+        with patch("asyncio.create_subprocess_exec", new=through_the_fake_sudo), \
+                patch("backend.core.updates.update.DEPLOY_UPDATE_CMD", str(helper)), \
+                caplog.at_level(logging.WARNING, logger="backend.core.updates.update.update"):
+            result = await update_service._run_deploy("install-deb", "/tmp/x.deb", warn_after=0.05)
+
+        assert result == expected
+        assert "still running after" in caplog.text
 
     @pytest.mark.asyncio
     async def test_a_missing_wrapper_is_reported_not_raised(self, update_service):
@@ -4186,7 +4211,7 @@ class TestRunDeployTimeout:
             raise FileNotFoundError("sudo")
 
         with patch("asyncio.create_subprocess_exec", new=missing):
-            ok, out = await update_service._run_deploy("check", timeout=5)
+            ok, out = await update_service._run_deploy("check", warn_after=5)
 
         assert ok is False and "sudo" in out
 
