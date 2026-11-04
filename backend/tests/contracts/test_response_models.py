@@ -125,14 +125,14 @@ def test_equalizer_enabled_keys():
 
 def test_radio_stations_success_omits_api_error():
     data = {"stations": [{"id": "1", "name": "FIP", "favorite": True}], "total": 1}
-    out = emit(R.RadioStationsResponse, data, exclude_none=True)
+    out = emit(R.RadioStationsResponse, data)
     assert set(out) == {"stations", "total"}  # api_error absent on success
     assert out["stations"][0] == {"id": "1", "name": "FIP", "favorite": True}
 
 
 def test_radio_stations_degraded_keeps_api_error():
     data = {"stations": [], "total": 0, "api_error": True}
-    out = emit(R.RadioStationsResponse, data, exclude_none=True)
+    out = emit(R.RadioStationsResponse, data)
     assert out["api_error"] is True
 
 

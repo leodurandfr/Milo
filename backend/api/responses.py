@@ -10,17 +10,19 @@ shape in OpenAPI and fails loud (500) if a handler ever drifts from it.
 dict already omits a key conditionally, so the wire is reproduced exactly:
   - volume/state: success carries `data` (no `message`), error carries
     `message` (no `data`).
-  - radio/stations: `api_error` appears only on a degraded search.
 No contract field carries a meaningful null (verified against both the Swift
-consumer and the frontend Zod schemas), so dropping nulls is lossless.
+consumer and the frontend Zod schemas), so dropping nulls is lossless there —
+but not inside a model with extras, where `exclude_none` also drops the nulls
+the extras carry (see `RadioStationsResponse`).
 
-Opaque payloads (source `metadata`, enriched station dicts) are typed
-`Dict[str, Any]` / `List[Dict[str, Any]]` so `response_model` never strips or
-re-shapes their sub-keys — Milo-Mac treats `metadata` as opaque by contract.
+Opaque payloads (source `metadata`) are typed `Dict[str, Any]` so
+`response_model` never strips or re-shapes their sub-keys — Milo-Mac treats
+`metadata` as opaque by contract. A station is typed only as far as an app
+reads it by name (`RadioStationItem`), the rest passing through as extras.
 """
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.core.models.settings_config import (
     AudioStopConfig,
@@ -157,21 +159,40 @@ class EqualizerEnabledResponse(BaseModel):
     enabled: bool
 
 
+def _absent_when_none(value: Any) -> bool:
+    return value is None
+
+
+class RadioStationItem(BaseModel):
+    """One station of GET /api/radio/stations.
+
+    Only `favicon` is typed, because two apps read it by name: Milo-iOS primes
+    its widget and Lock Screen artwork from the Pi-hosted ones (prefix `/`), and
+    Milo-Mac draws it in its favorites menu — so the contract can pin it. Every
+    other key passes through untouched (`extra="allow"`), nulls included; a
+    station with no favicon is served without the key, as before it was typed.
+    """
+    model_config = ConfigDict(extra="allow")
+
+    favicon: Optional[str] = Field(default=None, exclude_if=_absent_when_none)
+
+
 class RadioStationsResponse(BaseModel):
     """GET /api/radio/stations.
 
-    Served with response_model_exclude_none so `api_error` (emitted only on a
-    degraded RadioBrowser search) is absent on success. Station dicts are
-    opaque (enriched with favorite status) — typed Dict to preserve sub-keys.
+    `api_error` (emitted only on a degraded RadioBrowser search) is absent on
+    success. It is dropped by its own `exclude_if`, not by the route's
+    `response_model_exclude_none`, which would reach into every station and
+    drop the nulls a station dict carries.
 
     `api_error` says the *directory* (radio-browser.info) did not answer, not
     that the unit is offline: favourites are local and the streams come from
     the stations' own hosts, so both keep working while it is set. The link
     itself is reported by the state's `availability.radio` instead.
     """
-    stations: List[Dict[str, Any]]
+    stations: List[RadioStationItem]
     total: int
-    api_error: Optional[bool] = None
+    api_error: Optional[bool] = Field(default=None, exclude_if=_absent_when_none)
 
 
 # --- settings/bulk (GET /api/settings/bulk) --------------------------------
@@ -315,7 +336,7 @@ class VolumeControlResponse(BaseModel):
 
 # --- Phase 3: multiroom client/zone CRUD -----------------------------------
 # Client/Zone dataclasses carry computed/conditional keys, so their payloads
-# stay opaque Dict[str, Any] (metadata/stations precedent). The two either/or
+# stay opaque Dict[str, Any] (metadata precedent). The two either/or
 # routes use exclude_none to reproduce their single-key branches.
 # (GET /clients/{mac_id}/hardware stays untyped — it proxies satellite JSON.)
 class MultiroomStateResponse(BaseModel):

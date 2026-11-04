@@ -80,7 +80,7 @@ async def stop_playback(source: RadioSource = Depends(get_source)):
 
 # === Search Routes ===
 
-@router.get("/stations", response_model=RadioStationsResponse, response_model_exclude_none=True, openapi_extra=CONTRACTED)
+@router.get("/stations", response_model=RadioStationsResponse, openapi_extra=CONTRACTED)
 async def search_stations(
     query: str = Query("", description="Search term"),
     country: str = Query("", description="Country filter"),

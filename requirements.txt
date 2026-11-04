@@ -1,6 +1,6 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
-pydantic>=2.10.0
+pydantic>=2.12.0  # Field(exclude_if=…) in api/responses.py: older versions only warn on the kwarg and serve the nulls it drops
 websockets>=14.0  # direct import in core/equalizer/camilladsp_client.py (asyncio client); also a runtime dep of uvicorn[standard]
 pytest>=8.0.0
 pytest-asyncio>=0.24.0

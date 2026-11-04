@@ -102,6 +102,21 @@ class TestFavouritesListing:
             assert isinstance(station["id"], str) and station["id"]
             assert isinstance(station["name"], str) and station["name"]
 
+    def test_typing_the_favicon_reshapes_no_other_key(self, client, station_data):
+        """`favicon` is typed so the contract can pin it; the route must still
+        serve every other key as the source gave it — a null stays a null (a
+        route-level `exclude_none` would drop it), and a station with no logo
+        gains no `favicon: null`."""
+        favorites = [
+            {"id": "s1", "name": "FIP", "country": None, "favicon": "/api/radio/images/s1.webp"},
+            {"id": "s2", "name": "TSF Jazz", "url": None},
+        ]
+        station_data.get_favorites_with_metadata = AsyncMock(return_value=favorites)
+
+        stations = client.get("/api/radio/stations?favorites_only=true").json()["stations"]
+
+        assert stations == favorites
+
     def test_an_empty_favourites_list_is_a_total_of_zero_not_an_error(self, client):
         response = client.get("/api/radio/stations?favorites_only=true")
 

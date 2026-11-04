@@ -312,11 +312,12 @@ def test_every_declared_route_names_its_consumer():
 # --------------------------------------------------------------------------- #
 
 def _walk(dotted: str, node: dict, spec: dict) -> bool:
-    """Resolve `a.b[k].c` through an OpenAPI schema.
+    """Resolve `a.b[k].c` / `a[].c` through an OpenAPI schema.
 
-    `a.b` is a property; `a[k]` steps into `additionalProperties`, the shape a
-    `Dict[str, Model]` takes. Returns False the moment a step is unresolvable —
-    which is the whole point: a renamed field must fail, not be assumed present.
+    `a.b` is a property; `a[]` steps into `items`, the element of a `List[Model]`;
+    `a[k]` steps into `additionalProperties`, the shape a `Dict[str, Model]`
+    takes. Returns False the moment a step is unresolvable — which is the whole
+    point: a renamed field must fail, not be assumed present.
     """
     for step in dotted.split("."):
         keyed = step.endswith("]")
@@ -330,10 +331,10 @@ def _walk(dotted: str, node: dict, spec: dict) -> bool:
 
         if keyed:
             node = _BODIES.resolve(node, spec)
-            extra = node.get("additionalProperties")
-            if not isinstance(extra, dict):
+            inner = node.get("items" if step.endswith("[]") else "additionalProperties")
+            if not isinstance(inner, dict):
                 return False
-            node = extra
+            node = inner
     return True
 
 
@@ -370,6 +371,11 @@ def test_the_field_walker_rejects_a_field_that_is_not_there():
     assert _walk("data.no_such_field", schema, spec) is False
     assert _walk("data.clients[mac].volume_db", schema, spec) is True
     assert _walk("data.clients[mac].no_such_field", schema, spec) is False
+
+    stations = _response_schema("/api/radio/stations", spec)
+    assert _walk("stations[].favicon", stations, spec) is True
+    assert _walk("stations[].no_such_field", stations, spec) is False
+    assert _walk("total[].favicon", stations, spec) is False
 
 
 @pytest.mark.parametrize(
