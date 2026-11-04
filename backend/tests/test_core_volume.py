@@ -1817,6 +1817,31 @@ class TestPerClientApplyVerdict:
         assert event.state["clients"][self.REFUSING]["volume_db"] == -25.0
 
     @pytest.mark.asyncio
+    async def test_a_client_level_set_in_direct_mode_is_broadcast(
+        self, service, mock_state_machine
+    ):
+        """In direct mode the server's own level is the published level.
+
+        Setting it through the per-client route moves `global_volume`; without
+        a broadcast the screens, Milo-Mac, the AirPlay sender's slider and the
+        Connect volume all stay on the old level.
+        """
+        mock_state_machine.routing_service.get_state.return_value = {'multiroom_enabled': False}
+        service.state_store.ensure_local_client(self.ACCEPTING, -40.0)
+        heard = []
+        service.add_state_listener(lambda volume, mute: heard.append(volume))
+        before = (await service.volume_event(False)).state["global_volume"]
+
+        await service.update_client_volume_db(self.ACCEPTING, -25.0)
+
+        mock_state_machine.broadcast.assert_awaited()
+        event = mock_state_machine.broadcast.await_args_list[-1].args[0]
+        assert event.state["clients"][self.ACCEPTING]["volume_db"] == -25.0
+        assert event.state["global_volume_db"] == -25.0
+        assert event.state["global_volume"] != before
+        assert heard == [event.state["global_volume"]]
+
+    @pytest.mark.asyncio
     async def test_an_offline_client_stores_the_level_for_the_reconnection_replay(
         self, service, mock_registry, caplog
     ):

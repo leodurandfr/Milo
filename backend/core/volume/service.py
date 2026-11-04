@@ -597,7 +597,7 @@ class VolumeService:
         applied = await self._equalizer_controller.set_equalizer_volume(client_id, volume_db)
         refused = self._refused(client_id, applied)
 
-        if broadcast and self._is_multiroom_enabled():
+        if broadcast:
             await self.broadcast_volume_state(show_bar=False)
         return not refused
 

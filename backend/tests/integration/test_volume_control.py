@@ -975,10 +975,9 @@ class TestClientVolumeAPI:
         # Update client volume directly
         await volume_service.update_client_volume_db("local", -45.0)
 
-        # In non-multiroom mode, broadcast may not occur, but state should be updated
-        state = await volume_service.get_volume_state()
-        local_client = state.clients.get("local")
-        assert local_client is not None
+        events = websocket_collector.get_events_by_type("volume_changed")
+        assert len(events) >= 1
+        assert events[-1]["data"]["state"]["clients"]["local"]["volume_db"] == -45.0
 
     @pytest.mark.asyncio
     async def test_set_client_mute_broadcasts_event(
