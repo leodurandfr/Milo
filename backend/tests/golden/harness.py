@@ -205,6 +205,7 @@ def make_settings(values: Optional[Dict[str, Any]] = None) -> Mock:
         **(values or {}),
     }
     settings = Mock()
+    settings.values = store   # what a scenario stores later, read at the next get
     settings.get_setting = AsyncMock(side_effect=lambda key, *a, **k: store.get(key))
     settings.set_setting = AsyncMock(return_value=True)
     return settings

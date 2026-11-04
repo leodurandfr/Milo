@@ -81,11 +81,13 @@ export const useSettingsStore = defineStore('settings', () => {
   // === SPOTIFY ===
   // Crossfade between tracks in ms (0 = disabled), and whether the Spotify app's
   // slider scales the samples (false → unity, CamillaDSP owns volume).
-  // go-librespot reads both once at start, so the settings view offers an
-  // explicit "restart to apply".
+  // go-librespot reads the crossfade once at start: `crossfade_applied_duration`
+  // is the one the running daemon read (null while none runs), and the settings
+  // view offers "restart to apply" while it differs from the stored one.
   const spotifySettings = ref({
     crossfade_duration: 0,
-    allow_app_volume: false
+    allow_app_volume: false,
+    crossfade_applied_duration: null
   });
 
   // === MAC ROC ===

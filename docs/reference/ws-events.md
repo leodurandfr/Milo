@@ -454,7 +454,7 @@ The Qobuz settings changed.
 
 ### settings/spotify_settings_changed
 
-The Spotify settings changed.
+The Spotify settings changed, or the crossfade the running go-librespot plays with did.
 
 | Field | Type |
 |---|---|
@@ -914,6 +914,7 @@ Crossfade between tracks, in ms (0 = disabled, gapless untouched), and whether t
 |---|---|
 | `crossfade_duration` | integer |
 | `allow_app_volume` | boolean |
+| `crossfade_applied_duration` | integer \| null |
 
 ### MusicLibrarySettingsConfig
 

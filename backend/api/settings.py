@@ -197,6 +197,12 @@ def create_settings_router(
             restore_last_volume=vol['restore_last_volume'],
         ))
 
+    def _spotify_crossfade_applied() -> Optional[int]:
+        """The crossfade the running go-librespot read — the daemon's, never
+        stored, so it is asked of the source (None with no source)."""
+        source = state_machine.get_source(AudioSource.SPOTIFY)
+        return source.crossfade_applied_duration if source else None
+
     def _get_services_for_source(source: str) -> list:
         """Return the list of systemd services for an audio source"""
         services_map = {
@@ -269,7 +275,8 @@ def create_settings_router(
             "qobuz_settings": {"allow_app_volume": all_settings['qobuz']['allow_app_volume']},
             "spotify_settings": {
                 "crossfade_duration": all_settings['spotify']['crossfade_duration'],
-                "allow_app_volume": all_settings['spotify']['allow_app_volume']
+                "allow_app_volume": all_settings['spotify']['allow_app_volume'],
+                "crossfade_applied_duration": _spotify_crossfade_applied(),
             },
             "mac_roc": {
                 "target_latency_ms": mac['target_latency_ms'],
@@ -1062,10 +1069,14 @@ def create_settings_router(
                 return False
             return await source.on_spotify_settings_changed(payload.apply_now)
 
+        # Built after the reload, so an apply_now carries the crossfade the
+        # restarted daemon read.
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('spotify', spotify_config),
             section='spotify',
-            build_event=lambda spotify: SpotifySettingsChanged(config=SpotifySettingsConfig(**spotify)),
+            build_event=lambda spotify: SpotifySettingsChanged(config=SpotifySettingsConfig(
+                **spotify, crossfade_applied_duration=_spotify_crossfade_applied(),
+            )),
             reload_callback=apply_to_spotify
         )
 

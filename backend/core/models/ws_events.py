@@ -602,12 +602,15 @@ class QobuzSettingsChanged(SettingsEvent):
 
 
 class SpotifySettingsChanged(SettingsEvent):
-    """The Spotify settings changed.
+    """The Spotify settings changed, or the crossfade the running go-librespot
+    plays with did.
 
     App.vue settings listener → settingsStore.updateSpotifySettings.
 
     Keeps every open screen's crossfade slider on the stored value; the daemon
-    itself only picks it up at its next start.
+    itself only picks it up at its next start, which SpotifySource announces
+    with the same event (`crossfade_applied_duration`) — SpotifySettings.vue
+    offers "restart to apply" while the two differ.
     """
     TYPE = "spotify_settings_changed"
     config: SpotifySettingsConfig

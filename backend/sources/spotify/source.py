@@ -70,7 +70,8 @@ library (library.py), its shaping (catalog.py) and the kept profiles
 (profiles.py).
 """
 import asyncio
-from backend.core.models.ws_events import SourceErrorReason, SpotifyProfilesChanged
+from backend.core.models.settings_config import SpotifySettingsConfig
+from backend.core.models.ws_events import SourceErrorReason, SpotifyProfilesChanged, SpotifySettingsChanged
 import contextlib
 import json
 import os
@@ -435,6 +436,12 @@ class SpotifySource(BaseAudioSource):
         # longer state.json's: a refusal one of them logged names nobody now.
         # Kept across a source stop, since journald hands a line on late.
         self._replaced_runs: Set[str] = set()
+        # The crossfade config.yml carries (None: unknown), and the one the
+        # running daemon read at its start (None: no daemon this source
+        # started). They differ while a crossfade saved without "restart to
+        # apply" waits for the next start.
+        self._config_crossfade: Optional[int] = None
+        self._crossfade_applied: Optional[int] = None
         self._signing_in = False
         self._signin_restarted = False
         self._shuffle = False
@@ -533,6 +540,18 @@ class SpotifySource(BaseAudioSource):
         """The account go-librespot is signed in as, or about to be."""
         return self._account
 
+    @property
+    def crossfade_applied_duration(self) -> Optional[int]:
+        """The crossfade (ms) the running daemon read at its start, or None
+        when this source has not started one. The settings page offers
+        "restart to apply" while the stored crossfade differs from it.
+
+        A start Milō did not ask for — systemd's Restart= after a crash — reads
+        config.yml too and is not seen here: the value then lags the daemon's,
+        and the page offers a restart that changes nothing, never the reverse.
+        """
+        return self._crossfade_applied
+
     async def initialize(self) -> bool:
         """Load the profiles and the history, so a schema drift stops the boot
         with its banner."""
@@ -621,6 +640,40 @@ class SpotifySource(BaseAudioSource):
 
         await self._cleanup()
         return await self._stop_service()
+
+    async def _start_service(self, service_name: str = None) -> bool:
+        """Every start of go-librespot reads config.yml: the crossfade it
+        carries is the one playing from now on."""
+        started = await super()._start_service(service_name)
+        if started:
+            await self._crossfade_applied_is(self._config_crossfade)
+        return started
+
+    async def _restart_service(self, service_name: str = None) -> bool:
+        restarted = await super()._restart_service(service_name)
+        if restarted:
+            await self._crossfade_applied_is(self._config_crossfade)
+        return restarted
+
+    async def _stop_service(self, service_name: str = None) -> bool:
+        stopped = await super()._stop_service(service_name)
+        if stopped:
+            await self._crossfade_applied_is(None)
+        return stopped
+
+    async def _crossfade_applied_is(self, crossfade: Optional[int]) -> None:
+        """Record the crossfade the daemon plays with, and tell the settings
+        page when it moved: nothing else says a start made a saved crossfade
+        audible."""
+        if crossfade == self._crossfade_applied:
+            return
+        self._crossfade_applied = crossfade
+        if self.state_machine:
+            await self.state_machine.broadcast(SpotifySettingsChanged(config=SpotifySettingsConfig(
+                crossfade_duration=await self._get_crossfade_duration(),
+                allow_app_volume=await self._get_allow_app_volume(),
+                crossfade_applied_duration=crossfade,
+            )))
 
     async def _request_end(self, session: Session) -> bool:
         """REQUEST_END: POST /player/stop. The `inactive` that follows (3 ms,
@@ -937,12 +990,14 @@ class SpotifySource(BaseAudioSource):
         try:
             async with aiofiles.open(self._config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(await f.read()) or {}
+            self._config_crossfade = config.get("crossfade_duration")
 
             if all(config.get(key) == value for key, value in managed.items()):
                 return
 
             config.update(managed)
             await self._write_config(config)
+            self._config_crossfade = managed["crossfade_duration"]
             self._logger.info(f"go-librespot config updated: {managed}")
 
         except Exception as e:

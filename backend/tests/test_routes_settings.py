@@ -917,7 +917,7 @@ class TestSettingsRoutes:
         """`apply_now` is request-only: True restarts go-librespot so the new
         crossfade takes effect at once, False just stores it. Handing the source
         the duration instead would restart on every save."""
-        source = Mock()
+        source = Mock(crossfade_applied_duration=0)
         source.on_spotify_settings_changed = AsyncMock(return_value=True)
         mock_state_machine.get_source = Mock(return_value=source)
 
@@ -930,7 +930,32 @@ class TestSettingsRoutes:
             "spotify", {"crossfade_duration": 6000, "allow_app_volume": True}
         )
         source.on_spotify_settings_changed.assert_awaited_once_with(True)
-        assert response.json()["config"] == {"crossfade_duration": 6000, "allow_app_volume": True}
+        assert response.json()["config"] == {
+            "crossfade_duration": 6000, "allow_app_volume": True, "crossfade_applied_duration": 0,
+        }
+
+    def test_the_spotify_settings_answer_carries_the_crossfade_the_restart_applied(
+        self, client, mock_state_machine
+    ):
+        """"Restart to apply" disappears once the restarted daemon reads the
+        stored crossfade: the answer and the event are built after the restart,
+        from the source, so the page sees the value the new run plays with."""
+        source = Mock(crossfade_applied_duration=0)
+
+        async def restart(apply_now):
+            source.crossfade_applied_duration = 6000 if apply_now else 0
+            return True
+
+        source.on_spotify_settings_changed = AsyncMock(side_effect=restart)
+        mock_state_machine.get_source = Mock(return_value=source)
+
+        response = client.put("/api/settings/spotify-settings", json={
+            "crossfade_duration": 6000, "allow_app_volume": True, "apply_now": True
+        })
+
+        assert response.json()["config"]["crossfade_applied_duration"] == source.crossfade_applied_duration
+        event = mock_state_machine.broadcast.await_args.args[0]
+        assert event.config.crossfade_applied_duration == source.crossfade_applied_duration
 
     # ===================
     # HARDWARE CONFIG (read side)
@@ -1100,8 +1125,9 @@ class TestBulkSettings:
         return SettingsService()._validate_and_merge({})
 
     @staticmethod
-    def _client(document):
-        """The real router over a settings service that holds `document`."""
+    def _client(document, spotify=None):
+        """The real router over a settings service that holds `document`, and
+        `spotify` as the registered Spotify source (none by default)."""
         settings = Mock()
         settings.get_all_settings = AsyncMock(return_value=document)
         settings.get_setting = AsyncMock(side_effect=lambda key: document.get(key))
@@ -1110,7 +1136,7 @@ class TestBulkSettings:
         app.include_router(
             create_settings_router(
                 volume_service=Mock(),
-                state_machine=Mock(),
+                state_machine=Mock(get_source=Mock(return_value=spotify)),
                 screen_controller=Mock(),
                 systemd_manager=Mock(),
                 routing_service=Mock(),
@@ -1219,6 +1245,22 @@ class TestBulkSettings:
         assert self._client(stored).get("/api/settings/bulk").json()["screen_timeout"] == {
             "screen_timeout_enabled": True, "screen_timeout_seconds": 30,
         }
+
+    def test_bulk_reads_the_applied_crossfade_off_the_spotify_source(self):
+        """`crossfade_applied_duration` has no stored twin either: it is what
+        the running go-librespot read, which only the source knows. Read from
+        the stored crossfade, it would hide "restart to apply" on every reopen
+        of the settings page."""
+        stored = self._stored()
+        stored["spotify"]["crossfade_duration"] = 6000
+
+        assert self._client(stored).get("/api/settings/bulk").json()["spotify_settings"][
+            "crossfade_applied_duration"
+        ] is None
+        spotify = Mock(crossfade_applied_duration=0)
+        assert self._client(stored, spotify).get("/api/settings/bulk").json()["spotify_settings"][
+            "crossfade_applied_duration"
+        ] == spotify.crossfade_applied_duration
 
     def test_bulk_fails_loud_on_a_section_the_validator_stopped_emitting(self):
         """The designed behaviour, and the reason no fallback may be added here:
@@ -1465,9 +1507,9 @@ class TestEventsCarryTheStoredValue:
                 await release.wait()
             return True
 
-        world.state_machine.get_source = Mock(
-            return_value=Mock(on_spotify_settings_changed=AsyncMock(side_effect=on_changed))
-        )
+        source = Mock(on_spotify_settings_changed=AsyncMock(side_effect=on_changed),
+                      crossfade_applied_duration=0)
+        world.state_machine.get_source = Mock(return_value=source)
 
         first = asyncio.create_task(world.http.put("/api/settings/spotify-settings", json={
             "crossfade_duration": 0, "allow_app_volume": True, "apply_now": True,
@@ -1485,5 +1527,7 @@ class TestEventsCarryTheStoredValue:
         assert (first.status_code, second.status_code) == (200, 200)
         stored = await world.settings.get_setting("spotify")
         last = self._sent(world, "spotify_settings_changed")[-1]
-        assert last.config.model_dump() == SpotifySettingsConfig(**stored).model_dump()
+        assert last.config.model_dump() == SpotifySettingsConfig(
+            **stored, crossfade_applied_duration=source.crossfade_applied_duration,
+        ).model_dump()
         assert stored["allow_app_volume"] is False

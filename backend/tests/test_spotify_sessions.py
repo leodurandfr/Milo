@@ -8,6 +8,7 @@ the code before phase 3b for the reason its docstring gives.
 import json
 
 import pytest
+import yaml
 
 from backend.tests.golden.harness import settle
 
@@ -16,6 +17,7 @@ from backend.sources.spotify import routes
 from backend.tests.spotify_world import ACCOUNT, LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld, track
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
+GUEST = "31guestaccountxxxxxxxxxxxxx"
 # An album cover as Spotify serves it (640 px), and the 64 px one of a row.
 COVER = "https://i.scdn.co/image/ab67616d0000b2739ebaaeba7d0b85a5761ea449"
 ROW_COVER = "https://i.scdn.co/image/ab67616d000048519ebaaeba7d0b85a5761ea449"
@@ -391,6 +393,58 @@ async def test_a_settings_restart_ends_the_session_without_a_banner(world):
     assert world.restarts
     assert not world.active()
     assert world.errors() == []
+
+
+
+def spotify_settings_pushes(world):
+    return [e["data"]["config"] for e in world.envelopes("settings", "spotify_settings_changed")]
+
+
+async def test_a_crossfade_saved_without_apply_now_leaves_the_applied_value_at_the_daemons(world):
+    """A crossfade saved without "restart to apply" reaches config.yml and waits
+    for the next start: the running daemon still plays the one it read. The
+    settings page reads its button off this value — the stored one counted as
+    applied hid the button for good the next time the screen opened."""
+    world.settings.values["spotify.crossfade_duration"] = 6000
+    assert await world.source.on_spotify_settings_changed(apply_now=False)
+    await world.idle()
+
+    assert yaml.safe_load(world.config_file.read_text())["crossfade_duration"] == 6000
+    assert world.source.crossfade_applied_duration == world.daemon.crossfade
+    assert world.source.crossfade_applied_duration != 6000
+
+
+async def test_a_daemon_start_records_the_crossfade_it_was_given(monkeypatch, tmp_path):
+    """Every start of go-librespot reads config.yml again — the settings
+    restart, and a profile change, which stops and starts the daemon — so each
+    one is what makes a saved crossfade audible, and the settings page is told."""
+    world = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    await world.select()
+    await world.idle()
+    try:
+        world.settings.values["spotify.crossfade_duration"] = 6000
+        assert await world.source.on_spotify_settings_changed(apply_now=True)
+        await world.advance(2.1)              # /events reconnects to the new run
+        await world.idle()
+        assert world.daemon.crossfade == 6000
+        assert world.source.crossfade_applied_duration == world.daemon.crossfade
+        assert spotify_settings_pushes(world)[-1]["crossfade_applied_duration"] == world.daemon.crossfade
+
+        await world.cast_from(GUEST)
+        await world.idle()
+        world.settings.values["spotify.crossfade_duration"] = 3000
+        assert await world.source.on_spotify_settings_changed(apply_now=False)
+        assert (await world.source.switch_profile(ACCOUNT))["success"]
+        await world.idle()
+        assert world.daemon.crossfade == 3000
+        assert world.source.crossfade_applied_duration == world.daemon.crossfade
+        assert spotify_settings_pushes(world)[-1]["crossfade_applied_duration"] == world.daemon.crossfade
+
+        await world.leave()
+        assert world.source.crossfade_applied_duration is None
+        assert spotify_settings_pushes(world)[-1]["crossfade_applied_duration"] is None
+    finally:
+        await world.source.shutdown()
 
 
 # === Multiroom ===

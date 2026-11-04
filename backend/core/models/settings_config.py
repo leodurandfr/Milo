@@ -13,7 +13,7 @@ The *request* models stay in `api/models.py`: they carry the validators and
 range constraints that guard the write path, which a response must not enforce
 (a stored value outside the request's range should be reported, not 500).
 """
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -109,11 +109,15 @@ class SpotifySettingsConfig(BaseModel):
     """Crossfade between tracks, in ms (0 = disabled, gapless untouched), and
     whether the Spotify app's volume slider scales the samples.
 
-    SpotifySource writes both into go-librespot's config.yml, which is read once
-    at daemon start — hence the settings page's "restart to apply" button.
+    SpotifySource writes the crossfade into go-librespot's config.yml, which is
+    read once at daemon start — hence the settings page's "restart to apply"
+    button, offered while `crossfade_applied_duration` (the crossfade the
+    running daemon read, None while none runs) differs from the stored one.
+    That one is the daemon's, never stored: SpotifySource reports it.
     """
     crossfade_duration: int
     allow_app_volume: bool
+    crossfade_applied_duration: Optional[int]
 
 
 class MusicLibrarySettingsConfig(BaseModel):

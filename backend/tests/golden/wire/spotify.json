@@ -31,6 +31,19 @@
     }
    },
    {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": 0
+     }
+    }
+   },
+   {
     "category": "source",
     "type": "state",
     "origin": "spotify",
@@ -101,6 +114,19 @@
      "details": null,
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": null
+     }
     }
    },
    {
@@ -204,6 +230,19 @@
      "details": null,
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": 0
+     }
     }
    },
    {
@@ -458,6 +497,19 @@
     }
    },
    {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": null
+     }
+    }
+   },
+   {
     "category": "source",
     "type": "session_ended",
     "origin": "spotify",
@@ -669,6 +721,19 @@
      "details": null,
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": 0
+     }
     }
    },
    {
@@ -1195,6 +1260,19 @@
     }
    },
    {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": null
+     }
+    }
+   },
+   {
     "category": "source",
     "type": "session_ended",
     "origin": "spotify",
@@ -1406,6 +1484,19 @@
      "details": null,
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": 0
+     }
     }
    },
    {
@@ -1938,6 +2029,19 @@
     }
    },
    {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": null
+     }
+    }
+   },
+   {
     "category": "source",
     "type": "session_ended",
     "origin": "spotify",
@@ -2145,6 +2249,19 @@
      "details": null,
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": 0
+     }
     }
    },
    {
@@ -2500,6 +2617,19 @@
     }
    },
    {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": null
+     }
+    }
+   },
+   {
     "category": "source",
     "type": "state",
     "origin": "none",
@@ -2670,6 +2800,19 @@
      "details": null,
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": 0
+     }
     }
    },
    {
@@ -2875,6 +3018,19 @@
     }
    },
    {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": null
+     }
+    }
+   },
+   {
     "category": "source",
     "type": "state",
     "origin": "none",
@@ -2975,6 +3131,19 @@
      "details": null,
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": 0
+     }
     }
    },
    {
@@ -3266,6 +3435,19 @@
      "details": null,
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "settings",
+    "type": "spotify_settings_changed",
+    "origin": "settings",
+    "data": {
+     "source": "settings",
+     "config": {
+      "crossfade_duration": 0,
+      "allow_app_volume": false,
+      "crossfade_applied_duration": null
+     }
     }
    },
    {

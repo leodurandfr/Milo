@@ -7,7 +7,9 @@
   The crossfade is read from go-librespot's config.yml, parsed once at process
   start, hence its two-step shape: stored immediately (and picked up by the
   next start on its own), while a sticky button offers the restart that makes
-  it audible right now. The app volume is Milō's to follow and applies at once.
+  it audible right now — for as long as the crossfade the running daemon read,
+  which the backend reports, differs from it. The app volume is Milō's to
+  follow and applies at once.
 -->
 <template>
   <SectionStack>
@@ -77,15 +79,16 @@ const crossfadeSeconds = ref(0);
 const allowAppVolume = ref(false);
 // Remembers the last audible duration so toggling OFF then ON restores it.
 const lastCrossfadeSeconds = ref(DEFAULT_SECONDS);
-// What the running daemon plays with, as far as this screen can know: the
-// stored crossfade when it opened. Re-based only by an explicit restart — never
-// by the WS echo of our own write, which would hide the button we just earned.
-const appliedSeconds = ref(0);
 const isApplying = ref(false);
 
 const crossfadeEnabled = computed(() => crossfadeSeconds.value !== 0);
 const spotifyRunning = computed(() => unifiedStore.systemState.source === 'spotify');
-const needsRestart = computed(() => spotifyRunning.value && crossfadeSeconds.value !== appliedSeconds.value);
+// What the running daemon read at its start, as the backend saw it (null when
+// no daemon runs): never what this screen wrote or found stored when it opened.
+const appliedMs = computed(() => settingsStore.spotifySettings.crossfade_applied_duration);
+const needsRestart = computed(() => spotifyRunning.value
+  && appliedMs.value != null
+  && crossfadeSeconds.value !== Math.round(appliedMs.value / MS_PER_SECOND));
 
 function save(applyNow) {
   return updateSetting('spotify-settings', {
@@ -119,8 +122,7 @@ async function applyNow() {
   if (isApplying.value) return;
   isApplying.value = true;
   try {
-    const { applied } = await save(true);
-    if (applied) appliedSeconds.value = crossfadeSeconds.value;
+    await save(true);
   } finally {
     isApplying.value = false;
   }
@@ -133,8 +135,7 @@ function readStored(ms) {
   }
 }
 
-// Follow the stored values (another device, or a resync) without touching the
-// applied baseline.
+// Follow the stored values (another device, or a resync).
 watch(() => settingsStore.spotifySettings.crossfade_duration, readStored);
 watch(() => settingsStore.spotifySettings.allow_app_volume, (allowed) => {
   allowAppVolume.value = allowed;
@@ -143,7 +144,6 @@ watch(() => settingsStore.spotifySettings.allow_app_volume, (allowed) => {
 onMounted(() => {
   readStored(settingsStore.spotifySettings.crossfade_duration);
   allowAppVolume.value = settingsStore.spotifySettings.allow_app_volume;
-  appliedSeconds.value = crossfadeSeconds.value;
 });
 </script>
 

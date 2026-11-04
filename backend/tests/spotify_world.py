@@ -67,6 +67,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiohttp
+import yaml
 import yarl
 from multidict import CIMultiDict, CIMultiDictProxy
 from unittest.mock import AsyncMock, Mock
@@ -199,6 +200,7 @@ class Librespot:
         self.session = False            # a session is live (else /status is 204, or the signed-in 200)
         self.account: Optional[str] = None
         self.stored: Optional[str] = None   # the account whose credentials state.json holds
+        self.crossfade: Optional[int] = None   # config.yml's crossfade_duration, read at start
         self.signed_in = False          # signed in with no session (stored credentials)
         self.signin_hangs = False       # a sign-in that never completes (seen once, unreproduced)
         self.context: Optional[Tuple[str, str]] = None   # (uri, name) of what plays
@@ -733,18 +735,19 @@ class SpotifyWorld(WireReader):
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
 
-        config = tmp_path / "config.yml"
+        config = self.config_file = tmp_path / "config.yml"
         config.write_text(
             "server:\n  address: localhost\n  port: 3678\ncrossfade_duration: 0\nexternal_volume: true\n"
         )
         self.profiles_file = tmp_path / "spotify" / "profiles.json"
         self.history_file = tmp_path / "spotify" / "history.json"
         self.machine, self.recorder = make_state_machine()
+        self.settings = make_settings(settings)
         self.source = SpotifySource(
             {"config_path": str(config), "profiles_path": str(self.profiles_file),
              "history_path": str(self.history_file), "follow_jam": follow_jam},
             state_machine=self.machine,
-            settings_service=make_settings(settings),
+            settings_service=self.settings,
             systemd_manager=systemd,
         )
         self.machine.register_source(AudioSource.SPOTIFY, self.source)
@@ -759,6 +762,7 @@ class SpotifyWorld(WireReader):
         self.runs.append(self.invocation)
         self.unit_state = ("active", "success")
         self.daemon.stored = self.stored_account()   # go-librespot reads state.json at start
+        self.daemon.crossfade = yaml.safe_load(self.config_file.read_text()).get("crossfade_duration")   # and config.yml
         self.daemon.comes_up()
 
     def _die(self) -> None:
