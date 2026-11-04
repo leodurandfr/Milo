@@ -42,13 +42,20 @@ const VALID_STATE = makeAudioState({
   equalizer_effects_enabled: true,
 });
 
-/** The annotated fields of one pydantic class, in declaration order. */
-function modelFields(source, className) {
+/** The annotated fields of one pydantic class, name → annotation, in declaration order. */
+function fieldAnnotations(source, className) {
   const body = new RegExp(`^class ${className}\\(BaseModel\\):\\n((?:    .*\\n|\\n)*)`, 'm').exec(source);
   if (!body) throw new Error(`class ${className} not found — the extractor is broken`);
-  const fields = [...body[1].matchAll(/^    ([a-z_]+):/gm)].map(m => m[1]);
-  if (fields.length === 0) throw new Error(`class ${className} has no fields — the extractor is broken`);
+  const fields = Object.fromEntries([...body[1].matchAll(/^    ([a-z_]+):\s*(.+)$/gm)].map(
+    m => [m[1], m[2].replace(/\s+#.*$/, '').replace(/\s+=\s.*$/, '').trim()],
+  ));
+  if (Object.keys(fields).length === 0) throw new Error(`class ${className} has no fields — the extractor is broken`);
   return fields;
+}
+
+/** The annotated field names of one pydantic class, in declaration order. */
+function modelFields(source, className) {
+  return Object.keys(fieldAnnotations(source, className));
 }
 
 /** The string values of a `class X(str, Enum)` or of a `X = Literal[...]`. */
@@ -134,6 +141,38 @@ describe('AudioStateSchema ↔ backend core/models/audio_wire.py', () => {
     expect([...ServiceStateSchema.options].sort()).toEqual(enumValues(session, 'ServiceState').sort());
     expect([...PhaseSchema.options].sort()).toEqual(enumValues(session, 'Phase').sort());
     expect([...AvailabilityReasonSchema.options].sort()).toEqual(enumValues(wire, 'AvailabilityReason').sort());
+  });
+
+  it("holds ServiceError.reason equal to the wire's Literal", () => {
+    // The backend republishes service_error on every state while `service:
+    // failed` is sticky (core/state.py), so a reason the schema does not list
+    // refuses every state until a start succeeds: unifiedAudioStore keeps the
+    // last good one and the kiosk sits on "starting" instead of the failure card.
+    const annotation = fieldAnnotations(wire, 'ServiceError').reason;
+    const reasons = [...annotation.matchAll(/"([a-z_]+)"/g)].map(m => m[1]);
+    if (reasons.length < 2) throw new Error('ServiceError.reason has fewer than two values — the extractor is broken');
+
+    expect([...shape.service_error.unwrap().shape.reason.options].sort()).toEqual(reasons.sort());
+  });
+
+  it('accepts null exactly where audio_wire.py declares Optional', () => {
+    // A field the backend turns Optional sends a null the strict schema refuses,
+    // with the whole state, in unifiedAudioStore.
+    const models = {
+      AudioState: AudioStateSchema,
+      SessionView: shape.session.unwrap(),
+      ResumeView: shape.resume.unwrap(),
+      ServiceError: shape.service_error.unwrap(),
+      PositionAnchor: PositionAnchorSchema,
+      Availability: shape.availability,
+    };
+    for (const [className, schema] of Object.entries(models)) {
+      for (const [name, annotation] of Object.entries(fieldAnnotations(wire, className))) {
+        expect(schema.shape, className).toHaveProperty(name);
+        expect(schema.shape[name].safeParse(null).success, `${className}.${name}`)
+          .toBe(/^Optional\[|^None\s*\||\|\s*None$/.test(annotation));
+      }
+    }
   });
 });
 
