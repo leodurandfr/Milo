@@ -233,4 +233,81 @@ describe('updatesStore in-flight update state', () => {
     expect(store.isLocalUpdateBusy()).toBe(false);
     expect(store.isMiloUpdating()).toBe(false);
   });
+
+  /** Park every inventory request until the test releases it, oldest first. */
+  function deferInventory() {
+    const pending = [];
+    apiCall.get.mockImplementation(() => new Promise((resolve) => { pending.push(resolve); }));
+    return pending;
+  }
+
+  it('does not resurrect an update that completed while the list was in flight', async () => {
+    // A failed completion triggers no refetch, so nothing would ever clear an
+    // entry the stale answer brought back: the buttons stay greyed.
+    apiCall.get.mockResolvedValue(ok({ programs: { snapcast: {} }, active_updates: ['snapcast'] }));
+    await store.loadLocalPrograms();
+    const pending = deferInventory();
+    const load = store.loadLocalPrograms();
+
+    store.handleProgramUpdateComplete({ program: 'snapcast', success: false });
+    pending[0](ok({ programs: { snapcast: {} }, active_updates: ['snapcast'] }));
+    await load;
+
+    expect(store.isLocalUpdating('snapcast')).toBe(false);
+  });
+
+  it('an update started while the inventory request is in flight is not cleared by its answer', async () => {
+    // Cleared, the button offers a second press the server refuses.
+    apiCall.get.mockResolvedValue(ok({ programs: { 'shairport-sync': {} }, active_updates: [] }));
+    await store.loadLocalPrograms();
+    const pending = deferInventory();
+    const load = store.loadLocalPrograms();
+
+    apiCall.post.mockResolvedValue(ok({ message: 'started' }));
+    await store.startLocalUpdate('shairport-sync', 'validated');
+    pending[0](ok({ programs: { 'shairport-sync': {} }, active_updates: [] }));
+    await load;
+
+    expect(store.isLocalUpdating('shairport-sync')).toBe(true);
+  });
+
+  it('a delta for one program leaves the in-flight answer in force for the others', async () => {
+    // Another device started snapcast while the list was read: its one
+    // progress broadcast was ignored here, so the list is the only word of it.
+    apiCall.get.mockResolvedValue(ok({ programs: { snapcast: {}, 'shairport-sync': {} }, active_updates: [] }));
+    await store.loadLocalPrograms();
+    const pending = deferInventory();
+    const load = store.loadLocalPrograms();
+
+    apiCall.post.mockResolvedValue(ok({ message: 'started' }));
+    await store.startLocalUpdate('shairport-sync', 'validated');
+    pending[0](ok({ programs: { snapcast: {}, 'shairport-sync': {} }, active_updates: ['snapcast'] }));
+    await load;
+
+    expect(store.isLocalUpdating('snapcast')).toBe(true);
+  });
+
+  it('applies only the last inventory request sent, and stays loading until it answers', async () => {
+    const pending = deferInventory();
+    const first = store.loadLocalPrograms();
+    const second = store.loadLocalPrograms();
+
+    pending[1](ok({ programs: { milo: {} }, active_updates: [] }));
+    await second;
+    pending[0](ok({ programs: { milo: {}, snapcast: {} }, active_updates: ['snapcast'] }));
+    await first;
+
+    expect(store.canUpdateLocal('snapcast')).toBe(false);
+    expect(store.isLocalUpdating('snapcast')).toBe(false);
+
+    const third = store.loadLocalPrograms();
+    const fourth = store.loadLocalPrograms();
+    pending[2](ok({ programs: {}, active_updates: [] }));
+    await third;
+
+    expect(store.localProgramsLoading).toBe(true);
+    pending[3](ok({ programs: {}, active_updates: [] }));
+    await fourth;
+    expect(store.localProgramsLoading).toBe(false);
+  });
 });

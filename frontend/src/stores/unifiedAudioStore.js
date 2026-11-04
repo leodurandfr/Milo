@@ -164,36 +164,54 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (!result.success) {
       logger.warn('store', `Audio state from ${origin} refused: it does not match the wire`,
         result.error?.issues);
-      return;
+      return false;
     }
     systemState.value = result.data;
     const session = result.data.session;
     if (session && session.phase !== 'loading') settledSessionId = session.id;
     sessionOpening.value = session?.phase === 'loading' && session.id !== settledSessionId;
+    return true;
   }
+
+  // Counted so resync() can tell a snapshot read before a delta it just
+  // received. Plain lets, not refs: nothing renders them.
+  let audioDeltas = 0;
+  let volumeDeltas = 0;
+  let lastPosition = null;
 
   /** `source/state` (its data IS the state) and `system/initial_state` (key `state`). */
   function updateState(event) {
     const state = event.type === 'initial_state' ? event.data?.state : event.data;
-    if (state) updateSystemState(state, event.type || 'websocket');
+    if (state && updateSystemState(state, event.type || 'websocket')) audioDeltas++;
   }
 
-  /** `source/position`: the anchor alone moved (a seek, a drift). */
-  function updatePosition(payload) {
+  function applyPosition(payload) {
     const session = systemState.value.session;
     // A playhead is a claim about one session: one for another is dropped.
     if (!session || session.id !== payload.session_id) return;
     systemState.value = { ...systemState.value, session: { ...session, position: payload.position } };
   }
 
-  function handleVolumeEvent(event) {
-    const { show_bar, state } = event.data || {};
+  /** `source/position`: the anchor alone moved (a seek, a drift). */
+  function updatePosition(payload) {
+    lastPosition = payload;
+    applyPosition(payload);
+  }
 
+  /** `volume/volume_changed`. */
+  function handleVolumeEvent(event) {
+    if (applyVolumeState(event.data || {})) volumeDeltas++;
+  }
+
+  /** True when a state was applied. */
+  function applyVolumeState({ show_bar, state }) {
+    let applied = false;
     // Validate with Zod — .catch() defaults handle invalid fields automatically
     if (state) {
       const result = validateSchema(VolumeStateSchema, state, 'VolumeState');
 
       if (result.success) {
+        applied = true;
         volumeState.value.mode = result.data.mode;
         volumeState.value.global_volume_db = result.data.global_volume_db;
         volumeState.value.global_volume = result.data.global_volume;
@@ -213,6 +231,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         showVolumeBar.value = false;
       }, 3000);
     }
+    return applied;
   }
 
   /**
@@ -224,8 +243,17 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
    * endpoints and replayed them as synthetic WS envelopes.
    *
    * `show_bar: false` — a heal the user did not cause must not flash the overlay.
+   *
+   * A whole state or volume delta received while a request was in flight is
+   * newer than its answer, so that half is not applied, and the domain counts as
+   * current. A playhead is not a whole state: the snapshot still lands, and the
+   * last anchor received meanwhile is put back on top of it unless the snapshot
+   * carries a later one.
    */
   async function resync() {
+    const audioSeen = audioDeltas;
+    const volumeSeen = volumeDeltas;
+    const positionSeen = lastPosition;
     const [audioRes, volumeRes] = await Promise.all([
       apiCall.get('/api/audio/state', {
         category: 'store',
@@ -239,14 +267,19 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       }),
     ]);
 
-    if (audioRes.ok) {
+    const audioNewer = audioDeltas !== audioSeen;
+    if (audioRes.ok && !audioNewer) {
       updateSystemState(audioRes.data, 'resync');
+      const anchor = systemState.value.session?.position;
+      const snapshotLater = anchor && lastPosition?.position && anchor.at > lastPosition.position.at;
+      if (lastPosition !== positionSeen && !snapshotLater) applyPosition(lastPosition);
     }
+    const volumeNewer = volumeDeltas !== volumeSeen;
     const volumeOk = volumeRes.ok && volumeRes.data.status === 'success';
-    if (volumeOk) {
-      handleVolumeEvent({ data: { show_bar: false, state: volumeRes.data.data } });
+    if (volumeOk && !volumeNewer) {
+      applyVolumeState({ show_bar: false, state: volumeRes.data.data });
     }
-    return audioRes.ok && volumeOk;
+    return (audioRes.ok || audioNewer) && (volumeOk || volumeNewer);
   }
 
   // Dismiss the volume bar on user tap. Cancels the auto-hide timer so it

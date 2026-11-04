@@ -331,6 +331,64 @@ describe('unifiedAudioStore', () => {
 
       expect(store.volumeState.global_volume_db).toBe(-22);
     });
+
+    /** Park both snapshot requests until the test releases them. */
+    function deferSnapshots() {
+      const pending = {};
+      apiCall.get.mockImplementation((url) => new Promise((resolve) => { pending[url] = resolve; }));
+      return pending;
+    }
+
+    it('a resync snapshot does not overwrite a newer source/state or volume_changed received in flight', async () => {
+      // A tab returning to the foreground fires the resync; a pause from the
+      // kiosk and an encoder step land on the WS while it is in flight. The
+      // snapshot was read before both and must not put them back.
+      const pending = deferSnapshots();
+      const resync = store.resync();
+
+      const paused = { ...VALID_STATE, session: { ...VALID_STATE.session, phase: 'paused' } };
+      store.updateState(stateEvent(paused));
+      store.handleVolumeEvent({ data: { show_bar: false, state: { ...VOLUME_SNAPSHOT, global_volume_db: -24 } } });
+
+      pending['/api/audio/state'](ok(VALID_STATE));
+      pending['/api/volume/state'](ok({ status: 'success', data: { ...VOLUME_SNAPSHOT, global_volume_db: -30 } }));
+
+      // The WS carried a whole state each time, so the domain is current.
+      expect(await resync).toBe(true);
+      expect(store.systemState.session.phase).toBe('paused');
+      expect(store.volumeState.global_volume_db).toBe(-24);
+    });
+
+    it('a playhead received in flight does not discard the snapshot, and survives it', async () => {
+      // A source/position proves only the anchor: dropping the snapshot for it
+      // would lose a source/state missed while the tab slept.
+      store.updateState(stateEvent(VALID_STATE));
+      const pending = deferSnapshots();
+      const resync = store.resync();
+
+      const seeked = { ms: 90000, at: 1_750_000_100, rate: 1 };
+      store.updatePosition({ session_id: VALID_STATE.session.id, position: seeked });
+
+      pending['/api/audio/state'](ok({ ...VALID_STATE, source: 'radio' }));
+      pending['/api/volume/state'](ok({ status: 'success', data: VOLUME_SNAPSHOT }));
+      await resync;
+
+      expect(store.systemState.source).toBe('radio');
+      expect(store.systemState.session.position).toEqual(seeked);
+    });
+
+    it('a whole state refused by the schema in flight does not stand in for the snapshot', async () => {
+      // Refused, it changed nothing: the snapshot is still the newest word.
+      const pending = deferSnapshots();
+      const resync = store.resync();
+
+      store.updateState(stateEvent({ ...VALID_STATE, session: { ...VALID_STATE.session, phase: 'bogus' } }));
+      pending['/api/audio/state'](ok({ ...VALID_STATE, source: 'radio' }));
+      pending['/api/volume/state'](ok({ status: 'success', data: VOLUME_SNAPSHOT }));
+      await resync;
+
+      expect(store.systemState.source).toBe('radio');
+    });
   });
 
   describe('sendCommand', () => {

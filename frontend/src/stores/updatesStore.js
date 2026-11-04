@@ -61,17 +61,30 @@ export const useUpdatesStore = defineStore('updates', () => {
   // ids makes the button show "updating" (and lets later progress deltas, which
   // only touch existing entries, attach); clearing ids the server no longer
   // reports recovers from a completion event missed while away.
-  function reconcileActiveUpdates(states, activeIds) {
+  // `newer` holds the ids whose state moved after the answer was read: theirs
+  // is the more recent word.
+  function reconcileActiveUpdates(states, activeIds, newer = null) {
     const active = new Set(activeIds);
     for (const id of active) {
-      if (!states.value[id]?.updating) states.value[id] = { updating: true };
+      if (!newer?.has(id) && !states.value[id]?.updating) states.value[id] = { updating: true };
     }
     for (const id of Object.keys(states.value)) {
-      if (!active.has(id)) delete states.value[id];
+      if (!newer?.has(id) && !active.has(id)) delete states.value[id];
     }
   }
 
+  // The inventory read probes every program's version, long enough for a
+  // press or a WS delta to land while it is in flight. Only the last request
+  // sent is applied, and its in-flight set is not mirrored over a program whose
+  // update state moved after it left: that state is newer than the answer.
+  let localLoadSeq = 0;
+  let localDeltas = 0;
+  const localDeltaAt = new Map(); // program key → localDeltas at its last move
+  const touchLocal = (id) => { localDeltaAt.set(id, ++localDeltas); };
+
   async function loadLocalPrograms() {
+    const seq = ++localLoadSeq;
+    const deltasSeen = localDeltas;
     hasEverLoaded.value = true;
     localProgramsLoading.value = true;
     localProgramsError.value = false;
@@ -80,14 +93,18 @@ export const useUpdatesStore = defineStore('updates', () => {
       message: 'Error loading programs',
       checkStatus: true
     });
+    if (seq !== localLoadSeq) return result.ok;
     if (result.ok) {
       localPrograms.value = result.data.programs || {};
-      reconcileActiveUpdates(localUpdateStates, result.data.active_updates || []);
+      const newer = new Set([...localDeltaAt].filter(([, at]) => at > deltasSeen).map(([id]) => id));
+      reconcileActiveUpdates(localUpdateStates, result.data.active_updates || [], newer);
       // "Completed" means an update finished and this list had not caught up
       // yet — it suppresses one stale frame, nothing more. Kept past the
       // refetch it would outlive its purpose and hide the row's real state:
       // after returning to the manifest, the release upstream is offering again.
-      localCompletedUpdates.value.clear();
+      for (const id of [...localCompletedUpdates.value]) {
+        if (!newer.has(id)) localCompletedUpdates.value.delete(id);
+      }
     } else {
       localProgramsError.value = true;
     }
@@ -117,12 +134,13 @@ export const useUpdatesStore = defineStore('updates', () => {
     return result.ok;
   }
 
-  async function startUpdate(states, id, url, message, body = null) {
+  async function startUpdate(states, id, url, message, body = null, onDelta = null) {
     if (states.value[id]?.updating) return;
     // The target rides along so the button that was pressed can say what it is
     // doing. A client that only learned of the update from the server's
     // in-flight set has no target and falls back to the generic label.
     states.value[id] = { updating: true, target: body?.target, version: body?.version };
+    onDelta?.(id);
     const result = await apiCall.post(url, body, {
       category: 'updates',
       message,
@@ -130,6 +148,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     });
     if (!result.ok) {
       delete states.value[id];
+      onDelta?.(id);
     }
   }
 
@@ -151,7 +170,8 @@ export const useUpdatesStore = defineStore('updates', () => {
     await startUpdate(localUpdateStates, programKey,
       `/api/programs/${programKey}/update`,
       `Error starting update for ${programKey}`,
-      version ? { target, version } : { target });
+      version ? { target, version } : { target },
+      touchLocal);
   }
 
   async function startSatelliteUpdate(macId) {
@@ -242,20 +262,24 @@ export const useUpdatesStore = defineStore('updates', () => {
   // Progress only updates entries this client knows about (it started them or
   // resynced); completion clears the flag, marks done, and refreshes the list.
 
-  function makeProgressHandler(states, idKey) {
+  // `onDelta(id)` is told each time a handler moved an entry, for the
+  // inventory read in flight to know its answer about that id is older.
+  function makeProgressHandler(states, idKey, onDelta = null) {
     return (payload) => {
       const id = payload[idKey];
       if (id && states.value[id]) {
         states.value[id].updating = payload.status === 'updating';
+        onDelta?.(id);
       }
     };
   }
 
-  function makeCompleteHandler(states, completed, idKey, reload) {
+  function makeCompleteHandler(states, completed, idKey, reload, onDelta = null) {
     return (payload) => {
       const id = payload[idKey];
       if (!id) return;
       delete states.value[id];
+      onDelta?.(id);
       if (payload.success) {
         completed.value.add(id);
         reload(id);
@@ -292,8 +316,8 @@ export const useUpdatesStore = defineStore('updates', () => {
     }
   }
 
-  const handleProgramUpdateProgress = makeProgressHandler(localUpdateStates, 'program');
-  const handleProgramUpdateComplete = makeCompleteHandler(localUpdateStates, localCompletedUpdates, 'program', loadLocalPrograms);
+  const handleProgramUpdateProgress = makeProgressHandler(localUpdateStates, 'program', touchLocal);
+  const handleProgramUpdateComplete = makeCompleteHandler(localUpdateStates, localCompletedUpdates, 'program', loadLocalPrograms, touchLocal);
   const handleSatelliteUpdateProgress = makeProgressHandler(satelliteUpdateStates, 'mac_id');
   const handleSatelliteUpdateComplete = makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', awaitSatelliteReturn);
   const handleSatelliteAppUpdateProgress = makeProgressHandler(satelliteAppUpdateStates, 'mac_id');

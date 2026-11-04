@@ -164,15 +164,19 @@ def create_programs_router(
         # In-flight local update keys (satellite keys are prefixed, excluded here).
         # Lets a freshly loaded client reconstruct "updating" state it never saw the
         # WS progress deltas for — after a reload, on a second device, or when the
-        # backend restarted mid-update (e.g. a milo self-update).
-        active = [k for k in active_updates if not k.startswith("satellite_")]
+        # backend restarted mid-update (e.g. a milo self-update). Read after the
+        # version probes, never before: an update claimed or finished during
+        # that await would otherwise be listed as it stood when the read began.
+        def _local_active() -> list[str]:
+            return [k for k in active_updates if not k.startswith("satellite_")]
+
         try:
             results = await update_service.get_all_program_status()
             return {
                 "status": "success",
                 "programs": results,
                 "count": len(results),
-                "active_updates": active
+                "active_updates": _local_active()
             }
         except Exception as e:
             # HTTP 200 + status:error is the documented resilience pattern for a
@@ -185,7 +189,7 @@ def create_programs_router(
                 "message": str(e),
                 "programs": {},
                 "count": 0,
-                "active_updates": active
+                "active_updates": _local_active()
             }
 
     # === SATELLITE ROUTES (specific, before generic routes) ===

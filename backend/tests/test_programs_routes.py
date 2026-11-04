@@ -265,3 +265,55 @@ def test_a_version_is_only_a_trial():
     """The return to the manifest names no version: the manifest does."""
     with pytest.raises(ValueError):
         ProgramUpdateRequest(target="validated", version="0.8.1")
+
+
+async def test_an_update_claimed_during_the_inventory_read_is_listed_active(router):
+    """A device loading the update screen mid-claim must see the update running.
+
+    The inventory read awaits every program's version probe; an update started
+    meanwhile is already claimed. Listing what was in flight before that await
+    hands the client an empty set, its reconciliation clears the entry the WS
+    progress made, and a second press is offered for an update already running.
+    """
+    gate = asyncio.Event()
+
+    async def slow_status():
+        await gate.wait()
+        return {}
+
+    router.update_service.get_all_program_status = slow_status
+    listing = asyncio.create_task(_endpoint(router, "/api/programs", "GET")())
+    await asyncio.sleep(0)  # the read is parked on the version probes
+
+    update = _endpoint(router, "/api/programs/{program_key}/update")
+    assert (await update("shairport-sync", VALIDATED, BackgroundTasks()))["status"] == "success"
+    gate.set()
+
+    assert "shairport-sync" in (await listing)["active_updates"]
+
+
+async def test_an_update_finished_during_the_inventory_read_is_not_listed_active(router):
+    """An update that completed while the list was read must not come back.
+
+    Its completion event has already reached the client; a stale `active`
+    resurrects the entry with no further event to clear it, and the buttons
+    stay greyed until the page is reloaded.
+    """
+    update = _endpoint(router, "/api/programs/{program_key}/update")
+    tasks = BackgroundTasks()
+    assert (await update("snapcast", VALIDATED, tasks))["status"] == "success"
+
+    gate = asyncio.Event()
+
+    async def slow_status():
+        await gate.wait()
+        return {}
+
+    router.update_service.get_all_program_status = slow_status
+    listing = asyncio.create_task(_endpoint(router, "/api/programs", "GET")())
+    await asyncio.sleep(0)
+
+    await tasks()
+    gate.set()
+
+    assert "snapcast" not in (await listing)["active_updates"]
