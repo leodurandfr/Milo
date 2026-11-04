@@ -199,6 +199,23 @@ class TestNowPlayingAttributes:
             "Récepteur macOS", "Mac mini, MacBook Air", "/now-playing/macos.jpg", 0.0,
         )
 
+    def test_a_connected_session_naming_a_track_keeps_its_artist(self):
+        """An iPhone in Spotify Connect over Bluetooth names its track while
+        its stream is stopped: CONNECTED, and Milō's full player draws it with
+        its artist line. The Lock Screen says the same, and Milo-iOS'
+        `buildAttributes` is held to it by
+        `test_the_app_writes_the_artist_line_as_the_push_does`."""
+        state = {
+            "source": "bluetooth", "controls": [], "resume": None,
+            "session": {
+                "id": "b-1", "phase": "connected", "title": "Says", "artist": "Nils Frahm",
+                "album": None, "artwork": "https://example.com/says.jpg",
+                "senders": ["iPhone de Léo"], "duration_ms": None, "position": None,
+            },
+        }
+
+        assert build_attributes("sess", state, [], now=NOW)["currentTrack"]["artist"] == "Nils Frahm"
+
     def test_a_source_with_nothing_playing_shows_its_own_card(self):
         """Selected, idle, nothing to resume: the source's name over its icon,
         rather than a media card with every field null."""

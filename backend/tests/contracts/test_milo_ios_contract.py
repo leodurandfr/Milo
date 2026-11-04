@@ -522,3 +522,26 @@ def test_an_untitled_cd_track_is_spelled_as_the_app_spells_it():
     swift = found.group(2).replace(f"\\({found.group(1)})", "{}")
     assert "{}" in swift, f"the app's label does not interpolate the number: {swift!r}"
     assert swift == UNTITLED_CD_TRACK
+
+
+def test_the_app_writes_the_artist_line_as_the_push_does():
+    """`payloads.build_attributes` writes the shown track's artist whatever the
+    phase, so the app's `buildAttributes` must too: a CONNECTED session that
+    names its track (an iPhone in Spotify Connect over Bluetooth) read
+    "Connected to …" from the app and the artist from the push, and the Lock
+    Screen flipped between them at every round trip."""
+    bridge = (VENDOR_DIR / "MiloNowPlayingBridge.swift").read_text()
+    found = re.search(
+        r"private static func buildAttributes\(from.*?\n(.*?)\n        return MiloSessionAttributes\(",
+        bridge, re.S,
+    )
+    assert found, "buildAttributes not found in the vendored bridge"
+    body = found.group(1)
+    titled = re.search(
+        r"MiloSourceCard\.shown\(for: state\)(.*?)MiloSourceCard\.card\(for: state\)", body, re.S,
+    )
+    assert titled, "the titled branch was not isolated"
+    artist = re.search(r"Track\(.*?\bartist: ([^,\n]+)", titled.group(1), re.S)
+    assert artist, "no artist argument in the titled branch's Track("
+    assert artist.group(1).strip() == "shown.artist"
+    assert "connectedTo" not in body and ".connected" not in body
