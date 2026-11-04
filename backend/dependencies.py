@@ -625,9 +625,18 @@ async def initialize_services() -> None:
                 sys.stderr.flush()
                 raise SystemExit(1)
 
+        # Nothing retries a volume service that answered False: its registry
+        # subscriber stays off for the life of the process. Routing's False is
+        # retried by its next caller, so it degrades like the fail-open rest.
+        fatal_when_false = {"volume_service"}
         for (service_name, _), result in zip(services, results):
             if isinstance(result, Exception):
                 logger.error("%s initialization failed: %s", service_name, result)
+            elif result is False and service_name in fatal_when_false:
+                logger.critical(
+                    "Critical service %s failed to initialize: initialize() returned False",
+                    service_name,
+                )
             elif result is False:
                 # A fail-open service that came up without its job; the reason
                 # is its own log line, this one only keeps the boot log honest.
@@ -637,10 +646,14 @@ async def initialize_services() -> None:
 
         # Check critical services
         critical_services = ["routing_service", "volume_service"]
-        for i, (service_name, _) in enumerate(services):
-            if service_name in critical_services and isinstance(results[i], Exception):
+        for (service_name, _), result in zip(services, results):
+            if service_name in critical_services and isinstance(result, Exception):
                 logger.critical("Critical service %s failed to initialize", service_name)
-                raise results[i]
+                raise result
+            if service_name in fatal_when_false and result is False:
+                raise RuntimeError(
+                    f"{service_name} initialization failed: initialize() returned False"
+                )
 
         # Start periodic hostname conflict re-check after the boot check completed
         hostname_conflict_service.start_periodic()

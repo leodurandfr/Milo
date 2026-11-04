@@ -364,10 +364,12 @@ class AudioRoutingService:
             return False
         return self.camilladsp_service.effects_enabled
 
-    async def initialize(self) -> None:
-        """Initializes service state"""
+    async def initialize(self) -> bool:
+        """Initializes service state; False when detection failed (the next
+        caller retries it)."""
         if not self._initial_detection_done:
             await self._detect_initial_state()
+        return self._initial_detection_done
 
     async def _detect_initial_state(self):
         """Reconcile derived artifacts and live state to match settings.json.

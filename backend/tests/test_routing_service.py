@@ -201,7 +201,7 @@ class TestAudioRoutingService:
 
         with patch.object(routing_service, 'regenerate_env_files'):
             with patch.object(routing_service, 'get_snapcast_status', new_callable=AsyncMock, return_value={"multiroom_available": False}):
-                await routing_service.initialize()
+                assert await routing_service.initialize() is True
 
         assert routing_service.multiroom_enabled is True
         assert routing_service._initial_detection_done is True
@@ -475,6 +475,17 @@ class TestAudioRoutingService:
         await routing_service._detect_initial_state()
 
         # Flag MUST stay False so the next caller retries detection
+        assert routing_service._initial_detection_done is False
+
+    @pytest.mark.asyncio
+    async def test_initialize_answers_false_when_detection_fails(self, routing_service, mock_settings_service):
+        """`init_async` reads this answer to tell a degraded boot from a clean
+        one; a detection that swallowed its error and answered None was logged
+        "routing_service initialized successfully"."""
+        routing_service._initial_detection_done = False
+        mock_settings_service.get_setting = AsyncMock(side_effect=RuntimeError("settings boom"))
+
+        assert await routing_service.initialize() is False
         assert routing_service._initial_detection_done is False
 
     @pytest.mark.asyncio

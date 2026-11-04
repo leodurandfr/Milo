@@ -472,6 +472,47 @@ class TestAsyncInit:
         with pytest.raises(RuntimeError, match="boom"):
             await deps.get_init_task()
 
+    async def test_a_volume_service_answering_false_stops_the_boot(
+        self, registry, caplog
+    ):
+        """`VolumeService.initialize()` catches its own failure and answers False,
+        and nothing ever retries it: its registry subscriber stays off for the
+        life of the process, so no client arriving or leaving reaches the volume
+        state. Degraded like a fail-open service, the boot would read clean over
+        a volume path that was never wired."""
+        registry["volume_service"].initialize = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.INFO):
+            await deps.initialize_services()
+            with pytest.raises(RuntimeError, match="volume_service"):
+                await deps.get_init_task()
+
+        assert "volume_service initialized successfully" not in caplog.text
+        assert any(
+            r.levelno == logging.CRITICAL and "volume_service" in r.getMessage()
+            for r in caplog.records
+        )
+        registry["hostname_conflict_service"].start_periodic.assert_not_called()
+
+    async def test_a_routing_service_answering_false_degrades_without_stopping_the_boot(
+        self, registry, caplog
+    ):
+        """Routing's False is a detection that failed and is retried by the next
+        caller (`_initial_detection_done` stays False), which is the fail-open
+        the backend asks for. It must warn rather than read as a success, and
+        must not take the boot down with it."""
+        registry["audio_routing_service"].initialize = AsyncMock(return_value=False)
+
+        with caplog.at_level(logging.INFO):
+            await _run_init(registry)
+
+        assert "routing_service initialized successfully" not in caplog.text
+        assert any(
+            r.levelno == logging.WARNING and "routing_service" in r.getMessage()
+            for r in caplog.records
+        )
+        registry["hostname_conflict_service"].start_periodic.assert_called_once()
+
     def test_a_schema_mismatch_during_init_bails_and_names_the_service(
         self, registry, caplog
     ):
