@@ -720,6 +720,138 @@ describe('equalizerStore', () => {
     });
   });
 
+  describe('band write serialization', () => {
+    const BAND = 'eq_band_00';
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      equalizerStore.filters = [FILTER(BAND, 31)];
+    });
+
+    /** Hold every PUT until the test answers it; returns the queue of answers. */
+    function holdPuts() {
+      const answers = [];
+      apiCall.put.mockImplementation(() => new Promise(resolve => answers.push(() => resolve(ok()))));
+      return answers;
+    }
+
+    const sentGains = () => apiCall.put.mock.calls
+      .filter(([url]) => url.includes('/filter/'))
+      .map(([, body]) => body.gain);
+
+    it('the last PUT for a band carries the released value when an earlier PUT resolves late', async () => {
+      // A satellite applies writes in the order they reach it. Sent side by
+      // side, a late one landed after the release and left the DSP on an older
+      // gain than the slider, whose echo the drag guard then ignored.
+      const answers = holdPuts();
+      equalizerStore.updateFilter(BAND, 'gain', 1);
+      await vi.advanceTimersByTimeAsync(50);
+      equalizerStore.updateFilter(BAND, 'gain', 2);
+      await vi.advanceTimersByTimeAsync(50);
+      equalizerStore.updateFilter(BAND, 'gain', 3);
+      let released = false;
+      equalizerStore.finalizeFilterUpdate(BAND).then(() => { released = true; });
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(apiCall.put).toHaveBeenCalledTimes(1);
+
+      answers.shift()();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sentGains()).toEqual([1, 3]);
+      expect(released).toBe(false);
+
+      answers.shift()();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(released).toBe(true);
+      expect(sentGains()).toEqual([1, 3]);
+    });
+
+    it('a second drag right after a release leaves no stale final PUT', async () => {
+      equalizerStore.updateFilter(BAND, 'gain', 3);
+      await equalizerStore.finalizeFilterUpdate(BAND);
+      // Taken again inside the window the release keeps the band guarded,
+      // and still moving when that window ends.
+      await vi.advanceTimersByTimeAsync(200);
+      equalizerStore.updateFilter(BAND, 'gain', 10);
+      await vi.advanceTimersByTimeAsync(50);
+      equalizerStore.updateFilter(BAND, 'gain', 12);
+      await vi.advanceTimersByTimeAsync(60);
+      equalizerStore.updateFilter(BAND, 'gain', 14);
+      await vi.advanceTimersByTimeAsync(10);
+      await equalizerStore.finalizeFilterUpdate(BAND);
+      const sentByRelease = apiCall.put.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(apiCall.put).toHaveBeenCalledTimes(sentByRelease);
+      expect(sentGains().at(-1)).toBe(14);
+    });
+
+    it('a drag taken again right after a release keeps ignoring stale echoes while held', async () => {
+      equalizerStore.updateFilter(BAND, 'gain', 3);
+      await equalizerStore.finalizeFilterUpdate(BAND);
+      await vi.advanceTimersByTimeAsync(100);
+      equalizerStore.updateFilter(BAND, 'gain', 10);
+      // Held past the window the first release armed.
+      await vi.advanceTimersByTimeAsync(400);
+
+      equalizerStore.handleEqualizerChanged({
+        target_type: 'client',
+        target_id: REMOTE_MAC,
+        equalizer_settings: { filters: [{ id: BAND, gain: 3 }] },
+      });
+
+      expect(equalizerStore.filters[0].gain).toBe(10);
+    });
+
+    it('still sends a released value queued behind a write in flight when the editor is left', async () => {
+      // Closing the modal or switching tab runs cleanup() right after the
+      // release; the value is the old target's, and it is what the user set.
+      const answers = holdPuts();
+      equalizerStore.updateFilter(BAND, 'gain', 1);
+      await vi.advanceTimersByTimeAsync(50);
+      equalizerStore.updateFilter(BAND, 'gain', 3);
+      equalizerStore.finalizeFilterUpdate(BAND);
+      equalizerStore.cleanup();
+
+      answers.shift()();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(apiCall.put.mock.calls.map(([url, body]) => [url, body.gain])).toEqual([
+        [`/api/equalizer/target/${REMOTE_MAC}/filter/${BAND}`, 1],
+        [`/api/equalizer/target/${REMOTE_MAC}/filter/${BAND}`, 3],
+      ]);
+    });
+
+    it('waits for a band write in flight before re-posting the preset it left', async () => {
+      // The restore must be the last write the target sees: a band PUT landing
+      // after it would put the discarded edit back. Called as the modal does,
+      // cleanup() right behind it.
+      equalizerStore.activePreset = 'jazz';
+      equalizerStore.isPresetEdited = true;
+      const answers = holdPuts();
+      equalizerStore.updateFilter(BAND, 'gain', 6);
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success', gains: [4] }));
+
+      const discarded = equalizerStore.discardPresetEdits();
+      equalizerStore.cleanup();
+      equalizerStore.selectedTarget = LOCAL_MAC;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(apiCall.post).not.toHaveBeenCalled();
+
+      answers.shift()();
+      expect(await discarded).toBe(true);
+      expect(apiCall.post).toHaveBeenCalledWith(
+        `/api/equalizer/target/${REMOTE_MAC}/preset`,
+        { preset_id: 'jazz' },
+        expect.anything(),
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(apiCall.put).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('single-event WS handlers', () => {
     beforeEach(() => {
       equalizerStore.filters = [FILTER('eq_band_00', 31)];

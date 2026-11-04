@@ -14,7 +14,8 @@ const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 1600
 
 // Throttle settings for real-time updates
 const THROTTLE_DELAY = 50;
-const FINAL_DELAY = 200;
+// How long a released band keeps ignoring echoes of the values it sent.
+const RELEASE_GUARD_MS = 300;
 
 // Uniform per-target EQ API tokens (mirror backend api/equalizer.py::_resolve_target):
 //   'local'      → the local DAC (addressable without a registry entry)
@@ -86,8 +87,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // AbortController for cancelling ongoing requests
   let loadAbortController = null;
 
-  // Throttling management
+  // Throttling management: the drag guard per band, and the writers per band URL
   const filterThrottleMap = new Map();
+  const bandWriters = new Map();
 
   // === COMPUTED ===
   const isConnected = computed(() => state.value !== 'disconnected');
@@ -212,15 +214,6 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return builtinPresets.value;
   }
 
-  async function sendFilterUpdate(filterId, filterData) {
-    const result = await apiCall.put(`${targetBase()}/filter/${filterId}`, filterData, {
-      category: 'store',
-      message: 'Error updating filter',
-      checkStatus: true,
-    });
-    return result.ok;
-  }
-
   async function setEnabledState(enabled) {
     const result = await apiCall.put(`${targetBase()}/enabled`, { enabled }, {
       category: 'store',
@@ -323,50 +316,81 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     }
   }
 
+  // One band write in flight per band and target. A drag asks every 50 ms,
+  // and sent as they came the writes raced to the target: one answered late
+  // landed after the release and left the DSP on an older gain than the slider.
+  // What arrives while one is in flight replaces what is waiting, and leaves
+  // when it returns. Keyed by URL, taken when the value is: a target switch
+  // neither redirects a waiting value nor drops it, and a drag that starts
+  // again after cleanup() joins the writer still running for that band.
+  function writeBand(filterId, filterData) {
+    const url = `${targetBase()}/filter/${filterId}`;
+    let writer = bandWriters.get(url);
+    if (!writer) {
+      writer = { pending: null, inFlight: null };
+      bandWriters.set(url, writer);
+    }
+    writer.pending = filterData;
+    // Started only with something pending, so the drain always reaches its
+    // first request before it can finish, and is assigned before that.
+    if (!writer.inFlight) writer.inFlight = drainBandWrites(url, writer);
+    return writer.inFlight;
+  }
+
+  async function drainBandWrites(url, writer) {
+    while (writer.pending) {
+      const data = writer.pending;
+      writer.pending = null;
+      await apiCall.put(url, data, {
+        category: 'store',
+        message: 'Error updating filter',
+        checkStatus: true,
+      });
+    }
+    bandWriters.delete(url);
+  }
+
+  function throttleStateFor(filterId) {
+    let throttleState = filterThrottleMap.get(filterId);
+    if (!throttleState) {
+      throttleState = { moves: 0 };
+      filterThrottleMap.set(filterId, throttleState);
+    }
+    // A band taken again inside its release guard is being dragged, not released.
+    clearTimeout(throttleState.removeTimer);
+    clearTimeout(throttleState.throttleTimeout);
+    return throttleState;
+  }
+
   function handleFilterThrottled(filterId, filterData) {
     const now = Date.now();
-    let throttleState = filterThrottleMap.get(filterId) || {};
-
-    if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);
-    if (throttleState.finalTimeout) clearTimeout(throttleState.finalTimeout);
+    const throttleState = throttleStateFor(filterId);
+    throttleState.moves += 1;
 
     if (!throttleState.lastRequestTime || (now - throttleState.lastRequestTime) >= THROTTLE_DELAY) {
-      sendFilterUpdate(filterId, filterData);
+      writeBand(filterId, filterData);
       throttleState.lastRequestTime = now;
     } else {
       throttleState.throttleTimeout = setTimeout(() => {
-        sendFilterUpdate(filterId, filterData);
+        writeBand(filterId, filterData);
         throttleState.lastRequestTime = Date.now();
       }, THROTTLE_DELAY - (now - throttleState.lastRequestTime));
     }
-
-    throttleState.finalTimeout = setTimeout(() => {
-      sendFilterUpdate(filterId, filterData);
-      // Entry is cleaned up by clearThrottleForFilter() on drag-end, not here.
-      // Removing it here would open a window for WebSocket echo during drag pauses.
-    }, FINAL_DELAY);
-
-    filterThrottleMap.set(filterId, throttleState);
   }
 
-  function clearThrottleForFilter(filterId) {
-    const throttleState = filterThrottleMap.get(filterId);
-    if (throttleState) {
-      if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);
-      if (throttleState.finalTimeout) clearTimeout(throttleState.finalTimeout);
-
-      // Delay removal from throttle map to allow stale WebSocket events to be ignored
-      // This prevents race conditions where old events arrive after finalization
-      setTimeout(() => {
-        filterThrottleMap.delete(filterId);
-      }, 300);
-    }
+  function clearThrottleForFilter(filterId, throttleState) {
+    // Kept a moment after the release so stale echoes of the drag are still
+    // ignored; removed only if no later drag has taken the entry over.
+    clearTimeout(throttleState.removeTimer);
+    throttleState.removeTimer = setTimeout(() => {
+      if (filterThrottleMap.get(filterId) === throttleState) filterThrottleMap.delete(filterId);
+    }, RELEASE_GUARD_MS);
   }
 
   function clearAllThrottles() {
     filterThrottleMap.forEach(throttleState => {
-      if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);
-      if (throttleState.finalTimeout) clearTimeout(throttleState.finalTimeout);
+      clearTimeout(throttleState.throttleTimeout);
+      clearTimeout(throttleState.removeTimer);
     });
     filterThrottleMap.clear();
   }
@@ -402,23 +426,26 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   async function finalizeFilterUpdate(filterId) {
     const filter = filters.value.find(f => f.id === filterId);
     if (filter) {
-      const filterData = {
+      const throttleState = throttleStateFor(filterId);
+      const written = writeBand(filterId, {
         freq: filter.freq,
         gain: filter.gain,
         q: filter.q,
         filter_type: filter.type
-      };
-
-      // sendFilterUpdate handles zone vs direct mode routing
-      await sendFilterUpdate(filterId, filterData);
-      clearThrottleForFilter(filterId);
+      });
+      const moves = throttleState.moves;
+      // Resolves once the released value is the last one the target received.
+      await written;
+      // Taken again while the release was being written: that drag's own
+      // release clears the entry.
+      if (throttleState.moves === moves) clearThrottleForFilter(filterId, throttleState);
     }
   }
 
   // === PRESET MANAGEMENT ===
   // One uniform route for every target; the response carries the resolved gains.
-  const _postPreset = (presetId, message) =>
-    apiCall.post(`${targetBase()}/preset`, { preset_id: presetId }, {
+  const _postPreset = (presetId, message, base = targetBase()) =>
+    apiCall.post(`${base}/preset`, { preset_id: presetId }, {
       category: 'store',
       message,
       checkStatus: true,
@@ -445,9 +472,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    */
   async function discardPresetEdits() {
     if (!isPresetEdited.value || !activePreset.value) return false;
-    // A throttled write still in flight would otherwise land after the restore.
+    // Read now: both callers run cleanup() and may switch target right after.
+    const presetId = activePreset.value;
+    const base = targetBase();
     clearAllThrottles();
-    const result = await _postPreset(activePreset.value, 'Error discarding unsaved equalizer edits');
+    // A band write cannot be recalled once sent: the restore waits for them,
+    // so it is the last write the target sees.
+    await Promise.all([...bandWriters.values()].map(writer => writer.inFlight));
+    const result = await _postPreset(presetId, 'Error discarding unsaved equalizer edits', base);
     return result.ok;
   }
 
