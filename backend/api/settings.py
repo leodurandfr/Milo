@@ -2,6 +2,7 @@
 """
 Settings Routes – Version with app deactivation and process stopping
 """
+from collections import defaultdict
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING, get_args
 from backend.core.models.audio_state import AudioSource
@@ -117,7 +118,7 @@ def create_settings_router(
     router = APIRouter()
     settings = settings_service
     # One lock per settings.json section: read, effects, write and broadcast run under it.
-    section_locks: Dict[str, asyncio.Lock] = {"dock": asyncio.Lock()}
+    section_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
     hardware_lock = asyncio.Lock()
 
     def _from_kiosk(request: Request) -> bool:
@@ -136,44 +137,65 @@ def create_settings_router(
 
     async def _handle_setting_update(
         setter: Callable,
-        event: SettingsEvent,
-        reload_callback: Optional[Callable] = None
+        section: str,
+        build_event: Callable[[Any], SettingsEvent],
+        reload_callback: Optional[Callable] = None,
+        also_moved: Optional[Callable[[Any], Optional[SettingsEvent]]] = None,
     ) -> Dict[str, Any]:
         """Unified pattern for all settings routes – supports async setters.
 
         No payload validation happens here: the request models in
         `api/models.py` carry every bound and every cross-field rule, so a
         request that reaches a handler is already valid.
+
+        The event is built by `build_event` from `section` as settings.json
+        holds it once the write and the reload are done, never from the
+        request: the validator rewrites across keys (it clamps the startup
+        volume into the limits), and settingsStore applies the deltas it is
+        sent. `also_moved` announces another event the same write moved, when
+        it did. The section's lock holds write, reload and broadcast together,
+        so two overlapping requests announce in the order they stored.
         """
-        async with api_error_handler(f"Error updating setting ({event.TYPE})", logger):
-            setter_result = setter()
-            if asyncio.iscoroutine(setter_result):
-                success = await setter_result
-            else:
-                success = setter_result
+        async with api_error_handler(f"Error updating setting ({section})", logger):
+            async with section_locks[section]:
+                setter_result = setter()
+                if asyncio.iscoroutine(setter_result):
+                    success = await setter_result
+                else:
+                    success = setter_result
 
-            if not success:
-                raise HTTPException(status_code=500, detail="Failed to save")
+                if not success:
+                    raise HTTPException(status_code=500, detail="Failed to save")
 
-            settings.invalidate_cache()
+                settings.invalidate_cache()
 
-            reload_success = True
-            if reload_callback:
-                try:
-                    reload_success = await reload_callback()
-                except Exception as e:
-                    logger.error(f"reload_callback failed for {event.TYPE}: {e}")
-                    reload_success = False
+                reload_success = True
+                if reload_callback:
+                    try:
+                        reload_success = await reload_callback()
+                    except Exception as e:
+                        logger.error(f"reload_callback failed for {section}: {e}")
+                        reload_success = False
 
-            # reload_success stays in the HTTP response only (useSettingsAPI reads
-            # it there); the broadcast carries just the new config.
-            await state_machine.broadcast(event)
+                stored = await settings.get_setting(section)
+                event = build_event(stored)
+                # reload_success stays in the HTTP response only (useSettingsAPI reads
+                # it there); the broadcast carries just the new config.
+                await state_machine.broadcast(event)
+                if also_moved and (moved := also_moved(stored)) is not None:
+                    await state_machine.broadcast(moved)
 
-            return {
-                "status": "success",
-                **event.model_dump(exclude={"source"}),
-                "reload_success": reload_success,
-            }
+                return {
+                    "status": "success",
+                    **event.model_dump(exclude={"source"}),
+                    "reload_success": reload_success,
+                }
+
+    def _volume_startup_event(vol: Dict[str, Any]) -> VolumeStartupChanged:
+        return VolumeStartupChanged(config=VolumeStartupConfig(
+            startup_volume_db=vol['startup_volume_db'],
+            restore_last_volume=vol['restore_last_volume'],
+        ))
 
     def _get_services_for_source(source: str) -> list:
         """Return the list of systemd services for an audio source"""
@@ -271,21 +293,37 @@ def create_settings_router(
     async def set_language(payload: LanguageRequest):
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('language', payload.language),
-            event=LanguageChanged(language=payload.language)
+            section='language',
+            build_event=lambda language: LanguageChanged(language=language),
         )
 
     # Volume limits (in dB)
     @router.put("/volume-limits")
     async def set_volume_limits(payload: VolumeLimitsRequest):
-        return await _handle_setting_update(
-            setter=lambda: settings.set_settings({
+        # The validator clamps the startup volume into the new limits, so a
+        # narrowing can move it: announced then, or every screen keeps the old one.
+        startup_before: Dict[str, float] = {}
+
+        async def setter():
+            startup_before['db'] = await settings.get_setting('volume.startup_volume_db')
+            return await settings.set_settings({
                 'volume.limit_min_db': payload.min_db,
                 'volume.limit_max_db': payload.max_db,
-            }),
-            event=VolumeLimitsChanged(
-                limits=VolumeLimitsConfig(min_db=payload.min_db, max_db=payload.max_db)
-            ),
-            reload_callback=volume_service.reload_volume_limits
+            })
+
+        def startup_if_moved(vol):
+            if vol['startup_volume_db'] == startup_before['db']:
+                return None
+            return _volume_startup_event(vol)
+
+        return await _handle_setting_update(
+            setter=setter,
+            section='volume',
+            build_event=lambda vol: VolumeLimitsChanged(limits=VolumeLimitsConfig(
+                min_db=vol['limit_min_db'], max_db=vol['limit_max_db'],
+            )),
+            reload_callback=volume_service.reload_volume_limits,
+            also_moved=startup_if_moved,
         )
 
     # Volume startup (in dB)
@@ -296,10 +334,8 @@ def create_settings_router(
                 'volume.startup_volume_db': payload.startup_volume_db,
                 'volume.restore_last_volume': payload.restore_last_volume,
             }),
-            event=VolumeStartupChanged(config=VolumeStartupConfig(
-                startup_volume_db=payload.startup_volume_db,
-                restore_last_volume=payload.restore_last_volume,
-            )),
+            section='volume',
+            build_event=_volume_startup_event,
             reload_callback=volume_service.reload_config
         )
 
@@ -308,8 +344,9 @@ def create_settings_router(
     async def set_volume_steps(payload: VolumeStepsRequest):
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('volume.step_mobile_db', payload.step_mobile_db),
-            event=VolumeStepsChanged(
-                config=VolumeStepsConfig(step_mobile_db=payload.step_mobile_db)
+            section='volume',
+            build_event=lambda vol: VolumeStepsChanged(
+                config=VolumeStepsConfig(step_mobile_db=vol['step_mobile_db'])
             ),
         )
 
@@ -318,8 +355,9 @@ def create_settings_router(
     async def set_rotary_steps(payload: RotaryStepsRequest):
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('volume.step_rotary_db', payload.step_rotary_db),
-            event=RotaryStepsChanged(
-                config=RotaryStepsConfig(step_rotary_db=payload.step_rotary_db)
+            section='volume',
+            build_event=lambda vol: RotaryStepsChanged(
+                config=RotaryStepsConfig(step_rotary_db=vol['step_rotary_db'])
             ),
             reload_callback=volume_service.reload_config
         )
@@ -329,8 +367,9 @@ def create_settings_router(
     async def set_bt_remote_steps(payload: BtRemoteStepsRequest):
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('volume.step_bt_remote_db', payload.step_bt_remote_db),
-            event=BtRemoteStepsChanged(
-                config=BtRemoteStepsConfig(step_bt_remote_db=payload.step_bt_remote_db)
+            section='volume',
+            build_event=lambda vol: BtRemoteStepsChanged(
+                config=BtRemoteStepsConfig(step_bt_remote_db=vol['step_bt_remote_db'])
             ),
             reload_callback=volume_service.reload_config
         )
@@ -340,8 +379,9 @@ def create_settings_router(
     async def set_ir_remote_steps(payload: IrRemoteStepsRequest):
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('volume.step_ir_remote_db', payload.step_ir_remote_db),
-            event=IrRemoteStepsChanged(
-                config=IrRemoteStepsConfig(step_ir_remote_db=payload.step_ir_remote_db)
+            section='volume',
+            build_event=lambda vol: IrRemoteStepsChanged(
+                config=IrRemoteStepsConfig(step_ir_remote_db=vol['step_ir_remote_db'])
             ),
             reload_callback=volume_service.reload_config
         )
@@ -379,10 +419,11 @@ def create_settings_router(
                     # No change, just save
                     success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                     if success:
+                        stored = await settings.get_setting("dock.enabled_apps")
                         await state_machine.broadcast(DockAppsChanged(
-                            config=DockAppsConfig(enabled_apps=enabled_apps)
+                            config=DockAppsConfig(enabled_apps=stored)
                         ))
-                        return {"status": "success", "config": {"enabled_apps": enabled_apps}}
+                        return {"status": "success", "config": {"enabled_apps": stored}}
                     else:
                         raise HTTPException(status_code=500, detail="Failed to save settings")
 
@@ -391,14 +432,15 @@ def create_settings_router(
 
                 # `applied` is the tile list as it stands after each effect that
                 # succeeded; `persisted` is what settings.json actually holds, which
-                # only commit_applied() may advance.
+                # only commit_applied() may advance — read back, because the
+                # validator completes a list left with no audio source.
                 applied = list(old_enabled_apps)
                 persisted = list(old_enabled_apps)
 
                 async def commit_applied():
                     if not await settings.set_setting("dock.enabled_apps", list(applied)):
                         raise ValueError("Failed to save settings")
-                    persisted[:] = applied
+                    persisted[:] = await settings.get_setting("dock.enabled_apps")
 
                 try:
                     # === HANDLE DISABLES ===
@@ -506,13 +548,14 @@ def create_settings_router(
                     if not success:
                         raise ValueError("Failed to save settings")
 
+                    stored = await settings.get_setting("dock.enabled_apps")
                     await state_machine.broadcast(DockAppsChanged(
-                        config=DockAppsConfig(enabled_apps=enabled_apps)
+                        config=DockAppsConfig(enabled_apps=stored)
                     ))
 
                     return {
                         "status": "success",
-                        "config": {"enabled_apps": enabled_apps},
+                        "config": {"enabled_apps": stored},
                         "operations": operations_log
                     }
 
@@ -544,7 +587,8 @@ def create_settings_router(
 
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('audio.auto_stop_delay', delay),
-            event=AudioStopChanged(config=AudioStopConfig(auto_stop_delay=delay)),
+            section='audio',
+            build_event=lambda audio: AudioStopChanged(config=AudioStopConfig(**audio)),
             reload_callback=state_machine.reload_auto_stop_for_all_sources
         )
 
@@ -553,9 +597,11 @@ def create_settings_router(
     async def set_screen_timeout(payload: ScreenTimeoutRequest):
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('screen.timeout_seconds', payload.screen_timeout_seconds),
-            event=ScreenTimeoutChanged(config=ScreenTimeoutConfig(
-                screen_timeout_enabled=payload.screen_timeout_enabled,
-                screen_timeout_seconds=payload.screen_timeout_seconds,
+            section='screen',
+            # Derived as /bulk derives it: 0 seconds is the switch off.
+            build_event=lambda screen: ScreenTimeoutChanged(config=ScreenTimeoutConfig(
+                screen_timeout_enabled=screen['timeout_seconds'] != 0,
+                screen_timeout_seconds=screen['timeout_seconds'],
             )),
             reload_callback=screen_controller.reload_timeout_config
         )
@@ -565,8 +611,9 @@ def create_settings_router(
     async def set_screen_brightness(payload: ScreenBrightnessRequest):
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('screen.brightness_on', payload.brightness_on),
-            event=ScreenBrightnessChanged(
-                config=ScreenBrightnessConfig(brightness_on=payload.brightness_on)
+            section='screen',
+            build_event=lambda screen: ScreenBrightnessChanged(
+                config=ScreenBrightnessConfig(brightness_on=screen['brightness_on'])
             ),
             reload_callback=screen_controller.reload_timeout_config
         )
@@ -596,15 +643,13 @@ def create_settings_router(
                 updates['screen.auto_player_delay_seconds'] = payload.auto_player_delay_seconds
             return settings.set_settings(updates)
 
-        screen = await settings.get_setting('screen')
-        config = {
-            "auto_player_enabled": payload.auto_player_enabled if payload.auto_player_enabled is not None else screen["auto_player_enabled"],
-            "auto_player_delay_seconds": payload.auto_player_delay_seconds if payload.auto_player_delay_seconds is not None else screen["auto_player_delay_seconds"]
-        }
-
         return await _handle_setting_update(
             setter=setter,
-            event=ScreenAutoPlayerChanged(config=ScreenAutoPlayerConfig(**config))
+            section='screen',
+            build_event=lambda screen: ScreenAutoPlayerChanged(config=ScreenAutoPlayerConfig(
+                auto_player_enabled=screen['auto_player_enabled'],
+                auto_player_delay_seconds=screen['auto_player_delay_seconds'],
+            )),
         )
 
     # Screen UI scale
@@ -617,8 +662,9 @@ def create_settings_router(
         # it asked, comes back on the Screen settings it asked from.
         response = await _handle_setting_update(
             setter=lambda: settings.set_setting('screen.ui_scale', payload.ui_scale),
-            event=ScreenUiScaleChanged(
-                config=ScreenUiScaleConfig(ui_scale=payload.ui_scale)
+            section='screen',
+            build_event=lambda screen: ScreenUiScaleChanged(
+                config=ScreenUiScaleConfig(ui_scale=screen['ui_scale'])
             ),
             reload_callback=lambda: screen_controller.write_kiosk_env(payload.ui_scale)
         )
@@ -647,15 +693,13 @@ def create_settings_router(
                 updates['screen.color_filter_warmth'] = payload.warmth
             return settings.set_settings(updates)
 
-        screen = await settings.get_setting('screen')
-        config = {
-            "enabled": payload.enabled if payload.enabled is not None else screen["color_filter_enabled"],
-            "warmth": payload.warmth if payload.warmth is not None else screen["color_filter_warmth"]
-        }
-
         return await _handle_setting_update(
             setter=setter,
-            event=ScreenColorFilterChanged(config=ScreenColorFilterConfig(**config))
+            section='screen',
+            build_event=lambda screen: ScreenColorFilterChanged(config=ScreenColorFilterConfig(
+                enabled=screen['color_filter_enabled'],
+                warmth=screen['color_filter_warmth'],
+            )),
         )
 
     # Kiosk theme
@@ -663,7 +707,8 @@ def create_settings_router(
     async def set_screen_theme(payload: ScreenThemeRequest):
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('screen.theme', payload.theme),
-            event=ScreenThemeChanged(config=ScreenThemeConfig(theme=payload.theme))
+            section='screen',
+            build_event=lambda screen: ScreenThemeChanged(config=ScreenThemeConfig(theme=screen['theme'])),
         )
 
     @router.post("/screen-activity")
@@ -962,7 +1007,8 @@ def create_settings_router(
 
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('radio', radio_config),
-            event=RadioSettingsChanged(config=RadioSettingsConfig(**radio_config)),
+            section='radio',
+            build_event=lambda radio: RadioSettingsChanged(config=RadioSettingsConfig(**radio)),
             reload_callback=apply_to_radio
         )
 
@@ -972,8 +1018,9 @@ def create_settings_router(
         ml_config = {'separate_storages': payload.separate_storages}
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('music_library', ml_config),
-            event=MusicLibrarySettingsChanged(
-                config=MusicLibrarySettingsConfig(**ml_config)
+            section='music_library',
+            build_event=lambda ml: MusicLibrarySettingsChanged(
+                config=MusicLibrarySettingsConfig(**ml)
             ),
         )
 
@@ -996,7 +1043,8 @@ def create_settings_router(
 
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('qobuz', qobuz_config),
-            event=QobuzSettingsChanged(config=QobuzSettingsConfig(**qobuz_config)),
+            section='qobuz',
+            build_event=lambda qobuz: QobuzSettingsChanged(config=QobuzSettingsConfig(**qobuz)),
             reload_callback=apply_to_qobuz
         )
 
@@ -1016,7 +1064,8 @@ def create_settings_router(
 
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('spotify', spotify_config),
-            event=SpotifySettingsChanged(config=SpotifySettingsConfig(**spotify_config)),
+            section='spotify',
+            build_event=lambda spotify: SpotifySettingsChanged(config=SpotifySettingsConfig(**spotify)),
             reload_callback=apply_to_spotify
         )
 

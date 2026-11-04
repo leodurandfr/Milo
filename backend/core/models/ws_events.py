@@ -414,7 +414,7 @@ class VolumeLimitsChanged(SettingsEvent):
 class VolumeStartupChanged(SettingsEvent):
     """The volume the unit starts at changed.
 
-    App.vue settings listener; also emitted by VolumeService startup-volume auto-tracking.
+    App.vue settings listener.
     """
     TYPE = "volume_startup_changed"
     config: VolumeStartupConfig

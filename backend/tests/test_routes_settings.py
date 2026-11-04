@@ -2,6 +2,10 @@
 """
 Unit tests for Settings API routes
 """
+import asyncio
+from types import SimpleNamespace
+
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,6 +15,7 @@ from backend.api.models import HardwareConfigRequest
 from backend.api.responses import BulkSettingsResponse
 from backend.api.settings import create_settings_router
 from backend.core.models.audio_state import AudioSource
+from backend.core.models.ws_events import SpotifySettingsConfig
 from backend.core.settings import SettingsService
 
 # A PUT /mac-roc carries the whole link: roc-recv's three values, then the
@@ -122,23 +127,19 @@ class TestSettingsRoutes:
         mock_systemd_manager,
         mock_routing_service,
         mock_hardware_service,
-        mock_multiroom_equalizer_service
+        mock_multiroom_equalizer_service,
+        tmp_path,
     ):
         """Fixture to create a TestClient with mocks"""
         app = FastAPI()
 
-        # The real service guarantees every declared section, keys included, so
-        # the mock answers from the same declaration: a route that reads
-        # screen['auto_player_enabled'] must be testable without a fallback that
-        # cannot happen in production.
-        defaults = SettingsService().defaults
-
-        mock_settings = Mock()
-        mock_settings.get_setting = AsyncMock(side_effect=lambda key: defaults.get(key))
-        mock_settings.set_setting = AsyncMock(return_value=True)
-        mock_settings.set_settings = AsyncMock(return_value=True)
-        mock_settings.load_settings = AsyncMock(return_value={})
-        mock_settings._cache = None
+        # The real service on a temporary file, its reads and writes spied: a
+        # route announces what the validator stored, so a stand-in answering
+        # the defaults would put the stand-in under test.
+        mock_settings = SettingsService()
+        mock_settings.settings_file = str(tmp_path / "settings.json")
+        for name in ("get_setting", "set_setting", "set_settings"):
+            setattr(mock_settings, name, AsyncMock(wraps=getattr(mock_settings, name)))
 
         router = create_settings_router(
             volume_service=mock_volume_service,
@@ -160,6 +161,13 @@ class TestSettingsRoutes:
         # the LAN device's own when it reaches :8000 directly.
         client._peer = lambda host: TestClient(app, client=(host, 50000))
         client._mock_settings = mock_settings
+
+        def seed(key, value):
+            """Store a value as an earlier request would have, out of the spies' sight."""
+            assert asyncio.run(mock_settings.set_setting(key, value))
+            mock_settings.set_setting.reset_mock()
+            mock_settings.set_settings.reset_mock()
+        client._seed = seed
         client._mock_state_machine = mock_state_machine
         client._mock_multiroom_equalizer_service = mock_multiroom_equalizer_service
         return client
@@ -299,9 +307,7 @@ class TestSettingsRoutes:
 
     def test_set_dock_apps_valid(self, client):
         """Test PUT /dock-apps with valid apps"""
-        client._mock_settings.load_settings = AsyncMock(return_value={
-            "dock": {"enabled_apps": ["spotify", "bluetooth"]}
-        })
+        client._seed("dock.enabled_apps", ["spotify", "bluetooth"])
         response = client.put("/api/settings/dock-apps", json={
             "enabled_apps": ["spotify", "bluetooth", "settings"]
         })
@@ -322,9 +328,7 @@ class TestSettingsRoutes:
         switched off — a dock advertising something already gone, and the
         consumers never told.
         """
-        client._mock_settings.load_settings = AsyncMock(return_value={
-            "dock": {"enabled_apps": ["spotify", "multiroom"]}
-        })
+        client._seed("dock.enabled_apps", ["spotify", "multiroom"])
         # Disables run first: multiroom goes, then the equalizer enable fails.
         client._mock_multiroom_equalizer_service.set_local_equalizer_effects_enabled = AsyncMock(
             return_value=False
@@ -354,9 +358,7 @@ class TestSettingsRoutes:
         has no way to see. Nothing ran before the failure here, so nothing at all
         may be written (the partial case is the test above).
         """
-        client._mock_settings.load_settings = AsyncMock(return_value={
-            "dock": {"enabled_apps": ["spotify"]}
-        })
+        client._seed("dock.enabled_apps", ["spotify"])
         mock_routing_service.set_multiroom_enabled = AsyncMock(return_value=False)
 
         response = client.put("/api/settings/dock-apps", json={
@@ -370,9 +372,7 @@ class TestSettingsRoutes:
     def test_set_dock_apps_reports_a_failed_equalizer_toggle(self, client):
         """Same contract on the equalizer branch, which has its own service call —
         again with the failure as the first operation, so nothing is written."""
-        client._mock_settings.load_settings = AsyncMock(return_value={
-            "dock": {"enabled_apps": ["spotify", "equalizer"]}
-        })
+        client._seed("dock.enabled_apps", ["spotify", "equalizer"])
         client._mock_multiroom_equalizer_service.set_local_equalizer_effects_enabled = AsyncMock(
             return_value=False
         )
@@ -1317,3 +1317,173 @@ class TestMacLink:
         calibration = Mock()
         assert self._client(calibration).delete("/api/settings/mac-roc/calibration").json() == {"status": "success"}
         calibration.forget.assert_called_once_with()
+
+
+class TestEventsCarryTheStoredValue:
+    """Every `settings/*_changed` event is what settings.json holds once the write
+    has landed, never what the request asked for.
+
+    settingsStore applies the deltas it receives and refetches only on a WS
+    reconnect, so an event that disagrees with the file leaves every screen on a
+    value the unit does not hold. The validator rewrites across keys (it clamps
+    the startup volume into the limits, forces a source tile into the dock), and
+    two PUTs on one section can overlap; both were measured to leave the last
+    event off the stored value. The service is the real one on a temporary file,
+    so the validator runs; each assertion compares against a fresh read of it.
+    """
+
+    @pytest.fixture
+    async def world(self, tmp_path):
+        settings = SettingsService()
+        settings.settings_file = str(tmp_path / "settings.json")
+        await settings.initialize()
+
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+        state_machine.get_source = Mock(return_value=None)
+
+        volume = Mock()
+        volume.reload_volume_limits = AsyncMock(return_value=True)
+        volume.reload_config = AsyncMock(return_value=True)
+
+        app = FastAPI()
+        app.include_router(
+            create_settings_router(
+                volume_service=volume,
+                state_machine=state_machine,
+                screen_controller=Mock(reload_timeout_config=AsyncMock(return_value=True)),
+                systemd_manager=Mock(),
+                routing_service=Mock(),
+                hardware_service=Mock(),
+                settings_service=settings,
+                multiroom_equalizer_service=Mock(),
+                mac_link_calibration=Mock(),
+            ),
+            prefix="/api/settings",
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            yield SimpleNamespace(http=http, settings=settings, state_machine=state_machine)
+
+    @staticmethod
+    def _sent(world, event_type):
+        return [
+            c.args[0] for c in world.state_machine.broadcast.await_args_list
+            if c.args[0].TYPE == event_type
+        ]
+
+    async def test_narrowing_the_limits_below_the_startup_volume_broadcasts_the_clamped_startup(self, world):
+        """The validator moves the startup volume into the new limits; announced
+        only as `volume_limits_changed`, every screen kept showing the old
+        startup level while the unit would boot 25 dB louder."""
+        assert await world.settings.set_setting("volume.startup_volume_db", -45.0)
+
+        response = await world.http.put(
+            "/api/settings/volume-limits", json={"min_db": -20.0, "max_db": 0.0}
+        )
+
+        assert response.status_code == 200
+        stored = await world.settings.get_setting("volume")
+        assert stored["startup_volume_db"] != -45.0, "the validator did not clamp; the case is moot"
+        startups = self._sent(world, "volume_startup_changed")
+        assert [e.config.model_dump() for e in startups] == [{
+            "startup_volume_db": stored["startup_volume_db"],
+            "restore_last_volume": stored["restore_last_volume"],
+        }]
+        limits = self._sent(world, "volume_limits_changed")[-1].limits
+        assert (limits.min_db, limits.max_db) == (stored["limit_min_db"], stored["limit_max_db"])
+
+    async def test_limits_that_leave_the_startup_volume_alone_announce_only_the_limits(self, world):
+        """The companion event goes out only when the stored startup moved, so a
+        screen editing it is not handed back a value for nothing."""
+        response = await world.http.put(
+            "/api/settings/volume-limits", json={"min_db": -79.0, "max_db": -20.0}
+        )
+
+        assert response.status_code == 200
+        assert self._sent(world, "volume_startup_changed") == []
+        assert len(self._sent(world, "volume_limits_changed")) == 1
+
+    async def test_a_startup_write_outside_the_limits_broadcasts_the_stored_value(self, world):
+        """The request model cannot know the limits, so the validator clamps the
+        startup volume; the event must carry where it landed."""
+        assert await world.settings.set_settings(
+            {"volume.limit_min_db": -80.0, "volume.limit_max_db": -40.0}
+        )
+
+        response = await world.http.put(
+            "/api/settings/volume-startup",
+            json={"startup_volume_db": -30.0, "restore_last_volume": False},
+        )
+
+        assert response.status_code == 200
+        stored = await world.settings.get_setting("volume")
+        assert stored["startup_volume_db"] != -30.0, "the validator did not clamp; the case is moot"
+        event = self._sent(world, "volume_startup_changed")[-1]
+        assert event.config.startup_volume_db == stored["startup_volume_db"]
+        assert response.json()["config"]["startup_volume_db"] == stored["startup_volume_db"]
+
+    async def test_color_filter_event_carries_the_stored_value_of_the_other_field(self, world):
+        """Each partial PUT used to fill the half it did not carry from the cache
+        read before its own write: two of them in flight together each announced
+        the other's half as it was before, and the last screen update named a
+        filter settings.json does not hold."""
+        await asyncio.gather(
+            world.http.put("/api/settings/screen-color-filter", json={"enabled": True}),
+            world.http.put("/api/settings/screen-color-filter", json={"warmth": 70}),
+        )
+
+        screen = await world.settings.get_setting("screen")
+        assert (screen["color_filter_enabled"], screen["color_filter_warmth"]) == (True, 70)
+        last = self._sent(world, "screen_color_filter_changed")[-1]
+        assert last.config.model_dump() == {"enabled": True, "warmth": 70}
+
+    async def test_the_screen_timeout_switch_is_derived_from_the_stored_seconds(self, world):
+        """/bulk computes the switch from the seconds (0 means never); the event
+        took it from the request, so the two could name different states."""
+        response = await world.http.put(
+            "/api/settings/screen-timeout",
+            json={"screen_timeout_enabled": False, "screen_timeout_seconds": 30},
+        )
+
+        assert response.status_code == 200
+        seconds = await world.settings.get_setting("screen.timeout_seconds")
+        event = self._sent(world, "screen_timeout_changed")[-1]
+        assert event.config.model_dump() == {
+            "screen_timeout_enabled": True, "screen_timeout_seconds": seconds,
+        }
+
+    async def test_overlapping_spotify_settings_puts_broadcast_the_stored_value_last(self, world):
+        """The first PUT restarts go-librespot (seconds), and its event went out
+        after a second PUT had written and announced the opposite value: every
+        screen ended on the first request's value, the file on the second's."""
+        reloading, release = asyncio.Event(), asyncio.Event()
+
+        async def on_changed(_apply_now):
+            if not reloading.is_set():
+                reloading.set()
+                await release.wait()
+            return True
+
+        world.state_machine.get_source = Mock(
+            return_value=Mock(on_spotify_settings_changed=AsyncMock(side_effect=on_changed))
+        )
+
+        first = asyncio.create_task(world.http.put("/api/settings/spotify-settings", json={
+            "crossfade_duration": 0, "allow_app_volume": True, "apply_now": True,
+        }))
+        await reloading.wait()
+        second = asyncio.create_task(world.http.put("/api/settings/spotify-settings", json={
+            "crossfade_duration": 0, "allow_app_volume": False,
+        }))
+        # Unserialized, the second request runs to its broadcast while the first
+        # is held; serialized, it waits on the section and this times out.
+        await asyncio.wait({second}, timeout=0.5)
+        release.set()
+        first, second = await asyncio.gather(first, second)
+
+        assert (first.status_code, second.status_code) == (200, 200)
+        stored = await world.settings.get_setting("spotify")
+        last = self._sent(world, "spotify_settings_changed")[-1]
+        assert last.config.model_dump() == SpotifySettingsConfig(**stored).model_dump()
+        assert stored["allow_app_volume"] is False

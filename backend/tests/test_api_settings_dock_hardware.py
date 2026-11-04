@@ -24,9 +24,8 @@ What breaks when these fail:
   the level and CamillaDSP must stay pinned at 0 dB.
 
 Nothing here is allowed to reach the real services. `hardware_service` is an
-AsyncMock and `settings_service` a stand-in built from the real declared
-defaults, so a route reading a key the validator guarantees is testable without
-a fallback that cannot happen in production.
+AsyncMock and `settings_service` the real one on a temporary file, its reads and
+writes spied, so the dock the route announces is the one the validator stored.
 """
 import asyncio
 import copy
@@ -93,16 +92,12 @@ def hardware():
 
 
 @pytest.fixture
-def settings():
-    defaults = SettingsService().defaults
-    mock = Mock()
-    mock.get_setting = AsyncMock(side_effect=lambda key: defaults.get(key))
-    mock.set_setting = AsyncMock(return_value=True)
-    mock.set_settings = AsyncMock(return_value=True)
-    mock.load_settings = AsyncMock(return_value={"dock": {"enabled_apps": []}})
-    mock.invalidate_cache = Mock()
-    mock._cache = None
-    return mock
+def settings(tmp_path):
+    service = SettingsService()
+    service.settings_file = str(tmp_path / "settings.json")
+    for name in ("get_setting", "set_setting", "set_settings"):
+        setattr(service, name, AsyncMock(wraps=getattr(service, name)))
+    return service
 
 
 @pytest.fixture
@@ -126,7 +121,10 @@ def client(state_machine, systemd, routing, equalizer, hardware, settings):
 
 
 def _dock(settings, apps):
-    settings.load_settings = AsyncMock(return_value={"dock": {"enabled_apps": list(apps)}})
+    """Store the dock as an earlier request would have, out of the spies' sight."""
+    assert asyncio.run(settings.set_setting("dock.enabled_apps", list(apps)))
+    settings.set_setting.reset_mock()
+    settings.set_settings.reset_mock()
 
 
 def _saved_dock_lists(settings):
@@ -451,6 +449,65 @@ class TestTheDockAtomicity:
         assert response.status_code == 500
 
 
+class TestTheDockOverTheRealStore:
+    """The dock against the real SettingsService, whose validator rewrites the
+    list: with no audio source left in it, 'spotify' is forced in."""
+
+    async def test_a_mid_batch_failure_broadcasts_what_settings_json_holds(
+        self, tmp_path, state_machine, systemd, routing, equalizer, hardware
+    ):
+        """Radio swapped for Podcast, and the second commit refused.
+
+        The first commit stores the list without radio, which the validator
+        completes with 'spotify'. The failure branch announced the list the route
+        had asked to store instead, so every screen lost the Spotify tile
+        settings.json still holds, until the next full resync.
+        """
+        settings = SettingsService()
+        settings.settings_file = str(tmp_path / "settings.json")
+        await settings.initialize()
+        assert await settings.set_setting("dock.enabled_apps", ["radio", "lyrics", "settings"])
+
+        real_set_setting = settings.set_setting
+        commits = []
+
+        async def _second_commit_fails(key, value):
+            commits.append(list(value))
+            if len(commits) == 2:
+                return False
+            return await real_set_setting(key, value)
+        settings.set_setting = _second_commit_fails
+
+        app = FastAPI()
+        app.include_router(
+            create_settings_router(
+                volume_service=Mock(),
+                state_machine=state_machine,
+                screen_controller=Mock(),
+                systemd_manager=systemd,
+                routing_service=routing,
+                hardware_service=hardware,
+                settings_service=settings,
+                multiroom_equalizer_service=equalizer,
+                mac_link_calibration=Mock(),
+            ),
+            prefix="/api/settings",
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            response = await http.put(
+                "/api/settings/dock-apps",
+                json={"enabled_apps": ["podcast", "lyrics", "settings"]},
+            )
+
+        assert response.status_code == 500
+        assert len(commits) == 2, "the batch did not reach its second commit"
+        stored = await settings.get_setting("dock.enabled_apps")
+        assert "spotify" in stored, "the validator did not complete the list; the case is moot"
+        last = state_machine.broadcast.await_args_list[-1].args[0]
+        assert last.config.enabled_apps == stored
+
+
 class TestConcurrentDockRequests:
     """Two dock gestures more than the frontend's 500 ms debounce apart are two
     PUTs, and a multiroom switch takes seconds. The second one must be applied
@@ -473,9 +530,14 @@ class TestConcurrentDockRequests:
             stored["dock"]["enabled_apps"] = list(value)
             return True
 
+        async def _get_setting(key):
+            assert key == "dock.enabled_apps"
+            return list(stored["dock"]["enabled_apps"])
+
         settings = Mock()
         settings.load_settings = AsyncMock(side_effect=lambda: copy.deepcopy(stored))
         settings.set_setting = AsyncMock(side_effect=_set_setting)
+        settings.get_setting = AsyncMock(side_effect=_get_setting)
 
         switching, release = asyncio.Event(), asyncio.Event()
 
