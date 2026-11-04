@@ -22,10 +22,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from backend.config.constants import BT_REMOTE_ACTIONS
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import BtRemoteConfigChanged, BtRemoteStatusChanged
 from backend.core.settings import SettingsWriteError
 from backend.hardware import bt_remote as bt_remote_module
+from backend.hardware.playback_dispatch import MULTI_CLICK_WINDOW
 
 REMOTE_MAC = "AA:BB:CC:DD:EE:FF"
 REMOTE_NAME = "ANTICATER VK-01"
@@ -582,13 +584,66 @@ async def test_a_volume_key_still_reaches_the_volume_service_after_a_disable_and
 
 
 # ------------------------------------------------- the key map, validated once
-def test_the_default_key_map_only_uses_actions_the_dispatcher_knows():
-    """DEFAULT_KEY_MAP ships the appliance's remote; an action outside the
-    declared set would be a factory default that does nothing when pressed."""
-    from backend.config.constants import BT_REMOTE_ACTIONS
+def spotify_source(bt):
+    """Make Spotify the active source, so a resolved click reaches `command`."""
+    source = MagicMock()
+    source.command = AsyncMock(return_value={"success": True})
+    bt.state_machine.system_state.active_source = AudioSource.SPOTIFY
+    bt.state_machine.get_source = MagicMock(return_value=source)
+    return source
 
-    assert set(bt_remote_module.DEFAULT_KEY_MAP.values()) <= BT_REMOTE_ACTIONS
-    assert all(k.isdigit() for k in bt_remote_module.DEFAULT_KEY_MAP)
+
+async def arm_remote(bt, key_map):
+    """Take `key_map` through the public config path, then connect a remote."""
+    await bt.controller.update_config({"key_map": key_map})
+    bt.controller.enabled = True
+    bt.controller.running = True
+    return await connect_remote(bt)
+
+
+async def press_until(device, code, reached):
+    """Press once, then wait until `reached()` holds or the multi-click window
+    plus a wide margin has passed — the click resolves only after the window."""
+    await device.events.put(key_event(code))
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + MULTI_CLICK_WINDOW + 2.0
+    while not reached() and loop.time() < deadline:
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.parametrize("action", sorted(BT_REMOTE_ACTIONS))
+@pytest.mark.asyncio
+async def test_every_declared_bt_action_reaches_the_world(bt, action):
+    """The request validator accepts exactly `BT_REMOTE_ACTIONS`, while the
+    dispatcher branches on its own literals. An action declared there but not
+    dispatched is a key the Hardware page lets the user map and that does
+    nothing when pressed — one DEBUG line, nothing on screen."""
+    source = spotify_source(bt)
+
+    def effects():
+        return bt.volume_service.adjust_volume_db.await_count + source.command.await_count
+
+    try:
+        device = await arm_remote(bt, {"115": action})
+        await press_until(device, 115, lambda: effects() >= 1)
+        assert effects() >= 1, f"{action!r} declared but not dispatched: a key mapped to it does nothing"
+    finally:
+        await bt.controller.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_the_two_volume_actions_turn_the_level_opposite_ways(bt):
+    """A dispatcher that read both names as one direction would pass the reach
+    test above while one of the two keys turns the room the wrong way."""
+    adjust = bt.volume_service.adjust_volume_db
+    try:
+        device = await arm_remote(bt, {"114": "volume_down", "115": "volume_up"})
+        await press_until(device, 115, lambda: adjust.await_count >= 1)
+        await press_until(device, 114, lambda: adjust.await_count >= 2)
+        deltas = [c.args[0] for c in adjust.await_args_list]
+        assert len(deltas) == 2 and deltas[0] > 0 > deltas[1], deltas
+    finally:
+        await bt.controller.cleanup()
 
 
 @pytest.mark.parametrize("bad_map", [

@@ -147,12 +147,14 @@ SELECTABLE_GPIO_PINS = list(range(GPIO_MIN_PIN, GPIO_MAX_PIN + 1))
 # =============================================================================
 # BT REMOTE KEY MAP
 # =============================================================================
-# What a keycode may be mapped to. Declared here rather than in bt_remote.py so
-# the request validator (api/models.py) and the dispatcher share one list: an
-# action the dispatcher does not know is a key that does nothing, and a
-# *non-numeric keycode* used to be worse than that — `int(k)` over the whole map
-# raised inside device matching, which caught it at debug and left every remote
-# silently unmatched.
+# What a keycode may be mapped to: the list the request validator
+# (api/models.py) accepts. The dispatcher (bt_remote.py `_monitor_device` /
+# `_dispatch_action`) branches on its own literals, and
+# `test_every_declared_bt_action_reaches_the_world` holds every action listed
+# here to a dispatched effect, since an action the dispatcher does not know is
+# a key that does nothing. A *non-numeric keycode* used to be worse than
+# that — `int(k)` over the whole map raised inside device matching, which
+# caught it at debug and left every remote silently unmatched.
 BT_REMOTE_ACTIONS = frozenset({'volume_up', 'volume_down', 'click'})
 
 # =============================================================================
