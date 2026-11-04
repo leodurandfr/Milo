@@ -35,37 +35,42 @@ export function useVolumeHold({
   let isHolding = false;
   let currentDelta = 0;
   let actionTaken = false;
-  let lockedPointerType = null;
+  let lockedPointerId = null;
 
   const onVolumeHoldStart = (delta, event) => {
-    // Ignore conflicting pointer types (e.g. ghost mouse after touch)
-    if (lockedPointerType && lockedPointerType !== event.pointerType) return;
+    // One press at a time, owned by its pointer: a second finger (or a ghost
+    // mouse after touch) would otherwise arm a repeat that outlives the release.
+    if (lockedPointerId !== null) return;
 
-    lockedPointerType = event.pointerType;
+    lockedPointerId = event.pointerId;
     gestureStartPosition.value = { x: getEventX(event), y: getEventY(event) };
     gestureHasMoved.value = false;
     currentDelta = delta;
     actionTaken = false;
 
     startTimer = timer.setTimeout(() => {
-      if (!gestureHasMoved.value && lockedPointerType === event.pointerType) {
+      startTimer = null;
+      if (!gestureHasMoved.value && lockedPointerId === event.pointerId) {
         adjustVolume(delta);
         actionTaken = true;
         isHolding = true;
 
-        repeatTimer = timer.setInterval(() => {
+        const id = timer.setInterval(() => {
           if (isHolding) {
             adjustVolume(currentDelta);
           } else {
-            timer.clear(repeatTimer);
+            timer.clear(id);
           }
         }, REPEAT_INTERVAL);
+        repeatTimer = id;
       }
     }, INITIAL_DELAY);
   };
 
   const onVolumeHoldEnd = (event) => {
-    if (event && lockedPointerType && event.pointerType !== lockedPointerType) return;
+    // Another finger lifting reaches here too, through the document's pointerup.
+    // useDockDrag calls this with no event: that always ends the press.
+    if (event && lockedPointerId !== null && event.pointerId !== lockedPointerId) return;
 
     // Tap: fire once on release if no hold action was taken and no movement
     if (!gestureHasMoved.value && !actionTaken && currentDelta !== 0) {
@@ -76,7 +81,7 @@ export function useVolumeHold({
 
   const cancel = () => {
     isHolding = false;
-    lockedPointerType = null;
+    lockedPointerId = null;
 
     if (startTimer) {
       timer.clear(startTimer);
