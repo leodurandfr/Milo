@@ -77,14 +77,30 @@ export const useUpdatesStore = defineStore('updates', () => {
   // press or a WS delta to land while it is in flight. Only the last request
   // sent is applied, and its in-flight set is not mirrored over a program whose
   // update state moved after it left: that state is newer than the answer.
+  // The satellite inventory has the same window, once per update kind: each
+  // states ref keeps its own count, so a press on one kind leaves the answer in
+  // force for the other two.
+  function makeDeltaClock() {
+    let count = 0;
+    const at = new Map(); // id → count at its last move
+    return {
+      touch: (id) => { at.set(id, ++count); },
+      now: () => count,
+      movedSince: (seen) => new Set([...at].filter(([, n]) => n > seen).map(([id]) => id))
+    };
+  }
+
   let localLoadSeq = 0;
-  let localDeltas = 0;
-  const localDeltaAt = new Map(); // program key → localDeltas at its last move
-  const touchLocal = (id) => { localDeltaAt.set(id, ++localDeltas); };
+  const localClock = makeDeltaClock();
+  const touchLocal = localClock.touch;
+  let satLoadSeq = 0;
+  const satClock = makeDeltaClock();
+  const satAppClock = makeDeltaClock();
+  const satCamillaClock = makeDeltaClock();
 
   async function loadLocalPrograms() {
     const seq = ++localLoadSeq;
-    const deltasSeen = localDeltas;
+    const deltasSeen = localClock.now();
     hasEverLoaded.value = true;
     localProgramsLoading.value = true;
     localProgramsError.value = false;
@@ -96,7 +112,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     if (seq !== localLoadSeq) return result.ok;
     if (result.ok) {
       localPrograms.value = result.data.programs || {};
-      const newer = new Set([...localDeltaAt].filter(([, at]) => at > deltasSeen).map(([id]) => id));
+      const newer = localClock.movedSince(deltasSeen);
       reconcileActiveUpdates(localUpdateStates, result.data.active_updates || [], newer);
       // "Completed" means an update finished and this list had not caught up
       // yet — it suppresses one stale frame, nothing more. Kept past the
@@ -116,18 +132,24 @@ export const useUpdatesStore = defineStore('updates', () => {
     // `null` is the never-loaded state, and it is what draws the skeleton —
     // re-entering it on a refresh flashed every satellite section back to
     // skeletons for the length of a fleet-wide probe.
+    const seq = ++satLoadSeq;
+    const seen = [satClock.now(), satAppClock.now(), satCamillaClock.now()];
     satellitesError.value = false;
     const result = await apiCall.get('/api/programs/satellites', {
       category: 'updates',
       message: 'Error loading satellites',
       checkStatus: true
     });
+    if (seq !== satLoadSeq) return result.ok;
     if (result.ok) {
       const list = result.data.satellites || [];
       satellites.value = list;
-      reconcileActiveUpdates(satelliteUpdateStates, list.filter(s => s.updating).map(s => s.mac_id));
-      reconcileActiveUpdates(satelliteAppUpdateStates, list.filter(s => s.app_updating).map(s => s.mac_id));
-      reconcileActiveUpdates(satelliteCamillaUpdateStates, list.filter(s => s.camilladsp_updating).map(s => s.mac_id));
+      reconcileActiveUpdates(satelliteUpdateStates, list.filter(s => s.updating).map(s => s.mac_id),
+        satClock.movedSince(seen[0]));
+      reconcileActiveUpdates(satelliteAppUpdateStates, list.filter(s => s.app_updating).map(s => s.mac_id),
+        satAppClock.movedSince(seen[1]));
+      reconcileActiveUpdates(satelliteCamillaUpdateStates, list.filter(s => s.camilladsp_updating).map(s => s.mac_id),
+        satCamillaClock.movedSince(seen[2]));
     } else {
       satellitesError.value = true;
     }
@@ -177,19 +199,19 @@ export const useUpdatesStore = defineStore('updates', () => {
   async function startSatelliteUpdate(macId) {
     await startUpdate(satelliteUpdateStates, macId,
       `/api/programs/satellites/${macId}/update`,
-      `Error starting update for satellite ${macId}`);
+      `Error starting update for satellite ${macId}`, null, satClock.touch);
   }
 
   async function startSatelliteAppUpdate(macId) {
     await startUpdate(satelliteAppUpdateStates, macId,
       `/api/programs/satellites/${macId}/update-app`,
-      `Error starting app update for satellite ${macId}`);
+      `Error starting app update for satellite ${macId}`, null, satAppClock.touch);
   }
 
   async function startSatelliteCamillaUpdate(macId) {
     await startUpdate(satelliteCamillaUpdateStates, macId,
       `/api/programs/satellites/${macId}/update-camilladsp`,
-      `Error starting CamillaDSP update for satellite ${macId}`);
+      `Error starting CamillaDSP update for satellite ${macId}`, null, satCamillaClock.touch);
   }
 
   // === READ HELPERS ===
@@ -318,12 +340,12 @@ export const useUpdatesStore = defineStore('updates', () => {
 
   const handleProgramUpdateProgress = makeProgressHandler(localUpdateStates, 'program', touchLocal);
   const handleProgramUpdateComplete = makeCompleteHandler(localUpdateStates, localCompletedUpdates, 'program', loadLocalPrograms, touchLocal);
-  const handleSatelliteUpdateProgress = makeProgressHandler(satelliteUpdateStates, 'mac_id');
-  const handleSatelliteUpdateComplete = makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', awaitSatelliteReturn);
-  const handleSatelliteAppUpdateProgress = makeProgressHandler(satelliteAppUpdateStates, 'mac_id');
-  const handleSatelliteAppUpdateComplete = makeCompleteHandler(satelliteAppUpdateStates, satelliteAppCompletedUpdates, 'mac_id', awaitSatelliteReturn);
-  const handleSatelliteCamillaUpdateProgress = makeProgressHandler(satelliteCamillaUpdateStates, 'mac_id');
-  const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', awaitSatelliteReturn);
+  const handleSatelliteUpdateProgress = makeProgressHandler(satelliteUpdateStates, 'mac_id', satClock.touch);
+  const handleSatelliteUpdateComplete = makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', awaitSatelliteReturn, satClock.touch);
+  const handleSatelliteAppUpdateProgress = makeProgressHandler(satelliteAppUpdateStates, 'mac_id', satAppClock.touch);
+  const handleSatelliteAppUpdateComplete = makeCompleteHandler(satelliteAppUpdateStates, satelliteAppCompletedUpdates, 'mac_id', awaitSatelliteReturn, satAppClock.touch);
+  const handleSatelliteCamillaUpdateProgress = makeProgressHandler(satelliteCamillaUpdateStates, 'mac_id', satCamillaClock.touch);
+  const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', awaitSatelliteReturn, satCamillaClock.touch);
 
   // Reconciles in-flight update flags so "updating" survives a reconnect/foreground.
   // Lazily loaded: UpdateManager calls loadLocalPrograms() when it opens, and the

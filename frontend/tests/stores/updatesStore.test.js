@@ -287,6 +287,68 @@ describe('updatesStore in-flight update state', () => {
     expect(store.isLocalUpdating('snapcast')).toBe(true);
   });
 
+  const MAC = 'aa:bb:cc:dd:ee:ff';
+  const satellite = (flags = {}) => ok({ satellites: [{ mac_id: MAC, ...flags }] });
+
+  it('a satellite update pressed while the fleet is read is not cleared by its answer', async () => {
+    // Cleared, the button offers a second press the satellite refuses (409).
+    apiCall.get.mockResolvedValue(satellite());
+    await store.loadSatellites();
+    const pending = deferInventory();
+    const load = store.loadSatellites();
+
+    apiCall.post.mockResolvedValue(ok({ message: 'started' }));
+    await store.startSatelliteAppUpdate(MAC);
+    pending[0](satellite({ app_updating: false }));
+    await load;
+
+    expect(store.isSatelliteAppUpdating(MAC)).toBe(true);
+  });
+
+  it('a satellite update that failed while the fleet was read stays failed', async () => {
+    // A failed completion triggers no refetch: brought back by the stale
+    // answer, the row's three buttons stay greyed for the rest of the session.
+    apiCall.get.mockResolvedValue(satellite({ camilladsp_updating: true }));
+    await store.loadSatellites();
+    const pending = deferInventory();
+    const load = store.loadSatellites();
+
+    store.handleSatelliteCamillaUpdateComplete({ mac_id: MAC, success: false });
+    pending[0](satellite({ camilladsp_updating: true }));
+    await load;
+
+    expect(store.isSatelliteCamillaUpdating(MAC)).toBe(false);
+  });
+
+  it('a press on one satellite update leaves the answer in force for its other two', async () => {
+    // Another device started the satellite's dependency update meanwhile; the
+    // fleet read is the only word of it this client gets.
+    apiCall.get.mockResolvedValue(satellite());
+    await store.loadSatellites();
+    const pending = deferInventory();
+    const load = store.loadSatellites();
+
+    apiCall.post.mockResolvedValue(ok({ message: 'started' }));
+    await store.startSatelliteAppUpdate(MAC);
+    pending[0](satellite({ app_updating: true, updating: true }));
+    await load;
+
+    expect(store.isSatelliteUpdating(MAC)).toBe(true);
+  });
+
+  it('applies only the last fleet request sent', async () => {
+    const pending = deferInventory();
+    const first = store.loadSatellites();
+    const second = store.loadSatellites();
+
+    pending[1](satellite());
+    await second;
+    pending[0](satellite({ updating: true }));
+    await first;
+
+    expect(store.isSatelliteUpdating(MAC)).toBe(false);
+  });
+
   it('applies only the last inventory request sent, and stays loading until it answers', async () => {
     const pending = deferInventory();
     const first = store.loadLocalPrograms();
