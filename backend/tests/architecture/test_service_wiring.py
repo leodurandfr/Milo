@@ -1,7 +1,8 @@
 """Structural guardrail: how `core/` services are wired, and what they own.
 
-`CLAUDE.md § Core code rules` states three wiring rules that nothing verified.
-Each one had already been broken in production code when this test was written:
+`CLAUDE.md § Core code rules` states four rules that nothing verified. The
+first three had already been broken in production code when this test was
+written:
 
   * **Encapsulation** — never touch another service's `_private` attrs from a
     route or another service. `RadioSource._do_start` read
@@ -17,7 +18,14 @@ Each one had already been broken in production code when this test was written:
     passed: a second way to wire the same thing, kept alive only by tests, and
     a false signal that a service supports late binding it never gets.
 
-All three are mechanical and cheap to check, and all three are the kind of
+The fourth had not been broken yet, and nothing would have noticed:
+
+  * **Never mutate state directly** — the state machine alone writes its
+    record. A source assigning `self.state_machine.system_state.view` skips
+    every filter `update_source_view` applies (an inactive source, a view
+    arriving during `transitioning`, a sticky failed start).
+
+All four are mechanical and cheap to check, and all four are the kind of
 regression that reappears the moment someone adds a service.
 
 Doctrine note (same as the Milo-Mac / milo-client contract tests and the
@@ -26,6 +34,7 @@ first, so a broken parse fails loudly instead of passing on an empty surface.
 """
 import ast
 import re
+import textwrap
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -83,7 +92,8 @@ def test_extractor_sees_both_applications():
 
 # `self._x` / `cls._x` are the object's own state. A dunder (`obj.__class__`)
 # is not private state. Everything else — `other_service._cache`,
-# `self._collaborator._flag` — is someone else's business.
+# `self._collaborator._flag`, `self.state_machine._flag` — is someone else's
+# business.
 _ALLOWED_RECEIVERS = {"self", "cls"}
 
 # The rule is about objects this repo owns: the remedy it names — "expose a
@@ -99,6 +109,47 @@ _ALLOWED_RECEIVERS = {"self", "cls"}
 _VENDOR_INTERNALS = set()
 
 
+def _private_accesses(tree):
+    """`(lineno, access)` for every reach into another object's `_private`."""
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if not node.attr.startswith("_") or node.attr.startswith("__"):
+            continue
+        receiver = node.value
+        if isinstance(receiver, ast.Name):
+            if receiver.id not in _ALLOWED_RECEIVERS:
+                found.append((node.lineno, f"{receiver.id}.{node.attr}"))
+        elif isinstance(receiver, ast.Attribute):
+            # self.state_machine._flag, self._collaborator._flag — neither is us.
+            # `other._a._b` is left to `other._a`, reported on its own.
+            ours = isinstance(receiver.value, ast.Name) and receiver.value.id in _ALLOWED_RECEIVERS
+            if not receiver.attr.startswith("_") or ours:
+                found.append((node.lineno, ast.unparse(node)))
+    return found
+
+
+def test_private_scan_sees_a_public_receiver():
+    """The scan below must see a private reached through a public attribute.
+
+    `self.state_machine._ended_sessions.clear()` passed it: only `name._x` and
+    `self._x._y` were read, so a source could drop a queued `session_ended`
+    with every guardrail green.
+    """
+    planted = ast.parse(textwrap.dedent("""
+        self.state_machine._ended_sessions.clear()
+        sm._ended_sessions.clear()
+        self._state_machine._ended_sessions.clear()
+        self._own_flag = self.public.__class__
+    """))
+    assert {access for _, access in _private_accesses(planted)} == {
+        "self.state_machine._ended_sessions",
+        "sm._ended_sessions",
+        "self._state_machine._ended_sessions",
+    }
+
+
 def test_no_cross_object_private_access():
     """Reading another object's `_private` pins a name that is free to change.
 
@@ -108,29 +159,11 @@ def test_no_cross_object_private_access():
     violations = []
     exempted = set()
     for path, tree in _TREES.items():
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Attribute):
+        for lineno, access in _private_accesses(tree):
+            if (_rel(path), access) in _VENDOR_INTERNALS:
+                exempted.add((_rel(path), access))
                 continue
-            if not node.attr.startswith("_") or node.attr.startswith("__"):
-                continue
-            receiver = node.value
-            if isinstance(receiver, ast.Name) and receiver.id in _ALLOWED_RECEIVERS:
-                continue
-            if isinstance(receiver, ast.Attribute) and receiver.attr.startswith("_"):
-                # self._collaborator._flag — the collaborator is not us.
-                if isinstance(receiver.value, ast.Name) and receiver.value.id in _ALLOWED_RECEIVERS:
-                    access = f"self.{receiver.attr}.{node.attr}"
-                    if (_rel(path), access) in _VENDOR_INTERNALS:
-                        exempted.add((_rel(path), access))
-                        continue
-                    violations.append(f"{_rel(path)}:{node.lineno}: {access}")
-                continue
-            if isinstance(receiver, ast.Name):
-                access = f"{receiver.id}.{node.attr}"
-                if (_rel(path), access) in _VENDOR_INTERNALS:
-                    exempted.add((_rel(path), access))
-                    continue
-                violations.append(f"{_rel(path)}:{node.lineno}: {access}")
+            violations.append(f"{_rel(path)}:{lineno}: {access}")
 
     assert not violations, (
         "cross-object private access (CLAUDE.md § Core code rules — Encapsulation):\n  "
@@ -140,6 +173,103 @@ def test_no_cross_object_private_access():
         f"_VENDOR_INTERNALS entries that no longer match anything: "
         f"{sorted(_VENDOR_INTERNALS - exempted)}. An exemption outliving its "
         f"access is how an allowlist rots — delete the entry."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Never mutate state directly: the state machine alone writes its record.
+# --------------------------------------------------------------------------- #
+
+_STATE_MODULE = BACKEND_ROOT / "core" / "state.py"
+
+
+def _assigned(targets):
+    for target in targets:
+        if isinstance(target, (ast.Tuple, ast.List)):
+            yield from _assigned(target.elts)
+        elif isinstance(target, ast.Starred):
+            yield from _assigned([target.value])
+        else:
+            yield target
+
+
+def _reaches_the_record(target):
+    while isinstance(target, (ast.Attribute, ast.Subscript)):
+        if isinstance(target, ast.Attribute) and target.attr == "system_state":
+            return True
+        target = target.value
+    return False
+
+
+def _record_writes(tree):
+    """`(lineno, target)` for every assignment or `del` through `system_state`.
+
+    Reads are free — the record is read legitimately all over the backend. An
+    alias (`s = sm.system_state; s.view = …`), `setattr` and a mutating method
+    call (`….metadata.update(…)`) are not seen: the scan catches the direct
+    spelling, not a determined bypass.
+    """
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.Delete)):
+            targets = node.targets
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        else:
+            continue
+        found.extend(
+            (node.lineno, ast.unparse(target))
+            for target in _assigned(targets)
+            if _reaches_the_record(target)
+        )
+    return found
+
+
+def test_record_scan_sees_every_write_shape():
+    """Each way of writing the record is seen, and a read is not."""
+    planted = ast.parse(textwrap.dedent("""
+        self.state_machine.system_state.view = self.view
+        self.state_machine.system_state.service_error = None
+        flag, self.state_machine.system_state.transitioning = 1, False
+        self.state_machine.system_state.volume += 1
+        del self.state_machine.system_state.view
+        self.state_machine.system_state.metadata["title"] = title
+        view = self.state_machine.system_state.view
+    """))
+    assert [target for _, target in _record_writes(planted)] == [
+        "self.state_machine.system_state.view",
+        "self.state_machine.system_state.service_error",
+        "self.state_machine.system_state.transitioning",
+        "self.state_machine.system_state.volume",
+        "self.state_machine.system_state.view",
+        "self.state_machine.system_state.metadata['title']",
+    ]
+
+
+def test_no_module_writes_the_machines_record():
+    """Only `core/state.py` writes `system_state`.
+
+    A source that assigns `self.state_machine.system_state.view` or
+    `….service_error = None` to force a card on screen skips the three filters
+    `update_source_view` applies — an inactive source, a view arriving during
+    `transitioning`, a sticky failed start — and a CD whose start failed loses
+    its Retry (E07). Publish the view (`_publish()`) or ask the state machine
+    through a public method instead.
+    """
+    owner_writes = _record_writes(_TREES[_STATE_MODULE])
+    assert len(owner_writes) >= 10, (
+        f"only {len(owner_writes)} writes found in core/state.py — the scan is broken"
+    )
+
+    violations = [
+        f"{_rel(path)}:{lineno}: {target}"
+        for path, tree in _TREES.items()
+        if path != _STATE_MODULE
+        for lineno, target in _record_writes(tree)
+    ]
+    assert not violations, (
+        "writes to the state machine's record outside core/state.py (CLAUDE.md § "
+        "Core code rules — Never mutate state directly):\n  " + "\n  ".join(sorted(violations))
     )
 
 
