@@ -505,17 +505,45 @@ assert len(HANDLERS) > 150, f"only {len(HANDLERS)} handlers found — extractor 
 assert all(src for _, _, src in HANDLERS), "a handler's source could not be read — extractor broken?"
 
 
-def _returns_a_success_dict(fn: ast.AST) -> bool:
-    """True if `fn` has a `return` of a dict literal carrying a "success" key."""
-    return any(
-        isinstance(node, ast.Return)
-        and isinstance(node.value, ast.Dict)
-        and any(
-            isinstance(key, ast.Constant) and key.value == "success"
-            for key in node.value.keys
-        )
-        for node in ast.walk(fn)
+def _carries_success_key(node: ast.AST) -> bool:
+    return isinstance(node, ast.Dict) and any(
+        isinstance(key, ast.Constant) and key.value == "success" for key in node.keys
     )
+
+
+def _returns_a_success_dict(fn: ast.AST) -> bool:
+    """True if `fn` returns a dict literal carrying a "success" key.
+
+    Written in the `return` itself, or bound to a name first and returned by
+    that name or spread into the returned dict — `success_response` builds
+    `{"success": True}` first and returns `{**response, **kwargs}`.
+    """
+    success_names = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+        elif isinstance(node, ast.AnnAssign):
+            target = node.target
+        else:
+            continue
+        if isinstance(target, ast.Name) and _carries_success_key(node.value):
+            success_names.add(target.id)
+
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Return):
+            continue
+        if isinstance(node.value, ast.Name) and node.value.id in success_names:
+            return True
+        if not isinstance(node.value, ast.Dict):
+            continue
+        if _carries_success_key(node.value):
+            return True
+        if any(
+            key is None and isinstance(value, ast.Name) and value.id in success_names
+            for key, value in zip(node.value.keys, node.value.values)
+        ):
+            return True
+    return False
 
 
 def _success_dict_producers():
@@ -540,22 +568,41 @@ def _success_dict_producers():
 
 SUCCESS_PRODUCERS = _success_dict_producers()
 assert "add_custom_station" in SUCCESS_PRODUCERS, "producer scan broken?"
+assert "success_response" in SUCCESS_PRODUCERS, "spread producer scan broken?"
 # The satellite's services answer their own callers with a `success` dict, which
 # is internal and stays. Pinned here so the second root going unwalked shows up
 # as a broken scan rather than as a route that suddenly looks clean.
 assert "deploy_update" in SUCCESS_PRODUCERS, "satellite producer scan broken?"
 
 
+def _called_name(node: ast.AST) -> str | None:
+    """The function name `node` calls, through an `await` — None if not a call."""
+    value = node.value if isinstance(node, ast.Await) else node
+    if not isinstance(value, ast.Call):
+        return None
+    func = value.func
+    return func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+
+
 def _handler_success_flag(fn: ast.AST) -> str | None:
     """Describe how handler `fn` answers with a `success` flag, or None if it doesn't.
 
-    Two ways a route can do it: build the dict itself, or hand back one a
-    service built. The second is the one the string-matching version missed —
-    `return result` reads as clean at the route and is the forbidden envelope on
-    the wire.
+    Three ways a route can do it: build the dict itself, return a service's
+    call directly (`return await x.add_custom_station(...)`), or bind that call
+    to a name and return the name. The last two are the ones the
+    string-matching version missed — they read as clean at the route and are
+    the forbidden envelope on the wire. Producers are matched by name, so a
+    future function sharing a producer's name and returned by a route goes red
+    too: the over-approximation is deliberate.
     """
     if _returns_a_success_dict(fn):
         return "builds it"
+
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Return) and node.value is not None:
+            name = _called_name(node.value)
+            if name in SUCCESS_PRODUCERS:
+                return f"returns {name}()'s dict"
 
     returned = {
         node.value.id for node in ast.walk(fn)
@@ -570,11 +617,7 @@ def _handler_success_flag(fn: ast.AST) -> str | None:
         target = node.targets[0]
         if not (isinstance(target, ast.Name) and target.id in returned):
             continue
-        value = node.value.value if isinstance(node.value, ast.Await) else node.value
-        if not isinstance(value, ast.Call):
-            continue
-        func = value.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        name = _called_name(node.value)
         if name in SUCCESS_PRODUCERS:
             return f"returns {name}()'s dict"
     return None
@@ -595,10 +638,12 @@ def test_the_success_flag_extractor_discriminates():
     """Both directions of the check above, on hand-written handlers.
 
     A guardrail that only ever runs against a clean tree proves nothing: this
-    pins that it still catches the literal form, that it follows a value one hop
-    into the service that built it, and that it leaves the two legitimate shapes
-    alone — the documented envelope, and a command result handed back through
-    `run_source_command`.
+    pins that it still catches the literal form (returned directly, by a bound
+    name, or spread from one), that it follows a value one hop into the service
+    that built it — bound to a name first or returned directly, awaited or not —
+    and that it leaves the two legitimate shapes alone: the documented envelope,
+    and a command result handed back through `run_source_command`, bound or
+    direct.
     """
     caught = {
         "literal": 'async def r():\n    return {"success": True}\n',
@@ -606,6 +651,21 @@ def test_the_success_flag_extractor_discriminates():
             "async def r():\n"
             "    result = await source.station_data.add_custom_station(name=name)\n"
             "    return result\n"
+        ),
+        "direct return": (
+            "async def r():\n"
+            "    return await source.station_data.add_custom_station(name=name)\n"
+        ),
+        "direct return, sync": 'def r():\n    return source.success_response("x")\n',
+        "spread of a success dict": (
+            "def r():\n"
+            '    response = {"success": True}\n'
+            "    return {**response, **kw}\n"
+        ),
+        "bound literal": (
+            "def r():\n"
+            '    response: dict = {"success": True}\n'
+            "    return response\n"
         ),
     }
     allowed = {
@@ -615,15 +675,24 @@ def test_the_success_flag_extractor_discriminates():
             "    result = await run_source_command(source, 'play', {})\n"
             "    return result\n"
         ),
+        "command result, direct": (
+            "async def r():\n"
+            "    return await run_source_command(source, 'play', {})\n"
+        ),
     }
 
     assert {k: bool(_flag_of_source(v)) for k, v in caught.items()} == {
         "literal": True,
         "via a service": True,
+        "direct return": True,
+        "direct return, sync": True,
+        "spread of a success dict": True,
+        "bound literal": True,
     }
     assert {k: _flag_of_source(v) for k, v in allowed.items()} == {
         "envelope": None,
         "command result": None,
+        "command result, direct": None,
     }
 
 
