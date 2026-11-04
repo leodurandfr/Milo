@@ -286,7 +286,11 @@ def test_the_kiosk_is_switched_with_the_screen(verb):
     it every 3 seconds forever — with `milo-readiness` reading 339 MB of
     Chromium off the SD card at each boot to warm a browser nothing would
     display. Nothing said a word: `milo-kiosk` has no ConditionPath of its own
-    and the backend never looked.
+    and the backend never looked. Disabling is the signal, not the whole cure:
+    a restart starts a disabled unit and `milo-readiness` runs either way, so
+    the update rollback and the prewarm read `is-enabled` themselves
+    (`test_rollback_leaves_a_disabled_kiosk_stopped`,
+    `test_the_prewarm_only_runs_for_an_enabled_kiosk`).
 
     Both verbs, because only pruning is what makes a role half-applied: a
     screen plugged in later must re-enable the kiosk through the same apply.
@@ -302,6 +306,57 @@ def test_the_kiosk_is_switched_with_the_screen(verb):
 
     assert re.search(rf"systemctl {verb} milo-kiosk\.service", script), (
         f"milo-apply-hardware never runs `systemctl {verb} milo-kiosk.service`"
+    )
+
+
+@pytest.mark.parametrize("kiosk", ["enabled", "disabled"])
+def test_the_prewarm_only_runs_for_an_enabled_kiosk(tmp_path, kiosk):
+    """The 339 MB Chromium read is for the kiosk, and a disabled kiosk is a
+    unit with no screen (`milo-apply-hardware` disables it there).
+
+    `milo-readiness` still runs on such a unit, on purpose, so the script
+    itself has to ask: unguarded, it read the whole browser off the SD card at
+    every boot, alongside the backend's own imports, for a window nothing would
+    open. The splash is handed over either way — it does not depend on the
+    kiosk. The real script runs under `bash` with `systemctl`, `timeout` and
+    `curl` faked on PATH; the fake `timeout` records what it was asked to bound
+    and runs only `systemctl`, so neither the read nor plymouth happens here.
+    """
+    calls = tmp_path / "calls"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    rc = 0 if kiosk == "enabled" else 1
+    fakes = {
+        "systemctl": f'echo "systemctl $*" >> "{calls}"; echo {kiosk}; exit {rc}',
+        "timeout": f'echo "timeout $*" >> "{calls}"; shift; '
+        f'if [ "$1" = systemctl ]; then exec "$@"; fi; exit 0',
+        "curl": "exit 0",
+    }
+    for name, body in fakes.items():
+        fake = bin_dir / name
+        fake.write_text(f"#!/bin/sh\n{body}\n")
+        fake.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(WAIT_READY)],
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    log = calls.read_text().splitlines() if calls.exists() else []
+
+    assert result.returncode == 0, f"milo-wait-ready.sh failed: {result.stderr}"
+    assert any(
+        c.startswith("systemctl is-enabled") and c.endswith(" milo-kiosk.service") for c in log
+    ), f"milo-wait-ready.sh never asks whether the kiosk is enabled (calls: {log})"
+    prewarmed = any(c.startswith("timeout ") and "cat /usr/lib/chromium" in c for c in log)
+    assert prewarmed == (kiosk == "enabled"), (
+        f"the Chromium prewarm ran={prewarmed} for a {kiosk} kiosk (calls: {log})"
+    )
+    assert any(c.startswith("timeout ") and "plymouth quit" in c for c in log), (
+        f"the splash is no longer handed over for a {kiosk} kiosk (calls: {log})"
     )
 
 

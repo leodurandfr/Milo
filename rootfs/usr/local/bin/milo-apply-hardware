@@ -293,6 +293,11 @@ fi
 # reading 339 MB of Chromium off the SD card at every boot to warm a browser
 # nothing would display. Nothing said a word about any of it.
 #
+# The disabled state is the signal, and disabling alone ends neither cost: a
+# restart starts a disabled unit, and milo-readiness runs either way. So every
+# reader asks `is-enabled` first — the backend's kiosk restarts (screen.py, the
+# update rollback) and milo-wait-ready.sh's prewarm.
+#
 # Here rather than in the backend because this is the one place that already
 # knows the screen changed, and it runs on both paths that can change it (the
 # setup wizard and the Hardware page). Idempotent and symmetric: plugging a

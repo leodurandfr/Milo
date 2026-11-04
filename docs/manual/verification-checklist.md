@@ -59,7 +59,7 @@ by default (README Rule 3):
 | Music Library over SMB/NFS | a **NAS/share**; USB-only covers half the source |
 | Hardware variants | other **HiFiBerry cards**, the 7" USB vs 8" DSI screens |
 | First boot | a **blank SD card** — the AP + captive portal + wizard path is never re-exercised on a configured unit |
-| Kiosk with no screen | the **panel physically disconnected**. `milo-apply-hardware` now disables `milo-kiosk.service` when `screen.type` is `none`, which is correct whatever cage does with no connected DRM output — but the symptom it fixes (a restart loop every 3 s, plus the 339 MB Chromium prewarm at every boot) has **not** been observed on a unit, only reasoned about |
+| Kiosk with no screen | the **panel physically disconnected**. `milo-apply-hardware` now disables `milo-kiosk.service` when `screen.type` is `none`, which is correct whatever cage does with no connected DRM output, and the update rollback's kiosk restart and `milo-wait-ready.sh`'s 339 MB Chromium prewarm both run only when `systemctl is-enabled` says so — but the symptoms this fixes (a restart loop every 3 s, the prewarm at every boot) have **not** been observed on a unit, only reasoned about |
 | Updates | an actual **published release** newer than the installed one |
 
 Anything below marked ⚠ depends on one of these.

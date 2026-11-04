@@ -545,8 +545,11 @@ class UpdateService(VersionService):
 
             # Restart services. Kiosk first (observable); milo-backend LAST and
             # fire-and-forget — restarting our own unit tears this process down
-            # mid-call, so anything after it would not run.
-            if not await self._restart_service("milo-kiosk.service"):
+            # mid-call, so anything after it would not run. Only an enabled
+            # kiosk, as in screen.py: a disabled one is a unit with no screen,
+            # and a restart would start it.
+            if (await self._systemd.is_enabled("milo-kiosk.service")
+                    and not await self._restart_service("milo-kiosk.service")):
                 # Logged, not fatal: the tree is back on the previous commit and
                 # the backend restart below is what puts it back in service. A
                 # kiosk that stayed down is a black screen the owner has to be

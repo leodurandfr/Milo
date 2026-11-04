@@ -4217,12 +4217,14 @@ class TestRollbackMiloToCommit:
     STATUS = MILO_STATUS
 
     @staticmethod
-    def _router(*, checkout=(0, b"", b""), pip=(0, b"", b"")):
+    def _router(*, checkout=(0, b"", b""), pip=(0, b"", b""), kiosk=b"enabled"):
         def route(argv):
             if "checkout" in argv:
                 return checkout
             if str(argv[0]).endswith("pip3"):
                 return pip
+            if "is-enabled" in argv:
+                return (0 if kiosk == b"enabled" else 1, kiosk + b"\n", b"")
             return (0, b"", b"")
         return route
 
@@ -4287,9 +4289,10 @@ class TestRollbackMiloToCommit:
 
     @pytest.mark.asyncio
     async def test_a_kiosk_that_stays_down_is_reported_but_not_fatal(self, update_service, caplog):
-        """A black screen the owner has to be told about; the tree is back on
-        the previous commit and the backend restart below is what puts the unit
-        back in service, so calling the rollback failed here would be wrong."""
+        """A black screen the owner has to be told about, on a unit whose kiosk
+        is enabled; the tree is back on the previous commit and the backend
+        restart below is what puts the unit back in service, so calling the
+        rollback failed here would be wrong."""
         restart_self = AsyncMock()
         with spawning(self._router()), \
                 patch.object(update_service, "_sync_system_files"), \
@@ -4304,8 +4307,8 @@ class TestRollbackMiloToCommit:
     @pytest.mark.asyncio
     async def test_the_backend_restarts_itself_last(self, update_service):
         """Restarting our own unit tears this process down mid-call, so anything
-        after it does not run — the kiosk restart and the system-file sync have
-        to be finished before it is issued."""
+        after it does not run — the kiosk restart (the kiosk is enabled here)
+        and the system-file sync have to be finished before it is issued."""
         order = []
         with spawning(self._router()), \
                 patch.object(update_service, "_sync_system_files",
@@ -4317,6 +4320,29 @@ class TestRollbackMiloToCommit:
             await update_service._rollback_milo_to_commit("abc123def")
 
         assert order == ["sync", "milo-kiosk.service", "self"]
+
+    @pytest.mark.asyncio
+    async def test_rollback_leaves_a_disabled_kiosk_stopped(self, update_service, caplog):
+        """`milo-apply-hardware` disables the kiosk on a unit with no screen,
+        and a restart starts a disabled unit: cage then fails against a DRM
+        device with no output and `Restart=always` brings it back every 3 s
+        until the next boot, with a "Kiosk failed to restart" error for a
+        screen that does not exist. The backend still restarts."""
+        restart_service = AsyncMock(return_value=True)
+        restart_self = AsyncMock()
+        with spawning(self._router(kiosk=b"disabled")) as spawn, \
+                patch.object(update_service, "_sync_system_files"), \
+                patch.object(update_service, "_restart_service", restart_service), \
+                patch.object(update_service._systemd, "restart_self", restart_self), \
+                caplog.at_level(logging.ERROR):
+            assert await update_service._rollback_milo_to_commit("abc123def") is True
+
+        assert any("is-enabled" in c["argv"] and "milo-kiosk.service" in c["argv"] for c in spawn.calls), (
+            "the rollback never asked whether the kiosk is enabled"
+        )
+        assert "milo-kiosk.service" not in [a.args[0] for a in restart_service.await_args_list]
+        restart_self.assert_awaited_once_with("milo-backend.service")
+        assert "Kiosk failed to restart" not in caplog.text
 
 
 class TestMiloAppCheckoutArms:

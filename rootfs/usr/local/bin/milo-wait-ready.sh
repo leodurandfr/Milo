@@ -18,7 +18,9 @@
 #     first painted frame — measured, since a kiosk restart with those pages
 #     already cached paints in 1 s, profile wiped or not. Reading them while the
 #     splash is up moves the read off the critical path. mq-deadline is the disk
-#     scheduler here, so ionice would be decorative and is not used.
+#     scheduler here, so ionice would be decorative and is not used. Only for an
+#     enabled kiosk: milo-apply-hardware disables it on a unit with no screen,
+#     where this unit still runs and the read would warm a browser nothing opens.
 
 set -u
 
@@ -79,10 +81,15 @@ ramp_until() {
 responds() { curl -sf --connect-timeout 2 --max-time 3 -o /dev/null "$1"; }
 
 # Started before the first wait so it uses the window where the backend has not
-# begun reading yet; `timeout` bounds it against a stalled card.
-timeout 30 cat /usr/lib/chromium/chromium /usr/lib/chromium/*.so \
-    /usr/lib/chromium/*.pak /usr/lib/chromium/*.bin > /dev/null 2>&1 &
-prewarm=$!
+# begun reading yet; `timeout` bounds it against a stalled card. The kiosk check
+# reads the word, as the backend does (the exit code is 0 for static and
+# enabled-runtime too), and is bounded like every other wait here.
+prewarm=
+if [[ "$(timeout 2 systemctl is-enabled milo-kiosk.service 2>/dev/null)" == enabled ]]; then
+    timeout 30 cat /usr/lib/chromium/chromium /usr/lib/chromium/*.so \
+        /usr/lib/chromium/*.pak /usr/lib/chromium/*.bin > /dev/null 2>&1 &
+    prewarm=$!
+fi
 
 # Weights track the measured split: nginx answers ~4 s in, the backend ~13 s.
 ramp_until 0 25 4 "nginx" responds "$FRONTEND_URL"
@@ -94,7 +101,7 @@ ramp_until 25 95 13 "backend" responds "$BACKEND_URL"
 # there never reaches `plymouth quit`, and plymouth-quit.service is masked, so that
 # is a splash frozen for good. Past the deadline the screen goes to the kiosk and
 # the read finishes behind it.
-while kill -0 "$prewarm" 2>/dev/null && now && (( NOW < DEADLINE )); do
+while [[ -n "$prewarm" ]] && kill -0 "$prewarm" 2>/dev/null && now && (( NOW < DEADLINE )); do
     sleep "$TICK"
 done
 
