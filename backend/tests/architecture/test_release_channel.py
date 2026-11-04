@@ -472,13 +472,21 @@ def test_inspect_image_refuses_what_it_cannot_parse(tmp_path):
     """
     image = str(tmp_path / "milo.img")
     script = str(REPO_ROOT / "pi-gen" / INSPECTOR)
-    for argv in (
-        [script, "--img", image, "--frobnicate"],
-        [script, "--ref", "--img", image],
-        [script, "--img", image, "--ref"],
-        [script, "--ref", "v9.8.7", "--img", image, "--ref", "main"],
-        [script, "--img", image, str(tmp_path)],
+    # Each case names the rule that must refuse it, so a case that another rule
+    # happens to catch cannot stand in for a rule that was deleted: an unknown
+    # option alone is the only argument that could become a root.
+    for argv, reason in (
+        ([script, "--frobnicate"], "unknown option: --frobnicate"),
+        ([script, "--ref", "v9.8.7", "--frobnicate"], "unknown option: --frobnicate"),
+        ([script, "--img", image, "--frobnicate"], "unknown option: --frobnicate"),
+        ([script, "--ref", "--img", image], "--ref needs a value"),
+        ([script, "--img", image, "--ref"], "--ref needs a value"),
+        ([script, "--ref", "v9.8.7", "--img", image, "--ref", "main"], "--ref given twice"),
+        ([script, "--img", image, str(tmp_path)], "--img and a root are exclusive"),
     ):
         result = _parse_only(argv)
         assert result.returncode != 0, f"{argv} was accepted: {result.stdout!r}"
         assert "REF=" not in result.stdout, f"{argv} was parsed: {result.stdout!r}"
+        assert reason in result.stderr, (
+            f"{argv} was not refused for {reason!r}: {result.stderr!r}"
+        )
