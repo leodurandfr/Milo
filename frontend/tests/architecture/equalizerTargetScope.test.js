@@ -188,7 +188,14 @@ describe('equalizerStore target scoping', () => {
       .filter(f => stripComments(f.body).includes('fetchTargetRecord('))
       .map(f => f.name);
 
-    expect(readers).toEqual(['fetchTargetRecord', 'loadStatus']);
+    // The one other reader is a refused effect write reading back what the
+    // target still holds (the view wrote the dragged value into the store before
+    // the write). It may take its own effect object and nothing else, through
+    // loadStatus' merge, so the two cannot disagree about any other field.
+    expect(readers).toEqual(['fetchTargetRecord', 'loadStatus', '_updateEffect']);
+    const readBack = stripComments(FUNCTIONS.find(f => f.name === '_updateEffect').body);
+    expect([...readBack.matchAll(/\brecord\b[^\s;)]*/g)].map(m => m[0]))
+      .toEqual(['record', 'record?.[name]', 'record[name]']);
   });
 
   it('spells the zone target in exactly one place', () => {

@@ -540,12 +540,20 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === ADVANCED FEATURES ===
 
+  const effectWriteSeq = { compressor: 0, loudness: 0 };
+
   /**
    * Write one effect's settings object to the current target, optimistically:
-   * apply locally so the sliders answer the finger, restore the whole object if
-   * the target refuses. `name` is both the path segment and the log noun.
+   * apply locally so the sliders answer the finger. A refusal reads back what
+   * the target still holds — the view has already written the dragged value
+   * into the store, and a fan-out that failed after the record was saved keeps
+   * the new value — and the snapshot is restored only when nothing answers.
+   * Nothing is applied once the target changed or a later write to the same
+   * effect started. `name` is both the path segment and the log noun.
    */
   async function _updateEffect(settingsRef, name, settings) {
+    const target = targetRef();
+    const seq = ++effectWriteSeq[name];
     const previous = { ...settingsRef.value };
     Object.assign(settingsRef.value, settings);
 
@@ -554,9 +562,18 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       message: `Error updating ${name}`,
       checkStatus: true,
     });
+    if (result.ok) return true;
 
-    if (!result.ok) Object.assign(settingsRef.value, previous);
-    return result.ok;
+    const current = () => targetRef() === target && effectWriteSeq[name] === seq;
+    if (!current()) return false;
+    const record = await fetchTargetRecord();
+    if (!current()) return false;
+    if (record?.[name]) {
+      settingsRef.value = { ...settingsRef.value, ...record[name] };
+    } else {
+      Object.assign(settingsRef.value, previous);
+    }
+    return false;
   }
 
   const updateCompressor = (settings) => _updateEffect(compressor, 'compressor', settings);

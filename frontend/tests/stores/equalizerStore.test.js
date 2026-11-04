@@ -304,12 +304,111 @@ describe('equalizerStore', () => {
       expect(equalizerStore.isEqualizerEffectsEnabled).toBe(false);
     });
 
-    it('restores the whole effect object when the target refuses the write', async () => {
+    it('restores the whole effect object when neither the write nor the read-back answers', async () => {
       const before = { ...equalizerStore.compressor };
       apiCall.put.mockResolvedValueOnce(fail());
+      apiCall.get.mockResolvedValueOnce(fail());
 
       expect(await equalizerStore.updateCompressor({ enabled: true, threshold: -99 })).toBe(false);
       expect(equalizerStore.compressor).toEqual(before);
+    });
+  });
+
+  describe('refused effect writes', () => {
+    /**
+     * EqualizerModal writes every slider input straight into the store while
+     * the finger moves, so by the time updateLoudness() runs the store already
+     * holds the dragged value: a snapshot taken there "restores" the value the
+     * target refused. No WS echo follows a refused write, so the slider would
+     * stay on a level the DSP is not playing until the modal is reopened.
+     */
+    async function loadLocalRecord(loudness) {
+      apiCall.get.mockImplementation(async (url) => (
+        url.endsWith('/presets')
+          ? ok({ presets: [] })
+          : ok({ state: 'running', enabled: true, filters: [], loudness })
+      ));
+      await equalizerStore.loadStatus();
+      apiCall.get.mockReset();
+    }
+
+    it('a refused effect write shows the record the target still holds, even after the view wrote the dragged value', async () => {
+      await loadLocalRecord({ enabled: true, low_boost: 8, high_boost: 5 });
+      equalizerStore.loudness.low_boost = 12;
+      apiCall.put.mockResolvedValueOnce(fail());
+      apiCall.get.mockResolvedValueOnce(ok({
+        state: 'running', loudness: { enabled: true, low_boost: 9, high_boost: 5 },
+      }));
+
+      expect(await equalizerStore.updateLoudness({ low_boost: 12 })).toBe(false);
+
+      const putOrder = apiCall.put.mock.invocationCallOrder[0];
+      const readBack = apiCall.get.mock.calls.findIndex(([url]) => url === '/api/equalizer/target/local');
+      expect(readBack).toBeGreaterThanOrEqual(0);
+      expect(apiCall.get.mock.invocationCallOrder[readBack]).toBeGreaterThan(putOrder);
+      expect(equalizerStore.loudness.low_boost).toBe(9);
+    });
+
+    it('keeps a value the target persisted before its fan-out failed', async () => {
+      // A satellite answering 503 after the record was saved: the server holds 12.
+      await loadLocalRecord({ enabled: true, low_boost: 8, high_boost: 5 });
+      equalizerStore.loudness.low_boost = 12;
+      apiCall.put.mockResolvedValueOnce(fail('Satellite unavailable', 503));
+      apiCall.get.mockResolvedValueOnce(ok({
+        state: 'running', loudness: { enabled: true, low_boost: 12, high_boost: 6 },
+      }));
+
+      expect(await equalizerStore.updateLoudness({ low_boost: 12 })).toBe(false);
+
+      expect(equalizerStore.loudness.low_boost).toBe(12);
+      expect(equalizerStore.loudness.high_boost).toBe(6);
+    });
+
+    it('writes nothing into the target selected while the read-back was in flight', async () => {
+      await loadLocalRecord({ enabled: true, low_boost: 8, high_boost: 5 });
+      equalizerStore.loudness.low_boost = 12;
+      apiCall.put.mockResolvedValueOnce(fail());
+      apiCall.get.mockImplementationOnce(async () => {
+        equalizerStore.selectedTarget = REMOTE_MAC;
+        equalizerStore.loudness = { enabled: false, low_boost: 3, high_boost: 2 };
+        return ok({ state: 'running', loudness: { enabled: true, low_boost: 9, high_boost: 5 } });
+      });
+
+      expect(await equalizerStore.updateLoudness({ low_boost: 12 })).toBe(false);
+
+      expect(equalizerStore.loudness).toEqual({ enabled: false, low_boost: 3, high_boost: 2 });
+    });
+
+    it('reads nothing back from a target selected while the refused write was in flight', async () => {
+      await loadLocalRecord({ enabled: true, low_boost: 8, high_boost: 5 });
+      apiCall.put.mockImplementationOnce(async () => {
+        equalizerStore.selectedTarget = REMOTE_MAC;
+        return fail();
+      });
+
+      expect(await equalizerStore.updateLoudness({ low_boost: 12 })).toBe(false);
+
+      expect(apiCall.get).not.toHaveBeenCalledWith(`/api/equalizer/target/${REMOTE_MAC}`, expect.anything());
+    });
+
+    it('a slow read-back does not overwrite a later value released in the meantime', async () => {
+      await loadLocalRecord({ enabled: true, low_boost: 8, high_boost: 5 });
+      let answerReadBack;
+      apiCall.put.mockResolvedValueOnce(fail());
+      apiCall.get.mockImplementationOnce(() => new Promise((resolve) => { answerReadBack = resolve; }));
+
+      equalizerStore.loudness.low_boost = 12;
+      const refused = equalizerStore.updateLoudness({ low_boost: 12 });
+      await vi.waitFor(() => expect(answerReadBack).toBeTypeOf('function'));
+
+      equalizerStore.loudness.low_boost = 10;
+      apiCall.put.mockResolvedValueOnce(ok({ status: 'success' }));
+      expect(await equalizerStore.updateLoudness({ low_boost: 10 })).toBe(true);
+
+      answerReadBack(ok({ state: 'running', loudness: { enabled: true, low_boost: 8, high_boost: 5 } }));
+      expect(await refused).toBe(false);
+
+      expect(equalizerStore.loudness.low_boost).toBe(10);
     });
   });
 
