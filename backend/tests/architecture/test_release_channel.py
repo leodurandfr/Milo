@@ -89,6 +89,42 @@ def test_the_catalog_names_a_release_asset_and_no_branch():
     ), milo["frontend_asset_url"]
 
 
+# The programs a frontend build or install is launched with, by basename.
+_FRONTEND_BUILDERS = {"npm", "npx", "pnpm", "yarn", "corepack", "vite"}
+
+
+def _frontend_build_sites(source: str) -> tuple[int, list[str]]:
+    """The `_run_local` calls naming their program literally, and every string
+    in the code that names a frontend builder.
+
+    Every string literal is read, not only an argv's head: the program can sit
+    behind `sudo -u milo`, inside a `bash -c` line, or in a constant the call
+    reads, and quoting and line breaks are gone once parsed. Docstrings are
+    prose about the old chain and are skipped.
+    """
+    tree = ast.parse(source)
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and ast.get_docstring(node, clean=False) is not None
+    }
+    literal_launches = 0
+    sites = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, (ast.Attribute, ast.Name))
+                and getattr(node.func, "attr", getattr(node.func, "id", None)) == "_run_local"
+                and node.args and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)):
+            literal_launches += 1
+        if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and id(node) not in docstrings
+                and any(Path(word).name in _FRONTEND_BUILDERS
+                        for word in re.findall(r"[\w./-]+", node.value))):
+            sites.append(f"line {node.lineno}: {node.value!r}")
+    return literal_launches, sites
+
+
 def test_the_update_service_neither_pulls_a_branch_nor_builds_a_frontend():
     """The two halves of the old chain, read straight out of the source.
 
@@ -100,11 +136,53 @@ def test_the_update_service_neither_pulls_a_branch_nor_builds_a_frontend():
     assert "_update_milo_app" in source, "reading the wrong file"
 
     assert not re.search(r'"pull"', source), "the milo install pulls a branch again"
-    assert not re.search(r'^\s*"npm"', source, re.MULTILINE), \
-        "the unit builds a frontend again"
+    literal_launches, build_sites = _frontend_build_sites(source)
+    assert literal_launches >= 1, "no `_run_local` names its program: the walk reads nothing"
+    assert not build_sites, f"the unit builds a frontend again: {build_sites}"
     # The ref it checks out has to come from the offer, not from a constant.
     assert 'status["latest"]["tag_name"]' in source, \
         "the install no longer takes its ref from the release it was offered"
+
+
+@pytest.mark.parametrize("body", [
+    "ok, out = await self._run_local('npm', 'ci', timeout=600)",
+    'ok, out = await self._run_local(\n'
+    '        "npm",\n'
+    '        "ci",\n'
+    '    )',
+    "await self._run_local('sudo', '-u', 'milo', 'npm', 'ci')",
+    "await self._run_local('bash', '-c', 'npm ci && npm run build')",
+    "await self._run_local('rm', '-rf', x)\n"
+    "    await asyncio.create_subprocess_exec('npm', 'install')",
+    "await self._run_local('rm', '-rf', x)\n"
+    "    argv = ['/usr/bin/npx', 'vite', 'build']",
+    "await self._run_local('rm', '-rf', x)\n"
+    "    NPM = shutil.which('npm')",
+], ids=["one-line", "split-call", "behind-sudo", "shell-line", "subprocess-exec",
+        "argv-list", "constant"])
+def test_the_npm_check_goes_red_on_a_one_line_call(body):
+    """Each way update.py launches a program, with a frontend builder in it.
+
+    The check above used to see npm only at the start of a line, which is not
+    how `_run_local` is called: an `npm ci` reintroduced in the rollback, one
+    line long, would have the unit rebuild a frontend on every rollback while
+    this file stayed green.
+    """
+    source = f"async def rollback(self, x):\n    {body}\n"
+
+    literal_launches, sites = _frontend_build_sites(source)
+
+    assert literal_launches == 1
+    assert sites, f"a frontend build went unseen in:\n{source}"
+
+
+def test_the_npm_check_flags_no_other_program():
+    """A check that refused every program would be red on everything, docstrings
+    about the old chain included."""
+    source = 'async def f(self, x):\n    """Once ran `npm install`."""\n' \
+        '    await self._run_local("rm", "-rf", x, "node_modules")\n'
+
+    assert _frontend_build_sites(source) == (1, [])
 
 
 def test_the_workflow_publishes_the_asset_the_backend_downloads(workflow):
