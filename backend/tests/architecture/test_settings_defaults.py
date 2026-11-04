@@ -21,6 +21,7 @@ swallows the mutation fails the rule instead of passing it vacuously.
 """
 import ast
 import copy
+import inspect
 from pathlib import Path
 
 import pytest
@@ -191,7 +192,7 @@ def test_the_volume_dataclass_agrees_with_the_declared_section():
 # No second declaration anywhere else in the backend
 # --------------------------------------------------------------------------
 
-SETTINGS_READS = ("get_setting", "get_settings", "load_settings")
+SETTINGS_READS = ("get_setting", "get_setting_sync", "get_all_settings", "load_settings")
 
 LITERAL_NODES = (ast.Constant, ast.List, ast.Dict, ast.Tuple, ast.Set)
 
@@ -237,9 +238,10 @@ def _const_str(node):
 def _settings_path(node, env):
     """The settings path an expression names, or None if it names none.
 
-    Resolves the four ways this backend reaches into settings.json —
-    `get_setting('a.b')`, `load_settings()`, a `[key]` subscript and a `.get(key)`
-    — through local variables, so `section = await settings.get_setting('volume')`
+    Resolves the ways this backend reaches into settings.json —
+    `get_setting('a.b')` / `get_setting_sync('a.b')`, `load_settings()` /
+    `get_all_settings()`, a `[key]` subscript and a `.get(key)` — through local
+    variables, so `section = await settings.get_setting('volume')`
     followed by `section.get('limit_max_db', …)` resolves to `volume.limit_max_db`.
     Anything it cannot resolve is None, which is what keeps reads of *undeclared*
     data (hardware.json's `hardware.ir_remote`, the bt-remote key map) out of the
@@ -258,7 +260,7 @@ def _settings_path(node, env):
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
         if node.func.attr in SETTINGS_READS:
             if not node.args:
-                return ()  # load_settings() — the whole document
+                return ()  # load_settings() / get_all_settings() — the whole document
             key = _const_str(node.args[0])
             return tuple(key.split(".")) if key else None
         if node.func.attr == "get" and node.args:
@@ -342,6 +344,20 @@ def test_the_offender_extractor_discriminates(tmp_path):
         "    return everything['screen'].get('timeout_seconds', 10)\n"
     )
     assert offenders(
+        "def f(self):\n"
+        "    mac = self.settings_service.get_setting_sync('mac')\n"
+        "    return mac.get('target_latency_ms', 40)\n"
+    )
+    assert offenders(
+        "def f(self):\n"
+        "    return self.settings_service.get_setting_sync('routing.multiroom_enabled') or False\n"
+    )
+    assert offenders(
+        "async def f(settings):\n"
+        "    everything = await settings.get_all_settings()\n"
+        "    return everything['screen'].get('timeout_seconds', 10)\n"
+    )
+    assert offenders(
         "async def f(settings):\n"
         "    section = await settings.get_setting('volume')\n"
         "    return section['limit_max_db']\n"
@@ -351,6 +367,25 @@ def test_the_offender_extractor_discriminates(tmp_path):
         "    config = await settings.get_setting('hardware.ir_remote') or {}\n"
         "    return config.get('enabled', False)\n"
     ) == []
+
+
+def test_settings_reads_are_the_services_read_methods():
+    """`SETTINGS_READS` names exactly the reads `SettingsService` offers.
+
+    A read missing from the tuple is invisible to the rule below: a literal
+    fallback on `get_setting_sync`, which `AudioRoutingService` reads when it
+    writes routing.env and mac.env at STEP 3b of the boot, passed with the
+    guard green. A name the service does not define resolves nothing and only
+    reads as coverage. The rule still resolves local names only, so a section
+    handed to another function as a parameter stays out of its reach.
+    """
+    reads = {
+        name
+        for name, _ in inspect.getmembers(SettingsService, inspect.isfunction)
+        if name.startswith(("get_", "load_"))
+    }
+    assert reads, "SettingsService exposes no read method: the extraction is broken"
+    assert set(SETTINGS_READS) == reads
 
 
 def test_no_module_restates_a_default_as_a_fallback():
