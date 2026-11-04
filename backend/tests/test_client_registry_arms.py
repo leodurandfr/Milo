@@ -404,10 +404,11 @@ class TestThePersistenceArms:
         is the only thing `initialize` calls that can fail — so a load failure
         logs *there* and this method still answers True. That is the fail-open
         the appliance's principles ask for, but it means what B1-4 recorded is
-        the whole story of a bad boot: the three sections share one `try`, a
-        section that failed to load leaves the registry empty for it, and
-        `_persist_state` then serialises the whole in-memory state — so the
-        first mutation that follows *overwrites* what could not be read.
+        the whole story of a bad boot: the three sections share one `try`, and
+        a section that failed to load leaves the registry empty for it. Since
+        `_persist_state` serialises the whole in-memory state, the failed load
+        also holds every later write back, so what could not be read stays on
+        disk as it was (test_core_multiroom.py, test_a_corrupt_load_is_never_written_back).
 
         Inertia recorded, not removed: the arm costs nothing and the day
         `_load_persisted_state` stops swallowing, it is what keeps a corrupted

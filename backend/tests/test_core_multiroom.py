@@ -11,6 +11,7 @@ Tests:
 """
 import pytest
 import asyncio
+import copy
 import logging
 import time
 import aiohttp
@@ -3247,6 +3248,7 @@ class _StoringSettings:
     async def set_settings(self, updates):
         self.writes += 1
         self.stored.update(updates)
+        return True
 
 
 class TestRegistryPersistenceRoundTrip:
@@ -3254,9 +3256,10 @@ class TestRegistryPersistenceRoundTrip:
 
     What breaks when this fails is worse than "the data is missing": clients,
     zones and per-client EQ are persisted through a single path that always
-    serialises the CURRENT in-memory state, so a section that fails to load is
-    ERASED by the first mutation that follows. A zone that did not come back is
-    a zone the next client registration deletes from settings.json.
+    serialises the CURRENT in-memory state, so a section that did not come back
+    would be erased by the first mutation that follows. A load that raised
+    therefore holds every write back (see test_a_corrupt_load_is_never_written_back);
+    a load that silently dropped a section would still erase it.
 
     Measured 2026-08-25: only the clients branch of `_load_persisted_state` ran
     under the whole suite. The zones and client_equalizer branches were at 0 %.
@@ -3322,9 +3325,9 @@ class TestRegistryPersistenceRoundTrip:
 
         Clients, then zones, then client_equalizer, all under a single
         try/except. A zone that will not deserialise therefore takes the EQ
-        records of the whole fleet with it, silently, and the boot still reports
-        success. Combined with the write-back above, that is how a single bad
-        entry ends up erasing two sections from settings.json.
+        records of the whole fleet with it, and the boot still reports success.
+        What keeps that from erasing two sections of settings.json is that the
+        registry then writes nothing back (test_a_corrupt_load_is_never_written_back).
         """
         settings = _StoringSettings()
         await self._populated(settings)
@@ -3338,10 +3341,10 @@ class TestRegistryPersistenceRoundTrip:
         assert reloaded.get_client_equalizer(self.A) is None, "the section after it did not load"
 
     async def test_a_reload_followed_by_a_write_does_not_erase_the_other_sections(self):
-        """The consequence that makes a silent load failure destructive.
+        """The consequence that would make a load that drops a section destructive.
 
         `_persist_state` serialises the whole current state in one write, so
-        anything the load did not bring back is gone from settings.json the
+        anything the load did not bring back would be gone from settings.json the
         moment anything else changes — a client registration is enough.
         """
         settings = _StoringSettings()
@@ -3352,6 +3355,64 @@ class TestRegistryPersistenceRoundTrip:
 
         assert set(settings.stored["multiroom.zones"]) == {"z1"}
         assert self.A in settings.stored["multiroom.client_equalizer"]
+
+    C = "aa:bb:cc:dd:ee:03"
+
+    @pytest.mark.parametrize("corruption", ["filter_without_id", "null_zone"])
+    async def test_a_corrupt_load_is_never_written_back(self, corruption, caplog):
+        """A section that failed to load must cost the registry, never the disk.
+
+        The load stops at the first unreadable entry, so whatever follows it —
+        the next speakers' EQ records, every zone — is missing from memory, and
+        `_persist_state` serialises memory whole. Writing after such a load is
+        what erased the third speaker's valid EQ (corrupt filter ahead of it)
+        and every EQ plus every zone (a null zone) from settings.json at the
+        first admission. Both mutations stay in memory and report False, which
+        is what keeps the admission's pending identity (snapcast websocket).
+        """
+        settings = _StoringSettings()
+        registry = await self._populated(settings)
+        if corruption == "filter_without_id":
+            await registry.register_client(self.C, "Cuisine", "192.168.1.12")
+            await registry.set_client_equalizer(self.C, EqualizerSettings(
+                filters=[EqFilter(id="eq_band_00", frequency=80, gain=-2.0, q=1.2)],
+            ))
+            del settings.stored["multiroom.client_equalizer"][self.A]["filters"][0]["id"]
+        else:
+            settings.stored["multiroom.zones"] = {"z1": None}
+        snapshot = copy.deepcopy(settings.stored)
+        writes_before = settings.writes
+
+        reloaded = ClientRegistryService(settings_service=settings)
+        assert await reloaded.initialize() is True, "the boot must stay fail-open"
+
+        new = "aa:bb:cc:dd:ee:04"
+        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.client_registry"):
+            assert await reloaded.register_client(new, "Entrée", "192.168.1.13") is False
+            assert await reloaded.update_client(new, name="Couloir") is not None
+
+        assert reloaded.get_client(new) is not None, "the change still holds in memory"
+        assert settings.writes == writes_before
+        assert settings.stored == snapshot
+        kept = [r for r in caplog.records if "kept as it is" in r.message]
+        assert len(kept) == 1, "reported once, not once per mutation"
+
+    async def test_a_deferred_write_after_a_corrupt_load_is_not_flushed(self):
+        """The EQ drag's debounced write and the shutdown flush take the same
+        path; neither may write a partial state back."""
+        settings = _StoringSettings()
+        await self._populated(settings)
+        settings.stored["multiroom.zones"] = {"z1": None}
+        snapshot = copy.deepcopy(settings.stored)
+        writes_before = settings.writes
+
+        reloaded = ClientRegistryService(settings_service=settings)
+        await reloaded.initialize()
+        await reloaded.set_clients_equalizer({self.A: EqualizerSettings()}, defer_persist=True)
+        await reloaded.cleanup()
+
+        assert settings.writes == writes_before
+        assert settings.stored == snapshot
 
 
 class TestEqIndependentFlag:

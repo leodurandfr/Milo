@@ -105,6 +105,11 @@ class ClientRegistryService:
         self._bg = BackgroundTaskSet(self.logger, "client_registry")
         self._persist_debounce_task: Optional[asyncio.Task] = None
 
+        # A load that stopped part-way holds a partial registry; writing it back
+        # would erase from settings.json whatever could not be read.
+        self._load_failed = False
+        self._load_failed_reported = False
+
     async def cleanup(self) -> None:
         """Flush a pending debounced persist, then drain the task set."""
         if self._persist_debounce_task and not self._persist_debounce_task.done():
@@ -1118,6 +1123,7 @@ class ClientRegistryService:
         if not self._settings_service:
             return
 
+        section = "multiroom.clients"
         try:
             # Load clients
             clients_data = await self._settings_service.get_setting("multiroom.clients")
@@ -1130,6 +1136,7 @@ class ClientRegistryService:
                 self.logger.info(f"Loaded {len(self._clients)} clients from settings")
 
             # Load zones
+            section = "multiroom.zones"
             zones_data = await self._settings_service.get_setting("multiroom.zones")
             if zones_data:
                 for zone_id, zone_data in zones_data.items():
@@ -1139,6 +1146,7 @@ class ClientRegistryService:
                 self.logger.info(f"Loaded {len(self._zones)} zones from settings")
 
             # Load client equalizer
+            section = "multiroom.client_equalizer"
             client_eq_data = await self._settings_service.get_setting("multiroom.client_equalizer")
             if client_eq_data:
                 for mac_id, equalizer_data in client_eq_data.items():
@@ -1146,7 +1154,8 @@ class ClientRegistryService:
                 self.logger.info(f"Loaded {len(self._client_equalizer)} client equalizer configs")
 
         except Exception as e:
-            self.logger.error(f"Failed to load persisted state: {e}")
+            self._load_failed = True
+            self.logger.error(f"Failed to load persisted state ({section}): {e!r}")
 
     def _clients_data(self) -> dict:
         """Build the persistable client map (Client.PERSISTED_FIELDS owns the shape)."""
@@ -1201,7 +1210,10 @@ class ClientRegistryService:
 
         Returns whether the write landed. A failure is logged and does not
         raise: every mutator emits its event after this, and the in-memory
-        state stays what the UI and every push read.
+        state stays what the UI and every push read. After a boot whose load
+        failed, nothing is written at all and this answers False: the registry
+        holds only what was read before the failure, and serialising it would
+        erase the rest from settings.json.
         """
         # This write already carries everything a pending debounced one would.
         # `is not current_task` is load-bearing, not defensive: the debounced
@@ -1215,6 +1227,17 @@ class ClientRegistryService:
 
         if not self._settings_service:
             return True
+
+        if self._load_failed:
+            if not self._load_failed_reported:
+                self._load_failed_reported = True
+                self.logger.error(
+                    "Multiroom state was not written: the multiroom section of settings.json "
+                    "(multiroom.clients, multiroom.zones, multiroom.client_equalizer) could not "
+                    "be read at boot and is kept as it is; no multiroom change is persisted "
+                    "until it is repaired and the backend restarted"
+                )
+            return False
 
         persisted = await self._settings_service.set_settings({
             "multiroom.clients": self._clients_data(),
