@@ -223,6 +223,136 @@ def test_a_long_line_is_cut_with_the_cut_marked():
 
 
 # --------------------------------------------------------------------------- #
+# The previous boot
+# --------------------------------------------------------------------------- #
+
+_UNITS = {
+    "milo-backend.service": "python3",
+    "milo-kiosk.service": "chromium",
+    "milo-snapclient-multiroom.service": "snapclient",
+}
+
+
+def _fake_journald(monkeypatch, entries):
+    """`probes.run` as systemd 257 answers on the unit, over `entries`.
+
+    Each entry is `(seconds, unit, priority, message, boot)`. Modelled on what
+    was measured: Milō's Python services reach journald through stderr, so their
+    `ERROR:` lines carry PRIORITY=6 and `-p err` never returns them; `-g`
+    matches the message and, with `-n`, prints newest first; a `-g` with no
+    match exits 1, which `run` turns into None.
+    """
+    import re
+    from datetime import datetime, timedelta
+
+    from backend.core.system.diagnostic import probes
+
+    t0 = datetime.fromisoformat("2026-11-03T10:00:00+01:00")
+
+    async def run(args, timeout=probes.DEFAULT_TIMEOUT):
+        if args[:2] == ["systemctl", "list-units"]:
+            return "".join(f"{u} loaded active running x\n" for u in _UNITS)
+        if args[0] != "journalctl":
+            return None
+        units, boot, priority, grep, lines = set(), "0", None, None, None
+        it = iter(args[1:])
+        for arg in it:
+            if arg == "-u":
+                units.add(next(it))
+            elif arg == "-b":
+                boot = next(it)
+            elif arg == "-p":
+                priority = next(it)
+            elif arg == "-g":
+                grep = next(it)
+            elif arg == "-n":
+                lines = int(next(it))
+            elif arg in ("-o", "--since"):
+                next(it)
+        assert priority in (None, "err")
+        kept = [
+            e for e in entries
+            if (not units or e[1] in units) and e[4] == boot
+            and (priority is None or e[2] <= 3)
+            and (grep is None or re.search(grep, e[3]))
+        ]
+        if lines is not None:
+            kept = kept[-lines:]
+            if grep is not None:
+                kept.reverse()
+        if not kept:
+            return None if grep is not None else "-- No entries --\n"
+        out = ""
+        for s, u, _, msg, _ in kept:
+            prefix = f"{(t0 + timedelta(seconds=s)).isoformat()} milo {_UNITS[u]}[1]: "
+            # A multi-line MESSAGE: continuation lines indented under the first.
+            out += prefix + msg.replace("\n", "\n" + " " * len(prefix)) + "\n"
+        return out
+
+    monkeypatch.setattr(probes, "run", run)
+
+
+def _previous_boot_section(report):
+    body = report.split("===== PREVIOUS BOOT (errors) =====\n", 1)[1]
+    return body.split("\n=====", 1)[0]
+
+
+async def test_previous_boot_keeps_backend_errors_logged_at_info_priority(
+    monkeypatch, tmp_path
+):
+    """The section filtered on the syslog priority alone, and every error Milō's
+    own Python services write is PRIORITY=6 with its level in the text — so a
+    boot whose backend logged errors before a crash said "no error in the
+    previous boot", the one claim the section exists to make reliably. The
+    error here sits behind 2 500 newer INFO lines, more than any read of the
+    whole tail would reach, and in front of more relayed browser errors than the
+    window holds — errors.log already keeps those."""
+    entries = [
+        (0, "milo-backend.service", 6, "ERROR:backend.x: boom http://h/s?t=secrettoken", "-1"),
+        *((1 + i, "milo-backend.service", 6, f"INFO:backend.y: tick {i}", "-1")
+          for i in range(2500)),
+        (3000, "milo-kiosk.service", 6, "[1:1:1104/0:ERROR:dbus/x] no bus", "-1"),
+        *((3000, "milo-backend.service", 6, "ERROR:frontend:[vue] stale chunk", "-1")
+          for _ in range(50)),
+        (3001, "milo-snapclient-multiroom.service", 3, "(Snapclient) socket closed", "-1"),
+    ]
+    _fake_journald(monkeypatch, entries)
+
+    section = _previous_boot_section((await _generate(monkeypatch, tmp_path))["report"])
+
+    assert "ERROR:backend.x: boom" in section
+    assert "(Snapclient) socket closed" in section
+    assert "dbus" not in section
+    assert "stale chunk" not in section
+    assert "no error in the previous boot" not in section
+    assert "secrettoken" not in section
+
+
+async def test_previous_boot_reads_oldest_first_whatever_order_journalctl_answers(
+    monkeypatch, tmp_path
+):
+    """`journalctl -n N -g` prints newest first while every other read prints
+    oldest first, so a section that passed its reads through in the order they
+    came would tell a crash backwards — and an entry's continuation line must
+    stay under the entry it belongs to."""
+    entries = [
+        (10, "milo-backend.service", 6, "ERROR:backend.x: first", "-1"),
+        (15, "milo-snapclient-multiroom.service", 3, "(Snapclient) dropped\nits stream", "-1"),
+        (20, "milo-backend.service", 6, "Traceback (most recent call last):", "-1"),
+        (30, "milo-backend.service", 6, "INFO:backend.x: unrelated", "-1"),
+    ]
+    _fake_journald(monkeypatch, entries)
+
+    section = _previous_boot_section((await _generate(monkeypatch, tmp_path))["report"])
+
+    assert "unrelated" not in section
+    order = [section.index(text) for text in (
+        "ERROR:backend.x: first", "(Snapclient) dropped", "its stream", "Traceback",
+    )]
+    assert order == sorted(order)
+
+
+# --------------------------------------------------------------------------- #
 # The satellites
 # --------------------------------------------------------------------------- #
 

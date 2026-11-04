@@ -15,6 +15,8 @@ answering, a satellite that is unplugged, a daemon that will not talk.
 """
 import asyncio
 import logging
+from collections import Counter
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from backend.config.constants import ERROR_LOG_FILE, MUSIC_LIBRARY_DATA_FILE
@@ -378,17 +380,61 @@ async def _journal(ctx) -> str:
     return "\n\n".join(blocks)
 
 
+PREVIOUS_BOOT_LINES = 40
+# Anchored: the kiosk's Chromium writes `[…:ERROR:dbus/…]` mid-line. Not the
+# browser errors the backend relays (`ERROR:frontend:`): errors.log keeps them
+# across boots, and measured here they filled every slot of the window.
+PREVIOUS_BOOT_MESSAGE = r"^(ERROR|CRITICAL):(?!frontend:)|^Traceback"
+
+
+def _journal_entries(lines: List[str]) -> List[Tuple[str, ...]]:
+    """short-iso lines grouped per entry: a continuation line is indented."""
+    entries: List[List[str]] = []
+    for line in lines:
+        if line[:1].isspace() and entries:
+            entries[-1].append(line)
+        else:
+            entries.append([line])
+    return [tuple(entry) for entry in entries]
+
+
+def _entry_time(entry: Tuple[str, ...]) -> datetime:
+    # Parsed, not compared as text: the offset changes with daylight saving.
+    return datetime.fromisoformat(entry[0].split(" ", 1)[0])
+
+
 async def _previous_boot(ctx) -> str:
     """Errors from the boot before this one — restricted to the same units.
 
     A unit that restarted the box, or a boot that failed and was retried, leaves
     its evidence in the session that ended. The window everywhere else stops at
     the current boot on purpose, so without this that evidence is unreachable.
+
+    Two reads, because no single filter finds every error. Milō's Python
+    services write to stderr, which journald files at PRIORITY=6 whatever the
+    record's level — their level lives in the message text — so `-p err` finds
+    only the daemons that set a priority and systemd's own failures, and a match
+    on the message finds the rest.
     """
     units = await probes.list_milo_units(JOURNAL_UNIT_GLOB, JOURNAL_EXTRA_UNITS)
-    lines = await probes.journal_tail(
-        units=units, lines=40, boot="-1", since=None, priority="err"
+    by_priority, by_message = await asyncio.gather(
+        probes.journal_tail(
+            units=units, lines=PREVIOUS_BOOT_LINES, boot="-1", since=None,
+            priority="err",
+        ),
+        probes.journal_tail(
+            units=units, lines=PREVIOUS_BOOT_LINES, boot="-1", since=None,
+            grep=PREVIOUS_BOOT_MESSAGE,
+        ),
     )
+    # An `ERROR:` line logged at err comes back from both reads: union, not sum.
+    # The sort orders them; the reversal only puts a same-second tie from `-g`
+    # back in the order it was logged.
+    merged = Counter(_journal_entries(by_priority)) | Counter(
+        reversed(_journal_entries(by_message))
+    )
+    entries = sorted(merged.elements(), key=_entry_time)[-PREVIOUS_BOOT_LINES:]
+    lines = [line for entry in entries for line in entry]
     if not lines:
         return "(no error in the previous boot, or no previous boot on this disk)"
     capped = [render.cap_line(ctx.sanitize(line)) for line in lines]

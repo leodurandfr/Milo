@@ -149,6 +149,7 @@ async def journal_tail(
     since: Optional[str] = "-6h",
     boot: Optional[str] = "0",
     priority: Optional[str] = None,
+    grep: Optional[str] = None,
 ) -> List[str]:
     """The tail of the journal, restricted to `units` or to the kernel ring.
 
@@ -160,6 +161,10 @@ async def journal_tail(
     `-b` and `--since` together intersect, which is deliberate: the window is at
     most six hours AND never crosses a reboot, so a unit that came up two minutes
     ago shows its boot instead of six hours of the session that preceded it.
+
+    `grep` is a PCRE matched against MESSAGE alone, never the printed prefix.
+    With it, journalctl prints the `lines` newest matches newest first (systemd
+    257, measured) where every other read here is oldest first.
     """
     if not units and not kernel:
         raise ValueError("journal_tail needs units or the kernel ring")
@@ -175,6 +180,8 @@ async def journal_tail(
         args += ["--since", since]
     if priority is not None:
         args += ["-p", priority]
+    if grep is not None:
+        args += ["-g", grep]
 
     out = await run(args, timeout=DEFAULT_TIMEOUT)
     if out is None:
