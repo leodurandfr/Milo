@@ -284,16 +284,25 @@ class TestSourceRegistration:
         answers None, the transition is refused, and the button does nothing with
         no error anywhere. `AudioSource.NONE` is the absence sentinel and is the
         one member that must NOT be registered.
+
+        The pair is held, not just the key: STEP 3's calls are written by hand, so
+        a copy-paste can register one source under another's key. Selecting that
+        source then starts the other's daemon, its publications carry the other
+        `source` and are dropped as inactive, and the card stays empty with no
+        error anywhere.
         """
         from backend.core.models.audio_state import AudioSource
 
         await _run_init(registry)
 
-        registered = {
-            call.args[0]
-            for call in registry["audio_state_machine"].register_source.call_args_list
+        calls = registry["audio_state_machine"].register_source.call_args_list
+        registered = {call.args[0]: call.args[1] for call in calls}
+        assert len(calls) == len(registered), [call.args[0] for call in calls]
+        expected = {
+            source: registry[f"{source.value}_source"]
+            for source in AudioSource
+            if source is not AudioSource.NONE
         }
-        expected = set(AudioSource) - {AudioSource.NONE}
         assert registered == expected
 
     async def test_sources_are_registered_before_the_async_init_runs(self, registry):
