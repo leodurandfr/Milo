@@ -670,7 +670,8 @@ NEVER_A_CONTROL = frozenset({"play_station", "play_episode", "play_context", "pl
 
 
 def _control_literals(source_id):
-    """Every string literal a list/tuple/set display in `_controls()` holds.
+    """Every string literal a list/tuple/set display in `_controls()` holds,
+    including both branches of a conditional element.
 
     Displays only: `station.get("id")` or `c == "next"` are not controls.
     Returns None when the source does not define `_controls`.
@@ -685,13 +686,25 @@ def _control_literals(source_id):
     )
     if method is None:
         return None
+    return _display_literals(method)
+
+
+def _display_literals(method):
     return {
-        elt.value
+        literal
         for node in ast.walk(method)
         if isinstance(node, (ast.List, ast.Tuple, ast.Set))
         for elt in node.elts
-        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        for literal in _str_leaves(elt)
     }
+
+
+def _str_leaves(expr):
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        return {expr.value}
+    if isinstance(expr, ast.IfExp):
+        return _str_leaves(expr.body) | _str_leaves(expr.orelse)
+    return set()
 
 
 def test_the_controls_extractor_reads_every_override():
@@ -706,6 +719,19 @@ def test_the_controls_extractor_reads_every_override():
         f"_controls() of {empty} yields no string literal — the extractor no "
         f"longer reads its shape"
     )
+
+
+@pytest.mark.parametrize(("display", "expected"), [
+    ("['a' if x else 'b']", {"a", "b"}),
+    ("['a' if x else ('b' if y else 'c')]", {"a", "b", "c"}),
+    ("[station.get('id'), c == 'next']", set()),
+])
+def test_the_controls_extractor_reads_a_conditional_element(display, expected):
+    """Music Library lists `"resume" if … else "pause"` — a literal the parse
+    skips is a name the rule below never checks against COMMANDS. A call's
+    argument or a comparison is not a control, even inside a display."""
+    method = ast.parse(f"def _controls(self):\n    return {display}").body[0]
+    assert _display_literals(method) == expected
 
 
 # The sources that take the base's controls, none: the passive senders, whose
