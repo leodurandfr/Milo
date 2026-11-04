@@ -12,9 +12,13 @@
 #   sudo ./inspect-image.sh /mnt/milo-image       # a mounted image root
 #   sudo ./inspect-image.sh --img milo.img        # mount the image, check, unmount
 #
-# --ref <tag-or-branch> names what the image was supposed to be built from. Given
-# a release tag, the checkout inside the image must sit exactly on it: that is
-# the only check that ties the artefact to the version it is published under.
+# --ref <tag-or-branch> names what the image was supposed to be built from, in any
+# position. Given a release tag, the checkout inside the image must sit exactly on
+# it: that is the only check that ties the artefact to the version it is
+# published under. An unknown option, or an image and a root at once, is refused.
+#
+# INSPECT_PARSE_ONLY=1 prints what the arguments parsed to and exits before
+# anything is mounted; test_release_channel.py replays the workflow's call with it.
 #
 # The default target is `/`, so the same checks that accept an image also
 # accept a live appliance — which is how the checks themselves are validated.
@@ -36,13 +40,29 @@ cleanup() {
 }
 trap cleanup EXIT
 
-while [[ "${1:-}" == "--ref" ]]; do
-    REF="${2:?usage: $0 [--ref <tag>] [--img <image.img>|<root>]}"
-    shift 2
-done
+refuse() { echo "$1" >&2; echo "usage: $0 [--ref <tag>] [--img <image.img> | <root>]" >&2; exit 126; }
+# An option's value is never another option: `--ref --img x.img` would otherwise
+# read as the ref "--img" and a root "x.img", and the tag check would vanish.
+value() { [[ $# -ge 2 && -n "$2" && "$2" != -* ]] || refuse "$1 needs a value"; }
 
-if [[ "${1:-}" == "--img" ]]; then
-    IMG="${2:?usage: $0 --img <image.img>}"
+ROOT_ARG=""
+while (($#)); do
+    case $1 in
+        --ref) value "$@"; [[ -z "$REF" ]] || refuse "--ref given twice"; REF="$2"; shift 2 ;;
+        --img) value "$@"; [[ -z "$IMG" ]] || refuse "--img given twice"; IMG="$2"; shift 2 ;;
+        -*) refuse "unknown option: $1" ;;
+        *) [[ -z "$ROOT_ARG" ]] || refuse "one root only"; ROOT_ARG="$1"; shift ;;
+    esac
+done
+[[ -z "$IMG" || -z "$ROOT_ARG" ]] || refuse "--img and a root are exclusive"
+[[ -n "$ROOT_ARG" ]] && ROOT="${ROOT_ARG%/}/"
+
+if [[ "${INSPECT_PARSE_ONLY:-}" == 1 ]]; then
+    echo "REF=$REF"; echo "IMG=$IMG"; echo "ROOT=$ROOT"
+    exit 0
+fi
+
+if [[ -n "$IMG" ]]; then
     [[ -f "$IMG" ]] || { echo "no such image: $IMG" >&2; exit 126; }
     LOOP=$(losetup --show -fP "$IMG") || exit 126
     MNT=$(mktemp -d)
@@ -51,15 +71,7 @@ if [[ "${1:-}" == "--img" ]]; then
     mkdir -p "$MNT/boot/firmware"
     mount "${LOOP}p1" "$MNT/boot/firmware" || exit 126
     ROOT="$MNT"
-elif [[ -n "${1:-}" ]]; then
-    ROOT="${1%/}/"
 fi
-
-while [[ "${1:-}" == "--ref" || "${2:-}" == "--ref" ]]; do
-    [[ "${1:-}" == "--ref" ]] || shift
-    REF="${2:?usage: $0 [--ref <tag>] [--img <image.img>|<root>]}"
-    shift 2
-done
 
 BOOT="${ROOT%/}/boot/firmware"
 [[ -d "$BOOT" ]] || BOOT="${ROOT%/}/boot"

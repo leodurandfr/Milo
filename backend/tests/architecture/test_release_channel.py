@@ -24,8 +24,10 @@ non-trivial before asserting anything about it: a guardrail that silently found
 nothing to look at is worse than no guardrail.
 """
 import ast
+import os
 import re
 import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -404,3 +406,79 @@ def test_the_payload_fingerprint_is_spelled_once_on_both_sides():
     assert shell[shell.index("--") + 1:] == list(PAYLOAD_PATHSPEC), (
         f"the image seeds a payload over other trees than the backend: {shell}"
     )
+
+
+INSPECTOR = "inspect-image.sh"
+
+
+def _inspector_argv(workflow, tag: str, image: str) -> list[str]:
+    """The workflow's own call to the image inspector, with the two values only a
+    runner knows filled in: the tag the release is published under and the image."""
+    inspect = [step for step in workflow["build"].get("steps", []) if step.get("id") == "inspect"]
+    assert len(inspect) == 1, f"expected one step with id `inspect`, found {len(inspect)}"
+    lines = [line for line in inspect[0].get("run", "").splitlines() if INSPECTOR in line]
+    assert len(lines) == 1, f"the inspect step no longer calls {INSPECTOR} once: {lines}"
+    argv = shlex.split(lines[0])
+    assert "--img" in argv and "--ref" in argv, f"the workflow no longer names an image and a ref: {argv}"
+
+    # Whatever runs the inspector with privileges is the runner's business; the
+    # argv the script parses starts at the script.
+    start = next((i for i, arg in enumerate(argv) if arg.endswith(INSPECTOR)), None)
+    assert start is not None, f"no argument of the inspect step is the script itself: {argv}"
+    argv = argv[start:]
+    expressions = [arg for arg in argv if arg.startswith("${{")]
+    assert len(expressions) == 1, f"expected the ref as the one workflow expression: {argv}"
+    return [tag if arg in expressions else image if arg == "$IMAGE" else arg for arg in argv]
+
+
+def _parse_only(argv: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["bash", *argv],
+        cwd=REPO_ROOT,
+        env={**os.environ, "INSPECT_PARSE_ONLY": "1"},
+        capture_output=True, text=True, timeout=30,
+    )
+
+
+def test_the_image_build_passes_a_ref_inspect_image_reads(workflow, tmp_path):
+    """The inspector's `--ref` check is the only one that ties a published image
+    to the tag it is published under: the checkout inside must sit exactly on
+    it, and the satellite identity must be seeded with it. Two tags on one
+    commit (it happened: v0.0.1 and v0.1.0) make `describe` answer the other,
+    and every card flashed from that image is a development build offered
+    nothing. If this fails, the workflow passes a ref the script never reads —
+    the check is skipped without a line, and the release is published anyway.
+
+    Replayed in both orders, since nothing about an option list says which.
+    """
+    tag, image = "v9.8.7", str(tmp_path / "milo.img")
+    as_called = _inspector_argv(workflow, tag, image)
+    script = as_called[0]
+    for argv in (as_called, [script, "--ref", tag, "--img", image]):
+        result = _parse_only(argv)
+        assert result.returncode == 0, f"{argv} was refused: {result.stderr}"
+        assert f"REF={tag}" in result.stdout.splitlines(), (
+            f"the inspector did not read the ref from {argv}: {result.stdout!r}"
+        )
+        assert f"IMG={image}" in result.stdout.splitlines(), result.stdout
+
+
+def test_inspect_image_refuses_what_it_cannot_parse(tmp_path):
+    """An option the parser does not know used to be taken for a root to
+    inspect, which is how a misplaced `--ref` vanished. Refused, it fails the
+    image build instead; so do a ref with no value (the next option would be
+    read as the ref and the image as a root), a repeated option, and an image
+    and a root at once, each of which leaves the script to guess what was meant.
+    """
+    image = str(tmp_path / "milo.img")
+    script = str(REPO_ROOT / "pi-gen" / INSPECTOR)
+    for argv in (
+        [script, "--img", image, "--frobnicate"],
+        [script, "--ref", "--img", image],
+        [script, "--img", image, "--ref"],
+        [script, "--ref", "v9.8.7", "--img", image, "--ref", "main"],
+        [script, "--img", image, str(tmp_path)],
+    ):
+        result = _parse_only(argv)
+        assert result.returncode != 0, f"{argv} was accepted: {result.stdout!r}"
+        assert "REF=" not in result.stdout, f"{argv} was parsed: {result.stdout!r}"
