@@ -219,7 +219,8 @@ def test_no_source_status_or_restart_routes():
 # --------------------------------------------------------------------------- #
 
 def _pydantic_fields():
-    """(repo-relative file, class, field) for every annotated field on a BaseModel.
+    """(repo-relative file, class, field) for every annotated field on a BaseModel
+    (`StrictModel` included: the request models that refuse unknown keys).
 
     AST rather than imports so it covers models in modules the test never loads,
     including ones no route references yet. Both apps: the satellite declares its
@@ -238,7 +239,7 @@ def _pydantic_fields():
             for node in ast.walk(tree):
                 if not isinstance(node, ast.ClassDef):
                     continue
-                if not any("BaseModel" in ast.unparse(b) for b in node.bases):
+                if not any(base in ast.unparse(b) for b in node.bases for base in ("BaseModel", "StrictModel")):
                     continue
                 rel = str(py.relative_to(REPO_ROOT))
                 for stmt in node.body:
@@ -291,6 +292,75 @@ def test_settings_category_shapes_live_in_one_module():
     }
     assert not duplicates, (
         f"{sorted(duplicates)} redeclare a shape owned by {home} — import it instead."
+    )
+
+
+def _settings_body_models():
+    """Every request model a `/api/settings/*` write reads, nested ones included.
+
+    Read off each route's body parameters in the live app, then down through the
+    fields: `HardwareConfigRequest` is five `Hardware*Request` sections, and an
+    unknown key inside one of them is dropped exactly like one at the top.
+    """
+    from typing import get_args
+
+    from pydantic import BaseModel
+
+    from backend.main import app
+
+    def walk_routes(router, prefix=""):
+        for route in getattr(router, "routes", []):
+            if type(route).__name__ == "_IncludedRouter":
+                inner_prefix = getattr(route.include_context, "prefix", "") or ""
+                yield from walk_routes(route.original_router, prefix + inner_prefix)
+            elif getattr(route, "dependant", None) is not None:
+                yield prefix + route.path, route
+
+    def models_in(annotation):
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            yield annotation
+        for arg in get_args(annotation):
+            yield from models_in(arg)
+
+    found = {}
+    pending = [
+        model
+        for path, route in walk_routes(app)
+        if path.startswith("/api/settings/")
+        for param in route.dependant.body_params
+        for model in models_in(param.field_info.annotation)
+    ]
+    while pending:
+        model = pending.pop()
+        if model.__qualname__ in found:
+            continue
+        found[model.__qualname__] = model
+        for field in model.model_fields.values():
+            pending.extend(models_in(field.annotation))
+    return found
+
+
+SETTINGS_BODY_MODELS = _settings_body_models()
+assert len(SETTINGS_BODY_MODELS) >= 20, (
+    f"only {sorted(SETTINGS_BODY_MODELS)} found behind /api/settings — extractor broken?"
+)
+assert "HardwarePowerButtonRequest" in SETTINGS_BODY_MODELS, (
+    "the nested sections of HardwareConfigRequest were not reached — extractor broken?"
+)
+
+
+@pytest.mark.parametrize("name", sorted(SETTINGS_BODY_MODELS))
+def test_every_settings_body_model_forbids_extra_keys(name):
+    """A `/api/settings/*` body with a key its model does not declare answers 422.
+
+    Pydantic drops an unknown key by default, and most of these fields are
+    optional or defaulted: `{"warmth_pct": 72}` on screen-color-filter answered
+    200, stored nothing, and the slider snapped back on the echo. Refusing it
+    turns a key renamed on one side only into an error the settings panel shows.
+    """
+    model = SETTINGS_BODY_MODELS[name]
+    assert model.model_config.get("extra") == "forbid", (
+        f"{name} ignores unknown keys: derive it from backend.core.models.commands.StrictModel"
     )
 
 

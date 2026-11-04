@@ -188,6 +188,32 @@ def test_command_models_are_basemodel_or_none(cls):
         )
 
 
+PARAMS_MODELS = sorted(
+    {model for cls in ALL_SOURCES for model in cls.COMMANDS.values() if model is not None},
+    key=lambda model: f"{model.__module__}.{model.__qualname__}",
+)
+assert len(PARAMS_MODELS) >= 10, (
+    f"only {len(PARAMS_MODELS)} command params models found — the extractor is broken"
+)
+
+
+@pytest.mark.parametrize("model", PARAMS_MODELS, ids=lambda m: f"{m.__module__}.{m.__qualname__}")
+def test_every_command_params_model_forbids_extra_keys(model):
+    """A key a params model does not declare is refused (HTTP 400), never dropped.
+
+    Pydantic ignores an unknown key by default and the field falls back to its
+    default: `prev {"allowSeeking": false}` rewound the track the mini-bar had
+    already swiped away, `next {"track_uri": …}` played the next track instead of
+    the row tapped — a success with no log. The keys the web UI, Milo-Mac and
+    Milo-iOS send are held equal to these fields elsewhere; this makes the next
+    rename on either side loud.
+    """
+    assert model.model_config.get("extra") == "forbid", (
+        f"{model.__qualname__} ignores unknown keys: derive it from "
+        f"backend.core.models.commands.StrictModel"
+    )
+
+
 @pytest.mark.parametrize("cls", IF_CHAIN_SOURCES)
 def test_every_registered_command_has_dispatch_arm(cls):
     """No orphan registry entry: each COMMANDS key is referenced in _handle_command."""

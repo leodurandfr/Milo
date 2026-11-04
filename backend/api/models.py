@@ -17,6 +17,7 @@ from backend.config.constants import (
     ROC_TARGET_LATENCY_RANGE,
     SCREEN_THEMES,
 )
+from backend.core.models.commands import StrictModel
 
 
 # =============================================================================
@@ -188,7 +189,7 @@ class SnapcastCalibrationRequest(BaseModel):
 
 SUPPORTED_LANGUAGES = Literal['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']
 
-class LanguageRequest(BaseModel):
+class LanguageRequest(StrictModel):
     """Language setting request"""
     language: SUPPORTED_LANGUAGES
 
@@ -197,7 +198,7 @@ class LanguageRequest(BaseModel):
 # SETTINGS - VOLUME (all values in dB)
 # =============================================================================
 
-class VolumeLimitsRequest(BaseModel):
+class VolumeLimitsRequest(StrictModel):
     """Volume limits request (in dB)"""
     min_db: float = Field(..., ge=-80, le=0, description="Minimum volume in dB")
     max_db: float = Field(..., ge=-80, le=0, description="Maximum volume in dB")
@@ -215,7 +216,7 @@ class VolumeLimitsRequest(BaseModel):
         return self
 
 
-class VolumeStartupRequest(BaseModel):
+class VolumeStartupRequest(StrictModel):
     """Volume startup configuration request (in dB)"""
     startup_volume_db: float = Field(..., ge=-80, le=0, description="Startup volume in dB")
     restore_last_volume: bool
@@ -226,22 +227,22 @@ class VolumeControlRequest(BaseModel):
     volume_control: bool
 
 
-class VolumeStepsRequest(BaseModel):
+class VolumeStepsRequest(StrictModel):
     """Mobile volume steps request (in dB)"""
     step_mobile_db: float = Field(..., ge=1, le=6, description="Mobile volume step in dB")
 
 
-class RotaryStepsRequest(BaseModel):
+class RotaryStepsRequest(StrictModel):
     """Rotary encoder volume steps request (in dB)"""
     step_rotary_db: float = Field(..., ge=1, le=6, description="Rotary volume step in dB")
 
 
-class BtRemoteStepsRequest(BaseModel):
+class BtRemoteStepsRequest(StrictModel):
     """BT remote volume steps request (in dB)"""
     step_bt_remote_db: float = Field(..., ge=1, le=6, description="BT remote volume step in dB")
 
 
-class IrRemoteStepsRequest(BaseModel):
+class IrRemoteStepsRequest(StrictModel):
     """IR remote volume steps request (in dB)"""
     step_ir_remote_db: float = Field(..., ge=1, le=6, description="IR remote volume step in dB")
 
@@ -315,7 +316,7 @@ class FanTestRequest(BaseModel):
 
 from backend.config.constants import VALID_DOCK_APPS, AUDIO_SOURCE_APPS
 
-class DockAppsRequest(BaseModel):
+class DockAppsRequest(StrictModel):
     """Dock apps configuration request"""
     enabled_apps: List[str]
 
@@ -338,7 +339,7 @@ class DockAppsRequest(BaseModel):
 # SETTINGS - AUDIO AUTO-STOP
 # =============================================================================
 
-class AudioStopRequest(BaseModel):
+class AudioStopRequest(StrictModel):
     """Global audio auto-stop delay request (applies to all sources)"""
     auto_stop_delay: float = Field(..., ge=0, le=9999)
 
@@ -355,7 +356,7 @@ class AudioStopRequest(BaseModel):
 # SETTINGS - SCREEN
 # =============================================================================
 
-class ScreenTimeoutRequest(BaseModel):
+class ScreenTimeoutRequest(StrictModel):
     """Screen timeout configuration request"""
     screen_timeout_enabled: bool
     screen_timeout_seconds: int = Field(..., ge=0, le=3600)
@@ -369,29 +370,29 @@ class ScreenTimeoutRequest(BaseModel):
         return v
 
 
-class ScreenBrightnessRequest(BaseModel):
+class ScreenBrightnessRequest(StrictModel):
     """Screen brightness request"""
     brightness_on: int = Field(..., ge=1, le=10)
 
 
-class ScreenAutoPlayerRequest(BaseModel):
+class ScreenAutoPlayerRequest(StrictModel):
     """Screen auto player configuration request"""
     auto_player_enabled: Optional[bool] = None
     auto_player_delay_seconds: Optional[int] = Field(None, ge=5, le=3600)
 
 
-class ScreenUiScaleRequest(BaseModel):
+class ScreenUiScaleRequest(StrictModel):
     """Screen UI scale request"""
     ui_scale: float = Field(..., ge=1.0, le=1.3)
 
 
-class ScreenColorFilterRequest(BaseModel):
+class ScreenColorFilterRequest(StrictModel):
     """Screen warm color filter request"""
     enabled: Optional[bool] = None
     warmth: Optional[int] = Field(None, ge=0, le=100)
 
 
-class ScreenThemeRequest(BaseModel):
+class ScreenThemeRequest(StrictModel):
     """Kiosk theme request"""
     theme: SCREEN_THEMES
 
@@ -538,22 +539,22 @@ class EqualizerPresetRequest(BaseModel):
 # the settings validator and with MacEnv (which writes them to mac.env).
 
 
-class RadioSettingsRequest(BaseModel):
+class RadioSettingsRequest(StrictModel):
     """Radio settings request"""
     shazam_enabled: bool
 
 
-class QobuzSettingsRequest(BaseModel):
+class QobuzSettingsRequest(StrictModel):
     """Qobuz settings request"""
     allow_app_volume: bool
 
 
-class MusicLibrarySettingsRequest(BaseModel):
+class MusicLibrarySettingsRequest(StrictModel):
     """Music Library settings request"""
     separate_storages: bool
 
 
-class SpotifySettingsRequest(BaseModel):
+class SpotifySettingsRequest(StrictModel):
     """Spotify settings request.
 
     `apply_now` is request-only — it is an action, not a stored value, so it
@@ -571,7 +572,7 @@ class SpotifySettingsRequest(BaseModel):
 # HARDWARE CONFIGURATION
 # =============================================================================
 
-class HardwareAudioRequest(BaseModel):
+class HardwareAudioRequest(StrictModel):
     """Audio card selection"""
     id: str = Field(..., min_length=1, max_length=50)
     volume_control: Optional[bool] = None  # Override DAC auto-detection (None = derive from card category)
@@ -585,7 +586,7 @@ class HardwareAudioRequest(BaseModel):
         return v
 
 
-class HardwareScreenRequest(BaseModel):
+class HardwareScreenRequest(StrictModel):
     """Screen type selection"""
     type: str = Field(..., min_length=1, max_length=50)
 
@@ -598,7 +599,7 @@ class HardwareScreenRequest(BaseModel):
         return v
 
 
-class HardwareRotaryEncoderRequest(BaseModel):
+class HardwareRotaryEncoderRequest(StrictModel):
     """Rotary encoder configuration (enabled flag + GPIO pins)"""
     enabled: bool = True
     clk_pin: int = Field(default=22, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
@@ -614,20 +615,20 @@ class HardwareRotaryEncoderRequest(BaseModel):
         return self
 
 
-class HardwareIrRemoteRequest(BaseModel):
+class HardwareIrRemoteRequest(StrictModel):
     """IR remote configuration (enabled flag + TSOP4838 data line GPIO pin)"""
     enabled: bool = True
     gpio_pin: int = Field(default=17, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
 
 
-class HardwarePowerButtonRequest(BaseModel):
+class HardwarePowerButtonRequest(StrictModel):
     """Power button on the Pi 5's J2 pads (wired means the board waits for a press
     to boot) + the GPIO sinking its LED's cathode"""
     enabled: bool = False
     led_gpio_pin: int = Field(default=26, ge=GPIO_MIN_PIN, le=GPIO_MAX_PIN)
 
 
-class HardwareConfigRequest(BaseModel):
+class HardwareConfigRequest(StrictModel):
     """Full hardware configuration request"""
     audio: HardwareAudioRequest
     screen: HardwareScreenRequest
@@ -697,7 +698,7 @@ class HardwareConfigRequest(BaseModel):
         return self
 
 
-class MacRocConfigRequest(BaseModel):
+class MacRocConfigRequest(StrictModel):
     """Both halves of the Mac ROC link: roc-recv's three, then roc-vad's four.
 
     Every field is required. A PUT replaces the whole link, and a default here

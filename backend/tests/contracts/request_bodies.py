@@ -6,6 +6,12 @@ that list, and neither is the test: the backend's OpenAPI schema (each key is a
 property of the route's request model, each value one of its enum's) and the
 vendored Swift (each key is a dict key the consumer function actually builds).
 
+A body that carries a command (`/api/audio/control/*`) also names, in
+`data_keys`, the keys of its `data` per command: they are validated by the
+command's params model in the source, not by the route's request model, so the
+OpenAPI schema cannot see them. They are resolved against `COMMANDS` and held
+equal to the `"data": [...]` literals the Swift builds.
+
 A route test cannot see any of this. Pydantic ignores a key it does not declare
 and a renamed field answers 422, so a coordinated rename of a request model and
 the web UI's call leaves `test_rest_route_exists` green while every app request
@@ -47,6 +53,12 @@ def format_problems(entry: dict) -> list[str]:
     if body is not None:
         if not body or len(set(body)) != len(body) or not all(isinstance(k, str) and k for k in body):
             problems.append(f"`body` must be a non-empty list of distinct keys, got {body!r}")
+    data_keys = entry.get("data_keys")
+    if ("data" in (body or [])) != (data_keys is not None):
+        problems.append("`data_keys` goes with, and only with, a `body` that lists `data`")
+    for command, keys in (data_keys or {}).items():
+        if not command or not keys or len(set(keys)) != len(keys):
+            problems.append(f"`data_keys.{command}` must name a command and a non-empty list of distinct keys")
     values = entry.get("body_values", {})
     for key, sent in values.items():
         if key not in (body or []):
@@ -146,6 +158,93 @@ def sent_keys(function: str) -> set[str]:
     return keys
 
 
+_DATA_VALUE = re.compile(r'"data"\s*:\s*\[')
+_COMMAND_LITERAL = re.compile(r'"command"\s*:\s*"(\w+)"')
+
+
+def sent_data(function: str) -> list[tuple[str | None, set[str]]]:
+    """(command, keys) for every `"data": [...]` a Swift function builds.
+
+    `command` is the literal the same dict sends under `"command"`, or None
+    when the name is a variable (Milo-iOS picks it per source). An empty
+    `[String: Any]()` reads as no keys, which is what Milo-Mac sends with a
+    transport command.
+    """
+    code = _COMMENT.sub("", function)
+    found = []
+    for match in _DATA_VALUE.finditer(code):
+        start = match.end() - 1
+        keys = set(_KEY.findall(_flatten(code[start + 1:_closing(code, start)])))
+        depth, opening = 0, None
+        for i in range(match.start() - 1, -1, -1):
+            depth += {"]": 1, "[": -1}.get(code[i], 0)
+            if depth < 0:
+                opening = i
+                break
+        command = None
+        if opening is not None:
+            # The whole enclosing dict, nested literals removed: `"command"`
+            # may sit after `"data"` as well as before it.
+            command = _COMMAND_LITERAL.search(_flatten(code[opening + 1:_closing(code, opening)]))
+        found.append((command.group(1) if command else None, keys))
+    return found
+
+
+def _closing(code: str, opening: int) -> int:
+    """The index of the `]` that closes the `[` at `opening`."""
+    depth = 0
+    for i in range(opening, len(code)):
+        depth += {"[": 1, "]": -1}.get(code[i], 0)
+        if depth == 0:
+            return i
+    raise AssertionError("unbalanced literal in the vendored Swift")
+
+
+def source_commands() -> dict:
+    """Each source's path name → its `COMMANDS`, reached as dependencies.py does."""
+    import importlib
+
+    from backend.core.models.audio_state import AudioSource
+
+    commands = {}
+    for member in AudioSource:
+        if member is AudioSource.NONE:
+            continue
+        package = importlib.import_module(f"backend.sources.{member.value}")
+        commands[member.value] = getattr(package, package.__all__[0]).COMMANDS
+    assert sum(1 for table in commands.values() if table) >= 8, f"{commands} — source reader drift?"
+    return commands
+
+
+def command_data_problems(entry: dict, commands: dict) -> list[str]:
+    """Why a source would refuse the `data` this entry says the app sends.
+
+    `commands` maps each source's path name to its `COMMANDS`. A path ending in
+    a parameter reaches every source that declares the command (Milo-iOS sends
+    `seek` and `skip` to whichever source the card names); a literal one, that
+    source alone. Every key must be a field of the command's params model,
+    which refuses any other (HTTP 400), and every field it requires must be sent.
+    """
+    target = entry["path"].rsplit("/", 1)[-1]
+    reached = commands if target.startswith("{") else {target: commands[target]}
+    problems = []
+    for command, keys in (entry.get("data_keys") or {}).items():
+        takers = {name: table[command] for name, table in reached.items() if command in table}
+        if not takers:
+            problems.append(f"no source the route reaches declares `{command}`")
+        for name, model in takers.items():
+            if model is None:
+                problems.append(f"{name} `{command}` takes no params: the {keys} the app sends do nothing")
+                continue
+            fields = model.model_fields
+            problems += [f"`{key}` is not a field of {name} `{command}`" for key in keys if key not in fields]
+            problems += [
+                f"{name} `{command}` requires `{field}`, which the app does not send"
+                for field, info in fields.items() if info.is_required() and field not in keys
+            ]
+    return problems
+
+
 def _flatten(segment: str) -> str:
     """`segment` with every nested `[...]` removed, so only its own keys remain."""
     while (flat := re.sub(r"\[[^\[\]]*\]", "", segment)) != segment:
@@ -167,11 +266,28 @@ def snapshot_problems(entry: dict, source: str, built_by: dict | None = None) ->
     function that builds its dict when it does not build one itself.
     """
     built = set()
+    data = []
     for name in re.findall(r"\b\w+\.(\w+)\b", entry["consumer"]):
-        built |= sent_keys(swift_function(source, (built_by or {}).get(name, name)))
+        function = swift_function(source, (built_by or {}).get(name, name))
+        built |= sent_keys(function)
+        data += sent_data(function)
     problems = []
     if built != set(entry.get("body", [])):
         problems.append(f"`body` {entry.get('body')} != the keys {entry['consumer']} sends {sorted(built)}")
+    if "data" in built:
+        pinned = entry.get("data_keys") or {}
+        sent = set().union(*(keys for _, keys in data))
+        if sent != set().union(*map(set, pinned.values())):
+            problems.append(f"`data_keys` {pinned} != the `data` keys {entry['consumer']} sends {sorted(sent)}")
+        problems += [
+            f"`data_keys.{command}` {sorted(pinned.get(command, []))} != {sorted(keys)}, what the app sends with it"
+            for command, keys in data
+            if command is not None and keys != set(pinned.get(command, []))
+        ]
+        problems += [
+            f"`data_keys` names `{command}`, which the vendored Swift never spells"
+            for command in pinned if f'"{command}"' not in source
+        ]
     problems += [
         f"`{key}={value}` is spelled nowhere in the vendored Swift"
         for key, values in entry.get("body_values", {}).items()

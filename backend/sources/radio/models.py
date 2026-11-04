@@ -9,6 +9,8 @@ These models define the data structures for:
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from backend.core.models.commands import StrictModel
+
 
 class PlayStationRequest(BaseModel):
     """Request to play a station."""
@@ -24,7 +26,7 @@ class FavoriteRequest(BaseModel):
 
 # === Command-parameter models (validated at the command() boundary) ===
 
-class PlayStationParams(BaseModel):
+class PlayStationParams(StrictModel):
     """Params for `play_station` (station is an opaque passthrough)."""
     station_id: str = Field(min_length=1)
     station: Optional[dict] = None

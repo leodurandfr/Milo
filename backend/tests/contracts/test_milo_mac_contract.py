@@ -364,14 +364,36 @@ def test_request_body_keys_occur_in_the_snapshot(entry):
     )
 
 
+_COMMAND_ENTRIES = [e for e in _MANIFEST["rest"] if "data_keys" in e]
+
+
+@pytest.mark.parametrize("entry", _COMMAND_ENTRIES, ids=[e["consumer"] for e in _COMMAND_ENTRIES])
+def test_command_data_keys_are_taken_by_the_source(entry):
+    """The `data` Milo-Mac sends with a command is one the source's params
+    model takes. It refuses a key it does not declare, so a field renamed in
+    the backend alone answers 400 to the library's play_context, and the Mac
+    browser plays nothing."""
+    problems = _BODIES.command_data_problems(entry, _BODIES.source_commands())
+    assert not problems, (
+        f"{entry['path']} ({entry['consumer']}): {problems}. Restore the field, or — if "
+        f"Milo-Mac changed what it sends — refresh the snapshot and `data_keys` together."
+    )
+
+
 def test_the_body_reader_reads_the_app_s_dict_literals():
     """The reader behind the test above sees a body, and only the top level of
     it: the music library's `data` carries `tracks`, a command parameter that is
-    not a key of the request model. Asserted before anything trusts it."""
+    not a key of the request model — read apart, with the command it goes with.
+    Asserted before anything trusts it."""
     source = (VENDOR_DIR / "MiloAPIService.swift").read_text()
     assert _BODIES.sent_keys(_BODIES.swift_function(source, "setZoneVolumeDelta")) == {"delta_db"}
     assert _BODIES.sent_keys(_BODIES.swift_function(source, "playMusicLibraryContext")) == {"command", "data"}
     assert _BODIES.sent_keys(_BODIES.swift_function(source, "fetchBulkSettings")) == set()
+    assert _BODIES.sent_data(_BODIES.swift_function(source, "playMusicLibraryContext")) == [
+        ("play_context", {"tracks", "start_index", "shuffle"})
+    ]
+    assert _BODIES.sent_data(_BODIES.swift_function(source, "sendPlaybackCommand")) == [(None, set())]
+    assert len(_COMMAND_ENTRIES) == 2, "the two control-route entries lost `data_keys`"
 
 
 # --------------------------------------------------------------------------- #

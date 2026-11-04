@@ -775,6 +775,17 @@ class TestSettingsRoutes:
             "enabled": stored["color_filter_enabled"], "warmth": 72
         }
 
+    def test_set_screen_color_filter_refuses_a_key_it_does_not_declare(self, client):
+        """Both fields are optional, so a misspelled one used to be dropped and
+        the body read as empty: 200, nothing written, and the slider snapped
+        back to the old value on the echo. A key the model does not declare is
+        refused instead, and nothing is stored."""
+        response = client.put("/api/settings/screen-color-filter", json={"warmth_pct": 72})
+
+        assert response.status_code == 422
+        client._mock_settings.set_settings.assert_not_awaited()
+        client._mock_state_machine.broadcast.assert_not_awaited()
+
     # ===================
     # THE KIOSK THEME
     # ===================

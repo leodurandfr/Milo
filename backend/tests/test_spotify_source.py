@@ -469,6 +469,23 @@ class TestNextPrevCommands:
         assert world.daemon.posted == [("prev", {"allow_seeking": False}), ("prev", {})]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("cmd, data", [
+        ("prev", {"allowSeeking": False}),
+        ("next", {"track_uri": "spotify:track:0eGsygTp906u18L0Oimnem"}),
+    ])
+    async def test_a_misspelled_key_is_refused_rather_than_dropped(self, world, cmd, data):
+        """A key the params model does not declare would otherwise fall back to
+        the field's default: a swipe back rewinds the track it slid away, a queue
+        tap plays the next track instead of the one tapped. Refused, nothing
+        reaches go-librespot."""
+        await world.phone_plays(PARAPLUIE)
+
+        result = await world.command(cmd, data)
+
+        assert result["success"] is False
+        assert world.daemon.posted == []
+
+    @pytest.mark.asyncio
     async def test_an_unknown_command_is_refused_rather_than_forwarded(self, spotify_source):
         """COMMANDS gates dispatch, so this arm is only reachable by a new
         entry someone forgot to serve — it must not reach the daemon."""

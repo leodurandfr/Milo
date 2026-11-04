@@ -5,6 +5,8 @@ Pydantic models for Podcast API requests and responses.
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 
+from backend.core.models.commands import StrictModel
+
 
 class SubscribeRequest(BaseModel):
     """Request to subscribe to a podcast."""
@@ -16,14 +18,14 @@ class SubscribeRequest(BaseModel):
 
 # === Command-parameter models (validated at the command() boundary) ===
 
-class PlayEpisodeParams(BaseModel):
+class PlayEpisodeParams(StrictModel):
     """Params for `play_episode`. `position` (seconds) starts the episode there
     instead of at the second the progress file kept."""
     episode_uuid: str = Field(min_length=1)
     position: Optional[int] = Field(default=None, ge=0)
 
 
-class SeekParams(BaseModel):
+class SeekParams(StrictModel):
     """Params for `seek`. Accepts `position` (seconds) or `position_ms`.
 
     position_ms is the wire convention used by useSourceProgress.seekTo

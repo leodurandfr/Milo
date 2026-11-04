@@ -8,18 +8,20 @@ command() boundary; see SpotifySource.COMMANDS.
 from typing import Annotated, List, Optional
 from pydantic import BaseModel, Field
 
+from backend.core.models.commands import StrictModel
 
-class SeekParams(BaseModel):
+
+class SeekParams(StrictModel):
     """Params for the `seek` command (absolute position in milliseconds)."""
     position_ms: float = Field(ge=0)
 
 
-class NextParams(BaseModel):
+class NextParams(StrictModel):
     """Params for `next` (optional target track URI)."""
     uri: Optional[str] = None
 
 
-class PrevParams(BaseModel):
+class PrevParams(StrictModel):
     """Params for `prev`. The transport's button rewinds a track played past
     its first three seconds, as Spotify does; `allow_seeking` false (the
     mini-bar's swipe, which already slid the previous title in) always goes
@@ -27,7 +29,7 @@ class PrevParams(BaseModel):
     allow_seeking: bool = True
 
 
-class PlayContextParams(BaseModel):
+class PlayContextParams(StrictModel):
     """Params for `play_context`: play a context (playlist, album, artist, the
     account's Liked Songs collection) from its first track, or from
     `skip_to_uri`. `shuffle` is the shuffle state the context plays in; the

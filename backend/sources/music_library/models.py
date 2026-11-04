@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from backend.core.models.commands import StrictModel
+
 
 class StarRequest(BaseModel):
     """Body for ``POST /music-library/star`` and ``/unstar``.
@@ -242,7 +244,7 @@ class ShareBrowseRequest(BaseModel):
 
 # === Command-parameter models (validated at the command() boundary) ===
 
-class PlayContextParams(BaseModel):
+class PlayContextParams(StrictModel):
     """Params for ``play_context``: an ordered set of songs → gapless mpv queue.
 
     ``tracks`` are the Subsonic song dicts the frontend already holds from
@@ -275,14 +277,14 @@ class PlayContextParams(BaseModel):
         return tracks
 
 
-class PlayIndexParams(BaseModel):
+class PlayIndexParams(StrictModel):
     """Params for ``play_index``: jump to a 0-based position in the current queue
     (the queue-view row tap). The upper bound is state-checked in the handler."""
 
     index: int = Field(ge=0)
 
 
-class SeekParams(BaseModel):
+class SeekParams(StrictModel):
     """Params for ``seek`` (absolute position in milliseconds — the shared
     player's ``useSourceProgress.seekTo`` wire convention)."""
 

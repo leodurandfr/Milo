@@ -493,6 +493,22 @@ def test_request_body_keys_occur_in_the_snapshot(entry):
     )
 
 
+_COMMAND_ENTRIES = [e for e in _MANIFEST["rest"] if "data_keys" in e]
+
+
+@pytest.mark.parametrize("entry", _COMMAND_ENTRIES, ids=[e["consumer"] for e in _COMMAND_ENTRIES])
+def test_command_data_keys_are_taken_by_every_source(entry):
+    """The lock screen's `seek` and `skip` reach whichever source the card
+    names, so their `data` must be what every source declaring the command
+    takes. A params model refuses a key it does not declare: a field renamed
+    in one source alone answers 400 to the lock screen's −15/+30 there."""
+    problems = _BODIES.command_data_problems(entry, _BODIES.source_commands())
+    assert not problems, (
+        f"{entry['path']} ({entry['consumer']}): {problems}. Restore the field, or — if "
+        f"Milo-iOS changed what it sends — refresh the snapshot and `data_keys` together."
+    )
+
+
 def test_body_values_are_every_value_the_app_sends():
     """`body_values` lists every value the app can put in each pinned field,
     not a subset that happens to be spelled somewhere: `kind` is PushTokenKind's
@@ -528,6 +544,10 @@ def test_the_body_reader_reads_every_shape_the_app_writes():
     assert read("setGlobalVolume") == {"volume", "show_bar"}
     assert "session_id" in read("registerPushToken")
     assert read("body") == {"command", "data"}
+    assert _BODIES.sent_data(_BODIES.swift_function(_VENDORED_SWIFT, "body")) == [
+        (None, {"position_ms"}), (None, {"seconds"})
+    ]
+    assert len(_COMMAND_ENTRIES) == 1, "the control-route entry lost `data_keys`"
     for consumer, builder in _BODY_BUILT_BY.items():
         assert f".{builder}(" in _BODIES.swift_function(_VENDORED_SWIFT, consumer), (
             f"{consumer} no longer calls {builder}: drop the mapping"
