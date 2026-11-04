@@ -177,7 +177,7 @@ class UpdateService(VersionService):
         else:
             return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
-    async def _reconcile_dependencies(self) -> list[str]:
+    async def _reconcile_dependencies(self, only: tuple[str, ...] | None = None) -> list[str]:
         """Bring every dependency to the version the *pulled* manifest declares.
 
         A Milō update installs the app and the dependency set validated with it,
@@ -202,11 +202,18 @@ class UpdateService(VersionService):
         the unit on the old dependency with nothing to say so; raising rolled a
         good app update back on every unit.
 
+        `only` narrows the set for the one caller that runs *before* that point:
+        `_require_launcher_accepts_qobuz_proxy`, whose caller turns a failure
+        into an app rollback. It still never raises; the caller decides.
+
         Returns the keys that failed, for the journal and for the one caller path
         that survives to return an envelope.
         """
         failed: list[str] = []
-        dependencies = [key for key in self.programs if key != "milo"]
+        dependencies = [
+            key for key in self.programs
+            if key != "milo" and (only is None or key in only)
+        ]
 
         # The pulled tree carries a new dependencies.env that this process was
         # started before; without this the reconciliation compares against the
@@ -615,6 +622,10 @@ class UpdateService(VersionService):
             # Sync system files (services, rootfs)
             await self._sync_system_files()
 
+            # The one dependency the synced tree can refuse outright, asked
+            # while the app can still roll back: see the method.
+            await self._require_launcher_accepts_qobuz_proxy()
+
             # Install the dependency set the released commit validated.
             # Deliberately *after* the app is installed and synced: everything
             # above this line can still roll the app back, and rolling back with
@@ -704,6 +715,38 @@ class UpdateService(VersionService):
             # failed, or was cancelled, before it.
             if staging is not None:
                 await self._cleanup_temp_files(str(staging))
+
+    async def _require_launcher_accepts_qobuz_proxy(self) -> None:
+        """Raise unless the `milo-qobuz` just synced accepts the venv it will run.
+
+        The launcher checks what it binds to at every start and exits 1 when a
+        binding is missing, under `Restart=always`. So for qobuz-proxy "the new
+        app over the previous dependency" — what `_reconcile_dependencies`
+        leaves after a failed, restored step — is not a state that works when
+        the release moved a binding along with the pin: it is a sidecar that
+        restarts forever while the journal reports a clean rollback. Settled
+        here instead, before the rest of the set moves: the launcher refuses →
+        qobuz-proxy is reconciled now → still refused, the caller rolls the app
+        back, which puts the previous launcher back over the venv a failed pip
+        already restored. Installed is asked as the reconciliation asks it: a
+        venv it would skip cannot be brought to a version here either, and
+        gating on it would refuse every update of that unit.
+        """
+        installed = await self.get_installed_version("qobuz-proxy")
+        if self.installed_version({"installed": installed}) is None:
+            return
+        python = f"{self.programs['qobuz-proxy']['venv_path']}/bin/python"
+        ok, out = await self._run_local(python, QOBUZ_ADAPTER, "--check", timeout=60)
+        if ok:
+            return
+        self.update_logger.info(
+            f"The new milo-qobuz refuses the installed qobuz-proxy ({out}); reconciling it first"
+        )
+        if await self._reconcile_dependencies(only=("qobuz-proxy",)):
+            raise Exception(f"qobuz-proxy could not reach a version the new milo-qobuz accepts: {out}")
+        ok, out = await self._run_local(python, QOBUZ_ADAPTER, "--check", timeout=60)
+        if not ok:
+            raise Exception(f"The new milo-qobuz refuses the installed qobuz-proxy: {out}")
 
     async def _run_deploy(self, *args, timeout: int = 120) -> tuple[bool, str]:
         """Run a milo-deploy-update subcommand via sudo."""

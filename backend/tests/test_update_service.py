@@ -33,7 +33,7 @@ from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
 
 from backend.core.updates.catalog import PROGRAMS
-from backend.core.updates.update import UpdateService
+from backend.core.updates.update import QOBUZ_ADAPTER, UpdateService
 from backend.core.systemd import SystemdServiceManager
 from backend.tests.conftest import shortened_wait_for
 
@@ -1907,6 +1907,155 @@ class TestMiloAppLastSteps:
         assert "reboot" in result["error"].lower()
         assert "sudo: a password is required" in result["error"]
         rollback.assert_not_awaited()
+
+
+class TestTheQobuzLauncherGate:
+    """The one dependency a Milō update cannot leave behind on a failure.
+
+    `milo-qobuz` checks what it binds to in qobuz-proxy at every start and exits
+    1 on a missing binding, under `Restart=always`. A release that moves a
+    binding along with the pin therefore leaves no working "new app, previous
+    qobuz-proxy" state: a pip that fails and restores the old venv puts a
+    sidecar into a restart loop while the journal reports a clean rollback, and
+    Qobuz Connect is gone from the Qobuz app. What these pin is that the update
+    settles it while the app can still roll back, from the argv the unit sees.
+    """
+
+    STATUS = MILO_STATUS
+    VENV_PYTHON = f"{PROGRAMS['qobuz-proxy']['venv_path']}/bin/python"
+    PIP_SPEC = "qobuz-proxy[local] @ git+"
+
+    @classmethod
+    def _exec(cls, *, launcher_ok, pip_ok=False, venv_exists=True, validated="0.0.0"):
+        """The unit's processes. The launcher accepts the venv once pip reached
+        `validated` (or always, `launcher_ok`); a venv that does not exist
+        answers its version command the way a missing interpreter does."""
+        calls = []
+        upgraded = []
+
+        async def mock_exec(*args, **kwargs):
+            calls.append(args)
+            if "rev-parse" in args:
+                return _make_mock_proc(stdout=b"abc123def456\n")
+            if args[0] == cls.VENV_PYTHON and not venv_exists:
+                raise FileNotFoundError(args[0])
+            if QOBUZ_ADAPTER in args and "--check" in args:
+                if launcher_ok or upgraded:
+                    return _make_mock_proc(stdout=b"bind cleanly")
+                return _make_mock_proc(
+                    returncode=1,
+                    stderr=b"encode_join_session takes supports_volume_control by keyword",
+                )
+            if any(str(a).startswith(cls.PIP_SPEC) for a in args):
+                if pip_ok:
+                    upgraded.append(True)
+                    return _make_mock_proc()
+                return _make_mock_proc(returncode=1, stderr=b"Could not resolve host: github.com")
+            if args[:2] == (cls.VENV_PYTHON, "-c") and "importlib.metadata" in args[2]:
+                return _make_mock_proc(stdout=(validated if upgraded else "0.0.1").encode() + b"\n")
+            return _make_mock_proc()
+
+        return calls, mock_exec
+
+    @contextmanager
+    def _update(self, service, mock_exec):
+        """The update's world: subprocesses, the reboot, GitHub's qobuz offer."""
+        validated = service.programs["qobuz-proxy"]["validated_version"]
+        service._github_cache["github_qobuz-proxy"] = {
+            "status": "success", "version": validated, "tag_name": f"v{validated}",
+            "published_at": None, "html_url": None, "asset_names": [],
+        }
+        service._last_github_fetch["github_qobuz-proxy"] = time.time()
+        with ExitStack() as stack:
+            stack.enter_context(patch("pathlib.Path.exists", return_value=True))
+            stack.enter_context(patch("pathlib.Path.mkdir"))
+            stack.enter_context(patch("asyncio.create_subprocess_exec", side_effect=mock_exec))
+            stack.enter_context(patch("asyncio.sleep", new_callable=AsyncMock))
+            stack.enter_context(frontend_from_the_release(service))
+            stack.enter_context(github_unreachable())
+            deploy = stack.enter_context(
+                patch.object(service, "_run_deploy", return_value=(True, ""))
+            )
+            yield deploy
+
+    @staticmethod
+    def _other_dependency_commands():
+        return [
+            tuple(cmd)
+            for key, program in PROGRAMS.items() if key not in ("milo", "qobuz-proxy")
+            for cmd in program.get("commands", {}).values()
+        ]
+
+    @pytest.mark.asyncio
+    async def test_milo_update_rolls_back_when_the_new_launcher_rejects_the_installed_qobuz_proxy(
+            self, update_service):
+        """Launcher refuses, pip cannot reach GitHub, the venv is restored: the
+        app goes back with it, so the previous launcher runs the previous venv.
+
+        Rebooting into the new code instead is the restart loop. And nothing
+        else moves first — a rollback with the rest of the set already moved
+        would leave the app and its dependencies out of step.
+        """
+        calls, mock_exec = self._exec(launcher_ok=False)
+        with self._update(update_service, mock_exec) as deploy:
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert result["success"] is False
+        assert "qobuz-proxy" in result["error"]
+        assert any(str(a).startswith(self.PIP_SPEC) for c in calls for a in c), \
+            "qobuz-proxy was never asked to follow the launcher"
+        assert any("checkout" in c and "--force" in c and "abc123def456" in c for c in calls), \
+            "the app was not rolled back"
+        assert "reboot" not in [c.args[0] for c in deploy.await_args_list]
+        other = self._other_dependency_commands()
+        assert other, "the catalog lists no other dependency"
+        assert not [c for c in calls if c in other], "another dependency was reached"
+
+    @pytest.mark.asyncio
+    async def test_an_absent_qobuz_venv_does_not_gate_a_milo_update(self, update_service):
+        """A unit that never had Qobuz has no launcher binding to break: asking
+        the check there would fail on every such unit and roll a good update back."""
+        calls, mock_exec = self._exec(launcher_ok=False, venv_exists=False)
+        with self._update(update_service, mock_exec) as deploy:
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert result["success"] is True
+        assert not [c for c in calls if QOBUZ_ADAPTER in c]
+        assert not [c for c in calls if "abc123def456" in c and "checkout" in c]
+        assert "reboot" in [c.args[0] for c in deploy.await_args_list]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_venv_that_reaches_the_pin_lets_the_update_through(self, update_service):
+        """The path that keeps a release with a moved binding installable: the
+        launcher refuses the previous venv, qobuz-proxy reaches the pin, the
+        launcher accepts it, and the update reboots onto the pair."""
+        validated = update_service.programs["qobuz-proxy"]["validated_version"]
+        calls, mock_exec = self._exec(launcher_ok=False, pip_ok=True, validated=validated)
+        with self._update(update_service, mock_exec) as deploy:
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert result["success"] is True, result.get("error")
+        assert "qobuz-proxy" not in result["dependency_failures"]
+        assert len([c for c in calls if any(str(a).startswith(self.PIP_SPEC) for a in c)]) == 1, \
+            "qobuz-proxy was installed again by the full reconciliation"
+        assert not [c for c in calls if "abc123def456" in c and "checkout" in c]
+        assert "reboot" in [c.args[0] for c in deploy.await_args_list]
+
+    @pytest.mark.asyncio
+    async def test_a_launcher_that_accepts_the_previous_venv_leaves_qobuz_to_the_reconciliation(
+            self, update_service):
+        """No binding moved: the previous qobuz-proxy works under the new
+        launcher, so a pip that fails is the ordinary reported, non-fatal step
+        and the update reboots as before."""
+        calls, mock_exec = self._exec(launcher_ok=True)
+        with self._update(update_service, mock_exec) as deploy:
+            result = await update_service._update_milo_app(self.STATUS)
+
+        assert result["success"] is True
+        assert "qobuz-proxy" in result["dependency_failures"]
+        assert [c for c in calls if QOBUZ_ADAPTER in c and "--check" in c]
+        assert not [c for c in calls if "abc123def456" in c and "checkout" in c]
+        assert "reboot" in [c.args[0] for c in deploy.await_args_list]
 
 
 class TestVerifyBinaryProgram:
