@@ -54,6 +54,7 @@ from backend.core.models.ws_events import (
     VolumeStartupChanged,
     VolumeStartupConfig,
 )
+from backend.tests.contracts.emission_sites import emitted_in_backend
 
 
 @pytest.fixture
@@ -329,32 +330,14 @@ def test_docstring_names_the_consumers(cls):
     assert len(doc) > 20, f"{cls.__name__}: docstring must name its consumers, got {doc!r}"
 
 
-def _names_referenced_outside_ws_events():
-    """Every identifier used anywhere in backend/ except ws_events.py itself."""
-    used = set()
-    for py in BACKEND_ROOT.rglob("*.py"):
-        if py.name == "ws_events.py" or "/tests/" in str(py):
-            continue
-        try:
-            tree = ast.parse(py.read_text())
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name):
-                used.add(node.id)
-            elif isinstance(node, ast.Attribute):
-                used.add(node.attr)
-            elif isinstance(node, ast.alias):
-                used.add(node.name.rsplit(".", 1)[-1])
-    return used
-
-
-_REFERENCED = _names_referenced_outside_ws_events()
-# Sentinels: a name imported by every source module, and a bulk floor. A scan
-# that silently returned a near-empty set would make the emission-site test
-# below pass for reasons that have nothing to do with the code.
-assert "BaseAudioSource" in _REFERENCED, "identifier scan missed a known import — extractor broken?"
-assert len(_REFERENCED) > 2000, f"identifier scan found only {len(_REFERENCED)} names — extractor broken?"
+_EMITTED = emitted_in_backend(BACKEND_ROOT, {cls.__name__ for cls in CONCRETE})
+# Sentinels: a floor, and one class per emission form the scan must read on the
+# real tree: built (SourcePosition), handed to a builder (SatelliteUpdateProgress),
+# held in a factory table (MultiroomClientStateChanged). A scan that lost a form
+# would turn its classes red; one that found nothing would be caught here first.
+assert len(_EMITTED) >= 60, f"emission scan found only {len(_EMITTED)} classes — extractor broken?"
+for _known in ("SourcePosition", "SatelliteUpdateProgress", "MultiroomClientStateChanged"):
+    assert _known in _EMITTED, f"emission scan missed {_known} — extractor broken?"
 
 
 @pytest.mark.parametrize("cls", CONCRETE, ids=[c.__name__ for c in CONCRETE])
@@ -365,9 +348,9 @@ def test_event_has_a_production_emission_site(cls):
     next one fail at pytest time instead of living on as documentation of a
     feature that does not exist.
     """
-    assert cls.__name__ in _REFERENCED, (
-        f"{cls.__name__} is never referenced outside ws_events.py — "
-        f"delete it, or wire up the producer."
+    assert cls.__name__ in _EMITTED, (
+        f"{cls.__name__} is never built outside ws_events.py (a TRIGGERS tuple, "
+        f"an isinstance or an import only reads it) — delete it, or wire up the producer."
     )
 
 

@@ -28,13 +28,14 @@ consumes — that is the network half of the guard.
 
 A static check that turns a silent contract break into an actionable failing test.
 """
-import ast
 import importlib.util
 import json
 import re
 from pathlib import Path
 
 import pytest
+
+from backend.tests.contracts.emission_sites import emitted, emitted_in_backend
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BACKEND_ROOT = REPO_ROOT / "backend"
@@ -398,7 +399,7 @@ def test_the_body_reader_reads_the_app_s_dict_literals():
 
 # --------------------------------------------------------------------------- #
 # WS: every manifest (category, type) must have an emission site — a typed
-# WsEvent class actually used by the backend.
+# WsEvent class actually built by the backend.
 # --------------------------------------------------------------------------- #
 
 def _concrete_event_classes():
@@ -425,38 +426,26 @@ _EVENT_CLASSES = _concrete_event_classes()
 
 
 def _scan_typed_events():
-    """Static model of typed `broadcast(event)` emission.
+    """The (category, type) pairs some production code emits.
 
-    Typed events pin (CATEGORY, TYPE) at the class level, so an emission site
-    is any reference to the event class outside `core/models/ws_events.py`
-    (instantiation `SourcePosition(...)` or class handoff
-    `progress_event_cls=SatelliteUpdateProgress`). Bare imports don't count —
-    an imported-but-unused class is dead code ruff flags anyway.
+    Typed events pin (CATEGORY, TYPE) at the class level, so a pair is emitted
+    where one of its classes is built or handed to whatever builds it: the
+    rule lives in emission_sites.py, shared with test_ws_events.py. A reference
+    that only reads the class (a `TRIGGERS` tuple, an `isinstance`, an
+    annotation, an import) is a consumer and does not count.
     """
     class_to_pair = {
         cls.__name__: pair
         for pair, classes in _EVENT_CLASSES.items()
         for cls in classes
     }
+    return {class_to_pair[name] for name in emitted_in_backend(BACKEND_ROOT, class_to_pair)}
 
-    referenced_pairs: set[tuple[str, str]] = set()
-    ws_events_path = BACKEND_ROOT / "core" / "models" / "ws_events.py"
-
-    for py in BACKEND_ROOT.rglob("*.py"):
-        if "/tests/" in py.as_posix() or py == ws_events_path:
-            continue
-        try:
-            tree = ast.parse(py.read_text(), filename=str(py))
-        except SyntaxError:
-            continue
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and node.id in class_to_pair:
-                referenced_pairs.add(class_to_pair[node.id])
-
-    return referenced_pairs
 
 _TYPED = _scan_typed_events()
+# A scan that found nothing would read as "Milo-Mac's events are no longer
+# broadcast" and invite pruning the manifest: fail as a broken extractor first.
+assert len(_TYPED) >= 50, f"emission scan found only {len(_TYPED)} pairs — extractor broken?"
 
 
 @pytest.mark.parametrize(
@@ -470,11 +459,46 @@ def test_ws_broadcast_site_exists(event):
 
     assert (category, evt_type) in _TYPED, (
         f"WS event `{category}/{evt_type}` has no emission site (no WsEvent "
-        f"subclass referenced outside ws_events.py) but is required by "
+        f"subclass built outside ws_events.py) but is required by "
         f"Milo-Mac ({event['consumer']}). Restore the broadcast or, if "
         f"Milo-Mac genuinely dropped it, delete the entry from "
         f"{MANIFEST_PATH.name}. See CLAUDE.md §'External API clients — Milo-Mac and Milo-iOS'."
     )
+
+
+def test_a_consumer_reference_is_not_an_emission_site():
+    """The push service names `VolumeChanged` in a `TRIGGERS` tuple and an
+    `isinstance`: counting those held `volume/volume_changed` green with its
+    only constructor gone. An annotation and an import read the class too."""
+    source = (
+        "from backend.core.models.ws_events import VolumeChanged\n"
+        "TRIGGERS = (VolumeChanged,)\n"
+        "WATCHED = [VolumeChanged]\n"
+        "def f(event) -> VolumeChanged:\n"
+        "    if isinstance(event, VolumeChanged) or issubclass(type(event), VolumeChanged):\n"
+        "        return event\n"
+    )
+    assert emitted(source, {"VolumeChanged"}) == set()
+
+
+def test_a_factory_table_value_is_an_emission_site():
+    """`REGISTRY_EVENT_CLASSES` maps registry events to classes that
+    `event_cls(**data)` builds later: `multiroom/client_state_changed`, which
+    Milo-Mac reads, has no other emitter."""
+    source = "TABLE = {CONNECTED: MultiroomClientStateChanged}\n"
+    assert emitted(source, {"MultiroomClientStateChanged"}) == {"MultiroomClientStateChanged"}
+
+
+def test_a_class_handed_to_a_builder_is_an_emission_site():
+    """`api/programs.py` hands `SatelliteUpdateProgress` to the update service,
+    which builds it; the fan hands its event class positionally."""
+    source = (
+        "run(progress_event_cls=SatelliteUpdateProgress)\n"
+        "fan._broadcast_status(FanStatusChanged)\n"
+        "broadcast(ws_events.SourcePosition(source='radio'))\n"
+    )
+    names = {"SatelliteUpdateProgress", "FanStatusChanged", "SourcePosition"}
+    assert emitted(source, names) == names
 
 
 # --------------------------------------------------------------------------- #

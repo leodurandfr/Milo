@@ -66,7 +66,7 @@
   ],
 
   "ws": {
-    "_about": "Each (category, type) below MUST have at least one backend emission site: a typed WsEvent subclass (core/models/ws_events.py) referenced outside its defining module. payload_invariants are STATICALLY VERIFIED against those typed models by test_milo_mac_contract.py (test_invariant_* + test_all_payload_invariants_are_verified) — adding/changing an invariant here requires the matching test.",
+    "_about": "Each (category, type) below MUST have at least one backend emission site: a typed WsEvent subclass (core/models/ws_events.py) built, or handed to what builds it, outside its defining module (emission_sites.py: a TRIGGERS tuple, an isinstance or an import does not count). payload_invariants are STATICALLY VERIFIED against those typed models by test_milo_mac_contract.py (test_invariant_* + test_all_payload_invariants_are_verified) — adding/changing an invariant here requires the matching test.",
     "events": [
       { "category": "source",    "type": "state",                "consumer": "WebSocketService.decodeState", "store_delegate": "didReceiveStateUpdate",
         "note": "`data` IS the audio state (the same object GET /api/audio/state returns), decoded by MiloAudioState.decode; a state it cannot decode is logged and ignored. Pinned by the source/state payload invariant below." },
