@@ -495,8 +495,9 @@ class RadioSource(MpvAudioSource):
         """Detect pre-roll ad duration from stream ICY metadata via ffprobe.
 
         Some streaming servers (e.g. Infomaniak) inject pre-roll ads on each
-        new HTTP connection. Results are cached per hostname so only the first
-        play of a given host pays the probe cost.
+        new HTTP connection. A verdict is cached per hostname so only the first
+        play of a given host pays the probe cost; a probe that got no answer
+        caches nothing and is asked again next time.
         """
         hostname = urlparse(url).hostname or ""
         if hostname in self._preroll_cache:
@@ -527,10 +528,10 @@ class RadioSource(MpvAudioSource):
                     if duration_ms > 0:
                         skip = (duration_ms // 1000) + 2
                         self._logger.info(f"Pre-roll ad detected ({duration_ms}ms), skipping {skip}s")
+                self._preroll_cache[hostname] = skip
         except Exception as e:
             self._logger.debug(f"Preroll detection failed for {hostname}: {e}")
 
-        self._preroll_cache[hostname] = skip
         return skip
 
     def _resolve_track(self) -> Optional[Dict[str, Any]]:

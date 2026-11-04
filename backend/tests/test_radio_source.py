@@ -643,6 +643,41 @@ class TestPrerollProbe:
         process.kill.assert_called_once()
         process.wait.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", ["timeout", "nonzero_exit", "unreadable_json"])
+    async def test_a_probe_that_fails_is_asked_again_next_time(self, radio_source, failure):
+        """The verdict is cached per host for the life of the backend. A probe
+        that got no answer — a stall, an ffprobe error, a garbled reply — is no
+        verdict: cached as "no preroll", every later Shazam capture on that host
+        would fingerprint the ad instead of the music. The third call proves
+        the answer that did come is still cached."""
+        failed = Mock(returncode=None)
+        failed.kill = Mock()
+        failed.wait = AsyncMock()
+        if failure == "timeout":
+            failed.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        elif failure == "nonzero_exit":
+            failed.returncode = 1
+            failed.communicate = AsyncMock(return_value=(b"", b"connection refused"))
+        else:
+            failed.returncode = 0
+            failed.communicate = AsyncMock(return_value=(b"{not json", b""))
+
+        answered = Mock(returncode=0)
+        answered.communicate = AsyncMock(return_value=(json.dumps({
+            "format": {"tags": {
+                "insertionType": "preroll", "durationMilliseconds": "15000",
+            }}
+        }).encode(), b""))
+        spawn = AsyncMock(side_effect=[failed, answered])
+
+        with patch("asyncio.create_subprocess_exec", spawn):
+            assert await radio_source._detect_preroll("http://stream.example/live") == 0
+            assert await radio_source._detect_preroll("http://stream.example/live") == 17
+            assert await radio_source._detect_preroll("http://stream.example/other") == 17
+
+        assert spawn.await_count == 2
+
 
 class TestTransportOnAnIdleSource:
     """A transport command sent while nothing plays must not serve a crash.
