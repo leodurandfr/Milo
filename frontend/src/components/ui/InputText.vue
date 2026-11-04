@@ -76,6 +76,7 @@ function openKeyboard() {
     value: props.modelValue,
     placeholder: props.placeholder,
     maxlength: props.maxlength,
+    secret: props.type === 'password',
     originElement: inputRef.value,
     onChange: (newValue) => {
       emit('update:modelValue', newValue);

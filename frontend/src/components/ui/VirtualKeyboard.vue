@@ -7,7 +7,8 @@
         <!-- Header: Input display + Backspace -->
         <div class="keyboard-header">
           <div class="keyboard-input-display">
-            <input ref="displayInput" type="text" v-model="keyboardValue" :placeholder="keyboardPlaceholder"
+            <input ref="displayInput" :type="isSecret ? 'password' : 'text'" v-model="keyboardValue"
+              :placeholder="keyboardPlaceholder" :autocomplete="isSecret ? 'new-password' : undefined"
               class="keyboard-display-input heading-3" inputmode="none" />
           </div>
           <button class="keyboard-key key-backspace"
@@ -145,6 +146,7 @@ const keyboardValue = computed({
   set: (val) => keyboardState.updateValue(val)
 });
 const keyboardPlaceholder = computed(() => keyboardState.placeholder.value);
+const isSecret = computed(() => keyboardState.secret.value);
 
 // Keyboard internal state
 const keyboardMode = ref('abc'); // 'abc', 'numbers', 'symbols'
@@ -241,7 +243,8 @@ function handleClose() {
 
 // ===== KEY PRESS POPUP =====
 function showPressPopup(event, key) {
-  if (!keyboardRef.value) return;
+  // An enlarged echo of each key would spell out a masked value
+  if (isSecret.value || !keyboardRef.value) return;
 
   const { left, bottom, width } = pressPopupPlacement(
     event.target.getBoundingClientRect(),

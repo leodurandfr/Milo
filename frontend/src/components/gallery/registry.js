@@ -740,6 +740,7 @@ export const REGISTRY = {
     actions: {
       'Open (text)': (ctx) => ctx.keyboard.open({ value: 'Radio Nova', placeholder: 'Station name' }),
       'Open (empty)': (ctx) => ctx.keyboard.open({ placeholder: 'Wi-Fi password' }),
+      'Open (secret)': (ctx) => ctx.keyboard.open({ placeholder: 'Wi-Fi password', secret: true }),
       Close: (ctx) => ctx.keyboard.close()
     }
   },

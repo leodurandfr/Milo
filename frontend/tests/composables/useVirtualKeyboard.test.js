@@ -6,11 +6,20 @@
  * typed on the kiosk can run past what the backend accepts and be refused with
  * nothing on screen (a zone name: 422 on create and rename).
  *
- * No component is mounted: the state is module-level and the only outside
- * world is the field's callback.
+ * A password field hands `secret` the same way: the keyboard echoes what it
+ * types in a display of its own, so if this fails the kiosk shows the `milo`
+ * password (SSH and sudo), a Wi-Fi key or a share's password in clear on the
+ * living-room screen while the field itself stays masked.
+ *
+ * The bound is driven through the composable alone: its state is module-level
+ * and the only outside world is the field's callback. The secret is read from
+ * the real producer, an InputText mounted as a host; nothing about the DOM is
+ * asserted.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
+import { mount } from '@vue/test-utils';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
+import InputText from '@/components/ui/InputText.vue';
 
 describe('useVirtualKeyboard', () => {
   afterEach(() => useVirtualKeyboard().close());
@@ -63,5 +72,55 @@ describe('useVirtualKeyboard', () => {
 
     keyboard.updateValue('a'.repeat(18));
     expect(Array.from(keyboard.currentValue.value)).toHaveLength(18);
+  });
+});
+
+describe('useVirtualKeyboard — secret fields', () => {
+  let url;
+  const wrappers = [];
+
+  beforeAll(() => {
+    url = window.location.href;
+    window.history.replaceState(null, '', '?virtualKeyboard=true');
+  });
+  afterAll(() => window.history.replaceState(null, '', url));
+  afterEach(() => {
+    useVirtualKeyboard().close();
+    wrappers.splice(0).forEach((w) => w.unmount());
+  });
+
+  async function tapField(type) {
+    const wrapper = mount(InputText, {
+      props: { type },
+      global: { directives: { press: {} } }
+    });
+    wrappers.push(wrapper);
+    await wrapper.find('input').trigger('focus');
+  }
+
+  it('a password field opens the keyboard secret, a text field does not', async () => {
+    const keyboard = useVirtualKeyboard();
+
+    await tapField('password');
+    expect(keyboard.isVisible.value).toBe(true);
+    expect(keyboard.secret.value).toBe(true);
+
+    await tapField('text');
+    expect(keyboard.isVisible.value).toBe(true);
+    expect(keyboard.secret.value).toBe(false);
+  });
+
+  it('close() and submit() clear the secret', async () => {
+    const keyboard = useVirtualKeyboard();
+
+    await tapField('password');
+    expect(keyboard.secret.value).toBe(true);
+    keyboard.close();
+    expect(keyboard.secret.value).toBe(false);
+
+    await tapField('password');
+    expect(keyboard.secret.value).toBe(true);
+    keyboard.submit();
+    expect(keyboard.secret.value).toBe(false);
   });
 });

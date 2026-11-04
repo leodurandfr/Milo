@@ -29,6 +29,7 @@ const onCloseCallback = ref(null);
 const onChangeCallback = ref(null);
 const originElement = ref(null);
 const maxLength = ref(null);
+const secret = ref(false);
 
 // Counts code points, as the backend's max_length does, so a surrogate pair is
 // never split. Like a native maxlength, a value already past the bound when the
@@ -52,6 +53,8 @@ export function useVirtualKeyboard() {
    * @param {number} [options.maxlength] - Longest value the keys may type; the
    *   field's own `maxlength` bounds nothing here, since the keys never type
    *   into its `<input>`
+   * @param {boolean} [options.secret] - Mask what the keys type, as the field's
+   *   own `type="password"` masks nothing on the keyboard's display
    */
   function open(options = {}) {
     // If keyboard is already open for another field, notify the previous field
@@ -66,6 +69,7 @@ export function useVirtualKeyboard() {
     onChangeCallback.value = options.onChange || null;
     originElement.value = options.originElement || null;
     maxLength.value = options.maxlength ?? null;
+    secret.value = !!options.secret;
     isVisible.value = true;
   }
 
@@ -83,6 +87,7 @@ export function useVirtualKeyboard() {
     onChangeCallback.value = null;
     originElement.value = null;
     maxLength.value = null;
+    secret.value = false;
   }
 
   /**
@@ -99,6 +104,7 @@ export function useVirtualKeyboard() {
     onChangeCallback.value = null;
     originElement.value = null;
     maxLength.value = null;
+    secret.value = false;
   }
 
   /**
@@ -118,6 +124,7 @@ export function useVirtualKeyboard() {
     currentValue,
     placeholder,
     originElement,
+    secret,
 
     // Methods
     open,
