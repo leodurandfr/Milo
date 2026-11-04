@@ -461,6 +461,20 @@ async def test_a_backend_that_died_open_is_closed_at_its_next_start(bt):
     assert bt.blocked() == EVERY_SENDER
 
 
+async def test_a_boot_whose_probe_cannot_tell_still_closes(bt):
+    """Under the boot's load `systemctl is-active bluetooth` can time out while
+    bluetoothd runs: read as stopped, the closing was skipped and every sender
+    could connect to an appliance whose source was not Bluetooth, until the
+    source was next started or stopped. Only a bluetoothd known down is spared."""
+    await bt.select()
+    await bt.backend_killed_and_restarted()
+    bt.unreadable_probes.add(BLUEZ_UNIT)
+    await bt.source.initialize()
+    await settle()
+    assert not bt.exposed()
+    assert bt.blocked() == EVERY_SENDER
+
+
 async def test_a_boot_with_bluetoothd_stopped_touches_nothing(bt, caplog):
     """bluetooth.service runs only for the source or the HID remote: with
     neither, every write would fail and log an error at each boot."""

@@ -386,8 +386,13 @@ class MacWorld(WireReader):
         systemd.start = AsyncMock(side_effect=self._unit_start)
         systemd.stop = AsyncMock(side_effect=self._unit_stop)
         systemd.restart = AsyncMock(side_effect=self._unit_restart)
-        systemd.is_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
         systemd.probe_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
+
+        async def is_active(unit: str) -> bool:
+            # The real manager folds an unreadable probe into False.
+            return await systemd.probe_active(unit) is True
+
+        systemd.is_active = AsyncMock(side_effect=is_active)
         self.pid_unreadable = False
         systemd.main_pid = AsyncMock(side_effect=lambda *_: None if self.pid_unreadable else self.pid or 0)
         systemd.unit_state = AsyncMock(side_effect=lambda *_: self.unit_state)

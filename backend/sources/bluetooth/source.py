@@ -311,11 +311,14 @@ class BluetoothSource(BaseAudioSource):
         No teardown ran then, and BlueZ keeps what it was told — Blocked is
         durable, and bluetooth.service outlives the backend — while a new
         backend never selects Bluetooth on its own. With bluetoothd stopped
-        there is nothing to close, and every write would fail. Beside the boot:
-        the API answers nothing until init_async returns, and a silent
-        bluetoothd would hold it for the whole bound.
+        there is nothing to close, and every write would fail. Only a
+        bluetoothd known down is spared: a probe that timed out under the
+        boot's load is no answer, and a closing sent to an absent bluetoothd
+        fails at warning within its bound. Beside the boot: the API answers
+        nothing until init_async returns, and a silent bluetoothd would hold
+        it for the whole bound.
         """
-        if not await self._is_service_active(self.bluetooth_service):
+        if await self._service_manager.probe_active(self.bluetooth_service) is False:
             self._logger.debug(f"{self.bluetooth_service} is not running — no exposure to close")
         else:
             self._bg.spawn(self._submit(Result(self._close_at_boot)), label="close_at_boot")

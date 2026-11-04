@@ -114,7 +114,9 @@ class MacSource(BaseAudioSource):
             if not await self._start_service_and_wait(settle=1):
                 return False
 
-            if not await self._is_service_active():
+            # Known down only: systemd confirmed the start, so a probe that
+            # timed out is no reason to turn a listening receiver away.
+            if await self.probe_service_active() is False:
                 self._logger.error("Service not active after start")
                 return False
 

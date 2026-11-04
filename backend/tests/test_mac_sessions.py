@@ -310,11 +310,22 @@ async def test_a_unit_that_died_during_its_settle_fails_the_selection(world, cap
     """systemd acknowledges the start, then roc-recv exits in its first second
     (a port already bound): reporting started gives the Mac a receiver that is
     not listening."""
-    world.systemd.is_active.side_effect = lambda *_: False
+    world.systemd.probe_active.side_effect = lambda *_: False
     with caplog.at_level("ERROR", logger="source.mac"):
         await world.select()
     assert world.state()["service"] == "failed"
     assert "not active after start" in caplog.text
+
+
+async def test_an_unreadable_probe_after_the_settle_does_not_fail_the_selection(world):
+    """systemd confirmed the start and roc-recv still runs, but the probe after
+    the settle timed out (a busy card): refusing the start then turned a Mac
+    away from a receiver that was listening."""
+    world.systemd.probe_active.side_effect = lambda *_: None
+    await world.select()
+    assert world.state()["service"] != "failed"
+    await world.mac_streams(MINI_IP)
+    assert world.active() and world.names() == [MINI_NAME]
 
 
 async def test_without_a_start_time_the_journal_is_followed_from_now(world, caplog):

@@ -28,7 +28,7 @@ import asyncio
 import heapq
 import itertools
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from unittest.mock import AsyncMock, Mock
 
 import aiohttp
@@ -708,8 +708,17 @@ class Bluetooth(WireReader):
         systemd.start = AsyncMock(side_effect=lambda unit, *a: self._unit("start", unit))
         systemd.stop = AsyncMock(side_effect=lambda unit, *a: self._unit("stop", unit))
         systemd.restart = AsyncMock(side_effect=lambda unit, *a: self._unit("restart", unit))
-        systemd.is_active = AsyncMock(side_effect=lambda unit, *a: self.units.get(unit, False))
-        systemd.probe_active = AsyncMock(side_effect=lambda unit, *a: self.units.get(unit, False))
+        # A probe that timed out under the boot's load: the unit's real state
+        # stands, systemd just could not say it in time.
+        self.unreadable_probes: Set[str] = set()
+        systemd.probe_active = AsyncMock(side_effect=lambda unit, *a: (
+            None if unit in self.unreadable_probes else self.units.get(unit, False)))
+
+        async def is_active(unit: str, *a) -> bool:
+            # The real manager folds an unreadable probe into False.
+            return await systemd.probe_active(unit) is True
+
+        systemd.is_active = AsyncMock(side_effect=is_active)
         # systemd slow to answer (a busy card): the session opens unwatched.
         self.pid_unreadable = False
         systemd.main_pid = AsyncMock(
