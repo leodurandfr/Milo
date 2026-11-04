@@ -13,8 +13,10 @@ Two guards protect the Milo-Mac wire contract:
 
   * NETWORK, NON-BLOCKING (this script, scheduled CI job):
       re-clones the real Milo-Mac and warns if the VENDORED SNAPSHOT (and thus
-      the manifest) has fallen behind upstream. A human then refreshes
-      vendor/milo-mac/ + the manifest in one conscious commit.
+      the manifest) has fallen behind upstream: any vendored file whose content
+      moved, and any `consumer`/`store_delegate` the manifest names that
+      upstream no longer has. A human then refreshes vendor/milo-mac/ + the
+      manifest in one conscious commit.
 
 Heuristic Swift parsing — intentionally, stdlib only. Milo-Mac funnels REST
 through `send()/fetchJSON()` helpers and dispatches WS via a
@@ -204,48 +206,72 @@ def compute_diff(manifest: dict, api_swift: str, ws_swift: str):
     return errors, warnings
 
 
-def _read_pair(root: Path) -> tuple[str, str]:
-    """(api_swift, ws_swift) from a Milo-Mac checkout root (… / 'Milo Mac' / *.swift)."""
-    base = root / "Milo Mac"
-    return (
-        (base / "MiloAPIService.swift").read_text(),
-        (base / "WebSocketService.swift").read_text(),
-    )
+def missing_consumers(manifest: dict, corpus: str) -> list[str]:
+    """Every `consumer`/`store_delegate` the manifest names that `corpus` lacks.
+
+    A REST `consumer` may list several functions (comma-separated); a WS field
+    may name a call (`didReceiveMultiroomFailed()`) or several delegates joined
+    by `+`, each resolved by its identifier. Shared by the offline test (against
+    the vendored snapshot) and main() (against upstream).
+    """
+    missing = []
+    for entry in manifest["rest"]:
+        for consumer in (c.strip() for c in entry["consumer"].split(",")):
+            symbol = consumer.split(".")[-1]
+            if not re.search(rf"\b{re.escape(symbol)}\b", corpus):
+                missing.append(f"REST {entry['method']} {entry['path']} -> {consumer}")
+    for event in manifest["ws"]["events"]:
+        for field in ("consumer", "store_delegate"):
+            value = event.get(field)
+            if not value:
+                continue
+            for part in value.split("+"):
+                symbol = re.split(r"[ (]", part.strip().split(".")[-1])[0]
+                if not re.search(rf"\b{re.escape(symbol)}\b", corpus):
+                    missing.append(f"WS {event['category']}/{event['type']} {field} -> {part.strip()}")
+    return missing
 
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__)
         return 2
-    api_swift, ws_swift = _read_pair(Path(argv[1]))
     manifest = json.loads(MANIFEST_PATH.read_text())
-
-    upstream = (extract_rest(api_swift), extract_ws(ws_swift))
-    vendored = (
-        extract_rest((VENDOR_DIR / "MiloAPIService.swift").read_text()),
-        extract_ws((VENDOR_DIR / "WebSocketService.swift").read_text()),
-    )
-    snapshot_stale = upstream != vendored
+    base = Path(argv[1]) / "Milo Mac"
+    vendored_names = manifest["_snapshot"]["files"]
+    gone = [name for name in vendored_names if not (base / name).is_file()]
+    if gone:
+        print(f"::error::[milo-mac-freshness] Upstream Milo-Mac no longer has {', '.join(gone)} "
+              "under 'Milo Mac/' — re-vendor from wherever it moved.")
+        return 1
+    upstream_files = {name: (base / name).read_text() for name in vendored_names}
+    api_swift = upstream_files["MiloAPIService.swift"]
+    ws_swift = upstream_files["WebSocketService.swift"]
+    corpus = "\n".join(upstream_files.values())
+    assert "func " in corpus, "upstream Milo-Mac unreadable — the name check cannot fail"
 
     errors, warnings = compute_diff(manifest, api_swift, ws_swift)
-    # The decoder is compared by content, not by an extracted surface: every key
-    # the source/state invariant pins is read there, and a key it stops reading
-    # changes no route and no event.
-    decoder = Path(argv[1]) / "Milo Mac" / "MiloAudioState.swift"
-    if decoder.read_text() != (VENDOR_DIR / "MiloAudioState.swift").read_text():
-        snapshot_stale = True
-        warnings.append(
-            "MiloAudioState.swift differs from the vendored copy — the source/state "
-            "invariant describes a decoder upstream no longer has."
-        )
+    # Every vendored file is compared by content, not by an extracted surface:
+    # the keys the payload invariants and the response/body checks pin are read
+    # in every one, and a key one stops reading changes no route and no event.
+    snapshot_stale = False
+    for name, text in upstream_files.items():
+        if text != (VENDOR_DIR / name).read_text():
+            snapshot_stale = True
+            warnings.append(
+                f"{name} differs from the vendored copy — what the manifest pins "
+                "from it describes a file upstream no longer has."
+            )
+    for name in missing_consumers(manifest, corpus):
+        errors.append(f"{name} names a symbol upstream Milo-Mac no longer has.")
     if snapshot_stale:
         warnings.append(
             "Vendored snapshot under vendor/milo-mac/ has fallen behind upstream "
-            "Milo-Mac — refresh the three .swift files AND milo_mac_contract.json in "
+            f"Milo-Mac — refresh the {len(upstream_files)} .swift files AND milo_mac_contract.json in "
             "one conscious commit (the offline test enforces manifest == snapshot)."
         )
 
-    print(f"Upstream Milo-Mac surface: {len(upstream[0])} REST, {len(upstream[1])} WS event handlers.")
+    print(f"Upstream Milo-Mac surface: {len(extract_rest(api_swift))} REST, {len(extract_ws(ws_swift))} WS event handlers.")
     for w in warnings:
         print(f"::warning::[milo-mac-freshness] {w}")
     for e in errors:

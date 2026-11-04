@@ -761,37 +761,69 @@ def test_every_consumer_named_exists_in_the_snapshot():
     vendored WebSocketService.swift, so the name is right here. Excusing a field
     that can be checked is how the ten names rotted in the first place — the
     exemption, not the rename, is what kept them quiet.
+
+    The rule is the freshness script's `missing_consumers`, which the weekly job
+    applies to upstream: this test alone only proves the names against a
+    snapshot that may already be behind.
     """
     corpus = "\n".join(
-        (VENDOR_DIR / name).read_text()
-        for name in ("MiloAPIService.swift", "WebSocketService.swift", "MiloAudioState.swift")
+        (VENDOR_DIR / name).read_text() for name in _MANIFEST["_snapshot"]["files"]
     )
     assert "func " in corpus, "vendored snapshot unreadable — the check below cannot fail"
 
-    missing = []
-    for entry in _MANIFEST["rest"]:
-        for consumer in (c.strip() for c in entry["consumer"].split(",")):
-            symbol = consumer.split(".")[-1]
-            if not re.search(rf"\b{re.escape(symbol)}\b", corpus):
-                missing.append(f"REST {entry['method']} {entry['path']} -> {consumer}")
-    for event in _MANIFEST["ws"]["events"]:
-        for field in ("consumer", "store_delegate"):
-            value = event.get(field)
-            if not value:
-                continue
-            # `didReceiveMultiroomFailed()` names the call, not just the
-            # symbol: take the identifier and drop the args.
-            symbol = re.split(r"[ (+]", value.split(".")[-1])[0]
-            if not re.search(rf"\b{re.escape(symbol)}\b", corpus):
-                missing.append(
-                    f"WS {event['category']}/{event['type']} {field} -> {value}"
-                )
-
+    missing = _FRESHNESS.missing_consumers(_MANIFEST, corpus)
     assert not missing, (
         "consumers naming a symbol absent from vendor/milo-mac/:\n  "
         + "\n  ".join(missing)
         + "\nRefresh the snapshot, or correct the name to what Milo-Mac calls it now."
     )
+
+
+def _upstream_copy(tmp_path: Path) -> Path:
+    """A Milo-Mac checkout laid out as the freshness job clones it, holding the
+    vendored snapshot: the stand-in for an upstream that has not moved."""
+    base = tmp_path / "Milo Mac"
+    base.mkdir()
+    for name in _MANIFEST["_snapshot"]["files"]:
+        (base / name).write_text((VENDOR_DIR / name).read_text())
+    return base
+
+
+def test_freshness_reports_an_unmoved_upstream_in_sync(tmp_path, capsys):
+    """The control for the test below: an upstream identical to the snapshot
+    must read as in sync, or a check that flags everything would pass it."""
+    _upstream_copy(tmp_path)
+
+    assert _FRESHNESS.main(["x", str(tmp_path)]) == 0
+    assert "in sync" in capsys.readouterr().out
+
+
+def test_freshness_flags_a_renamed_delegate(tmp_path, capsys):
+    """An upstream that renamed a delegate the manifest names must not read as in sync.
+
+    The weekly job judged upstream on the extracted surface only, and a rename
+    moves no route and no event: Milo-Mac 2ed3957 renamed the delegate behind
+    routing/multiroom_error, the job answered "in sync" with exit 0, and its
+    "back in sync" step would have closed the drift issue — while the manifest's
+    pointer at the entry easiest to delete by accident named a function that no
+    longer existed.
+    """
+    base = _upstream_copy(tmp_path)
+    event = next(
+        e for e in _MANIFEST["ws"]["events"]
+        if (e["category"], e["type"]) == ("routing", "multiroom_error")
+    )
+    delegate = re.split(r"[ (+]", event["store_delegate"])[0]
+    assert len(re.findall(rf"\b{delegate}\b", (base / "WebSocketService.swift").read_text())) >= 2, (
+        f"{delegate} should be declared and called in WebSocketService.swift"
+    )
+    for swift in base.iterdir():
+        swift.write_text(re.sub(rf"\b{delegate}\b", f"{delegate}Renamed", swift.read_text()))
+
+    assert _FRESHNESS.main(["x", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "in sync" not in out
+    assert f"store_delegate -> {event['store_delegate']}" in out
 
 
 def test_manifest_is_self_consistent():
