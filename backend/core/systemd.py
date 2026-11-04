@@ -202,7 +202,8 @@ class SystemdServiceManager:
         return stdout.decode().strip() == "active"
 
     async def main_pid(self, service: str) -> Optional[int]:
-        """The unit's current main process, or None when there is none to name.
+        """The unit's current main process, 0 when it has none, or None when
+        the probe could not tell.
 
         What it is for: a source that tracks a *session* held by a daemon needs
         to know the daemon is still the one it opened that session with. The
@@ -214,8 +215,10 @@ class SystemdServiceManager:
         The pid is the identity `is_active` cannot carry.
 
         0 means the unit has no main process right now (stopped, or between a
-        crash and its restart) and is reported as None, like an unreadable
-        probe: both mean "there is no daemon here holding anything".
+        crash and its restart): a session opened then belongs to a daemon that
+        is already dead. It is not None, which only says the question went
+        unanswered — read as one, the session was bound later to whatever
+        process `Restart=` put up, which knew nothing of it.
         """
         proc = await asyncio.create_subprocess_exec(
             "systemctl", "show", service, "--property=MainPID", "--value",
@@ -233,7 +236,7 @@ class SystemdServiceManager:
         raw = stdout.decode().strip()
         if not raw.isdigit():
             return None
-        return int(raw) or None
+        return int(raw)
 
     async def unit_state(self, service: str) -> Optional[Tuple[str, str]]:
         """The unit's (ActiveState, Result), or None when it cannot be read.
@@ -271,6 +274,23 @@ class SystemdServiceManager:
         """
         values = await self._unit_properties(
             service, (("Service", "ExecMainStartTimestamp"),), "the main process start",
+        )
+        if values is None or values is _NOT_LOADED:
+            return None
+        return values[0] or None
+
+    async def main_start_monotonic_usec(self, service: str) -> Optional[int]:
+        """When the unit's main process started, in microseconds of
+        CLOCK_MONOTONIC, or None when none ever did or it cannot be read. Like
+        `main_start_usec`, the last one's start once it has exited.
+
+        What it is for: a session whose daemon could not be named when it
+        opened is bound later only to a process already running then — one
+        started after is the successor of the one that held it. Monotonic, so
+        a wall clock stepped mid-boot (no RTC) cannot reorder the two.
+        """
+        values = await self._unit_properties(
+            service, (("Service", "ExecMainStartTimestampMonotonic"),), "the main process start",
         )
         if values is None or values is _NOT_LOADED:
             return None

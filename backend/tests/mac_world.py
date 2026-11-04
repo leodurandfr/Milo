@@ -358,6 +358,8 @@ class MacWorld(WireReader):
         self._pids = itertools.count(FIRST_PID)
         self.pid: Optional[int] = None
         self.started_usec: Optional[int] = None
+        # The same start on the clock a session's opening is stamped with.
+        self.started_mono_usec: Optional[int] = None
         self.journal: List[Tuple[int, int, str]] = []
         self.follows: List[_Follow] = []
         self.streaming: Dict[str, int] = {}       # Macs with Milō as their output: ip -> port
@@ -387,9 +389,10 @@ class MacWorld(WireReader):
         systemd.is_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
         systemd.probe_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
         self.pid_unreadable = False
-        systemd.main_pid = AsyncMock(side_effect=lambda *_: None if self.pid_unreadable else self.pid)
+        systemd.main_pid = AsyncMock(side_effect=lambda *_: None if self.pid_unreadable else self.pid or 0)
         systemd.unit_state = AsyncMock(side_effect=lambda *_: self.unit_state)
         systemd.main_start_usec = AsyncMock(side_effect=lambda *_: self.started_usec)
+        systemd.main_start_monotonic_usec = AsyncMock(side_effect=lambda *_: self.started_mono_usec)
         self.systemd = systemd
 
         proxy = AsyncioProxy(self._sleep)
@@ -426,6 +429,7 @@ class MacWorld(WireReader):
     def _spawn(self) -> None:
         self.pid = next(self._pids)
         self.started_usec = next(self._usec)
+        self.started_mono_usec = int(audio_source.monotonic() * 1_000_000)
         self.unit_state = ("active", "success")
         # Measured: a Mac still streaming reattaches to a new process at once.
         for ip, port in self.streaming.items():

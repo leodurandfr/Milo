@@ -178,7 +178,7 @@ class TidalWorld(WireReader):
         systemd.restart = AsyncMock(side_effect=self._unit_restart)
         systemd.is_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
         systemd.probe_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
-        systemd.main_pid = AsyncMock(side_effect=lambda *_: self.pid)
+        systemd.main_pid = AsyncMock(side_effect=lambda *_: self.pid or 0)
         # What systemd says of the unit once its process is gone (measured
         # 2026-09-24): (ActiveState, Result) is `activating`/`signal` after a
         # crash (auto-restart), `inactive`/`success` after a stop.

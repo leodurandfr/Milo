@@ -668,6 +668,8 @@ class Bluetooth(WireReader):
         self.units: Dict[str, bool] = {BLUEZ_UNIT: True, BLUEALSA_UNIT: False, APLAY_UNIT: False}
         self._pids = itertools.count(124420)
         self.bluealsa_pid: Optional[int] = None
+        # When it started, on the clock a session's opening is stamped with (µs).
+        self.bluealsa_started: Optional[int] = None
         self.bluealsa_state: Tuple[str, str] = ("inactive", "success")
         self.watches: List[Tuple[int, Callable[[], None]]] = []
         self.unit_calls: List[Tuple[str, str]] = []
@@ -712,7 +714,9 @@ class Bluetooth(WireReader):
         self.pid_unreadable = False
         systemd.main_pid = AsyncMock(
             side_effect=lambda unit, *a: (
-                None if self.pid_unreadable or unit != BLUEALSA_UNIT else self.bluealsa_pid))
+                None if self.pid_unreadable or unit != BLUEALSA_UNIT else self.bluealsa_pid or 0))
+        systemd.main_start_monotonic_usec = AsyncMock(
+            side_effect=lambda unit, *a: self.bluealsa_started if unit == BLUEALSA_UNIT else None)
         self.bluez_state: Tuple[str, str] = ("active", "success")
         systemd.unit_state = AsyncMock(side_effect=lambda unit, *a: (
             self.bluez_state if unit == BLUEZ_UNIT else self.bluealsa_state))
@@ -766,6 +770,7 @@ class Bluetooth(WireReader):
 
     def _bluealsa_spawn(self) -> None:
         self.bluealsa_pid = next(self._pids)
+        self.bluealsa_started = int(audio_source.monotonic() * 1_000_000)
         self.bluealsa_state = ("active", "success")
         self.bluez.bluealsa_up = True
 

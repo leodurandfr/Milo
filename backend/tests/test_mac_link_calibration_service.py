@@ -183,6 +183,17 @@ async def test_an_apply_during_the_minute_fails_the_run_instead_of_sizing_a_dead
     assert last_event(world).reason == "receiver_restarted"
 
 
+@pytest.mark.parametrize("pid", [0, None])
+async def test_a_receiver_with_no_process_is_not_measured(world, pid):
+    """MainPID 0 is roc-recv with no process (stopped, or between a crash and
+    its restart), not a pid whose journal can be read."""
+    world.systemd.main_pid = AsyncMock(return_value=pid)
+    await world.service._run()
+
+    assert last_event(world).reason == "receiver_not_running"
+    world.ping.assert_not_awaited()
+
+
 async def test_a_journal_that_stops_is_a_failed_read_not_a_short_session(world):
     """Reported as too few samples, it told the user the Mac had not streamed
     long enough — and every retry failed the same way."""

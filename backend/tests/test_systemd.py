@@ -368,6 +368,33 @@ class TestIsActive:
             assert await manager.probe_active("milo-radio") is None
 
 
+class TestMainPid:
+    """The daemon process a session is bound to. "No process" and "could not
+    look" are two answers: a session opened while MainPID is 0 belongs to a
+    daemon that is already dead, and binding it later to whatever pid comes
+    up is how it got glued to the successor (AirPlay held a ghost session)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("stdout,expected", [
+        (b"1234\n", 1234),
+        (b"0\n", 0),
+        (b"\n", None),
+        (b"[not set]\n", None),
+    ])
+    async def test_main_pid_tells_no_process_from_an_unreadable_probe(self, manager, stdout, expected):
+        proc = _make_mock_proc(returncode=0, stdout=stdout)
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            assert await manager.main_pid("milo-airplay") == expected
+
+    @pytest.mark.asyncio
+    async def test_a_wedged_pid_read_is_unreadable_not_no_process(self, manager, monkeypatch):
+        _short_wait_for(monkeypatch)
+        proc = _hanging_proc()
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            assert await manager.main_pid("milo-airplay") is None
+        proc.kill.assert_called_once()
+
+
 class TestControlServiceFailureArms:
     """What `start`/`stop`/`restart` do when systemctl does not come back."""
 
@@ -748,6 +775,42 @@ class TestMainStart:
             raise FileNotFoundError("no system bus")
         self._bus(monkeypatch, connect=refuse)
         assert await manager.main_start_usec("milo-mac.service") is None
+
+
+class TestMainStartMonotonic:
+    """When the unit's main process started on the monotonic clock: what tells
+    a daemon that held a session from the one that replaced it, when its pid
+    could not be read as the session opened."""
+
+    _bus = TestUnitState._bus
+    _Reply = TestUnitState._Reply
+
+    async def test_the_monotonic_start_is_read_over_dbus(self, manager, monkeypatch):
+        from dbus_next import Variant
+        calls = self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/milo_2dairplay_2eservice"]),
+            self._Reply([Variant("t", 52_391_212)]),
+        )
+        assert await manager.main_start_monotonic_usec("milo-airplay.service") == 52_391_212
+        assert calls[1] == (
+            "Get", ["org.freedesktop.systemd1.Service", "ExecMainStartTimestampMonotonic"],
+        )
+
+    async def test_a_process_that_never_started_has_no_start(self, manager, monkeypatch):
+        from dbus_next import Variant
+        self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/x"]),
+            self._Reply([Variant("t", 0)]),
+        )
+        assert await manager.main_start_monotonic_usec("milo-airplay.service") is None
+
+    async def test_an_unreachable_bus_is_not_an_answer(self, manager, monkeypatch):
+        async def refuse():
+            raise FileNotFoundError("no system bus")
+        self._bus(monkeypatch, connect=refuse)
+        assert await manager.main_start_monotonic_usec("milo-airplay.service") is None
 
 
 class TestInvocationId:

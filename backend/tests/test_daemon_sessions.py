@@ -26,6 +26,8 @@ from backend.shared.pidfd import ProcessWatch
 from backend.tests.golden.harness import AsyncioProxy, VirtualClock, settle
 
 DELAY = 60.0
+# CLOCK_MONOTONIC when a scenario begins: the card has been up a while.
+UPTIME_S = 500.0
 
 
 class Daemon(BaseAudioSource):
@@ -60,8 +62,12 @@ class Daemon(BaseAudioSource):
 class Pids:
     """systemd's view of the daemon, and the watches opened on it."""
 
-    def __init__(self, monkeypatch) -> None:
+    def __init__(self, monkeypatch, clock) -> None:
+        self.clock = clock
         self.pid = 100
+        # When that process started, on the monotonic clock (µs) — what tells
+        # the daemon that held a session from the one that replaced it.
+        self.started = int((UPTIME_S - 10) * 1_000_000)
         self.watched: List[tuple] = []
         self.restart_ok = True
         pids = self
@@ -78,6 +84,7 @@ class Pids:
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch)
         self.systemd = Mock()
         self.systemd.main_pid = AsyncMock(side_effect=lambda *_: self.pid)
+        self.systemd.main_start_monotonic_usec = AsyncMock(side_effect=lambda *_: self.started)
         self.systemd.restart = AsyncMock(side_effect=self._restart)
         # What systemd says of the unit once its process is gone (measured
         # 2026-09-24), as (ActiveState, Result): a crash leaves it
@@ -92,10 +99,17 @@ class Pids:
         self.exit()
 
     def exit(self) -> None:
-        dead, self.pid = self.pid, (self.pid or 100) + 1
+        """The process ends, and Restart= puts the next one up at once."""
+        dead = self.pid
+        self.replaced()
         for pid, on_exit in list(self.watched):
             if pid == dead:
                 on_exit()
+
+    def replaced(self) -> None:
+        """A new process holds the unit, started now."""
+        self.pid = (self.pid or 100) + 1
+        self.started = int((UPTIME_S + self.clock.now) * 1_000_000)
 
     async def _restart(self, *_) -> bool:
         if self.restart_ok:
@@ -107,12 +121,13 @@ class Pids:
 def clock(monkeypatch):
     clock = VirtualClock()
     monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(clock.sleep))
+    monkeypatch.setattr(audio_source, "monotonic", lambda: UPTIME_S + clock.now)
     return clock
 
 
 @pytest.fixture
-def pids(monkeypatch):
-    return Pids(monkeypatch)
+def pids(monkeypatch, clock):
+    return Pids(monkeypatch, clock)
 
 
 @pytest.fixture
@@ -341,9 +356,10 @@ async def test_without_pidfd_the_watch_falls_back_to_proc(monkeypatch):
 # === Found by the code review (2026-09-24) ===
 
 async def test_a_daemon_that_could_not_be_named_is_named_later(daemon, pids):
-    """A pid read that fails once (systemctl slow on a busy card, MainPID 0
-    mid-restart) is retried on the next report: an unwatched session is the
-    ghost the watch exists to end."""
+    """A pid read that fails once (systemctl slow on a busy card) is retried
+    on the next report, and bound when that process was already running as
+    the session opened: an unwatched session is the ghost the watch exists to
+    end."""
     pids.pid = None
     await _report(daemon, "phone", Phase.PLAYING)
     pids.pid = 100
@@ -352,6 +368,62 @@ async def test_a_daemon_that_could_not_be_named_is_named_later(daemon, pids):
     pids.exit()
     await settle()
     assert daemon.ends == [EndReason.DAEMON_DIED]
+
+
+async def test_a_session_opened_with_no_daemon_ends_daemon_died(daemon, pids):
+    """MainPID 0 as the session opens: the daemon announced it and died
+    before its pid was read (a crash, between the exit and Restart=). Nothing
+    will ever end that session but this — no watch, no end from the pipe."""
+    pids.pid = 0
+    await _report(daemon, "phone", Phase.PLAYING)
+    await settle()
+    assert daemon.ends == [EndReason.DAEMON_DIED]
+    assert daemon.view.session is None
+    assert pids.watched == []
+
+
+async def test_a_session_opened_while_systemd_stops_the_unit_is_a_stop(daemon, pids):
+    pids.pid, pids.unit_state = 0, ("inactive", "success")
+    await _report(daemon, "phone", Phase.PLAYING)
+    await settle()
+    assert daemon.ends == [EndReason.USER_STOP]
+
+
+async def test_a_session_whose_daemon_was_replaced_before_it_was_named_ends(daemon, pids, clock):
+    """The pid could not be read as the session opened, and the process
+    running when it is read again started after: the one that held the
+    session is gone, and binding to its successor would keep the session on
+    screen for good (the successor knows nothing of it)."""
+    pids.pid = None
+    await _report(daemon, "phone", Phase.PLAYING)
+    await clock.advance(5)
+    pids.replaced()
+    await _report(daemon, "phone", Phase.PLAYING)
+    await settle()
+    assert pids.watched == []
+    assert daemon.ends == [EndReason.DAEMON_DIED]
+
+
+async def test_a_session_whose_daemon_is_gone_when_it_is_named_ends(daemon, pids):
+    pids.pid = None
+    await _report(daemon, "phone", Phase.PLAYING)
+    pids.pid = 0
+    await _report(daemon, "phone", Phase.PLAYING)
+    await settle()
+    assert daemon.ends == [EndReason.DAEMON_DIED]
+
+
+async def test_a_daemon_whose_start_cannot_be_read_is_not_bound(daemon, pids):
+    """Its pid is known, not whether it held the session: nothing is claimed,
+    and the next report asks again."""
+    pids.pid = None
+    await _report(daemon, "phone", Phase.PLAYING)
+    pids.pid, pids.started = 100, None
+    await _report(daemon, "phone", Phase.PLAYING)
+    await settle()
+    assert pids.watched == []
+    assert daemon.ends == []
+    assert daemon.view.session.phase == "playing"
 
 
 async def test_a_restart_that_nothing_watches_still_ends_the_session(daemon, pids, clock):

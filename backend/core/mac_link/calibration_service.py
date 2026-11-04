@@ -217,7 +217,7 @@ class MacLinkCalibrationService(BackgroundAnalysis):
         stored = await self._settings.get_setting("mac")
         pid = await self._systemd.main_pid(ROC_UNIT)
         started_usec = await self._systemd.main_start_usec(ROC_UNIT)
-        if pid is None or started_usec is None:
+        if not pid or started_usec is None:
             raise MacLinkUnavailable("receiver_not_running")
 
         reply, sched_max_ms, stream = await first_failure_cancels(

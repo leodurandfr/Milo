@@ -200,6 +200,13 @@ def wall_time() -> float:
     return time.time()
 
 
+def monotonic() -> float:
+    """The clock systemd stamps a process's start on (CLOCK_MONOTONIC,
+    seconds): what a session's opening is compared against. Module-level so a
+    test world can put it on its virtual clock."""
+    return time.monotonic()
+
+
 class BaseAudioSource(ABC):
     """
     Base implementation for audio sources.
@@ -989,6 +996,7 @@ class BaseAudioSource(ABC):
         """Make `session` the live one. The caller has ended the previous one."""
         if self._session is not None:
             raise IllegalTransition("a session is already open")
+        session.opened_mono = monotonic()
         self._session = session
         self._session_bg = BackgroundTaskSet(self._logger, f"source.{self.source_id}.session")
         return session
@@ -1097,8 +1105,8 @@ class BaseAudioSource(ABC):
             session.sender = snapshot.sender
         if self.SESSION_DAEMON and self._daemon_watch is None:
             # A pid that could not be read when the session opened (systemctl
-            # slow on a busy card, MainPID 0 mid-restart) is asked again.
-            await self._watch_daemon(session)
+            # slow on a busy card) is asked again.
+            await self._watch_daemon(session, late=True)
             if self._session is not session:
                 return self._session
         before = session.phase
@@ -1132,18 +1140,36 @@ class BaseAudioSource(ABC):
             if session.end_requested is EndReason.IDLE_TIMEOUT:
                 session.end_requested = None
 
-    async def _watch_daemon(self, session: Session) -> None:
+    async def _watch_daemon(self, session: Session, *, late: bool = False) -> None:
         """Bind `session` to the daemon process holding it (SESSION_DAEMON).
 
         Read when the session opens, never kept across sessions: a pid kept
         from the previous one is how a sender reconnecting to a restarted
         daemon came to be watched against the dead one (E21). A daemon that
-        cannot be named is not watched — nothing is claimed about it.
+        cannot be named is not watched — nothing is claimed about it. No
+        process at all (MainPID 0: the daemon announced the session and died
+        before it was read) is the end of the session, like a watched exit.
+
+        `late`: the pid could not be read when the session opened. The one
+        read now is bound only if its process was already running then — one
+        started since replaced the daemon that held the session, and knows
+        nothing of it. Its start unreadable, nothing is claimed either way.
         """
         if not self.SESSION_DAEMON:
             return
         pid = await self._service_main_pid()
         if pid is None or self._session is not session:
+            return
+        replaced = False
+        if pid and late:
+            started = await self._service_main_start_mono()
+            if started is None or self._session is not session:
+                return
+            replaced = (
+                session.opened_mono is not None and started / 1_000_000 > session.opened_mono
+            )
+        if not pid or replaced:
+            self._post_result(lambda: self._daemon_gone(session), token=session)
             return
         self._close_daemon_watch()
         self._daemon_watch = ProcessWatch(
@@ -1498,7 +1524,8 @@ class BaseAudioSource(ABC):
             return False
 
     async def _service_main_pid(self) -> Optional[int]:
-        """The pid of this source's daemon, or None when it cannot be named.
+        """The pid of this source's daemon, 0 when it has none, or None when
+        it cannot be named.
 
         For a source whose *session* belongs to a daemon rather than to a link:
         `Restart=` puts a unit back to active within seconds of a crash under a
@@ -1514,6 +1541,18 @@ class BaseAudioSource(ABC):
             return await self._service_manager.main_pid(self.service_name)
         except Exception as e:
             self._logger.warning(f"Could not read the main pid of {self.service_name}: {e}")
+            return None
+
+    async def _service_main_start_mono(self) -> Optional[int]:
+        """When this source's daemon process started (µs, CLOCK_MONOTONIC), or
+        None when it cannot be told — like `_service_main_pid`, claiming
+        nothing then."""
+        if not self.service_name or self._service_manager is None:
+            return None
+        try:
+            return await self._service_manager.main_start_monotonic_usec(self.service_name)
+        except Exception as e:
+            self._logger.warning(f"Could not read when {self.service_name} started: {e}")
             return None
 
     async def probe_service_active(self) -> Optional[bool]:

@@ -182,7 +182,7 @@ class QobuzWorld(WireReader):
             return await systemd.probe_active(unit) is True
 
         systemd.is_active = AsyncMock(side_effect=is_active)
-        systemd.main_pid = AsyncMock(side_effect=lambda *_: self.pid)
+        systemd.main_pid = AsyncMock(side_effect=lambda *_: self.pid or 0)
         # (ActiveState, Result) once the process is gone, measured 2026-09-24:
         # `activating`/`signal` after a crash, `inactive`/`success` after a stop.
         self.unit_state = ("inactive", "success")

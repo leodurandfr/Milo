@@ -187,7 +187,9 @@ class Session:
     For a session a daemon holds: `sender` names who it belongs to (a
     different sender is a different session), and `end_requested` is the
     reason Milō asked the daemon to end it for — the end that comes back,
-    however it comes, is recorded under that reason.
+    however it comes, is recorded under that reason. `opened_mono` is when it
+    opened on the monotonic clock: a daemon process started later is not the
+    one that held it.
 
     `anchor` is the position axis (None: the session has no position — a
     radio stream, a Mac). Set only by BaseAudioSource's anchor methods.
@@ -197,6 +199,7 @@ class Session:
     heard: bool = False
     sender: Optional[str] = None
     end_requested: Optional[EndReason] = None
+    opened_mono: Optional[float] = None
     anchor: Optional[Anchor] = None
 
     def advance(self, event: PhaseEvent) -> Phase:
