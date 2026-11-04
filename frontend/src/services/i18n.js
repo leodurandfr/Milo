@@ -19,14 +19,17 @@ const PLURAL_RULES_DEFAULT = (n) => (n === 1 ? 0 : 1);
 class I18nService {
   constructor() {
     this.currentLanguage = ref('english');
+    this.requestedLanguage = 'english';
     this.translations = new Map();
     this.fallbackLanguage = 'english';
     this.isInitialized = false;
   }
 
+  // True once the language's strings are in memory, false when they could not
+  // be loaded.
   async loadTranslations(language) {
     if (this.translations.has(language)) {
-      return;
+      return true;
     }
 
     try {
@@ -52,10 +55,13 @@ class I18nService {
 
       if (translations) {
         this.translations.set(language, translations);
+        return true;
       }
+      logger.warn('i18n', `No translations for language ${language}`);
     } catch (error) {
       logger.error('i18n', `Error loading translations for ${language}`, error);
     }
+    return false;
   }
 
   // Helper to get nested value from object using dot notation
@@ -144,9 +150,7 @@ class I18nService {
       checkStatus: true
     });
     if (result.ok) {
-      const serverLanguage = result.data.language;
-      await this.loadTranslations(serverLanguage);
-      this.currentLanguage.value = serverLanguage;
+      await this.handleLanguageChanged(result.data.language);
     }
     this.applyDocumentLanguage();
     // Only once the server answered: a boot that ran before the backend
@@ -167,11 +171,18 @@ class I18nService {
 
   // Called from WebSocket events
   async handleLanguageChanged(newLanguage) {
-    if (newLanguage !== this.currentLanguage.value) {
-      await this.loadTranslations(newLanguage);
-      this.currentLanguage.value = newLanguage;
-      this.applyDocumentLanguage();
+    if (newLanguage === this.requestedLanguage) return;
+    this.requestedLanguage = newLanguage;
+    const loaded = await this.loadTranslations(newLanguage);
+    // A language asked for while this one loaded wins, whichever lands first.
+    if (this.requestedLanguage !== newLanguage) return;
+    if (!loaded) {
+      // Stay in the language on screen, and let the next ask try again.
+      this.requestedLanguage = this.currentLanguage.value;
+      return;
     }
+    this.currentLanguage.value = newLanguage;
+    this.applyDocumentLanguage();
   }
 
   getAvailableLanguages() {
