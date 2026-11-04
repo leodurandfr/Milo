@@ -11,6 +11,7 @@ import ast
 import importlib
 import inspect
 import textwrap
+from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
@@ -73,6 +74,7 @@ MAP_DISPATCH_SOURCES = {
 IF_CHAIN_SOURCES = [cls for cls in ALL_SOURCES if cls not in MAP_DISPATCH_SOURCES]
 
 DISPATCH_TREE = ast.parse(inspect.getsource(playback_dispatch))
+HARDWARE_DIR = Path(playback_dispatch.__file__).parent
 
 
 def _audio_source_names(node):
@@ -105,20 +107,45 @@ def _function(name):
     raise AssertionError(f"playback_dispatch has no {name}() — the extractor is broken")
 
 
+def _first_args(nodes, attr):
+    """First positional argument (None if absent) of every `.<attr>(...)` call under `nodes`."""
+    return [
+        call.args[0] if call.args else None
+        for node in nodes
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == attr
+    ]
+
+
 def _literal_args(nodes, attr):
     """First-argument string literals of every `.<attr>(...)` call under `nodes`."""
-    found = set()
-    for node in nodes:
-        for call in ast.walk(node):
-            if (
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr == attr
-                and call.args
-                and isinstance(call.args[0], ast.Constant)
-            ):
-                found.add(call.args[0].value)
-    return found
+    return {
+        arg.value for arg in _first_args(nodes, attr)
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+    }
+
+
+def _track_calls_by_file():
+    """{file name: first-argument nodes} of every `.dispatch_track(...)` call
+    in backend/hardware/.
+
+    Read per file rather than per function: the IR remote calls the dispatcher
+    directly from its keycode handler, so a read scoped to `_resolve_clicks`
+    let its literals drift past COMMANDS, and a call moved into a helper must
+    not fall out of the read either.
+    """
+    calls = {}
+    for path in sorted(HARDWARE_DIR.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        args = _first_args([tree], "dispatch_track")
+        if args:
+            calls[path.relative_to(HARDWARE_DIR).as_posix()] = args
+    return calls
+
+
+TRACK_CALLS = _track_calls_by_file()
 
 
 def _play_pause_commands():
@@ -155,12 +182,19 @@ def _hardware_commands():
 
     Two shapes to read. Play/pause branches on the source and names its command
     literally. Track navigation does not: `dispatch_track(direction)` forwards
-    its argument, so the commands are the literals `_resolve_clicks` calls it
-    with, sent to every source in the nav guard set.
+    its argument, so the commands are the literals every caller in
+    backend/hardware/ hands it (today `_resolve_clicks`, which the encoder and
+    the BT remote share, and the IR remote's keycode handler), sent to every
+    source in the nav guard set.
     """
     guards = _guard_sets()
     play_pause = _play_pause_commands()
-    track = _literal_args([_function("_resolve_clicks")], "dispatch_track")
+    track = {
+        arg.value
+        for args in TRACK_CALLS.values()
+        for arg in args
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+    }
 
     per_enum = {}
     for name in guards["_PLAY_PAUSE_SOURCES"]:
@@ -318,7 +352,7 @@ def test_hardware_dispatch_extraction_is_not_vacuous():
         )
 
     # dispatch_track sends the argument it is handed, so the literals collected
-    # from its caller are the commands only while it forwards them untranslated.
+    # from its callers are the commands only while it forwards them untranslated.
     forwarding = _function("dispatch_track")
     parameters = {a.arg for a in forwarding.args.args}
     sent = [
@@ -330,8 +364,32 @@ def test_hardware_dispatch_extraction_is_not_vacuous():
     ]
     assert len(sent) == 1 and isinstance(sent[0], ast.Name) and sent[0].id in parameters, (
         "dispatch_track() no longer forwards its own argument to command() — "
-        "the track commands derived from _resolve_clicks are no longer what it sends"
+        "the track commands derived from every dispatch_track caller under "
+        "backend/hardware/ are no longer what it sends"
     )
+
+
+def test_every_dispatch_track_caller_is_read():
+    """Both callers of `dispatch_track` are read, and each passes a literal.
+
+    The IR remote calls the dispatcher directly, outside `_resolve_clicks`, so a
+    read scoped to the encoder let an IR-only rename (`next` -> `skip_next`)
+    pass CI while the remote's button died in production with a WARNING. And
+    the derivation keeps string literals only: a direction computed from a
+    table would drop out of the contract again, so it is refused here instead.
+    """
+    for caller in ("playback_dispatch.py", "ir_remote.py"):
+        assert TRACK_CALLS.get(caller), (
+            f"no dispatch_track() call found in backend/hardware/{caller} "
+            f"(found in {sorted(TRACK_CALLS)}) — the extractor is broken"
+        )
+    for name, args in TRACK_CALLS.items():
+        for arg in args:
+            assert isinstance(arg, ast.Constant) and isinstance(arg.value, str), (
+                f"backend/hardware/{name} calls dispatch_track() with "
+                f"{ast.dump(arg) if arg is not None else 'no argument'}: only a "
+                f"string literal can be checked against the sources' COMMANDS"
+            )
 
 
 @pytest.mark.parametrize("cls,cmds", HARDWARE_COMMANDS.items())
