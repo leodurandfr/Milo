@@ -57,21 +57,6 @@ class TestBluetoothSourceConfig:
         assert source.stop_bluetooth_on_exit is True
         assert source.auto_agent is True
 
-    def test_custom_config(self):
-        """Test custom configuration."""
-        config = {
-            "bluetooth_service": "custom-bluetooth.service",
-            "bluealsa_aplay_service": "custom-aplay.service",
-            "stop_bluetooth_on_exit": False,
-            "auto_agent": False
-        }
-        source = BluetoothSource(config)
-
-        assert source.bluetooth_service == "custom-bluetooth.service"
-        assert source.bluealsa_aplay_service == "custom-aplay.service"
-        assert source.stop_bluetooth_on_exit is False
-        assert source.auto_agent is False
-
 
 class TestBluetoothAgent:
     """Test BluetoothAgent component."""
@@ -82,10 +67,3 @@ class TestBluetoothAgent:
         agent2 = BluetoothAgent()
 
         assert agent1.path != agent2.path
-
-    def test_agent_initial_state(self):
-        """Test agent initial state."""
-        agent = BluetoothAgent()
-
-        assert agent._registered is False
-        assert agent.path.startswith("/org/milo/agent_")

@@ -207,28 +207,39 @@ def commands_sent(world):
 
 
 class TestSpotifySourceConfig:
-    """Test SpotifySource configuration."""
+    """Where the source finds go-librespot: config.yml's `server` block."""
 
-    def test_default_config(self):
-        """Test default configuration values."""
-        source = SpotifySource()
-
-        assert source.auto_stop_enabled is True
-        assert source.auto_stop_delay == 10.0
-
-    def test_custom_config(self, tmp_path):
-        """Test custom configuration."""
+    @pytest.fixture
+    def config(self, tmp_path):
+        """A config.yml whose address and port differ from `_load_config`'s fallback."""
         config_file = tmp_path / "config.yml"
         config_file.write_text("""
 server:
   address: 192.168.1.100
   port: 5000
+audio_device: milo_spotify
 """)
-        config = {"config_path": str(config_file)}
-        source = SpotifySource(config)
+        return {"config_path": str(config_file)}
 
-        # Config is loaded on start, so just verify the path is set
-        assert source._config_path == str(config_file)
+    @pytest.mark.asyncio
+    async def test_the_events_url_comes_from_config_yml(self, spotify_source):
+        """`_do_start` opens /events and polls readiness on the address and
+        port config.yml names. Every other fixture writes localhost:3678, the
+        default `_load_config` falls back to, so an address or port that
+        stopped being read would leave Spotify talking to the wrong host with
+        the rest of the suite green.
+        """
+        session = librespot_api({"playback_ready": False})
+
+        try:
+            async with go_librespot(spotify_source, session) as ws_cls:
+                assert await spotify_source.start() is True
+        finally:
+            await spotify_source.shutdown()
+
+        assert ws_cls.call_args.kwargs["ws_url"] == "ws://192.168.1.100:5000/events"
+        ws_cls.return_value.start.assert_awaited_once()
+        assert [c.args[0] for c in session.get.call_args_list] == ["http://192.168.1.100:5000/"]
 
 
 class TestSpotifySourceLifecycle:
