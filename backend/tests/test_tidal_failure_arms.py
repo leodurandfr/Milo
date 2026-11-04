@@ -28,6 +28,7 @@ is part of what is under test.
 """
 import asyncio
 import json
+import socket
 import struct
 
 import pytest
@@ -38,6 +39,7 @@ from backend.sources.tidal import controller_socket as controller_module
 from backend.sources.tidal.controller_socket import TidalControllerSocket
 from backend.tests.tidal_world import TidalWorld
 from backend.tests.conftest import shortened_wait_for
+from backend.tests.golden.harness import AsyncioProxy
 
 START = b"\xff\x02"
 END = b"\xff\x03"
@@ -115,23 +117,43 @@ class TestSendingOnASocketThatIsGone:
 
         assert await ctl.send("startService") is True
 
-    async def test_a_daemon_that_stopped_reading_times_the_send_out(
-        self, tmp_path, caplog
-    ):
-        """The wedged daemon the send docstring describes: it stops reading
-        without closing, so the write never drains. Unbounded, this parks the
-        source stop — and with it the whole source switch waiting on it."""
-        writer = MagicMock()
-        writer.is_closing = Mock(return_value=False)
-        writer.drain = AsyncMock(side_effect=asyncio.TimeoutError)
+    async def test_stop_returns_when_the_peer_stopped_reading(self, tmp_path, monkeypatch, caplog):
+        """A daemon that stops reading without closing, on a real socket.
+        `drain()` sees it only once the kernel buffer and asyncio's write
+        buffer are full — a few hundred kilobytes in, so a refused send is no
+        detector of it — and a close with those bytes unflushed waited in
+        `wait_closed()` for a reader that never came, parking the source stop
+        and the source switch waiting on it."""
+        ours, theirs = socket.socketpair()
+        proxy = AsyncioProxy(asyncio.sleep)
+
+        async def open_unix_connection(path, *a, **k):
+            return await asyncio.open_unix_connection(sock=ours)
+
+        proxy.open_unix_connection = open_unix_connection
+        # SEND_TIMEOUT, shortened: nothing here measures its value.
+        proxy.wait_for = shortened_wait_for()
+        monkeypatch.setattr(controller_module, "asyncio", proxy)
         ctl = controller(tmp_path)
-        ctl._writer = writer
+        try:
+            await ctl.start()
+            for _ in range(100):
+                if ctl.connected:
+                    break
+                await asyncio.sleep(0.01)
+            assert ctl.connected, "the controller never attached to the socketpair"
 
-        with caplog.at_level("WARNING", logger="backend.sources.tidal.controller_socket"):
-            assert await ctl.send("grantResources") is False
+            sent = 0
+            with caplog.at_level("WARNING", logger="source.tidal.controller"):
+                while await ctl.send("notifyNothing", padding="x" * 400):
+                    sent += 1
+                    assert sent < 100_000, "the peer's buffer never filled"
+            assert sent > 100, f"refused after {sent} frames: the buffer was not what filled"
+            assert "timed out" in caplog.text
 
-        assert "timed out" in caplog.text
-        assert "grantResources" in caplog.text
+            await asyncio.wait_for(ctl.stop(), timeout=5)
+        finally:
+            theirs.close()
 
     async def test_a_broken_pipe_is_refused_not_raised(self, tmp_path):
         writer = MagicMock()

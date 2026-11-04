@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
-from backend.core.audio_source import BaseAudioSource
+from backend.core.audio_source import END_REQUEST_TIMEOUT_S, BaseAudioSource
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
@@ -60,6 +60,12 @@ _PHASES = {
     "IDLE": Phase.PAUSED,
 }
 _STATE_IDLE = "IDLE"
+
+# How long a session may stay LOADING (the daemon's BUFFERING) before it is
+# failed. The mpv sources' STALL_TIMEOUT_S budget, restated: a daemon that
+# stopped reading its controller socket took the grant into the kernel buffer
+# (E27), and it buffers forever with nothing in any log.
+LOADING_TIMEOUT_S = 30.0
 
 # A status saying no track is loaded (IDLE): no playhead at all. The daemon
 # pushes a status about twice a second; each reading goes to the position
@@ -401,7 +407,44 @@ class TidalSource(BaseAudioSource):
         return _PHASES.get(session.player_state, Phase.LOADING)
 
     def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
-        return TidalSession(phase=snapshot.phase, sender=snapshot.sender)
+        # A session opening in PLAYING never advances into it: heard already.
+        return TidalSession(
+            phase=snapshot.phase, sender=snapshot.sender, heard=snapshot.phase is Phase.PLAYING,
+        )
+
+    def _daemon_phase_changed(self, session: Session, before: Optional[Phase]) -> None:
+        """The loading timer follows the phase too: armed on entering LOADING
+        (a session opening in it included), withdrawn on leaving it."""
+        super()._daemon_phase_changed(session, before)
+        if session.phase is Phase.LOADING:
+            self._arm_timer("loading", LOADING_TIMEOUT_S, session)
+        elif before is Phase.LOADING:
+            self._disarm_timer("loading")
+
+    async def _on_timer(self, name: str, token: object) -> None:
+        """Still loading past the budget: the session fails, and the daemon is
+        asked for its end the way the idle timeout asks — a restart."""
+        session = self._session
+        if name != "loading" or session is not token or session.phase is not Phase.LOADING:
+            return
+        self._logger.error(
+            f"Tidal still loading after {LOADING_TIMEOUT_S:.0f} s — restarting the daemon"
+        )
+        if session.heard:
+            session.end_requested = EndReason.STREAM_LOST
+            self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
+        else:
+            session.end_requested = EndReason.LOAD_FAILED
+            self.broadcast_error(SourceErrorReason.PLAYBACK_FAILED)
+        try:
+            taken = await self._request_end(session)
+        except Exception as e:
+            self._logger.error(f"Restarting the Tidal daemon failed: {e}")
+            taken = False
+        if taken:
+            self._arm_timer("end_request", END_REQUEST_TIMEOUT_S, session)
+        else:
+            await self._restart_to_end(session)
 
     # === The view (docs: "le fil") ===
 

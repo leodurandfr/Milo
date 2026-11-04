@@ -8,7 +8,7 @@ before phase 3b for the reason its docstring gives.
 import pytest
 
 from backend.core.models.ws_events import SourceErrorReason
-from backend.tests.tidal_world import HYPNOTIZE, KEEP_IT_THORO, STILL_DRE, TidalWorld, status
+from backend.tests.tidal_world import HYPNOTIZE, KEEP_IT_THORO, STILL_DRE, TidalWorld, media, status
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
 
@@ -304,10 +304,10 @@ async def test_the_controller_reattaches_at_once_after_the_end_request(world):
 
 async def test_an_audio_device_the_controller_cannot_grant_is_on_screen(world):
     """E27: the daemon asks for the audio device and decodes nothing until it
-    is granted. A grant that cannot be written (the daemon stopped reading its
-    socket) left Tidal active and silent with an ERROR in the journal only —
-    `source.*` loggers never reach the banner."""
-    world.daemon.stops_reading = True
+    is granted. A grant that cannot be written (the socket closed between the
+    request and its answer) left Tidal active and silent with an ERROR in the
+    journal only — `source.*` loggers never reach the banner."""
+    world.daemon.closed_its_end = True
 
     await world.mac_picks_the_speaker()
 
@@ -321,10 +321,10 @@ async def test_a_granted_audio_device_raises_no_banner(world):
 
 
 async def test_an_ungranted_daemon_that_says_playing_keeps_its_banner(world):
-    """Review of E27: a PLAYING the daemon reports after a grant it never got
-    is not sound — the banner a playing track clears (E16) stays until a grant
-    goes through."""
-    world.daemon.stops_reading = True
+    """Review of E27: a PLAYING the daemon reports after a grant that never
+    reached it (its socket closed) is not sound — the banner a playing track
+    clears (E16) stays until a grant goes through."""
+    world.daemon.closed_its_end = True
 
     await world.mac_plays()
 
@@ -335,11 +335,89 @@ async def test_an_ungranted_daemon_that_says_playing_keeps_its_banner(world):
 async def test_a_grant_that_goes_through_later_withdraws_the_banner(world):
     """Review of E27: the banner of an ungranted device outlived its cause
     when the next request was granted but no track played afterwards."""
-    world.daemon.stops_reading = True
+    world.daemon.closed_its_end = True
     await world.mac_picks_the_speaker()
     assert world.errors() == [SourceErrorReason.PLAYBACK_FAILED]
 
-    world.daemon.stops_reading = False
+    world.daemon.closed_its_end = False
     await world.sends({"command": "requestResources"})
 
     assert world.envelopes("source", "error_cleared")
+
+
+# === A daemon that never leaves loading ===
+
+async def buffers_for(world, seconds: float) -> None:
+    """The daemon's BUFFERING, pushed every 0.5 s as it pushes every status."""
+    for _ in range(int(seconds / 0.5)):
+        await world.advance(0.5)
+        await world.sends(status("BUFFERING"))
+
+
+async def test_a_daemon_that_never_leaves_buffering_is_on_screen(world):
+    """E27 as it can happen: a daemon that stops reading its controller socket
+    without closing it takes the grant into the kernel buffer, where `send()`
+    cannot see it, and buffers forever — the room silent, the session on
+    screen, nothing in any log. Past 30 s of loading the session fails: a
+    banner, the daemon restarted to make the sender let go, the controller
+    attached to the new one at once. The BUFFERING repeated every 0.5 s re-arm
+    nothing, or the timer would never fire."""
+    await world.mac_picks_the_speaker()
+    await world.sends(media(STILL_DRE), status("BUFFERING"))
+    await buffers_for(world, 29)
+    assert world.buffering() and world.restarts == []
+
+    await buffers_for(world, 2)
+
+    assert world.errors() == [SourceErrorReason.PLAYBACK_FAILED]
+    assert len(world.restarts) == 1
+    assert world.session_ends() == ["load_failed"]
+    assert not world.active()
+    assert world.daemon.received.count("startService") == 2
+
+
+async def test_a_track_that_plays_within_the_loading_budget_is_not_failed(world):
+    await world.mac_picks_the_speaker()
+    await world.sends(media(STILL_DRE), status("BUFFERING"))
+    await buffers_for(world, 29)
+    world.daemon.state = "PLAYING"
+    await world.sends(status("PLAYING", 0))
+    await world.plays_on(30)
+
+    assert world.playing()
+    assert world.restarts == []
+    assert world.errors() == []
+
+
+async def test_a_rebuffering_after_play_gets_a_whole_budget(world):
+    """The timer follows the phase: leaving LOADING disarms it, entering it
+    again starts the 30 s from zero."""
+    await world.mac_picks_the_speaker()
+    await world.sends(media(STILL_DRE), status("BUFFERING"))
+    await buffers_for(world, 20)
+    world.daemon.state = "PLAYING"
+    await world.sends(status("PLAYING", 0))
+    await world.plays_on(5)
+    await world.sends(status("BUFFERING", world.daemon.progress))
+    await buffers_for(world, 20)
+    assert world.restarts == []
+
+    await buffers_for(world, 11)
+
+    assert len(world.restarts) == 1
+    assert world.session_ends() == ["stream_lost"]
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+async def test_a_session_that_opens_playing_has_been_heard(world):
+    """A session whose first media follows a PLAYING status opens in PLAYING
+    without advancing into it; a later stall is a stream lost, not a load
+    that never started."""
+    await world.mac_picks_the_speaker()
+    await world.sends(status("PLAYING", 0), media(STILL_DRE))
+    assert world.playing()
+    await world.sends(status("BUFFERING", 0))
+
+    await buffers_for(world, 31)
+
+    assert world.session_ends() == ["stream_lost"]

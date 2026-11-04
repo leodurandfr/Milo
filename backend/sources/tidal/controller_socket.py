@@ -45,9 +45,11 @@ MAX_PAYLOAD = 0xFFFF
 # daemon is restarting, which systemd does in ~1s.
 RECONNECT_DELAY = 1.0
 
-# How long one frame may take to reach the daemon. The socket is local and a
-# frame is a few hundred bytes, so this only ever fires on a daemon that has
-# stopped draining its end — which it does without closing the socket.
+# How long one frame may take to reach the daemon, and the close to flush.
+# A peer that stops reading is not seen by this: on a Unix socket drain()
+# returns until the kernel buffer and asyncio's write buffer are both full, a
+# few hundred kilobytes later (measured: thousands of frames). It bounds the
+# send and the close, which a source switch waits on, once they are.
 SEND_TIMEOUT = 2.0
 
 # How long _do_start waits for the daemon to confirm `startService`. Generous
@@ -130,8 +132,10 @@ class TidalControllerSocket:
 
         Answers False rather than raising, and never waits longer than
         SEND_TIMEOUT: `_do_stop` sends through here while a source switch waits
-        on it, and the daemon this talks to has a wedged state in which it stops
-        reading its own socket without closing it.
+        on it. False means the socket is closed or broken: a daemon that stops
+        reading without closing takes the frame into the kernel buffer and is
+        not seen here (see SEND_TIMEOUT) — the source's loading timer is what
+        catches a daemon that never plays.
         """
         payload = json.dumps({"command": command, **fields}).encode()
         if len(payload) > MAX_PAYLOAD:
@@ -156,7 +160,7 @@ class TidalControllerSocket:
                 return True
             except asyncio.TimeoutError:
                 self._logger.warning(
-                    "Send of '%s' timed out after %.0fs — daemon stopped reading",
+                    "Send of '%s' timed out after %.0fs — the socket's buffers are full",
                     command, SEND_TIMEOUT,
                 )
                 return False
@@ -238,11 +242,10 @@ class TidalControllerSocket:
             # The daemon is asking the controller for the audio device. It
             # decodes nothing until this is granted, so a dropped answer is not
             # cosmetic — and send() only warns. A frame just arrived on this
-            # socket, so a refused write here is the wedged daemon the send()
-            # docstring describes (it stops reading without closing), not a
-            # routine disconnection: an error, and the frame handed on says so
-            # (`grant_failed`), for the source to put on screen — a log line
-            # from here never reaches the banner.
+            # socket, so a refused write here is a socket that broke between
+            # the request and its answer: an error, and the frame handed on
+            # says so (`grant_failed`), for the source to put on screen — a log
+            # line from here never reaches the banner.
             if not await self.send("grantResources"):
                 self._logger.error(
                     "Could not grant the audio device — Tidal stays active and silent"
@@ -265,4 +268,12 @@ class TidalControllerSocket:
         writer, self._writer = self._writer, None
         writer.close()
         with contextlib.suppress(Exception):
-            await writer.wait_closed()
+            try:
+                await asyncio.wait_for(writer.wait_closed(), timeout=SEND_TIMEOUT)
+            except asyncio.TimeoutError:
+                # Unflushed bytes keep the transport open until the peer reads
+                # them, and a peer that stopped reading never will.
+                self._logger.warning(
+                    "Controller socket did not close within %.0fs — aborting it", SEND_TIMEOUT,
+                )
+                writer.transport.abort()

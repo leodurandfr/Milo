@@ -85,10 +85,12 @@ class _Writer:
         self._daemon.heard(json.loads(data[4:4 + length]))
 
     async def drain(self) -> None:
-        # The wedged daemon: it stops reading its socket without closing it, so
-        # a write never drains and the controller's bound gives up on it.
-        if self._daemon.stops_reading:
-            raise asyncio.TimeoutError()
+        # A daemon whose end of the socket is gone: the kernel answers the
+        # write with EPIPE. A daemon that merely stops reading is not modeled
+        # here, because a Unix socket would not tell the controller either:
+        # the write lands in the kernel buffer and drain() returns.
+        if self._daemon.closed_its_end:
+            raise BrokenPipeError(32, "Broken pipe")
 
     def is_closing(self) -> bool:
         return self._closing
@@ -110,7 +112,7 @@ class Tisoc:
         self.connections = 0
         self.state = "IDLE"
         self.progress = 0
-        self.stops_reading = False
+        self.closed_its_end = False
 
     async def open_unix_connection(self, path: str, *a: Any, **k: Any):
         if not self.up:
