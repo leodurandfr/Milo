@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends, Request
 from backend.api.route_helpers import CONTRACTED, api_error_handler, run_source_command
-from backend.api.responses import RadioStationsResponse, image_responses
+from backend.api.responses import RadioStationsResponse, StatusResponse, image_responses
 from fastapi.responses import FileResponse, Response
 
 from backend.api.source_dependency import make_source_dependency
@@ -44,11 +44,11 @@ def setup_radio_routes(source_provider) -> APIRouter:
 
 # === Playback Routes ===
 
-@router.post("/play", openapi_extra=CONTRACTED)
+@router.post("/play", response_model=StatusResponse, openapi_extra=CONTRACTED)
 async def play_station(
     request: PlayStationRequest,
     source: RadioSource = Depends(get_source)
-) -> Dict[str, Any]:
+):
     """
     Play a radio station.
 
@@ -56,24 +56,26 @@ async def play_station(
         request: Request with station_id
 
     Returns:
-        Command result
+        The success envelope; the station playing arrives as the next `source/state`.
     """
-    return await run_source_command(
+    await run_source_command(
         source, "play_station",
         {"station_id": request.station_id, "station": request.station},
         "Playback"
     )
+    return {"status": "success"}
 
 
-@router.post("/stop", openapi_extra=CONTRACTED)
-async def stop_playback(source: RadioSource = Depends(get_source)) -> Dict[str, Any]:
+@router.post("/stop", response_model=StatusResponse, openapi_extra=CONTRACTED)
+async def stop_playback(source: RadioSource = Depends(get_source)):
     """
     Stop current playback.
 
     Returns:
-        Command result
+        The success envelope
     """
-    return await run_source_command(source, "stop", {}, "Stop")
+    await run_source_command(source, "stop", {}, "Stop")
+    return {"status": "success"}
 
 
 # === Search Routes ===

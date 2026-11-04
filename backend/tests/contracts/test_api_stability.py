@@ -75,18 +75,86 @@ def test_no_other_stability_value_is_published(spec):
     assert values == {CONTRACTED["x-stability"]}
 
 
+def _resolve(schema: dict, components: dict) -> dict:
+    """Follow `$ref`s into `components/schemas` until a schema with a body is reached."""
+    while "$ref" in schema:
+        schema = components[schema["$ref"].rsplit("/", 1)[-1]]
+    return schema
+
+
+def _is_opaque(schema: dict, components: dict) -> bool:
+    """True if the schema tells an integrator nothing about the answer's shape.
+
+    The empty schema is FastAPI's default for an untyped route; a bare `object`
+    is what a `-> Dict[str, Any]` annotation without a `response_model` prints.
+    A union, an array or a map is opaque when what it holds is.
+    """
+    schema = _resolve(schema, components)
+    if not schema:
+        return True
+    for combinator in ("oneOf", "anyOf", "allOf"):
+        if combinator in schema:
+            branches = [b for b in schema[combinator] if b.get("type") != "null"]
+            return all(_is_opaque(branch, components) for branch in branches)
+    if schema.get("type") == "array":
+        return _is_opaque(schema.get("items", {}), components)
+    if schema.get("type") != "object" or "properties" in schema:
+        return False
+    values = schema.get("additionalProperties")
+    return not isinstance(values, dict) or _is_opaque(values, components)
+
+
+def test_the_opacity_check_discriminates():
+    """Red on every opaque shape, through a `$ref`, a union or an array; green on a typed one."""
+    components = {
+        "Opaque": {"type": "object", "additionalProperties": True},
+        "Typed": {"type": "object", "properties": {"status": {"type": "string"}}},
+    }
+    opaque = {"$ref": "#/components/schemas/Opaque"}
+    typed = {"$ref": "#/components/schemas/Typed"}
+    for schema in (
+        {},
+        {"type": "object", "additionalProperties": True},
+        opaque,
+        {"anyOf": [opaque, {"type": "null"}]},
+        {"type": "array", "items": opaque},
+    ):
+        assert _is_opaque(schema, components), schema
+    for schema in (
+        typed,
+        {"anyOf": [typed, {"type": "null"}]},
+        {"type": "array", "items": typed},
+        {"type": "object", "additionalProperties": typed},
+        {"type": "string"},
+    ):
+        assert not _is_opaque(schema, components), schema
+
+
 def test_every_contracted_operation_documents_its_answer(spec):
     """An integrator reads the shape of a contracted answer from the schema.
 
     FastAPI's default for an untyped route is `application/json` with an empty
     schema, which is also what it printed for the image routes, whose body is
-    never JSON.
+    never JSON. A route annotated `-> Dict[str, Any]` with no `response_model`
+    publishes a bare `object` instead, which documents just as little — the
+    radio answer's missing `status` was invisible in the published reference.
+    Only the answer's own level is held: a Subsonic object proxied whole under a
+    declared key (`artist`, `album`) stays a raw dict on purpose.
     """
+    components = spec.get("components", {}).get("schemas", {})
     undocumented = []
+    examined = 0
     for method, path, operation in _operations(spec):
         if operation.get("x-stability") != CONTRACTED["x-stability"]:
             continue
         content = operation["responses"]["200"].get("content", {})
-        if not content or content.get("application/json") == {"schema": {}}:
+        if not content:
             undocumented.append(f"{method.upper()} {path}")
+            continue
+        if "application/json" not in content:
+            continue
+        examined += 1
+        if _is_opaque(content["application/json"].get("schema", {}), components):
+            undocumented.append(f"{method.upper()} {path}")
+    assert examined > 20, "almost no contracted JSON answer was examined — extractor drift?"
     assert undocumented == []

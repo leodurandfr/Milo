@@ -62,7 +62,11 @@ from backend.sources.music_library.disc_merge import (
 )
 from backend.sources.music_library.discovery import discover_servers
 from backend.sources.music_library.models import (
+    AlbumResponse,
+    AlbumsResponse,
+    ArtistResponse,
     CreatePlaylistRequest,
+    SearchResponse,
     ShareBrowseRequest,
     ShareRequest,
     StarRequest,
@@ -226,7 +230,7 @@ async def get_artists(
         return {"index": await source.get_artist_index(scope)}
 
 
-@router.get("/artist/{artist_id}", openapi_extra=CONTRACTED)
+@router.get("/artist/{artist_id}", response_model=ArtistResponse, openapi_extra=CONTRACTED)
 async def get_artist(
     artist_id: str,
     source: MusicLibrarySource = Depends(get_source),
@@ -269,7 +273,7 @@ async def get_artist(
         return {"artist": artist}
 
 
-@router.get("/album/{album_id}", openapi_extra=CONTRACTED)
+@router.get("/album/{album_id}", response_model=AlbumResponse, openapi_extra=CONTRACTED)
 async def get_album(
     album_id: str,
     source: MusicLibrarySource = Depends(get_source),
@@ -294,7 +298,7 @@ async def get_album(
         return {"album": album}
 
 
-@router.get("/albums", openapi_extra=CONTRACTED)
+@router.get("/albums", response_model=AlbumsResponse, openapi_extra=CONTRACTED)
 async def get_albums(
     source: MusicLibrarySource = Depends(get_source),
     type: str = Query("newest", description="getAlbumList2 type"),
@@ -340,7 +344,7 @@ async def get_albums(
 
 # === Search ===
 
-@router.get("/search", openapi_extra=CONTRACTED)
+@router.get("/search", response_model=SearchResponse, openapi_extra=CONTRACTED)
 async def search(
     source: MusicLibrarySource = Depends(get_source),
     query: str = Query("", description="Search term"),

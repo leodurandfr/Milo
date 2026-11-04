@@ -383,7 +383,7 @@ export const useRadioStore = defineStore('radio', () => {
       category: 'radio',
       message: 'Error playing station',
     });
-    return result.ok && result.data.success;
+    return result.ok;
   }
 
   /**
@@ -394,7 +394,7 @@ export const useRadioStore = defineStore('radio', () => {
       category: 'radio',
       message: 'Error stopping playback',
     });
-    return result.ok && result.data.success;
+    return result.ok;
   }
 
   /**

@@ -1,11 +1,14 @@
 # backend/sources/music_library/models.py
 """Pydantic models for the Music Library source.
 
-Two groups:
+Three groups:
 - REST request bodies (P1-5): the favorite (star) toggle. Browse/search/genres/
-  playlists are GET endpoints validated with FastAPI Query params, and the
-  Subsonic response shapes are proxied through as-is (raw dicts) — the frontend
-  reads Subsonic fields directly — so there are no response models here.
+  playlists are GET endpoints validated with FastAPI Query params.
+- REST response envelopes for the four browse routes a companion app's contract
+  pins (artist, album, albums, search): they declare the top-level keys only.
+  The Subsonic objects inside are proxied through as-is (raw dicts) — the
+  frontend and Milo-Mac read Subsonic fields directly, and a song dict travels
+  back unchanged in ``play_context`` — so nothing below the envelope is modelled.
 - Command params (P1-6): the typed contract for the playback commands dispatched
   through the generic ``/api/audio/control/music_library`` path and validated at
   the source's ``command()`` boundary (play_context / play_index / seek).
@@ -24,6 +27,42 @@ class StarRequest(BaseModel):
 
     id: str = Field(min_length=1)
     kind: Literal["song", "album", "artist"] = "song"
+
+
+# === Browse response envelopes ===
+
+class ArtistResponse(BaseModel):
+    """Answer of ``GET /music-library/artist/{artist_id}``: one Subsonic artist.
+
+    Its albums are under ``artist.album`` — singular, as Subsonic names it —
+    newest first, multi-disc sets merged, only those a mounted storage space serves.
+    """
+
+    artist: Dict[str, Any]
+
+
+class AlbumResponse(BaseModel):
+    """Answer of ``GET /music-library/album/{album_id}``: one Subsonic album.
+
+    Its tracks are under ``album.song`` — singular, as Subsonic names it — in
+    order, only those a mounted storage space serves.
+    """
+
+    album: Dict[str, Any]
+
+
+class AlbumsResponse(BaseModel):
+    """Answer of ``GET /music-library/albums``: one page of Subsonic albums."""
+
+    albums: List[Dict[str, Any]]
+
+
+class SearchResponse(BaseModel):
+    """Answer of ``GET /music-library/search``: three Subsonic lists, at the root."""
+
+    artists: List[Dict[str, Any]]
+    albums: List[Dict[str, Any]]
+    songs: List[Dict[str, Any]]
 
 
 # === Playlist create/edit requests ===

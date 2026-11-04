@@ -447,7 +447,7 @@ describe('radioStore', () => {
       // (custom or search-only result) without a second lookup.
       const station = STATION('s1');
       await seedSearchResults(store, [station]);
-      apiCall.post.mockResolvedValueOnce(ok({ success: true }));
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
 
       await store.playStation('s1');
 
@@ -459,7 +459,7 @@ describe('radioStore', () => {
     });
 
     it('falls back to the bare id for an unknown station', async () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: true }));
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
 
       await store.playStation('unknown');
 
@@ -470,8 +470,8 @@ describe('radioStore', () => {
       );
     });
 
-    it('reports failure when the backend answers success: false', async () => {
-      apiCall.post.mockResolvedValueOnce(ok({ success: false }));
+    it('reports failure when the backend refuses the play', async () => {
+      apiCall.post.mockResolvedValueOnce(fail('MPV not connected', 400));
 
       expect(await store.playStation('s1')).toBe(false);
     });

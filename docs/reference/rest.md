@@ -134,10 +134,10 @@ The 209 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | Method | Path | Request | Response | Stability |
 |---|---|---|---|---|
 | `GET` | `/api/music-library/artists` |  | object | internal |
-| `GET` | `/api/music-library/artist/{artist_id}` |  | object | contracted |
-| `GET` | `/api/music-library/album/{album_id}` |  | object | contracted |
-| `GET` | `/api/music-library/albums` |  | object | contracted |
-| `GET` | `/api/music-library/search` |  | object | contracted |
+| `GET` | `/api/music-library/artist/{artist_id}` |  | ArtistResponse | contracted |
+| `GET` | `/api/music-library/album/{album_id}` |  | AlbumResponse | contracted |
+| `GET` | `/api/music-library/albums` |  | AlbumsResponse | contracted |
+| `GET` | `/api/music-library/search` |  | SearchResponse | contracted |
 | `GET` | `/api/music-library/genres` |  | object | internal |
 | `GET` | `/api/music-library/genre-songs` |  | object | internal |
 | `GET` | `/api/music-library/playlists` |  | object | internal |
@@ -230,8 +230,8 @@ The 209 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 
 | Method | Path | Request | Response | Stability |
 |---|---|---|---|---|
-| `POST` | `/api/radio/play` | PlayStationRequest | object | contracted |
-| `POST` | `/api/radio/stop` |  | object | contracted |
+| `POST` | `/api/radio/play` | PlayStationRequest | StatusResponse | contracted |
+| `POST` | `/api/radio/stop` |  | StatusResponse | contracted |
 | `GET` | `/api/radio/stations` |  | RadioStationsResponse | contracted |
 | `GET` | `/api/radio/genres` |  | object | internal |
 | `GET` | `/api/radio/countries` |  | untyped JSON | internal |
