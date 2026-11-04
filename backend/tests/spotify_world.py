@@ -193,7 +193,8 @@ def _refused() -> aiohttp.ClientOSError:
 class Librespot:
     """go-librespot as the source sees it over HTTP and /events."""
 
-    def __init__(self) -> None:
+    def __init__(self, clock: VirtualClock) -> None:
+        self.clock = clock
         self.up = False
         self.session = False            # a session is live (else /status is 204, or the signed-in 200)
         self.account: Optional[str] = None
@@ -227,7 +228,9 @@ class Librespot:
         self.paused = True
         self.buffering = False
         # The app's slider, in steps (0.10.5: kept across sessions, set with no
-        # session too; an event 100 ms after a change, only with a session).
+        # session too). Each change, the phone's or a POST's, re-arms one
+        # 100 ms timer whose event carries the position at its expiry; with
+        # no player (neither a session nor signed in) a POST raises none.
         self.volume = 42
         self.volume_steps = 100
         self.volume_without_session = True   # False: 0.10.4 and before, a 204
@@ -238,6 +241,7 @@ class Librespot:
         # pause is confirmed against): /status still says paused meanwhile.
         self.resume_lag = False
         self.posted: List[Tuple[str, Dict[str, Any]]] = []
+        self._volume_report: Optional[asyncio.Task] = None
         self.socket: Optional[_EventsSocket] = None
         # The library, as the signed-in account sees it.
         self.playlists: List[Dict[str, Any]] = []
@@ -388,8 +392,8 @@ class Librespot:
             if not self.session and not self.volume_without_session:
                 return _Exchange(_Response(204))
             self.volume = max(0, min(self.volume_steps, body["volume"]))
-            if self.session:
-                self._later(self.volume_event())
+            if self.session or self.signed_in:
+                self.volume_changed()
             return _Exchange(_Response(200))
         if not self.session and not self.signed_in:
             return _Exchange(_Response(204))
@@ -573,6 +577,15 @@ class Librespot:
     def volume_event(self) -> Dict[str, Any]:
         return {"type": "volume", "data": {"value": self.volume, "max": self.volume_steps}}
 
+    def volume_changed(self) -> None:
+        if self._volume_report is not None:
+            self._volume_report.cancel()
+        self._volume_report = asyncio.get_running_loop().create_task(self._report_volume())
+
+    async def _report_volume(self) -> None:
+        await self.clock.sleep(0.1)
+        self.says(self.volume_event())
+
     def says(self, *events: Dict[str, Any]) -> None:
         if self.socket is not None:
             queue = self._queue()
@@ -619,6 +632,8 @@ class Librespot:
     def dies(self) -> None:
         self.up = False
         self.session, self.track = False, None
+        if self._volume_report is not None:
+            self._volume_report.cancel()
         if self.socket is not None:
             self.socket.queue.put_nowait(_CLOSED)
             self.socket = None
@@ -652,7 +667,7 @@ class SpotifyWorld(WireReader):
         world = self
         self.clock = VirtualClock()
         use_virtual_wall(monkeypatch, self.clock)
-        self.daemon = Librespot()
+        self.daemon = Librespot(self.clock)
         self.state_file = tmp_path / "state.json"
         if stored is not None:
             self.daemon.stored = stored
@@ -875,7 +890,8 @@ class SpotifyWorld(WireReader):
     async def phone_moves_volume(self, value: int) -> None:
         """The Spotify app's slider, moved on the phone (in steps)."""
         self.daemon.volume = value
-        await self._says(self.daemon.volume_event())
+        self.daemon.volume_changed()
+        await settle()
 
     async def phone_seeks(self, position_ms: int) -> None:
         self.daemon.track["position"] = position_ms

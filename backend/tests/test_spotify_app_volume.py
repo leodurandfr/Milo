@@ -58,7 +58,7 @@ class _Volume:
 
 class _SlowVolume(_Volume):
     """A house that takes 150 ms to move (a loaded CPU, a slow satellite):
-    longer than go-librespot's 100 ms between two reports of a moving slider."""
+    longer than the 100 ms go-librespot waits after a press to report it."""
 
     clock = None
 
@@ -123,6 +123,7 @@ class TestShared:
         posts = len(_slider_posts(shared))
         await shared.advance(2)
         await shared.phone_moves_volume(80)
+        await shared.advance(0.1)
         assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.8))]
         # Milō now stands where the phone put it: nothing is sent back.
         assert len(_slider_posts(shared)) == posts
@@ -140,19 +141,20 @@ class TestShared:
         await shared.phone_plays(PARAPLUIE)
         volume.moved_in_milo(-30.0)
         await shared.advance(2)
-        await shared._says(shared.daemon.volume_event())
         assert volume.sets == []
 
-    async def test_a_report_older_than_milos_last_move_is_ignored(self, shared, volume):
-        """A knob turn: go-librespot reports the position of 100 ms ago while
-        Milō has moved past it. Followed, the house would jump back."""
+    async def test_a_knob_turn_written_back_moves_nothing_after_the_echo_window(self, shared, volume):
+        """A knob turn posts the slider several positions in a row; go-librespot
+        reports once, 100 ms after the last, with the last. Taken for the
+        phone's once the window has passed, it would set Milō's volume to
+        itself, rounded to a step."""
         await shared.phone_plays(PARAPLUIE)
-        volume.moved_in_milo(-40.0)
-        await shared.advance(0)
-        older = _slider_posts(shared)[-1]
-        volume.moved_in_milo(-30.0)
-        await shared.advance(0)
-        await shared.phone_moves_volume(older)
+        posts = len(_slider_posts(shared))
+        for db in (-45.0, -40.0, -35.0, -30.0):
+            volume.moved_in_milo(db)
+            await shared.advance(0.05)
+        assert len(set(_slider_posts(shared)[posts:])) > 1
+        await shared.advance(1.5)
         assert volume.sets == []
 
     async def test_a_phone_move_inside_the_echo_window_is_followed_after_it(self, shared, volume):
@@ -163,6 +165,7 @@ class TestShared:
         volume.moved_in_milo(-30.0)
         await shared.advance(0)
         await shared.phone_moves_volume(60)
+        await shared.advance(0.1)
         assert volume.sets == []
         await shared.advance(1.5)
         assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.6))]
@@ -176,7 +179,7 @@ class TestShared:
         volume.lands_off_db = -2.0
         await shared.advance(2)
         await shared.phone_moves_volume(80)
-        await shared.advance(0)
+        await shared.advance(0.1)
         assert len(volume.sets) == 1
         assert len(_slider_posts(shared)) == posts
 
@@ -280,6 +283,7 @@ class TestSeparate:
         await separate.phone_plays(PARAPLUIE)
         await separate.advance(2)
         await separate.phone_moves_volume(80)
+        await separate.advance(0.1)
         assert volume.sets == []
 
     async def test_milos_volume_does_not_move_the_slider(self, separate, volume):
@@ -301,6 +305,7 @@ class TestSeparate:
         assert separate.restarts == []
         await separate.advance(2)
         await separate.phone_moves_volume(80)
+        await separate.advance(0.1)
         assert volume.sets == [pytest.approx(volume.volume_config.denormalize(0.8))]
 
     async def test_turning_it_on_twice_in_one_burst_still_moves_the_slider(self, separate, volume):

@@ -315,10 +315,11 @@ class SpotifySource(BaseAudioSource):
     APP_VOLUME_SETTINGS_KEY = "spotify.allow_app_volume"
     # go-librespot's own default; /status says the daemon's.
     DEFAULT_VOLUME_STEPS = 100
-    # How long after Milō put the slider somewhere the daemon's reports are
-    # taken for that push written back: go-librespot says a volume 100 ms after
-    # the last change, so during a knob turn it reports a level Milō has
-    # already moved past.
+    # How long after Milō put the slider somewhere a move the daemon reports
+    # waits before it is followed: it is read again once the window has
+    # passed. Milō's own push written back is not held but dropped at once:
+    # go-librespot reports once, 100 ms after the last change, the position
+    # it stands at then — after a knob turn, the last push (`_volume_sent`).
     VOLUME_ECHO_S = 1.0
     # Two levels this close are the same position on either slider.
     VOLUME_EPSILON = 0.005
@@ -1025,8 +1026,8 @@ class SpotifySource(BaseAudioSource):
             return False
         echo_ends = self._volume_sent_at + self.VOLUME_ECHO_S
         if audio_source.wall_time() < echo_ends:
-            # Perhaps an older push written back, perhaps the phone: looked at
-            # again once the window has passed. go-librespot says nothing more
+            # Perhaps the phone, perhaps a read that raced Milō's last push:
+            # looked at again once the window has passed. go-librespot says nothing more
             # of a slider that stopped moving, so the read is Milō's to make.
             self._volume_seen = seen
             if not self._timer_armed("status"):
