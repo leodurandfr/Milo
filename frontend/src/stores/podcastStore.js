@@ -361,9 +361,9 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   const SEARCH_PAGE_SIZE = '25';
 
-  function searchParams(page) {
+  function searchParams(page, term) {
     return new URLSearchParams({
-      term: searchTerm.value,
+      term,
       limit: SEARCH_PAGE_SIZE,
       page: String(page)
     });
@@ -374,6 +374,17 @@ export const usePodcastStore = defineStore('podcast', () => {
   // its `api_error` replaces a fresh result list with the "catalogue
   // unavailable" panel until the next search succeeds.
   let searchAbortController = null;
+  // A next page belongs to the results it extends: once a search or a clear
+  // has replaced them, it is another term's page.
+  let loadMoreAbortController = null;
+
+  function abortLoadMore() {
+    if (loadMoreAbortController) {
+      loadMoreAbortController.abort();
+      loadMoreAbortController = null;
+    }
+    searchLoadingMore.value = { podcasts: false };
+  }
 
   async function search() {
     if (searchAbortController) searchAbortController.abort();
@@ -383,11 +394,14 @@ export const usePodcastStore = defineStore('podcast', () => {
     const ctrl = new AbortController();
     searchAbortController = ctrl;
 
+    // The term this request carries, not the field, which the user may keep
+    // typing in while it is in flight.
+    const term = searchTerm.value;
     searchLoading.value = true;
     const result = await apiCall.get('/api/podcast/search', {
       category: 'podcast',
       message: 'Error searching podcasts',
-      params: searchParams(1),
+      params: searchParams(1, term),
       signal: ctrl.signal
     });
 
@@ -402,29 +416,37 @@ export const usePodcastStore = defineStore('podcast', () => {
         apiError.value = true;
       } else {
         apiError.value = false;
-        setSearchResults(data.podcasts, data.pagination);
+        setSearchResults(data.podcasts, data.pagination, term);
       }
     }
     searchLoading.value = false;
   }
 
   async function loadMoreSearchResults() {
-    if (searchLoadingMore.value.podcasts ||
+    // Not while a search is in flight: the page would extend results about to
+    // be replaced.
+    if (searchLoading.value || searchLoadingMore.value.podcasts ||
         searchCurrentPage.value.podcasts >= searchPagination.value.podcasts.pages) return;
 
+    const ctrl = new AbortController();
+    loadMoreAbortController = ctrl;
     searchLoadingMore.value.podcasts = true;
     const result = await apiCall.get('/api/podcast/search', {
       category: 'podcast',
       message: 'Error loading more podcasts',
-      params: searchParams(searchCurrentPage.value.podcasts + 1)
+      params: searchParams(searchCurrentPage.value.podcasts + 1, lastSearchTerm.value),
+      signal: ctrl.signal
     });
+    if (loadMoreAbortController !== ctrl) return;
+    loadMoreAbortController = null;
     if (result.ok) {
       appendSearchResults(result.data.podcasts || []);
     }
     searchLoadingMore.value.podcasts = false;
   }
 
-  function setSearchResults(podcasts, pagination) {
+  function setSearchResults(podcasts, pagination, term) {
+    abortLoadMore();
     searchResults.value = {
       podcasts: podcasts || []
     };
@@ -433,7 +455,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     };
     searchCurrentPage.value = { podcasts: 1 };
     hasSearched.value = true;
-    lastSearchTerm.value = searchTerm.value;
+    lastSearchTerm.value = term;
   }
 
   function appendSearchResults(items) {
@@ -452,6 +474,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       searchAbortController.abort();
       searchAbortController = null;
     }
+    abortLoadMore();
     searchTerm.value = '';
     lastSearchTerm.value = '';
     searchResults.value = { podcasts: [] };
@@ -461,7 +484,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     searchCurrentPage.value = { podcasts: 1 };
     hasSearched.value = false;
     searchLoading.value = false;
-    searchLoadingMore.value = { podcasts: false };
     apiError.value = false;
   }
 

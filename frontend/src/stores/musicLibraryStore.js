@@ -205,6 +205,31 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // response would otherwise overwrite (or append to) the wrong catalog.
   const inScope = (scope) => scope === activeLibraryId.value;
 
+  // Overlapping reads of one catalog list land in any order: a scan forces a
+  // reload each time the album count moves (every storages push, 3 s apart),
+  // and a reload can outlast that. A response older than the list on screen
+  // would put back the list from before; one merely older than the latest
+  // issued is still newer than what is shown, and is drawn — holding it back
+  // would freeze the grid for a whole scan whose reloads each outlast the next
+  // push. The loading flag belongs to the latest request alone.
+  function requestOrder(loading) {
+    let issued = 0;
+    let shown = 0;
+    return {
+      start() {
+        loading.value = true;
+        return ++issued;
+      },
+      settle(request) {
+        if (request === issued) loading.value = false;
+      },
+      outdated: (request) => request < shown,
+      show(request) {
+        shown = request;
+      },
+    };
+  }
+
   // =========================================================================
   // NOW PLAYING (derived from the central mirror)
   // =========================================================================
@@ -347,6 +372,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const albumsLoading = ref(false);
   const albumsLoaded = ref(false);
   const albumsHasMore = ref(true);
+  // Shared with loadMoreAlbums: a next page extends the grid it was asked
+  // from, and a reload drawn since makes it another grid's page.
+  const albumsOrder = requestOrder(albumsLoading);
 
   // `force` revalidates in place, exactly like the three loaders below: the grid
   // on screen is replaced when the response lands, never emptied first. Emptying
@@ -357,7 +385,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   async function loadAlbums({ force = false } = {}) {
     if (albumsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
-    albumsLoading.value = true;
+    const request = albumsOrder.start();
     // A revalidation re-reads as many albums as are already displayed: asking
     // for the first page alone would shrink the grid under a user who has
     // scrolled it open.
@@ -374,11 +402,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         params: scoped({ type: 'alphabeticalByName', size, offset: 0 }),
       });
     } finally {
-      albumsLoading.value = false;
+      albumsOrder.settle(request);
     }
-    if (!inScope(scope)) return true;  // superseded, not failed
+    if (albumsOrder.outdated(request) || !inScope(scope)) return true;  // superseded, not failed
     const ok = result.ok && Array.isArray(result.data?.albums);
     if (ok) {
+      albumsOrder.show(request);
       albums.value = result.data.albums;
       albumsHasMore.value = result.data.albums.length >= size;
       albumsLoaded.value = true;
@@ -389,7 +418,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   async function loadMoreAlbums() {
     if (albumsLoading.value || !albumsHasMore.value) return;
     const scope = activeLibraryId.value;
-    albumsLoading.value = true;
+    const request = albumsOrder.start();
     let result;
     try {
       result = await apiCall.get(`${BASE}/albums`, {
@@ -403,10 +432,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         }),
       });
     } finally {
-      albumsLoading.value = false;
+      albumsOrder.settle(request);
     }
-    if (!inScope(scope)) return;
+    if (albumsOrder.outdated(request) || !inScope(scope)) return;
     if (result.ok && Array.isArray(result.data?.albums)) {
+      albumsOrder.show(request);
       albums.value = [...albums.value, ...result.data.albums];
       albumsHasMore.value = result.data.albums.length >= ALBUMS_PAGE_SIZE;
     }
@@ -418,6 +448,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const artistIndex = ref([]);
   const artistsLoading = ref(false);
   const artistsLoaded = ref(false);
+  const artistsOrder = requestOrder(artistsLoading);
   // Render window over the A–Z index. getArtists returns the WHOLE index in one
   // call (Subsonic has no offset there), so the paging is local: mounting every
   // row in one tick costs ~1.8 ms each — a second of frozen UI at 550 artists,
@@ -428,7 +459,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   async function loadArtists({ force = false } = {}) {
     if (artistsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
-    artistsLoading.value = true;
+    const request = artistsOrder.start();
     let result;
     try {
       result = await apiCall.get(`${BASE}/artists`, {
@@ -438,11 +469,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         params: scoped(),
       });
     } finally {
-      artistsLoading.value = false;
+      artistsOrder.settle(request);
     }
-    if (!inScope(scope)) return true;  // superseded, not failed
+    if (artistsOrder.outdated(request) || !inScope(scope)) return true;  // superseded, not failed
     const ok = result.ok && Array.isArray(result.data?.index);
     if (ok) {
+      artistsOrder.show(request);
       artistIndex.value = result.data.index;
       artistsRendered.value = ARTISTS_RENDER_CHUNK;
       artistsLoaded.value = true;
@@ -510,11 +542,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const genres = ref([]);
   const genresLoading = ref(false);
   const genresLoaded = ref(false);
+  const genresOrder = requestOrder(genresLoading);
 
   async function loadGenres({ force = false } = {}) {
     if (genresLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
-    genresLoading.value = true;
+    const request = genresOrder.start();
     let result;
     try {
       result = await apiCall.get(`${BASE}/genres`, {
@@ -524,11 +557,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         params: scoped(),
       });
     } finally {
-      genresLoading.value = false;
+      genresOrder.settle(request);
     }
-    if (!inScope(scope)) return true;  // superseded, not failed
+    if (genresOrder.outdated(request) || !inScope(scope)) return true;  // superseded, not failed
     const ok = result.ok && Array.isArray(result.data?.genres);
     if (ok) {
+      genresOrder.show(request);
       // Alphabetical, skipping the empty-name genre Navidrome can emit.
       genres.value = result.data.genres
         .filter((g) => (g.value || '').trim())
@@ -544,11 +578,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const playlists = ref([]);
   const playlistsLoading = ref(false);
   const playlistsLoaded = ref(false);
+  const playlistsOrder = requestOrder(playlistsLoading);
 
   async function loadPlaylists({ force = false } = {}) {
     if (playlistsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
-    playlistsLoading.value = true;
+    const request = playlistsOrder.start();
     let result;
     try {
       result = await apiCall.get(`${BASE}/playlists`, {
@@ -558,11 +593,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         params: scoped(),
       });
     } finally {
-      playlistsLoading.value = false;
+      playlistsOrder.settle(request);
     }
-    if (!inScope(scope)) return true;  // superseded, not failed
+    if (playlistsOrder.outdated(request) || !inScope(scope)) return true;  // superseded, not failed
     const ok = result.ok && Array.isArray(result.data?.playlists);
     if (ok) {
+      playlistsOrder.show(request);
       playlists.value = result.data.playlists;
       playlistsLoaded.value = true;
     }
@@ -705,6 +741,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const searchResults = ref({ artists: [], albums: [], songs: [] });
   const searchLoading = ref(false);
   const hasSearched = ref(false);
+  // Each keystroke past the debounce issues its own search3, whose time depends
+  // on the term, so two can invert — and unlike a catalog list, results are
+  // only right for the term in the field. Held locally too: after the await,
+  // only identity tells this search from a newer one, or from a clearSearch.
+  let searchAbortController = null;
 
   async function search() {
     const query = searchTerm.value.trim();
@@ -713,27 +754,35 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       return;
     }
     const scope = activeLibraryId.value;
+    if (searchAbortController) searchAbortController.abort();
+    const ctrl = new AbortController();
+    searchAbortController = ctrl;
     searchLoading.value = true;
     const result = await apiCall.get(`${BASE}/search`, {
       category: 'musicLibrary',
       message: 'Error searching library',
       checkStatus: true,
       params: scoped({ query }),
+      signal: ctrl.signal,
     });
-    if (!inScope(scope)) return;
-    if (result.ok) {
-      searchResults.value = {
-        artists: result.data?.artists || [],
-        albums: result.data?.albums || [],
-        songs: result.data?.songs || [],
-      };
-      hasSearched.value = true;
-      lastSearchTerm.value = query;
-    }
+    if (searchAbortController !== ctrl) return;
+    searchAbortController = null;
     searchLoading.value = false;
+    if (!inScope(scope) || !result.ok) return;
+    searchResults.value = {
+      artists: result.data?.artists || [],
+      albums: result.data?.albums || [],
+      songs: result.data?.songs || [],
+    };
+    hasSearched.value = true;
+    lastSearchTerm.value = query;
   }
 
   function clearSearch() {
+    if (searchAbortController) {
+      searchAbortController.abort();
+      searchAbortController = null;
+    }
     searchTerm.value = '';
     lastSearchTerm.value = '';
     searchResults.value = { artists: [], albums: [], songs: [] };

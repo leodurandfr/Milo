@@ -434,9 +434,7 @@ describe('podcastStore', () => {
 
   describe('search state', () => {
     it('records results, pagination and the term that produced them', () => {
-      store.searchTerm = 'design';
-
-      store.setSearchResults([{ uuid: 'p1' }], { podcasts: { total: 10, pages: 2 } });
+      store.setSearchResults([{ uuid: 'p1' }], { podcasts: { total: 10, pages: 2 } }, 'design');
 
       expect(store.searchResults.podcasts).toHaveLength(1);
       expect(store.searchPagination.podcasts.total).toBe(10);
@@ -455,7 +453,7 @@ describe('podcastStore', () => {
 
     it('clearSearch resets every search field', () => {
       store.searchTerm = 'design';
-      store.setSearchResults([{ uuid: 'p1' }], { podcasts: { total: 10, pages: 2 } });
+      store.setSearchResults([{ uuid: 'p1' }], { podcasts: { total: 10, pages: 2 } }, 'design');
 
       store.clearSearch();
 
@@ -568,6 +566,89 @@ describe('podcastStore', () => {
       expect(store.searchResults.podcasts).toEqual([]);
       expect(store.hasSearched).toBe(false);
       expect(store.searchLoading).toBe(false);
+    });
+
+    /** Page `n` of a three-page answer for `term`. */
+    const pageOf = (term, n) => ok({
+      podcasts: [{ uuid: `${term}-p${n}` }],
+      pagination: { podcasts: { total: 3, pages: 3 } },
+    });
+
+    it('drops a load-more page that lands after a new search', async () => {
+      apiCall.get.mockResolvedValueOnce(pageOf('rock', 1));
+      store.searchTerm = 'rock';
+      await store.search();
+
+      const nextPage = deferred();
+      apiCall.get.mockReturnValueOnce(nextPage.promise);
+      const more = store.loadMoreSearchResults();
+
+      apiCall.get.mockResolvedValueOnce(pageOf('jazz', 1));
+      store.searchTerm = 'jazz';
+      await store.search();
+      expect(apiCall.get.mock.calls[1][1].signal.aborted).toBe(true);
+
+      nextPage.settle(pageOf('rock', 2));
+      await more;
+
+      expect(store.searchResults.podcasts.map(p => p.uuid)).toEqual(['jazz-p1']);
+      expect(store.searchCurrentPage.podcasts).toBe(1);
+      expect(store.searchLoadingMore.podcasts).toBe(false);
+    });
+
+    it('drops a load-more page that lands after clearSearch', async () => {
+      apiCall.get.mockResolvedValueOnce(pageOf('rock', 1));
+      store.searchTerm = 'rock';
+      await store.search();
+
+      const nextPage = deferred();
+      apiCall.get.mockReturnValueOnce(nextPage.promise);
+      const more = store.loadMoreSearchResults();
+      store.clearSearch();
+
+      nextPage.settle(pageOf('rock', 2));
+      await more;
+
+      expect(store.searchResults.podcasts).toEqual([]);
+      expect(store.searchCurrentPage.podcasts).toBe(1);
+    });
+
+    it('starts no load-more while a search is in flight', async () => {
+      // The page would extend results the search is about to replace.
+      apiCall.get.mockResolvedValueOnce(pageOf('rock', 1));
+      store.searchTerm = 'rock';
+      await store.search();
+
+      const inFlight = deferred();
+      apiCall.get.mockReturnValueOnce(inFlight.promise);
+      store.searchTerm = 'jazz';
+      const searching = store.search();
+      await store.loadMoreSearchResults();
+
+      expect(apiCall.get).toHaveBeenCalledTimes(2);
+      inFlight.settle(pageOf('jazz', 1));
+      await searching;
+      expect(store.searchResults.podcasts.map(p => p.uuid)).toEqual(['jazz-p1']);
+    });
+
+    it('asks load-more for the term on screen, not the one being typed', async () => {
+      // A term typed while a search is in flight, or before the debounce has
+      // fired, is not the one the results belong to: the next page must be
+      // that of the results, or it lands among them as another term's page.
+      const inFlight = deferred();
+      apiCall.get.mockReturnValueOnce(inFlight.promise);
+      store.searchTerm = 'rock';
+      const searching = store.search();
+      store.searchTerm = 'rockabilly';
+      inFlight.settle(pageOf('rock', 1));
+      await searching;
+
+      apiCall.get.mockResolvedValueOnce(pageOf('rock', 2));
+      await store.loadMoreSearchResults();
+
+      expect(store.lastSearchTerm).toBe('rock');
+      expect(apiCall.get.mock.calls[1][1].params.get('term')).toBe('rock');
+      expect(apiCall.get.mock.calls[1][1].params.get('page')).toBe('2');
     });
   });
 });

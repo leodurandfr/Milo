@@ -558,6 +558,197 @@ describe('musicLibraryStore — revalidating the albums grid', () => {
   });
 });
 
+/** A response the test lands by hand, to drive two requests out of order. */
+const deferred = () => {
+  let settle;
+  const promise = new Promise((resolve) => { settle = resolve; });
+  return { promise, settle };
+};
+
+/**
+ * On the kiosk's slow keyboard every character past the debounce issues its
+ * own search3, whose time depends on the term (6 ms to 1.2 s measured): the
+ * response for a term already replaced, or already cleared, must not land over
+ * the one the field now shows — a tap would then play something else than what
+ * was searched.
+ */
+describe('musicLibraryStore — search supersession', () => {
+  let store;
+  const results = (term) => ok({ artists: [], albums: [], songs: [{ id: `s-${term}` }] });
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+  });
+
+  it('aborts the older search and keeps the spinner up for the newer one', async () => {
+    const older = deferred();
+    const newer = deferred();
+    apiCall.get.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+    store.searchTerm = 'a';
+    const stale = store.search();
+    store.searchTerm = 'ab';
+    const fresh = store.search();
+
+    expect(apiCall.get.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(apiCall.get.mock.calls[1][1].signal.aborted).toBe(false);
+
+    older.settle(results('a'));
+    await stale;
+    // The spinner belongs to the search still in flight.
+    expect(store.searchLoading).toBe(true);
+
+    newer.settle(results('ab'));
+    await fresh;
+    expect(store.lastSearchTerm).toBe('ab');
+    expect(store.searchResults.songs.map((s) => s.id)).toEqual(['s-ab']);
+    expect(store.searchLoading).toBe(false);
+  });
+
+  it('keeps the newer results when the older search lands last', async () => {
+    const older = deferred();
+    const newer = deferred();
+    apiCall.get.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+    store.searchTerm = 'a';
+    const stale = store.search();
+    store.searchTerm = 'ab';
+    const fresh = store.search();
+
+    newer.settle(results('ab'));
+    await fresh;
+    older.settle(results('a'));
+    await stale;
+
+    expect(store.lastSearchTerm).toBe('ab');
+    expect(store.searchResults.songs.map((s) => s.id)).toEqual(['s-ab']);
+  });
+
+  it('drops a search response that lands after clearSearch', async () => {
+    const inFlight = deferred();
+    apiCall.get.mockReturnValueOnce(inFlight.promise);
+
+    store.searchTerm = 'a';
+    const stale = store.search();
+    store.clearSearch();
+    expect(apiCall.get.mock.calls[0][1].signal.aborted).toBe(true);
+
+    inFlight.settle(results('a'));
+    await stale;
+
+    expect(store.hasSearched).toBe(false);
+    expect(store.searchResults).toEqual({ artists: [], albums: [], songs: [] });
+    expect(store.searchLoading).toBe(false);
+  });
+});
+
+/**
+ * Two forced reloads of one list overlap when a scan ends while the view forces
+ * its own: the list and its loading flag belong to the latest, or the grid from
+ * before the scan stays on screen until the next one.
+ */
+describe('musicLibraryStore — a reload superseded by a newer one', () => {
+  let store;
+
+  beforeEach(async () => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS] }));
+    await store.loadStorages();
+    await nextTick();
+  });
+
+  const LISTS = [
+    ['loadAlbums', 'albumsLoading', (ids) => ({ albums: ids.map((id) => ({ id })) }), (s) => s.albums.map((a) => a.id)],
+    ['loadArtists', 'artistsLoading', (ids) => ({ index: ids.map((name) => ({ name, artist: [{ id: name }] })) }), (s) => s.displayedArtistIndex.map((b) => b.name)],
+    ['loadGenres', 'genresLoading', (ids) => ({ genres: ids.map((value) => ({ value })) }), (s) => s.genres.map((g) => g.value)],
+    ['loadPlaylists', 'playlistsLoading', (ids) => ({ playlists: ids.map((id) => ({ id })) }), (s) => s.playlists.map((p) => p.id)],
+  ];
+
+  it.each(LISTS)('%s: a forced reload that lands last does not overwrite the newer list', async (loader, flag, body, read) => {
+    const older = deferred();
+    const newer = deferred();
+    apiCall.get.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+    const stale = store[loader]({ force: true });
+    const fresh = store[loader]({ force: true });
+
+    newer.settle(ok(body(['a0', 'a1', 'a2'])));
+    await fresh;
+    older.settle(ok(body(['a0', 'a1'])));
+    await stale;
+
+    expect(read(store)).toEqual(['a0', 'a1', 'a2']);
+    expect(store[flag]).toBe(false);
+  });
+
+  it.each(LISTS)('%s draws an older reload that lands first, and keeps its flag up for the newer', async (loader, flag, body, read) => {
+    // During a scan a reload is forced at every storages push, and one can
+    // outlast the next: dropping every reload a newer one overtook would leave
+    // the grid frozen for as long as the scan keeps them coming.
+    const older = deferred();
+    const newer = deferred();
+    apiCall.get.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+    const stale = store[loader]({ force: true });
+    const fresh = store[loader]({ force: true });
+
+    older.settle(ok(body(['a0', 'a1'])));
+    await stale;
+    expect(read(store)).toEqual(['a0', 'a1']);
+    expect(store[flag]).toBe(true);
+
+    newer.settle(ok(body(['a0', 'a1', 'a2'])));
+    await fresh;
+    expect(read(store)).toEqual(['a0', 'a1', 'a2']);
+    expect(store[flag]).toBe(false);
+  });
+
+  it('a next page does not append to the grid a forced reload replaced', async () => {
+    const first = Array.from({ length: 40 }, (_, i) => ({ id: `old-${i}` }));
+    apiCall.get.mockResolvedValueOnce(ok({ albums: first }));
+    await store.loadAlbums();
+
+    const nextPage = deferred();
+    const reload = deferred();
+    apiCall.get.mockReturnValueOnce(nextPage.promise).mockReturnValueOnce(reload.promise);
+    const more = store.loadMoreAlbums();
+    const forced = store.loadAlbums({ force: true });
+
+    // Landing first, the page extends the grid still on screen, and must not
+    // lower the flag of the reload still coming.
+    nextPage.settle(ok({ albums: [{ id: 'old-40' }] }));
+    await more;
+    expect(store.albumsLoading).toBe(true);
+
+    reload.settle(ok({ albums: [{ id: 'new-0' }] }));
+    await forced;
+    expect(store.albums.map((a) => a.id)).toEqual(['new-0']);
+    expect(store.albumsLoading).toBe(false);
+  });
+
+  it('a next page that lands after a forced reload is dropped', async () => {
+    const first = Array.from({ length: 40 }, (_, i) => ({ id: `old-${i}` }));
+    apiCall.get.mockResolvedValueOnce(ok({ albums: first }));
+    await store.loadAlbums();
+
+    const nextPage = deferred();
+    const reload = deferred();
+    apiCall.get.mockReturnValueOnce(nextPage.promise).mockReturnValueOnce(reload.promise);
+    const more = store.loadMoreAlbums();
+    const forced = store.loadAlbums({ force: true });
+
+    reload.settle(ok({ albums: [{ id: 'new-0' }] }));
+    await forced;
+    nextPage.settle(ok({ albums: [{ id: 'old-40' }] }));
+    await more;
+
+    expect(store.albums.map((a) => a.id)).toEqual(['new-0']);
+    expect(store.albumsLoading).toBe(false);
+  });
+});
+
 describe('musicLibraryStore — a catalog that was not answering', () => {
   let store;
   let unified;
