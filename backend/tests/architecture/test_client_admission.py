@@ -29,6 +29,9 @@ that does its own thing. The registration and online-flag rules read the whole o
 `backend/`, not one class, and read the state argument in keyword form too: a
 heartbeat route in `api/multiroom.py` marking a silent satellite online, or a
 `set_client_online(mac, online=True)`, is the same bypass as a fifth notification.
+So is writing the flag on the live record: `get_client` hands out the registry's
+own `Client`, and `existing.online = True` in that heartbeat skips the setter
+and the event alike, so only the registry module may write the attribute.
 
 Doctrine note (same as the Milo-Mac / milo-client contract tests and the other
 architecture guardrails): every extractor asserts its own output is non-trivial
@@ -47,6 +50,10 @@ WEBSOCKET_REL = WEBSOCKET_PATH.relative_to(BACKEND_ROOT).as_posix()
 # register it — as (file relative to backend/, dotted enclosing scope).
 ONLINE_SETTER = (WEBSOCKET_REL, "SnapcastWebSocketService._do_sync_reconnecting_client_volume")
 REGISTRATION = (WEBSOCKET_REL, "SnapcastWebSocketService._register_snapclient")
+
+# The one module allowed to write `<client>.online` itself: the registry owns the
+# flag, and everyone else goes through its setters.
+ONLINE_FLAG_OWNER = "core/multiroom/client_registry.py"
 
 # `register_client` uses that do not reach ClientRegistryService, as
 # (receiver, file, enclosing-scope prefix). Everything else counts as a registry
@@ -184,14 +191,55 @@ def _registrations(rel: str, uses: list) -> tuple:
     return legitimate, violations
 
 
+def _online_writes(rel: str, tree: ast.Module) -> tuple:
+    """(legitimate, violations) among one module's direct writes of ``<x>.online``.
+
+    An assignment (plain, augmented, annotated, unpacked) or a
+    ``setattr(x, "online", …)`` writes the flag without the registry's setter,
+    so no CLIENT_CONNECTED is emitted and no sync runs. Writing the literal
+    False is ignored, as an offline call is; any other value is legitimate only
+    in ONLINE_FLAG_OWNER.
+    """
+    legitimate, violations = [], []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)) and node.value is not None:
+            targets, value = [node.target], node.value
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+              and node.func.id == "setattr" and len(node.args) == 3
+              and isinstance(node.args[1], ast.Constant) and node.args[1].value == "online"):
+            targets, value = None, node.args[2]
+        else:
+            continue
+        if targets is not None and not any(
+            isinstance(sub, ast.Attribute) and sub.attr == "online"
+            for target in targets for sub in ast.walk(target)
+        ):
+            continue
+        if isinstance(value, ast.Constant) and value.value is False:
+            continue
+        where = f"{rel}:{node.lineno}: {ast.unparse(node)}"
+        (legitimate if rel == ONLINE_FLAG_OWNER else violations).append(where)
+    return legitimate, violations
+
+
 @pytest.fixture(scope="module")
-def backend_uses() -> dict:
-    """Every production module of backend/ → its set_client_online/register_client uses."""
-    uses = {
-        p.relative_to(BACKEND_ROOT).as_posix(): _registry_calls(ast.parse(p.read_text()))
+def backend_trees() -> dict:
+    """Every production module of backend/ → its parsed tree."""
+    trees = {
+        p.relative_to(BACKEND_ROOT).as_posix(): ast.parse(p.read_text())
         for p in sorted(BACKEND_ROOT.rglob("*.py"))
         if "__pycache__" not in p.parts and "tests" not in p.relative_to(BACKEND_ROOT).parts
     }
+    assert len(trees) > 100, f"only {len(trees)} modules parsed — extractor is broken"
+    return trees
+
+
+@pytest.fixture(scope="module")
+def backend_uses(backend_trees) -> dict:
+    """Every production module of backend/ → its set_client_online/register_client uses."""
+    uses = {rel: _registry_calls(tree) for rel, tree in backend_trees.items()}
     found = sum(len(f) for f in uses.values())
     assert len(uses) > 100 and found, (
         f"{len(uses)} modules parsed, {found} uses found — extractor is broken"
@@ -262,92 +310,153 @@ def test_the_recipe_owns_the_online_flag(backend_uses):
     )
 
 
+def test_only_the_registry_writes_the_online_flag(backend_trees):
+    """Nothing sets `<client>.online` on the live record but the registry.
+
+    `get_client` returns the registry's own Client, so a route holding it — the
+    heartbeat in api/multiroom.py does, every 15 s — can raise the flag with a
+    plain assignment. That is set_client_online without its event and without
+    the sync: a satellite whose admission gave up shows online while its
+    CamillaDSP, started with `-m`, stays muted. The rule on set_client_online
+    above cannot see it, since no call is made.
+    """
+    legitimate, violations = [], []
+    for rel, tree in backend_trees.items():
+        ok, bad = _online_writes(rel, tree)
+        legitimate += ok
+        violations += bad
+
+    assert legitimate, (
+        f"no `.online = True` found in {ONLINE_FLAG_OWNER} — extractor is broken"
+    )
+    assert not violations, (
+        f"{violations} write a client's online flag directly; only the registry "
+        "may, and the sync announces a client online via set_online_after"
+    )
+
+
+def _on_calls(rule):
+    """A rule over registry calls, applied to a whole parsed module."""
+    return lambda rel, tree: rule(rel, _registry_calls(tree))
+
+
 _DRIFTS = {
     "keyword online=True in a service method": (
-        WEBSOCKET_REL, _online_setters, True,
+        WEBSOCKET_REL, _on_calls(_online_setters), True,
         "class SnapcastWebSocketService:\n"
         "    async def _handle_client_connect(self, mac):\n"
         "        await self.registry.set_client_online(mac, online=True)\n",
     ),
     "heartbeat route marking a satellite online": (
-        "api/multiroom.py", _online_setters, True,
+        "api/multiroom.py", _on_calls(_online_setters), True,
         "def create_multiroom_router(registry_service):\n"
         "    async def register_client(request):\n"
         "        await registry_service.set_client_online(request.mac_id, True)\n",
     ),
     "module-level helper": (
-        WEBSOCKET_REL, _online_setters, True,
+        WEBSOCKET_REL, _on_calls(_online_setters), True,
         "async def _mark_online(registry, mac):\n"
         "    await registry.set_client_online(mac, True)\n",
     ),
     "state the rule cannot read": (
-        WEBSOCKET_REL, _online_setters, True,
+        WEBSOCKET_REL, _on_calls(_online_setters), True,
         "class SnapcastWebSocketService:\n"
         "    async def _do_sync_reconnecting_client_volume(self, mac, state):\n"
         "        await self.registry.set_client_online(mac, state)\n",
     ),
     "registry registration from a route": (
-        "api/multiroom.py", _registrations, True,
+        "api/multiroom.py", _on_calls(_registrations), True,
         "def create_multiroom_router(registry_service):\n"
         "    async def register_client(request):\n"
         "        await registry_service.register_client(request.mac_id, 'x', '1.2.3.4')\n",
     ),
     "registration through an unlisted receiver": (
-        WEBSOCKET_REL, _registrations, True,
+        WEBSOCKET_REL, _on_calls(_registrations), True,
         "class SnapcastWebSocketService:\n"
         "    async def _handle_client_connect(self, svc, mac):\n"
         "        await svc.register_client(mac, 'x', '1.2.3.4')\n",
     ),
     "bound method escaping the call": (
-        "api/multiroom.py", _online_setters, True,
+        "api/multiroom.py", _on_calls(_online_setters), True,
         "def create_multiroom_router(registry_service):\n"
         "    async def register_client(request):\n"
         "        mark = registry_service.set_client_online\n"
         "        await mark(request.mac_id, True)\n",
     ),
     "self.register_client outside the volume cache": (
-        "core/volume/state.py", _registrations, True,
+        "core/volume/state.py", _on_calls(_registrations), True,
         "class SomethingElse:\n"
         "    async def _seed(self, mac):\n"
         "        await self.register_client(mac, 'x', '1.2.3.4')\n",
     ),
     "the volume cache seeding itself": (
-        "core/volume/state.py", _registrations, False,
+        "core/volume/state.py", _on_calls(_registrations), False,
         "class VolumeStateStore:\n"
         "    async def _on_update(self, mac):\n"
         "        await self.register_client(mac, volume_db=-30.0)\n",
     ),
     "keyword online=False": (
-        WEBSOCKET_REL, _online_setters, False,
+        WEBSOCKET_REL, _on_calls(_online_setters), False,
         "class SnapcastWebSocketService:\n"
         "    async def _handle_client_disconnect(self, mac):\n"
         "        await self.registry.set_client_online(mac, online=False)\n",
     ),
     "the sync announcing online": (
-        WEBSOCKET_REL, _online_setters, False,
+        WEBSOCKET_REL, _on_calls(_online_setters), False,
         "class SnapcastWebSocketService:\n"
         "    async def _do_sync_reconnecting_client_volume(self, mac):\n"
         "        await self.registry.set_client_online(mac, online=True)\n",
     ),
     "the setup wizard's pending queue": (
-        "api/multiroom.py", _registrations, False,
+        "api/multiroom.py", _on_calls(_registrations), False,
         "def create_multiroom_router(pending_clients_service):\n"
         "    async def register_client(request):\n"
         "        await pending_clients_service.register_client(request.mac_id)\n",
+    ),
+    "heartbeat raising the flag on the live record": (
+        "api/multiroom.py", _online_writes, True,
+        "def create_multiroom_router(registry_service):\n"
+        "    async def register_client(request):\n"
+        "        existing = registry_service.get_client(request.mac_id)\n"
+        "        if not existing.online:\n"
+        "            existing.online = True\n",
+    ),
+    "the flag raised through setattr": (
+        "api/multiroom.py", _online_writes, True,
+        "def mark(existing):\n"
+        "    setattr(existing, 'online', True)\n",
+    ),
+    "the flag copied from a variable": (
+        "core/multiroom/websocket.py", _online_writes, True,
+        "class SnapcastWebSocketService:\n"
+        "    def _restore(self, client, was_online):\n"
+        "        client.online = was_online\n",
+    ),
+    "the flag lowered outside the registry": (
+        "api/multiroom.py", _online_writes, False,
+        "def drop(existing):\n"
+        "    existing.online = False\n",
+    ),
+    "the registry raising its own flag": (
+        ONLINE_FLAG_OWNER, _online_writes, False,
+        "class ClientRegistryService:\n"
+        "    async def set_client_online(self, client):\n"
+        "        client.online = True\n",
     ),
 }
 
 
 @pytest.mark.parametrize("case", sorted(_DRIFTS))
 def test_the_admission_rules_see_every_drift_shape(case):
-    """The two rules above flag each bypass shape, and only those.
+    """The rules above flag each bypass shape, and only those.
 
     The extractor's own check against simulated drift: a keyword argument, a
     module function and a route in api/multiroom.py all escaped the previous
-    version of these rules, which read one class and one positional argument.
+    version of these rules, which read one class and one positional argument;
+    the flag written on the live record escaped every call-reading rule.
     """
     rel, rule, flagged, source = _DRIFTS[case]
-    _, violations = rule(rel, _registry_calls(ast.parse(source)))
+    _, violations = rule(rel, ast.parse(source))
 
     assert bool(violations) is flagged, (
         f"{case}: expected {'a violation' if flagged else 'no violation'}, got {violations}"
