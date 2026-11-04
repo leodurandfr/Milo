@@ -407,7 +407,7 @@ def _runtime_controller(active_source=AudioSource.SPOTIFY, step_db=2.0):
     volume_service.adjust_volume_db = AsyncMock()
 
     source_instance = MagicMock()
-    source_instance.command = AsyncMock()
+    source_instance.command = AsyncMock(return_value={"success": True})
     source_instance.is_playing = True
 
     state_machine = MagicMock()

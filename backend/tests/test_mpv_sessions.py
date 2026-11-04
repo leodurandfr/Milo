@@ -336,6 +336,29 @@ async def test_radio_knob_during_buffering_stops_then_retunes_the_shown_station(
     assert radio.loads()[-1][1] == FIP["url"]
 
 
+async def test_a_knob_press_the_radio_refuses_leaves_a_warning(radio, caplog):
+    """`command()` answers a refusal as a value and logs it at DEBUG only, so
+    a knob, IR or BT-remote press radio turned down (nothing on screen to
+    re-tune) left no trace at all: the button did nothing, with nothing to
+    diagnose it by in the journal or errors.log."""
+    from backend.hardware.playback_dispatch import PlaybackDispatcher
+
+    await radio.select()
+    refusal = await radio.command("resume_playback")
+    assert refusal["success"] is False
+    caplog.clear()
+
+    await PlaybackDispatcher(radio.machine).dispatch_play_pause()
+
+    warnings = [
+        r.getMessage() for r in caplog.records
+        if r.name == "backend.hardware.playback_dispatch" and r.levelname == "WARNING"
+    ]
+    assert len(warnings) == 1
+    assert "radio" in warnings[0] and refusal["error"] in warnings[0]
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
 async def test_radio_shazam_stops_with_the_session(radio):
     """E44: after mpv died, Shazam kept recording the station every 20 s."""
     await radio.select()

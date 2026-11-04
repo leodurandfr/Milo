@@ -114,14 +114,17 @@ class PlaybackDispatcher:
 
         try:
             if active_source == AudioSource.SPOTIFY:
-                await source_instance.command("playpause", {})
+                _report_refusal(active_source, "playpause",
+                                await source_instance.command("playpause", {}))
             elif active_source == AudioSource.RADIO:
                 # A live stream has no pause: stop tears it down, and coming
                 # back re-tunes the last station from scratch.
                 if source_instance.is_playing:
-                    await source_instance.command("stop", {})
+                    _report_refusal(active_source, "stop",
+                                    await source_instance.command("stop", {}))
                 else:
-                    await source_instance.command("resume_playback", {})
+                    _report_refusal(active_source, "resume_playback",
+                                    await source_instance.command("resume_playback", {}))
             elif active_source in (
                 AudioSource.PODCAST, AudioSource.CD, AudioSource.MUSIC_LIBRARY,
                 # Tidal joins this branch rather than Spotify's: the tisoc
@@ -138,9 +141,11 @@ class PlaybackDispatcher:
                         and ("pause" if playing else "resume") not in source_instance.view.controls):
                     return
                 if playing:
-                    await source_instance.command("pause", {})
+                    _report_refusal(active_source, "pause",
+                                    await source_instance.command("pause", {}))
                 else:
-                    await source_instance.command("resume", {})
+                    _report_refusal(active_source, "resume",
+                                    await source_instance.command("resume", {}))
         except Exception as e:
             logger.error("Error dispatching play/pause to %s: %s", active_source.value, e)
 
@@ -156,7 +161,13 @@ class PlaybackDispatcher:
 
         if active_source == AudioSource.AIRPLAY and direction not in source_instance.view.controls:
             return
-        try:
-            await source_instance.command(direction, {})
-        except Exception as e:
-            logger.error("Error dispatching %s to %s: %s", direction, active_source.value, e)
+        _report_refusal(active_source, direction, await source_instance.command(direction, {}))
+
+
+def _report_refusal(source: AudioSource, cmd: str, result: dict) -> None:
+    """`command()` never raises: a refusal or an interruption comes back as a
+    value, and most of them the source logs at DEBUG only. WARNING keeps a
+    press that did nothing in the journal and errors.log without a banner on
+    every press."""
+    if not result.get("success"):
+        logger.warning("Hardware %s not applied by %s: %s", cmd, source.value, result.get("error"))

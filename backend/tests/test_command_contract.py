@@ -4,8 +4,8 @@ Guards for the per-source command contract (BaseAudioSource.COMMANDS).
 
 These keep the COMMANDS registry from drifting away from the if-chain in
 _handle_command and from the commands the hardware playback dispatcher sends —
-a mismatch there fails silently in production (playback_dispatch swallows
-exceptions), so it must be caught here.
+a mismatch there is only a WARNING in production (playback_dispatch logs the
+refusal) while the physical button does nothing, so it must be caught here.
 """
 import ast
 import importlib
@@ -175,7 +175,7 @@ def _hardware_commands():
 
 # Commands the hardware encoder/IR/BT-remote dispatcher sends per active source.
 # These MUST stay registered or the physical controls break with no user-visible
-# error — playback_dispatch swallows the exception.
+# error — playback_dispatch only logs the refusal at WARNING.
 HARDWARE_COMMANDS = _hardware_commands()
 
 
@@ -252,7 +252,7 @@ def test_map_dispatch_matches_registry(cls, map_attr):
 
     Same guarantee the if-chain guards give the others, in the shape this
     dispatch takes: a COMMANDS key reaching neither the map nor an if-arm
-    raises KeyError on the first press (the hardware dispatcher swallows it, so
+    raises KeyError on the first press (`command()` answers it as a failure, so
     the encoder button would simply do nothing), and a translated name absent
     from COMMANDS is dead — `command()` rejects it before dispatch.
 

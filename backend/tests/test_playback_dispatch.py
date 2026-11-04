@@ -12,7 +12,7 @@ Covers:
 """
 import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 from backend.hardware.playback_dispatch import PlaybackDispatcher, MULTI_CLICK_WINDOW
 from backend.core.models.audio_state import AudioSource
@@ -32,7 +32,7 @@ class TestPublicDispatchMethods:
     @pytest.mark.asyncio
     async def test_dispatch_play_pause_spotify(self):
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -44,7 +44,7 @@ class TestPublicDispatchMethods:
     async def test_dispatch_play_pause_radio_when_playing(self):
         source = MagicMock()
         source.is_playing = True
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.RADIO, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -56,7 +56,7 @@ class TestPublicDispatchMethods:
     async def test_dispatch_play_pause_radio_when_paused(self):
         source = MagicMock()
         source.is_playing = False
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.RADIO, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -68,7 +68,7 @@ class TestPublicDispatchMethods:
     async def test_dispatch_play_pause_music_library_when_playing(self):
         source = MagicMock()
         source.is_playing = True
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -80,7 +80,7 @@ class TestPublicDispatchMethods:
     async def test_dispatch_play_pause_music_library_when_paused(self):
         source = MagicMock()
         source.is_playing = False
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -91,7 +91,7 @@ class TestPublicDispatchMethods:
     @pytest.mark.asyncio
     async def test_dispatch_track_next_music_library(self):
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -103,7 +103,7 @@ class TestPublicDispatchMethods:
     async def test_dispatch_play_pause_unsupported_source_is_noop(self):
         # Qobuz takes no transport from Milō: the app is the only remote
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.QOBUZ, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -120,7 +120,7 @@ class TestPublicDispatchMethods:
         """The sender holds the transport; a command it did not list is a
         Play/Next shairport-sync accepts and the sender ignores."""
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         source.is_playing = True
         source.view.controls = controls
         dispatcher = PlaybackDispatcher(_make_state_machine(AudioSource.AIRPLAY, source))
@@ -133,7 +133,7 @@ class TestPublicDispatchMethods:
     @pytest.mark.asyncio
     async def test_dispatch_track_next_spotify(self):
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -146,7 +146,7 @@ class TestPublicDispatchMethods:
         # Podcast registers no next/prev: an episode has nothing to skip to,
         # and its COMMANDS offer `seek` instead.
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.PODCAST, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -160,7 +160,7 @@ class TestMultiClickRouting:
     @pytest.mark.asyncio
     async def test_single_click_routes_to_dispatch_play_pause(self):
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -172,7 +172,7 @@ class TestMultiClickRouting:
     @pytest.mark.asyncio
     async def test_double_click_routes_to_dispatch_track_next(self):
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -185,7 +185,7 @@ class TestMultiClickRouting:
     @pytest.mark.asyncio
     async def test_triple_click_routes_to_dispatch_track_prev(self):
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -199,7 +199,7 @@ class TestMultiClickRouting:
     @pytest.mark.asyncio
     async def test_cleanup_clears_pending_clicks(self):
         source = MagicMock()
-        source.command = AsyncMock()
+        source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
         dispatcher = PlaybackDispatcher(sm)
@@ -250,13 +250,15 @@ class TestCleanupDrains:
 
 
 class TestASourceThatIsNotThere:
-    """The three arms at 0 %: a registered source with no live instance, and a
-    command that raises.
+    """A registered source with no live instance, a command the source
+    refuses, and a source that raises while it is read.
 
     `get_source` answers None while a source is mid-restart. Both dispatch
     methods run inside a hardware monitor task — the IR runtime loop and the BT
-    per-device loop — so an escaping exception ends the task and the remote
-    goes dead until it reconnects, with one line in the journal.
+    per-device loop. `command()` never raises, so `dispatch_track` needs no
+    catch of its own; play/pause reads the source first, and an exception
+    escaping there would end the task and leave the remote dead until it
+    reconnects, with one line in the journal.
     """
 
     @pytest.mark.asyncio
@@ -283,28 +285,69 @@ class TestASourceThatIsNotThere:
         assert caplog.text == ""
 
     @pytest.mark.asyncio
-    async def test_a_command_that_raises_does_not_escape_play_pause(self, caplog):
+    async def test_a_refused_play_pause_is_logged_at_warning(self, caplog):
+        """`command()` never raises: a refusal (unknown command, SESSION scope
+        with no session, the handler saying no) comes back as a value, logged
+        by the source at DEBUG only — so a press the source turned down left no
+        trace in the journal. WARNING, not ERROR: no banner on every press."""
         source = MagicMock()
-        source.command = AsyncMock(side_effect=RuntimeError("ipc socket gone"))
+        source.command = AsyncMock(return_value={"success": False, "error": "No active session"})
         dispatcher = PlaybackDispatcher(
             _make_state_machine(AudioSource.SPOTIFY, source)
         )
 
         await dispatcher.dispatch_play_pause()
 
-        assert "Error dispatching play/pause" in caplog.text
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1
+        assert "playpause" in warnings[0] and "spotify" in warnings[0]
+        assert "No active session" in warnings[0]
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
     @pytest.mark.asyncio
-    async def test_a_command_that_raises_does_not_escape_track_nav(self, caplog):
+    async def test_a_refused_track_step_is_logged_at_warning(self, caplog):
         source = MagicMock()
-        source.command = AsyncMock(side_effect=RuntimeError("ipc socket gone"))
+        source.command = AsyncMock(return_value={"success": False, "error": "No active session"})
         dispatcher = PlaybackDispatcher(
             _make_state_machine(AudioSource.SPOTIFY, source)
         )
 
         await dispatcher.dispatch_track("next")
 
-        assert "Error dispatching next" in caplog.text
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1
+        assert "next" in warnings[0] and "spotify" in warnings[0]
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+    @pytest.mark.asyncio
+    async def test_an_accepted_command_logs_nothing(self, caplog):
+        source = MagicMock()
+        source.command = AsyncMock(return_value={"success": True})
+        dispatcher = PlaybackDispatcher(
+            _make_state_machine(AudioSource.SPOTIFY, source)
+        )
+
+        await dispatcher.dispatch_play_pause()
+        await dispatcher.dispatch_track("prev")
+
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_a_source_that_raises_does_not_escape_play_pause(self, caplog):
+        """play/pause reads the source before it sends anything (`is_playing`,
+        AirPlay's `view.controls`); a property that raises there must not end
+        the controller's monitor task."""
+        source = MagicMock()
+        type(source).is_playing = PropertyMock(side_effect=RuntimeError("ipc socket gone"))
+        source.command = AsyncMock(return_value={"success": True})
+        dispatcher = PlaybackDispatcher(
+            _make_state_machine(AudioSource.PODCAST, source)
+        )
+
+        await dispatcher.dispatch_play_pause()
+
+        assert "Error dispatching play/pause" in caplog.text
+        source.command.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_resolver_that_raises_does_not_kill_the_click_window(self, caplog):
