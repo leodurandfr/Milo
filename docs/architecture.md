@@ -1125,7 +1125,9 @@ The list above is the whole of `system/` — `ls system/*.service` is the author
 - The four backend-owned daemons — `milo-camilladsp`, `milo-navidrome`,
   `milo-snapserver-multiroom`, `milo-snapclient-multiroom` — use `PartOf=milo-backend.service`
   instead, because `BindsTo=` propagates *stop* only and each of them must follow a backend
-  **restart** as well. The two directives are not interchangeable.
+  **restart** as well. The two directives are not interchangeable. `PartOf=` orders nothing:
+  the backend is `After=` CamillaDSP and the two Snapcast units it talks to, so it stops before
+  them (Navidrome is `After=` the backend instead, which starts it).
 - `milo-navidrome` and the two Snapcast units have no `WantedBy`: the backend starts and stops
   them (Navidrome while the dock enables Music Library, Snapcast with the multiroom mode).
 - Automatic restart on error

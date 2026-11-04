@@ -9,7 +9,7 @@ This directory contains all systemd service files for the Milo Audio System. The
 #### milo-backend.service
 - **Role**: FastAPI backend server (Python)
 - **Port**: 8000
-- **Dependencies**: network.target
+- **Dependencies**: NetworkManager.service, network-online.target, avahi-daemon.service; ordered `After=` milo-camilladsp, milo-snapserver-multiroom and milo-snapclient-multiroom (ordering only, it pulls none of them in)
 - **Startup**: Enabled at boot
 - **Notes**: Main application logic, WebSocket server, REST API
 
@@ -131,7 +131,7 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 
 ### Infrastructure Services (backend-linked)
 
-Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopped on demand by the backend's source lifecycle), these are always-on daemons other sources depend on (Navidrome: always-on while the dock enables Music Library, and started by the backend rather than at boot). They use `PartOf=milo-backend.service`, which — unlike `BindsTo=` — propagates both stop **and** restart, so a backend crash/restart doesn't leave them running stale.
+Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopped on demand by the backend's source lifecycle), these are always-on daemons other sources depend on (Navidrome: always-on while the dock enables Music Library, and started by the backend rather than at boot). They use `PartOf=milo-backend.service`, which — unlike `BindsTo=` — propagates both stop **and** restart, so a backend crash/restart doesn't leave them running stale. `PartOf=` orders nothing, though: the backend is `After=` CamillaDSP and the two snapcast units, so at a restart or a shutdown it stops before the daemons it is connected to instead of watching them go down under its running process (Navidrome is the other way round, `After=` the backend that starts it).
 
 #### milo-camilladsp.service
 - **Role**: CamillaDSP audio processor (volume control + EQ/compressor/loudness, always in the audio path)
