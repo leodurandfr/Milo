@@ -171,3 +171,57 @@ async def test_a_signin_that_hangs_restarts_the_daemon_once(monkeypatch, tmp_pat
         assert len(w.restarts) == 1
     finally:
         await w.source.shutdown()
+
+
+async def test_an_unreadable_status_after_the_restart_keeps_the_stored_account(monkeypatch, tmp_path):
+    """A /status that never answers (a daemon stuck reaching Spotify, a loaded
+    unit) learned nothing (E10): after the one restart the stored account
+    stays named, so the browser keeps its listings instead of "cast from your
+    phone", and the daemon is not restarted again."""
+    w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    w.daemon.status_answers = False
+    try:
+        await w.select()
+
+        await w.advance(w.source.SIGNIN_TIMEOUT + 0.5)
+        assert len(w.restarts) == 1
+
+        await w.advance(w.source.SIGNIN_TIMEOUT + 0.5)
+        assert details(w)["account"] == ACCOUNT
+        assert details(w)["signing_in"] is False
+        assert len(w.restarts) == 1
+
+        await w.advance(60)
+        assert details(w)["account"] == ACCOUNT
+        assert len(w.restarts) == 1
+    finally:
+        await w.source.shutdown()
+
+
+async def test_a_late_silent_signin_is_read_without_a_client(monkeypatch, tmp_path):
+    """The stored sign-in says nothing on /events (measured): once /status
+    answers again after the watch gave up, Milō reads it itself — no client
+    GET is there to do it — and stops reading once it has."""
+    w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    w.daemon.status_answers = False
+    try:
+        await w.select()
+        await w.advance(w.source.SIGNIN_TIMEOUT + 0.5)
+        await w.advance(w.source.SIGNIN_TIMEOUT + 0.5)
+        # A re-read that finds /status still silent reads it again later.
+        await w.advance(w.source.SIGNIN_REREAD_S + 0.5)
+
+        # Only a read of /status can carry the daemon's shuffle to the wire.
+        w.daemon.shuffle = True
+        w.daemon.status_answers = True
+        await w.advance(w.source.SIGNIN_REREAD_S + 0.5)
+        assert details(w)["shuffle"] is True
+        assert details(w)["account"] == ACCOUNT
+        assert details(w)["signing_in"] is False
+
+        w.daemon.shuffle = False
+        await w.advance(w.source.SIGNIN_REREAD_S * 3)
+        assert details(w)["shuffle"] is True
+        assert len(w.restarts) == 1
+    finally:
+        await w.source.shutdown()

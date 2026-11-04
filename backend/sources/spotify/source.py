@@ -26,7 +26,10 @@ start and after every session end. Measured on 0.10.3 (2026-10-03):
   start, the sign-in takes about 0.35 s and says nothing on /events.
 - One sign-in after an iPhone's session ended hung for minutes, unreproduced in
   8 tries: stored credentials that have not signed in within SIGNIN_TIMEOUT get
-  the daemon restarted once.
+  the daemon restarted once. A /status that still answers 204 after it is a
+  refusal, and the account goes; one that does not answer at all learned
+  nothing (E10), so the account stays and /status is read again every
+  SIGNIN_REREAD_S until it answers.
 - With nobody signed in, /player/* answers 204. Signed in, shuffle and repeat
   are taken, but a `play` with no session starts from a fresh state, shuffle
   off (2026-10-04); within a session, shuffle carries over to the next play.
@@ -337,6 +340,9 @@ class SpotifySource(BaseAudioSource):
     # restarted, once. Measured: 0.35 s at start, 0.4 s after a session end;
     # one sign-in after an iPhone's session ended hung for minutes, unreproduced.
     SIGNIN_TIMEOUT = 10.0
+    # How often /status is read again once the sign-in watch gave up on a
+    # daemon that never answered: a stored sign-in says nothing on /events.
+    SIGNIN_REREAD_S = 30.0
 
     # Neutral sink the output is parked on while a multiroom reroute reconciles
     # snapcast. ALSA's `null` discards samples as fast as they are written, so
@@ -1314,11 +1320,25 @@ class SpotifySource(BaseAudioSource):
     async def _on_timer(self, name: str, token: object) -> None:
         """`status`: the one re-read after a failed one — go-librespot emits an
         event only on change, so it will not re-announce what could not be
-        read. `signin`: stored credentials that have not signed the daemon in."""
+        read. `signin`: stored credentials that have not signed the daemon in.
+        `signin_reread`: /status read again after the sign-in watch gave up on
+        a daemon that never answered, until it answers — the stored sign-in
+        says nothing on /events. It dies with the session too, which only a
+        dead daemon ends here, and Restart= then reopens /events, which reads
+        /status."""
         if self._http is None:
             return
         if name == "signin":
             await self._signin_overdue()
+            return
+        if name == "signin_reread":
+            status = await self._read_status()
+            if status is UNREADABLE:
+                self._logger.debug("go-librespot status still unavailable — reading it again later")
+                self._arm_timer("signin_reread", self.SIGNIN_REREAD_S)
+                return
+            await self._apply_status(status)
+            self._publish_changes()
             return
         if name == "remote_hold":
             # Nothing came in its place: show what /status says plays elsewhere.
@@ -1604,20 +1624,36 @@ class SpotifySource(BaseAudioSource):
 
     def _begin_signin(self) -> None:
         self._signing_in = True
+        self._disarm_timer("signin_reread")
         self._arm_timer("signin", self.SIGNIN_TIMEOUT)
 
     def _settle_signin(self) -> None:
         self._signing_in = False
         self._signin_restarted = False
         self._disarm_timer("signin")
+        self._disarm_timer("signin_reread")
 
     async def _signin_overdue(self) -> None:
         """Stored credentials that have not signed the daemon in: restart it
         once — a sign-in hung for minutes once, and a restart signs in within
-        a second (measured) — then give up, nobody signed in."""
+        a second (measured). Then a 204 gives up, nobody signed in; a /status
+        that does not answer learned nothing (E10), so the stored account
+        stays and /status is read again until it answers."""
         status = await self._read_status()
         if isinstance(status, LibrespotStatus):
             await self._apply_status(status)
+            self._publish_changes()
+            return
+        if status is UNREADABLE and self._signin_restarted:
+            self._logger.warning(
+                "go-librespot status still unavailable after a restart — "
+                "keeping the stored account and reading it again"
+            )
+            # `_signin_restarted` stays set: a 204 read later gives up
+            # without a second restart.
+            self._signing_in = False
+            self._disarm_timer("signin")
+            self._arm_timer("signin_reread", self.SIGNIN_REREAD_S)
             self._publish_changes()
             return
         if not self._signin_restarted:
