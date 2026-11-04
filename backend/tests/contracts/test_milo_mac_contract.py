@@ -136,6 +136,143 @@ def test_rest_route_exists(entry):
 
 
 # --------------------------------------------------------------------------- #
+# REST response keys: what Milo-Mac reads off an answer, resolved against the
+# answer the backend really produces.
+# --------------------------------------------------------------------------- #
+
+def _resolve_on_payload(payload, dotted: str) -> None:
+    """Raise KeyError unless `dotted` names a key in a real payload.
+
+    `a.b[k].c` reads `c` in EVERY entry of the map `b`, and an empty map is
+    refused: a producer that built no entry would otherwise let any key under
+    it resolve.
+    """
+    current = [payload]
+    for part in dotted.split("."):
+        step = re.fullmatch(r"(\w+)(\[\w+\])?", part)
+        assert step, f"unparsable step `{part}` in `{dotted}`"
+        key, each = step.groups()
+        found = []
+        for node in current:
+            if not isinstance(node, dict) or key not in node:
+                raise KeyError(f"{dotted}: no `{key}`")
+            value = node[key]
+            if each:
+                if not isinstance(value, dict) or not value:
+                    raise KeyError(f"{dotted}: `{key}` is not a non-empty map")
+                found.extend(value.values())
+            else:
+                found.append(value)
+        current = found
+
+
+def _swift_struct(swift: str, name: str) -> str:
+    """The body of a top-level `struct <name>` in a vendored Swift file."""
+    match = re.search(rf"^struct {name}\b.*?^\}}$", swift, re.S | re.M)
+    assert match, f"struct {name} not found in the vendored snapshot — extractor drift?"
+    return match.group(0)
+
+
+async def _multiroom_state_answer() -> dict:
+    """GET /api/multiroom/state through the real router, response model
+    included, over a real registry holding a local client, a satellite and a
+    zone — `zone_to_enriched_dict` is a producer too, so no registry mock."""
+    import httpx
+    from fastapi import FastAPI
+
+    from backend.api.multiroom import create_multiroom_router
+    from backend.core.multiroom.client_registry import ClientRegistryService
+
+    registry = ClientRegistryService(settings_service=None)
+    await registry.register_client("aa:bb:cc:dd:ee:ff", "Milō", "127.0.0.1")
+    await registry.register_client("dc:a6:32:7e:d3:43", "Canapé", "192.168.1.153")
+    await registry.create_zone("z1", "Salon", ["dc:a6:32:7e:d3:43", "aa:bb:cc:dd:ee:ff"])
+    app = FastAPI()
+    app.include_router(create_multiroom_router(registry))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://milo") as client:
+        response = await client.get("/api/multiroom/state")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+# (method, path) -> the backend's real answer on that route. An entry carrying
+# `response_keys` needs one here (test_manifest_is_self_consistent).
+_RESPONSE_PRODUCERS = {
+    ("GET", "/api/multiroom/state"): _multiroom_state_answer,
+}
+
+_ENTRIES_WITH_RESPONSE_KEYS = [e for e in _MANIFEST["rest"] if "response_keys" in e]
+
+
+def _rest_entry(method: str, path: str) -> dict:
+    (entry,) = [e for e in _MANIFEST["rest"] if (e["method"], e["path"]) == (method, path)]
+    return entry
+
+
+@pytest.mark.parametrize(
+    "entry",
+    _ENTRIES_WITH_RESPONSE_KEYS,
+    ids=[f"{e['method']} {e['path']}" for e in _ENTRIES_WITH_RESPONSE_KEYS],
+)
+async def test_response_keys_resolve_against_the_producer(entry):
+    """Each key Milo-Mac reads off a REST answer is in the answer the route
+    really serves.
+
+    The route's response model cannot stand in for it: GET /api/multiroom/state
+    declares its clients and zones as opaque dicts, so the keys come from
+    Client.to_dict(), the route's `online` and zone_to_enriched_dict() alone,
+    and a rename there left every contract test green while MultiroomClient
+    dropped every client from the app's submenu.
+    """
+    answer = await _RESPONSE_PRODUCERS[(entry["method"], entry["path"])]()
+    missing = []
+    for dotted in entry["response_keys"]:
+        try:
+            _resolve_on_payload(answer, dotted)
+        except KeyError as e:
+            missing.append(str(e))
+    assert not missing, (
+        f"{entry['method']} {entry['path']} no longer serves key(s) Milo-Mac reads "
+        f"({entry['consumer']}): {missing}"
+    )
+
+
+def test_multiroom_state_response_keys_are_what_the_decoders_read():
+    """`response_keys` + `decoded_not_served` are exactly the `json[…]` reads of
+    MultiroomClient and MultiroomZone, so the list cannot fall behind the app
+    or name a key it no longer reads."""
+    entry = _rest_entry("GET", "/api/multiroom/state")
+    api_swift = (VENDOR_DIR / "MiloAPIService.swift").read_text()
+    client_keys = re.findall(r'json\["(\w+)"\]', _swift_struct(api_swift, "MultiroomClient"))
+    zone_keys = re.findall(r'json\["(\w+)"\]', _swift_struct(api_swift, "MultiroomZone"))
+    assert "mac_id" in client_keys and "client_ids" in zone_keys, "decoder extraction drift"
+
+    decoded = {f"clients[mac].{k}" for k in client_keys} | {f"zones[id].{k}" for k in zone_keys}
+    served, not_served = set(entry["response_keys"]), set(entry["decoded_not_served"])
+    assert not served & not_served, f"listed as both served and not: {served & not_served}"
+    assert served | not_served == decoded, (
+        f"manifest {sorted(served | not_served)} != decoders' reads {sorted(decoded)} — "
+        "refresh the manifest from the vendored MiloAPIService.swift"
+    )
+
+
+async def test_multiroom_state_keys_it_does_not_serve_are_still_absent():
+    """`decoded_not_served` is a fact about the route, so it is checked like
+    one: the day the route serves one of them, even for a single client, the
+    key belongs in `response_keys` and this fails until it is moved there."""
+    answer = await _multiroom_state_answer()
+    clients = list(answer["clients"].values())
+    assert len(clients) >= 2, "no entries to look in — the absence would be vacuous"
+    served = []
+    for dotted in _rest_entry("GET", "/api/multiroom/state")["decoded_not_served"]:
+        _, _, leaf = dotted.partition("clients[mac].")
+        assert leaf and "." not in leaf, f"`{dotted}`: teach this test to look under it"
+        if any(leaf in client for client in clients):
+            served.append(dotted)
+    assert not served, f"the route now serves {served} — move them to response_keys"
+
+
+# --------------------------------------------------------------------------- #
 # WS: every manifest (category, type) must have an emission site — a typed
 # WsEvent class actually used by the backend.
 # --------------------------------------------------------------------------- #
@@ -324,31 +461,69 @@ def test_invariant_source_state():
     assert enums["session.phase"] == [p.value for p in Phase] == _swift_enum_cases(decoder, "Phase")
 
 
+def _volume_state_wire() -> dict:
+    """What `volume_changed.state` carries: the real VolumeState.to_dict(), with
+    one client and one zone so the nested keys have somewhere to resolve."""
+    from backend.core.models.volume_state import ClientVolume, VolumeState, ZoneVolume
+
+    mac = "dc:a6:32:7e:d3:43"
+    return VolumeState(
+        mode="multiroom", global_volume_db=-30.0, global_mute=False,
+        limit_min_db=-80.0, limit_max_db=0.0,
+        clients={mac: ClientVolume(-30.0, False)},
+        zones={"z1": ZoneVolume("z1", "Salon", [mac], -30.0, False)},
+    ).to_dict()
+
+
 def test_invariant_volume_changed():
-    """volume_changed must keep every data key Milo-Mac reads; `state.*` keys
-    resolve against VolumeState (the payload docstring pins state =
-    VolumeState.to_dict())."""
-    import dataclasses
+    """Every key Milo-Mac reads off volume_changed exists in what the backend
+    sends AND is read by the vendored Swift; the per-client and per-zone keys
+    are exactly the ones MultiroomVolume(state:) reads.
 
-    from backend.core.models.volume_state import VolumeState
-
+    `state.*` resolves against the real VolumeState.to_dict(), not against the
+    dataclass's fields: the wire is that hand-written dict, so a key renamed in
+    it (or in ClientVolume/ZoneVolume.to_dict) kept every dataclass field and
+    the old check green while the app's sliders fell back to -80 dB.
+    """
     cls = _sole_event_class("volume", "volume_changed")
-    volume_state_keys = {f.name for f in dataclasses.fields(VolumeState)}
+    wire = _volume_state_wire()
+    assert wire["clients"] and wire["zones"], "the producer built no client or zone — the nested checks would be vacuous"
+    api_swift = (VENDOR_DIR / "MiloAPIService.swift").read_text()
+    corpus = api_swift + (VENDOR_DIR / "WebSocketService.swift").read_text()
 
-    for dotted in _INVARIANTS["volume_changed"]["data_keys"]:
+    data_keys = _INVARIANTS["volume_changed"]["data_keys"]
+    missing_backend, missing_app = [], []
+    for dotted in data_keys:
         head, _, sub = dotted.partition(".")
-        assert head in cls.model_fields, (
-            f"{cls.__name__} lost `{head}` — Milo-Mac reads `{dotted}`."
-        )
+        if head not in cls.model_fields:
+            missing_backend.append(f"{cls.__name__} has no `{head}`")
         if sub:
             assert head == "state", (
                 f"Unexpected nested invariant `{dotted}` — teach this test how "
                 f"to resolve `{head}.*` before changing the manifest."
             )
-            assert sub in volume_state_keys, (
-                f"VolumeState lost `{sub}` — Milo-Mac reads `{dotted}` on "
-                f"volume/volume_changed."
-            )
+            try:
+                _resolve_on_payload(wire, sub)
+            except KeyError as e:
+                missing_backend.append(str(e))
+        leaf = dotted.split(".")[-1].split("[")[0]
+        if f'"{leaf}"' not in corpus:
+            missing_app.append(dotted)
+    assert not missing_backend, f"volume_changed lost key(s) Milo-Mac reads: {missing_backend}"
+    assert not missing_app, f"manifest keys the vendored Swift never reads: {missing_app}"
+
+    # MultiroomVolume reads the clients first, then the zones.
+    clients_part, _, zones_part = _swift_struct(api_swift, "MultiroomVolume").partition('state["zones"]')
+    decoded = {f'state.clients[mac].{k}' for k in re.findall(r'dict\["(\w+)"\]', clients_part)}
+    decoded |= {f'state.zones[id].{k}' for k in re.findall(r'dict\["(\w+)"\]', zones_part)}
+    assert any("clients[" in k for k in decoded) and any("zones[" in k for k in decoded), (
+        "MultiroomVolume extraction found no client or no zone key — extractor drift?"
+    )
+    pinned = {k for k in data_keys if "[" in k}
+    assert pinned == decoded, (
+        f"the manifest's nested volume keys {sorted(pinned)} != what MultiroomVolume(state:) "
+        f"reads {sorted(decoded)} — refresh the manifest from the vendored MiloAPIService.swift"
+    )
 
 
 @pytest.mark.parametrize("pair_key", [
@@ -503,5 +678,10 @@ def test_manifest_is_self_consistent():
         assert e["method"] in {"GET", "POST", "PUT", "PATCH", "DELETE"}, e
         assert e["path"].startswith("/api/"), e
         assert e.get("consumer"), e
+    with_keys = {(e["method"], e["path"]) for e in _ENTRIES_WITH_RESPONSE_KEYS}
+    assert with_keys == set(_RESPONSE_PRODUCERS), (
+        "every entry carrying response_keys needs a producer in _RESPONSE_PRODUCERS, "
+        f"and every producer an entry: entries {sorted(with_keys)}, producers {sorted(_RESPONSE_PRODUCERS)}"
+    )
     for e in _MANIFEST["ws"]["events"]:
         assert e["category"] and e["type"] and e.get("consumer"), e

@@ -27,7 +27,14 @@
     { "method": "PATCH", "path": "/api/volume/zone/{zone_id}",       "consumer": "MiloAPIService.setZoneVolumeDelta",
       "note": "Body {delta_db} — a zone-wide DELTA the backend applies atomically, emitting a single volume_changed. Milo-Mac deliberately does not loop per-client PATCHes here." },
     { "method": "GET",  "path": "/api/multiroom/state",              "consumer": "MiloAPIService.fetchMultiroomState",
-      "note": "Zone membership comes from here (Client.zone_id / Zone.client_ids); Milo-Mac never reconstructs it from equalizer groups the way frontend/ does. Decoded by MultiroomSnapshot(json:) in MultiroomModels.swift, which is NOT part of the vendored pair." },
+      "note": "Zone membership comes from here (Client.zone_id / Zone.client_ids); Milo-Mac never reconstructs it from equalizer groups the way frontend/ does. Decoded by MultiroomSnapshot(json:) in the vendored MiloAPIService.swift, through two failable inits: a client without a String `mac_id` and `name`, or a zone without `id` and `name`, is dropped SILENTLY, so a renamed identity key empties the multiroom submenu with no error. `response_keys` is every key MultiroomClient and MultiroomZone read, resolved against the route's real answer (`[mac]`/`[id]` = every entry of that map) and held equal to the decoders' `json[…]` reads.",
+      "response_keys": [
+        "clients[mac].mac_id", "clients[mac].name", "clients[mac].online", "clients[mac].zone_id",
+        "clients[mac].volume_control", "clients[mac].ip",
+        "zones[id].id", "zones[id].name", "zones[id].client_ids"
+      ],
+      "decoded_not_served": ["clients[mac].volume_db", "clients[mac].mute"],
+      "decoded_not_served_note": "MultiroomClient reads these two as well, and this route has never served them: the decoder falls back to the volume floor and false, and the live level arrives through volume/volume_changed instead (MultiroomVolume, pinned there). Not a tolerance: the test holds them ABSENT from the route's real answer, so the list fails on its own the day the route serves them — move them to response_keys then." },
     { "method": "PUT",  "path": "/api/equalizer/target/local/enabled", "consumer": "MiloAPIService.setEqualizer",
       "note": "Calls the {target} route with the literal target 'local'. The backend route is templated /api/equalizer/target/{target}/enabled." },
     { "method": "GET",  "path": "/api/settings/bulk",                "consumer": "MiloAPIService.fetchBulkSettings",
@@ -96,9 +103,13 @@
         "note": "Every key the decoder reads, dotted; checked against the backend's typed AudioState (core/models/audio_wire.py) AND against the vendored decoder, so neither side can drop one alone. `source`, `switching`, `service`, `controls`, the two flags, and inside a session `id`, `phase`, `senders` are decoded as REQUIRED: a missing one fails the whole state. `service` and `session.phase` are frozen enums — an unknown value fails the decode on purpose — so their values are pinned both ways. `details` is decoded leniently (try?): only the radio station and track, the library's track_id and the CD's current_track (which names an untitled track) are read; `availability` is not decoded."
       },
       "volume_changed": {
-        "data_keys": ["state.global_volume_db", "state.mode", "state.clients", "state.zones", "multiroom_enabled"],
+        "data_keys": [
+          "state.global_volume_db", "state.mode", "state.clients", "state.zones", "multiroom_enabled",
+          "state.clients[mac].volume_db", "state.clients[mac].mute", "state.clients[mac].available",
+          "state.zones[id].average_volume_db", "state.zones[id].all_muted"
+        ],
         "fallback": "data.volume_db (Double or Int) when state is absent",
-        "multiroom_note": "state.clients and state.zones are the ONLY real-time feed for the per-client and per-zone volumes in Milo-Mac's multiroom submenu — no other event carries them. Their contents are decoded by MultiroomVolume(state:) in MultiroomModels.swift, outside the vendored pair, so only the two keys are pinned here.",
+        "multiroom_note": "state.clients and state.zones are the ONLY real-time feed for the per-client and per-zone volumes in Milo-Mac's multiroom submenu — no other event carries them. Their contents are decoded by MultiroomVolume(state:) in the vendored MiloAPIService.swift, which falls back SILENTLY on a missing key (the floor, false, true), so a renamed key moves every slider to -80 dB with no error. Every key it reads is pinned here, resolved against the real VolumeState.to_dict() and held equal to the decoder's reads; `[mac]`/`[id]` = every entry of that map.",
         "step_note": "step_mobile_db is NO LONGER consumed — Milo-Mac's keyboard step is a local setting (GlobalHotkeyManager.volumeDeltaDb). Do not re-couple to it."
       },
       "settings/volume_limits_changed": { "data_key": "limits", "subkeys": ["min_db", "max_db"] },

@@ -373,7 +373,9 @@ class VolumeChanged(WsEvent):
     its volume bar for this change.
 
     unifiedAudioStore (VolumeStateSchema); Milo-Mac reads state.global_volume_db,
-    state.mode and multiroom_enabled (mirror of state.mode == "multiroom").
+    state.mode and multiroom_enabled (mirror of state.mode == "multiroom"), and
+    each client's volume_db/mute/available and each zone's
+    average_volume_db/all_muted (MultiroomVolume — milo_mac_contract.json).
     """
     CATEGORY = "volume"
     TYPE = "volume_changed"

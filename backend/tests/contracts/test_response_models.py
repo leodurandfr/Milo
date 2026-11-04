@@ -18,6 +18,7 @@ from backend.core.models.audio_state import AudioSource
 from backend.core.models.audio_wire import (
     PositionAnchor, RadioDetails, RadioStation, SessionView, SourceView,
 )
+from backend.core.models.volume_state import ClientVolume, VolumeState, ZoneVolume
 from backend.core.state import AudioStateMachine
 
 
@@ -75,33 +76,32 @@ def test_multiroom_set_keys():
 
 
 def test_volume_state_success_omits_message():
-    inner = {
-        "mode": "multiroom",
-        "global_volume_db": -45.0,
-        "global_volume": 0.4375,
-        "global_mute": False,
-        "limit_min_db": -80.0,
-        "limit_max_db": 0.0,
-        "volume_control": True,
-        "any_volume_control": True,
-        "clients": {
-            "dc:a6:32:7e:d3:43": {
-                "volume_db": -40.0, "volume": 0.5,
-                "mute": False, "available": True, "volume_control": True,
-            }
-        },
-        "zones": {
-            "z1": {
-                "id": "z1", "name": "Kitchen", "client_ids": ["dc:a6:32:7e:d3:43"],
-                "average_volume_db": -40.0, "all_muted": False,
-            }
-        },
-    }
+    """The envelope's models carry exactly what VolumeState.to_dict() produces,
+    at every level, both ways.
+
+    `inner` is the real producer's output: a key renamed in to_dict() fails the
+    model (GET /api/volume/state answering 500 to the frontend, Milo-Mac and
+    the iOS widget), and a key added there without the model is dropped from
+    the reply. The iOS contract reads this model's OpenAPI schema, so holding
+    the model to the producer closes that side too.
+    """
+    mac = "dc:a6:32:7e:d3:43"
+    inner = VolumeState(
+        mode="multiroom", global_volume_db=-45.0, global_mute=False,
+        limit_min_db=-80.0, limit_max_db=0.0,
+        clients={mac: ClientVolume(-40.0, False)},
+        zones={"z1": ZoneVolume("z1", "Kitchen", [mac], -40.0, False)},
+    ).to_dict()
+    assert inner["clients"] and inner["zones"], "nothing nested to compare"
+
     out = emit(R.VolumeStateEnvelope, {"status": "success", "data": inner}, exclude_none=True)
     assert set(out) == {"status", "data"}  # message dropped
-    # Milo-Mac hard-requires data.global_volume_db; inner keys must survive.
-    assert set(out["data"]) == set(inner)
-    assert out["data"]["global_volume_db"] == -45.0
+    data = out["data"]
+    assert set(data) == set(inner) == set(R.VolumeStateModel.model_fields)
+    for key, client in inner["clients"].items():
+        assert set(data["clients"][key]) == set(client) == set(R.VolumeClientModel.model_fields)
+    for key, zone in inner["zones"].items():
+        assert set(data["zones"][key]) == set(zone) == set(R.VolumeZoneModel.model_fields)
 
 
 def test_volume_state_error_omits_data():
