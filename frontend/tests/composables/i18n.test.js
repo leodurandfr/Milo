@@ -111,6 +111,33 @@ describe('handleLanguageChanged', () => {
   });
 });
 
+describe('setLanguage', () => {
+  it('asking again for a language that failed to load retries it, though the setting already names it', async () => {
+    // After the failure the stored setting already says French, so the PUT
+    // and its broadcast write a value the setting holds: the App.vue watch
+    // stays silent, and only this call can retry the load.
+    net.frenchFails = true;
+    await i18n.handleLanguageChanged('french');
+    expect(i18n.currentLanguage.value).toBe('english');
+
+    net.frenchFails = false;
+    apiCall.put.mockResolvedValueOnce({ ok: true, data: { status: 'success' }, error: null });
+    expect(await i18n.setLanguage('french')).toBe(true);
+
+    expect(apiCall.put).toHaveBeenCalledWith('/api/settings/language', { language: 'french' }, expect.anything());
+    expect(i18n.currentLanguage.value).toBe('french');
+  });
+
+  it('a language the server refused is not applied', async () => {
+    apiCall.put.mockResolvedValueOnce({ ok: false, data: null, error: 'refused' });
+
+    expect(await i18n.setLanguage('french')).toBe(false);
+
+    expect(net.frenchLoads).toBe(0);
+    expect(i18n.currentLanguage.value).toBe('english');
+  });
+});
+
 describe('initializeLanguage', () => {
   it('keeps English when the language the server names fails to load', async () => {
     net.frenchFails = true;

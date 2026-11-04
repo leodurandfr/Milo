@@ -45,7 +45,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
-import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { apiCall } from '@/services/apiCall';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
@@ -74,8 +73,7 @@ const flagIcons = {
   german: germanyIcon
 };
 
-const { t, getAvailableLanguages, getCurrentLanguage } = useI18n();
-const { updateSetting } = useSettingsAPI();
+const { t, getAvailableLanguages, getCurrentLanguage, setLanguage } = useI18n();
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
@@ -85,7 +83,7 @@ function getFlagIcon(languageCode) {
 }
 
 async function selectLanguage(languageCode) {
-  await updateSetting('language', { language: languageCode });
+  await setLanguage(languageCode);
 }
 
 // === Timezone ===
