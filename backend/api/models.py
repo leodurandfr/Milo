@@ -65,8 +65,9 @@ class ClientVolumeRequest(BaseModel):
     """Client volume request, in dB or on the slider's scale — exactly one.
 
     Unlike the global route, this one has live callers on both scales: the web
-    UI and Milo-Mac send `volume_db` (Milo-Mac's manifest pins that body), while
-    Milo-iOS sends `volume`. Two units of one quantity, arbitrated at the door
+    UI and Milo-Mac send `volume_db` (the `body` of Milo-Mac's manifest entry,
+    resolved against this model by test_milo_mac_contract.py), while Milo-iOS
+    sends `volume`. Two units of one quantity, arbitrated at the door
     rather than absorbed by a fallback chain — a request that names both, or
     neither, is a caller that does not know which scale it is on.
     """
@@ -83,7 +84,8 @@ class ClientVolumeRequest(BaseModel):
 class ZoneVolumeRequest(BaseModel):
     """Zone volume request: a delta or a level, exactly one.
 
-    Milo-Mac sends `delta_db` (its manifest pins that body) and the web UI's zone
+    Milo-Mac sends `delta_db` (the `body` of its manifest entry, resolved against
+    this model by test_milo_mac_contract.py) and the web UI's zone
     slider sends `volume_db`, the level the thumb sits on. The slider used to
     send a delta against an average it captured itself, and while one request
     was in flight the next reused the same base, so the deltas added up. A level
@@ -408,6 +410,11 @@ class EqualizerFilterUpdateRequest(BaseModel):
     q: Optional[float] = Field(None, ge=0.1, le=10.0)
     filter_type: Optional[EQUALIZER_FILTER_TYPES] = None
     enabled: Optional[bool] = None
+
+
+class EqualizerEnabledRequest(BaseModel):
+    """Equalizer master toggle request — Milo-Mac's Equalizer switch sends it"""
+    enabled: bool
 
 
 class EqualizerCompressorRequest(BaseModel):

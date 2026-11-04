@@ -395,7 +395,8 @@ class TestZoneVolumeDelta:
     ):
         """A delta and a level are two quantities, and the route takes one.
 
-        Consumer: Milo-Mac (`delta_db`, pinned by its manifest) and the web UI
+        Consumer: Milo-Mac (`delta_db`, the `body` its manifest entry resolves
+        against this model) and the web UI
         (`volume_db`). A body naming both, or neither, is a caller that does not
         know what it asked for. Fails if the route picks one silently.
         """

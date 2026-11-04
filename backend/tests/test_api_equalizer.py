@@ -288,9 +288,10 @@ class TestTargetEnabledWrite:
         mock_mre.set_zone_equalizer_effects_enabled.assert_awaited_once_with("z1", False)
         mock_mre.set_client_equalizer_effects_enabled.assert_not_called()
 
-    def test_enabled_missing_returns_400(self, client, mock_mre):
+    def test_enabled_missing_is_refused_by_the_model(self, client, mock_mre):
         resp = client.put("/api/equalizer/target/local/enabled", json={})
-        assert resp.status_code == 400
+        assert resp.status_code == 422
+        mock_mre.set_local_equalizer_effects_enabled.assert_not_called()
 
 
 class TestLocalMasterToggleMovesItsZone:

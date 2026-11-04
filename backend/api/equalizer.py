@@ -24,6 +24,7 @@ from backend.api.responses import (
 from backend.api.models import (
     EqualizerFilterUpdateRequest,
     EqualizerCompressorRequest,
+    EqualizerEnabledRequest,
     EqualizerLoudnessRequest,
     LevelsMonitorRequest,
     ZoneCrossoverRequest,
@@ -280,7 +281,7 @@ def create_equalizer_router(
             }
 
     @router.put("/target/{target}/enabled", response_model=EqualizerEnabledResponse, openapi_extra=CONTRACTED)
-    async def set_target_enabled(target: str, request: Request):
+    async def set_target_enabled(target: str, payload: EqualizerEnabledRequest):
         """Enable/disable equalizer effects for any target (volume stays active).
 
         "local" is the appliance's own toggle — Milo-Mac's Equalizer switch — and
@@ -288,10 +289,7 @@ def create_equalizer_router(
         explicit "<mac>" moves that client alone.
         """
         async with api_error_handler(f"Error updating equalizer enabled for target {target}", logger):
-            body = await request.json()
-            enabled = body.get("enabled")
-            if enabled is None:
-                raise HTTPException(status_code=400, detail="'enabled' field is required")
+            enabled = payload.enabled
             target_type, target_id = _resolve_target(target)
             try:
                 if target_type == "zone":

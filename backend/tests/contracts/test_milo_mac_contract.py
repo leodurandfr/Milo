@@ -12,6 +12,9 @@ with NO network access:
 
   * every REST entry resolves to a real FastAPI route (method + path template,
     path params included);
+  * every request body an entry names (`body`) is taken by the route's request
+    model and is exactly the dict its consumer builds in the vendored Swift
+    (request_bodies.py, shared with the Milo-iOS test);
   * every WS (category, type) has an emission site in `backend/`: a typed
     `WsEvent` subclass from `core/models/ws_events.py` referenced outside its
     defining module (`broadcast(event)` is the sole emission API);
@@ -42,20 +45,21 @@ VENDOR_DIR = CONTRACTS_DIR / "vendor" / "milo-mac"
 _MANIFEST = json.loads(MANIFEST_PATH.read_text())
 
 
-def _load_freshness():
-    """Import the Swift-surface extractors from the sibling freshness script.
+def _load_sibling(filename: str, name: str):
+    """Import a sibling helper module: the freshness script's Swift-surface
+    extractors, or the request-body checks shared with the Milo-iOS test.
 
     Loaded by file path rather than `import` so it resolves identically whether
     or not pytest treats backend/tests/contracts as a package.
     """
-    path = CONTRACTS_DIR / "check_milo_mac_freshness.py"
-    spec = importlib.util.spec_from_file_location("milo_mac_freshness", path)
+    spec = importlib.util.spec_from_file_location(name, CONTRACTS_DIR / filename)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-_FRESHNESS = _load_freshness()
+_FRESHNESS = _load_sibling("check_milo_mac_freshness.py", "milo_mac_freshness")
+_BODIES = _load_sibling("request_bodies.py", "milo_request_bodies")
 
 
 # --------------------------------------------------------------------------- #
@@ -195,10 +199,41 @@ async def _multiroom_state_answer() -> dict:
     return response.json()
 
 
+async def _bulk_settings_answer() -> dict:
+    """GET /api/settings/bulk through the real router, over the document the
+    production validator guarantees for a unit with no settings file yet."""
+    from unittest.mock import AsyncMock, Mock
+
+    import httpx
+    from fastapi import FastAPI
+
+    from backend.api.settings import create_settings_router
+    from backend.core.settings import SettingsService
+
+    document = SettingsService()._validate_and_merge({})
+    settings = Mock(get_all_settings=AsyncMock(return_value=document))
+    app = FastAPI()
+    app.include_router(
+        create_settings_router(
+            volume_service=Mock(), state_machine=Mock(get_source=Mock(return_value=None)),
+            screen_controller=Mock(),
+            systemd_manager=Mock(), routing_service=Mock(), hardware_service=Mock(),
+            settings_service=settings, multiroom_equalizer_service=Mock(),
+            mac_link_calibration=Mock(),
+        ),
+        prefix="/api/settings",
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://milo") as client:
+        response = await client.get("/api/settings/bulk")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 # (method, path) -> the backend's real answer on that route. An entry carrying
 # `response_keys` needs one here (test_manifest_is_self_consistent).
 _RESPONSE_PRODUCERS = {
     ("GET", "/api/multiroom/state"): _multiroom_state_answer,
+    ("GET", "/api/settings/bulk"): _bulk_settings_answer,
 }
 
 _ENTRIES_WITH_RESPONSE_KEYS = [e for e in _MANIFEST["rest"] if "response_keys" in e]
@@ -270,6 +305,73 @@ async def test_multiroom_state_keys_it_does_not_serve_are_still_absent():
         if any(leaf in client for client in clients):
             served.append(dotted)
     assert not served, f"the route now serves {served} — move them to response_keys"
+
+
+def test_bulk_settings_response_keys_are_what_fetch_bulk_settings_reads():
+    """The keys `fetchBulkSettings` subscripts are exactly the segments of the
+    entry's `response_keys`, so the list cannot fall behind the app. Its
+    `mac_roc` sub-keys are read by RocVADSettings(miloLink:), which is not
+    vendored, so `mac_roc` itself is the deepest key pinned there."""
+    function = _BODIES.swift_function((VENDOR_DIR / "MiloAPIService.swift").read_text(), "fetchBulkSettings")
+    read = set(re.findall(r'\["(\w+)"\]', function))
+    assert {"volume_limits", "min_db"} <= read, "fetchBulkSettings extraction drift"
+    pinned = {
+        segment
+        for dotted in _rest_entry("GET", "/api/settings/bulk")["response_keys"]
+        for segment in dotted.split(".")
+    }
+    assert pinned == read, (
+        f"response_keys segments {sorted(pinned)} != the keys fetchBulkSettings reads "
+        f"{sorted(read)} — refresh the manifest from the vendored MiloAPIService.swift"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# REST request bodies: what Milo-Mac sends, accepted by the route's request
+# model and equal to the dict its consumer function builds.
+# --------------------------------------------------------------------------- #
+
+_REST_IDS = [f"{e['method']} {e['path']}" for e in _MANIFEST["rest"]]
+
+
+@pytest.mark.parametrize("entry", _MANIFEST["rest"], ids=_REST_IDS)
+def test_request_body_keys_are_accepted(entry):
+    """The body Milo-Mac sends is one the route's request model takes.
+
+    Resolved against the real OpenAPI schema: a renamed field answers 422 to
+    every request the app makes, and a route that reads a raw `Request`
+    publishes no request body for this to hold, which is why
+    PUT /api/equalizer/target/{target}/enabled takes a model.
+    """
+    from backend.main import app
+
+    spec = app.openapi()
+    problems = _BODIES.acceptance_problems(entry, _BODIES.operation(spec, entry, _segments_match), spec)
+    assert not problems, (
+        f"{entry['method']} {entry['path']} ({entry['consumer']}): {problems}. Restore the "
+        f"field, or — if Milo-Mac changed its body — refresh the snapshot and `body` together."
+    )
+
+
+@pytest.mark.parametrize("entry", _MANIFEST["rest"], ids=_REST_IDS)
+def test_request_body_keys_occur_in_the_snapshot(entry):
+    """`body` is exactly the top-level keys of the dict the consumer function
+    builds in the vendored MiloAPIService.swift — none for a route it sends no
+    body to — so the manifest can neither invent a key nor miss one."""
+    problems = _BODIES.snapshot_problems(entry, (VENDOR_DIR / "MiloAPIService.swift").read_text())
+    assert not problems, (
+        f"{entry['method']} {entry['path']}: {problems} — refresh `body` from the vendored snapshot"
+    )
+
+
+def test_the_body_reader_reads_the_app_s_dict_literals():
+    """The reader behind the test above sees a body, and only the top level of
+    it: the music library's `data` carries `tracks`, a command parameter that is
+    not a key of the request model. Asserted before anything trusts it."""
+    source = (VENDOR_DIR / "MiloAPIService.swift").read_text()
+    assert _BODIES.sent_keys(_BODIES.swift_function(source, "setZoneVolumeDelta")) == {"delta_db"}
+    assert _BODIES.sent_keys(_BODIES.swift_function(source, "playMusicLibraryContext")) == {"command", "data"}
+    assert _BODIES.sent_keys(_BODIES.swift_function(source, "fetchBulkSettings")) == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -678,6 +780,7 @@ def test_manifest_is_self_consistent():
         assert e["method"] in {"GET", "POST", "PUT", "PATCH", "DELETE"}, e
         assert e["path"].startswith("/api/"), e
         assert e.get("consumer"), e
+        assert not _BODIES.format_problems(e), (e["path"], _BODIES.format_problems(e))
     with_keys = {(e["method"], e["path"]) for e in _ENTRIES_WITH_RESPONSE_KEYS}
     assert with_keys == set(_RESPONSE_PRODUCERS), (
         "every entry carrying response_keys needs a producer in _RESPONSE_PRODUCERS, "

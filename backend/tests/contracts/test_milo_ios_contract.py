@@ -15,7 +15,7 @@ is unwitnessed, and this file is what witnesses it. Milo-iOS deleted the call at
 741f8dc1, which is how such a dependency is meant to end: seen, then removed on
 purpose, rather than discovered by a unit in the field.
 
-Five guards, all offline:
+Six guards, all offline:
 
   * every route the manifest declares still resolves to a FastAPI route;
   * the manifest and the VENDORED snapshot describe the same surface, exactly —
@@ -27,6 +27,9 @@ Five guards, all offline:
   * every field pinned as an invariant is a key the app actually mentions — the
     same check from the client side, which is where `dock_apps.enabled_apps`
     went unwitnessed on /api/settings/bulk until 2026-09-20.
+  * every request body an entry names (`body`, `body_values`) is taken by the
+    route's request model and is exactly the dict the app builds — a 422 on
+    POST /api/push/tokens files the token as refused for good.
 
 `check_milo_ios_freshness.py` is the network half. It is run BY HAND against a
 checkout — there is NO CI job for it, unlike the Milo-Mac twin — so nothing but
@@ -46,21 +49,22 @@ VENDOR_DIR = CONTRACTS_DIR / "vendor" / "milo-ios"
 _MANIFEST = json.loads(MANIFEST_PATH.read_text())
 
 
-def _load_freshness():
-    """Import the Swift extractors from the sibling freshness script.
+def _load_sibling(filename: str, name: str):
+    """Import a sibling helper module: the freshness script's Swift extractors,
+    or the request-body checks shared with the Milo-Mac test.
 
     By file path rather than `import`, so it resolves identically whether or not
     pytest treats backend/tests/contracts as a package — the same reason the
     Milo-Mac test does it.
     """
-    path = CONTRACTS_DIR / "check_milo_ios_freshness.py"
-    spec = importlib.util.spec_from_file_location("milo_ios_freshness", path)
+    spec = importlib.util.spec_from_file_location(name, CONTRACTS_DIR / filename)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-_FRESHNESS = _load_freshness()
+_FRESHNESS = _load_sibling("check_milo_ios_freshness.py", "milo_ios_freshness")
+_BODIES = _load_sibling("request_bodies.py", "milo_request_bodies")
 _VENDORED_SWIFT = _FRESHNESS._read_source(VENDOR_DIR)
 
 
@@ -307,21 +311,6 @@ def test_every_declared_route_names_its_consumer():
 # 4. The fields the app decodes by name still exist.
 # --------------------------------------------------------------------------- #
 
-def _resolve(node: dict, spec: dict) -> dict:
-    """Follow `$ref` and unwrap the Optional `anyOf` FastAPI emits."""
-    while True:
-        if "$ref" in node:
-            name = node["$ref"].rsplit("/", 1)[-1]
-            node = spec["components"]["schemas"][name]
-            continue
-        if "anyOf" in node:
-            concrete = [b for b in node["anyOf"] if b.get("type") != "null"]
-            if len(concrete) == 1:
-                node = concrete[0]
-                continue
-        return node
-
-
 def _walk(dotted: str, node: dict, spec: dict) -> bool:
     """Resolve `a.b[k].c` through an OpenAPI schema.
 
@@ -333,14 +322,14 @@ def _walk(dotted: str, node: dict, spec: dict) -> bool:
         keyed = step.endswith("]")
         name = step.split("[", 1)[0] if keyed else step
 
-        node = _resolve(node, spec)
+        node = _BODIES.resolve(node, spec)
         properties = node.get("properties", {})
         if name not in properties:
             return False
         node = properties[name]
 
         if keyed:
-            node = _resolve(node, spec)
+            node = _BODIES.resolve(node, spec)
             extra = node.get("additionalProperties")
             if not isinstance(extra, dict):
                 return False
@@ -465,6 +454,87 @@ def test_an_invariant_names_a_key_the_app_mentions(path, field, key):
 
 
 # --------------------------------------------------------------------------- #
+# 5. The bodies the app sends are taken, and are the ones it builds.
+# --------------------------------------------------------------------------- #
+
+_REST_IDS = [f"{e['method']} {e['path']}" for e in _MANIFEST["rest"]]
+
+# A consumer that sends a body some other function builds. `fire` posts what
+# `ControlCommand.body(forSource:)` returns, and nothing in `fire` itself.
+_BODY_BUILT_BY = {"fire": "body"}
+
+
+@pytest.mark.parametrize("entry", _MANIFEST["rest"], ids=_REST_IDS)
+def test_request_body_keys_are_accepted(entry):
+    """The body Milo-iOS sends is one the route's request model takes.
+
+    The push routes are where this bites hardest: a 422 on POST /api/push/tokens
+    files the token as refused and the app never sends it again, so the
+    widget's push stays silent after the backend is fixed.
+    """
+    from backend.main import app
+
+    spec = app.openapi()
+    problems = _BODIES.acceptance_problems(entry, _BODIES.operation(spec, entry, _segments_match), spec)
+    assert not problems, (
+        f"{entry['method']} {entry['path']} ({entry['consumer']}): {problems}. Restore the "
+        f"field, or — if Milo-iOS changed its body — refresh the snapshot and `body` together."
+    )
+
+
+@pytest.mark.parametrize("entry", _MANIFEST["rest"], ids=_REST_IDS)
+def test_request_body_keys_occur_in_the_snapshot(entry):
+    """`body` is exactly the top-level keys of the dicts the consumer builds in
+    the vendored Swift — none for a route it sends no body to — and every
+    value pinned for an enum field is one the app spells."""
+    problems = _BODIES.snapshot_problems(entry, _VENDORED_SWIFT, _BODY_BUILT_BY)
+    assert not problems, (
+        f"{entry['method']} {entry['path']}: {problems} — refresh `body` from the vendored snapshot"
+    )
+
+
+def test_body_values_are_every_value_the_app_sends():
+    """`body_values` lists every value the app can put in each pinned field,
+    not a subset that happens to be spelled somewhere: `kind` is PushTokenKind's
+    raw values, `environment` what `apsEnvironment` returns. A kind the app adds
+    and the backend's enum lacks is a 422, and the token is never sent again."""
+    pinned = {
+        (e["method"], e["path"], key): sorted(values)
+        for e in _MANIFEST["rest"]
+        for key, values in e.get("body_values", {}).items()
+    }
+    enum = re.search(r"enum PushTokenKind: String \{(.*?)\}", _VENDORED_SWIFT, re.S)
+    environment = re.search(r"static let apsEnvironment: String\? = \{(.*?)\}\(\)", _VENDORED_SWIFT, re.S)
+    assert enum and environment, "PushTokenKind or apsEnvironment not found in the vendored Swift"
+    kinds = [raw or name for name, raw in re.findall(r'\bcase (\w+)(?:\s*=\s*"(\w+)")?', enum.group(1))]
+    environments = re.findall(r'return "(\w+)"', environment.group(1))
+    assert len(kinds) >= 3 and environments, "value extraction drift"
+
+    assert pinned == {
+        ("POST", "/api/push/tokens", "kind"): sorted(kinds),
+        ("POST", "/api/push/tokens", "environment"): sorted(environments),
+    }, "body_values != the values the vendored app sends — a new pinned field needs its reader here"
+
+
+def test_the_body_reader_reads_every_shape_the_app_writes():
+    """A named `bodyDict`, `withJSONObject: [...]` inline, a `body` built then
+    extended by `body["session_id"] = …`, and a builder function returning one
+    of several dicts — the reader sees each, and `_BODY_BUILT_BY` still names a
+    function its consumer calls. Asserted before anything trusts it."""
+    def read(name):
+        return _BODIES.sent_keys(_BODIES.swift_function(_VENDORED_SWIFT, name))
+
+    assert read("adjustVolume") == {"delta_db", "show_bar"}
+    assert read("setGlobalVolume") == {"volume", "show_bar"}
+    assert "session_id" in read("registerPushToken")
+    assert read("body") == {"command", "data"}
+    for consumer, builder in _BODY_BUILT_BY.items():
+        assert f".{builder}(" in _BODIES.swift_function(_VENDORED_SWIFT, consumer), (
+            f"{consumer} no longer calls {builder}: drop the mapping"
+        )
+
+
+# --------------------------------------------------------------------------- #
 # Manifest hygiene.
 # --------------------------------------------------------------------------- #
 
@@ -478,6 +548,9 @@ def test_manifest_is_self_consistent():
     keys = [(e["method"].upper(), _FRESHNESS._shape(e["path"])) for e in _MANIFEST["rest"]]
     duplicates = {k for k in keys if keys.count(k) > 1}
     assert not duplicates, f"the same route is declared twice: {sorted(duplicates)}"
+
+    malformed = {e["path"]: _BODIES.format_problems(e) for e in _MANIFEST["rest"] if _BODIES.format_problems(e)}
+    assert not malformed, f"malformed body fields: {malformed}"
 
     declared = {e["path"] for e in _MANIFEST["rest"]}
     orphans = [
