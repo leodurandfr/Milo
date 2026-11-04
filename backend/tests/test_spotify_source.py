@@ -25,6 +25,7 @@ Spotify source that opened no WebSocket at all.
 """
 import asyncio
 import contextlib
+import itertools
 import logging
 import time
 from types import SimpleNamespace
@@ -953,6 +954,35 @@ class TestManagedConfig:
         assert await spotify_source.on_spotify_settings_changed(apply_now=False) is True
 
         assert self._read(spotify_source._config_path)["crossfade_duration"] == 6000
+
+    @pytest.mark.asyncio
+    async def test_two_overlapping_config_writes_leave_a_parseable_file(self, spotify_source, tmp_path):
+        """Two settings saves landing together leave config.yml whole.
+
+        Two clients saving different crossfades a few ms apart used to share one
+        temp file and leave the short write over the long one's tail: a YAML that
+        no longer parses. `_load_config` then answers False, so Spotify no longer
+        starts, and `_apply_managed_config` fails on the same read before it could
+        rewrite anything — nothing repairs the file but a reflash. Consumer: the
+        Settings › Spotify page, whose save is the route that calls this.
+        """
+        values = itertools.cycle((0, 1000))
+        spotify_source._settings_service = Mock()
+        spotify_source._settings_service.get_setting = AsyncMock(
+            side_effect=lambda key: next(values) if key == "spotify.crossfade_duration" else None
+        )
+        path = Path(spotify_source._config_path)
+
+        for _ in range(100):
+            await asyncio.gather(
+                spotify_source.on_spotify_settings_changed(False),
+                spotify_source.on_spotify_settings_changed(False),
+            )
+            written = yaml.safe_load(path.read_text())
+            assert written["crossfade_duration"] in {0, 1000}
+            assert written["server"]["port"] == 3678
+
+        assert list(tmp_path.glob("*.tmp")) == []
 
 
 class TestTheEventThatIsNotRead:

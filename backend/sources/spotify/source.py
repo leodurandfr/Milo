@@ -947,30 +947,23 @@ class SpotifySource(BaseAudioSource):
         return bool(await self._settings_service.get_setting(self.APP_VOLUME_SETTINGS_KEY))
 
     async def _write_config(self, config: Dict[str, Any]) -> None:
-        """Replace config.yml atomically (temp file + os.replace).
-
-        Same primitive as shared/persistence.py: the daemon must never be able
-        to read a half-written config. No schema_version — this file belongs to
-        go-librespot, not to Milō's versioned-persistence protocol.
+        """Replace config.yml atomically, through shared/persistence.py's
+        primitive: the daemon must never be able to read a half-written config.
+        No schema_version — this file belongs to go-librespot, not to Milō's
+        versioned-persistence protocol.
         """
-        path = Path(self._config_path)
-        temp_file = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-
-        try:
-            async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
-                await f.write(yaml.safe_dump(config, allow_unicode=True, sort_keys=False))
-                await f.flush()
-                os.fsync(f.fileno())
-
-            os.replace(temp_file, path)
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(temp_file)
+        await write_bytes_atomically(
+            Path(self._config_path),
+            yaml.safe_dump(config, allow_unicode=True, sort_keys=False).encode("utf-8"),
+        )
 
     async def on_spotify_settings_changed(self, apply_now: bool) -> bool:
         """Re-apply the managed config after a settings change (settings route).
 
-        The value always reaches config.yml, so it is live at the next daemon
+        The write is posted to the source, its only writer, so it never races
+        _do_start's or a second save's. A STOP or a reroute's RELEASE can drop
+        it; the value stays in the settings and _do_start writes it before the
+        next launch, so the value always reaches config.yml by the next daemon
         start whatever happens here. `apply_now` additionally restarts the unit
         — what the settings page's "restart to apply" button asks for, and the
         only way to change crossfade on a running daemon. The app volume needs
@@ -984,7 +977,7 @@ class SpotifySource(BaseAudioSource):
         button while spotify is the active source; this is the same rule where
         it belongs, since a route may not rely on a v-if.
         """
-        await self._apply_managed_config()
+        await self._submit(Result(self._apply_managed_config))
         self._post_feed(AppVolumeSetting(await self._get_allow_app_volume()))
 
         if not apply_now:
