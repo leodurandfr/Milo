@@ -10,7 +10,7 @@ import re
 import aiofiles
 import asyncio
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict, Iterable
 
 from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
@@ -47,9 +47,13 @@ from backend.shared.persistence import (
 # only: whether a stored version exists upstream is the update flow's business.
 VERSION_PATTERN = re.compile(r"^\d+(?:\.\d+)*$")
 
+# Tells an absent key from one whose stored value is None.
+_MISSING = object()
+
 
 class SettingsWriteError(RuntimeError):
-    """Raised when persisting settings to disk fails.
+    """Raised when persisting settings fails: the disk write, or a key the
+    validator would drop (one no section declares).
 
     Use the strict write APIs (e.g. ``set_setting_strict``) from code paths
     that must not silently desync — they raise this instead of swallowing
@@ -512,6 +516,16 @@ class SettingsService:
         self._cache = None
 
     @staticmethod
+    def _lookup(settings: Dict[str, Any], key_path: str) -> Any:
+        """Value at a dotted ``key_path``, or ``_MISSING`` when it is absent."""
+        value = settings
+        for key in key_path.split('.'):
+            if not isinstance(value, dict) or key not in value:
+                return _MISSING
+            value = value[key]
+        return value
+
+    @staticmethod
     def _apply_key(settings: Dict[str, Any], key_path: str, value: Any) -> None:
         """Assign ``value`` at a dotted ``key_path``, creating intermediate dicts."""
         keys = key_path.split('.')
@@ -562,7 +576,7 @@ class SettingsService:
             settings = await self._read_locked()
             for key_path, value in updates.items():
                 self._apply_key(settings, key_path, value)
-            success = await self._write_locked(settings)
+            success = await self._write_locked(settings, updates.keys())
 
         if success:
             self._cache = None
@@ -570,7 +584,7 @@ class SettingsService:
         return success
 
     async def set_settings_strict(self, updates: Dict[str, Any]) -> None:
-        """Atomic multi-key write; raise on disk-write failure.
+        """Atomic multi-key write; raise on disk-write failure or an undeclared key.
 
         Failure-loud variant of :meth:`set_settings`.
         """
@@ -581,7 +595,7 @@ class SettingsService:
             settings = await self._read_locked()
             for key_path, value in updates.items():
                 self._apply_key(settings, key_path, value)
-            success = await self._write_locked(settings)
+            success = await self._write_locked(settings, updates.keys())
 
         if not success:
             raise SettingsWriteError(
@@ -636,10 +650,27 @@ class SettingsService:
             await self._backup_corrupted_file(content)
             return self._default_settings()
 
-    async def _write_locked(self, settings: Dict[str, Any]) -> bool:
-        """Validate + atomically write settings. Caller must hold self._file_lock."""
+    async def _write_locked(
+        self, settings: Dict[str, Any], written_paths: Iterable[str] = ()
+    ) -> bool:
+        """Validate + atomically write settings. Caller must hold self._file_lock.
+
+        A ``written_paths`` entry the validator drops (a key no section
+        declares) refuses the whole write before anything reaches the disk:
+        reporting it written would announce a value gone at the next read.
+        """
         try:
             validated = self._validate_and_merge(settings)
+            dropped = [
+                path for path in written_paths
+                if self._lookup(validated, path) is _MISSING
+            ]
+            if dropped:
+                self.logger.error(
+                    "Refusing settings write: undeclared key(s) %s dropped by the validator",
+                    ", ".join(dropped),
+                )
+                return False
             await save_versioned_json(
                 Path(self.settings_file), validated, self.SCHEMA_VERSION
             )

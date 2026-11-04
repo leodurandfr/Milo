@@ -369,22 +369,51 @@ class TestSettingsService:
         assert saved_value == -45.0
 
     @pytest.mark.asyncio
-    async def test_set_setting_create_nested_path_in_existing_section(self, service):
-        """Nested path creation test in existing section"""
-        # Initialize file with defaults
+    @pytest.mark.parametrize(
+        "key_path", ["volume.new_setting", "screen.timeout_secnds", "brand_new_section.x"]
+    )
+    async def test_writing_an_undeclared_key_is_refused(self, service, caplog, key_path):
+        """A key the validator drops is refused, never reported written.
+
+        Breaks the route that writes a new option or a misspelled key: it would
+        answer 200 and broadcast a value that is gone at the next read.
+        """
         await service.save_settings(service.defaults)
-        service._cache = None  # Force reload
 
-        # Create a new path in the 'volume' section which already exists
-        result = await service.set_setting('volume.new_setting', 123)
+        with caplog.at_level("ERROR"):
+            assert await service.set_setting(key_path, 123) is False
 
-        assert result is True
+        assert await service.get_setting(key_path) is None
+        with open(service.settings_file) as f:
+            on_disk = json.load(f)
+        section, leaf = key_path.split('.')
+        assert leaf not in on_disk.get(section, {})
+        assert any(
+            r.levelname == "ERROR" and key_path in r.getMessage() for r in caplog.records
+        )
 
-        # Check that path has been created
-        await service.get_setting('volume.new_setting')
-        # Note: Validation may remove unknown keys, so we just check that save succeeded
-        # This test mainly verifies that path creation doesn't raise an exception
-        assert result is True
+    @pytest.mark.asyncio
+    async def test_strict_write_of_an_undeclared_key_raises(self, service):
+        """The strict variant raises on a key the validator drops (multiroom transition)."""
+        await service.save_settings(service.defaults)
+
+        with pytest.raises(SettingsWriteError, match="volume.new_setting"):
+            await service.set_setting_strict('volume.new_setting', 1)
+
+    @pytest.mark.asyncio
+    async def test_a_batch_with_one_undeclared_key_writes_nothing(self, service):
+        """One undeclared key refuses the whole batch: all keys land or none do."""
+        await service.save_settings(service.defaults)
+        before = await service.get_setting('volume.limit_min_db')
+
+        result = await service.set_settings(
+            {'volume.limit_min_db': before + 5.0, 'volume.nope': 1}
+        )
+
+        assert result is False
+        with open(service.settings_file) as f:
+            on_disk = json.load(f)
+        assert on_disk['volume']['limit_min_db'] == before
 
     @pytest.mark.asyncio
     async def test_load_settings_error_fallback_to_defaults(self, service):
