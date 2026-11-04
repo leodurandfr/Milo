@@ -14,7 +14,8 @@ from typing import Any, Dict, List, Optional
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.helpers import compare_versions, is_stable_release
 
-# How long a failed release-list read is remembered before it is tried again.
+# How long a failed GitHub read (the latest release, the release list) is
+# remembered before it is tried again.
 RELEASES_RETRY_S = 300
 
 
@@ -39,6 +40,8 @@ class VersionService:
         self._github_cache = {}
         self._cache_timeout = 3600  # 1 hour
         self._last_github_fetch = {}
+        # The GitHub read in flight per cache key, which a second caller joins.
+        self._inflight: Dict[str, asyncio.Task] = {}
 
     def _get_github_headers(self) -> Dict[str, str]:
         """Returns headers for GitHub requests (with token if available)"""
@@ -233,20 +236,53 @@ class VersionService:
             return fetched
         return await self._apply_pin(program_key, fetched)
 
+    async def _shared_read(self, cache_key: str, read) -> Any:
+        """The cached answer for `cache_key`, else the one GitHub read in flight for it.
+
+        The update screen asks `/api/programs` and `/api/programs/satellites` at
+        once, and both read multiroom and camilladsp: checked and filled around
+        an await, the cache let each caller send its own request. Shielded, so a
+        caller that gives up neither cuts the read nor hands the callers waiting
+        beside it a CancelledError.
+        """
+        if (cache_key in self._github_cache and
+                time.time() - self._last_github_fetch.get(cache_key, 0) < self._cache_timeout):
+            return self._github_cache[cache_key]
+
+        task = self._inflight.get(cache_key)
+        if task is None:
+            task = asyncio.create_task(read())
+            self._inflight[cache_key] = task
+            task.add_done_callback(lambda done, key=cache_key: self._forget_read(key, done))
+        return await asyncio.shield(task)
+
+    def _forget_read(self, cache_key: str, done: asyncio.Task) -> None:
+        if self._inflight.get(cache_key) is done:
+            del self._inflight[cache_key]
+        # Logged here: every caller may be gone, and the status read that
+        # receives it turns it into an error row without a word.
+        if not done.cancelled() and done.exception() is not None:
+            self.logger.error(f"GitHub read {cache_key} failed: {done.exception()!r}")
+
     async def _fetch_latest_release(self, program_key: str) -> Dict[str, Any]:
-        """The program's latest upstream release, cached for an hour."""
+        """The program's latest upstream release, cached for an hour.
+
+        A failure is cached too, for `RELEASES_RETRY_S`: every status read
+        reaches this, so an uncached one would cost each opening of the screen a
+        10 s timeout offline, and under the anonymous rate limit a 403 asked
+        again on every read. Never the last good release in its place — that
+        would go on offering an update GitHub can no longer be asked about.
+        """
         if program_key not in self.programs:
             return {"status": "error", "message": "Unknown program"}
-
-        repo = self.programs[program_key]["repo"]
-
-        current_time = time.time()
         cache_key = f"github_{program_key}"
+        return await self._shared_read(
+            cache_key, lambda: self._read_latest_release(program_key, cache_key)
+        )
 
-        if (cache_key in self._github_cache and
-            cache_key in self._last_github_fetch and
-            current_time - self._last_github_fetch[cache_key] < self._cache_timeout):
-            return self._github_cache[cache_key]
+    async def _read_latest_release(self, program_key: str, cache_key: str) -> Dict[str, Any]:
+        repo = self.programs[program_key]["repo"]
+        current_time = time.time()
 
         try:
             # Call GitHub API with headers (including token if available)
@@ -294,14 +330,18 @@ class VersionService:
                         else:
                             self.logger.warning("GitHub API rate limit - consider adding GITHUB_TOKEN")
 
-                        return {"status": "error", "message": error_message}
+                        error = {"status": "error", "message": error_message}
                     else:
-                        return {"status": "error", "message": f"GitHub API error: {response.status}"}
+                        error = {"status": "error", "message": f"GitHub API error: {response.status}"}
 
         except asyncio.TimeoutError:
-            return {"status": "error", "message": "GitHub API timeout"}
+            error = {"status": "error", "message": "GitHub API timeout"}
         except Exception as e:
-            return {"status": "error", "message": f"GitHub API error: {str(e)}"}
+            error = {"status": "error", "message": f"GitHub API error: {str(e)}"}
+
+        self._github_cache[cache_key] = error
+        self._last_github_fetch[cache_key] = current_time - self._cache_timeout + RELEASES_RETRY_S
+        return error
 
     async def _fetch_releases(self, program_key: str) -> List[Dict[str, Any]]:
         """The program's recent stable releases, newest first, cached for an hour.
@@ -317,11 +357,12 @@ class VersionService:
         searches, so "v0.10.2-rc1" would otherwise read as 0.10.2.
         """
         cache_key = f"github_releases_{program_key}"
-        now = time.time()
-        if (cache_key in self._github_cache and
-                now - self._last_github_fetch.get(cache_key, 0) < self._cache_timeout):
-            return self._github_cache[cache_key]
+        return await self._shared_read(
+            cache_key, lambda: self._read_releases(program_key, cache_key)
+        )
 
+    async def _read_releases(self, program_key: str, cache_key: str) -> List[Dict[str, Any]]:
+        now = time.time()
         repo = self.programs[program_key]["repo"]
         url = f"https://api.github.com/repos/{repo}/releases?per_page=30"
         try:

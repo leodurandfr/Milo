@@ -8,7 +8,7 @@ import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from backend.core.updates.version import VersionService
+from backend.core.updates.version import RELEASES_RETRY_S, VersionService
 from backend.tests.conftest import shortened_wait_for
 
 
@@ -702,6 +702,138 @@ class TestTrialWindow:
             result = await version_service.get_latest_github_version("milo")
 
         assert "trials" not in result
+
+
+class _GatedGitHub:
+    """api.github.com behind two gates: it records every URL asked, and answers
+    `releases/latest` and the release list only once each gate is open.
+
+    The gates are events, not delays, so the test decides when GitHub answers.
+    """
+
+    def __init__(self, latest_status=200, latest_tag="v0.35.0", releases=()):
+        self.asked = []
+        self.latest_open = asyncio.Event()
+        self.list_open = asyncio.Event()
+        self._latest_status = latest_status
+        self._latest_tag = latest_tag
+        self._releases = list(releases)
+
+    def open(self):
+        self.latest_open.set()
+        self.list_open.set()
+
+    def count(self, suffix):
+        return sum(url.endswith(suffix) for url in self.asked)
+
+    def _get(self, url, **_):
+        self.asked.append(url)
+        response = AsyncMock()
+        if url.endswith("/releases/latest"):
+            gate = self.latest_open
+            response.status = self._latest_status
+            response.json = AsyncMock(return_value=(
+                {"tag_name": self._latest_tag, "published_at": "2026-05-21T00:00:00Z",
+                 "html_url": f"https://example.invalid/{self._latest_tag}", "assets": []}
+                if self._latest_status == 200 else {"message": "API rate limit exceeded"}
+            ))
+        else:
+            gate = self.list_open
+            response.status = 200
+            response.json = AsyncMock(return_value=self._releases)
+
+        async def answer():
+            await gate.wait()
+            return response
+
+        return AsyncMock(__aenter__=AsyncMock(side_effect=answer),
+                         __aexit__=AsyncMock(return_value=False))
+
+    def patch(self):
+        session = MagicMock()
+        session.get = MagicMock(side_effect=self._get)
+        return patch("aiohttp.ClientSession", return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=session),
+            __aexit__=AsyncMock(return_value=False),
+        ))
+
+
+async def _let_run():
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
+class TestSharedGitHubReads:
+    """The update screen reads `/api/programs` and `/api/programs/satellites` at
+    once, and both ask for multiroom and camilladsp.
+
+    Under the anonymous rate limit (60 requests an hour, shared by the whole
+    household) a read that a second caller repeats, or a failure asked again on
+    every opening of the screen, spends the requests the offer itself needs.
+    """
+
+    @pytest.mark.asyncio
+    async def test_concurrent_status_reads_hit_github_once(self, version_service):
+        github = _GatedGitHub(releases=[_release("v0.35.0")])
+        with github.patch():
+            readers = [
+                asyncio.create_task(version_service.get_latest_github_version("multiroom"))
+                for _ in range(2)
+            ]
+            await _let_run()
+            github.latest_open.set()
+            await _let_run()
+            github.list_open.set()
+            first, second = await asyncio.gather(*readers)
+
+        assert github.count("/releases/latest") == 1
+        assert github.count("per_page=30") == 1
+        assert first["status"] == second["status"] == "success"
+        assert first["upstream"]["version"] == second["upstream"]["version"]
+
+    @pytest.mark.asyncio
+    async def test_a_reader_that_gives_up_leaves_the_read_to_the_next(self, version_service):
+        """A request cancelled while GitHub has not answered (a client closing the
+        screen) must not hand the reader waiting beside it a CancelledError —
+        it is a BaseException and would pass through the status read's
+        `isinstance(..., Exception)` guard."""
+        github = _GatedGitHub(releases=[_release("v0.35.0")])
+        with github.patch():
+            gone = asyncio.create_task(version_service.get_latest_github_version("multiroom"))
+            waiting = asyncio.create_task(version_service.get_latest_github_version("multiroom"))
+            await _let_run()
+            # The read is in flight before the first reader leaves, so the
+            # shield is what the rest of the test exercises.
+            assert github.count("/releases/latest") == 1
+            gone.cancel()
+            github.open()
+            result = await waiting
+
+        assert result["status"] == "success"
+        assert github.count("/releases/latest") == 1
+
+    @pytest.mark.asyncio
+    async def test_a_failed_latest_read_is_not_retried_before_the_retry_delay(self, version_service):
+        github = _GatedGitHub(latest_status=403)
+        github.open()
+        with github.patch():
+            results = [await version_service.get_latest_github_version("navidrome") for _ in range(3)]
+
+        assert github.count("/releases/latest") == 1
+        assert {r["status"] for r in results} == {"error"}
+
+    @pytest.mark.asyncio
+    async def test_a_failed_latest_read_is_asked_again_after_the_retry_delay(self, version_service):
+        """Remembered for the retry delay, not for the hour a success is: an offer
+        that came back would otherwise stay hidden long after GitHub answers."""
+        github = _GatedGitHub(latest_status=403)
+        github.open()
+        with github.patch():
+            await version_service.get_latest_github_version("navidrome")
+            version_service._last_github_fetch["github_navidrome"] -= RELEASES_RETRY_S
+            await version_service.get_latest_github_version("navidrome")
+
+        assert github.count("/releases/latest") == 2
 
 
 class TestOffPinByAccident:
