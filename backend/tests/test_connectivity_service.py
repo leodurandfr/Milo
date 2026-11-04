@@ -754,3 +754,145 @@ async def test_a_refusal_condemns_on_the_first_pass():
         await service._periodic_check()
 
     assert service.level is ConnectivityLevel.LIMITED
+
+
+# ============================================================================
+# One writer at a time.
+#
+# `_adopt` is reached from the D-Bus signal, from `recheck` and from the forced
+# boot re-check, each in its own task, while `_periodic_check` runs in the loop.
+# A probe takes up to IPV4_PROBE_TIMEOUT, so an adoption that publishes what it
+# read *before* its probe can land after a newer NM verdict, or undo the
+# downgrade the loop reached by repetition. These drive the real probe over a
+# stand-in session, so the race is the code's and not a stub's.
+# ============================================================================
+
+class _GatedSession:
+    """A ClientSession whose request answers only once `gate` is set.
+
+    A real class for the same reason as `_RaisingSession`: `async with` looks
+    the magic methods up on the type. `entered` is set when the probe is
+    parked on the gate, so a test can act while it is in flight."""
+
+    def __init__(self):
+        self.gate = asyncio.Event()
+        self.entered = asyncio.Event()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_a):
+        return False
+
+    def get(self, *_a, **_k):
+        return _GatedRequest(self)
+
+
+class _GatedRequest:
+    def __init__(self, session: _GatedSession):
+        self._session = session
+
+    async def __aenter__(self):
+        self._session.entered.set()
+        await self._session.gate.wait()
+        return MagicMock()  # a response whose release() does nothing
+
+    async def __aexit__(self, *_a):
+        return False
+
+
+def _recording_service() -> tuple[ConnectivityService, list]:
+    service = make_service()
+    published: list = []
+    service._state_machine.publish_state.side_effect = lambda: published.append(service.level)
+    return service, published
+
+
+async def test_a_late_full_probe_does_not_overwrite_a_newer_nm_verdict():
+    """NM's last word wins over a probe that started before it.
+
+    Without this, a link change probes for up to 3 s, NM meanwhile reports
+    LIMITED, and the probe's adoption then publishes the FULL it read before
+    the wait: the unit says internet while NM says none, and the loop, which
+    only probes while NM says FULL, never comes back to correct it. Spotify,
+    Tidal, Qobuz, Radio and Podcast stay offered for the whole outage.
+    """
+    from dbus_next.signature import Variant
+
+    service, published = _recording_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+    service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
+    session = _GatedSession()
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", _REAL_CONFIRM_IPV4), patch.multiple(
+        "backend.core.connectivity.service.aiohttp",
+        ClientSession=MagicMock(return_value=session),
+        TCPConnector=MagicMock(),
+    ):
+        first = asyncio.create_task(service.recheck("link change"))
+        await session.entered.wait()
+
+        service._on_properties_changed(
+            "org.freedesktop.NetworkManager",
+            {"Connectivity": Variant("u", NM_LIMITED)},
+            [],
+        )
+        await _settle(service)
+
+        session.gate.set()  # the stale probe answers OK
+        await first
+        await _settle(service)
+        await service._bg.cancel_all()
+
+    assert service.level is ConnectivityLevel.LIMITED
+    assert ConnectivityLevel.FULL not in published
+
+
+async def test_an_inconclusive_adopt_keeps_the_strike_downgrade():
+    """One more silence is not evidence that the silence ended.
+
+    The loop reaches LIMITED after INCONCLUSIVE_STRIKES silent probes. Without
+    this, the next link change re-reads NM's FULL, probes into the same
+    silence and publishes FULL again, and the following pass takes it back:
+    every source needing internet flickers available at each link event.
+    """
+    service, published = _recording_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+    service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", _REAL_CONFIRM_IPV4), _session_raising(
+        asyncio.TimeoutError()
+    ):
+        for _ in range(INCONCLUSIVE_STRIKES):
+            await service._periodic_check()
+        assert service.level is ConnectivityLevel.LIMITED
+
+        published.clear()
+        await service.recheck("link change")
+
+    assert service.level is ConnectivityLevel.LIMITED
+    assert ConnectivityLevel.FULL not in published
+
+
+async def test_a_burst_of_silent_adoptions_is_not_repetition():
+    """Only the loop's spaced silences add up to a verdict.
+
+    At boot the forced re-check, a link change and NM's first signal arrive
+    within seconds, while DNS may not answer yet. If each adoption counted as
+    a strike, that burst alone would publish LIMITED and block every source
+    needing internet on a link that is merely slow to come up.
+    """
+    service, published = _recording_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", _REAL_CONFIRM_IPV4), _session_raising(
+        asyncio.TimeoutError()
+    ):
+        for _ in range(INCONCLUSIVE_STRIKES):
+            await service.recheck("link change")
+
+    assert service.level is ConnectivityLevel.FULL
+    assert published == []

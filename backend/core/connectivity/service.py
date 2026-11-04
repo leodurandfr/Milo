@@ -128,6 +128,8 @@ class ConnectivityService:
         # Consecutive probes that said nothing. Silence is only evidence when
         # it repeats — see _periodic_check.
         self._inconclusive: int = 0
+        # Held by every writer of _level that probes — see _adopt.
+        self._lock = asyncio.Lock()
         self._listener_attached: bool = False
         self._bg = BackgroundTaskSet(logger, "connectivity")
 
@@ -265,18 +267,43 @@ class ConnectivityService:
         Only FULL is second-guessed. NM reporting a degraded link is an
         observation we have no reason to doubt, and confirming bad news would
         spend a request to learn nothing.
+
+        NM's last word wins. The signal, `recheck` and the boot re-check each
+        adopt from their own task, and a probe can take IPV4_PROBE_TIMEOUT, so
+        the verdict is recorded on arrival and re-read under the lock after the
+        probe rather than carried across it: an adoption publishing the FULL it
+        read before its wait would land over a newer LIMITED, or over the
+        downgrade the loop reached by repetition.
         """
         self._nm_level = NM_LEVELS.get(connectivity, ConnectivityLevel.UNKNOWN)
-        new_level = self._nm_level
 
-        if new_level == ConnectivityLevel.FULL:
+        async with self._lock:
+            if self._nm_level != ConnectivityLevel.FULL:
+                await self._publish(self._nm_level, reason, connectivity)
+                return
+
             result = await self._confirm_ipv4()
-            if result == PROBE_FAILED:
-                new_level = ConnectivityLevel.LIMITED
-            elif result == PROBE_OK:
-                self._inconclusive = 0
+            if self._nm_level != ConnectivityLevel.FULL:
+                # NM spoke during the probe; this result answers an older verdict.
+                await self._publish(self._nm_level, reason, self._nm_level.value)
+                return
 
-        await self._publish(new_level, reason, connectivity)
+            if result == PROBE_INCONCLUSIVE:
+                # Read, not counted: the loop's strikes are spaced by its
+                # interval, and a burst of link events is not repetition. A
+                # downgrade the loop reached holds; any other silence fails open.
+                if self._inconclusive >= INCONCLUSIVE_STRIKES:
+                    new_level = ConnectivityLevel.LIMITED
+                else:
+                    new_level = ConnectivityLevel.FULL
+            else:
+                self._inconclusive = 0
+                if result == PROBE_OK:
+                    new_level = ConnectivityLevel.FULL
+                else:
+                    new_level = ConnectivityLevel.LIMITED
+
+            await self._publish(new_level, reason, connectivity)
 
     async def _publish(self, new_level: ConnectivityLevel, reason: str, nm_value) -> None:
         if new_level == self._level:
@@ -326,41 +353,48 @@ class ConnectivityService:
 
     async def _periodic_check(self) -> None:
         """One pass of the loop. Split out so a test can drive it without a clock."""
-        if self._nm_level != ConnectivityLevel.FULL:
-            # NM already reports a problem and will signal when it clears. We
-            # never upgrade on our own evidence, and confirming bad news spends
-            # a request to learn nothing.
-            self._hold_backoff = HOLD_RECHECK_START_S
-            return
-
-        result = await self._confirm_ipv4()
-
-        if result == PROBE_OK:
-            self._inconclusive = 0
-            self._hold_backoff = HOLD_RECHECK_START_S
-            await self._publish(ConnectivityLevel.FULL, "IPv4 recovered", 4)
-            return
-
-        if result == PROBE_INCONCLUSIVE:
-            # Silence. A blackholed path and a slow one are indistinguishable
-            # from one probe — measured on the unit, a poisoned gateway ARP
-            # entry raises TimeoutError, exactly like a link under load. Only
-            # repetition separates them, so count before concluding.
-            self._inconclusive += 1
-            if self._inconclusive < INCONCLUSIVE_STRIKES:
+        async with self._lock:
+            if self._nm_level != ConnectivityLevel.FULL:
+                # NM already reports a problem and will signal when it clears. We
+                # never upgrade on our own evidence, and confirming bad news spends
+                # a request to learn nothing.
+                self._hold_backoff = HOLD_RECHECK_START_S
                 return
-            reason = f"IPv4 silent x{self._inconclusive}"
-        else:
-            self._inconclusive = 0
-            reason = "IPv4 probe"
 
-        if self._level == ConnectivityLevel.FULL:
-            self._hold_backoff = HOLD_RECHECK_START_S
-            await self._publish(ConnectivityLevel.LIMITED, reason, 4)
-        else:
-            # Still contradicting NM: back off, because what we wait for — IPv4
-            # returning on a link NM already calls healthy — takes minutes.
-            self._hold_backoff = min(self._hold_backoff * 2, HOLD_RECHECK_MAX_S)
+            result = await self._confirm_ipv4()
+
+            if self._nm_level != ConnectivityLevel.FULL:
+                # NM spoke during the probe; its adoption, queued on the lock,
+                # publishes it.
+                self._hold_backoff = HOLD_RECHECK_START_S
+                return
+
+            if result == PROBE_OK:
+                self._inconclusive = 0
+                self._hold_backoff = HOLD_RECHECK_START_S
+                await self._publish(ConnectivityLevel.FULL, "IPv4 recovered", 4)
+                return
+
+            if result == PROBE_INCONCLUSIVE:
+                # Silence. A blackholed path and a slow one are indistinguishable
+                # from one probe — measured on the unit, a poisoned gateway ARP
+                # entry raises TimeoutError, exactly like a link under load. Only
+                # repetition separates them, so count before concluding.
+                self._inconclusive += 1
+                if self._inconclusive < INCONCLUSIVE_STRIKES:
+                    return
+                reason = f"IPv4 silent x{self._inconclusive}"
+            else:
+                self._inconclusive = 0
+                reason = "IPv4 probe"
+
+            if self._level == ConnectivityLevel.FULL:
+                self._hold_backoff = HOLD_RECHECK_START_S
+                await self._publish(ConnectivityLevel.LIMITED, reason, 4)
+            else:
+                # Still contradicting NM: back off, because what we wait for — IPv4
+                # returning on a link NM already calls healthy — takes minutes.
+                self._hold_backoff = min(self._hold_backoff * 2, HOLD_RECHECK_MAX_S)
 
     async def _broadcast(self) -> None:
         """The state is republished: a level change can flip a source's
