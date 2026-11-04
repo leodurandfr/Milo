@@ -1865,8 +1865,10 @@ class SpotifySource(BaseAudioSource):
                 self.broadcast_error_cleared()
             return
 
-        # Success: logged in, a sender accepted, or a track loaded
-        if any(m in line for m in ("authenticated Login5", "accepted zeroconf", "loaded track")):
+        # Success: logged in, a sender accepted, or a track or an episode loaded
+        if any(m in line for m in (
+            "authenticated Login5", "accepted zeroconf", "loaded track", "loaded episode",
+        )):
             self.broadcast_error_cleared()
             self._connection_error_count = 0
             self._last_login_failure = None
@@ -1996,10 +1998,11 @@ class SpotifySource(BaseAudioSource):
 
         # What /events posted and nobody handled belongs to this daemon run.
         self._discard_feed()
-        # The daemon that did not answer, or refused a login, is gone with it:
-        # so is what it put up.
+        # The daemon that did not answer, refused a login or failed a track is
+        # gone with it: so is what it put up.
         if self._unanswered or self._standing_reason in (
             *LOGIN_FAILURES, SourceErrorReason.SERVICE_UNREACHABLE,
+            SourceErrorReason.TRACK_LOAD_FAILED,
         ):
             self.broadcast_error_cleared()
         self._last_login_failure = None

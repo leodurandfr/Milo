@@ -566,6 +566,20 @@ async def test_a_refused_login_banner_leaves_with_the_source(world):
     assert world.envelopes("source", "error_cleared")
 
 
+async def test_a_track_load_banner_leaves_with_the_source(world):
+    """A track that failed to load belongs to the daemon the source stops:
+    left standing, the banner would sit over the next source."""
+    await world.source._handle_log_line(
+        'level=error msg="failed loading current track" error="no tracks"'
+    )
+    await settle()
+    assert world.errors() == [SourceErrorReason.TRACK_LOAD_FAILED]
+
+    await world.leave()
+
+    assert world.envelopes("source", "error_cleared")
+
+
 # === Another device of the account ===
 
 @pytest.fixture

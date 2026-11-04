@@ -1044,6 +1044,26 @@ class TestLogBridge:
         assert isinstance(self._broadcast(spotify_source), SourceErrorCleared)
 
     @pytest.mark.asyncio
+    async def test_an_episode_loading_clears_a_track_load_banner(
+        self, spotify_source, wired
+    ):
+        """go-librespot logs `loaded %s` with the requested type, so a podcast
+        that plays says `loaded episode`. Unread, the track-load banner stood
+        over the episode until the next music track."""
+        await spotify_source._handle_log_line(
+            'level=error msg="failed loading current track" error="context has no tracks"'
+        )
+        assert spotify_source._error_active is True
+
+        await spotify_source._handle_log_line(
+            'level=info msg="loaded episode \\"Ep\\" (paused: false, position: 0ms, '
+            'duration: 1000ms, prefetched: false)" uri="spotify:episode:x"'
+        )
+
+        assert spotify_source._error_active is False
+        assert isinstance(self._broadcast(spotify_source), SourceErrorCleared)
+
+    @pytest.mark.asyncio
     async def test_authentication_also_forgives_the_failures_that_preceded_it(
         self, spotify_source, wired
     ):
