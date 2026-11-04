@@ -247,6 +247,8 @@ CHROOT_BLOCK_RE = re.compile(r"on_chroot << 'CHROOT'\n(.*?)\nCHROOT", re.DOTALL)
 # at line start.
 MODULE_SOURCE_RE = re.compile(r"(?:source|\.)\s+(provisioning/[\w.-]+\.sh)")
 
+COMMON = "provisioning/common.sh"
+
 
 def _module_consumers() -> list[tuple[str, list[str]]]:
     """Every shell context that sources a `provisioning/` module, and what it sources.
@@ -269,6 +271,15 @@ def _module_consumers() -> list[tuple[str, list[str]]]:
             if modules:
                 consumers.append((f"{unit.relative_to(REPO_ROOT)} ExecStart", modules))
     return consumers
+
+
+def _offenders(consumers: list[tuple[str, list[str]]]) -> list[str]:
+    """The consumers that source something before `provisioning/common.sh`."""
+    return [
+        f"{name} sources {modules[0]} before {COMMON}"
+        for name, modules in consumers
+        if modules[0] != COMMON
+    ]
 
 
 def test_the_consumer_extractor_sees_both_kinds():
@@ -304,11 +315,7 @@ def test_every_consumer_sources_common_first():
     `/bin/common.sh`. It went with the standalone-run blocks, so this rule is
     what is left. Do not re-add the fallback; fix the consumer.
     """
-    offenders = [
-        f"{name} sources {modules[0]} before provisioning/common.sh"
-        for name, modules in _module_consumers()
-        if modules[0] != "provisioning/common.sh"
-    ]
+    offenders = _offenders(_module_consumers())
     assert not offenders, (
         "these consumers source a provisioning/ module before provisioning/common.sh, so "
         "its log helpers and the pinned versions are undefined:\n"
@@ -317,10 +324,37 @@ def test_every_consumer_sources_common_first():
 
 
 def test_the_ordering_rule_discriminates():
-    """A rule that passed on any input would prove nothing about the real blocks."""
-    good = ["provisioning/common.sh", "provisioning/navidrome.sh"]
-    bad = ["provisioning/navidrome.sh", "provisioning/common.sh"]
-    assert good[0] == "provisioning/common.sh"
-    assert bad[0] != "provisioning/common.sh"
-    # ...and the extractor must read a real block, not an empty one.
-    assert all(modules for _, modules in _module_consumers())
+    """The ordering rule must go red when a real consumer's order is broken.
+
+    If this fails, the rule above has become insensitive to the order (it only
+    checks that `common.sh` is sourced somewhere) or always green, and a consumer
+    that sources a module first would pass it. Every input here is a mutation of
+    what the tree actually carries, never a list written in this test.
+    """
+    unit = SYSTEM_DIR / "milo-navidrome-config.service"
+    exec_start = next(
+        (line for line in unit.read_text().splitlines() if line.startswith("ExecStart=")), ""
+    )
+    modules = MODULE_SOURCE_RE.findall(exec_start)
+    assert len(modules) >= 2 and modules[0] == COMMON, (
+        f"{unit.name} no longer sources {COMMON} then a module: {modules}"
+    )
+    first, second = modules[0], modules[1]
+    swapped_line = (
+        exec_start.replace(first, "\0").replace(second, first).replace("\0", second)
+    )
+    swapped = MODULE_SOURCE_RE.findall(swapped_line)
+    assert swapped[:2] == [second, first], f"the swap did not take: {swapped}"
+    assert _offenders([(unit.name, swapped)])
+
+    consumers = _module_consumers()
+    mutated = [(name, mods[1:] + mods[:1]) for name, mods in consumers if len(mods) > 1]
+    assert mutated, "no consumer sources more than one module; nothing to reorder"
+    assert len(_offenders(mutated)) == len(mutated)
+
+    stripped = [(name, [m for m in mods if m != COMMON]) for name, mods in consumers]
+    stripped = [(name, mods) for name, mods in stripped if mods]
+    assert stripped, "no consumer sources a module besides common.sh"
+    assert len(_offenders(stripped)) == len(stripped)
+
+    assert not _offenders(consumers)
