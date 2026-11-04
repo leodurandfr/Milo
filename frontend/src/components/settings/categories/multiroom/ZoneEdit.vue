@@ -7,7 +7,7 @@
       <InputText
         v-model="zoneName"
         :placeholder="t('equalizer.zones.zoneNamePlaceholder')"
-        :maxlength="16"
+        :maxlength="15"
         @blur="saveZoneName"
       />
     </SectionCard>
@@ -35,6 +35,7 @@
       variant="brand"
       size="medium"
       class="action-button-sticky" floating
+      :disabled="!zoneName.trim()"
       :loading="saving"
       @click="handleCreate"
     >
@@ -146,11 +147,18 @@ async function saveZoneName() {
   if (!props.groupId) return;
   const newName = zoneName.value?.trim() || '';
   if (newName === originalZoneName.value) return;
+  // A zone always has a name: clearing the field restores it rather than
+  // sending one the backend refuses.
+  if (!newName) {
+    zoneName.value = originalZoneName.value;
+    return;
+  }
 
   try {
     await multiroomStore.updateZone(props.groupId, { name: newName });
     originalZoneName.value = newName;
   } catch (error) {
+    if (zoneName.value?.trim() === newName) zoneName.value = originalZoneName.value;
     logger.error('multiroom', 'Error saving zone name', error);
   }
 }
@@ -182,12 +190,13 @@ watch(
 
 // Create new zone (only used when groupId is null)
 async function handleCreate() {
-  if (selectedClients.value.length < 2) return;
+  const name = zoneName.value.trim();
+  if (!name || selectedClients.value.length < 2) return;
 
   saving.value = true;
   try {
     // Use multiroomStore directly for zone creation (consistent with edit operations)
-    await multiroomStore.createZone(zoneName.value || 'New Zone', selectedClients.value);
+    await multiroomStore.createZone(name, selectedClients.value);
     emit('back');
   } catch (error) {
     logger.error('multiroom', 'Error creating zone', error);

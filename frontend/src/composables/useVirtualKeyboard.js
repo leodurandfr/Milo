@@ -28,6 +28,17 @@ const onSubmitCallback = ref(null);
 const onCloseCallback = ref(null);
 const onChangeCallback = ref(null);
 const originElement = ref(null);
+const maxLength = ref(null);
+
+// Counts code points, as the backend's max_length does, so a surrogate pair is
+// never split. Like a native maxlength, a value already past the bound when the
+// field opened can shrink but not grow.
+function bounded(value) {
+  if (maxLength.value === null) return value;
+  const limit = Math.max(maxLength.value, Array.from(currentValue.value).length);
+  const chars = Array.from(value);
+  return chars.length > limit ? chars.slice(0, limit).join('') : value;
+}
 
 export function useVirtualKeyboard() {
   /**
@@ -38,6 +49,9 @@ export function useVirtualKeyboard() {
    * @param {Function} options.onSubmit - Callback when user submits (receives new value)
    * @param {Function} options.onClose - Callback when keyboard closes (receives current value)
    * @param {Function} options.onChange - Callback when value changes in real-time (receives new value)
+   * @param {number} [options.maxlength] - Longest value the keys may type; the
+   *   field's own `maxlength` bounds nothing here, since the keys never type
+   *   into its `<input>`
    */
   function open(options = {}) {
     // If keyboard is already open for another field, notify the previous field
@@ -51,6 +65,7 @@ export function useVirtualKeyboard() {
     onCloseCallback.value = options.onClose || null;
     onChangeCallback.value = options.onChange || null;
     originElement.value = options.originElement || null;
+    maxLength.value = options.maxlength ?? null;
     isVisible.value = true;
   }
 
@@ -67,6 +82,7 @@ export function useVirtualKeyboard() {
     onCloseCallback.value = null;
     onChangeCallback.value = null;
     originElement.value = null;
+    maxLength.value = null;
   }
 
   /**
@@ -82,15 +98,17 @@ export function useVirtualKeyboard() {
     onCloseCallback.value = null;
     onChangeCallback.value = null;
     originElement.value = null;
+    maxLength.value = null;
   }
 
   /**
    * Update the current value and trigger onChange callback
    */
   function updateValue(newValue) {
-    currentValue.value = newValue;
+    const value = bounded(newValue);
+    currentValue.value = value;
     if (onChangeCallback.value) {
-      onChangeCallback.value(newValue);
+      onChangeCallback.value(value);
     }
   }
 
