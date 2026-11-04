@@ -120,6 +120,32 @@ function parsedSubscriptions() {
   return [...fromTable, ...fromInline];
 }
 
+// The default import of services/websocket, by alias or relative path (a
+// sibling `./websocket` included), with or without its extension; group 1 is
+// the local name it is bound to.
+const WS_IMPORT = /import\s+(\w+)\s+from\s+['"](?:@\/services\/|(?:\.\.?\/)+(?:services\/)?)websocket(?:\.js)?['"]/;
+const LIFECYCLE_KEYS = new Set(['onReconnect', 'onVisibilityChange', 'showDisconnectedBanner']);
+
+/**
+ * Whether a module can subscribe to a WS event: it imports the service and
+ * takes from it anything but the lifecycle keys. Only a destructuring that
+ * names lifecycle keys alone is let through; binding the whole object or
+ * chaining a call off it hands over on()/parsedOn() under any name.
+ */
+function subscribesToWs(source) {
+  const imported = WS_IMPORT.exec(source);
+  if (!imported) return false;
+  return [...source.matchAll(new RegExp(`\\b${imported[1]}\\s*\\(`, 'g'))].some(({ index }) => {
+    const destructured = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*$/.exec(source.slice(0, index));
+    if (!destructured) return true;
+    return destructured[1]
+      .split(',')
+      .map(entry => entry.split(':')[0].trim())
+      .filter(Boolean)
+      .some(key => !LIFECYCLE_KEYS.has(key));
+  });
+}
+
 describe('WS event handlers live in App.vue, not in components', () => {
   const files = sourceFilesExceptWsLayer();
 
@@ -127,22 +153,41 @@ describe('WS event handlers live in App.vue, not in components', () => {
     expect(files.length).toBeGreaterThan(100);
   });
 
-  it('no module outside the WS layer destructures on()/parsedOn()', () => {
+  it('the subscription pattern catches the shapes it exists for', () => {
+    const IMPORT = "import useWebSocket from '@/services/websocket';\n";
+    const subscribing = [
+      `${IMPORT}const { on } = useWebSocket();`,
+      "import useWebSocket from '@/services/websocket.js';\nconst { on } = useWebSocket();",
+      'import useWebSocket from "@/services/websocket";\nconst { on } = useWebSocket();',
+      "import useWebSocket from '../../services/websocket';\nconst { on } = useWebSocket();",
+      "import useWebSocket from './websocket';\nlet { on } = useWebSocket();",
+      `${IMPORT}const ws = useWebSocket();\nws.on('volume', 'volume_changed', h);`,
+      `${IMPORT}const ws = useWebSocket();\nws.parsedOn('volume', 'volume_changed', schema, h);`,
+      `${IMPORT}const { on: subscribe } = useWebSocket();`,
+      `${IMPORT}useWebSocket().on('volume', 'volume_changed', h);`,
+      "import useWs from '@/services/websocket';\nconst { on } = useWs();",
+    ];
+    for (const source of subscribing) expect(subscribesToWs(source), source).toBe(true);
+
+    const lifecycleOnly = [
+      `${IMPORT}const { onReconnect } = useWebSocket();`,
+      `${IMPORT}const { onVisibilityChange, showDisconnectedBanner } = useWebSocket();`,
+      "import { useFoo } from '@/composables/useFoo';\nemitter.on('change', h);",
+    ];
+    for (const source of lifecycleOnly) expect(subscribesToWs(source), source).toBe(false);
+    // App.vue is the one module that must subscribe: the pattern reads it as doing so.
+    expect(subscribesToWs(appSource)).toBe(true);
+  });
+
+  it('no module outside the WS layer subscribes to an event', () => {
     // useWebSocket also exposes onReconnect/onVisibilityChange — lifecycle
     // callbacks, not event handlers. A component may legitimately hook those
-    // to refetch data only it displays (UpdateManager does, for satellites).
-    // What it must not do is subscribe to an event: that handler dies with the
-    // component, so events arriving while it is unmounted are lost with
-    // nothing to heal them, and the state it fed goes quietly stale.
+    // to refetch data only it displays. What it must not do is subscribe to an
+    // event: that handler dies with the component, so events arriving while it
+    // is unmounted are lost with nothing to heal them, and the state it fed
+    // goes quietly stale.
     const offenders = files
-      .filter((file) => {
-        const source = readFileSync(file, 'utf8');
-        if (!/from\s+'@\/services\/websocket'/.test(source)) return false;
-        return [...source.matchAll(/const\s*\{([^}]*)\}\s*=\s*useWebSocket\(\)/g)]
-          .some(([, bound]) =>
-            bound.split(',').map(n => n.trim()).some(n => n === 'on' || n === 'parsedOn')
-          );
-      })
+      .filter(file => subscribesToWs(readFileSync(file, 'utf8')))
       .map(file => file.slice(SRC_DIR.length + 1));
 
     expect(offenders).toEqual([]);
