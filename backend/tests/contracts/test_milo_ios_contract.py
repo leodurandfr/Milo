@@ -241,6 +241,62 @@ def test_the_extractor_reads_every_client_file_not_just_the_first():
     )
 
 
+def _upstream_copy(tmp_path: Path) -> Path:
+    """A Milo-iOS checkout holding the vendored snapshot, laid out as the real
+    app lays it out (the bridge in the app target, the rest in Shared/): the
+    stand-in for an upstream that has not moved."""
+    for path in _FRESHNESS.matching_files(VENDOR_DIR):
+        target = "Milo-iOS" if path.name == "MiloNowPlayingBridge.swift" else "Shared"
+        (tmp_path / target).mkdir(exist_ok=True)
+        (tmp_path / target / path.name).write_text(path.read_text())
+    return tmp_path
+
+
+def test_freshness_reports_an_unmoved_upstream_in_sync(tmp_path, capsys):
+    """The control for the test below: an upstream identical to the snapshot
+    must read as matching, or a check that flags everything would pass it."""
+    _upstream_copy(tmp_path)
+
+    assert _FRESHNESS.main(["x", str(tmp_path)]) == 0
+    assert "matches upstream" in capsys.readouterr().out
+
+
+def _rename_a_pinned_body_key(root: Path) -> str:
+    entry = next(e for e in _MANIFEST["rest"] if (e["method"], e["path"]) == ("POST", "/api/push/tokens"))
+    assert "device_id" in entry["body"], "the manifest no longer pins device_id on the token body"
+    push = root / "Shared" / "MiloAPIClient+Push.swift"
+    assert '"device_id"' in push.read_text(), "the vendored push client no longer sends device_id"
+    push.write_text(push.read_text().replace('"device_id"', '"phone_id"'))
+    return push.name
+
+
+def _add_an_upstream_client_file(root: Path) -> str:
+    name = "MiloAPIClient+Library.swift"
+    (root / "Shared" / name).write_text("extension MiloAPIClient {}\n")
+    return name
+
+
+@pytest.mark.parametrize("drift", [_rename_a_pinned_body_key, _add_an_upstream_client_file])
+def test_freshness_flags_a_content_drift_that_moves_no_route(tmp_path, capsys, drift):
+    """An upstream that moved without moving a route must not read as matching.
+
+    The script judged upstream on the extracted REST surface alone, while the
+    manifest pins what the app SENDS (`body`, `body_values`, `data_keys`) and
+    the keys it decodes — all read from the vendored files, none a route. A
+    renamed body key, or a new client file carrying no route yet, answered
+    "vendored snapshot matches upstream" with exit 0, and the offline test went
+    on comparing the manifest to a copy describing an app that no longer
+    existed. The Milo-Mac twin compares every vendored file by content for the
+    same reason.
+    """
+    moved = drift(_upstream_copy(tmp_path))
+
+    assert _FRESHNESS.main(["x", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "matches upstream" not in out
+    assert moved in out
+
+
 def test_manifest_matches_the_vendored_surface_exactly():
     """Manifest and snapshot must describe the same surface, in both directions.
 

@@ -104,8 +104,12 @@ purpose. When Milo-iOS changes, run:
 
     python backend/tests/contracts/check_milo_ios_freshness.py /path/to/milo-ios
 
-A snapshot stale in its CONTENT still fails nothing: `manifest == snapshot` stays
+A snapshot stale in its CONTENT fails nothing offline: `manifest == snapshot` stays
 true while both describe an app that no longer exists, which is the one way this
-contract can rot. The completeness guard only covers the other half — a route
-that escaped the vendored FILES — so running the command above is still the only
-thing that catches a route whose shape changed inside one of them.
+contract can rot. The command above catches it: it compares every vendored file to
+its upstream copy by content (`content_drift`), because the manifest pins what the
+app sends (`body`, `body_values`, `data_keys`) and decodes from these same files, and
+a renamed key moves no route — until 2026-11-04 it compared the route surface only,
+and answered *matches upstream* over such a rename. It also reports a client file
+upstream has and the snapshot lacks, even one carrying no route yet. Running it is
+still the only trigger.

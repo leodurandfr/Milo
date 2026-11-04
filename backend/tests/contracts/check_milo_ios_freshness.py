@@ -13,9 +13,11 @@ extension and App Intents):
         section exists — exactly).
   * NETWORK, MANUAL (this script, run by hand):
       compares the vendored snapshot against a real checkout and says whether it
-      has fallen behind. Deliberately NOT a CI job, unlike the Milo-Mac twin: a
-      six-route app with one author, changed by the same person who would fix
-      the drift, does not earn a clone on every push to main plus a weekly cron.
+      has fallen behind: a route gained or lost, and any vendored file whose
+      content moved (`content_drift` — a renamed body key moves no route).
+      Deliberately NOT a CI job, unlike the Milo-Mac twin: a six-route app
+      with one author, changed by the same person who would fix the drift,
+      does not earn a clone on every push to main plus a weekly cron.
       Run it whenever Milo-iOS changes — the offline test cannot see upstream,
       so nothing else will tell you the snapshot is stale.
 
@@ -292,6 +294,39 @@ def unvendored_surface(root: Path) -> dict[str, set[str]]:
     return escaped
 
 
+def content_drift(root: Path) -> list[str]:
+    """Every way the files under `root` differ from the vendored ones, by content.
+
+    The surface comparison sees routes only, and the manifest pins more than
+    routes: the bodies the app sends (`body`, `body_values`, `data_keys`) and
+    the keys it decodes are read from these same files, so a key renamed in
+    one of them moves no route and the surface still agrees. Each vendored file
+    is paired by name with its upstream copy and compared whole; a pattern match
+    upstream with no vendored copy is reported too, since a client file with no
+    route yet is still part of what the snapshot claims to hold. A name matched
+    twice upstream cannot be paired, and is reported rather than guessed. The
+    Milo-Mac twin compares its vendored files the same way.
+    """
+    vendored = {path.name: path for path in matching_files(VENDOR_DIR)}
+    upstream: dict[str, list[Path]] = {}
+    for path in matching_files(root):
+        upstream.setdefault(path.name, []).append(path)
+
+    drift = []
+    for name in sorted(vendored.keys() | upstream.keys()):
+        found = upstream.get(name, [])
+        if not found:
+            drift.append(f"{name}: vendored, but upstream no longer has it")
+        elif name not in vendored:
+            drift.append(f"{name}: upstream has it, the snapshot does not")
+        elif len(found) > 1:
+            places = ", ".join(str(p.relative_to(root)) for p in found)
+            drift.append(f"{name}: upstream has several ({places}) — cannot tell which one is vendored")
+        elif found[0].read_text() != vendored[name].read_text():
+            drift.append(f"{name}: content differs from the vendored copy")
+    return drift
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
@@ -313,7 +348,8 @@ def main(argv: list[str]) -> int:
               "a route the snapshot cannot see reads as a route nobody calls.")
         return 1
 
-    if extract_rest(upstream) == extract_rest(vendored):
+    drift = content_drift(checkout)
+    if extract_rest(upstream) == extract_rest(vendored) and not drift:
         print(f"Milo-iOS: vendored snapshot matches upstream "
               f"({len(matching_files(checkout))} files, "
               f"{len(extract_rest(upstream))} routes).")
@@ -326,6 +362,8 @@ def main(argv: list[str]) -> int:
         print(f"  + upstream now calls  {method} {path}")
     for method, path in sorted(lost):
         print(f"  - upstream no longer calls  {method} {path}")
+    for line in drift:
+        print(f"  ~ {line}")
     print(
         "\nRefresh backend/tests/contracts/vendor/milo-ios/ AND milo_ios_contract.json "
         "together, in one commit, then re-run pytest backend/tests/contracts/."
