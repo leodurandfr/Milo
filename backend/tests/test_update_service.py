@@ -3398,19 +3398,37 @@ class TestShairportSyncNqptpPair:
         world["_compile_source"].assert_not_called()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("capabilities", [0, None])
     async def test_a_unit_that_grants_no_port_capability_is_refused_before_downloading(
-            self, update_service, tmp_path, capabilities):
+            self, update_service, tmp_path):
         """NQPTP's right to ports 319/320 used to be a file capability on its
         binary. A replaced binary has none, nor does the backup a rollback puts
         back, so the swap would kill the clock and the rollback with it."""
         shairport = self._tree(tmp_path, "sps", 11)
         with self._world(update_service, tmp_path, installed=("1.2.3", 10),
-                         capabilities=capabilities) as world:
+                         capabilities=0) as world:
             result = await update_service._prepare_nqptp(shairport, "5.6", str(tmp_path))
 
         assert result["success"] is False
         assert "CAP_NET_BIND_SERVICE" in result["error"]
+        world["ambient_capabilities"].assert_called_once_with(self.NQPTP["service_name"])
+        world["_download_source"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_capability_set_is_refused_without_blaming_the_unit(
+            self, update_service, tmp_path):
+        """A systemd read that failed (a slow bus, None) is not a unit that
+        grants nothing. Reported as one, the Updates screen sends the operator
+        off to reinstall an nqptp.service that already grants the capability,
+        when retrying the shairport-sync update was all it took."""
+        shairport = self._tree(tmp_path, "sps", 11)
+        with self._world(update_service, tmp_path, installed=("1.2.3", 10),
+                         capabilities=None) as world:
+            result = await update_service._prepare_nqptp(shairport, "5.6", str(tmp_path))
+
+        assert result["success"] is False
+        assert "does not grant" not in result["error"]
+        assert "retry" in result["error"]
+        assert self.NQPTP["service_name"] in result["error"]
         world["ambient_capabilities"].assert_called_once_with(self.NQPTP["service_name"])
         world["_download_source"].assert_not_called()
 

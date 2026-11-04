@@ -1350,6 +1350,7 @@ class UpdateService(VersionService):
           right used to be a file capability on the binary (upstream's install
           hook ran `setcap`), and a replaced binary carries none — nor does the
           backup a rollback would put back — so NQPTP would exit on port 319.
+          An unreadable set is refused too, as a retry, not as a unit fault.
         """
         nqptp = self.programs["shairport-sync"]["nqptp"]
         target = nqptp["validated_version"]
@@ -1373,7 +1374,12 @@ class UpdateService(VersionService):
             return unpairable(installed[1])
 
         capabilities = await self._systemd.ambient_capabilities(nqptp["service_name"])
-        if not (capabilities or 0) & (1 << CAP_NET_BIND_SERVICE):
+        if capabilities is None:
+            return {"success": False, "error": (
+                f"could not read the capabilities of {nqptp['service_name']} "
+                "from systemd; retry the update"
+            )}
+        if not capabilities & (1 << CAP_NET_BIND_SERVICE):
             return {"success": False, "error": (
                 f"{nqptp['service_name']} does not grant CAP_NET_BIND_SERVICE, so a "
                 "replaced NQPTP could not open its ports; install Milo's own unit "
