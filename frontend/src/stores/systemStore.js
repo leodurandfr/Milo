@@ -3,12 +3,13 @@
  * Pinia store for system-level state.
  *
  * Tracks whether another Milō server has claimed `milo.local` on the local
- * network (mDNS hostname conflict) — the backend re-checks every 5 minutes and
- * broadcasts state changes via WebSocket — and the SSH / account password
- * panel of Réglages › Système.
+ * network (mDNS hostname conflict; the backend re-checks every 5 minutes and
+ * broadcasts state changes via WebSocket), the audio card hardware.json names
+ * when ALSA cannot see it, and the SSH / account password panel of
+ * Réglages › Système.
  */
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { apiCall } from '@/services/apiCall';
 
 export const useSystemStore = defineStore('system', () => {
@@ -19,7 +20,17 @@ export const useSystemStore = defineStore('system', () => {
   // The label of the audio card hardware.json names when ALSA cannot see it,
   // null when all is well. A HAT is not hot-pluggable, so this is settled at
   // boot and arrives with the status read rather than as a WS delta.
-  const audioCardMissing = ref(null);
+  const reportedAudioCardMissing = ref(null);
+  // The status read names the card on every resync, so a dismissal is kept as
+  // the label dismissed, until a read reports anything else (another card,
+  // or none). Per tab, never stored — the backend wants the banner back on
+  // every load.
+  const dismissedAudioCardMissing = ref(null);
+  const audioCardMissing = computed(() => (
+    reportedAudioCardMissing.value === dismissedAudioCardMissing.value
+      ? null
+      : reportedAudioCardMissing.value
+  ));
 
   // One panel spread over two views, System and its password sub-view, so it
   // lives here rather than in either: a password save outlives the view that
@@ -40,8 +51,15 @@ export const useSystemStore = defineStore('system', () => {
       localIp.value = state.local_ip;
     }
     if (state.audio_card_missing !== undefined) {
-      audioCardMissing.value = state.audio_card_missing;
+      reportedAudioCardMissing.value = state.audio_card_missing;
+      if (state.audio_card_missing !== dismissedAudioCardMissing.value) {
+        dismissedAudioCardMissing.value = null;
+      }
     }
+  }
+
+  function dismissAudioCardMissing() {
+    dismissedAudioCardMissing.value = reportedAudioCardMissing.value;
   }
 
   async function fetchStatus() {
@@ -136,6 +154,7 @@ export const useSystemStore = defineStore('system', () => {
     localIp,
     rechecking,
     audioCardMissing,
+    dismissAudioCardMissing,
     ssh,
     fetchStatus,
     loadSsh,

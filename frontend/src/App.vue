@@ -382,9 +382,14 @@ const isNotificationDismissable = computed(() => {
     (currentError.value !== null || !!systemStore.audioCardMissing);
 });
 
+// One button for whichever banner is drawn: closing a transient error must not
+// also dismiss the card behind it, which the user has not seen yet.
 function dismissNotification() {
-  currentError.value = null;
-  systemStore.audioCardMissing = null;
+  if (currentError.value !== null) {
+    currentError.value = null;
+  } else {
+    systemStore.dismissAudioCardMissing();
+  }
 }
 
 // Auto-show transient notification on command failure (play/pause/next/prev)

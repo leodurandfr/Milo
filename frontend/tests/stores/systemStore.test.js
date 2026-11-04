@@ -56,3 +56,63 @@ describe('systemStore SSH panel', () => {
     expect(store.ssh.enabled).toBe(true);
   });
 });
+
+/**
+ * The missing-card banner is dismissable because a user may have picked the
+ * card in the wizard while waiting for the board. GET /api/system/status keeps
+ * naming it, and systemStore is replayed on every tab return and reconnect, so
+ * a dismissal the store does not remember comes back at the next phone unlock.
+ */
+describe('systemStore missing audio card', () => {
+  let store;
+
+  const status = (card) => ok({ status: 'success', data: { hostname_conflict: false, audio_card_missing: card } });
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useSystemStore();
+  });
+
+  it('a dismissed missing-card banner stays dismissed across a resync', async () => {
+    apiCall.get.mockResolvedValue(status('HiFiBerry Amp2'));
+    await store.resync();
+    expect(store.audioCardMissing).toBe('HiFiBerry Amp2');
+
+    store.dismissAudioCardMissing();
+    expect(store.audioCardMissing).toBe(null);
+
+    await store.resync();
+    expect(store.audioCardMissing).toBe(null);
+  });
+
+  it('the card coming back, then going missing again, re-arms the banner', async () => {
+    apiCall.get.mockResolvedValue(status('HiFiBerry Amp2'));
+    await store.resync();
+    store.dismissAudioCardMissing();
+
+    apiCall.get.mockResolvedValue(status('IQaudio DAC+'));
+    await store.resync();
+    expect(store.audioCardMissing).toBe('IQaudio DAC+');
+
+    store.dismissAudioCardMissing();
+    apiCall.get.mockResolvedValue(status(null));
+    await store.resync();
+    expect(store.audioCardMissing).toBe(null);
+
+    apiCall.get.mockResolvedValue(status('IQaudio DAC+'));
+    await store.resync();
+    expect(store.audioCardMissing).toBe('IQaudio DAC+');
+  });
+
+  it('a dismissal ends once another card is reported, so the first one shows again', async () => {
+    apiCall.get.mockResolvedValue(status('HiFiBerry Amp2'));
+    await store.resync();
+    store.dismissAudioCardMissing();
+
+    apiCall.get.mockResolvedValue(status('IQaudio DAC+'));
+    await store.resync();
+    apiCall.get.mockResolvedValue(status('HiFiBerry Amp2'));
+    await store.resync();
+    expect(store.audioCardMissing).toBe('HiFiBerry Amp2');
+  });
+});
