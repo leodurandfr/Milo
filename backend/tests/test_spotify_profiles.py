@@ -7,17 +7,23 @@ wrote (profiles.json, state.json), what it asked of systemd and the daemon,
 and what the routes answer — a profile the browser can pick but that signs in
 as nobody, or a credential that leaks into an answer, shows only on a unit.
 """
+import asyncio
+import errno
 import json
 import logging
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
 
 from backend.shared.persistence import SchemaVersionMismatch
 from backend.sources.spotify import routes
+from backend.sources.spotify import source as spotify_module
 from backend.sources.spotify.catalog import spotify_gid
+from backend.sources.spotify.models import ActiveProfileRequest
 from backend.sources.spotify.profiles import SpotifyProfiles
+from backend.tests.golden.harness import settle
 from backend.tests.spotify_world import ACCOUNT, SpotifyWorld
 
 GUEST = "31guestaccountxxxxxxxxxxxxx"
@@ -253,6 +259,134 @@ async def test_forgetting_another_profile_restarts_nothing(world):
     assert set(kept(world)) == {GUEST}
     world.systemd.stop.assert_not_awaited()
     assert world.state()["details"]["account"] == GUEST
+
+
+def _state_json_unwritable(monkeypatch):
+    """A full card: state.json cannot be replaced (config.yml goes through the
+    same primitive and is left alone)."""
+    real = spotify_module.write_bytes_atomically
+
+    async def write(path, *args, **kwargs):
+        if path.name == "state.json":
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return await real(path, *args, **kwargs)
+
+    monkeypatch.setattr(spotify_module, "write_bytes_atomically", write)
+
+
+async def test_a_profile_switch_whose_file_cannot_be_written_restarts_the_daemon_and_says_so(world, monkeypatch):
+    """The daemon is stopped for the write: a write that fails must not leave
+    Milō gone from every phone under a source still shown running, nor answer
+    the browser a success — or a 500."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    _state_json_unwritable(monkeypatch)
+
+    with pytest.raises(HTTPException) as refused:
+        await routes.set_active_profile(ActiveProfileRequest(username=ACCOUNT), source=world.source)
+    await world.advance(2.1)
+    await world.idle()
+
+    assert refused.value.status_code == 503
+    assert world.pid is not None
+    assert world.stored_account() == GUEST
+    assert world.daemon.stored == GUEST
+    assert world.state()["details"]["account"] == GUEST
+
+
+async def test_forgetting_the_active_profile_when_the_file_cannot_be_written_answers_an_error(world, monkeypatch):
+    """The forget is the browser's, the sign-out the daemon's: a sign-out that
+    did not happen is no success, nor an unknown profile."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    _state_json_unwritable(monkeypatch)
+
+    with pytest.raises(HTTPException) as refused:
+        await routes.forget_profile(GUEST, source=world.source)
+    await world.advance(2.1)
+    await world.idle()
+
+    assert refused.value.status_code == 503
+    assert world.pid is not None
+
+
+async def test_a_profile_switch_cut_by_a_stop_answers_an_error_not_a_500(world):
+    """A source change while the daemon is being stopped for the switch cuts
+    the switch: the browser is told it did not happen."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    release = asyncio.Event()
+    stops = []
+
+    async def stop(*args):
+        stops.append(args)
+        if len(stops) == 1:
+            await release.wait()
+        return await world._unit_stop(*args)
+
+    world.systemd.stop.side_effect = stop
+    switch = asyncio.create_task(
+        routes.set_active_profile(ActiveProfileRequest(username=ACCOUNT), source=world.source)
+    )
+    await settle()
+    leaving = asyncio.create_task(world.source.stop())
+    await settle()
+    release.set()
+    await leaving
+
+    with pytest.raises(HTTPException) as refused:
+        await switch
+    assert refused.value.status_code == 503
+    assert world.pid is None
+    assert world.stored_account() == GUEST
+
+
+async def test_a_refused_stop_writes_no_state_json(world):
+    """go-librespot rewrites state.json itself: written under a daemon that
+    would not stop, the file would be overwritten by it and the switch
+    reported done."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    before = world.stored_state()
+    pid = world.pid
+    world.systemd.stop = AsyncMock(return_value=False)
+    world.systemd.start.reset_mock()
+
+    with pytest.raises(HTTPException) as refused:
+        await routes.set_active_profile(ActiveProfileRequest(username=ACCOUNT), source=world.source)
+
+    assert refused.value.status_code == 503
+    assert world.stored_state() == before
+    world.systemd.start.assert_not_awaited()
+    assert world.pid == pid
+
+
+async def test_a_stop_answered_false_that_went_through_still_switches(world):
+    """A stop call that times out while systemd carries it out reads False:
+    refusing then would leave Milō gone from every phone."""
+    await world.cast_from(GUEST)
+    await world.idle()
+
+    async def stop_then_time_out(*args):
+        await world._unit_stop(*args)
+        return False
+
+    world.systemd.stop.side_effect = stop_then_time_out
+    await routes.set_active_profile(ActiveProfileRequest(username=ACCOUNT), source=world.source)
+    await world.advance(2.1)
+    await world.idle()
+
+    assert world.pid is not None
+    assert world.daemon.stored == ACCOUNT
+    assert world.state()["details"]["account"] == ACCOUNT
+
+
+async def test_a_switch_to_an_unknown_profile_answers_404(world):
+    """The browser's list can be stale (a profile forgotten elsewhere): that
+    is a 404 it reloads on, not a failure banner."""
+    with pytest.raises(HTTPException) as refused:
+        await routes.set_active_profile(ActiveProfileRequest(username=THIRD), source=world.source)
+    assert refused.value.status_code == 404
 
 
 REFUSED = ('level=fatal msg="daemon exited with error" error="failed authenticating accesspoint '

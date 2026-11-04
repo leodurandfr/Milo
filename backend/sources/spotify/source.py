@@ -1077,26 +1077,34 @@ class SpotifySource(BaseAudioSource):
     # === Profiles ===
 
     async def switch_profile(self, username: str) -> Dict[str, Any]:
-        """Sign the daemon in as a kept profile (the browser's profile screen)."""
-        return await self._submit(Result(lambda: self._switch_profile(username)))
+        """Sign the daemon in as a kept profile (the browser's profile screen).
+        An error carries `unknown` when no such profile is kept."""
+        return self._profile_answer(await self._submit(Result(lambda: self._switch_profile(username))))
 
     async def forget_profile(self, username: str) -> Dict[str, Any]:
         """Drop a kept profile; the daemon stops being signed in as it."""
-        return await self._submit(Result(lambda: self._forget_profile(username)))
+        return self._profile_answer(await self._submit(Result(lambda: self._forget_profile(username))))
+
+    def _profile_answer(self, answer: Any) -> Dict[str, Any]:
+        # A Result cut or dropped by a STOP, or one that raised, answers False.
+        if isinstance(answer, dict):
+            return answer
+        return self.error_response("Profile change interrupted")
 
     async def _switch_profile(self, username: str) -> Dict[str, Any]:
         credentials = self._profiles.credentials(username) if self._profiles else None
         if credentials is None:
-            return self.error_response("Unknown Spotify profile")
+            return self.error_response("Unknown Spotify profile", unknown=True)
         if username == self._account and not self._signing_in:
             return self.success_response()
         self._logger.info("Switching Spotify profile")
-        await self._sign_in_as(username, credentials)
+        if not await self._sign_in_as(username, credentials):
+            return self.error_response("Spotify profile not signed in")
         return self.success_response()
 
     async def _forget_profile(self, username: str) -> Dict[str, Any]:
         if self._profiles is None or not await self._profiles.forget(username):
-            return self.error_response("Unknown Spotify profile")
+            return self.error_response("Unknown Spotify profile", unknown=True)
         self._harvested.discard(username)
         self._forget_history(username)
         self._logger.info(f"Spotify profile forgotten ({len(self._profiles)} stored)")
@@ -1104,7 +1112,8 @@ class SpotifySource(BaseAudioSource):
         if username in (self._persisted, await self._stored_account()):
             # Left in state.json, the daemon would sign back in as it, and the
             # next /status would keep it again.
-            await self._sign_in_successor()
+            if not await self._sign_in_successor():
+                return self.error_response("Spotify profile forgotten, but still signed in")
         return self.success_response()
 
     def _forget_history(self, account: str) -> None:
@@ -1124,32 +1133,49 @@ class SpotifySource(BaseAudioSource):
             self._logger.warning(f"Could not read the invocation of {self.service_name}: {e}")
             return None
 
-    async def _sign_in_successor(self) -> None:
+    async def _sign_in_successor(self) -> bool:
         """The signed-in profile is gone: the one signed in last on Milō takes
         its place, and nobody only when no profile is left — the browser then
         gives way to the card."""
         username = self._profiles.successor() if self._profiles is not None else None
         if username is None:
-            await self._sign_in_as("", None)
-            return
+            return await self._sign_in_as("", None)
         self._logger.info("Signing in the Spotify profile signed in last")
-        await self._sign_in_as(username, self._profiles.credentials(username))
+        return await self._sign_in_as(username, self._profiles.credentials(username))
 
-    async def _sign_in_as(self, username: str, credentials: Optional[str]) -> None:
+    async def _sign_in_as(self, username: str, credentials: Optional[str]) -> bool:
         """Hand go-librespot one account's credentials (an empty username:
         nobody, it waits for a phone). The daemon rewrites state.json itself,
         so the file is written between its stop and its start; a stopped
-        daemon only gets the file, and reads it at its next start."""
-        running = await self._is_service_active()
+        daemon only gets the file, and reads it at its next start.
+
+        False when the daemon keeps the account it had: a unit that cannot be
+        read or stopped (the file would be written under a live daemon), or a
+        file that cannot be written (the daemon is started again on it). A
+        STOP that cuts this leaves the daemon stopped, as STOP wants it."""
+        running = await self.probe_service_active()
+        if running is None:
+            self._logger.error("Spotify profile not changed: go-librespot's state cannot be read")
+            return False
         # Read before the stop: systemd empties it once the unit is inactive.
         invocation = await self._daemon_invocation()
-        if invocation is not None:
-            self._replaced_runs.add(invocation)
         if running:
             if await self.end_session(EndReason.USER_STOP) is not None:
                 self._publish()
-            await self._stop_service()
-        await self._write_state_credentials(username, credentials)
+            # A stop answered False can still have gone through (a timed-out
+            # call): only a unit seen up keeps the file unwritten.
+            if not await self._stop_service() and await self.probe_service_active() is not False:
+                self._logger.error("Spotify profile not changed: go-librespot did not stop")
+                return False
+        try:
+            await self._write_state_credentials(username, credentials)
+        except OSError as e:
+            self._logger.error(f"Spotify profile not changed: state.json not written ({e})")
+            if running and not await self._start_service():
+                self._logger.error("go-librespot not started again after the failed profile change")
+            return False
+        if invocation is not None:
+            self._replaced_runs.add(invocation)
         # What the daemon signs in as from now on — also when it is between two
         # runs of its own (an exit on refused credentials, then Restart=), and
         # the account it signs in as next is kept again (a forgotten one too).
@@ -1163,8 +1189,10 @@ class SpotifySource(BaseAudioSource):
         else:
             self._begin_signin()
         self._publish_changes()
-        if running:
-            await self._start_service()
+        if running and not await self._start_service():
+            self._logger.error("go-librespot not started after the Spotify profile change")
+            return False
+        return True
 
     async def _drop_refused(self, reason: str, line: str, invocation: Optional[str]) -> None:
         """Spotify refused the stored account (a changed password, Premium

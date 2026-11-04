@@ -12,7 +12,7 @@ the browser reads as "signing in" or "cast from your phone", never as a fault.
 import asyncio
 import contextlib
 import logging
-from typing import Annotated, Optional
+from typing import Annotated, Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import RedirectResponse
@@ -348,22 +348,26 @@ async def get_profiles(source: SpotifySource = Depends(get_source)):
     return {"status": "success", "profiles": profiles.list()}
 
 
+def _profile_changed(result: Dict[str, Any], context: str) -> Dict[str, str]:
+    """A profile no longer kept is the browser's stale list (404); anything
+    else is a change that did not happen (503)."""
+    if result.get("success"):
+        return {"status": "success"}
+    if result.get("unknown"):
+        logger.debug(f"{context}: unknown profile")
+        raise HTTPException(status_code=404, detail=result["error"])
+    logger.error(f"{context} failed: {result.get('error')}")
+    raise HTTPException(status_code=503, detail=result.get("error"))
+
+
 @router.delete("/profiles/{username}")
 async def forget_profile(username: str, source: SpotifySource = Depends(get_source)):
     _require_profiles(source)
-    result = await source.forget_profile(username)
-    if not result.get("success"):
-        logger.debug("Forget of an unknown Spotify profile")
-        raise HTTPException(status_code=404, detail=result.get("error") or "Unknown Spotify profile")
-    return {"status": "success"}
+    return _profile_changed(await source.forget_profile(username), "Spotify profile forget")
 
 
 @router.put("/active-profile")
 async def set_active_profile(payload: ActiveProfileRequest, source: SpotifySource = Depends(get_source)):
     """Sign go-librespot in as a kept profile; ends what plays."""
     _require_profiles(source)
-    result = await source.switch_profile(payload.username)
-    if not result.get("success"):
-        logger.debug("Switch to an unknown Spotify profile")
-        raise HTTPException(status_code=404, detail=result.get("error") or "Unknown Spotify profile")
-    return {"status": "success"}
+    return _profile_changed(await source.switch_profile(payload.username), "Spotify profile switch")

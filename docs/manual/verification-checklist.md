@@ -129,6 +129,7 @@ These are shared by every source; they break for all of them at once.
 | Auto-disconnect | With the setting on, a pause past the configured delay ends the session: the phone lets go of Milō, no banner | targeted |
 | Multiroom toggle | Mid-play, the track keeps playing across the toggle; the card never shows "paused" meanwhile | targeted |
 | Daemon death | `kill -9` of go-librespot mid-play: the card leaves "playing" at once with a banner; the phone can reconnect ~5 s later | targeted |
+| Profile switch | With two profiles kept, pick the other one in the browser's profile screen while Spotify plays (every room at −55 dB or lower): the answer is 200, `systemctl show milo-spotify -p MainPID` reads a new non-zero pid, go-librespot's `GET /status` names the new account, and `avahi-browse -rt _spotify-connect._tcp` still lists Milō; a cast from the new account plays. Switch back. A switch that fails (state.json not writable, go-librespot not stopping) answers 503 with a banner and leaves go-librespot running on the account it had — before, it answered 500 and could leave the speaker gone from every phone | targeted |
 
 ### Radio (C)
 
