@@ -60,8 +60,12 @@ const PARAMETRIC_EQ = join(SRC_DIR, 'components/equalizer/ParametricEQ.vue');
 const EQ_BAND = join(SRC_DIR, 'components/equalizer/EQBand.vue');
 const EQ_MODAL = join(SRC_DIR, 'components/equalizer/EqualizerModal.vue');
 
-/** Anything that builds, tests or takes apart the `zone:<id>` API token. */
-const ZONE_TOKEN = /(?:`zone:\$\{|['"]zone:)/;
+/**
+ * Anything that builds, tests or takes apart the `zone:<id>` API token: built
+ * (`zone:${id}`), concatenated ('zone:' + id, `zone:` + id), in the middle of
+ * a URL (/target/zone:${id}/crossover) or anchored in a regex (/^zone:/).
+ */
+const ZONE_TOKEN = /\bzone:(?:\$\{|['"`]\s*\+)|[/'"`^]zone:/;
 
 function sourceFiles(dir) {
   return readdirSync(dir).flatMap((entry) => {
@@ -196,6 +200,24 @@ describe('equalizerStore target scoping', () => {
     const readBack = stripComments(FUNCTIONS.find(f => f.name === '_updateEffect').body);
     expect([...readBack.matchAll(/\brecord\b[^\s;)]*/g)].map(m => m[0]))
       .toEqual(['record', 'record?.[name]', 'record[name]']);
+  });
+
+  it('the pattern catches the shapes it exists for', () => {
+    // A bypass of the store would most naturally build the URL itself, so the
+    // rule below is only as good as what this pattern sees.
+    const missed = [
+      'apiCall.put(`/api/equalizer/target/zone:${zone.id}/crossover`, {})',
+      '`zone:` + id',
+      "'zone:' + id",
+      "const u = 'http://a'; const t = `zone:${id}`",
+      'const m = target.match(/^zone:(.+)$/)',
+    ].filter(s => !ZONE_TOKEN.test(stripComments(s)));
+    expect(missed).toEqual([]);
+    // Near misses: the one src/ really holds (LanguageSettings), and a word
+    // that merely ends in "zone".
+    const flagged = ['timezone: `${area}/${loc}`', '`${date} timezone:${tz}`']
+      .filter(s => ZONE_TOKEN.test(stripComments(s)));
+    expect(flagged).toEqual([]);
   });
 
   it('spells the zone target in exactly one place', () => {

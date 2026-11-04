@@ -10,13 +10,13 @@
  * is the most natural thing a reader can do; it must not read as a violation.
  *
  * Handles block comments, line comments and HTML comments (a .vue template's
- * prose lives in `<!-- -->`). Line comments are matched greedily to end of line,
- * so do not hand this a file with `://` in it — none of the callers' inputs
- * have any.
+ * prose lives in `<!-- -->`). A `//` right after a colon is a URL's `://`, not a
+ * comment: cutting there hid the rest of every line holding a URL from each rule
+ * that reads src/ through this helper.
  */
 export function stripComments(source) {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\/\/.*$/gm, '');
+    .replace(/(?<!:)\/\/.*$/gm, '');
 }
