@@ -580,6 +580,25 @@ class TestRuntimeEventFilter:
         command.assert_awaited_once_with("playpause", {})
 
     @pytest.mark.asyncio
+    async def test_a_press_the_source_refuses_is_logged_as_the_ir_remotes(self, caplog):
+        """The knob, the IR and the BT remote each hold a dispatcher; a refused
+        press logged without its device leaves "which button did nothing?"
+        unanswered."""
+        controller = _runtime_controller(active_source=AudioSource.SPOTIFY)
+        command = controller.source_instance.command
+        command.return_value = {"success": False, "error": "No active session"}
+        await self._drive(controller, [
+            _event(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_PLAYPAUSE, 1),
+        ], until=lambda: command.await_count == 1)
+
+        warnings = [
+            r.getMessage() for r in caplog.records
+            if r.name == "backend.hardware.playback_dispatch" and r.levelname == "WARNING"
+        ]
+        assert len(warnings) == 1
+        assert "ir_remote" in warnings[0] and "playpause" in warnings[0]
+
+    @pytest.mark.asyncio
     async def test_autorepeat_on_play_pause_is_dropped(self):
         """value=2 is the kernel autorepeat: holding Center must not re-fire.
 

@@ -113,7 +113,7 @@ class BtRemoteController:
         self._volume = VolumeAccumulator(volume_service)
 
         # Playback dispatch (multi-click → play/pause, next, prev)
-        self._dispatcher = PlaybackDispatcher(state_machine)
+        self._dispatcher = PlaybackDispatcher(state_machine, device="bt_remote")
 
         self._config_lock = asyncio.Lock()
         self._scan_lock = asyncio.Lock()

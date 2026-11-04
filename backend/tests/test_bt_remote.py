@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import BtRemoteConfigChanged, BtRemoteStatusChanged
 from backend.core.settings import SettingsWriteError
 from backend.hardware import bt_remote as bt_remote_module
@@ -2046,6 +2047,29 @@ class TestUnknownActions:
             await bt.controller._dispatch_action("volume_up")
 
         assert "Error dispatching BT remote action" in caplog.text
+
+
+class TestRefusedPresses:
+    @pytest.mark.asyncio
+    async def test_a_press_the_source_refuses_is_logged_as_the_bt_remotes(
+        self, bt, caplog
+    ):
+        """The knob, the IR and the BT remote each hold a dispatcher; a refused
+        press logged without its device leaves "which button did nothing?"
+        unanswered."""
+        source = MagicMock()
+        source.command = AsyncMock(return_value={"success": False, "error": "No active session"})
+        bt.state_machine.system_state.active_source = AudioSource.SPOTIFY
+        bt.state_machine.get_source = MagicMock(return_value=source)
+
+        await bt.controller._dispatcher.dispatch_play_pause()
+
+        warnings = [
+            r.getMessage() for r in caplog.records
+            if r.name == "backend.hardware.playback_dispatch" and r.levelname == "WARNING"
+        ]
+        assert len(warnings) == 1
+        assert "bt_remote" in warnings[0] and "playpause" in warnings[0]
 
 
 class TestTheRemainingEntryGuards:

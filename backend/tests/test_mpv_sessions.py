@@ -324,7 +324,7 @@ async def test_radio_knob_during_buffering_stops_then_retunes_the_shown_station(
     await radio.mpv.opens()
     await radio.command("stop")
     await radio.tune(FIP)                   # buffering, no sound yet
-    dispatcher = PlaybackDispatcher(radio.machine)
+    dispatcher = PlaybackDispatcher(radio.machine, device="rotary")
 
     await dispatcher.dispatch_play_pause()
     await settle()
@@ -348,7 +348,7 @@ async def test_a_knob_press_the_radio_refuses_leaves_a_warning(radio, caplog):
     assert refusal["success"] is False
     caplog.clear()
 
-    await PlaybackDispatcher(radio.machine).dispatch_play_pause()
+    await PlaybackDispatcher(radio.machine, device="rotary").dispatch_play_pause()
 
     warnings = [
         r.getMessage() for r in caplog.records
@@ -356,6 +356,7 @@ async def test_a_knob_press_the_radio_refuses_leaves_a_warning(radio, caplog):
     ]
     assert len(warnings) == 1
     assert "radio" in warnings[0] and refusal["error"] in warnings[0]
+    assert "rotary" in warnings[0]
     assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
 

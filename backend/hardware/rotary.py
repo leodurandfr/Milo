@@ -46,7 +46,7 @@ class RotaryVolumeController:
         self._volume = VolumeAccumulator(volume_service)
 
         # Playback dispatch (multi-click → play/pause, next, prev)
-        self._dispatcher = PlaybackDispatcher(state_machine)
+        self._dispatcher = PlaybackDispatcher(state_machine, device="rotary")
 
         # Timing
         self._last_adjustment_time = 0

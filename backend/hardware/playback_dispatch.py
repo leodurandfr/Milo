@@ -44,16 +44,19 @@ _TRACK_NAV_SOURCES = {
 class PlaybackDispatcher:
     """Multi-click detection and playback command dispatch.
 
-    Each hardware controller (GPIO rotary, BT remote) creates its own
-    instance. Call ``on_click()`` on every button press — the dispatcher
+    Each hardware controller (GPIO rotary, IR remote, BT remote) creates its
+    own instance and names itself as ``device``, so a press the source refused
+    says which input it came from. Call ``on_click()`` on every button press —
+    the dispatcher
     accumulates clicks within a 400ms window, then resolves:
         1 click  → play/pause
         2 clicks → next track
         3+ clicks → previous track
     """
 
-    def __init__(self, state_machine):
+    def __init__(self, state_machine, *, device: str):
         self._state_machine = state_machine
+        self._device = device
         self._click_count = 0
         self._click_timer: Optional[asyncio.TimerHandle] = None
         self._bg = BackgroundTaskSet(logger, "playback_dispatch")
@@ -114,17 +117,17 @@ class PlaybackDispatcher:
 
         try:
             if active_source == AudioSource.SPOTIFY:
-                _report_refusal(active_source, "playpause",
-                                await source_instance.command("playpause", {}))
+                self._report_refusal(active_source, "playpause",
+                                     await source_instance.command("playpause", {}))
             elif active_source == AudioSource.RADIO:
                 # A live stream has no pause: stop tears it down, and coming
                 # back re-tunes the last station from scratch.
                 if source_instance.is_playing:
-                    _report_refusal(active_source, "stop",
-                                    await source_instance.command("stop", {}))
+                    self._report_refusal(active_source, "stop",
+                                         await source_instance.command("stop", {}))
                 else:
-                    _report_refusal(active_source, "resume_playback",
-                                    await source_instance.command("resume_playback", {}))
+                    self._report_refusal(active_source, "resume_playback",
+                                         await source_instance.command("resume_playback", {}))
             elif active_source in (
                 AudioSource.PODCAST, AudioSource.CD, AudioSource.MUSIC_LIBRARY,
                 # Tidal joins this branch rather than Spotify's: the tisoc
@@ -141,11 +144,11 @@ class PlaybackDispatcher:
                         and ("pause" if playing else "resume") not in source_instance.view.controls):
                     return
                 if playing:
-                    _report_refusal(active_source, "pause",
-                                    await source_instance.command("pause", {}))
+                    self._report_refusal(active_source, "pause",
+                                         await source_instance.command("pause", {}))
                 else:
-                    _report_refusal(active_source, "resume",
-                                    await source_instance.command("resume", {}))
+                    self._report_refusal(active_source, "resume",
+                                         await source_instance.command("resume", {}))
         except Exception as e:
             logger.error("Error dispatching play/pause to %s: %s", active_source.value, e)
 
@@ -161,13 +164,14 @@ class PlaybackDispatcher:
 
         if active_source == AudioSource.AIRPLAY and direction not in source_instance.view.controls:
             return
-        _report_refusal(active_source, direction, await source_instance.command(direction, {}))
+        self._report_refusal(active_source, direction,
+                             await source_instance.command(direction, {}))
 
-
-def _report_refusal(source: AudioSource, cmd: str, result: dict) -> None:
-    """`command()` never raises: a refusal or an interruption comes back as a
-    value, and most of them the source logs at DEBUG only. WARNING keeps a
-    press that did nothing in the journal and errors.log without a banner on
-    every press."""
-    if not result.get("success"):
-        logger.warning("Hardware %s not applied by %s: %s", cmd, source.value, result.get("error"))
+    def _report_refusal(self, source: AudioSource, cmd: str, result: dict) -> None:
+        """`command()` never raises: a refusal or an interruption comes back as
+        a value, and most of them the source logs at DEBUG only. WARNING keeps a
+        press that did nothing in the journal and errors.log without a banner on
+        every press; the device says which of the inputs it came from."""
+        if not result.get("success"):
+            logger.warning("Hardware %s from %s not applied by %s: %s",
+                           cmd, self._device, source.value, result.get("error"))

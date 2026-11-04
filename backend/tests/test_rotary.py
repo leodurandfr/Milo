@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from backend.core.models.audio_state import AudioSource
 from backend.hardware import rotary as rotary_module
 from backend.hardware.rotary import RotaryVolumeController
 
@@ -488,3 +489,30 @@ class TestTheAdaptivePollingLoop:
         assert len(delays) == 2, "the loop kept going after the failing tick"
         assert delays[0] == 1, "a failing tick backs off before retrying"
         assert "Error in monitoring loop" in caplog.text
+
+
+# ------------------------------------------------------------------ refusals
+async def test_a_press_the_source_refuses_is_logged_as_the_rotarys(caplog):
+    """The knob, the IR and the BT remote each hold a dispatcher; a refused
+    press logged without its device leaves "which button did nothing?"
+    unanswered."""
+    source = types.SimpleNamespace(
+        command=AsyncMock(return_value={"success": False, "error": "No active session"}),
+    )
+    state_machine = types.SimpleNamespace(
+        system_state=types.SimpleNamespace(active_source=AudioSource.SPOTIFY),
+        get_source=lambda _source: source,
+    )
+    controller = RotaryVolumeController(
+        types.SimpleNamespace(), state_machine=state_machine,
+        clk_pin=CLK, dt_pin=DT, sw_pin=SW,
+    )
+
+    await controller._dispatcher.dispatch_play_pause()
+
+    warnings = [
+        r.getMessage() for r in caplog.records
+        if r.name == "backend.hardware.playback_dispatch" and r.levelname == "WARNING"
+    ]
+    assert len(warnings) == 1
+    assert "rotary" in warnings[0] and "playpause" in warnings[0]

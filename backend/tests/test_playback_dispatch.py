@@ -35,7 +35,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_play_pause()
 
         source.command.assert_awaited_once_with("playpause", {})
@@ -47,7 +47,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.RADIO, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_play_pause()
 
         source.command.assert_awaited_once_with("stop", {})
@@ -59,7 +59,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.RADIO, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_play_pause()
 
         source.command.assert_awaited_once_with("resume_playback", {})
@@ -71,7 +71,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_play_pause()
 
         source.command.assert_awaited_once_with("pause", {})
@@ -83,7 +83,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_play_pause()
 
         source.command.assert_awaited_once_with("resume", {})
@@ -94,7 +94,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.MUSIC_LIBRARY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_track("next")
 
         source.command.assert_awaited_once_with("next", {})
@@ -106,7 +106,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.QOBUZ, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_play_pause()
 
         source.command.assert_not_called()
@@ -123,7 +123,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         source.is_playing = True
         source.view.controls = controls
-        dispatcher = PlaybackDispatcher(_make_state_machine(AudioSource.AIRPLAY, source))
+        dispatcher = PlaybackDispatcher(_make_state_machine(AudioSource.AIRPLAY, source), device="rotary")
 
         await dispatcher.dispatch_play_pause()
         await dispatcher.dispatch_track("next")
@@ -136,7 +136,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_track("next")
 
         source.command.assert_awaited_once_with("next", {})
@@ -149,7 +149,7 @@ class TestPublicDispatchMethods:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.PODCAST, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.dispatch_track("next")
 
         source.command.assert_not_called()
@@ -163,7 +163,7 @@ class TestMultiClickRouting:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.on_click()
         await asyncio.sleep(MULTI_CLICK_WINDOW + 0.1)
 
@@ -175,7 +175,7 @@ class TestMultiClickRouting:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.on_click()
         await dispatcher.on_click()
         await asyncio.sleep(MULTI_CLICK_WINDOW + 0.1)
@@ -188,7 +188,7 @@ class TestMultiClickRouting:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.on_click()
         await dispatcher.on_click()
         await dispatcher.on_click()
@@ -202,7 +202,7 @@ class TestMultiClickRouting:
         source.command = AsyncMock(return_value={"success": True})
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.on_click()
         await dispatcher.cleanup()
         await asyncio.sleep(MULTI_CLICK_WINDOW + 0.1)
@@ -239,7 +239,7 @@ class TestCleanupDrains:
         source.command = AsyncMock(side_effect=slow_command)
         sm = _make_state_machine(AudioSource.SPOTIFY, source)
 
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         await dispatcher.on_click()
         # The window has expired: the resolver is spawned and inside the command.
         await asyncio.wait_for(blocked.wait(), timeout=MULTI_CLICK_WINDOW + 1)
@@ -267,7 +267,7 @@ class TestASourceThatIsNotThere:
         lands in the `except` below — same silence to the user, but an ERROR in
         the journal on every press during a source restart."""
         dispatcher = PlaybackDispatcher(
-            _make_state_machine(AudioSource.SPOTIFY, None)
+            _make_state_machine(AudioSource.SPOTIFY, None), device="rotary"
         )
 
         await dispatcher.dispatch_play_pause()
@@ -277,7 +277,7 @@ class TestASourceThatIsNotThere:
     @pytest.mark.asyncio
     async def test_track_nav_on_a_source_with_no_instance_is_a_no_op(self, caplog):
         dispatcher = PlaybackDispatcher(
-            _make_state_machine(AudioSource.SPOTIFY, None)
+            _make_state_machine(AudioSource.SPOTIFY, None), device="rotary"
         )
 
         await dispatcher.dispatch_track("next")
@@ -289,11 +289,13 @@ class TestASourceThatIsNotThere:
         """`command()` never raises: a refusal (unknown command, SESSION scope
         with no session, the handler saying no) comes back as a value, logged
         by the source at DEBUG only — so a press the source turned down left no
-        trace in the journal. WARNING, not ERROR: no banner on every press."""
+        trace in the journal. WARNING, not ERROR: no banner on every press.
+        The line names the input device too: the knob, the IR and the BT remote
+        each hold a dispatcher, and without it nothing says which was pressed."""
         source = MagicMock()
         source.command = AsyncMock(return_value={"success": False, "error": "No active session"})
         dispatcher = PlaybackDispatcher(
-            _make_state_machine(AudioSource.SPOTIFY, source)
+            _make_state_machine(AudioSource.SPOTIFY, source), device="ir_remote"
         )
 
         await dispatcher.dispatch_play_pause()
@@ -301,6 +303,7 @@ class TestASourceThatIsNotThere:
         warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
         assert len(warnings) == 1
         assert "playpause" in warnings[0] and "spotify" in warnings[0]
+        assert "ir_remote" in warnings[0]
         assert "No active session" in warnings[0]
         assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
@@ -309,7 +312,7 @@ class TestASourceThatIsNotThere:
         source = MagicMock()
         source.command = AsyncMock(return_value={"success": False, "error": "No active session"})
         dispatcher = PlaybackDispatcher(
-            _make_state_machine(AudioSource.SPOTIFY, source)
+            _make_state_machine(AudioSource.SPOTIFY, source), device="bt_remote"
         )
 
         await dispatcher.dispatch_track("next")
@@ -317,6 +320,7 @@ class TestASourceThatIsNotThere:
         warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
         assert len(warnings) == 1
         assert "next" in warnings[0] and "spotify" in warnings[0]
+        assert "bt_remote" in warnings[0]
         assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
     @pytest.mark.asyncio
@@ -324,7 +328,7 @@ class TestASourceThatIsNotThere:
         source = MagicMock()
         source.command = AsyncMock(return_value={"success": True})
         dispatcher = PlaybackDispatcher(
-            _make_state_machine(AudioSource.SPOTIFY, source)
+            _make_state_machine(AudioSource.SPOTIFY, source), device="rotary"
         )
 
         await dispatcher.dispatch_play_pause()
@@ -341,7 +345,7 @@ class TestASourceThatIsNotThere:
         type(source).is_playing = PropertyMock(side_effect=RuntimeError("ipc socket gone"))
         source.command = AsyncMock(return_value={"success": True})
         dispatcher = PlaybackDispatcher(
-            _make_state_machine(AudioSource.PODCAST, source)
+            _make_state_machine(AudioSource.PODCAST, source), device="rotary"
         )
 
         await dispatcher.dispatch_play_pause()
@@ -357,7 +361,7 @@ class TestASourceThatIsNotThere:
         as a double."""
         sm = _make_state_machine(AudioSource.SPOTIFY, MagicMock())
         sm.get_source = MagicMock(side_effect=RuntimeError("state machine gone"))
-        dispatcher = PlaybackDispatcher(sm)
+        dispatcher = PlaybackDispatcher(sm, device="rotary")
         dispatcher._click_count = 1
 
         await dispatcher._resolve_clicks()
