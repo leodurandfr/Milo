@@ -275,11 +275,21 @@ class QobuzSource(BaseAudioSource):
             # The sidecar joined under this policy already: a re-sent value
             # (a resync, a retry) must not end the session for nothing.
             return True
-        return await self._submit(Result(self._restart_for_volume_policy))
+        applied = await self._submit(Result(self._restart_for_volume_policy))
+        if applied is None and previous is not None:
+            # Refused unread: the flag goes back, or the retry would read it as applied.
+            self._write_volume_flag(previous)
+        return applied is True
 
-    async def _restart_for_volume_policy(self) -> bool:
-        """The user's own request, not a death: the app lets go of the speaker."""
-        if not await self._is_service_active():
+    async def _restart_for_volume_policy(self) -> Optional[bool]:
+        """The user's own request, not a death: the app lets go of the speaker.
+        None when the sidecar's state cannot be read: it may run under the old
+        policy, and a restart would start a stopped one."""
+        running = await self.probe_service_active()
+        if running is None:
+            self._logger.error("Qobuz volume policy not applied: the sidecar's state cannot be read")
+            return None
+        if not running:
             return True
         if await self.end_session(EndReason.USER_STOP) is not None:
             self._publish()

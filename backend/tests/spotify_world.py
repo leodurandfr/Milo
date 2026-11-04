@@ -702,8 +702,13 @@ class SpotifyWorld(WireReader):
         systemd.start = AsyncMock(side_effect=self._unit_start)
         systemd.stop = AsyncMock(side_effect=self._unit_stop)
         systemd.restart = AsyncMock(side_effect=self._unit_restart)
-        systemd.is_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
         systemd.probe_active = AsyncMock(side_effect=lambda *_: self.pid is not None)
+
+        async def is_active(unit: str) -> bool:
+            # As SystemdServiceManager answers it: an unreadable probe is not up.
+            return await systemd.probe_active(unit) is True
+
+        systemd.is_active = AsyncMock(side_effect=is_active)
         systemd.main_pid = AsyncMock(side_effect=lambda *_: self.pid)
         # What systemd says of the unit once its process is gone (measured
         # 2026-09-24): (ActiveState, Result) is `activating`/`signal` after a

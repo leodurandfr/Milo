@@ -1077,7 +1077,11 @@ class SpotifySource(BaseAudioSource):
     async def _restart_for_settings(self) -> bool:
         """The restart itself, in the mailbox: it ends the session it restarts
         under (the user's own request, not a death)."""
-        if not await self._is_service_active():
+        running = await self.probe_service_active()
+        if running is None:
+            self._logger.error("Spotify settings not applied: go-librespot's state cannot be read")
+            return False
+        if not running:
             self._logger.info("Spotify settings stored; go-librespot is stopped, they apply at its next start")
             return True
 

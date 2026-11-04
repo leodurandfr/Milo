@@ -110,12 +110,13 @@ def create_qobuz_account_router(
 
         The relay to qobuz-proxy is what tears down the running speaker and drops
         its in-memory token — only meaningful while the sidecar runs, which is
-        only while Qobuz is the active source. Clearing the cache is what makes
-        the logout stick, and is done in both cases (the sidecar clears the same
-        keys on its side; rewriting them out is idempotent). A reachable proxy
-        returning a non-2xx is surfaced as a 502.
+        only while Qobuz is the active source, so it is skipped for a sidecar
+        known down, never on a probe that could not tell. Clearing the cache is
+        what makes the logout stick, and is done in both cases (the sidecar
+        clears the same keys on its side; rewriting them out is idempotent). A
+        reachable proxy returning a non-2xx is surfaced as a 502.
         """
-        if await systemd_manager.is_active(QOBUZ_SERVICE):
+        if await systemd_manager.probe_active(QOBUZ_SERVICE) is not False:
             try:
                 async with aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(total=5.0)

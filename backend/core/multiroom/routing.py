@@ -455,7 +455,9 @@ class AudioRoutingService:
             self.logger.info("SNAPCAST_RECONCILE: starting snapcast services")
             started = await self._start_snapcast()
             self.logger.info(f"SNAPCAST_RECONCILE: start result={started}")
-        elif not self.multiroom_enabled and (server_running or client_running):
+        elif not self.multiroom_enabled:
+            # Not gated on the probe: one that timed out, or a unit `activating`
+            # in a failure loop, reads as stopped, and this reconcile runs once.
             self.logger.info("SNAPCAST_RECONCILE: stopping snapcast services")
             stopped = await self._stop_snapcast()
             self.logger.info(f"SNAPCAST_RECONCILE: stop result={stopped}")

@@ -354,8 +354,8 @@ class SystemdServiceManager:
         """Whether the unit is known to be active — an unreadable probe is not.
 
         Kept as the bool every status reader wants (`api/system.py`, the
-        diagnostic collectors, the lifespan sweep). A caller that acts on the
-        answer rather than displaying it wants `probe_active` instead.
+        diagnostic collectors). A caller that acts on the answer rather than
+        displaying it wants `probe_active` instead.
         """
         return await self.probe_active(service) is True
 

@@ -361,6 +361,29 @@ async def test_a_refused_stop_writes_no_state_json(world):
     assert world.pid == pid
 
 
+async def test_an_unreadable_probe_never_rewrites_state_json_under_a_running_daemon(world):
+    """A probe that timed out cannot tell a running daemon from a stopped one.
+    Read as stopped, the file was written under the live daemon, which
+    rewrote it on its own and stayed on the old account while the switch
+    answered success."""
+    await world.cast_from(GUEST)
+    await world.idle()
+    before = world.stored_state()
+    pid = world.pid
+    world.systemd.probe_active = AsyncMock(return_value=None)
+    world.systemd.stop.reset_mock()
+    world.systemd.start.reset_mock()
+
+    with pytest.raises(HTTPException) as refused:
+        await routes.set_active_profile(ActiveProfileRequest(username=ACCOUNT), source=world.source)
+
+    assert refused.value.status_code == 503
+    assert world.stored_state() == before
+    world.systemd.stop.assert_not_awaited()
+    world.systemd.start.assert_not_awaited()
+    assert world.pid == pid
+
+
 async def test_a_stop_answered_false_that_went_through_still_switches(world):
     """A stop call that times out while systemd carries it out reads False:
     refusing then would leave Milō gone from every phone."""

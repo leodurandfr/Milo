@@ -1022,13 +1022,17 @@ PODCAST_UNIT = "milo-podcast.service"
 class Systemd:
     """systemd for the units a test puts up: what it was asked, what is up.
 
-    A start or a stop can be held open (`systemctl` is a subprocess, and other
-    tasks run while it answers); `probes` counts the is-active answers given,
-    and `asked` names the units `is_active` was asked about.
+    One truth per unit, `units[name]` = (ActiveState, Result), or None when it
+    cannot be read; a unit never loaded is ("inactive", "success"), as
+    SystemdServiceManager.unit_state answers it. `probe_active`, `is_active`
+    and `unit_state` all derive from it. A start or a stop can be held open
+    (`systemctl` is a subprocess, and other tasks run while it answers);
+    `probes` counts the is-active answers given, and `asked` names the units
+    whose state was read.
     """
 
     def __init__(self, *, up=(), refuse: bool = False) -> None:
-        self.active = {name: True for name in up}
+        self.units = {name: ("active", "success") for name in up}
         self.calls = []
         # RefuseManualStop=yes on every unit.
         self.refuse = refuse
@@ -1037,11 +1041,22 @@ class Systemd:
         self.probes = 0
         self.asked = []
 
+    def _state(self, name: str):
+        return self.units.get(name, ("inactive", "success"))
+
+    def _up(self, name: str) -> Optional[bool]:
+        state = self._state(name)
+        return None if state is None else state[0] == "active"
+
+    @property
+    def active(self):
+        return {name: self._up(name) for name in self.units}
+
     async def start(self, name: str) -> bool:
         self.calls.append(f"start {name}")
         if self.start_held is not None:
             await self.start_held.wait()
-        self.active[name] = True
+        self.units[name] = ("active", "success")
         return True
 
     async def stop(self, name: str) -> bool:
@@ -1050,16 +1065,19 @@ class Systemd:
             await self.stop_held.wait()
         if self.refuse:
             return False
-        self.active[name] = False
+        self.units[name] = ("inactive", "success")
         return True
 
-    async def probe_active(self, name: str) -> bool:
+    async def probe_active(self, name: str) -> Optional[bool]:
         self.probes += 1
-        return self.active[name]
+        return self._up(name)
 
     async def is_active(self, name: str) -> bool:
+        return self._up(name) is True
+
+    async def unit_state(self, name: str):
         self.asked.append(name)
-        return self.active.get(name, False)
+        return self._state(name)
 
 
 def unit_source(systemd: Systemd, unit: str):
@@ -1979,8 +1997,8 @@ class TestLingeringUnitSweep:
         assert systemd.active[SPOTIFY_UNIT] is True
 
     async def test_a_source_that_owns_no_unit_is_never_probed(self):
-        """Passed through, `systemctl is-active None` is a spawn per boot with a
-        nonsense argument, and its answer would decide a stop."""
+        """Passed through, None is a unit read per boot with a nonsense name,
+        and its answer would decide a stop."""
         systemd = Systemd()
         machine = AudioStateMachine()
         machine.register_source(AudioSource.RADIO, make_source(service_name=None))
@@ -2005,11 +2023,26 @@ class TestLingeringUnitSweep:
         """The common case — a cold boot. A stop issued anyway is a privileged
         spawn per source on every single start."""
         systemd = Systemd()
+        systemd.units = {RADIO_UNIT: ("inactive", "success"), SPOTIFY_UNIT: ("failed", "exit-code")}
         machine = self._machine(systemd, RADIO_UNIT, SPOTIFY_UNIT)
 
         await machine.stop_lingering_units(systemd)
 
         assert systemd.calls == []
+
+    @pytest.mark.parametrize("state", [None, ("activating", "exit-code")])
+    async def test_an_unreadable_or_activating_unit_is_still_stopped(self, state):
+        """A probe that timed out under the boot's load, or a unit between two
+        runs of `Restart=always` (`activating`), is not known down: left
+        alone, it comes back up castable while the UI shows no source and
+        offers no stop, and holds hw:Loopback,0,0 against the first pick."""
+        systemd = Systemd()
+        systemd.units = {RADIO_UNIT: state}
+        machine = self._machine(systemd, RADIO_UNIT)
+
+        await machine.stop_lingering_units(systemd)
+
+        assert systemd.calls == [f"stop {RADIO_UNIT}"]
 
 
 class TestRerouteOfAFailedSource:

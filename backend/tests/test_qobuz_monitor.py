@@ -504,7 +504,7 @@ def source(flag):
     src._service_manager = Mock()
     src._service_manager.start = AsyncMock(return_value=True)
     src._service_manager.stop = AsyncMock(return_value=True)
-    src._service_manager.is_active = AsyncMock(return_value=True)
+    src._service_manager.probe_active = AsyncMock(return_value=True)
     src._settings_service = Mock()
     src._settings_service.get_setting = AsyncMock(
         return_value={"allow_app_volume": False}
@@ -577,7 +577,6 @@ class TestTheVolumePolicyFlag:
         """The app is told whether it owns the slider only when the sidecar
         joins the session. Without the restart it keeps the inert slider it
         was given while locked, until the next source switch."""
-        source._is_service_active = AsyncMock(return_value=True)
         source._restart_service_and_wait = AsyncMock(return_value=True)
 
         assert await source.on_allow_app_volume_changed(True) is True
@@ -589,7 +588,6 @@ class TestTheVolumePolicyFlag:
         """Locking must reset an already-lowered stream to unity at once, and
         only a restart forces that. Without it the speaker stays at whatever
         level the app left it at, while the UI says Milō owns the volume."""
-        source._is_service_active = AsyncMock(return_value=True)
         source._restart_service_and_wait = AsyncMock(return_value=True)
 
         assert await source.on_allow_app_volume_changed(False) is True
@@ -602,7 +600,6 @@ class TestTheVolumePolicyFlag:
         """A settings resync or a retry PUTs the value already in force: the
         sidecar joined under it, and a restart would end the session playing."""
         flag.write_text("1" if allowed else "0")
-        source._is_service_active = AsyncMock(return_value=True)
         source._restart_service_and_wait = AsyncMock(return_value=True)
 
         assert await source.on_allow_app_volume_changed(allowed) is True
@@ -613,7 +610,7 @@ class TestTheVolumePolicyFlag:
     async def test_the_toggle_does_not_bounce_a_stopped_sidecar(self, source, flag, allowed):
         """There is no stream to reset nor session to rejoin, and starting one
         here would bring Qobuz up on a source nobody selected."""
-        source._is_service_active = AsyncMock(return_value=False)
+        source._service_manager.probe_active = AsyncMock(return_value=False)
         source._restart_service_and_wait = AsyncMock(return_value=True)
 
         assert await source.on_allow_app_volume_changed(allowed) is True

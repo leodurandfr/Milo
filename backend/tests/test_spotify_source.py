@@ -161,7 +161,12 @@ def spotify_source(config):
     source._service_manager.start = AsyncMock(return_value=True)
     source._service_manager.stop = AsyncMock(return_value=True)
     source._service_manager.restart = AsyncMock(return_value=True)
-    source._service_manager.is_active = AsyncMock(return_value=True)
+    source._service_manager.probe_active = AsyncMock(return_value=True)
+
+    async def is_active(unit):
+        return await source._service_manager.probe_active(unit) is True
+
+    source._service_manager.is_active = AsyncMock(side_effect=is_active)
 
     return source
 
@@ -938,9 +943,22 @@ class TestManagedConfig:
         unconditionally (pinned by the sibling test above) and parsed at every
         start, so the value is live the moment Spotify is next selected.
         """
-        spotify_source._service_manager.is_active = AsyncMock(return_value=False)
+        spotify_source._service_manager.probe_active = AsyncMock(return_value=False)
 
         assert await spotify_source.on_spotify_settings_changed(apply_now=True) is True
+
+        spotify_source._service_manager.restart.assert_not_called()
+        spotify_source._service_manager.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_spotify_settings_under_an_unreadable_probe_are_refused(self, spotify_source):
+        """A probe that timed out cannot tell a running daemon from a stopped
+        one. Read as stopped, the button answered "applied" while go-librespot
+        kept running on the old crossfade; restarted, a stopped unit would be
+        STARTED behind the state machine. Neither: the answer says it failed."""
+        spotify_source._service_manager.probe_active = AsyncMock(return_value=None)
+
+        assert await spotify_source.on_spotify_settings_changed(apply_now=True) is False
 
         spotify_source._service_manager.restart.assert_not_called()
         spotify_source._service_manager.start.assert_not_called()

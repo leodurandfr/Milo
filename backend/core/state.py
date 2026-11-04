@@ -875,13 +875,22 @@ class AudioStateMachine:
         which has already started the IR listener: a MENU press in that window
         selects a source, and its unit is up on purpose. Under the transition
         lock, so a press landing during the sweep starts its source after it.
+
+        A unit is spared only when it is known down (`inactive`, `failed`): an
+        unreadable state or one `activating` between two runs of `Restart=`
+        is stopped, since a stop of a unit already down costs one spawn and a
+        unit left up stays castable behind a UI showing no source.
         """
         async with self._transition_lock:
             active = self.system_state.active_source
-            lingering = [
+            units = [
                 instance.service_name for source, instance in self.sources.items()
                 if source != active and instance and instance.service_name
-                and await systemd_manager.is_active(instance.service_name)
+            ]
+            states = await asyncio.gather(*[systemd_manager.unit_state(unit) for unit in units])
+            lingering = [
+                unit for unit, state in zip(units, states)
+                if state is None or state[0] not in ("inactive", "failed")
             ]
             if lingering:
                 logger.info("Stopping lingering source services: %s", lingering)

@@ -792,8 +792,14 @@ class TestAudioRoutingService:
         assert mock_systemd_manager.stop.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_sync_snapcast_state_noop_when_coherent(self, routing_service, mock_settings_service, mock_systemd_manager):
-        """Phase 2: settings says multiroom=false and snapcast is already down → no calls."""
+    async def test_direct_mode_reconcile_stops_snapcast_whatever_the_probe_reads(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """`is_active` reads False for a probe that timed out under the boot's
+        load and for a unit `activating` in a failure loop. Taken as "already
+        coherent", a snapclient left up kept hw:Loopback,0,0 and the direct
+        source stayed silent until the next boot: this reconcile runs once.
+        A stop of a unit already down costs one confirmed probe."""
         _seed_multiroom(mock_settings_service, False)
         mock_systemd_manager.is_active = AsyncMock(return_value=False)
         mock_systemd_manager.start = AsyncMock(return_value=True)
@@ -802,7 +808,9 @@ class TestAudioRoutingService:
         await routing_service._sync_snapcast_state()
 
         mock_systemd_manager.start.assert_not_called()
-        mock_systemd_manager.stop.assert_not_called()
+        assert [c.args[0] for c in mock_systemd_manager.stop.await_args_list] == [
+            "milo-snapclient-multiroom.service", "milo-snapserver-multiroom.service",
+        ]
 
     @staticmethod
     def _snapcast(conf_changed: bool):

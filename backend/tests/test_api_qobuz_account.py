@@ -55,7 +55,6 @@ def cache(tmp_path, monkeypatch):
 def systemd():
     manager = Mock()
     manager.start = AsyncMock(return_value=True)
-    manager.is_active = AsyncMock(return_value=False)
     manager.probe_active = AsyncMock(return_value=False)
     return manager
 
@@ -187,20 +186,15 @@ class TestLogout:
         start signs back in.
         """
         cache.write_text(json.dumps(CREDENTIALS))
-        systemd.is_active = AsyncMock(return_value=False)
+        systemd.probe_active = AsyncMock(return_value=False)
 
         client.post("/api/qobuz/account/logout")
 
         assert json.loads(cache.read_text()) == {}
 
-    def test_a_running_sidecar_is_told_first_so_the_live_session_ends(
-        self, client, cache, systemd, monkeypatch
-    ):
-        """Clearing the file alone leaves the speaker advertised and playing
-        from an in-memory token until the process dies.
-        """
-        cache.write_text(json.dumps(CREDENTIALS))
-        systemd.is_active = AsyncMock(return_value=True)
+    @pytest.fixture
+    def relayed(self, monkeypatch):
+        """The URLs the logout posted to qobuz-proxy, which answers 200."""
         posted = []
 
         class _Resp:
@@ -219,10 +213,36 @@ class TestLogout:
                 return _Resp()
 
         monkeypatch.setattr(qobuz_account.aiohttp, "ClientSession", _Session)
+        return posted
+
+    def test_a_running_sidecar_is_told_first_so_the_live_session_ends(
+        self, client, cache, systemd, relayed
+    ):
+        """Clearing the file alone leaves the speaker advertised and playing
+        from an in-memory token until the process dies.
+        """
+        cache.write_text(json.dumps(CREDENTIALS))
+        systemd.probe_active = AsyncMock(return_value=True)
 
         client.post("/api/qobuz/account/logout")
 
-        assert posted == ["http://127.0.0.1:8689/api/auth/logout"]
+        assert relayed == ["http://127.0.0.1:8689/api/auth/logout"]
+        assert json.loads(cache.read_text()) == {}
+
+    def test_a_logout_under_an_unreadable_probe_still_reaches_the_sidecar(
+        self, client, cache, systemd, relayed
+    ):
+        """A probe that timed out is not a sidecar known down: skipping the
+        relay then left the speaker signed in from its in-memory token while
+        the screen said disconnected. A relay to a proxy that is down only
+        costs the warning of an unreachable one.
+        """
+        cache.write_text(json.dumps(CREDENTIALS))
+        systemd.probe_active = AsyncMock(return_value=None)
+
+        client.post("/api/qobuz/account/logout")
+
+        assert relayed == ["http://127.0.0.1:8689/api/auth/logout"]
         assert json.loads(cache.read_text()) == {}
 
     def test_a_cache_with_no_token_is_left_untouched(self, client, cache):
