@@ -109,7 +109,7 @@
       </div>
 
       <!-- TOGGLE CONTROL -->
-      <div class="toggle-wrapper">
+      <div class="toggle-wrapper" :class="{ 'offline': isOffline && !isLoading }">
         <!-- Skeleton shimmer -->
         <div
           class="toggle-skeleton shimmer"
@@ -755,6 +755,18 @@ function handleClientMuteToggle(clientMacId, muted) {
 .control-toggle.visible {
   opacity: 1;
   transition: opacity var(--transition-reveal);
+}
+
+/* Offline, the column holds the placeholder alone and takes its width, as a zone
+   member's row does, so the bar and the placeholder end on the member rows' edges —
+   centered in the toggle's box they fell short of them (desktop: bar 12px, placeholder
+   6px). Not while loading, where the toggle skeleton still sits in this column. */
+.toggle-wrapper.offline {
+  width: auto;
+}
+
+.toggle-wrapper.offline .control-toggle {
+  position: static;
 }
 
 /* === EXPANDED CLIENTS SECTION === */
