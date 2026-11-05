@@ -587,12 +587,16 @@ async def test_a_disc_ejected_during_its_lookup_is_not_written_back(world):
     assert w.availability() == "no_disc"
 
 
-async def test_a_lookup_that_fails_leaves_the_disc_playable_with_plain_titles(world):
+async def test_a_lookup_that_fails_leaves_the_disc_playable_untitled(world):
+    """Nothing names the tracks, so the wire names none: each screen numbers
+    the track from `current_track`, in its own language — an English
+    "Track N" written here reached every phone and every interface as is."""
     w = await world()
     w.lookup_raises = True
     await w.select()
-    assert w.session()["title"] == "Track 1"
-    assert w.disc()["tracks"][1]["title"] == "Track 2"
+    assert w.session()["title"] is None
+    assert w.track() == 1
+    assert {t["title"] for t in w.disc()["tracks"]} == {None}
     assert (await w.command("play_track", {"track_number": 2}))["success"] is True
 
 

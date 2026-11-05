@@ -92,7 +92,7 @@ class FakeCdData:
 
     async def lookup_metadata(self, disc_id, toc_string, tracks) -> DiscInfo:
         named = self.known.get(disc_id)
-        titles = named["titles"] if named else [f"Track {t['number']}" for t in tracks]
+        titles = named["titles"] if named else [None] * len(tracks)
         info = [
             TrackInfo(number=t["number"], title=title, duration=t["duration"])
             for t, title in zip(tracks, titles)
@@ -106,6 +106,7 @@ class FakeCdData:
             track_count=len(info),
             total_duration=sum(t.duration for t in info),
             tracks=info,
+            identified=bool(named),
         )
 
     def cover_fetchable(self, disc_id: str) -> bool:

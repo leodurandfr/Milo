@@ -957,9 +957,9 @@ export const SOURCE_PAGES = [
       published(
         'cd',
         'Disc not identified',
-        'The same screen as above with the MusicBrainz lookup having found nothing — a burned disc, an obscure pressing, or any disc while the unit is offline. The TOC alone answers: generic "Track N" titles from the real track count and durations, and no album, artist, year or cover. The player is admitted on the title alone and draws "Unknown Artist" — the honest label here — over the disc placeholder. Demanding an artist too is what once left this player on its empty seed over a tracklist that listed the tracks correctly.',
+        'The same screen as above with the MusicBrainz lookup having found nothing — a burned disc, an obscure pressing, or any disc while the unit is offline. The TOC alone answers: the real track count and durations, and no title, album, artist, year or cover. The player is admitted on the track number (`details.current_track`), names it "Track 1" in the language of the screen, and draws "Unknown Artist" — the honest label here — over the disc placeholder. Demanding an artist too is what once left this player on its empty seed over a tracklist that listed the tracks correctly.',
         {
-          resume: { title: 'Track 1', artist: null, album: null, artwork: null, duration_ms: 312000, position_ms: 0 },
+          resume: { title: null, artist: null, album: null, artwork: null, duration_ms: 312000, position_ms: 0 },
           controls: ['resume', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'set_repeat', 'play_track', 'eject'],
           details: cdDetails(1, {
             id: 'JXbxvhCUq4rHKnvNGkzZgL3xIxA-',
@@ -967,7 +967,7 @@ export const SOURCE_PAGES = [
             artist: null,
             year: null,
             cover_url: null,
-            tracks: CD_TRACKS.map(track => ({ ...track, title: `Track ${track.number}` }))
+            tracks: CD_TRACKS.map(track => ({ ...track, title: null }))
           })
         }
       ),

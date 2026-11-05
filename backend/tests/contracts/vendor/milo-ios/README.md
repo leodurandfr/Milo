@@ -13,11 +13,12 @@ the manifest against the real app **with no network**:
 | `MiloNowPlayingBridge.swift` | the lock screen's device list (`/api/volume/state`) **and** the rule that decides whether the card exists |
 | `MiloAudioState.swift` | no route: the one decoder of `/api/audio/state`, vendored for the payload invariants |
 | `ViewController.swift` | the app's launch probe (`probeMilo`), a whole URL to `/api/audio/state` |
+| `MiloSessionAttributes.swift` | no route: the type the system decodes Milō's Now Playing push into, vendored so the push's keys are held to it |
 
 Every call but one goes through `MiloAPIClient` — the three App Intents and the
 widget's timeline provider build no URL of their own — but it is **no longer one
 file**, and the vendored set is matched by the patterns
-`("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift", "ViewController.swift")`
+`("MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift", "ViewController.swift", "MiloSessionAttributes.swift")`
 rather than a frozen list.
 
 The one exception is `ViewController.probeMilo`, which asks
@@ -68,7 +69,7 @@ of the manifest and a manifest ahead of the snapshot both fail
 that the backend does not serve would be named in `_broken_calls`; the section
 held one until `741f8dc1` and is absent while there is none.
 
-Captured from upstream `855904ddb9022a2b7f3d79c543a942afd6825a0d` on 2026-11-04.
+Captured from upstream `876de22cdf7e22966ce7ff57d490ba946bf13750` on 2026-11-05.
 
 **This line was two refreshes stale when 4b9e73f was taken**, and it is worth saying
 where: it still named `be15c1f` after `741f8dc1 -> 0edead3` and again after

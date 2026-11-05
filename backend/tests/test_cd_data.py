@@ -261,15 +261,17 @@ class TestParsingARelease:
         assert [t["duration"] for t in tracks] == [83, 521]
 
     def test_a_release_with_nothing_filled_in_still_parses(self, service):
+        """What the release does not name stays unnamed: the screen labels it
+        in the listener's language, never an English word written here."""
         album, artist, year, rel, rg, tracks = service._parse_release({})
-        assert (album, artist, year, rel, rg) == \
-            ("Unknown Album", "Unknown Artist", "", "", "")
+        assert (album, artist, year, rel, rg) == (None, None, "", "", "")
         assert tracks == []
 
-    def test_a_recording_with_no_title_is_numbered(self, service):
+    def test_a_recording_with_no_title_stays_untitled(self, service):
         _a, _ar, _y, _r, _rg, tracks = service._parse_release(
             {"medium-list": [{"track-list": [{"recording": {}}, {"recording": {}}]}]})
-        assert [t["title"] for t in tracks] == ["Track 1", "Track 2"]
+        assert [t["title"] for t in tracks] == [None, None]
+        assert [t["number"] for t in tracks] == [1, 2]
         assert [t["duration"] for t in tracks] == [0, 0]
 
     def test_a_release_under_disc_is_preferred_to_a_bare_release_list(self, service):
@@ -306,11 +308,11 @@ class TestMergingTitlesOntoTheToc:
         assert [t["duration"] for t in merged] == [200, 150, 180]
         assert [t["title"] for t in merged] == ["One", "Two", "Three"]
 
-    def test_a_catalogue_entry_shorter_than_the_disc_numbers_the_rest(self, service):
+    def test_a_catalogue_entry_shorter_than_the_disc_keeps_the_rest_untitled(self, service):
         """A release whose medium is not this disc — a single where the disc is
         the album — must not drop the tracks it does not know about."""
         merged = service._merge_tracks([{"title": "One"}], self.TOC)
-        assert [t["title"] for t in merged] == ["One", "Track 2", "Track 3"]
+        assert [t["title"] for t in merged] == ["One", None, None]
         assert len(merged) == len(self.TOC)
 
     def test_a_catalogue_entry_longer_than_the_disc_is_cut_to_the_disc(self, service):
@@ -377,17 +379,34 @@ class TestLookupMetadata:
         info = await service.lookup_metadata("d1", "toc", [])
         assert info.cover_url is None
 
+    async def test_a_release_with_no_title_still_counts_as_identified(
+            self, service, tmp_path, monkeypatch):
+        """The source asks MusicBrainz again only for a disc it did not name.
+        A release it named that leaves its album out is answered: asking again
+        would hit the cache every retry interval, for as long as the disc
+        stays in."""
+        service._data_file = str(tmp_path / "cd_data.json")
+        self._catalogue(monkeypatch, {"disc": {"release-list": [
+            {"id": "rel-1", "medium-list": [{"track-list": [{"recording": {}}, {"recording": {}}]}]},
+        ]}})
+        info = await service.lookup_metadata("d1", "toc", self.TOC)
+
+        assert info.album is None
+        assert info.identified
+        assert [t.title for t in info.tracks] == [None, None]
+
     async def test_an_unknown_disc_still_comes_back_playable(self, service, monkeypatch):
         """MusicBrainz reachable but the disc unknown: the fallback carries the
-        TOC's own track count and durations, so the disc plays with generic
-        names instead of not appearing at all."""
+        TOC's own track count and durations, so the disc plays untitled
+        instead of not appearing at all."""
         import musicbrainzngs
         self._catalogue(monkeypatch, musicbrainzngs.ResponseError("404"))
         info = await service.lookup_metadata("d1", "toc", self.TOC)
 
         assert info.album is None and info.artist is None
-        assert [t.title for t in info.tracks] == ["Track 1", "Track 2"]
+        assert [t.title for t in info.tracks] == [None, None]
         assert info.total_duration == 350
+        assert not info.identified, "the source would never ask MusicBrainz again"
         assert info.cover_url is None
         assert "d1" not in service._cache, "a fallback was cached as if it were known"
 

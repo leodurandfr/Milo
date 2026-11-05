@@ -195,6 +195,28 @@ describe('useRichDisplay', () => {
     expect(richSource.value).toBe('cd');
   });
 
+  it('shows the CD player on a track nothing names, by its number', () => {
+    // A burned disc, or one read offline: the backend names no track, and the
+    // player names it from `current_track` rather than giving way to the card.
+    const cd = { kind: 'cd', disc: null, current_track: 3, artwork_pending: false, shuffle: false, repeat: 'off' };
+    publishState(store, {
+      source: 'cd',
+      service: 'running',
+      session: makeSession({ title: null, artist: null, album: null }),
+      details: cd,
+    });
+    expect(richSource.value).toBe('cd');
+
+    publishState(store, {
+      source: 'cd',
+      service: 'running',
+      session: null,
+      resume: { title: null, artist: null, album: null, artwork: null, duration_ms: 1000, position_ms: 0 },
+      details: cd,
+    });
+    expect(richSource.value).toBe('cd');
+  });
+
   it("gives an untrusted AirPlay sender's tiny cover to the card", () => {
     const airplay = { source: 'airplay', service: 'running', session: PLAYING };
     publishState(store, { ...airplay, details: { kind: 'airplay', artwork_width: 64 } });

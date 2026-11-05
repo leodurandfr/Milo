@@ -53,13 +53,6 @@ SOURCE_CARDS: Dict[str, Tuple[str, str]] = {
 # is sent for it: see `source_card`.
 MILO_CARD: Tuple[str, str] = ("Milō", "milo")
 
-# The title of a CD track nothing names (a burned disc, a disc read offline):
-# its number, under the screen's French word (`audioSources.cdSource.trackN`).
-# Fixed for the same reason as SOURCE_CARDS, and spelled as Milo-iOS spells it
-# (`MiloSourceCard.untitledTrack`). Change both or neither.
-UNTITLED_CD_TRACK = "Morceau {}"
-
-
 @dataclass
 class NowPlayingDevice:
     """One speaker, as the lock screen's per-room slider sees it."""
@@ -85,8 +78,9 @@ def widget_payload() -> Dict[str, Any]:
 def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """What the card shows: the session if it names something, else the
     resume point, else nothing (docs: "le fil", §9 — the rule Milo-iOS'
-    `MiloAudioState.shown` follows too). An untitled CD track is named by its
-    number, `details.current_track`."""
+    `MiloAudioState.shown` follows too). An untitled CD track is shown by its
+    number, `details.current_track`, carried as `track_number`: Milō does not
+    know the phone's language, so Milo-iOS names it (`MiloUntitledTrack`)."""
     details = state.get("details") or {}
     number = details.get("current_track") if details.get("kind") == "cd" else None
     for key in ("session", "resume"):
@@ -96,7 +90,7 @@ def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if candidate.get("title"):
             return candidate
         if number is not None:
-            return {**candidate, "title": UNTITLED_CD_TRACK.format(number)}
+            return {**candidate, "track_number": number}
     return None
 
 
@@ -141,6 +135,8 @@ def build_attributes(
     anchor = session.get("position")
     shown = shown_track(state) or source_card(state)
     title = shown.get("title")
+    number = shown.get("track_number")
+    source = state.get("source") or "none"
 
     return {
         "id": session_id,
@@ -150,8 +146,11 @@ def build_attributes(
         "currentTrack": {
             # Changes with what is displayed: without it the system keeps the
             # previous artwork and title, having no way to know the content moved.
-            "id": f"{state.get('source') or 'none'}:{title or ''}",
+            # Spelled as Milo-iOS spells it (`MiloTrackID.make`).
+            "id": f"{source}:#{number}" if number is not None else f"{source}:{title or ''}",
             "title": title,
+            # Only for an untitled CD track, whose title is then null.
+            "trackNumber": number,
             "artist": shown.get("artist"),
             "album": shown.get("album"),
             "duration": _seconds(shown.get("duration_ms")),

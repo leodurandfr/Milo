@@ -114,30 +114,43 @@ class TestNowPlayingAttributes:
         assert (track["title"], track["artist"], track["duration"]) == ("Episode 12", "Host", 1800.0)
 
     @pytest.mark.parametrize("record", ["session", "resume"])
-    def test_an_untitled_cd_track_is_named_by_its_number(self, record):
-        """A burned disc, or one read offline, names no track: the card names
-        it by its number, as Milo-iOS does from the same state, rather than the
-        « Lecteur CD » card the app would not draw. Two cards for one state
-        flip the lock screen at every round trip."""
-        untitled = {"title": None, "artist": None, "album": None, "artwork": None,
-                    "duration_ms": 245000}
-        state = {
-            "source": "cd", "controls": [], "session": None, "resume": None,
-            "details": {"kind": "cd", "disc": None, "current_track": 3,
-                        "artwork_pending": False, "shuffle": False, "repeat": "off"},
-        }
-        if record == "session":
-            state["session"] = {**untitled, "id": "c-1", "phase": "playing",
-                                "senders": [], "position": None}
-        else:
-            state["resume"] = {**untitled, "position_ms": 0}
+    def test_an_untitled_cd_track_carries_its_number_not_a_label(self, record):
+        """A burned disc, or one read offline, names no track. Milō does not
+        know the phone's language, so the card carries the number and Milo-iOS
+        names it; a label written here was French on every phone. The card is
+        still the track's, never the « Lecteur CD » card, and its id changes
+        with every track so the system re-reads the content."""
+        def track_for(number):
+            untitled = {"title": None, "artist": None, "album": None, "artwork": None,
+                        "duration_ms": 245000}
+            state = {
+                "source": "cd", "controls": [], "session": None, "resume": None,
+                "details": {"kind": "cd", "disc": None, "current_track": number,
+                            "artwork_pending": False, "shuffle": False, "repeat": "off"},
+            }
+            if record == "session":
+                state["session"] = {**untitled, "id": "c-1", "phase": "playing",
+                                    "senders": [], "position": None}
+            else:
+                state["resume"] = {**untitled, "position_ms": 0}
+            return build_attributes("sess", state, [], now=NOW)["currentTrack"]
 
+        third, fourth = track_for(3), track_for(4)
+
+        assert third["title"] is None
+        assert third["trackNumber"] == 3
+        assert third["duration"] == 245.0
+        assert third["artworkURL"] is None
+        assert third["id"] != fourth["id"]
+        assert third["id"].startswith("cd:")
+
+    def test_a_titled_track_carries_no_number(self, state):
+        """The number is only a CD's stand-in for a title: a track that has
+        one is named by it, on every source."""
         track = build_attributes("sess", state, [], now=NOW)["currentTrack"]
 
-        assert track["title"] != SOURCE_CARDS["cd"][0]
-        assert track["title"].endswith(" 3")
-        assert track["duration"] == 245.0
-        assert track["id"] == f"cd:{track['title']}"
+        assert track["title"] == "Un parmi des millions"
+        assert track["trackNumber"] is None
 
     def test_a_titled_session_wins_over_the_resume_point(self, state):
         state["resume"] = {"title": "Older", "artist": None, "album": None,

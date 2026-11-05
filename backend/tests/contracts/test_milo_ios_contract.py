@@ -710,21 +710,67 @@ def test_the_two_apps_decode_the_state_with_one_file():
     )
 
 
-def test_an_untitled_cd_track_is_spelled_as_the_app_spells_it():
-    """The push (`payloads.shown_track`) and the app's own card
-    (`MiloSourceCard.untitledTrack`) name an untitled CD track for the same
-    session: two spellings make the Lock Screen flip between them at every
-    round trip."""
-    from backend.core.push.payloads import UNTITLED_CD_TRACK
+def _swift_fields(body: str, indent: str) -> dict:
+    """`let name: Type` declarations at exactly `indent`, name -> optional?"""
+    return {
+        name: kind.endswith("?")
+        for name, kind in re.findall(rf"^{indent}let (\w+): ([^\s=]+)$", body, re.M)
+    }
 
-    bridge = (VENDOR_DIR / "MiloNowPlayingBridge.swift").read_text()
-    found = re.search(
-        r'static func untitledTrack\(_ (\w+): Int\) -> String \{ "([^"]*)" \}', bridge,
+
+def test_the_push_carries_the_keys_the_extension_decodes():
+    """The system decodes Milō's Now Playing push into `MiloSessionAttributes`
+    (Milo-iOS NowPlaying/), with no code of the app's in between: a key it does
+    not declare is dropped, and a non-optional one the push leaves out or sends
+    null fails the whole decode — the session never opens, and nothing logs it.
+    An untitled CD track rides on that: `title` null, `trackNumber` the number
+    the extension names in the phone's language, and an id that is the app's
+    own (`MiloTrackID.make(source:trackNumber:)`), or the Lock Screen flips
+    between the push's card and the app's at every round trip."""
+    from backend.core.push.payloads import NowPlayingDevice, build_attributes
+
+    swift = (VENDOR_DIR / "MiloSessionAttributes.swift").read_text()
+    track_body = re.search(r"\n    struct Track: Codable \{\n(.*?)\n    \}\n", swift, re.S)
+    device_body = re.search(r"\n    struct Device: Codable \{\n(.*?)\n    \}\n", swift, re.S)
+    assert track_body and device_body, "Track / Device not found in the vendored attributes"
+    declared = {
+        "attributes": _swift_fields(swift, "    "),
+        "currentTrack": _swift_fields(track_body.group(1), "        "),
+        "device": _swift_fields(device_body.group(1), "        "),
+    }
+    assert {"id", "currentTrack", "devices"} <= declared["attributes"].keys(), declared
+    assert {"title", "trackNumber"} <= declared["currentTrack"].keys(), declared
+
+    state = {
+        "source": "cd", "controls": ["pause"], "resume": None,
+        "session": {"id": "c-1", "phase": "playing", "title": None, "artist": None,
+                    "album": None, "artwork": None, "senders": [], "duration_ms": 245000,
+                    "position": {"ms": 1000, "at": 1790270000.25, "rate": 1.0}},
+        "details": {"kind": "cd", "disc": None, "current_track": 3,
+                    "artwork_pending": False, "shuffle": False, "repeat": "off"},
+    }
+    attrs = build_attributes("sess", state, [NowPlayingDevice("local", "Salon", 0.5)])
+    sent = {
+        "attributes": attrs,
+        "currentTrack": attrs["currentTrack"],
+        "device": attrs["devices"][0],
+    }
+    for name, fields in declared.items():
+        assert set(sent[name]) == set(fields), f"{name}: push {sorted(sent[name])}, app {sorted(fields)}"
+        missing = [k for k, optional in fields.items() if not optional and sent[name][k] is None]
+        assert not missing, f"{name}: non-optional in the app, null in the push: {missing}"
+
+    assert attrs["currentTrack"]["title"] is None
+    assert attrs["currentTrack"]["trackNumber"] == 3
+
+    media = (VENDOR_DIR / "MiloAPIClient+Media.swift").read_text()
+    form = re.search(
+        r"static func make\(source: String, trackNumber: Int\) -> String \{\s*"
+        r'source \+ "([^"]*)" \+ String\(trackNumber\)\s*\}',
+        media,
     )
-    assert found, "MiloSourceCard.untitledTrack not found in the vendored bridge"
-    swift = found.group(2).replace(f"\\({found.group(1)})", "{}")
-    assert "{}" in swift, f"the app's label does not interpolate the number: {swift!r}"
-    assert swift == UNTITLED_CD_TRACK
+    assert form, "MiloTrackID.make(source:trackNumber:) not found in the vendored client"
+    assert attrs["currentTrack"]["id"] == "cd" + form.group(1) + "3"
 
 
 def test_the_app_writes_the_artist_line_as_the_push_does():

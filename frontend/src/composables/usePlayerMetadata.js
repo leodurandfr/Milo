@@ -16,7 +16,7 @@ import { getFaviconUrl } from '@/utils/faviconUrl';
 import { episodeHasOwnImage } from '@/utils/podcastArtwork';
 import { generateStationAvatarSvg } from '@/utils/stationAvatar';
 import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
-import { nowPlayingOf, nowPlayingSnapshot } from '@/utils/nowPlayingMetadata';
+import { nowPlayingOf, nowPlayingSnapshot, untitledTrackOf } from '@/utils/nowPlayingMetadata';
 
 /**
  * Who a Spotify Jam's label names: null until someone joined the host (a Jam
@@ -111,7 +111,7 @@ export function linesOf(current) {
 export function usePlayerMetadata(source) {
   const unifiedStore = useUnifiedAudioStore();
   const spotifyStore = useSpotifyStore();
-  const { t, formatList } = useI18n();
+  const { t, formatList, currentLanguage } = useI18n();
 
   const isSelected = computed(() => unifiedStore.systemState.source === source);
   const session = computed(() => (isSelected.value ? unifiedStore.systemState.session : null));
@@ -128,9 +128,12 @@ export function usePlayerMetadata(source) {
   });
 
   watch(
-    () => [nowPlayingOf(unifiedStore.systemState, source), details.value],
+    // The language too: an untitled CD track is named in it.
+    () => [nowPlayingOf(unifiedStore.systemState, source), details.value, currentLanguage.value],
     ([record, current]) => {
-      const snapshot = nowPlayingSnapshot(record);
+      const number = untitledTrackOf(current);
+      const untitled = number === null ? '' : t('audioSources.cdSource.trackN', { n: number });
+      const snapshot = nowPlayingSnapshot(record, untitled);
       if (snapshot) metadata.value = { ...snapshot, ...linesOf(current) };
     },
     { immediate: true }

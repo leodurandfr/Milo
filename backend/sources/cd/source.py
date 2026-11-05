@@ -487,13 +487,13 @@ class CdSource(MpvAudioSource):
             return
         self._lookup_for = None
         first = self._disc_state is DiscState.IDENTIFYING
-        if not first and info.album is None:
+        if not first and not info.identified:
             # Still unknown (the network is not back): ask again later.
             if self._is_active_source:
                 self._arm_timer("identify", METADATA_RETRY_INTERVAL_S, generation)
             return
         self._disc = info
-        self._metadata_retry_pending = info.album is None
+        self._metadata_retry_pending = not info.identified
         if self._disc_state is DiscState.IDENTIFYING:
             self._set_disc_state(DiscState.READY)
         if self._is_active_source:
@@ -1164,9 +1164,9 @@ class CdSource(MpvAudioSource):
 
 
 def _unnamed(toc: Toc) -> DiscInfo:
-    """The disc with generic titles, from its TOC alone."""
+    """The disc with untitled tracks, from its TOC alone."""
     tracks = [
-        TrackInfo(number=t["number"], title=f"Track {t['number']}", duration=t["duration"])
+        TrackInfo(number=t["number"], title=None, duration=t["duration"])
         for t in toc.tracks
     ]
     return DiscInfo(

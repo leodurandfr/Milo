@@ -412,7 +412,7 @@
       "eject"
      ],
      "resume": {
-      "title": "Track 1",
+      "title": null,
       "artist": null,
       "album": null,
       "artwork": null,
@@ -430,17 +430,17 @@
        "tracks": [
         {
          "number": 1,
-         "title": "Track 1",
+         "title": null,
          "duration_ms": 200000
         },
         {
          "number": 2,
-         "title": "Track 2",
+         "title": null,
          "duration_ms": 150000
         },
         {
          "number": 3,
-         "title": "Track 3",
+         "title": null,
          "duration_ms": 180000
         }
        ]
@@ -478,7 +478,7 @@
      "session": {
       "id": "session-1",
       "phase": "loading",
-      "title": "Track 1",
+      "title": null,
       "artist": null,
       "album": null,
       "artwork": null,
@@ -511,17 +511,17 @@
        "tracks": [
         {
          "number": 1,
-         "title": "Track 1",
+         "title": null,
          "duration_ms": 200000
         },
         {
          "number": 2,
-         "title": "Track 2",
+         "title": null,
          "duration_ms": 150000
         },
         {
          "number": 3,
-         "title": "Track 3",
+         "title": null,
          "duration_ms": 180000
         }
        ]
@@ -559,7 +559,7 @@
      "session": {
       "id": "session-1",
       "phase": "playing",
-      "title": "Track 1",
+      "title": null,
       "artist": null,
       "album": null,
       "artwork": null,
@@ -594,17 +594,17 @@
        "tracks": [
         {
          "number": 1,
-         "title": "Track 1",
+         "title": null,
          "duration_ms": 200000
         },
         {
          "number": 2,
-         "title": "Track 2",
+         "title": null,
          "duration_ms": 150000
         },
         {
          "number": 3,
-         "title": "Track 3",
+         "title": null,
          "duration_ms": 180000
         }
        ]
@@ -888,7 +888,7 @@
     "session": {
      "id": "session-1",
      "phase": "playing",
-     "title": "Track 1",
+     "title": null,
      "artist": null,
      "album": null,
      "artwork": null,
@@ -923,17 +923,17 @@
       "tracks": [
        {
         "number": 1,
-        "title": "Track 1",
+        "title": null,
         "duration_ms": 200000
        },
        {
         "number": 2,
-        "title": "Track 2",
+        "title": null,
         "duration_ms": 150000
        },
        {
         "number": 3,
-        "title": "Track 3",
+        "title": null,
         "duration_ms": 180000
        }
       ]

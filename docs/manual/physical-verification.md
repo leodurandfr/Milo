@@ -166,7 +166,7 @@ but a real power cut reproduces it.
 | F-CD4 | Let the **auto-stop** timeout fire, then press play → the disc resumes the same track at the same position |
 | F-CD5 | Insert a disc → it becomes playable (the TOC latch now retries 3×; a disc that used to stick on the spinner should not) |
 | F-CD6 | Transport: play/pause, next; **previous** early in a track goes back, late in a track restarts it. Eject releases the disc and leaves the source cleanly |
-| F-CD7 | ⚠ **needs a disc no lookup identifies** — a burned CD or an obscure pressing. The player's big title reads the track (`Track 1`, then `Track 2` on skip) instead of "Unknown Title", with "Unknown Artist" underneath and the disc placeholder as the cover |
+| F-CD7 | ⚠ **needs a disc no lookup identifies** — a burned CD or an obscure pressing. The player's big title reads the track in the interface's language (`Morceau 1`, then `Morceau 2` on skip, in French) instead of "Unknown Title", with "Unknown Artist" (« Artiste inconnu » in French) underneath and the disc placeholder as the cover |
 
 **F-CD7 is the one line in this group that the disc already in the drive cannot answer.** *The
 Best of Sade* is identified, as are all three discs in `cd_data.json`, so it renders the path

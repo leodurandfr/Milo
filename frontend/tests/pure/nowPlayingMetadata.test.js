@@ -13,7 +13,7 @@
  * never stores the title the tracklist lists.
  */
 import { describe, it, expect } from 'vitest';
-import { nowPlayingOf, nowPlayingSnapshot, remoteRecordOf } from '@/utils/nowPlayingMetadata';
+import { nowPlayingOf, nowPlayingSnapshot, remoteRecordOf, untitledTrackOf } from '@/utils/nowPlayingMetadata';
 import { makeAudioState, makeSession } from '../helpers/audioState';
 
 const RESUME = {
@@ -67,11 +67,11 @@ describe('what another device of the account plays', () => {
 });
 
 describe('nowPlayingSnapshot', () => {
-  it('keeps the track title of a disc no lookup identified', () => {
-    const snap = nowPlayingSnapshot(makeSession({ title: 'Track 3', artist: null }));
+  it('names the untitled track of a disc no lookup identified', () => {
+    const snap = nowPlayingSnapshot(makeSession({ title: null, artist: null }), 'Morceau 3');
 
     expect(snap).not.toBeNull();
-    expect(snap.title).toBe('Track 3');
+    expect(snap.title).toBe('Morceau 3');
     // '' and not null: AudioPlayerFull builds `${title}|${artist}` as the key
     // rearming the artwork transition, so the absent artist must not stringify.
     expect(snap.artist).toBe('');
@@ -81,5 +81,19 @@ describe('nowPlayingSnapshot', () => {
     // A sender still connecting publishes a session with no title.
     expect(nowPlayingSnapshot(makeSession({ phase: 'connected', senders: ['iPhone'] }))).toBeNull();
     expect(nowPlayingSnapshot(null)).toBeNull();
+    expect(nowPlayingSnapshot(null, 'Morceau 3')).toBeNull();
+  });
+
+  it('prefers a title the record carries over the untitled name', () => {
+    expect(nowPlayingSnapshot(makeSession({ title: 'Hyperballad' }), 'Morceau 3').title).toBe('Hyperballad');
+  });
+});
+
+describe('untitledTrackOf', () => {
+  it("reads a CD's current track, and nothing from another source", () => {
+    expect(untitledTrackOf({ kind: 'cd', current_track: 3 })).toBe(3);
+    expect(untitledTrackOf({ kind: 'cd', current_track: null })).toBeNull();
+    expect(untitledTrackOf({ kind: 'music_library', current_track: 3 })).toBeNull();
+    expect(untitledTrackOf(null)).toBeNull();
   });
 });

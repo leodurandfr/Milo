@@ -90,12 +90,18 @@ VENDOR_DIR = HERE / "vendor" / "milo-ios"
 # route, so most refreshes will flag it for content alone; that is the price of
 # not ignoring a route literal.
 #
+# The sixth carries no route either: it is the type the system decodes Milō's
+# APNs push into (`MiloSessionAttributes`), so the push's keys are pinned to it
+# (test_the_push_carries_the_keys_the_extension_decodes). A key it does not
+# declare is dropped, and a non-optional one the push omits fails the whole
+# decode, silently.
+#
 # A glob is still a bet on a naming convention, so it is not left as one:
 # `unvendored_surface()` below reads EVERY .swift in a checkout and fails on
 # any route literal living outside these patterns.
 SOURCE_FILES = (
     "MiloAPIClient*.swift", "Models.swift", "MiloNowPlayingBridge.swift", "MiloAudioState.swift",
-    "ViewController.swift",
+    "ViewController.swift", "MiloSessionAttributes.swift",
 )
 
 

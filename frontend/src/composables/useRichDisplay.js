@@ -10,6 +10,7 @@ import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '@/constants/imageQuality';
 import { BROWSER_SOURCES } from '@/constants/audioSources';
+import { untitledTrackOf } from '@/utils/nowPlayingMetadata';
 
 // What takes a browser source off its view: the link (and, for Spotify, no
 // account signed in). The Music Library draws its own storage and catalog
@@ -46,8 +47,11 @@ export function richSourceFor(state) {
   if (session?.phase === 'connected'
       && !(session.title && session.artist && session.artwork)) return null;
 
-  // Something to name: the session, or what play would bring back (a disc).
-  const shown = session?.title || (!session && resume?.title);
+  // Something to name: the session, or what play would bring back (a disc). A
+  // CD track nothing names is named by its number (`untitledTrackOf`).
+  const record = session ?? resume;
+  const shown = session?.title || (!session && resume?.title)
+    || (record && untitledTrackOf(details) !== null);
   if (!shown) return null;
 
   // An untrusted sender's tiny cover (browser audio, an app icon) is the card's.

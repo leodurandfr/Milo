@@ -23,7 +23,7 @@ class SeekParams(StrictModel):
 class TrackInfo(BaseModel):
     """Information about a single CD track."""
     number: int  # 1-based
-    title: str
+    title: Optional[str]  # None when nothing names it: each screen numbers it
     duration: int  # seconds
 
 
@@ -37,3 +37,6 @@ class DiscInfo(BaseModel):
     track_count: int
     total_duration: int  # seconds
     tracks: List[TrackInfo] = []
+    # MusicBrainz named the disc. Not `album is not None`: a release it names
+    # may still leave the album out, and that disc must not be asked again.
+    identified: bool = False

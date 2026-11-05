@@ -26,6 +26,18 @@ export function remoteRecordOf(details) {
 }
 
 /**
+ * The number of the CD track a record stands for when nothing names it (a
+ * burned disc, a disc read offline): the backend publishes no title then, and
+ * each screen names the track in its own language. Null for any other source.
+ *
+ * @param {object|null} details - the source's details
+ * @returns {number|null}
+ */
+export function untitledTrackOf(details) {
+  return details?.kind === 'cd' ? (details.current_track ?? null) : null;
+}
+
+/**
  * The record the view of `source` draws: the session, or — with none — what
  * play would bring back (a CD's track, a library resume, what another device
  * of the account plays). Null when the state belongs to another source: its
@@ -46,16 +58,19 @@ export function nowPlayingOf(state, source) {
  * nothing to name (a sender still connecting), or the record gone while the
  * player leaves.
  *
- * A title is the whole requirement: a disc no lookup identified has a real
- * "Track N" title and no artist, and the player is on screen for it.
+ * A title is the whole requirement: a disc no lookup identified has no title
+ * and no artist, and is named by `untitledTitle` — its track number, in the
+ * screen's language — since the player is on screen for it.
  *
  * @param {object|null} record - from nowPlayingOf
+ * @param {string} [untitledTitle] - the name of an untitled CD track, '' otherwise
  * @returns {{title: string, artist: string, artwork: string}|null}
  */
-export function nowPlayingSnapshot(record) {
-  if (!record?.title) return null;
+export function nowPlayingSnapshot(record, untitledTitle = '') {
+  const title = record ? record.title || untitledTitle : '';
+  if (!title) return null;
   return {
-    title: record.title,
+    title,
     artist: record.artist || '',
     artwork: record.artwork || '',
   };

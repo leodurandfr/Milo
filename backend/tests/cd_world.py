@@ -157,7 +157,7 @@ class CdWorld(WireReader):
                     await world.lookup_gate.wait()
                 if world.lookup_raises:
                     raise OSError("the cache file could not be written")
-                titles = TITLES if world.named else [f"Track {t['number']}" for t in tracks]
+                titles = TITLES if world.named else [None] * len(tracks)
                 info = [TrackInfo(number=t["number"], title=title, duration=t["duration"])
                         for t, title in zip(tracks, titles)]
                 return DiscInfo(
@@ -165,7 +165,7 @@ class CdWorld(WireReader):
                     album="Eight" if world.named else None,
                     artist="The Octet" if world.named else None,
                     track_count=len(info), total_duration=sum(t.duration for t in info),
-                    tracks=info,
+                    tracks=info, identified=world.named,
                 )
 
             def cover_fetchable(self, disc_id: str) -> bool:

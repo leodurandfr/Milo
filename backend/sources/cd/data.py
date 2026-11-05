@@ -7,7 +7,7 @@ Responsibilities (the drive itself is drive.py's):
 - Lookup metadata from MusicBrainz (with fuzzy TOC fallback)
 - Download cover art from MusicBrainz Cover Art Archive
 - Cache disc metadata locally in /var/lib/milo/cd_data.json
-- Provide offline fallback with generic track names
+- Provide offline fallback with untitled tracks
 
 Data is persisted to /var/lib/milo/cd_data.json
 Cover art is stored in /var/lib/milo/cd_covers/
@@ -35,7 +35,7 @@ logger = logging.getLogger("source.cd.data")
 COVER_FETCH_TIMEOUT_S = 150.0
 
 # How long a caller waits for MusicBrainz to name a disc before playing it
-# with generic titles; the source's own retry names it later. Past the ~100 s
+# with untitled tracks; the source's own retry names it later. Past the ~100 s
 # its retries last in an outage, for the same missing socket timeout. Only one
 # lookup is ever in flight: musicbrainzngs holds its rate-limit lock for the
 # whole request, so a second thread would only queue behind a stalled one.
@@ -137,7 +137,7 @@ class CdDataService:
         """
         Lookup disc metadata from cache or MusicBrainz.
 
-        Falls back to generic track names if MusicBrainz is unavailable
+        Falls back to untitled tracks if MusicBrainz is unavailable
         or the disc is unknown.
 
         Never reaches the Cover Art Archive: the caller cannot publish the disc
@@ -202,7 +202,7 @@ class CdDataService:
 
             return self._disc_info_from_cache(disc_id, cache_entry)
 
-        # Fallback: generic track names with TOC durations
+        # Fallback: untitled tracks with TOC durations
         return self._build_fallback_disc_info(disc_id, tracks)
 
     def _forget_lookup(self, done: asyncio.Future) -> None:
@@ -267,17 +267,18 @@ class CdDataService:
 
     def _parse_release(
         self, release: Dict
-    ) -> Tuple[str, str, str, str, str, List[Dict[str, Any]]]:
-        """Parse a MusicBrainz release into structured data."""
-        album = release.get("title", "Unknown Album")
+    ) -> Tuple[Optional[str], Optional[str], str, str, str, List[Dict[str, Any]]]:
+        """Parse a MusicBrainz release into structured data. What it does not
+        name stays None: the screen names it in the listener's language."""
+        album = release.get("title")
         release_mbid = release.get("id", "")
         release_group_mbid = release.get("release-group", {}).get("id", "")
 
         artist_credit = release.get("artist-credit", [])
         if artist_credit:
-            artist = artist_credit[0].get("artist", {}).get("name", "Unknown Artist")
+            artist = artist_credit[0].get("artist", {}).get("name")
         else:
-            artist = "Unknown Artist"
+            artist = None
 
         # Year
         date = release.get("date", "")
@@ -290,7 +291,7 @@ class CdDataService:
             track_list = medium_list[0].get("track-list", [])
             for i, track in enumerate(track_list):
                 recording = track.get("recording", {})
-                title = recording.get("title", f"Track {i + 1}")
+                title = recording.get("title")
                 # MusicBrainz duration is in milliseconds
                 length_ms = recording.get("length")
                 duration = int(int(length_ms) / 1000) if length_ms else 0
@@ -308,9 +309,7 @@ class CdDataService:
         """Merge MusicBrainz titles with TOC durations (TOC durations are authoritative)."""
         merged = []
         for i, toc_track in enumerate(toc_tracks):
-            title = f"Track {i + 1}"
-            if i < len(mb_tracks):
-                title = mb_tracks[i].get("title", title)
+            title = mb_tracks[i].get("title") if i < len(mb_tracks) else None
             merged.append({
                 "number": toc_track["number"],
                 "title": title,
@@ -321,9 +320,9 @@ class CdDataService:
     def _build_fallback_disc_info(
         self, disc_id: str, tracks: List[Dict[str, Any]]
     ) -> DiscInfo:
-        """Build DiscInfo with generic track names when MusicBrainz is unavailable."""
+        """Build DiscInfo with untitled tracks when MusicBrainz is unavailable."""
         fallback_tracks = [
-            TrackInfo(number=t["number"], title=f"Track {t['number']}", duration=t["duration"])
+            TrackInfo(number=t["number"], title=None, duration=t["duration"])
             for t in tracks
         ]
         total_duration = sum(t["duration"] for t in tracks)
@@ -471,6 +470,7 @@ class CdDataService:
             track_count=len(tracks),
             total_duration=total_duration,
             tracks=tracks,
+            identified=True,
         )
 
     # =========================================================================
