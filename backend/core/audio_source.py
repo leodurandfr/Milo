@@ -192,6 +192,18 @@ END_REQUEST_TIMEOUT_S = 10.0
 # one implementation.
 POSITION_TOLERANCE_MS = 2000
 
+# Right after a discontinuity of the playhead (a start, a track, a seek, a pause,
+# a resume), where the anchor was put is a guess the player has not confirmed
+# yet: a reading further than SETTLE_TOLERANCE_MS from it moves it, for
+# SETTLE_WINDOW_S; then POSITION_TOLERANCE_MS alone applies again. Measured
+# 2026-11-05: Tidal's progress started ~1 s behind its PLAYING and stayed there,
+# and a Mac's Music rewinds 0.3-0.6 s at every pause, which added up cycle after
+# cycle — every one of those readings within POSITION_TOLERANCE_MS. The window
+# is read when a reading arrives, never on a timer; a reading it believes moves
+# the anchor but does not open it again, so it closes whatever the player says.
+SETTLE_WINDOW_S = 5.0
+SETTLE_TOLERANCE_MS = 250
+
 
 def wall_time() -> float:
     """The clock position anchors are stamped with (UTC seconds): what a
@@ -290,6 +302,10 @@ class BaseAudioSource(ABC):
     REROUTE = None
     RESUME_POLICY: Optional[ResumePolicy] = None
     SESSION_DAEMON: bool = False
+    # Whether the player's readings right after a discontinuity move the anchor
+    # past SETTLE_TOLERANCE_MS (SETTLE_WINDOW_S): a daemon's report of a
+    # playhead Milō started counting on its word that it plays.
+    SETTLES_PLAYHEAD: bool = True
     # command name -> CommandScope, for every command in COMMANDS. A SESSION
     # command with no session is refused here, once, for every source.
     COMMAND_SCOPES: Dict[str, CommandScope] = {}
@@ -956,7 +972,17 @@ class BaseAudioSource(ABC):
     def _anchor_position(self, ms: int) -> None:
         """A discontinuity: the playhead is at `ms` now (a seek, a new track).
         Published by the next publish or the net after the message — on the
-        state if something else moved, else as a `source/position`."""
+        state if something else moved, else as a `source/position`. The
+        player's next readings may still move it (SETTLE_WINDOW_S)."""
+        self._set_anchor(ms, self._settle_window())
+
+    def _settle_window(self) -> Optional[float]:
+        """When the window opened by a discontinuity now closes (None: never
+        opened, the source does not settle its playhead)."""
+        return step_reference() + SETTLE_WINDOW_S if self.SETTLES_PLAYHEAD else None
+
+    def _set_anchor(self, ms: int, settles_until: Optional[float]) -> None:
+        """Put the live session's playhead at `ms` now, bounded to its track."""
         session = self._session
         if session is None:
             return
@@ -967,7 +993,7 @@ class BaseAudioSource(ABC):
         now = wall_time()
         session.anchor = Anchor(
             ms=ms, at=now, moving=session.phase is Phase.PLAYING,
-            scale=now - step_reference(),
+            scale=now - step_reference(), settles_until=settles_until,
         )
 
     def _follow_clock_step(self) -> None:
@@ -987,23 +1013,31 @@ class BaseAudioSource(ABC):
         step = self._clock_step(anchor, wall_time())
         if step:
             self._logger.info(f"Wall clock stepped {step:+.0f} s: playhead re-dated")
-            self._anchor_position(self._position_now(session))
+            self._set_anchor(self._position_now(session), anchor.settles_until)
 
     def _observe_position(self, ms: Optional[int]) -> None:
         """A playhead reading (mpv's time-pos, a daemon's report). One more
         than POSITION_TOLERANCE_MS from the anchor moves it; so does any read
         taken as the phase changes (a pause reports where it stopped), which
-        the state carrying the phase change publishes anyway."""
+        the state carrying the phase change publishes anyway. Right after a
+        discontinuity, one more than SETTLE_TOLERANCE_MS from it moves it too,
+        and leaves the window where it was."""
         session = self._session
         if session is None or ms is None:
             return
         anchor = session.anchor
-        if (
-            anchor is None
-            or anchor.moving is not (session.phase is Phase.PLAYING)
-            or abs(self._position_now(session) - int(ms)) > POSITION_TOLERANCE_MS
-        ):
+        if anchor is None or anchor.moving is not (session.phase is Phase.PLAYING):
             self._anchor_position(ms)
+            return
+        drift = abs(self._position_now(session) - int(ms))
+        if drift > POSITION_TOLERANCE_MS:
+            self._anchor_position(ms)
+        elif (
+            drift > SETTLE_TOLERANCE_MS
+            and anchor.settles_until is not None
+            and step_reference() < anchor.settles_until
+        ):
+            self._set_anchor(ms, anchor.settles_until)
 
     def _clear_position(self) -> None:
         """The session has no playhead any more."""
@@ -1014,8 +1048,10 @@ class BaseAudioSource(ABC):
     def _rebase_anchor(self) -> None:
         """Keep the anchor true across a phase change: it moves only while the
         session plays, so leaving or entering PLAYING re-stamps it where the
-        playhead stands. Not a discontinuity: it rides the state that carries
-        the phase change."""
+        playhead stands. Not a discontinuity on the wire: it rides the state
+        that carries the phase change. It is one for the player, though — a
+        resume starts counting before the sound does, a sender may rewind as
+        it pauses — so its next readings may move it (SETTLE_WINDOW_S)."""
         self._follow_clock_step()
         session = self._session
         anchor = session.anchor if session is not None else None
@@ -1027,7 +1063,7 @@ class BaseAudioSource(ABC):
         now = wall_time()
         session.anchor = Anchor(
             ms=self._position_now(session), at=now, moving=moving,
-            scale=now - step_reference(),
+            scale=now - step_reference(), settles_until=self._settle_window(),
         )
 
     # === Sessions (docs: source architecture, "the session") ===

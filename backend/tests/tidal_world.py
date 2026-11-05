@@ -13,10 +13,16 @@ the controller socket):
   BUFFERING; the media again 0.35 s later, PAUSED, BUFFERING ×2; PLAYING
   ~1 s after the session opened. Nothing names a track before the media.
 - PLAYING every ~0.5 s with the progress. Pause: PAUSED. Resume: BUFFERING
-  then PLAYING 7 ms later. A skip while playing: IDLE ×2, the next media,
+  then PLAYING 7 ms later, two frames Milō reads apart (2 ms apart, the
+  owner's free tier, 2026-11-05). A skip while playing: IDLE ×2, the next media,
   BUFFERING, the media again, PAUSED, BUFFERING ×2, PLAYING ~1.2 s later; while
   paused: IDLE ×2, media, PAUSED, media, PAUSED. A track running into the next
   without a gap: the media alone.
+- A track starting from Milō's `next` (2026-11-05, the owner's free tier, read
+  off the wire): PLAYING at 0 published 0.12 s after the command, and the
+  pause 8.88 s later reported 7856 — the daemon's progress ran ~1 s behind the
+  wall clock from the start, so the frames of that first second carried no
+  progress the wall clock did.
 - The sender leaving: `releaseResources`, `notifySessionState 0`, IDLE,
   `notifyRequestResult 1002`.
 - No controller command ends a session: `interrupt` only notifies, `stop`
@@ -41,6 +47,8 @@ from backend.tests.golden.harness import (
 
 FIRST_PID = 47039
 PREVIEW_MS = 30066
+# A resume's BUFFERING, then its PLAYING this much later (measured).
+RESUME_GAP_S = 0.007
 _START, _END = b"\xff\x02", b"\xff\x03"
 
 
@@ -105,7 +113,8 @@ class _Writer:
 class Tisoc:
     """The daemon's controller socket, and what it answers to a command."""
 
-    def __init__(self) -> None:
+    def __init__(self, later: Callable[..., None]) -> None:
+        self.later = later
         self.up = False
         self.received: List[str] = []
         self.reader: Optional[asyncio.StreamReader] = None
@@ -133,7 +142,8 @@ class Tisoc:
             self.push(status("PAUSED", self.progress))
         elif command == "play":
             self.state = "PLAYING"
-            self.push(status("BUFFERING", self.progress), status("PLAYING", self.progress))
+            self.push(status("BUFFERING", self.progress))
+            self.later(RESUME_GAP_S, status("PLAYING", self.progress))
 
     def push(self, *messages: Dict[str, Any]) -> None:
         if self.reader is None:
@@ -156,7 +166,7 @@ class TidalWorld(WireReader):
         world = self
         self.clock = VirtualClock()
         use_virtual_wall(monkeypatch, self.clock)
-        self.daemon = Tisoc()
+        self.daemon = Tisoc(self._push_later)
         self._pids = itertools.count(FIRST_PID)
         self.pid: Optional[int] = None
         self.watches: List[Tuple[int, Callable[[], None]]] = []
@@ -206,6 +216,14 @@ class TidalWorld(WireReader):
             systemd_manager=systemd,
         )
         self.machine.register_source(AudioSource.TIDAL, self.source)
+
+    def _push_later(self, delay: float, *messages: Dict[str, Any]) -> None:
+        """The daemon pushes `messages` `delay` seconds of the scenario's clock
+        from now: a frame Milō reads apart from the one before it."""
+        async def push() -> None:
+            await self.clock.sleep(delay)
+            self.daemon.push(*messages)
+        asyncio.get_running_loop().create_task(push())
 
     # === systemd ===
 
@@ -284,20 +302,25 @@ class TidalWorld(WireReader):
         self.daemon.state, self.daemon.progress = "PLAYING", at_ms
         await self.sends(status("PLAYING", at_ms))
 
-    async def plays_on(self, seconds: float) -> None:
-        """The playhead moves: a PLAYING frame every 0.5 s."""
-        for _ in range(int(seconds / 0.5)):
+    async def plays_on(self, seconds: float, counting_late_s: float = 0.0) -> None:
+        """The playhead moves: a PLAYING frame every 0.5 s. A daemon counting
+        late (a start, measured) holds its progress for `counting_late_s`."""
+        for tick in range(int(seconds / 0.5)):
             await self.advance(0.5)
-            self.daemon.progress += 500
+            if (tick + 1) * 0.5 > counting_late_s:
+                self.daemon.progress += 500
             await self.sends(status("PLAYING", self.daemon.progress))
 
     async def mac_pauses(self) -> None:
         self.daemon.state = "PAUSED"
         await self.sends(status("PAUSED", self.daemon.progress))
 
-    async def mac_resumes(self) -> None:
+    async def mac_resumes(self, buffering_s: float = RESUME_GAP_S) -> None:
+        """BUFFERING, then PLAYING `buffering_s` later (7 ms, measured)."""
         self.daemon.state = "PLAYING"
-        await self.sends(status("BUFFERING", self.daemon.progress), status("PLAYING", self.daemon.progress))
+        await self.sends(status("BUFFERING", self.daemon.progress))
+        await self.advance(buffering_s)
+        await self.sends(status("PLAYING", self.daemon.progress))
 
     async def mac_skips_to(self, title: str) -> None:
         paused = self.daemon.state == "PAUSED"

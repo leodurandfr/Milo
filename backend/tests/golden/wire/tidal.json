@@ -344,6 +344,34 @@
    },
    {
     "category": "source",
+    "type": "position",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-1",
+     "position": {
+      "ms": 1000,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "tidal",
+    "data": {
+     "source": "tidal",
+     "session_id": "session-1",
+     "position": {
+      "ms": 1500,
+      "at": 1790270000.0,
+      "rate": 1.0
+     }
+    }
+   },
+   {
+    "category": "source",
     "type": "state",
     "origin": "none",
     "data": {
@@ -481,7 +509,7 @@
      "senders": [],
      "duration_ms": 30066,
      "position": {
-      "ms": 500,
+      "ms": 1500,
       "at": 1790270000.0,
       "rate": 1.0
      }

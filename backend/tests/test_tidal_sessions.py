@@ -7,6 +7,7 @@ before phase 3b for the reason its docstring gives.
 """
 import pytest
 
+from backend.core import audio_source
 from backend.core.models.ws_events import SourceErrorReason
 from backend.tests.tidal_world import HYPNOTIZE, KEEP_IT_THORO, STILL_DRE, TidalWorld, media, status
 
@@ -421,3 +422,125 @@ async def test_a_session_that_opens_playing_has_been_heard(world):
     await buffers_for(world, 31)
 
     assert world.session_ends() == ["stream_lost"]
+
+
+# === The playhead, from the daemon's first readings ===
+
+async def test_a_daemon_that_counts_late_at_a_start_is_followed(world):
+    """Measured 2026-11-05 (the owner's free tier, `next` from Milō): PLAYING
+    at 0, then the pause 8.88 s later at 7856 — the bar had run ~1 s ahead of
+    the daemon the whole track and jumped back at the pause. Every reading in
+    between was within POSITION_TOLERANCE_MS of the anchor, so none was
+    believed. The first readings after a start are."""
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(9, counting_late_s=1.0)
+    on_screen = world.position_ms()
+
+    await world.mac_pauses()
+
+    assert abs(on_screen - world.daemon.progress) <= 50, "the bar ran ahead of the daemon"
+    assert abs(world.position_ms() - on_screen) <= 50, "the pause pulled the bar back"
+
+
+async def test_past_the_start_a_small_drift_is_still_not_published(world):
+    """The readings are believed closely only right after a discontinuity,
+    and the ones believed do not prolong that: later, the daemon's
+    twice-a-second status moves nothing short of POSITION_TOLERANCE_MS, or
+    every jitter would go out as a position."""
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(audio_source.SETTLE_WINDOW_S, counting_late_s=1.0)
+    corrected = len(world.positions())
+    assert corrected > 0
+    await world.advance(0.5)
+    await world.sends(status("PLAYING", world.daemon.progress + 500 + 600))
+    assert len(world.positions()) == corrected
+
+
+# === A resume ===
+
+async def test_a_resume_from_the_phone_shows_no_spinner(world):
+    """Measured 2026-11-05: every resume published LOADING for 2 ms, then
+    PLAYING — the daemon's BUFFERING and PLAYING are two frames read apart, and
+    the first redrew the player as loading for one frame."""
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(3)
+    await world.mac_pauses()
+    since = len(world.published())
+
+    await world.mac_resumes()
+
+    assert world.playing()
+    assert [s["session"]["phase"] for s in world.published()[since:]] == ["playing"]
+
+
+async def test_a_resume_from_milo_shows_no_spinner(world):
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(3)
+    await world.command("pause")
+    since = len(world.published())
+
+    await world.command("resume")
+    await world.advance(0.01)
+
+    assert world.playing()
+    assert [s["session"]["phase"] for s in world.published()[since:]] == ["playing"]
+
+
+async def test_a_resume_that_keeps_buffering_shows_the_spinner(world):
+    """The held BUFFERING is a moment, not a verdict: a resume the network
+    keeps waiting is drawn loading, and its loading budget runs."""
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(3)
+    await world.mac_pauses()
+    await world.sends(status("BUFFERING", world.daemon.progress))
+    assert world.phase() == "paused"
+
+    await buffers_for(world, 2)
+    assert world.buffering()
+
+    await buffers_for(world, 30)
+    assert len(world.restarts) == 1
+    assert world.session_ends() == ["stream_lost"]
+
+
+async def test_a_track_change_during_a_held_resume_shows_the_spinner(world):
+    """The hold is for the paused track only: another one named while it
+    runs is a load, drawn as one."""
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(3)
+    await world.mac_pauses()
+    await world.sends(status("BUFFERING", world.daemon.progress))
+    assert world.phase() == "paused"
+
+    await world.sends(media(KEEP_IT_THORO), status("BUFFERING", 0, 224000))
+
+    assert world.buffering() and world.session()["title"] == KEEP_IT_THORO
+
+
+async def test_a_skip_whose_paused_frame_is_read_apart_shows_the_spinner(world):
+    """A load passes through PAUSED → BUFFERING too, and frames milliseconds
+    apart are read apart: the hold is for a track that has played, or a skip
+    draws a play button for a second in the middle of its load."""
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(3)
+    await world.sends(status("IDLE"), status("IDLE"), media(KEEP_IT_THORO), status("BUFFERING", 0, 224000))
+    await world.advance(0.13)
+    await world.sends(media(KEEP_IT_THORO, custom=True), status("PAUSED", 0, 224000))
+    await world.advance(0.005)
+    await world.sends(status("BUFFERING", 0, 224000), status("BUFFERING", 0, 224000))
+    await world.advance(0.9)
+
+    assert world.buffering()
+
+
+async def test_a_start_whose_paused_frame_is_read_apart_shows_the_spinner(world):
+    await world.mac_picks_the_speaker()
+    await world.advance(0.4)
+    await world.sends(media(STILL_DRE), status("PAUSED", 0, 271000), status("BUFFERING", 0, 271000))
+    await world.advance(0.35)
+    await world.sends(media(STILL_DRE, custom=True), status("PAUSED", 0, 271000))
+    await world.advance(0.005)
+    await world.sends(status("BUFFERING", 0, 271000), status("BUFFERING", 0, 271000))
+    await world.advance(0.5)
+
+    assert world.buffering()

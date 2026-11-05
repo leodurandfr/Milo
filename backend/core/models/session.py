@@ -166,12 +166,15 @@ class Anchor:
 
     `scale` is the wall clock's offset from the monotonic one when `at` was
     read (None: unknown, never re-dated): what tells an anchor taken before a
-    step of the wall clock from one taken after it. Internal — the wire's
-    `PositionAnchor` carries `ms` and `at` only."""
+    step of the wall clock from one taken after it. `settles_until` is the
+    instant on the monotonic clock until which a reading close to it still
+    moves it (None: never — the anchor follows a discontinuity no more).
+    Internal — the wire's `PositionAnchor` carries `ms` and `at` only."""
     ms: int
     at: float
     moving: bool
     scale: Optional[float] = field(default=None, compare=False)
+    settles_until: Optional[float] = field(default=None, compare=False)
 
     def now(self, at: float, duration_ms: Optional[int]) -> int:
         """Where the playhead is at `at`, bounded to [0, duration_ms]."""

@@ -425,10 +425,15 @@ class AirPlayWorld(WireReader):
         await self.publishes(item, self.cover(name=title) if cover else None)
         return self.now_playing
 
-    async def pauses(self) -> None:
+    async def pauses(self, rewinds_s: float = 0.0) -> None:
         """iPhone Music: `paus` at once; the item's rate 0 waits for the resume.
-        The scenario then reads the state once Milō believes it (PAUS_SETTLE_S)."""
-        self._held_pause = self.moved(self.now_playing, rate=0.0) if self.now_playing else None
+        The scenario then reads the state once Milō believes it (PAUS_SETTLE_S).
+        A sender that rewinds as it pauses (Music on a Mac: 0.3-0.6 s at every
+        pause, measured 2026-11-05) resumes `rewinds_s` before where it stopped."""
+        self._held_pause = None
+        if self.now_playing is not None:
+            held = self.moved(self.now_playing, rate=0.0)
+            self._held_pause = self.moved(held, elapsed_ms=held.elapsed_ms - int(rewinds_s * 1000))
         await self.send(ssnc("paus"))
         await self.advance(airplay_module.PAUS_SETTLE_S)
 

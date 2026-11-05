@@ -59,6 +59,12 @@ class MpvAudioSource(BaseAudioSource):
     # it did.
     STALL_TIMEOUT_S = 30.0
 
+    # mpv's playhead needs no settling: every anchor an mpv source sets at a
+    # discontinuity is mpv's own word (playback-restart, where a seek landed),
+    # and time-pos agreed with it within 70 ms at every start, pause and resume
+    # measured (2026-11-05: Music Library, Podcast, CD).
+    SETTLES_PLAYHEAD = False
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._mpv_socket = self._config.get(

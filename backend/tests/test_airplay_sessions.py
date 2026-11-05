@@ -760,3 +760,20 @@ async def test_old_stamps_in_a_row_never_outweigh_a_fresh_one(world, monkeypatch
     await world.signal(RemoteUpdate("now_playing", world.moved(item, elapsed_ms=20_000, at=item.at + 20)))
 
     assert abs(world.position_ms() - 110_000) <= 1000
+
+
+async def test_a_sender_that_rewinds_at_each_pause_is_followed(world):
+    """Measured 2026-11-05 (Music on a Mac, read against its own player
+    position): each pause rewinds the sender 0.3-0.6 s, and its item says so
+    once it resumes. Every correction was within POSITION_TOLERANCE_MS, so
+    none was believed: the bar ran +302, +902, then +1502 ms ahead after three
+    cycles, and jumped back 2.1 s mid-play once past the tolerance. The first
+    readings after a resume are believed."""
+    await _phone_plays(world)
+    for _ in range(3):
+        await world.advance(6)
+        await world.pauses(rewinds_s=0.4)
+        await world.advance(2)
+        await world.resumes()
+        sender = world.now_playing.position_ms(EPOCH + world.clock.now)
+        assert abs(world.position_ms() - sender) <= 50, "the bar ran ahead of the sender"

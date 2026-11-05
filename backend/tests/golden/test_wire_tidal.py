@@ -223,10 +223,10 @@ async def test_session_opens_and_plays(tidal):
     await tidal.select()
     await _phone_starts(tidal)
     await tidal.wire.snapshot_rest()
-    await tidal.says(status("PLAYING", 1000, 30066))    # first drift correction
-    await tidal.says(status("PLAYING", 1500, 30066))    # inside the interval: nothing
+    await tidal.says(status("PLAYING", 1000, 30066))    # just started: a 500 ms drift is believed
+    await tidal.says(status("PLAYING", 1500, 30066))    # and again
     tidal.time_passes(10)
-    await tidal.says(status("PLAYING", 11500, 30066))   # next drift correction
+    await tidal.says(status("PLAYING", 11500, 30066))   # where the anchor says: nothing
     await tidal.wire.snapshot_rest()
     await tidal.deselect()
     assert tidal.daemon.received[:2] == ["startService", "grantResources"]
