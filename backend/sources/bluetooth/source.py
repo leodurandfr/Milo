@@ -23,6 +23,10 @@ decides how they combine into the session's phase:
     "connected to X", at once.
   - The Mac publishes no Status for 100 s after connecting; a phone may publish
     no player at all. Both are "connected": nothing says whether it plays.
+  - An iPhone driving another device (its Spotify in Connect mode, the music
+    on a Mac) publishes that device's card and says `playing` over a stream of
+    silence (2026-11-05). Its player is not this link's: a remote card counts
+    as no player (avrcp.parse_track), so the session is "connected" too.
 
 Hence: paused → PAUSED; playing and flowing → PLAYING; anything else →
 CONNECTED. A paused phone keeps the link for as long as it wants
@@ -100,6 +104,9 @@ class BluetoothSession(Session):
 
     `playback` is its AVRCP player's snapshot (avrcp.snapshot()), `status`
     that player's Status, `running` whether BlueALSA says its stream flows.
+    `has_player` holds only for a player that is this phone's and plays here:
+    another phone's (E30) or one publishing a remote card is none, and leaves
+    `playback` and `status` empty.
     Cover art is resolved from the track text and held apart from `playback`:
     the position poll replaces that dict wholesale, and the key it was
     resolved for is what keeps a new track from inheriting it.
@@ -530,12 +537,14 @@ class BluetoothSource(BaseAudioSource):
             session.running = running
 
     def _read_player(self, session: BluetoothSession) -> None:
-        """The AVRCP player, if it is this phone's (E30), and a cover lookup
-        when its track changed."""
+        """The AVRCP player, if it is this phone's (E30) and names no other
+        device's track, and a cover lookup when its track changed."""
         mine = self.avrcp.has_player and _same_device(self.avrcp.device_address, session.sender)
+        snapshot = self.avrcp.snapshot() if mine else {}
+        mine = mine and not snapshot["remote"]
         before = self._track_key(session.playback)
         session.has_player = mine
-        session.playback = self.avrcp.snapshot() if mine else {}
+        session.playback = snapshot if mine else {}
         session.status = self.avrcp.status if mine else ""
         track = self._track_key(session.playback)
         if track != before and any(track) and self._session_bg is not None:

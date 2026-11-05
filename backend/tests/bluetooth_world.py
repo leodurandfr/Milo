@@ -71,6 +71,11 @@ FEELING_GOOD = {"Title": "Feeling Good", "Artist": "Nina Simone",
                 "Album": "I Put a Spell on You", "Duration": 177000}
 UNKNOWN_DEMO = {"Title": "Demo 3 (voice memo)", "Artist": "Léo",
                 "Album": "Garage", "Duration": 95000}
+# An iPhone whose Now Playing drives another device (its Spotify in Connect
+# mode, the music on a Mac): the two lines of the iOS card, no Album, while
+# the A2DP stream keeps running with silence (measured 2026-09-16, 2026-11-05).
+REMOTE_CARD = {"Title": "Says \u2022 Nils Frahm", "Artist": "Écoute en cours sur Mac mini de Léo",
+               "Duration": 511000, "TrackNumber": 4, "NumberOfTracks": 11}
 
 # What iTunes knows: artist ids by exact name, then each artist's catalogue.
 ITUNES_ARTISTS = {"Nils Frahm": 1001, "Nina Simone": 1002}
@@ -630,8 +635,10 @@ class FakeITunes:
     `held` is set and not yet released, every answer waits for it — a slow
     network, for a scenario that moves on during a lookup."""
 
-    def __init__(self, held: Callable[[], Optional[asyncio.Event]], timeout=None) -> None:
+    def __init__(self, held: Callable[[], Optional[asyncio.Event]], searched: List[str],
+                 timeout=None) -> None:
         self._held = held
+        self._searched = searched
 
     async def __aenter__(self) -> "FakeITunes":
         return self
@@ -642,6 +649,7 @@ class FakeITunes:
     def get(self, url: str, params: Dict[str, str]) -> _Response:
         if url.endswith("/search"):
             term = params["term"]
+            self._searched.append(term)
             results = (
                 [{"wrapperType": "artist", "artistName": term,
                   "artistId": ITUNES_ARTISTS[term]}]
@@ -675,6 +683,7 @@ class Bluetooth(WireReader):
         self.unit_calls: List[Tuple[str, str]] = []
         self.failing_units: set = set()              # units systemd fails to start
         self.itunes_held: Optional[asyncio.Event] = None
+        self.itunes_searches: List[str] = []         # every artist term asked of iTunes
 
         class Watch:
             def __init__(self, pid: int, on_exit: Callable[[], None], *a: Any, **k: Any) -> None:
@@ -700,7 +709,7 @@ class Bluetooth(WireReader):
         # The resolver's politeness spacing is a real sleep; it passes at once.
         monkeypatch.setattr(artwork_resolver, "asyncio", AsyncioProxy(instant_short_sleep))
         monkeypatch.setattr(artwork_resolver, "aiohttp", SimpleNamespace(
-            ClientSession=lambda **k: FakeITunes(lambda: self.itunes_held, **k),
+            ClientSession=lambda **k: FakeITunes(lambda: self.itunes_held, self.itunes_searches, **k),
             ClientTimeout=aiohttp.ClientTimeout,
             ClientError=aiohttp.ClientError))
 

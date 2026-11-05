@@ -16,7 +16,8 @@ from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.bluetooth import adapter as adapter_module
 from backend.sources.bluetooth import source as source_module
 from backend.tests.bluetooth_world import (
-    APLAY_UNIT, BLUEALSA_UNIT, BLUEZ_UNIT, FEELING_GOOD, IPHONE, MAC_MINI, PIXEL, SAYS, Bluetooth,
+    APLAY_UNIT, BLUEALSA_UNIT, BLUEZ_UNIT, FEELING_GOOD, IPHONE, MAC_MINI, PIXEL, REMOTE_CARD, SAYS,
+    Bluetooth,
 )
 from backend.tests.golden.harness import settle
 
@@ -82,6 +83,42 @@ async def test_a_sender_with_no_play_state_yet_is_connected_not_playing(bt):
     assert bt.active() and not bt.playing()
     await bt.player_changed({"Status": "playing"})
     assert bt.playing()
+
+
+async def test_a_phone_driving_another_device_is_connected_and_names_nothing(bt):
+    """Measured 2026-11-05: the iPhone's Spotify in Connect mode, the music on
+    the Mac. The phone says `playing`, its stream runs (digital silence) and
+    its card names the Mac's track — the old code showed the full player and
+    pushed that track to the lock screen while nothing sounded here, and its
+    pause would have paused the Mac through the phone."""
+    await bt.select()
+    await bt.pcm_added(IPHONE)
+    await bt.player_added(IPHONE, REMOTE_CARD, status="playing", position=0)
+    session = bt.session()
+    assert bt.phase() == "connected"
+    assert session["senders"] == ["iPhone de Léo"]
+    assert (session["title"], session["artist"], session["album"]) == (None, None, None)
+    assert session["duration_ms"] is None and session["artwork"] is None
+    assert session["position"] is None
+    assert bt.state()["controls"] == ["disconnect"]
+    assert bt.itunes_searches == []
+    result = await bt.try_command("pause")
+    assert not result.get("success")
+    assert bt.bluez.transport == []
+
+
+async def test_a_phone_back_to_its_own_track_plays_again(bt):
+    """The remote card is the phone's word of the moment, not the session's:
+    the next local track is played and named as before."""
+    await bt.select()
+    await bt.pcm_added(IPHONE)
+    await bt.player_added(IPHONE, REMOTE_CARD, status="playing", position=0)
+    await bt.player_changed({"Track": SAYS})
+    assert bt.playing() and bt.session()["title"] == "Says"
+    assert bt.session()["artist"] == "Nils Frahm" and has_player(bt)
+    await bt.player_changed({"Track": REMOTE_CARD})
+    assert bt.phase() == "connected" and bt.session()["title"] is None
+    assert bt.session()["artwork"] is None
 
 
 async def test_a_long_pause_keeps_the_link(bt):

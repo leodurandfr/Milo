@@ -186,7 +186,7 @@ _MATCH_RULES = (
 )
 
 
-# What an iOS sender puts between the two halves of a remote session's title.
+# What an iOS sender puts between the two lines of a remote card's title.
 # It is Apple's UI joiner, not a character that belongs to a track name, which
 # is what makes it readable as a shape rather than as text.
 _REMOTE_CARD_JOINER = " \u2022 "
@@ -203,23 +203,22 @@ def parse_track(track: Dict[str, Any]) -> Dict[str, Any]:
     Duration 0 means "unknown" in AVRCP, not "zero-length": kept as None so the
     player draws no progress bar rather than a full one.
 
-    **A remote session publishes its widget, not its track**, and that is the
-    one shape normalized here. An iPhone whose Now Playing is a *remote* one —
-    it is controlling a Mac, a HomePod, an Apple TV — mirrors the two lines of
-    the iOS card into AVRCP instead of the fields they were built from.
-    Measured on the unit 2026-09-16, iPhone connected, music running on a Mac
-    mini::
+    **A remote card names a track that is not playing here**, and `remote` says
+    so. An iPhone whose Now Playing is a *remote* one — it is controlling a
+    Mac, a HomePod, an Apple TV — mirrors the two lines of the iOS card into
+    AVRCP instead of the fields they were built from. Measured on the unit
+    2026-09-16, iPhone connected, music running on a Mac mini::
 
         Title  = "Here but I'm Gone \u2022 Curtis Mayfield"
         Artist = "Écoute en cours sur Mac mini de Léo"
         Album  = absent
 
-    Both halves of the damage follow from that. `artist` is a sentence, so the
-    player's second line reads as a claim about where the audio is going; and
-    `shared/artwork_resolver.py` asks iTunes *which artist is this?* with it,
-    which no catalog can answer. Measured against the live resolver: the pair
-    above returns nothing, while `("Curtis Mayfield", "Here but I'm Gone")`
-    returns a cover.
+    Its Status follows the remote player and its A2DP stream keeps running
+    with digital silence (measured 2026-11-05), so taken as a track it is a
+    session shown and pushed as playing while nothing sounds here, whose pause
+    pauses the other device through the phone. A remote card therefore names
+    nothing — every track key is None — and the source treats the phone as
+    having no player (source.py).
 
     The signature is the shape, not the sentence: a status line is whatever
     language the phone is set to, and matching it would be eight translations
@@ -227,23 +226,17 @@ def parse_track(track: Dict[str, Any]) -> Dict[str, Any]:
     iOS session carries one, measured, see this module's header — together with
     a Title holding the joiner exactly once. Requiring both, and a single
     occurrence, is what keeps a track genuinely named with a bullet from being
-    taken apart; a sender that publishes no album *and* a bullet in the title
-    is the residual cost, and it is accepted rather than guarded by reading the
-    artist text.
+    taken for one; a sender that publishes no album *and* a bullet in the title
+    is the residual cost (shown as connected rather than playing), and it is
+    accepted rather than guarded by reading the artist text.
     """
     def text(key: str) -> Optional[str]:
         value = track.get(key)
         return value.strip() or None if isinstance(value, str) else None
 
     title, artist, album = text("Title"), text("Artist"), text("Album")
-
     if album is None and title and title.count(_REMOTE_CARD_JOINER) == 1:
-        # Neither half can come out empty: `text` stripped the title, so a
-        # joiner with nothing on one side is a joiner at an edge, and there the
-        # surrounding space the pattern needs is what was stripped away. The
-        # inner strip is not redundant with it — a sender padding the joiner
-        # ("A  \u2022  B") leaves whitespace inside the halves.
-        title, artist = (half.strip() for half in title.split(_REMOTE_CARD_JOINER))
+        return {"title": None, "artist": None, "album": None, "duration": None, "remote": True}
 
     duration = track.get("Duration")
     return {
@@ -251,6 +244,7 @@ def parse_track(track: Dict[str, Any]) -> Dict[str, Any]:
         "artist": artist,
         "album": album,
         "duration": duration if isinstance(duration, int) and duration > 0 else None,
+        "remote": False,
     }
 
 
@@ -508,7 +502,7 @@ class AvrcpController:
 
     def snapshot(self) -> Dict[str, Any]:
         """Current player state: title, artist, album, duration and position
-        (ms), is_playing."""
+        (ms), is_playing, and whether the track is a remote card (parse_track)."""
         snap = parse_track(self._track)
         snap["is_playing"] = self._status in PLAYING_STATES
         position = self._position
