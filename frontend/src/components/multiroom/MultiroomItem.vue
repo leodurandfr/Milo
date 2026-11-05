@@ -109,7 +109,7 @@
       </div>
 
       <!-- TOGGLE CONTROL -->
-      <div class="toggle-wrapper" :class="{ 'offline': isOffline && !isLoading }">
+      <div class="toggle-wrapper">
         <!-- Skeleton shimmer -->
         <div
           class="toggle-skeleton shimmer"
@@ -757,18 +757,6 @@ function handleClientMuteToggle(clientMacId, muted) {
   transition: opacity var(--transition-reveal);
 }
 
-/* Offline, the column holds the placeholder alone and takes its width, as a zone
-   member's row does, so the bar and the placeholder end on the member rows' edges —
-   centered in the toggle's box they fell short of them (desktop: bar 12px, placeholder
-   6px). Not while loading, where the toggle skeleton still sits in this column. */
-.toggle-wrapper.offline {
-  width: auto;
-}
-
-.toggle-wrapper.offline .control-toggle {
-  position: static;
-}
-
 /* === EXPANDED CLIENTS SECTION === */
 /* Both directions ride the SAME curve as the Modal clip (see toggleExpand), so content
    and frame are equal at every frame: no gap, nothing cut early. overflow:hidden is what
@@ -857,11 +845,12 @@ function handleClientMuteToggle(clientMacId, muted) {
   min-width: 0;
 }
 
+/* The rail of the slider it stands in for: same height, same ground. */
 .client-offline {
   display: flex;
   align-items: center;
-  height: 36px;
-  background: var(--color-inset);
+  height: 32px;
+  background: var(--color-fill-faint);
   border-radius: var(--radius-full);
   color: var(--color-text-secondary);
   padding-left: var(--space-04);
@@ -899,9 +888,10 @@ function handleClientMuteToggle(clientMacId, muted) {
 }
 
 /* === TOGGLE OFFLINE PLACEHOLDER === */
+/* The toggle's own box (Toggle.vue), so an offline row keeps the online rows' columns. */
 .toggle-offline-placeholder {
-  width: 60px;
-  height: 36px;
+  width: 72px;
+  height: 32px;
   background: var(--color-fill-faint);
   border-radius: var(--radius-full);
 }
@@ -1008,7 +998,7 @@ function handleClientMuteToggle(clientMacId, muted) {
   }
 
   .toggle-offline-placeholder {
-    width: 50px;
+    width: 63px;
     height: 28px;
   }
 }
