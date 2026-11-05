@@ -8,13 +8,14 @@ BindsTo=milo-backend.service
 Type=simple
 User=milo
 Group=audio
-# qobuz-proxy writes the OAuth token with a plain open(..., "w"): keep it 0600.
+# qobuz-proxy writes the OAuth token with a plain open(..., "w"): a file it
+# creates is 0600. A file it rewrites in place keeps its mode, which the
+# backend's clear_credentials() holds at 0600 (956a6375).
 UMask=0077
 
-# Through Milō's launcher, not the console script: it applies the two
-# adaptations upstream has no setting for (unity-gain volume policy,
-# position/duration in /api/status) and refuses to start on a release
-# that moved either of them.
+# Through Milō's launcher, not the console script: it applies the
+# adaptations upstream has no setting for (listed in its docstring) and
+# refuses to start on a release that moved any of them.
 ExecStart=/var/lib/milo/qobuz/venv/bin/python /usr/local/bin/milo-qobuz --config /var/lib/milo/qobuz/config.yaml
 # PortAudio's device scan opens ALSA's `pulse` PCM, whose libpulse client writes
 # ~/.config/pulse (measured 2026-11-03): HOME sits in the data dir, since
