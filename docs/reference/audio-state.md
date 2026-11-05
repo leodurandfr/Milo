@@ -19,13 +19,13 @@ The whole state is **contracted**. **Contracted** marks what Milo-Mac or Milo-iO
 | `session` | [SessionView](#sessionview) \| null |
 | `controls` | string[] |
 | `resume` | [ResumeView](#resumeview) \| null |
-| `details` | [RadioDetails](#radiodetails) \| [PodcastDetails](#podcastdetails) \| [MusicLibraryDetails](#musiclibrarydetails) \| [CdDetails](#cddetails) \| [AirPlayDetails](#airplaydetails) \| [SpotifyDetails](#spotifydetails) \| null |
+| `details` | [RadioDetails](#radiodetails) \| [PodcastDetails](#podcastdetails) \| [MusicLibraryDetails](#musiclibrarydetails) \| [CdDetails](#cddetails) \| [BluetoothDetails](#bluetoothdetails) \| [AirPlayDetails](#airplaydetails) \| [SpotifyDetails](#spotifydetails) \| null |
 | `multiroom_enabled` | boolean |
 | `equalizer_effects_enabled` | boolean |
 
 ## Details
 
-`details` is the selected source's own content, one shape per source, told apart by `kind`: [`radio`](#radiodetails), [`podcast`](#podcastdetails), [`music_library`](#musiclibrarydetails), [`cd`](#cddetails), [`airplay`](#airplaydetails), [`spotify`](#spotifydetails). It is `null` for the other sources.
+`details` is the selected source's own content, one shape per source, told apart by `kind`: [`radio`](#radiodetails), [`podcast`](#podcastdetails), [`music_library`](#musiclibrarydetails), [`cd`](#cddetails), [`bluetooth`](#bluetoothdetails), [`airplay`](#airplaydetails), [`spotify`](#spotifydetails). It is `null` for the other sources.
 
 ### RadioDetails
 
@@ -34,6 +34,7 @@ The whole state is **contracted**. **Contracted** marks what Milo-Mac or Milo-iO
 | `kind` | "radio" |
 | `station` | [RadioStation](#radiostation) |
 | `track` | [RadioTrack](#radiotrack) \| null |
+| `artwork_pending` | boolean |
 
 ### PodcastDetails
 
@@ -65,6 +66,13 @@ The whole state is **contracted**. **Contracted** marks what Milo-Mac or Milo-iO
 | `artwork_pending` | boolean |
 | `shuffle` | boolean |
 | `repeat` | [RepeatMode](#repeatmode) |
+
+### BluetoothDetails
+
+| Field | Type |
+|---|---|
+| `kind` | "bluetooth" |
+| `artwork_pending` | boolean |
 
 ### AirPlayDetails
 

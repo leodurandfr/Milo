@@ -135,6 +135,9 @@ class RadioDetails(BaseModel):
     kind: Literal["radio"] = "radio"
     station: RadioStation
     track: Optional[RadioTrack]
+    # A cover for the in-band `track` is being looked up: the session's
+    # artwork is the station logo until it settles, found or not.
+    artwork_pending: bool
 
 
 class PodcastDetails(BaseModel):
@@ -177,6 +180,14 @@ class CdDetails(BaseModel):
     artwork_pending: bool
     shuffle: bool
     repeat: RepeatMode
+
+
+class BluetoothDetails(BaseModel):
+    kind: Literal["bluetooth"] = "bluetooth"
+    # A cover for the track on screen is being looked up from its text (the
+    # link carries none): the session's artwork is null until it settles,
+    # found or not.
+    artwork_pending: bool
 
 
 class AirPlayDetails(BaseModel):
@@ -269,7 +280,10 @@ class SpotifyDetails(BaseModel):
 
 
 Details = Annotated[
-    Union[RadioDetails, PodcastDetails, MusicLibraryDetails, CdDetails, AirPlayDetails, SpotifyDetails],
+    Union[
+        RadioDetails, PodcastDetails, MusicLibraryDetails, CdDetails, BluetoothDetails,
+        AirPlayDetails, SpotifyDetails,
+    ],
     Field(discriminator="kind"),
 ]
 

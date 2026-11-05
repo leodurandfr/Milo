@@ -379,6 +379,112 @@ class TestTheCommonFloor:
         assert radio.session()["artwork"] == "https://art.example/snibor.jpg"
         assert radio.details()["track"]["artwork"] == "https://art.example/snibor.jpg"
 
+    # In-band carries no cover: it is looked up after the title is published,
+    # and the station logo stands in meanwhile. The wire says a lookup is on
+    # its way, so the player holds what it shows rather than flashing the logo
+    # in between two covers — and draws the logo for good only on a miss.
+
+    @staticmethod
+    def held_covers(radio, covers):
+        """iTunes for the in-band lookups: every answer waits for `release`."""
+        release = asyncio.Event()
+
+        async def resolve(artist, title, album=""):
+            await release.wait()
+            return covers.get(title)
+
+        radio.artwork.resolve = AsyncMock(side_effect=resolve)
+        return release
+
+    async def test_an_in_band_cover_being_looked_up_is_announced_until_it_is_found(self, radio):
+        release = self.held_covers(radio, {"Snibor": "https://art.example/snibor.jpg"})
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+
+        assert radio.track_title() == "Snibor"
+        assert radio.details()["artwork_pending"] is True
+
+        release.set()
+        await settle()
+
+        assert radio.session()["artwork"] == "https://art.example/snibor.jpg"
+        assert radio.details()["artwork_pending"] is False
+
+    async def test_an_in_band_cover_nobody_has_leaves_the_logo_as_the_answer(self, radio):
+        release = self.held_covers(radio, {})
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+        assert radio.details()["artwork_pending"] is True
+
+        release.set()
+        await settle()
+
+        assert radio.details()["artwork_pending"] is False
+        assert radio.details()["track"]["artwork"] is None
+        assert radio.session()["artwork"].startswith("/api/radio/favicon?url=")
+
+    async def test_an_answer_for_a_song_gone_by_never_lifts_the_new_ones(self, radio):
+        """Two lookups in flight: the old song's answer lands first and must
+        leave the new song announced until its own."""
+        answers = {"Snibor": asyncio.Event(), "So What": asyncio.Event()}
+        covers = {"Snibor": "https://art.example/snibor.jpg", "So What": "https://art.example/so-what.jpg"}
+
+        async def resolve(artist, title, album=""):
+            await answers[title].wait()
+            return covers[title]
+
+        radio.artwork.resolve = AsyncMock(side_effect=resolve)
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+        radio.stream_title("Miles Davis - So What")
+        await radio.tick(4)
+        assert radio.track_title() == "So What"
+
+        answers["Snibor"].set()
+        await settle()
+
+        assert radio.details()["artwork_pending"] is True
+        assert radio.details()["track"]["artwork"] is None
+
+        answers["So What"].set()
+        await settle()
+
+        assert radio.details()["artwork_pending"] is False
+        assert radio.session()["artwork"] == "https://art.example/so-what.jpg"
+
+    async def test_a_track_shazam_recognized_announces_no_lookup(self, radio):
+        """Shazam's answer carries its own cover: nothing is on its way."""
+        await radio.select()
+        await radio.tune(NOVA)
+        await radio.tick(8)
+        shazam = radio.shazams[-1]
+
+        shazam.current_track = {"title": "Take Five", "artist": "Dave Brubeck", "artwork": None}
+        await shazam.on_track_changed(shazam.current_track)
+        await settle()
+
+        assert radio.track_title() == "Take Five"
+        assert radio.details()["artwork_pending"] is False
+
+    async def test_a_stop_during_a_lookup_announces_nothing(self, radio):
+        """A stopped radio names no song, so no cover is on its way for one."""
+        self.held_covers(radio, {"Snibor": "https://art.example/snibor.jpg"})
+        radio.stream_title("Gil Evans - Snibor")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+
+        await radio.command("stop")
+
+        assert radio.details()["track"] is None
+        assert radio.details()["artwork_pending"] is False
+
     async def test_a_stopped_station_keeps_the_floor_and_drops_the_track(self, radio):
         """What a stop publishes: the station a play press would re-tune, and
         no track. The recognised track annotates a stream that is running —

@@ -8,7 +8,7 @@
         @click="onBarClick" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
-          <img v-if="validArtwork" :src="validArtwork" alt="" class="background-image" />
+          <img v-if="shownArtwork" :src="shownArtwork" alt="" class="background-image" />
           <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="background-image" />
           <img v-else-if="fallbackImage" :src="fallbackImage" alt="" class="background-image" />
         </div>
@@ -21,15 +21,31 @@
              Frame hosts an optional #artwork-badge (mobile radio: station icon sitting
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child.
-             The cover is the way into the full player. -->
+             The cover is the way into the full player.
+             The cover is held and veiled exactly as on the full player (the same
+             composable, the same announcement): a new cover replaces the old one
+             once decoded, and a cover the backend announced (radio's in-band
+             titles) keeps the slot veiled rather than flashing the station logo
+             first. -->
           <div class="player-artwork-frame" :class="{ 'has-badge': !!$slots['artwork-badge'] }"
             role="button" :tabindex="isMobile ? undefined : 0" :aria-label="t('common.expandPlayer')"
             @click="onArtworkClick" @keydown.enter.space.prevent="onArtworkClick">
-            <img v-if="validArtwork" :src="validArtwork" :alt="title" class="player-artwork"
-              :class="{ loaded: artworkLoaded }" @load="handleArtworkLoad" @error="artworkError = true" />
-            <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork" :aria-label="title" />
-            <img v-else-if="fallbackImage" :src="fallbackImage" :alt="title" class="player-artwork placeholder" />
+            <img v-if="shownArtwork" :src="shownArtwork" :alt="title" class="player-artwork"
+              :class="{ loaded: artworkLoaded, pending: artworkPending }" @load="artworkLoaded = true" />
+            <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork"
+              :class="{ pending: artworkPending }" :aria-label="title" />
+            <img v-else-if="fallbackImage" :src="fallbackImage" :alt="title" class="player-artwork placeholder"
+              :class="{ pending: artworkPending }" />
             <slot name="artwork-badge"></slot>
+            <Transition name="artwork-veil">
+              <div v-if="artworkPending" class="player-artwork-veil">
+                <LoadingSpinner size="small" />
+              </div>
+            </Transition>
+            <!-- Decodes the incoming cover off-screen; the composable decides
+                 whether it is one. -->
+            <img v-if="preloadArtwork" :src="preloadArtwork" alt="" class="player-artwork-preload"
+              @load="settleFromLoad" @error="settleFromError" />
           </div>
 
           <!-- The source bar, the lines, the bar and the transport: the body
@@ -67,12 +83,13 @@ import { computed, inject, nextTick, ref, watch } from 'vue'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useTimer } from '@/composables/useTimer'
 import { usePlayerState } from '@/composables/usePlayerState'
+import { useArtworkTransition } from '@/composables/useArtworkTransition'
 import { BAR_LAYER } from '@/composables/usePlayerExpansion'
 import { swipeable, swipeMove, swipeTarget } from '@/utils/playerControls'
-import { MIN_IMAGE_SIZE } from '@/constants/imageQuality'
 import { useI18n } from '@/services/i18n'
 import PlayerBody from './PlayerBody.vue'
 import PlayerInfoText from './PlayerInfoText.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 
 const { isMobile } = useIsMobile()
 const { t } = useI18n()
@@ -108,7 +125,7 @@ const emit = defineEmits(['after-hide', 'title-click', 'secondary-click', 'expan
 // What this bar names and what its source offers: this bar's one reading of
 // its state, which the body and the transport under it take too.
 const { metadata, controls: sourceControls } = usePlayerState(props.source)
-const { title, secondaryLine, artwork, fallback, stationAvatarSvg } = metadata
+const { title, secondaryLine, artwork, fallback, stationAvatarSvg, artworkAnnounced, trackKey } = metadata
 const { controls, details } = sourceControls
 const body = ref(null)
 
@@ -127,23 +144,17 @@ function onArtworkClick() {
   if (!isMobile.value) emit('expand')
 }
 
-// Artwork validation — falls back to inline SVG / placeholder on error or tiny image (e.g. 1x1 tracking pixel)
-const artworkError = ref(false)
-// Fade the real artwork in on load instead of popping over the neutral box —
-// reset on every src change so a new track/station image fades rather than snaps.
+// The cover on screen, held until the next one has decoded — and what counts as
+// a cover (a 1×1 tracking pixel does not) — decided by the composable the full
+// player runs too.
+const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
+  useArtworkTransition(artwork, trackKey, artworkAnnounced)
+// Fade a cover in when one appears over the neutral box; one cover replacing
+// another swaps at once, the new one already decoded.
 const artworkLoaded = ref(false)
-watch(artwork, () => { artworkError.value = false; artworkLoaded.value = false })
-const validArtwork = computed(() => artwork.value && !artworkError.value ? artwork.value : null)
+watch(shownArtwork, (url) => { if (!url) artworkLoaded.value = false })
 // What fills the slot with no usable artwork, straight from the shared helper.
 const fallbackImage = computed(() => fallback.value.kind === 'image' ? fallback.value.src : '')
-
-function handleArtworkLoad(e) {
-  if (e.target.naturalWidth < MIN_IMAGE_SIZE || e.target.naturalHeight < MIN_IMAGE_SIZE) {
-    artworkError.value = true
-    return
-  }
-  artworkLoaded.value = true
-}
 
 // Mobile swipe gesture — only on the fixed docked player, and only where the
 // source takes one now (utils/playerControls' swipeable: a step or a −15/+30
@@ -539,7 +550,7 @@ function onTouchEnd(e) {
    visible). */
 img.player-artwork:not(.placeholder) {
   opacity: 0;
-  transition: opacity 0.25s ease-out;
+  transition: opacity 0.25s ease-out, filter var(--transition-medium);
 }
 
 img.player-artwork.loaded {
@@ -559,6 +570,50 @@ img.player-artwork.loaded {
 
 .player-artwork.placeholder {
   object-fit: cover;
+}
+
+/* What the full player does to a cover being replaced, at the card's scale. */
+.player-artwork {
+  transition: filter var(--transition-medium);
+}
+
+.player-artwork.pending {
+  filter: blur(var(--blur-01));
+}
+
+.player-artwork-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-04);
+  background: var(--color-image-veil);
+  /* Over a darkened cover, not the card: the contrast token, as on the full
+     player. */
+  color: var(--color-text-on-contrast);
+  pointer-events: none;
+}
+
+.artwork-veil-enter-active,
+.artwork-veil-leave-active {
+  transition: opacity var(--transition-medium);
+}
+
+.artwork-veil-enter-from,
+.artwork-veil-leave-to {
+  opacity: 0;
+}
+
+/* Decodes the incoming cover out of sight. Not `display: none`, which lets a
+   browser skip the fetch whose load event is the whole mechanism. */
+.player-artwork-preload {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Mobile: Horizontal bottom panel layout */
@@ -634,6 +689,16 @@ img.player-artwork.loaded {
     height: 48px;
     min-width: 48px;
     border-radius: var(--radius-03);
+  }
+
+  .audio-player .player-artwork-veil {
+    width: 48px;
+    border-radius: var(--radius-03);
+  }
+
+  /* Over the track artwork, which rides offset right of the station icon. */
+  .audio-player .player-artwork-frame.has-badge .player-artwork-veil {
+    left: 24px;
   }
 
   /* Swipe carousel: the clipped viewport the body's info block hosts; the strip

@@ -244,13 +244,13 @@ SCENARIOS: List[Scenario] = [
             "artwork": FIP_ARTWORK, "senders": [], "duration_ms": None, "position": None,
         },
         "controls": ["stop", "prev", "next"], "resume": None,
-        "details": {"kind": "radio", "station": FIP_STATION, "track": None},
+        "details": {"kind": "radio", "station": FIP_STATION, "track": None, "artwork_pending": False},
     }),
     Scenario("radio playing", _radio, expect={"controls": ["stop", "prev", "next"]},
              session_has={"phase": "playing", "position": None}),
     Scenario("radio stopped", lambda mp, t: _radio(mp, t, stop=True), expect={
         "session": None, "controls": ["resume_playback", "prev", "next"], "resume": FIP_RESUME,
-        "details": {"kind": "radio", "station": FIP_STATION, "track": None},
+        "details": {"kind": "radio", "station": FIP_STATION, "track": None, "artwork_pending": False},
     }),
     Scenario("radio with nothing", lambda mp, t: _radio(mp, t, tune=False), expect={
         "session": None, "controls": [], "resume": None, "details": None,
@@ -374,7 +374,8 @@ SCENARIOS: List[Scenario] = [
              session_has={"phase": "connected"}),
     # Bluetooth — the transport when the linked phone has a player (E33).
     Scenario("bluetooth playing", _bluetooth,
-             expect={"controls": ["pause", "next", "prev", "disconnect"], "details": None},
+             expect={"controls": ["pause", "next", "prev", "disconnect"],
+                     "details": {"kind": "bluetooth", "artwork_pending": False}},
              session_has={"phase": "playing", "senders": ["iPhone de Léo"]}),
     Scenario("bluetooth paused", lambda mp, t: _bluetooth(mp, t, status="paused"),
              expect={"controls": ["resume", "next", "prev", "disconnect"]},

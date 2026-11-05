@@ -165,8 +165,10 @@ key. Durations and positions are integer milliseconds; instants are UTC seconds 
 | `session` | `null` or object | The selected source's live session: `id`, `phase` (`loading`, `playing`, `paused`, `connected`), `title`, `artist`, `album`, `artwork`, `senders` (display names, `[]` when none), `duration_ms`, `position` |
 | `controls` | command names | What `POST /api/audio/control/{source}` accepts *now* and would act on. `[]` under `none`, while `switching`, and whenever `service` is not `running`. `skip` (`{"seconds": ±n}`, relative, bounded to `[0, duration_ms]`) is listed wherever `seek` is |
 | `resume` | `null` or object | What a play press would bring back; set only while `session` is `null` |
-| `details` | `null` or a union on `kind` | The source's own content: `radio` (station, recognized track), `podcast` (the episode), `music_library` (queue, index, shuffle, ids), `cd` (disc, current track, `artwork_pending`), `airplay` (the cover's width, the sender's shuffle and repeat), `spotify` (the signed-in account, what context plays, the Jam) |
+| `details` | `null` or a union on `kind` | The source's own content: `radio` (station, recognized track, `artwork_pending`), `podcast` (the episode), `music_library` (queue, index, shuffle, ids), `cd` (disc, current track, `artwork_pending`), `bluetooth` (`artwork_pending`), `airplay` (the cover's width, the sender's shuffle and repeat), `spotify` (the signed-in account, what context plays, the Jam) |
 | `multiroom_enabled`, `equalizer_effects_enabled` | bool | The two global flags |
+
+`artwork_pending`, where a source carries it, is `true` while the cover of what is on screen is still being fetched or looked up (CD's jacket, a Bluetooth or radio in-band track's cover, resolved from its text after the track is published), and `false` once that settled, found or not.
 
 An empty string is never published: it is `null`.
 

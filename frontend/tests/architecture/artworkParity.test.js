@@ -74,7 +74,11 @@ describe('artwork parity between the full player and the playing bar', () => {
   it('runs the held-cover transition, announced wait included', () => {
     // CD veils its placeholder while the jacket is fetched; a player left
     // without the signal shows the bare placeholder and swaps it a moment later.
-    expect(playerCode).toMatch(/useArtworkTransition\(\s*\w+,\s*\w+,\s*artworkAnnounced\s*\)/);
+    // The playing bar draws the same slot (radio announces its in-band
+    // covers), so it runs the same transition on the same signal.
+    for (const view of VIEWS) {
+      expect(view).toMatch(/useArtworkTransition\(\s*\w+,\s*\w+,\s*artworkAnnounced\s*\)/);
+    }
     expect(metadataCode).toMatch(/nowPlayingArtworkPending\(/);
 
     // And it may not re-roll its own wait: the bounded timeout is the only
@@ -92,9 +96,11 @@ describe('artwork parity between the full player and the playing bar', () => {
     // mentions the name everywhere, so matching the name alone stays green
     // through exactly the regression this guards.
     expect(transition).toMatch(/MIN_IMAGE_SIZE/);
-    expect(playerCode).toMatch(/@load="settleFromLoad"/);
-    expect(playerCode).toMatch(/@error="settleFromError"/);
-    expect(playerCode).not.toMatch(/MIN_IMAGE_SIZE/);
+    for (const view of VIEWS) {
+      expect(view).toMatch(/@load="settleFromLoad"/);
+      expect(view).toMatch(/@error="settleFromError"/);
+      expect(view).not.toMatch(/MIN_IMAGE_SIZE/);
+    }
   });
 
   it('lets no view own a placeholder image', () => {

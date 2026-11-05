@@ -41,6 +41,19 @@ describe('nowPlayingArtworkPending', () => {
     expect(nowPlayingArtworkPending(cd({ artwork_pending: false }))).toBe(false);
   });
 
+  it('reads the same flag whatever source announces it', () => {
+    // Bluetooth and radio look a cover up from the track text after the track
+    // is published; one rule for every kind, so a source that starts announcing
+    // needs no frontend table to be heard.
+    const announcing = (source, details) => makeAudioState({ source, session: makeSession(), details });
+    expect(nowPlayingArtworkPending(announcing('bluetooth', { kind: 'bluetooth', artwork_pending: true }))).toBe(true);
+    expect(nowPlayingArtworkPending(announcing('bluetooth', { kind: 'bluetooth', artwork_pending: false }))).toBe(false);
+    expect(nowPlayingArtworkPending(announcing('radio', {
+      kind: 'radio', station: { name: 'FIP' }, track: { title: 'Snibor', artist: 'Gil Evans', artwork: null },
+      artwork_pending: true,
+    }))).toBe(true);
+  });
+
   it('is false for every source that announces nothing', () => {
     // Only the announcer ever lifts it, so reading anything else as pending
     // would veil a placeholder forever.

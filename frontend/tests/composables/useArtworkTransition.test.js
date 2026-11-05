@@ -3,16 +3,18 @@
  * useArtworkTransition holds the cover currently on screen until the next one
  * has decoded, and decides what counts as a cover at all.
  *
- * Four rules carry the weight:
+ * Five rules carry the weight:
  *
  *  - an image that decodes at a real size is promoted,
  *  - one that decodes at a pixel or two is NOT a cover but a tracking pixel or
  *    a broken favicon, and is rejected so the caller's fallback shows,
- *  - a track change whose cover is not known yet (Bluetooth resolves its own,
- *    about a second late) holds the outgoing cover rather than flashing the
- *    fallback between two covers,
- *  - and the wait is bounded, because nothing ever reports "there will be no
- *    cover for this track" — an image that will not decode fires no event.
+ *  - a track change whose cover the backend announced (`artwork_pending`: the
+ *    CD's jacket, Bluetooth's and radio's iTunes lookups) holds the outgoing
+ *    cover, veiled, until the backend answers — with no bound of its own,
+ *  - a track change with no cover and no announcement has none: the fallback
+ *    is drawn at once, as the answer,
+ *  - and the decode wait is bounded, because an image that will not decode
+ *    fires no event.
  *
  * The size rule sits here rather than in a view: when it lived in each
  * consumer, one view promoted a 1×1 image another rejected, and the same track
@@ -108,22 +110,26 @@ describe('useArtworkTransition', () => {
     expect(shownArtwork.value).toBe('/api/cover/two');
   });
 
-  it('holds it across a track change whose cover is not known yet', async () => {
-    // Bluetooth: the title arrives over AVRCP, the cover is looked up from the
-    // track text afterwards and lands about a second later.
+  it('holds it across a track change whose cover is announced', async () => {
+    // Bluetooth: the title arrives over AVRCP with `artwork_pending`, the cover
+    // is looked up from the track text afterwards and lands about a second later.
     const target = ref('/api/cover/one');
     const trackKey = ref('first|artist');
-    const { shownArtwork, artworkPending, settleFromLoad } = mountTransition(target, trackKey);
+    const announced = ref(false);
+    const { shownArtwork, artworkPending, settleFromLoad } =
+      mountTransition(target, trackKey, announced);
     settleFromLoad(decodedAt(600, 600));
 
     target.value = '';
     trackKey.value = 'second|artist';
+    announced.value = true;
     await nextTick();
 
     expect(shownArtwork.value).toBe('/api/cover/one');
     expect(artworkPending.value).toBe(true);
 
     target.value = '/api/cover/two';
+    announced.value = false;
     await nextTick();
     settleFromLoad(decodedAt(600, 600));
 
@@ -186,44 +192,136 @@ describe('useArtworkTransition', () => {
     expect(artworkPending.value).toBe(false);
   });
 
-  it('disarms the wait when the cover resolved is the one already shown', async () => {
-    // Bluetooth again, but track 2 of the SAME album: the lookup answers with
-    // the cover on screen. Nothing is going to load, so if the wait armed by the
-    // track change is not disarmed here it fires at T+4 s and replaces a correct
-    // cover with the fallback, mid-track.
-    const target = ref('/api/cover/album');
+  it('shows the fallback at once on a track change nothing announced a cover for', async () => {
+    // Radio, stepping from a station with a logo to one without: nothing is
+    // being looked up, so the generated avatar is the answer now — not the
+    // previous station's logo held under a spinner for the bounded wait.
+    const target = ref('/api/radio/favicon?url=a');
+    const trackKey = ref('Station A|');
+    const { shownArtwork, artworkPending, settleFromLoad } =
+      mountTransition(target, trackKey, ref(false));
+    settleFromLoad(decodedAt(300, 300));
+
+    target.value = '';
+    trackKey.value = 'Station B|';
+    await nextTick();
+
+    expect(shownArtwork.value).toBe('');
+    expect(artworkPending.value).toBe(false);
+  });
+
+  it('holds the cover past the bounded wait while the next one is announced', async () => {
+    // Bluetooth: the track lands with no cover and `artwork_pending`, and the
+    // lookup can take longer than the decode bound (the resolver queues its
+    // lookups, 8 s each at worst). The glyph must not replace the held cover
+    // before the backend has answered.
+    const target = ref('/api/cover/a');
     const trackKey = ref('first|artist');
-    const { shownArtwork, artworkPending, settleFromLoad } = mountTransition(target, trackKey);
+    const announced = ref(false);
+    const { shownArtwork, artworkPending, settleFromLoad } =
+      mountTransition(target, trackKey, announced);
     settleFromLoad(decodedAt(600, 600));
 
     target.value = '';
     trackKey.value = 'second|artist';
+    announced.value = true;
+    await nextTick();
+    vi.advanceTimersByTime(ARTWORK_WAIT_MS + 1);
+
+    expect(shownArtwork.value).toBe('/api/cover/a');
+    expect(artworkPending.value).toBe(true);
+  });
+
+  it('veils a player mounted while the backend announces a cover', () => {
+    // Bluetooth, an iPhone taken back from a Mac: the full player mounts on a
+    // track whose cover is still being looked up. No track change is seen, so
+    // only the announcement keeps the glyph from showing before the cover.
+    const { shownArtwork, artworkPending } =
+      mountTransition(ref(''), ref('track|artist'), ref(true));
+
+    expect(artworkPending.value).toBe(true);
+    expect(shownArtwork.value).toBe('');
+  });
+
+  it('holds the cover on screen while one is announced, not the stand-in', async () => {
+    // Radio: a new song from the stream publishes the station logo as its
+    // cover while the song's own is looked up. Heading for the logo would
+    // flash it between two covers.
+    const target = ref('/api/cover/one');
+    const trackKey = ref('first|artist');
+    const announced = ref(false);
+    const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad } =
+      mountTransition(target, trackKey, announced);
+    settleFromLoad(decodedAt(600, 600));
+
+    target.value = '/api/radio/favicon?url=logo';
+    trackKey.value = 'second|artist';
+    announced.value = true;
+    await nextTick();
+
+    expect(shownArtwork.value).toBe('/api/cover/one');
+    expect(preloadArtwork.value).toBe('');
+    expect(artworkPending.value).toBe(true);
+    vi.advanceTimersByTime(ARTWORK_WAIT_MS * 10);
+    expect(shownArtwork.value).toBe('/api/cover/one');
+
+    target.value = '/api/cover/two';
+    announced.value = false;
+    await nextTick();
+    settleFromLoad(decodedAt(600, 600));
+
+    expect(shownArtwork.value).toBe('/api/cover/two');
+    expect(artworkPending.value).toBe(false);
+  });
+
+  it('heads for the stand-in once the backend found no cover', async () => {
+    // The lookup missed: the station logo is now the answer, and it loads.
+    const target = ref('/api/cover/one');
+    const trackKey = ref('first|artist');
+    const announced = ref(false);
+    const { shownArtwork, preloadArtwork, settleFromLoad } =
+      mountTransition(target, trackKey, announced);
+    settleFromLoad(decodedAt(600, 600));
+
+    target.value = '/api/radio/favicon?url=logo';
+    trackKey.value = 'second|artist';
+    announced.value = true;
+    await nextTick();
+    announced.value = false;
+    await nextTick();
+
+    expect(preloadArtwork.value).toBe('/api/radio/favicon?url=logo');
+    settleFromLoad(decodedAt(300, 300));
+    expect(shownArtwork.value).toBe('/api/radio/favicon?url=logo');
+  });
+
+  it('disarms the wait when the cover resolved is the one already shown', async () => {
+    // Bluetooth again, but track 2 of the SAME album: the lookup answers with
+    // the cover on screen. Nothing is going to load, so if the veil is not
+    // settled here it waits for a load that never comes, and the wait fires at
+    // T+4 s over a correct cover.
+    const target = ref('/api/cover/album');
+    const trackKey = ref('first|artist');
+    const announced = ref(false);
+    const { shownArtwork, artworkPending, settleFromLoad } =
+      mountTransition(target, trackKey, announced);
+    settleFromLoad(decodedAt(600, 600));
+
+    target.value = '';
+    trackKey.value = 'second|artist';
+    announced.value = true;
     await nextTick();
     expect(artworkPending.value).toBe(true);
 
     target.value = '/api/cover/album';
+    announced.value = false;
     await nextTick();
+    // Settled now: no load is coming to lift a veil.
+    expect(artworkPending.value).toBe(false);
     vi.advanceTimersByTime(ARTWORK_WAIT_MS);
 
     expect(shownArtwork.value).toBe('/api/cover/album');
     expect(artworkPending.value).toBe(false);
-  });
-
-  it('lifts the veil when no cover ever arrives', async () => {
-    const target = ref('/api/cover/one');
-    const trackKey = ref('first|artist');
-    const { shownArtwork, artworkPending } = mountTransition(target, trackKey);
-
-    target.value = '';
-    trackKey.value = 'second|artist';
-    await nextTick();
-    expect(artworkPending.value).toBe(true);
-
-    // No load event is coming — the timeout is the only thing left.
-    vi.advanceTimersByTime(ARTWORK_WAIT_MS);
-
-    expect(artworkPending.value).toBe(false);
-    expect(shownArtwork.value).toBe('');
   });
 
   it('paints a cover the browser never reports on, rather than waiting forever', async () => {

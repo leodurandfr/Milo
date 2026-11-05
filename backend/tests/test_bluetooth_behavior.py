@@ -13,8 +13,8 @@ import logging
 import pytest
 
 from backend.tests.bluetooth_world import (
-    APLAY_UNIT, BLUEALSA_UNIT, BLUEZ_UNIT, IPHONE, MAC_MINI, PIXEL, SAYS, UNKNOWN_DEMO,
-    Bluetooth,
+    APLAY_UNIT, BLUEALSA_UNIT, BLUEZ_UNIT, FEELING_GOOD, IPHONE, MAC_MINI, PIXEL, SAYS,
+    UNKNOWN_DEMO, Bluetooth,
 )
 
 
@@ -488,3 +488,63 @@ async def test_a_cover_answered_after_the_track_moved_on_is_dropped(bt):
 
     assert bt.session()["title"] == UNKNOWN_DEMO["Title"]
     assert bt.session()["artwork"] is None
+
+
+# The cover is looked up after the track is published, so the wire says so:
+# without it the player cannot tell a cover on its way from no cover at all,
+# and draws the Bluetooth glyph for the second the lookup takes, then the
+# cover over it (measured: an iPhone taken back from a Mac, 2026-11-05).
+
+async def test_a_cover_being_looked_up_is_announced_until_it_is_found(bt):
+    bt.hold_itunes()
+    await playing_iphone(bt)
+
+    assert bt.session()["artwork"] is None
+    assert bt.state()["details"]["artwork_pending"] is True
+
+    await bt.release_itunes()
+
+    assert "nils/spaces" in bt.session()["artwork"]
+    assert bt.state()["details"]["artwork_pending"] is False
+
+
+async def test_a_cover_nobody_has_lifts_the_announcement(bt):
+    """A miss is an answer too: the glyph is then the final word, drawn at
+    once rather than after a client-side timeout."""
+    bt.hold_itunes()
+    await playing_iphone(bt, UNKNOWN_DEMO)
+    assert bt.state()["details"]["artwork_pending"] is True
+
+    await bt.release_itunes()
+
+    assert bt.session()["artwork"] is None
+    assert bt.state()["details"]["artwork_pending"] is False
+
+
+async def test_an_answer_for_a_track_gone_by_never_lifts_the_new_ones(bt):
+    """The previous track's lookup ends while the new one's is still on its
+    way: the new track stays announced until its own answer, never shown
+    bare in between."""
+    bt.hold_itunes()
+    await playing_iphone(bt, FEELING_GOOD)
+    await bt.player_changed({"Track": SAYS}, {"Position": 0})
+    await bt.elapse(5)
+    assert bt.session()["title"] == SAYS["Title"]
+    assert bt.state()["details"]["artwork_pending"] is True
+
+    await bt.release_itunes()
+
+    says = [s for s in bt.published() if s["session"] and s["session"]["title"] == SAYS["Title"]]
+    assert "nils/spaces" in says[-1]["session"]["artwork"]
+    for state in says:
+        assert state["details"]["artwork_pending"] is (state["session"]["artwork"] is None)
+
+
+async def test_a_phone_with_no_track_announces_no_cover(bt):
+    """Nothing to look up is not a lookup in flight: a Mac publishing no
+    track yet would otherwise hold a veil over the status card's glyph."""
+    await bt.select()
+    await bt.pcm_added(MAC_MINI)
+
+    assert bt.session()["title"] is None
+    assert not (bt.state()["details"] or {}).get("artwork_pending")

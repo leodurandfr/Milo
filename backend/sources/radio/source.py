@@ -139,6 +139,8 @@ class RadioSession(MpvSession):
     # record on screen, not the stream that is sounding.
     stream_url: str = ""
     inband_track: Optional[Dict[str, Any]] = None
+    # The in-band track whose cover lookup has not answered yet (by identity).
+    artwork_lookup: Optional[Dict[str, Any]] = None
     inband_seen: bool = False           # the station emits in-band → no Shazam
     inband_poll_ticks: int = 0
     empty_inband_polls: int = 0         # in-band-empty polls since the sound started
@@ -596,7 +598,16 @@ class RadioSource(MpvAudioSource):
             track=RadioTrack(
                 title=track.get("title"), artist=track.get("artist"), artwork=track.get("artwork"),
             ) if track else None,
+            artwork_pending=self._artwork_pending(),
         )
+
+    def _artwork_pending(self) -> bool:
+        """Whether the cover of the in-band song on screen is being looked up."""
+        session = self._session
+        if not isinstance(session, RadioSession):
+            return False
+        track = session.inband_track
+        return track is not None and session.artwork_lookup is track and not track.get("artwork")
 
     def _controls(self) -> List[str]:
         """A live stream has no pause and no track to skip: stop, or re-tune
@@ -694,6 +705,8 @@ class RadioSource(MpvAudioSource):
                     await self._shazam.stop()
             if self._track_key(track) != self._track_key(session.inband_track):
                 session.inband_track = track
+                # Set before the publish: it already says a cover is on its way.
+                session.artwork_lookup = track
                 self._publish()
                 # In-band carries no artwork — resolve a cover off the actor
                 # (iTunes Search), then patch it in if the track is still up.
@@ -734,17 +747,30 @@ class RadioSource(MpvAudioSource):
                 )
 
     async def _resolve_inband_artwork(self, session: RadioSession, track: Dict[str, Any]) -> None:
-        """Resolve cover art for an in-band track, applied if still current."""
-        artwork = await self._artwork.resolve(
-            track.get("artist", ""), track.get("title", "")
-        )
-        if not artwork:
-            return
+        """Resolve cover art for an in-band track, applied if still current.
+
+        A miss is posted too: it lifts the announcement, and the station logo
+        is then the answer."""
+        try:
+            artwork = await self._artwork.resolve(
+                track.get("artist", ""), track.get("title", "")
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # Not re-raised: the announcement must still lift.
+            self._logger.error(f"Cover lookup for {track.get('title')!r} failed: {e}")
+            artwork = None
 
         async def apply() -> None:
-            if session.inband_track is track and session.phase is Phase.PLAYING:
+            if session.artwork_lookup is track:
+                session.artwork_lookup = None
+            if session.inband_track is not track:
+                # A newer song is on screen; its own lookup is still announced.
+                return
+            if artwork and session.phase is Phase.PLAYING:
                 track["artwork"] = artwork
-                self._publish()
+            self._publish()
 
         self._post_result(apply, token=session)
 

@@ -268,7 +268,8 @@ const NOW_PLAYING = {
     details: {
       kind: 'radio',
       station: radioStation('st-nova', 'Radio Nova', stationImageTurntable),
-      track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder }
+      track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder },
+      artwork_pending: false
     }
   },
   // No logo: the cover slot draws the station's generated avatar, which is its
@@ -277,7 +278,7 @@ const NOW_PLAYING = {
     source: 'radio',
     resume: { title: 'FIP' },
     controls: ['resume_playback'],
-    details: { kind: 'radio', station: radioStation('st-fip', 'FIP', null), track: null }
+    details: { kind: 'radio', station: radioStation('st-fip', 'FIP', null), track: null, artwork_pending: false }
   },
   'CD — paused': {
     source: 'cd',

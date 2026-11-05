@@ -68,6 +68,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
 from backend.core.audio_source import BaseAudioSource, Result
+from backend.core.models.audio_wire import BluetoothDetails
 from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy,
     ReroutePolicy, Session,
@@ -110,6 +111,7 @@ class BluetoothSession(Session):
     Cover art is resolved from the track text and held apart from `playback`:
     the position poll replaces that dict wholesale, and the key it was
     resolved for is what keeps a new track from inheriting it.
+    `artwork_lookup` is the key whose lookup has not answered yet.
     """
     name: str = ""
     playback: Dict[str, Any] = field(default_factory=dict)
@@ -118,6 +120,7 @@ class BluetoothSession(Session):
     running: bool = False
     artwork_url: Optional[str] = None
     artwork_key: tuple = ()
+    artwork_lookup: tuple = ()
 
 
 def _same_device(a: Optional[str], b: Optional[str]) -> bool:
@@ -547,7 +550,10 @@ class BluetoothSource(BaseAudioSource):
         session.playback = snapshot if mine else {}
         session.status = self.avrcp.status if mine else ""
         track = self._track_key(session.playback)
-        if track != before and any(track) and self._session_bg is not None:
+        if track != before and self._lookup_worthy(track) and self._session_bg is not None:
+            # Set before the publish that follows: it already says a cover is
+            # on its way.
+            session.artwork_lookup = track
             self._session_bg.spawn(self._resolve_artwork(session, track), label="avrcp_artwork")
 
     def _phase_of(self, session: BluetoothSession) -> Phase:
@@ -687,25 +693,49 @@ class BluetoothSource(BaseAudioSource):
         """What identifies a track for artwork purposes."""
         return (playback.get("title"), playback.get("artist"), playback.get("album"))
 
+    @staticmethod
+    def _lookup_worthy(track: tuple) -> bool:
+        """Whether the resolver will ask anything: it looks a title or an
+        album up, never an artist alone."""
+        title, _, album = track
+        return bool((title or "").strip() or (album or "").strip())
+
     async def _resolve_artwork(self, session: BluetoothSession, track: tuple) -> None:
         """Look a cover up from the track text, beside the mailbox.
 
         AVRCP carries no image (see avrcp.py), so the only thing left is the
-        text it does carry. A miss is silent — the player draws its glyph.
+        text it does carry. A miss is posted too: it lifts the announcement,
+        and the player's glyph is then the answer.
         """
         title, artist, album = track
-        url = await self._artwork.resolve(artist or "", title or "", album or "")
-        if url:
-            self._post_result(lambda: self._artwork_found(session, track, url), token=session)
+        try:
+            url = await self._artwork.resolve(artist or "", title or "", album or "")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # Not re-raised: the announcement must still lift.
+            self._logger.error(f"Cover lookup for {title!r} failed: {e}")
+            url = None
+        self._post_result(lambda: self._artwork_settled(session, track, url), token=session)
 
-    async def _artwork_found(self, session: BluetoothSession, track: tuple, url: str) -> None:
+    async def _artwork_settled(self, session: BluetoothSession, track: tuple,
+                               url: Optional[str]) -> None:
+        if session.artwork_lookup == track:
+            session.artwork_lookup = ()
         # A newer track that arrived during the lookup must not be given the
-        # old one's cover.
+        # old one's cover; its own lookup is still announced.
         if track != self._track_key(session.playback):
             return
-        session.artwork_url = url
-        session.artwork_key = track
+        if url:
+            session.artwork_url = url
+            session.artwork_key = track
         self._publish()
+
+    def _artwork_of(self, session: BluetoothSession) -> Optional[str]:
+        """The cover resolved for the track on screen, if any."""
+        if session.artwork_url and session.artwork_key == self._track_key(session.playback):
+            return session.artwork_url
+        return None
 
     async def refresh_metadata(self) -> bool:
         """Re-read the playhead for `GET /api/audio/state` and the WS handshake.
@@ -848,18 +878,26 @@ class BluetoothSource(BaseAudioSource):
         phone's name is the sender the status card draws when it publishes no
         track."""
         playback = session.playback
-        artwork = (
-            session.artwork_url
-            if session.artwork_url and session.artwork_key == self._track_key(playback) else None
-        )
         return {
             "title": playback.get("title"),
             "artist": playback.get("artist"),
             "album": playback.get("album"),
-            "artwork": artwork,
+            "artwork": self._artwork_of(session),
             "senders": [session.name] if session.name else [],
             "duration_ms": playback.get("duration"),
         }
+
+    def _details(self) -> Optional[BluetoothDetails]:
+        """Whether the cover of the track on screen is still being looked up:
+        a cover already known for it is not waited for again."""
+        session = self._session
+        if not isinstance(session, BluetoothSession):
+            return None
+        return BluetoothDetails(artwork_pending=bool(
+            session.artwork_lookup
+            and session.artwork_lookup == self._track_key(session.playback)
+            and self._artwork_of(session) is None
+        ))
 
     def _controls(self) -> List[str]:
         """The transport only when the phone holding the link has a player

@@ -54,7 +54,7 @@ def test_audio_state_preserves_every_key_the_state_machine_emits():
         details=RadioDetails(
             station=RadioStation(id="st", name="FIP Jazz", url="http://x", country=None,
                                  genre=None, favicon=None, bitrate=128, codec=None),
-            track=None,
+            track=None, artwork_pending=False,
         ),
         controls=("stop",),
     )

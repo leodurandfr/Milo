@@ -243,7 +243,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -381,7 +384,10 @@
      "disconnect"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "bluetooth",
+     "artwork_pending": false
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -516,7 +522,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": true
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -566,7 +575,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -682,7 +694,10 @@
      "disconnect"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "bluetooth",
+     "artwork_pending": false
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -727,7 +742,10 @@
      "disconnect"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "bluetooth",
+     "artwork_pending": false
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -831,7 +849,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -881,7 +902,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": true
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -931,7 +955,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -981,7 +1008,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1031,7 +1061,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1081,7 +1114,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1131,7 +1167,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1247,7 +1286,10 @@
      "disconnect"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "bluetooth",
+     "artwork_pending": false
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -1292,7 +1334,10 @@
      "disconnect"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "bluetooth",
+     "artwork_pending": false
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -1396,7 +1441,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1446,7 +1494,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": true
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1496,7 +1547,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1546,7 +1600,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": true
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1596,7 +1653,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1660,7 +1720,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": true
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1710,7 +1773,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1760,7 +1826,63 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": true
+     },
+     "multiroom_enabled": false,
+     "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "state",
+    "origin": "bluetooth",
+    "data": {
+     "source": "bluetooth",
+     "switching": false,
+     "service": "running",
+     "service_error": null,
+     "availability": {
+      "radio": null,
+      "podcast": null,
+      "music_library": null,
+      "cd": null,
+      "spotify": null,
+      "tidal": null,
+      "qobuz": null,
+      "airplay": null,
+      "bluetooth": null,
+      "mac": null
+     },
+     "session": {
+      "id": "session-1",
+      "phase": "playing",
+      "title": "Demo 3 (voice memo)",
+      "artist": "Léo",
+      "album": "Garage",
+      "artwork": null,
+      "senders": [
+       "iPhone de Léo"
+      ],
+      "duration_ms": 95000,
+      "position": {
+       "ms": 0,
+       "at": 1790271033.5,
+       "rate": 1.0
+      }
+     },
+     "controls": [
+      "pause",
+      "next",
+      "prev",
+      "disconnect"
+     ],
+     "resume": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -1876,7 +1998,10 @@
      "disconnect"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "bluetooth",
+     "artwork_pending": false
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },
@@ -1921,7 +2046,10 @@
      "disconnect"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "bluetooth",
+     "artwork_pending": false
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    }
@@ -2025,7 +2153,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2075,7 +2206,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": true
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2125,7 +2259,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2168,7 +2305,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2374,7 +2514,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2424,7 +2567,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2467,7 +2613,10 @@
       "disconnect"
      ],
      "resume": null,
-     "details": null,
+     "details": {
+      "kind": "bluetooth",
+      "artwork_pending": false
+     },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
     }
@@ -2612,7 +2761,10 @@
      "disconnect"
     ],
     "resume": null,
-    "details": null,
+    "details": {
+     "kind": "bluetooth",
+     "artwork_pending": false
+    },
     "multiroom_enabled": false,
     "equalizer_effects_enabled": false
    },

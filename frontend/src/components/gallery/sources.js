@@ -1011,15 +1011,18 @@ export const SOURCE_PAGES = [
       published('bluetooth', 'Ready', 'Discoverable, nothing linked. No CTA in this state.'),
       published('bluetooth', 'Connected, no track', 'A sender that publishes no player — or an empty track — stays on the card: `senders` fills the second line and the disconnect CTA appears. It routes through sendCommand, so here it reports to the event log.', {
         session: session({ phase: 'connected', senders: ['Leo’s iPhone'] }),
-        controls: ['disconnect']
+        controls: ['disconnect'],
+        details: { kind: 'bluetooth', artwork_pending: false }
       }),
       published('bluetooth', 'Playing', 'Status playing and a stream flowing. A title is the gate; transport plus a bar that draws position and refuses a scrub. The cover is not the sender’s: AVRCP carries none, so it was resolved from this track’s own text and can perfectly well be absent.', {
         session: session({ ...SAYS, phase: 'playing', senders: ['Leo’s iPhone'], position: anchor(192000) }),
-        controls: ['pause', 'next', 'prev', 'disconnect']
+        controls: ['pause', 'next', 'prev', 'disconnect'],
+        details: { kind: 'bluetooth', artwork_pending: false }
       }),
       published('bluetooth', 'Paused', 'Status paused. The player stays — it draws a pause button, and dropping to the card on pause would delete the button that was just pressed — with resume in place of pause.', {
         session: session({ ...SAYS, phase: 'paused', senders: ['Leo’s iPhone'], position: anchor(192000) }),
-        controls: ['resume', 'next', 'prev', 'disconnect']
+        controls: ['resume', 'next', 'prev', 'disconnect'],
+        details: { kind: 'bluetooth', artwork_pending: false }
       }),
       errored(
         'bluetooth',
@@ -1109,7 +1112,7 @@ export const SOURCE_PAGES = [
             artwork: RADIO_STATION_WITH_IMAGE.favicon
           }),
           controls: ['stop'],
-          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null, artwork_pending: false }
         },
         // The marked card in the grid, and only that: it comes from
         // RadioSource's own computed, which lives in the wrapper the stage
@@ -1141,7 +1144,7 @@ export const SOURCE_PAGES = [
             artwork: RADIO_STATION_WITH_IMAGE.favicon
           }),
           controls: ['stop'],
-          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null, artwork_pending: false }
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
@@ -1170,7 +1173,7 @@ export const SOURCE_PAGES = [
             position_ms: null
           },
           controls: ['resume_playback'],
-          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null }
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null, artwork_pending: false }
         },
         props: { isPlaying: false, currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
@@ -1193,7 +1196,7 @@ export const SOURCE_PAGES = [
             album: RADIO_STATION_NO_IMAGE.name
           }),
           controls: ['stop'],
-          details: { kind: 'radio', station: radioStation(RADIO_STATION_NO_IMAGE), track: null }
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_NO_IMAGE), track: null, artwork_pending: false }
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_NO_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
@@ -1221,7 +1224,8 @@ export const SOURCE_PAGES = [
           details: {
             kind: 'radio',
             station: radioStation(RADIO_STATION_WITH_IMAGE),
-            track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder }
+            track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder },
+            artwork_pending: false
           }
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_WITH_IMAGE },

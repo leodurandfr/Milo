@@ -18,16 +18,20 @@ export function nowPlayingArtwork(record) {
 }
 
 /**
- * Whether the backend has announced a cover it is still fetching. Only the CD
- * does, in its details, while the Cover Art Archive answers — seconds
- * normally, over a minute when the archive retries — so the slot veils its
- * placeholder rather than swapping it for the cover a moment later.
+ * Whether the backend has announced a cover it is still fetching. A source
+ * that finds its cover after it published the track says so in its details,
+ * `artwork_pending`, until the answer is in, found or not: the CD while the
+ * Cover Art Archive answers (seconds, over a minute when it retries),
+ * Bluetooth and radio's in-band titles while iTunes is asked from the track
+ * text. The slot veils what it shows rather than drawing the fallback a moment
+ * before the cover. One rule for every kind: a source that starts announcing
+ * needs no entry here.
  *
  * @param {object|null} state - unifiedAudioStore.systemState
  * @returns {boolean}
  */
 export function nowPlayingArtworkPending(state) {
-  return state?.details?.kind === 'cd' && state.details.artwork_pending === true;
+  return state?.details?.artwork_pending === true;
 }
 
 // Sources shipping a static image for the no-cover case. Everything else shows
