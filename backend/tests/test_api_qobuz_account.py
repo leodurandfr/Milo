@@ -295,6 +295,50 @@ class TestLogout:
 
         assert stat.S_IMODE(cache.stat().st_mode) == 0o600
 
+    def test_logout_leaves_the_cache_private_after_the_sidecar_cleared_it_first(
+        self, client, cache, systemd, monkeypatch
+    ):
+        """The usual logout, measured on the unit 2026-11-05: the running
+        sidecar is told first, and qobuz-proxy drops the token keys itself by
+        rewriting the file in place, mode kept. Milō then finds nothing to
+        drop — and stopping there left the cache 0644, so the next login,
+        which qobuz-proxy also writes in place, put the new token in a file
+        every local account can read.
+        """
+        cache.write_text(json.dumps({**CREDENTIALS, "device_id": "milo-1"}))
+        cache.chmod(0o644)
+        systemd.probe_active = AsyncMock(return_value=True)
+
+        def sidecar_logout():
+            # qobuz_proxy.auth.credentials.clear_user_token: open("w"), in place.
+            kept = {k: v for k, v in json.loads(cache.read_text()).items()
+                    if k not in CREDENTIALS}
+            with open(cache, "w") as f:
+                json.dump(kept, f)
+
+        class _Resp:
+            status = 200
+
+            async def __aenter__(self):
+                sidecar_logout()
+                return self
+
+            async def __aexit__(self, *_): return False
+
+        class _Session:
+            def __init__(self, **_): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+            def post(self, url): return _Resp()
+
+        monkeypatch.setattr(qobuz_account.aiohttp, "ClientSession", _Session)
+
+        assert client.post("/api/qobuz/account/logout").status_code == 200
+
+        assert stat.S_IMODE(cache.stat().st_mode) == 0o600
+        # The next login (save_user_token) also rewrites in place, so it keeps 0600.
+        assert json.loads(cache.read_text()) == {"device_id": "milo-1"}
+
     async def test_two_concurrent_clears_both_succeed(self, cache, tmp_path):
         """Two logouts at once (a double tap, the app and the screen) must not
         race for one temporary file: the loser answered 500 for a token that

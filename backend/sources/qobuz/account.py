@@ -8,8 +8,11 @@ account's persistent state — the proxy re-authenticates from it on every start
 routes (api/qobuz_account.py) and by the source, whose `no_account`
 availability uses the same predicate while the sidecar is not running.
 """
+import asyncio
+import contextlib
 import json
 import logging
+import os
 
 import aiofiles
 
@@ -40,13 +43,24 @@ def is_connected(credentials: dict) -> bool:
 
 
 async def clear_credentials() -> None:
-    """Drop the token keys from the cache, preserving any other proxy state.
-    Raises OSError when the cache cannot be rewritten."""
+    """Drop the token keys from the cache, preserving any other proxy state,
+    and leave the file 0600 either way. Raises OSError when the cache cannot
+    be rewritten.
+
+    A running sidecar, told of the logout first, has usually dropped the keys
+    already, rewriting the file in place with its mode kept; so does the next
+    login. A cache left 0644 here hands that login's token to every local
+    account, so a cache with nothing to drop is still made private — by its
+    mode alone, never by a rewrite of a file that is qobuz-proxy's.
+    """
     creds = await read_credentials()
-    if not any(key in creds for key in _TOKEN_KEYS):
+    if any(key in creds for key in _TOKEN_KEYS):
+        for key in _TOKEN_KEYS:
+            creds.pop(key, None)
+        await write_bytes_atomically(
+            QOBUZ_CREDENTIALS_FILE, json.dumps(creds, indent=2).encode("utf-8"), private=True
+        )
         return
-    for key in _TOKEN_KEYS:
-        creds.pop(key, None)
-    await write_bytes_atomically(
-        QOBUZ_CREDENTIALS_FILE, json.dumps(creds, indent=2).encode("utf-8"), private=True
-    )
+    # No file at all: the sidecar creates the next one under its UMask=0077.
+    with contextlib.suppress(FileNotFoundError):
+        await asyncio.to_thread(os.chmod, QOBUZ_CREDENTIALS_FILE, 0o600)
