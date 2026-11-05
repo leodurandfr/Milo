@@ -3,8 +3,8 @@
 
 `rootfs/usr/local/bin/milo-qobuz` adds position/duration and the session's
 state to the sidecar's status, holds its stream at unity gain, tells the app
-when its slider is inert and puts the web UI behind the backend's request gate
-— things upstream offers no setting for.
+when its slider is inert, puts the web UI behind the backend's request gate
+and lets one login run at a time — things upstream offers no setting for.
 They bind to names, and `--check` is what refuses a release that moved one,
 before `_update_qobuz_proxy` restarts the service onto it. qobuz-proxy is not in
 the backend's environment, so `fake_qobuz_proxy` stands in for it, in the shape
@@ -20,6 +20,7 @@ The adaptation failing is the same silence on the unit: a stream at upstream's
 it must not.
 """
 import ast
+import asyncio
 import configparser
 import enum
 import inspect
@@ -228,7 +229,22 @@ def _move_register_routes(fake):
 
 def _move_route_registration(fake):
     async def _start_web_server(self):
-        self._web_app = None
+        self._web_app = {"on_auth_token": self._on_auth_token}
+
+    fake.app.QobuzProxy._start_web_server = _start_web_server
+
+
+def _move_login_guard(fake):
+    async def _on_auth_token(self, user_id, auth_token, profile=None, **_kwargs):
+        await self._start_speakers()
+        return True
+
+    fake.app.QobuzProxy._on_auth_token = _on_auth_token
+
+
+def _move_login_callback(fake):
+    async def _start_web_server(self):
+        fake.app.register_routes(None)
 
     fake.app.QobuzProxy._start_web_server = _start_web_server
 
@@ -240,12 +256,16 @@ MOVES = {
     "supports_volume_control": _move_volume_argument,
     "register_routes": _move_register_routes,
     "_start_web_server": _move_route_registration,
+    "_speakers": _move_login_guard,
+    "login callback": _move_login_callback,
 }
 
 # `qobuz_proxy/app.py` reduced to its web UI: compiled as a module rather than
 # nested in the builder, so `_start_web_server` reaches `register_routes` as a
 # global, the way upstream's does — a closure would hide the name the check reads.
 _FAKE_APP_SOURCE = """
+import asyncio
+
 from aiohttp import web
 
 reached = []
@@ -267,9 +287,30 @@ def register_routes(app):
 
 
 class QobuzProxy:
+    def __init__(self):
+        self._speakers = []
+        self.saved = 0
+        self.starts = 0
+
     async def _start_web_server(self):
         self._web_app = web.Application()
+        # Upstream stores it as an app item, `_web_app["on_auth_token"]`.
+        self.login_handler = self._on_auth_token
         register_routes(self._web_app)
+
+    async def _on_auth_token(self, user_id, auth_token, profile=None, **_kwargs):
+        self.saved += 1
+        if not self._speakers:
+            await self._start_speakers()
+        return True
+
+    async def _start_speakers(self):
+        # Measured on the unit: 1.7 s from the start to the mDNS registration,
+        # with the discovery port already bound — a second start meanwhile
+        # finds it taken and retries forever.
+        self.starts += 1
+        await asyncio.sleep(0.01)
+        self._speakers.append("Milo")
 """
 
 
@@ -495,6 +536,25 @@ def test_the_status_carries_the_playhead_and_the_session(adapter, fake_qobuz_pro
     status = loading.get_status()
     assert status["now_playing"] is None
     assert status["player_state"] == "loading" and status["renderer_active"] is True
+
+
+async def test_two_logins_at_once_start_the_speaker_once(adapter, fake_qobuz_proxy):
+    """Measured 2026-11-05: the OAuth callback landed twice, 0.9 s apart, and
+    each login found no speaker running yet — the first was still starting —
+    so each started one. The second could not bind the discovery port the
+    first held, and upstream's retry loop failed on it every 10/20/40 s until
+    the sidecar was restarted, and the app did not show "Milo" again. One login at a
+    time: the second finds the first's speaker, and is still recorded."""
+    fake = fake_qobuz_proxy()
+    adapter.apply()
+    proxy = fake.app.QobuzProxy()
+
+    assert await asyncio.gather(proxy._on_auth_token("1", "a-token"),
+                                proxy._on_auth_token("1", "a-token")) == [True, True]
+
+    assert proxy.starts == 1
+    assert proxy._speakers == ["Milo"]
+    assert proxy.saved == 2
 
 
 def test_main_does_not_hand_over_when_a_binding_moved(adapter, fake_qobuz_proxy, monkeypatch):

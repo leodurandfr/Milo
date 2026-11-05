@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run qobuz-proxy with Milō's five adaptations, bound to names instead of to source text.
+"""Run qobuz-proxy with Milō's six adaptations, bound to names instead of to source text.
 
-Milō needs five things upstream does not offer as configuration:
+Milō needs six things upstream does not offer as configuration:
 
 1. **Volume policy.** CamillaDSP is the only attenuation stage in the audio path
    — the role `external_volume` plays for go-librespot and `ignore_volume_control`
@@ -47,6 +47,15 @@ Milō needs five things upstream does not offer as configuration:
    The OAuth callback carries no `state` upstream, so a login CSRF on
    `/auth/callback` stays out of a Host/Origin gate's reach.
 
+6. **One login at a time.** A login starts the speakers only when none runs,
+   and starting one takes ~1.7 s (the mDNS registration), with the discovery
+   port bound early. Measured 2026-11-05 (1.7.7): the OAuth callback landed
+   twice, 0.9 s apart, both logins found no speaker yet and both started one;
+   the second could not bind :8690, and upstream's retry loop, which never
+   asks whether the speaker already runs, failed on it every 10/20/40 s until
+   a restart, and the app did not show "Milo" again. Serialized, the second login
+   waits for the first's start, finds the speaker and starts nothing.
+
 The first three used to be applied by rewriting upstream's installed sources, anchored on
 exact lines. qobuz-proxy 1.6.0 moved one of those lines — `"volume"` left the
 `now_playing` literal for a conditional assignment, for a DLNA-only feature —
@@ -58,7 +67,8 @@ So the adaptations wrap methods. What they bind to is `Speaker.get_status`,
 `AudioOutputStream.set_volume`, the player's state and two progress properties,
 the WebSocket manager's `_renderer_active`, the `supports_volume_control`
 argument of `ProtocolCodec.encode_join_session` (qobuz-proxy ≥ 1.7.4) and the
-`register_routes` that `app.py` builds the web UI with, which only a real
+`register_routes` that `app.py` builds the web UI with, and the
+`_on_auth_token` that web UI hands every login to, which only a real
 refactor moves — and `--check` says which one did, before the
 service is restarted onto it.
 
@@ -72,6 +82,8 @@ from the Qobuz app and watch the level.
 Run by milo-qobuz.service through the venv's own interpreter; every argument is
 forwarded to qobuz-proxy untouched.
 """
+import asyncio
+import functools
 import inspect
 import ipaddress
 import logging
@@ -212,6 +224,19 @@ def _bindings():
             "the web UI is built another way and the gate would not reach it",
         ),
         (
+            "QobuzProxy._on_auth_token starts the speakers only while _speakers is empty",
+            inspect.iscoroutinefunction(getattr(QobuzProxy, "_on_auth_token", None))
+            and {"_speakers", "_start_speakers"} <= set(QobuzProxy._on_auth_token.__code__.co_names),
+            "a login no longer reads the running speakers — serializing logins would "
+            "not stop a second one from starting the speaker again",
+        ),
+        (
+            "QobuzProxy._start_web_server hands the web UI its login callback, _on_auth_token",
+            "_on_auth_token" in QobuzProxy._start_web_server.__code__.co_names,
+            "the web UI reaches the login another way and two callbacks at once "
+            "would start the speaker twice again",
+        ),
+        (
             "ProtocolCodec.encode_join_session takes supports_volume_control by keyword",
             _keyword_only(getattr(ProtocolCodec, "encode_join_session", None),
                           "supports_volume_control"),
@@ -336,6 +361,19 @@ def with_request_gate(register_routes):
     return register_routes_behind_gate
 
 
+def one_login_at_a_time(on_auth_token):
+    """`QobuzProxy._on_auth_token`, behind one lock: a second login waits for
+    the first's speaker start and then finds it running (adaptation 6)."""
+    lock = asyncio.Lock()
+
+    @functools.wraps(on_auth_token)
+    async def on_auth_token_serialized(self, *args, **kwargs):
+        async with lock:
+            return await on_auth_token(self, *args, **kwargs)
+
+    return on_auth_token_serialized
+
+
 def apply():
     from qobuz_proxy import app as proxy_app
     from qobuz_proxy.backends.local.stream import AudioOutputStream
@@ -374,6 +412,9 @@ def apply():
 
     # The module's attribute, not webui.routes': app.py bound the name at import.
     proxy_app.register_routes = with_request_gate(proxy_app.register_routes)
+
+    # Before any instance: the web UI binds self._on_auth_token when it is built.
+    proxy_app.QobuzProxy._on_auth_token = one_login_at_a_time(proxy_app.QobuzProxy._on_auth_token)
 
 
 def main():

@@ -533,7 +533,7 @@ is driven entirely by an external app:
   (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
   backend + `libportaudio2` from apt). The pi-gen stage-02 sources it rather than
   restating the install (single source of truth).
-- **Five adaptations**, applied at runtime by the launcher the unit runs,
+- **Six adaptations**, applied at runtime by the launcher the unit runs,
   [rootfs/usr/local/bin/milo-qobuz](https://github.com/leodurandfr/Milo/blob/main/rootfs/usr/local/bin/milo-qobuz): the
   local backend's stream is held at unity gain (CamillaDSP is the sole volume
   authority, flag-gated on the "allow app volume" setting);
@@ -550,7 +550,11 @@ is driven entirely by an external app:
   `:8689`, which listens on every interface with no middleware upstream, is put
   behind a copy of the backend's request origin gate (`RequestOriginGate`'s two
   rules, restated because the venv has no backend), held equal to it by
-  `test_the_qobuz_gate_agrees_with_the_backend_gate`. They wrap
+  `test_the_qobuz_gate_agrees_with_the_backend_gate`. Logins are serialized:
+  a login starts the speaker only when none runs, and two OAuth callbacks
+  0.9 s apart (measured, 1.7.7) both started one — the second could not bind
+  the discovery port and upstream retried it forever, with the device gone
+  from the app until a restart. They wrap
   methods rather than rewriting installed sources, so nothing is edited inside
   site-packages and the venv matches the released package exactly. `--check`
   answers whether a release still offers what they bind to; the image build runs
