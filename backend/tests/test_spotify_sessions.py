@@ -447,6 +447,244 @@ async def test_a_daemon_start_records_the_crossfade_it_was_given(monkeypatch, tm
         await world.source.shutdown()
 
 
+# === Connections that went dead under the daemon ===
+#
+# go-librespot's lines as the unit logged them on 2026-11-05, when eth0 was cut
+# mid-play and wlan0 kept the internet (0.10.5): the state pushes and the next
+# track's metadata went unanswered on the connections held from eth0.
+
+UNANSWERED_ADVANCE = (
+    'time="2026-11-05T17:32:42+01:00" level=error msg="failed advancing to next track" '
+    'error="failed loading current track (advance to spotify:track:7Bxv0WL7UC6WwQpk9TzdMJ): '
+    'failed creating stream for spotify:track:7Bxv0WL7UC6WwQpk9TzdMJ: failed getting track '
+    'metadata: spclient request failed: context deadline exceeded"'
+)
+UNANSWERED_SKIP = (
+    'level=warning msg="failed loading current track (skip next)" error="failed creating stream '
+    'for spotify:track:7Bxv0WL7UC6WwQpk9TzdMJ: failed getting track metadata: spclient request '
+    'failed: context deadline exceeded"'
+)
+UNANSWERED_PUT = (
+    'time="2026-11-05T17:32:02+01:00" level=error msg="failed put state because '
+    'PLAYER_STATE_CHANGED" error="context deadline exceeded"'
+)
+AP_SIGNED_IN = 'level=info msg="authenticated AP" username="p6*********************xy"'
+SIGNED_IN = 'level=info msg="authenticated Login5" username="p6*********************xy"'
+
+
+async def the_next_load_hangs(world, song=TROIS_NEUF_TROIS):
+    """The track ends and the next one's load waits on spclient: `will_play`,
+    then /status reports buffering with no track until the load gives up."""
+    d = world.daemon
+    d.track, d.buffering = None, True
+    d.says({"type": "will_play", "uri": song["uri"]})
+    await world.idle()
+    assert world.buffering()
+
+
+async def test_a_track_load_nobody_answered_restarts_the_daemon(world):
+    """Measured: the session sat LOADING on the next track for over three
+    minutes, every spclient request timing out on connections bound to an
+    address eth0 no longer had, until the source was left by hand. A new
+    process drops them; the session it cannot carry ends as a lost stream."""
+    await world.phone_plays(PARAPLUIE)
+    await the_next_load_hangs(world)
+
+    await world.journal_says(UNANSWERED_ADVANCE)
+    await world.idle()
+
+    assert len(world.restarts) == 1
+    assert not world.active()
+    assert world.session_ends()[-1] == "stream_lost"
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+@pytest.mark.parametrize("line", [
+    # Milō's own play_context (POST /player/play): the loader's line alone
+    'level=warning msg="failed resolve spotify:playlist:37i9dQZF1DX4sWSpwq3LiO" '
+    'error="failed resolving context: spclient request failed: context deadline exceeded"',
+    # A phone's play command: its callback's line
+    'level=warning msg="failed loading context for play command" error="failed creating track '
+    'list: failed initializing context resolver: spclient request failed: context deadline exceeded"',
+    # A phone's transfer
+    'level=warning msg="failed transfer spotify:playlist:37i9dQZF1DX4sWSpwq3LiO" error="failed '
+    'creating track list: spclient request failed: context deadline exceeded"',
+], ids=["play_context", "play_command", "transfer"])
+async def test_a_context_nobody_answered_restarts_the_daemon(world, line):
+    """A cut while nothing plays meets the dead connections at the next play,
+    cast or transfer, whose context is resolved before any track: no "failed
+    loading current track" line follows, and every new play failed the same
+    way, in silence, until the source was left by hand."""
+    await world.journal_says(line)
+    await world.idle()
+
+    assert len(world.restarts) == 1
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+async def test_an_audio_key_nobody_answered_restarts_nothing(world):
+    """The audio key waits 15 s on the accesspoint, which reconnects on its
+    own pings: a new process would cut a Connect session a press on the
+    phone resumes once it is back. Only spclient's pool outlives a link."""
+    await world.phone_plays(PARAPLUIE)
+    await the_next_load_hangs(world)
+
+    await world.journal_says(
+        'level=error msg="failed advancing to next track" error="failed loading current track '
+        '(advance to spotify:track:x): failed creating stream for spotify:track:x: failed '
+        'retrieving audio key: context deadline exceeded"'
+    )
+    await world.idle()
+
+    assert world.restarts == []
+    assert world.active()
+    assert world.errors() == [SourceErrorReason.TRACK_LOAD_FAILED]
+
+
+async def test_state_pushes_nobody_answered_restart_nothing(world):
+    """A state push that times out stops no music: what is loaded keeps
+    playing, and a restart would cut it. Only the load that stops it does."""
+    await world.phone_plays(PARAPLUIE)
+
+    await world.journal_says(UNANSWERED_PUT)
+    await world.journal_says(UNANSWERED_PUT)
+    await world.idle()
+
+    assert world.restarts == []
+    assert world.playing()
+
+
+async def test_a_late_line_over_music_playing_again_restarts_nothing(world):
+    """go-librespot drops the stream before the load that fails, so a load
+    that went unanswered never leaves music playing: a PLAYING session is a
+    later load that went through, its line read late (journald, 14 s
+    measured). A restart would cut that music. The run stays restartable: a
+    load that stalls afterwards is still the dead pool's."""
+    await world.phone_plays(PARAPLUIE)
+
+    await world.journal_says(UNANSWERED_SKIP)
+    await world.idle()
+
+    assert world.restarts == []
+    assert world.playing()
+    assert world.errors() == []
+
+    await the_next_load_hangs(world)
+    await world.journal_says(UNANSWERED_ADVANCE)
+    await world.idle()
+
+    assert len(world.restarts) == 1
+
+
+async def test_the_banner_stands_until_music_plays_again(world):
+    """The new run signs in within a second with the stored account, the
+    accesspoint first: clearing the banner on either line would take the only
+    word of why the music stopped off the screen before anyone read it."""
+    await world.phone_plays(PARAPLUIE)
+    await the_next_load_hangs(world)
+    await world.journal_says(UNANSWERED_ADVANCE)
+    await world.idle()
+
+    await world.journal_says(AP_SIGNED_IN)
+    await world.journal_says(SIGNED_IN)
+    assert not world.envelopes("source", "error_cleared")
+
+    await world.journal_says('level=info msg="loaded track \\"Parapluie\\""')
+    assert world.envelopes("source", "error_cleared")
+
+
+async def test_a_stream_disconnected_banner_leaves_with_the_source(world):
+    """The restart's banner belongs to Spotify: left standing after a switch,
+    it would sit over the next source, with nothing on Spotify's side left to
+    clear it."""
+    await world.phone_plays(PARAPLUIE)
+    await the_next_load_hangs(world)
+    await world.journal_says(UNANSWERED_ADVANCE)
+    await world.idle()
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+    await world.leave()
+
+    assert world.envelopes("source", "error_cleared")
+
+
+async def test_a_late_line_from_the_restarted_run_restarts_nothing(world):
+    """journald hands a line on seconds late (14 s measured): the dead run's
+    second unanswered load, read after its restart, must not restart the run
+    that replaced it."""
+    await world.phone_plays(PARAPLUIE)
+    await the_next_load_hangs(world)
+    await world.journal_says(UNANSWERED_ADVANCE)
+    await world.idle()
+    dead_run = world.runs[0]
+
+    await world.journal_says(UNANSWERED_ADVANCE, invocation=dead_run)
+    await world.idle()
+
+    assert len(world.restarts) == 1
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+async def test_a_late_line_restarts_nothing_when_systemd_cannot_name_the_run(world):
+    """With the run in place unreadable (InvocationID None: a D-Bus read that
+    failed), the runs already restarted are all that tells the dead run's
+    late line from one of the run that replaced it: without them, a second
+    restart cuts the new run."""
+    await world.phone_plays(PARAPLUIE)
+    await the_next_load_hangs(world)
+    await world.journal_says(UNANSWERED_ADVANCE)
+    await world.idle()
+    dead_run = world.runs[0]
+    world.systemd.invocation_id.side_effect = lambda *_: None
+
+    await world.journal_says(UNANSWERED_ADVANCE, invocation=dead_run)
+    await world.idle()
+
+    assert len(world.restarts) == 1
+
+
+async def test_a_load_unanswered_on_a_link_down_ends_the_session_and_keeps_the_daemon(world):
+    """With no internet a new process would time out the same way, and its
+    sign-in would fail at every Restart=. But go-librespot does not try the
+    load again, so the session sat LOADING with nothing to bring it back:
+    the daemon is asked to end it (locally, link or not) and stays up."""
+    from types import SimpleNamespace
+    from backend.core.models.audio_state import ConnectivityLevel
+
+    await world.phone_plays(PARAPLUIE)
+    await the_next_load_hangs(world)
+    world.machine.connectivity_service = SimpleNamespace(level=ConnectivityLevel.LIMITED)
+
+    await world.journal_says(UNANSWERED_ADVANCE)
+    await world.idle()
+
+    assert world.restarts == []
+    assert world.daemon.up
+    assert world.stops_sent() == 1
+    assert not world.active()
+    assert world.session_ends()[-1] == "stream_lost"
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+async def test_a_connection_that_could_not_open_restarts_nothing(world):
+    """`dial tcp …: i/o timeout` is a fresh connection failing: the network
+    itself, which a new process would meet the same way. The chain also names
+    the client's timeout, so login_failure must claim it first."""
+    await world.phone_plays(PARAPLUIE)
+
+    await world.journal_says(
+        'level=error msg="failed advancing to next track" error="failed loading current track '
+        '(advance to spotify:track:x): failed getting track metadata: spclient request failed: '
+        'Get \\"https://gew1-spclient.spotify.com/metadata/4/track/x\\": dial tcp '
+        '35.186.224.24:443: i/o timeout (Client.Timeout exceeded while awaiting headers)"'
+    )
+    await world.idle()
+
+    assert world.restarts == []
+    assert world.active()
+    assert world.errors() == [SourceErrorReason.SERVICE_UNREACHABLE]
+
+
 # === Multiroom ===
 
 async def test_a_reroute_keeps_the_session_and_publishes_no_pause(world):

@@ -49,6 +49,21 @@ follows:
 - A killed daemon says nothing; its session ends when its process does (the
   base's pidfd watch).
 
+A daemon whose connections went dead. go-librespot reaches Spotify's services
+(spclient: track metadata, connect-state, the library) through one Go
+http.Client, which keeps its HTTP/2 connections and never checks them (no
+ReadIdleTimeout; a request that times out leaves its connection in the pool).
+Measured 2026-11-05 on 0.10.5: the server's eth0 was cut mid-play while wlan0
+kept the internet. The accesspoint and the dealer reconnected on their own
+pings within two minutes; every spclient request kept timing out ("context
+deadline exceeded", 13 in 5 min) on the connections bound to eth0's vanished
+address, the next track failed to load, and the session sat LOADING for
+good. A load (a track's, or a context's before it) that times out on a
+spclient connection the daemon held is therefore answered by a restart of
+that run, unless the link is down — where a new process would not do
+better, and the session is only asked to end. The session ends STREAM_LOST
+and the banner says so until music plays again.
+
 Another device. go-librespot is told by Spotify what every device of the
 account does, and its /status names the active one when it is not this one
 (`remote`, raised on change by a `remote` event). Measured 2026-10-05 (an
@@ -252,6 +267,34 @@ def login_failure(line: str) -> Optional[str]:
     return None
 
 
+def timed_out_unanswered(line: str) -> bool:
+    """Whether a go-librespot error chain is a spclient request nobody
+    answered in time: the context's deadline, or http.Client's own timeout.
+
+    What a connection held from before a link change says: it does not fail,
+    it goes unanswered. Only the spclient's pooled connections outlive a link
+    change (module docstring): an audio key waiting on the accesspoint (15 s)
+    or a slow CDN chunk times out too, and a new process would do no better
+    for either. Read after login_failure, which claims the chains that name a
+    cause (a connection that could not open, `dial tcp …`; a login5 outage
+    that ran out of retries). Wording is go-librespot 0.10.5's (spclient.go
+    wraps every transport error as "spclient request failed: %w"; Go 1.25's
+    net/http) — re-read it on every bump.
+    """
+    return "spclient request failed" in line and (
+        "context deadline exceeded" in line or "Client.Timeout exceeded" in line
+    )
+
+
+# The loads that stop at the context, before any track: a play command, a
+# cast or a transfer whose context could not be resolved. go-librespot 0.10.5
+# logs each twice, the loader's "failed <job>" and the caller's line; the
+# track loads after them say "failed loading current track" instead.
+CONTEXT_LOAD_FAILURES = (
+    'msg="failed resolve ', 'msg="failed transfer ', "failed loading context",
+)
+
+
 # Refusals of the account itself: the accesspoint retries them, and each retry
 # is not an outage of the accesspoint.
 ACCOUNT_REFUSALS = (SourceErrorReason.PREMIUM_REQUIRED, SourceErrorReason.CREDENTIALS_REFUSED)
@@ -436,6 +479,9 @@ class SpotifySource(BaseAudioSource):
         # longer state.json's: a refusal one of them logged names nobody now.
         # Kept across a source stop, since journald hands a line on late.
         self._replaced_runs: Set[str] = set()
+        # The daemon runs already restarted because a track load went
+        # unanswered: a late line from one of them restarts nothing.
+        self._recovered_runs: Set[str] = set()
         # The crossfade config.yml carries (None: unknown), and the one the
         # running daemon read at its start (None: no daemon this source
         # started). They differ while a crossfade saved without "restart to
@@ -2061,16 +2107,23 @@ class SpotifySource(BaseAudioSource):
         run `invocation` (its `_SYSTEMD_INVOCATION_ID`)."""
         # The accesspoint is back. A refused login is not answered by it: a
         # Connect attempt authenticates the AP, then fails login5 10 ms later.
+        # A stream that dropped is not answered by a sign-in either: the
+        # session is gone, and the banner stands until music plays again.
         if "authenticated AP" in line:
             self._connection_error_count = 0
-            if self._standing_reason not in LOGIN_FAILURES:
+            if self._standing_reason not in (*LOGIN_FAILURES, SourceErrorReason.STREAM_DISCONNECTED):
                 self.broadcast_error_cleared()
             return
 
-        # Success: logged in, a sender accepted, or a track or an episode loaded
-        if any(m in line for m in (
-            "authenticated Login5", "accepted zeroconf", "loaded track", "loaded episode",
-        )):
+        if "authenticated Login5" in line:
+            if self._standing_reason != SourceErrorReason.STREAM_DISCONNECTED:
+                self.broadcast_error_cleared()
+            self._connection_error_count = 0
+            self._last_login_failure = None
+            return
+
+        # Success: a sender accepted, or a track or an episode loaded
+        if any(m in line for m in ("accepted zeroconf", "loaded track", "loaded episode")):
             self.broadcast_error_cleared()
             self._connection_error_count = 0
             self._last_login_failure = None
@@ -2103,8 +2156,19 @@ class SpotifySource(BaseAudioSource):
             if reason:
                 self._report_login_failure(reason, line)
                 return
+            # Nobody answered it: the daemon's connections went dead
+            if timed_out_unanswered(line):
+                await self._recover_unanswered(line, invocation)
+                return
             self._logger.error(self._extract_log_message(line))
             self.broadcast_error(SourceErrorReason.TRACK_LOAD_FAILED)
+            return
+
+        # A context that could not be resolved reached spclient before any
+        # track did: the same dead connections, with no track line to say so
+        if any(m in line for m in CONTEXT_LOAD_FAILURES):
+            if login_failure(line) is None and timed_out_unanswered(line):
+                await self._recover_unanswered(line, invocation)
             return
 
         # Connection failures — accesspoint unreachable (running) or apresolve
@@ -2128,6 +2192,63 @@ class SpotifySource(BaseAudioSource):
 
         # Ignore normal WebSocket closures (StatusNormalClosure)
         # These are expected when stopping the service
+
+    async def _recover_unanswered(self, line: str, invocation: Optional[str]) -> None:
+        """A load of the run `invocation` (a track, or the context before it)
+        went unanswered: nothing plays, and go-librespot does not try it
+        again. Its pooled connections are what died (module docstring), and
+        only a new process drops them — go-librespot has no route to.
+
+        Not while music plays: go-librespot drops the stream before the load
+        that fails, so a PLAYING session means a later load went through and
+        the line came late. Not on a link the state machine reports down
+        either: a new process would time out the same way, so the session is
+        asked to end (POST /player/stop, local) and the daemon stays; the
+        banner stands until someone casts or plays again. Once per run, and
+        only for the run in place: journald hands a line on seconds late, and
+        the dead run's second failure must not restart the run that replaced
+        it. A new run gets its own restart — each one answers a load someone
+        asked for, never a loop of its own.
+        """
+        if invocation is not None and invocation in self._recovered_runs:
+            self._logger.debug("Unanswered load from a daemon run already restarted, ignored")
+            return
+        current = await self._daemon_invocation()
+        if invocation is not None and current is not None and invocation != current:
+            self._logger.debug("Unanswered load from an earlier daemon run, ignored")
+            return
+        session = self._session
+        # Not recorded as recovered: a dead pool later in this run still
+        # gets its restart.
+        if session is not None and session.phase is Phase.PLAYING:
+            self._logger.debug("Unanswered load, but music plays again: the line came late, ignored")
+            return
+
+        self._logger.error(self._extract_log_message(line))
+        self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
+        blocked = self.state_machine.availability_of(self.source) if self.state_machine else None
+        if blocked is not None:
+            self._logger.warning(
+                f"Spotify did not answer and the link is down ({blocked}): "
+                "ending the session, go-librespot left running"
+            )
+            if session is not None:
+                # Ended locally only, the next /status (still `buffering`)
+                # would open it again: the daemon is asked, and its
+                # `inactive` ends it for this reason.
+                session.end_requested = EndReason.STREAM_LOST
+                if not await self._request_end(session):
+                    if await self.end_session(EndReason.STREAM_LOST) is not None:
+                        self._publish()
+            return
+
+        run = invocation or current
+        if run is not None:
+            self._recovered_runs.add(run)
+        self._logger.warning("go-librespot's connections to Spotify stopped answering — restarting it")
+        if await self.end_session(EndReason.STREAM_LOST) is not None:
+            self._publish()
+        await self._restart_service()
 
     # Covers both retry cadences: the app's ~3 s, and login5's backoff, capped
     # at 60 s with ±50 % jitter.
@@ -2206,7 +2327,7 @@ class SpotifySource(BaseAudioSource):
         # gone with it: so is what it put up.
         if self._unanswered or self._standing_reason in (
             *LOGIN_FAILURES, SourceErrorReason.SERVICE_UNREACHABLE,
-            SourceErrorReason.TRACK_LOAD_FAILED,
+            SourceErrorReason.TRACK_LOAD_FAILED, SourceErrorReason.STREAM_DISCONNECTED,
         ):
             self.broadcast_error_cleared()
         self._last_login_failure = None
