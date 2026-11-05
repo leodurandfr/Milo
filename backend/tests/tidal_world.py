@@ -3,26 +3,35 @@ phase 3b): tidal_connect_application's `tisoc` controller socket and systemd
 holding the daemon.
 
 What the daemon was measured to send (2026-09-24, the owner's Mac, strace on
-the controller socket):
+the controller socket; the load and the resume re-read 2026-11-05, the owner's
+free tier, raw frames by strace):
 
 - A controller (re)connecting: `startService` is answered by
   `notifyServiceStateChanged` — a daemon that restarted says nothing else.
 - A sender picking the speaker: `notifySessionState 1`, `requestResources`,
   `notifyRequestResult`, `notifySessionState 2` in 5 ms; 0.25-0.6 s later
   `setRepeatMode`, `setShuffle`, the media, PAUSED at the sender's position,
-  BUFFERING; the media again 0.35 s later, PAUSED, BUFFERING ×2; PLAYING
-  ~1 s after the session opened. Nothing names a track before the media.
-- PLAYING every ~0.5 s with the progress. Pause: PAUSED. Resume: BUFFERING
-  then PLAYING 7 ms later, two frames Milō reads apart (2 ms apart, the
-  owner's free tier, 2026-11-05). A skip while playing: IDLE ×2, the next media,
-  BUFFERING, the media again, PAUSED, BUFFERING ×2, PLAYING ~1.2 s later; while
-  paused: IDLE ×2, media, PAUSED, media, PAUSED. A track running into the next
-  without a gap: the media alone.
-- A track starting from Milō's `next` (2026-11-05, the owner's free tier, read
-  off the wire): PLAYING at 0 published 0.12 s after the command, and the
-  pause 8.88 s later reported 7856 — the daemon's progress ran ~1 s behind the
-  wall clock from the start, so the frames of that first second carried no
-  progress the wall clock did.
+  BUFFERING; the media again 0.37 s later, PAUSED, BUFFERING ×2 and PLAYING at
+  that position, all in one burst. Nothing names a track before the media.
+- That PLAYING is not sound. A track that sounds: `notifyAudioFormatUpdated`
+  0.6-0.8 s later (for every new track, the format unchanged or not), the
+  audio beginning within 10 ms of it; the first status with a progress
+  (503-507, the preview's 30066 as duration) ~0.5 s after that, then one
+  every ~0.5 s. A track that never sounds (about one in three on the free
+  tier, no decode in the daemon's journal, digital silence downstream):
+  nothing at all after its PLAYING at 0, for as long as it is left (37 s
+  seen); a pause is PAUSED at 0, a resume BUFFERING then PLAYING at 0 in one
+  burst.
+- Pause: PAUSED. Resume of a track that sounded: BUFFERING, then 7 ms later
+  BUFFERING again and PLAYING, the second pair carrying where the daemon
+  stopped (504 ms past the pause's report, measured: the pause repeated the
+  last tick's progress 480 ms after it; the world pauses on a tick, where the
+  two agree). No audio format on a resume.
+- A skip while playing: IDLE ×2, the next media, BUFFERING; 0.12 s later the
+  media again, PAUSED, BUFFERING ×2, PLAYING at 0; then the audio format and
+  the progress as for a start. While paused (2026-09-24): IDLE ×2, media,
+  PAUSED, media, PAUSED. A track running into the next without a gap
+  (2026-09-24): the media alone.
 - The sender leaving: `releaseResources`, `notifySessionState 0`, IDLE,
   `notifyRequestResult 1002`.
 - No controller command ends a session: `interrupt` only notifies, `stop`
@@ -49,6 +58,10 @@ FIRST_PID = 47039
 PREVIEW_MS = 30066
 # A resume's BUFFERING, then its PLAYING this much later (measured).
 RESUME_GAP_S = 0.007
+# A new track's PLAYING at 0, then its audio format this much later (measured
+# 0.6-0.8 s), then its first progress (measured ~0.5 s, 503-507 ms).
+SOUND_AFTER_S = 0.74
+TICK_S = 0.5
 _START, _END = b"\xff\x02", b"\xff\x03"
 
 
@@ -76,6 +89,13 @@ def status(state: str, progress: int = 0, duration: int = PREVIEW_MS) -> Dict[st
     return {"command": "notifyPlayerStatusChanged", "playerState": state,
             "progress": progress, "duration": duration}
 
+
+# What the daemon sends as a track's audio begins (the free tier's preview).
+AUDIO_FORMAT = {
+    "command": "notifyAudioFormatUpdated", "audioBitPerSample": 16, "audioBitrate": 705600,
+    "audioChannels": 2, "audioCodec": 0, "audioSamplingRate": 22050, "mediaformat": 0,
+    "streamType": 0,
+}
 
 STILL_DRE = "Still D.R.E."
 KEEP_IT_THORO = "Keep It Thoro"
@@ -121,6 +141,9 @@ class Tisoc:
         self.connections = 0
         self.state = "IDLE"
         self.progress = 0
+        # The track loaded now produces audio: a silent one sends nothing past
+        # its PLAYING at 0.
+        self.sounding = False
         self.closed_its_end = False
 
     async def open_unix_connection(self, path: str, *a: Any, **k: Any):
@@ -142,8 +165,11 @@ class Tisoc:
             self.push(status("PAUSED", self.progress))
         elif command == "play":
             self.state = "PLAYING"
+            if not self.sounding:
+                self.push(status("BUFFERING", self.progress), status("PLAYING", self.progress))
+                return
             self.push(status("BUFFERING", self.progress))
-            self.later(RESUME_GAP_S, status("PLAYING", self.progress))
+            self.later(RESUME_GAP_S, status("BUFFERING", self.progress), status("PLAYING", self.progress))
 
     def push(self, *messages: Dict[str, Any]) -> None:
         if self.reader is None:
@@ -231,7 +257,7 @@ class TidalWorld(WireReader):
         self.pid = next(self._pids)
         self.unit_state = ("active", "success")
         self.daemon.up = True
-        self.daemon.state, self.daemon.progress = "IDLE", 0
+        self.daemon.state, self.daemon.progress, self.daemon.sounding = "IDLE", 0, False
 
     def _die(self) -> None:
         pid, self.pid = self.pid, None
@@ -284,58 +310,80 @@ class TidalWorld(WireReader):
              "appInfo": {"appId": "tidal", "appName": "tidal"}},
         )
 
-    async def mac_plays(self, title: str = STILL_DRE, at_ms: int = 0) -> None:
-        """A sender picks the speaker and its track plays ~1 s later."""
+    async def mac_loads(self, title: str = STILL_DRE, at_ms: int = 0) -> None:
+        """A sender picks the speaker and its track loads, ending on the
+        daemon's PLAYING — which no sound has followed yet."""
         await self.mac_picks_the_speaker()
-        await self.advance(0.4)
+        await self.advance(0.35)
         await self.sends(
             {"command": "setRepeatMode", "repeatMode": "OFF"},
             {"command": "setShuffle", "shuffle": False},
             media(title), status("PAUSED", at_ms, 271000), status("BUFFERING", at_ms, 271000),
         )
-        await self.advance(0.35)
+        await self.advance(0.37)
+        self.daemon.state, self.daemon.progress, self.daemon.sounding = "PLAYING", at_ms, False
         await self.sends(
             media(title, custom=True), status("PAUSED", at_ms, 271000),
             status("BUFFERING", at_ms, 271000), status("BUFFERING", at_ms, 271000),
+            status("PLAYING", at_ms, 271000),
         )
-        await self.advance(0.8)
-        self.daemon.state, self.daemon.progress = "PLAYING", at_ms
-        await self.sends(status("PLAYING", at_ms))
 
-    async def plays_on(self, seconds: float, counting_late_s: float = 0.0) -> None:
-        """The playhead moves: a PLAYING frame every 0.5 s. A daemon counting
-        late (a start, measured) holds its progress for `counting_late_s`."""
-        for tick in range(int(seconds / 0.5)):
-            await self.advance(0.5)
-            if (tick + 1) * 0.5 > counting_late_s:
-                self.daemon.progress += 500
-            await self.sends(status("PLAYING", self.daemon.progress))
+    async def track_sounds(self) -> None:
+        """The loaded track's audio begins: its audio format SOUND_AFTER_S
+        after the PLAYING, its first progress a tick later."""
+        await self.advance(SOUND_AFTER_S)
+        self.daemon.sounding = True
+        await self.sends(AUDIO_FORMAT)
+        await self.plays_on(TICK_S)
+
+    async def mac_plays(self, title: str = STILL_DRE, at_ms: int = 0, silent: bool = False) -> None:
+        """A sender picks the speaker and its track plays — or, `silent`,
+        never sounds."""
+        await self.mac_loads(title, at_ms)
+        if not silent:
+            await self.track_sounds()
+
+    async def plays_on(self, seconds: float) -> None:
+        """Time passes: a track that sounds sends a PLAYING frame every tick,
+        its progress moving with the clock; a silent one sends nothing."""
+        for _ in range(int(seconds / TICK_S)):
+            await self.advance(TICK_S)
+            if self.daemon.sounding:
+                self.daemon.progress += int(TICK_S * 1000)
+                await self.sends(status("PLAYING", self.daemon.progress))
 
     async def mac_pauses(self) -> None:
         self.daemon.state = "PAUSED"
         await self.sends(status("PAUSED", self.daemon.progress))
 
     async def mac_resumes(self, buffering_s: float = RESUME_GAP_S) -> None:
-        """BUFFERING, then PLAYING `buffering_s` later (7 ms, measured)."""
+        """A track that sounded: BUFFERING, then BUFFERING and PLAYING
+        `buffering_s` later (7 ms, measured). A silent one: BUFFERING and
+        PLAYING in one burst."""
         self.daemon.state = "PLAYING"
-        await self.sends(status("BUFFERING", self.daemon.progress))
+        p = self.daemon.progress
+        if not self.daemon.sounding:
+            await self.sends(status("BUFFERING", p), status("PLAYING", p))
+            return
+        await self.sends(status("BUFFERING", p))
         await self.advance(buffering_s)
-        await self.sends(status("PLAYING", self.daemon.progress))
+        await self.sends(status("BUFFERING", p), status("PLAYING", p))
 
-    async def mac_skips_to(self, title: str) -> None:
+    async def mac_skips_to(self, title: str, silent: bool = False) -> None:
         paused = self.daemon.state == "PAUSED"
-        self.daemon.progress = 0
+        self.daemon.progress, self.daemon.sounding = 0, False
         if paused:
             await self.sends(status("IDLE"), status("IDLE"), media(title), status("PAUSED", 0, 224000))
             await self.advance(0.13)
             await self.sends(media(title, custom=True), status("PAUSED", 0, 224000))
             return
         await self.sends(status("IDLE"), status("IDLE"), media(title), status("BUFFERING", 0, 224000))
-        await self.advance(0.13)
+        await self.advance(0.12)
         await self.sends(media(title, custom=True), status("PAUSED", 0, 224000),
-                         status("BUFFERING", 0, 224000), status("BUFFERING", 0, 224000))
-        await self.advance(1.1)
-        await self.sends(status("PLAYING", 0))
+                         status("BUFFERING", 0, 224000), status("BUFFERING", 0, 224000),
+                         status("PLAYING", 0, 224000))
+        if not silent:
+            await self.track_sounds()
 
     async def mac_leaves(self) -> None:
         self.daemon.state = "IDLE"

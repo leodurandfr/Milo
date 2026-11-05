@@ -31,7 +31,7 @@ import pytest
 
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.tidal.controller_socket import TidalControllerSocket
-from backend.tests.tidal_world import HYPNOTIZE, STILL_DRE, TidalWorld, media, status
+from backend.tests.tidal_world import AUDIO_FORMAT, HYPNOTIZE, STILL_DRE, TidalWorld, media, status
 
 # The wire format, restated here on purpose: the production encoder is what
 # these tests exist to check, so they must not borrow it.
@@ -314,8 +314,10 @@ class TestEventMapping:
         assert transport(world) == (True, False)
 
     async def test_player_status_drives_playing_and_buffering(self, world):
+        """Of a track that has sounded: before its audio format, the daemon's
+        PLAYING is still a load (test_tidal_sessions)."""
         await world.mac_picks_the_speaker()
-        await world.sends(MAD_AGAIN)
+        await world.sends(MAD_AGAIN, AUDIO_FORMAT)
 
         seen = {}
         for state in ("BUFFERING", "PLAYING", "PAUSED", "IDLE"):

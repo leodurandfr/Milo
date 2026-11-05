@@ -9,7 +9,10 @@ import pytest
 
 from backend.core import audio_source
 from backend.core.models.ws_events import SourceErrorReason
-from backend.tests.tidal_world import HYPNOTIZE, KEEP_IT_THORO, STILL_DRE, TidalWorld, media, status
+from backend.sources.tidal.source import SOUND_TIMEOUT_S
+from backend.tests.tidal_world import (
+    AUDIO_FORMAT, HYPNOTIZE, KEEP_IT_THORO, SOUND_AFTER_S, STILL_DRE, TICK_S, TidalWorld, media, status,
+)
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
 
@@ -44,14 +47,18 @@ async def test_a_media_frame_that_names_nothing_opens_nothing(world):
 
 
 async def test_a_sender_that_plays_is_loading_then_playing(world):
+    """The daemon's PLAYING at 0 ends a load, it does not start the sound
+    (2026-11-05): the track plays from its audio format."""
     await world.mac_picks_the_speaker()
     await world.advance(0.4)
     await world.sends({"command": "notifyMediaChanged", "mediaInfo": {"metadata": {
         "title": STILL_DRE, "artists": ["Dr. Dre"], "albumTitle": "2001", "duration": 271000}}},
         status("BUFFERING", 0, 271000))
     assert world.buffering() and world.session()["title"] == STILL_DRE
-    await world.advance(0.8)
-    await world.sends(status("PLAYING", 0))
+    await world.sends(status("PLAYING", 0, 271000))
+    assert world.buffering()
+    await world.advance(SOUND_AFTER_S)
+    await world.sends(AUDIO_FORMAT)
     assert world.playing() and not world.buffering()
 
 
@@ -383,6 +390,7 @@ async def test_a_track_that_plays_within_the_loading_budget_is_not_failed(world)
     await buffers_for(world, 29)
     world.daemon.state = "PLAYING"
     await world.sends(status("PLAYING", 0))
+    await world.track_sounds()
     await world.plays_on(30)
 
     assert world.playing()
@@ -398,6 +406,7 @@ async def test_a_rebuffering_after_play_gets_a_whole_budget(world):
     await buffers_for(world, 20)
     world.daemon.state = "PLAYING"
     await world.sends(status("PLAYING", 0))
+    await world.track_sounds()
     await world.plays_on(5)
     await world.sends(status("BUFFERING", world.daemon.progress))
     await buffers_for(world, 20)
@@ -411,11 +420,12 @@ async def test_a_rebuffering_after_play_gets_a_whole_budget(world):
 
 
 async def test_a_session_that_opens_playing_has_been_heard(world):
-    """A session whose first media follows a PLAYING status opens in PLAYING
-    without advancing into it; a later stall is a stream lost, not a load
-    that never started."""
+    """A session whose first media follows a PLAYING status with a moving
+    playhead opens playing; a later stall is a stream lost, not a load that
+    never started. (A PLAYING at 0 is not sound: a silent track says it for
+    as long as it is left, measured 2026-11-05.)"""
     await world.mac_picks_the_speaker()
-    await world.sends(status("PLAYING", 0), media(STILL_DRE))
+    await world.sends(status("PLAYING", 5000), media(STILL_DRE))
     assert world.playing()
     await world.sends(status("BUFFERING", 0))
 
@@ -424,35 +434,183 @@ async def test_a_session_that_opens_playing_has_been_heard(world):
     assert world.session_ends() == ["stream_lost"]
 
 
-# === The playhead, from the daemon's first readings ===
+# === A new track plays from its sound (measured 2026-11-05) ===
 
-async def test_a_daemon_that_counts_late_at_a_start_is_followed(world):
-    """Measured 2026-11-05 (the owner's free tier, `next` from Milō): PLAYING
-    at 0, then the pause 8.88 s later at 7856 — the bar had run ~1 s ahead of
-    the daemon the whole track and jumped back at the pause. Every reading in
-    between was within POSITION_TOLERANCE_MS of the anchor, so none was
-    believed. The first readings after a start are."""
+async def test_no_playing_goes_out_before_the_audio_format(world):
+    """The daemon says PLAYING at 0 in the burst that ends a load, and the
+    audio begins 0.6-0.8 s later with `notifyAudioFormatUpdated`. Published
+    as it came, the bar ran ~1.3 s before the sound on every track."""
+    await world.mac_loads(STILL_DRE)
+    await world.advance(SOUND_AFTER_S - 0.01)
+    assert world.buffering()
+    assert "playing" not in [s["session"]["phase"] for s in world.published() if s["session"]]
+
+    await world.sends(AUDIO_FORMAT)
+
+    assert world.playing()
+
+
+async def test_the_bar_starts_at_zero_at_the_audio_format(world):
+    """Anchored at 0 where the sound begins, the bar agrees with the first
+    progress the daemon sends half a second later: nothing jumps back."""
+    await world.mac_loads(STILL_DRE)
+    await world.advance(SOUND_AFTER_S)
+    await world.sends(AUDIO_FORMAT)
+
+    assert world.session()["position"] == {"ms": 0, "at": audio_source.wall_time(), "rate": 1.0}
+    await world.advance(TICK_S)
+    shown = world.position_ms()
+    await world.sends(status("PLAYING", 500))
+    assert shown == world.position_ms() == 500
+
+
+async def test_the_bar_follows_the_daemon_through_the_track_and_its_pause(world):
+    """Measured 2026-11-05 (`next` from Milō): the pause 8.88 s after the
+    PLAYING at 0 reported 7856 — the bar had run ~1 s ahead from the start
+    and jumped back at the pause."""
     await world.mac_plays(STILL_DRE)
-    await world.plays_on(9, counting_late_s=1.0)
+    await world.plays_on(9)
     on_screen = world.position_ms()
 
     await world.mac_pauses()
 
-    assert abs(on_screen - world.daemon.progress) <= 50, "the bar ran ahead of the daemon"
-    assert abs(world.position_ms() - on_screen) <= 50, "the pause pulled the bar back"
+    assert on_screen == world.daemon.progress, "the bar ran ahead of the daemon"
+    assert world.position_ms() == on_screen, "the pause pulled the bar back"
 
+
+async def test_a_track_whose_audio_format_never_comes_plays_on_a_moving_playhead(world):
+    """The audio format is the earliest sign of sound, not the only one: a
+    PLAYING whose progress moved is sound too, anchored there."""
+    await world.mac_loads(STILL_DRE)
+    await world.advance(SOUND_AFTER_S + TICK_S)
+
+    await world.sends(status("PLAYING", 500))
+
+    assert world.playing() and world.position_ms() == 500
+
+
+async def test_a_session_opened_mid_track_waits_for_its_sound_where_it_loads(world):
+    """A sender handing over a track it was playing loads it at its position
+    (measured 2026-09-24: PAUSED at the sender's position): a PLAYING there
+    has not moved, and the bar starts there with the sound."""
+    await world.mac_loads(STILL_DRE, at_ms=60000)
+    assert world.buffering()
+    await world.advance(SOUND_AFTER_S)
+
+    await world.sends(AUDIO_FORMAT)
+
+    assert world.playing() and world.position_ms() == 60000
+
+
+async def test_a_silent_track_fails_once_its_playing_has_gone_soundless(world):
+    """About one track in three on the free tier never sounds: PLAYING at 0,
+    then nothing (measured: 37 s). Shown playing, its bar ran over silence
+    until someone paused it. Every track that played sounded 0.6-0.8 s after
+    that PLAYING, so it is failed SOUND_TIMEOUT_S after it, not after the
+    30 s a network load is given."""
+    await world.mac_plays(STILL_DRE, silent=True)
+    await world.plays_on(SOUND_TIMEOUT_S - 1)
+    assert world.buffering() and world.restarts == [] and world.errors() == []
+
+    await world.plays_on(2)
+
+    assert world.session_ends() == ["load_failed"]
+    assert world.errors() == [SourceErrorReason.PLAYBACK_FAILED]
+    assert len(world.restarts) == 1
+    assert not world.active()
+
+
+async def test_a_silent_track_after_one_that_sounded_is_a_lost_stream(world):
+    """The session has been heard: past the wait, the end is a stream lost."""
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(3)
+    await world.mac_skips_to(KEEP_IT_THORO, silent=True)
+    assert world.buffering()
+
+    await world.plays_on(SOUND_TIMEOUT_S + 1)
+
+    assert world.session_ends() == ["stream_lost"]
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+async def test_a_skip_gates_the_next_track_again(world):
+    """The previous track's sound says nothing of the next one's."""
+    await world.mac_plays(STILL_DRE)
+    await world.plays_on(3)
+
+    await world.mac_skips_to(KEEP_IT_THORO, silent=True)
+    assert world.buffering() and world.session()["title"] == KEEP_IT_THORO
+
+    await world.advance(SOUND_AFTER_S)
+    await world.sends(AUDIO_FORMAT)
+    assert world.playing() and world.position_ms() == 0
+
+
+async def test_a_skip_from_a_silent_track_gives_the_next_one_its_own_wait(world):
+    """A silent track left after a few seconds: the next one, loading
+    normally, must not inherit what was left of the previous one's wait —
+    the skip's first burst ends BUFFERING, which withdraws it."""
+    await world.mac_plays(STILL_DRE, silent=True)
+    await world.plays_on(SOUND_TIMEOUT_S - 2)
+
+    await world.mac_skips_to(KEEP_IT_THORO, silent=True)
+    await world.plays_on(SOUND_TIMEOUT_S - 2)
+    assert world.buffering() and world.restarts == []
+    await world.advance(SOUND_AFTER_S)
+    await world.sends(AUDIO_FORMAT)
+
+    assert world.playing() and world.session()["title"] == KEEP_IT_THORO
+    assert world.errors() == []
+
+
+async def test_a_pause_of_a_track_not_sounding_yet_shows_paused(world):
+    await world.mac_plays(STILL_DRE, silent=True)
+    await world.plays_on(3)
+
+    await world.mac_pauses()
+
+    assert world.phase() == "paused" and world.position_ms() == 0
+    assert world.state()["controls"] == ["resume", "next", "prev"]
+
+
+async def test_a_resume_of_a_silent_track_is_a_load_again(world):
+    """A silent track's resume is BUFFERING and PLAYING at 0 in one burst,
+    and still no sound (measured). Held as a resume, it was drawn playing
+    over silence; it is a load, and its PLAYING waits for sound anew. The
+    pause in between is the listener's and fails nothing, however long."""
+    await world.mac_plays(STILL_DRE, silent=True)
+    await world.plays_on(SOUND_TIMEOUT_S - 2)
+    await world.mac_pauses()
+    await world.advance(SOUND_TIMEOUT_S * 3)
+    assert world.phase() == "paused" and world.restarts == []
+
+    await world.mac_resumes()
+
+    assert world.buffering()
+    await world.plays_on(SOUND_TIMEOUT_S - 1)
+    assert world.buffering() and world.restarts == []
+    await world.plays_on(2)
+    assert world.session_ends() == ["load_failed"]
+
+
+# === The playhead, from the daemon's first readings ===
 
 async def test_past_the_start_a_small_drift_is_still_not_published(world):
     """The readings are believed closely only right after a discontinuity,
     and the ones believed do not prolong that: later, the daemon's
     twice-a-second status moves nothing short of POSITION_TOLERANCE_MS, or
     every jitter would go out as a position."""
-    await world.mac_plays(STILL_DRE)
-    await world.plays_on(audio_source.SETTLE_WINDOW_S, counting_late_s=1.0)
+    await world.mac_plays(STILL_DRE)            # sound began TICK_S ago
+    await world.advance(TICK_S)
+    world.daemon.progress += 500 + 600
+    await world.sends(status("PLAYING", world.daemon.progress))
     corrected = len(world.positions())
-    assert corrected > 0
-    await world.advance(0.5)
-    await world.sends(status("PLAYING", world.daemon.progress + 500 + 600))
+    assert corrected == 1
+    await world.plays_on(audio_source.SETTLE_WINDOW_S - 1.5)
+    await world.advance(0.75)                   # past the window, inside one the belief would reopen
+
+    await world.sends(status("PLAYING", world.daemon.progress + 750 + 600))
+
     assert len(world.positions()) == corrected
 
 

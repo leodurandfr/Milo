@@ -19,6 +19,20 @@ the unit (2026-09-24, a Mac's Tidal app, strace on the controller socket):
     PLAYING, PAUSED, BUFFERING (loading) and IDLE, which is a skip's first
     millisecond — or nothing left to play, a pause as far as the idle timeout
     is concerned. A sender leaving is `releaseResources` + `notifySessionState 0`.
+  - Except a new track's first PLAYING, which is not sound (2026-11-05, the
+    owner's free tier, an iPhone). A start or a skip ends its load with
+    PLAYING at 0 in the same burst as the media; the audio begins 0.6-0.8 s
+    later, within 10 ms of `notifyAudioFormatUpdated` (sent for every new
+    track, even one in the same format), and the first status with a
+    progress follows 0.5 s after that. About one track in three on that tier
+    never sounds: PLAYING at 0, then nothing at all — no audio format, no
+    progress — for as long as it is left. So until a track has sounded since
+    its media arrived, the daemon's PLAYING is LOADING: the track plays from
+    its audio format (anchored where it was loading, 0 for a new track), or
+    from the first PLAYING status whose progress moved. A silent track stays
+    LOADING and is failed SOUND_TIMEOUT_S after that PLAYING, as a daemon
+    that buffers forever is after the loading budget. A resume of a track that has sounded is not gated: it sends no
+    audio format.
   - There is no end-of-session command: `interrupt` only notifies, `stop`
     pauses at 0, `stopService` withdraws nothing. A restart of the daemon is
     what makes the sender let go (the speaker is back at once), so it is the
@@ -67,10 +81,21 @@ _STATE_IDLE = "IDLE"
 # (E27), and it buffers forever with nothing in any log.
 LOADING_TIMEOUT_S = 30.0
 
+# How long the daemon may say PLAYING over a track that has not sounded. Its
+# audio format came 0.6-0.8 s after that PLAYING on every track that played
+# (2026-11-05, ~8 tracks); a silent one sent nothing for 37 s. The network
+# wait is the loading budget's, before this PLAYING; this one only bounds a
+# claim already made. A silent track is one whose stream the daemon hands to
+# its FLAC decoder, which loses sync on every frame (traced: ~370 warnings a
+# second, mp3 on every track that played) — warnings the unit's
+# LogFilterPatterns keep out of the journal (E74), so nothing else says so.
+SOUND_TIMEOUT_S = 8.0
+
 # A resume is BUFFERING, then PLAYING 2-7 ms later (measured), two frames read
 # apart: drawn as they come, every resume flashed the player as loading. A
-# BUFFERING over a paused track is held this long before it shows — a resume
-# the network keeps waiting is drawn loading, and its loading budget runs.
+# BUFFERING over a paused track that has sounded is held this long before it
+# shows — a resume the network keeps waiting is drawn loading, and its loading
+# budget runs.
 RESUME_SETTLE_S = 1.0
 
 # A status saying no track is loaded (IDLE): no playhead at all. The daemon
@@ -86,16 +111,20 @@ class TidalSession(Session):
     `duration_ms` is the status one — what the account may play (a 30 s
     preview) — and wins over the media's once known. `reading` is the last
     playhead a status reported, handed to the position axis once the burst's
-    phase is known (`_NO_TRACK`: the player holds no track). `played`: the
-    track named now has played since its media arrived. `resuming`: a
-    BUFFERING over that track once paused, held PAUSED for RESUME_SETTLE_S.
+    phase is known (`_NO_TRACK`: the player holds no track). `sounded`: the
+    track named now has produced audio since its media arrived — until then
+    the daemon's PLAYING is LOADING. `loading_ms`: where a track that has not
+    sounded is loading, which a PLAYING status must move past to count as
+    sound. `resuming`: a BUFFERING over a track that has sounded, once
+    paused, held PAUSED for RESUME_SETTLE_S.
     """
     media: Dict[str, Any] = field(default_factory=dict)
     media_id: Optional[str] = None
     player_state: Optional[str] = None
     duration_ms: Optional[int] = None
     reading: Any = None
-    played: bool = False
+    sounded: bool = False
+    loading_ms: int = 0
     resuming: bool = False
 
 
@@ -266,6 +295,11 @@ class TidalSource(BaseAudioSource):
                 self._arm_timer("resume", RESUME_SETTLE_S, session)
             await self.reconcile(DaemonSnapshot(None, self._phase_of(session)))
             if self._session is session:
+                if session.player_state == "PLAYING" and not session.sounded:
+                    if not self._timer_armed("sound"):
+                        self._arm_timer("sound", SOUND_TIMEOUT_S, session)
+                else:
+                    self._disarm_timer("sound")
                 reading, session.reading = session.reading, None
                 if reading is _NO_TRACK:
                     self._clear_position()
@@ -332,6 +366,14 @@ class TidalSource(BaseAudioSource):
         elif command == "notifyPlayerStatusChanged":
             self._apply_player_status(message)
 
+        elif command == "notifyAudioFormatUpdated":
+            # The audio of a new track begins with it (measured within 10 ms),
+            # where the track was loading. Not sent on a resume.
+            session = self._session
+            if isinstance(session, TidalSession) and not session.sounded:
+                session.sounded = True
+                session.reading = session.loading_ms
+
         elif command == "notifyPlaybackError":
             self._logger.error(f"Tidal playback error (code {message.get('errorCode')})")
             # The track did not start. Whether a status frame follows is not
@@ -344,9 +386,9 @@ class TidalSource(BaseAudioSource):
             return True
 
         else:
-            # setShuffle/setRepeatMode/notifyRequestResult/
-            # notifyAudioFormatUpdated — answered by the transport or not
-            # modeled by Milō (measured: nothing else is sent in a session).
+            # setShuffle/setRepeatMode/notifyRequestResult — answered by the
+            # transport or not modeled by Milō (measured: nothing else is sent
+            # in a session).
             self._logger.debug(f"Unhandled tisoc frame: {command}")
         return False
 
@@ -367,8 +409,9 @@ class TidalSource(BaseAudioSource):
         if not isinstance(session, TidalSession):
             early = self._early_status
             self._early_status = None
-            phase = _PHASES.get((early or {}).get("playerState"), Phase.LOADING)
-            session = await self.reconcile(DaemonSnapshot(None, phase))
+            # Opened loading: where a status seen before it puts the session
+            # is the burst's end to say, through the gate like any status.
+            session = await self.reconcile(DaemonSnapshot(None, Phase.LOADING))
             if not isinstance(session, TidalSession):
                 return
         # Every track's media comes twice (measured); a different track owns
@@ -376,9 +419,20 @@ class TidalSource(BaseAudioSource):
         identity = media_info.get("mediaId") or media_info.get("itemId") or metadata.get("title")
         if identity != session.media_id:
             session.media_id, session.duration_ms = identity, None
+            # A track running into the next is announced by its media alone,
+            # the daemon PLAYING throughout (measured 2026-09-24): the sound
+            # never stopped. A start or a skip passes through IDLE or a load
+            # first, and the new track has not sounded.
+            session.sounded = session.sounded and session.player_state == "PLAYING"
+            session.loading_ms = 0
             # A resume interrupted by another track: that one loads.
-            session.played = session.resuming = False
+            session.resuming = False
             self._clear_position()
+            if session.phase is Phase.LOADING:
+                # Skipped to mid-load (a silent track left after a few
+                # seconds): the burst ends LOADING as it began, and the new
+                # track would inherit what is left of the previous one's budget.
+                self._arm_timer("loading", LOADING_TIMEOUT_S, session)
         if early:
             self._apply_player_status(early)
         artists = metadata.get("artists") or []
@@ -411,38 +465,49 @@ class TidalSource(BaseAudioSource):
         player_state = status.get("playerState")
         # A resume: the paused track buffers again before it plays. Not a
         # BUFFERING after IDLE (no track), nor the PAUSED → BUFFERING a load
-        # passes through (a start, a skip) before the track has ever played.
+        # passes through (a start, a skip) before the track has sounded — a
+        # silent track's resume is a load again.
         session.resuming = player_state == "BUFFERING" and (
             session.resuming or (
-                session.played and session.phase is Phase.PAUSED
+                session.sounded and session.phase is Phase.PAUSED
                 and session.player_state == "PAUSED" and session.anchor is not None
             )
         )
-        session.played = session.played or player_state == "PLAYING"
         session.player_state = player_state
         if player_state == _STATE_IDLE:
             # No track loaded: no position inside one.
             session.reading = _NO_TRACK
             return
         session.duration_ms = status.get("duration") or session.duration_ms
-        if status.get("progress") is not None:
-            session.reading = status.get("progress")
+        progress = status.get("progress")
+        if progress is None:
+            return
+        session.reading = progress
+        if not session.sounded:
+            # A playhead that moved while PLAYING is sound, should the audio
+            # format never come. Any other status says where the load stands:
+            # a session opened at the sender's position loads there.
+            if player_state == "PLAYING" and progress > session.loading_ms:
+                session.sounded = True
+            else:
+                session.loading_ms = progress
 
     @staticmethod
     def _phase_of(session: TidalSession) -> Phase:
         if session.resuming:
             return Phase.PAUSED
-        return _PHASES.get(session.player_state, Phase.LOADING)
+        phase = _PHASES.get(session.player_state, Phase.LOADING)
+        if phase is Phase.PLAYING and not session.sounded:
+            return Phase.LOADING
+        return phase
 
     def _daemon_session(self, snapshot: DaemonSnapshot) -> Session:
-        # A session opening in PLAYING never advances into it: heard already.
-        return TidalSession(
-            phase=snapshot.phase, sender=snapshot.sender, heard=snapshot.phase is Phase.PLAYING,
-        )
+        return TidalSession(phase=snapshot.phase, sender=snapshot.sender)
 
     def _daemon_phase_changed(self, session: Session, before: Optional[Phase]) -> None:
         """The loading timer follows the phase too: armed on entering LOADING
-        (a session opening in it included), withdrawn on leaving it."""
+        (a session opening in it included), withdrawn on leaving it — and
+        armed again by a new track named while loading (_apply_media)."""
         super()._daemon_phase_changed(session, before)
         if session.phase is Phase.LOADING:
             self._arm_timer("loading", LOADING_TIMEOUT_S, session)
@@ -451,20 +516,32 @@ class TidalSource(BaseAudioSource):
 
     async def _on_timer(self, name: str, token: object) -> None:
         """A resume still buffering past RESUME_SETTLE_S: drawn loading now.
-        Still loading past the budget: the session fails, and the daemon is
-        asked for its end the way the idle timeout asks — a restart."""
+        Still loading past the budget, or PLAYING past SOUND_TIMEOUT_S with
+        no sound: the session fails, and the daemon is asked for its end the
+        way the idle timeout asks — a restart."""
         session = self._session
-        if name == "resume" and isinstance(session, TidalSession) and session is token:
+        if not isinstance(session, TidalSession) or session is not token:
+            return
+        if name == "resume":
             if session.resuming:
                 session.resuming = False
                 await self.reconcile(DaemonSnapshot(None, self._phase_of(session)))
                 self._publish_changes()
             return
-        if name != "loading" or session is not token or session.phase is not Phase.LOADING:
+        if name == "sound":
+            if session.sounded or session.player_state != "PLAYING":
+                return
+            self._logger.error(
+                f"Tidal playing for {SOUND_TIMEOUT_S:.0f} s without any sound — restarting the daemon"
+            )
+        elif name == "loading" and session.phase is Phase.LOADING:
+            self._logger.error(
+                f"Tidal still loading after {LOADING_TIMEOUT_S:.0f} s — restarting the daemon"
+            )
+        else:
             return
-        self._logger.error(
-            f"Tidal still loading after {LOADING_TIMEOUT_S:.0f} s — restarting the daemon"
-        )
+        self._disarm_timer("loading")
+        self._disarm_timer("sound")
         if session.heard:
             session.end_requested = EndReason.STREAM_LOST
             self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)

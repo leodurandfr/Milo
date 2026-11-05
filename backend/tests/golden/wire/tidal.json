@@ -1495,53 +1495,6 @@
    {
     "category": "source",
     "type": "state",
-    "origin": "tidal",
-    "data": {
-     "source": "tidal",
-     "switching": false,
-     "service": "running",
-     "service_error": null,
-     "availability": {
-      "radio": null,
-      "podcast": null,
-      "music_library": null,
-      "cd": null,
-      "spotify": null,
-      "tidal": null,
-      "qobuz": null,
-      "airplay": null,
-      "bluetooth": null,
-      "mac": null
-     },
-     "session": {
-      "id": "session-1",
-      "phase": "playing",
-      "title": "Mad Again",
-      "artist": "BunnaB, Guest",
-      "album": "Ice Cream Summer",
-      "artwork": "https://resources.tidal.example/mad/1280.jpg",
-      "senders": [],
-      "duration_ms": 237000,
-      "position": {
-       "ms": 0,
-       "at": 1790270000.0,
-       "rate": 1.0
-      }
-     },
-     "controls": [
-      "pause",
-      "next",
-      "prev"
-     ],
-     "resume": null,
-     "details": null,
-     "multiroom_enabled": false,
-     "equalizer_effects_enabled": false
-    }
-   },
-   {
-    "category": "source",
-    "type": "state",
     "origin": "none",
     "data": {
      "source": "none",
