@@ -1,10 +1,11 @@
 # backend/core/multiroom/websocket.py
 """
-Snapcast WebSocket Service - Real-time notifications from Snapcast server.
+Snapcast WebSocket Service - the control socket to the Snapcast server.
 
-Handles WebSocket connection to Snapcast for client connect/disconnect events,
-volume changes, and server updates. Uses ClientRegistryService as the single
-source of truth for client/availability tracking.
+Hears snapserver's notifications (client connect/disconnect, server updates)
+and carries every JSON-RPC request SnapcastService sends (``call``). Uses
+ClientRegistryService as the single source of truth for client/availability
+tracking.
 """
 import asyncio
 import json
@@ -16,7 +17,7 @@ import aiohttp
 
 from backend.core.multiroom.identity import compute_mac_id
 from backend.core.multiroom.routing import resolve_snapclient_config
-from backend.core.multiroom.snapcast import SnapcastService
+from backend.core.multiroom.snapcast import SnapcastRequestError, SnapcastService
 from backend.core.multiroom.client_registry import (
     ClientRegistryService,
     REGISTRY_EVENT_CLASSES,
@@ -37,12 +38,17 @@ if TYPE_CHECKING:
 
 class SnapcastWebSocketService:
     """
-    WebSocket service for Snapcast notifications.
+    The snapserver control WebSocket: notifications in, requests out.
 
     Handles real-time events from Snapcast server:
     - Client connect/disconnect
     - Volume and mute changes
     - Server updates (availability changes)
+
+    and answers SnapcastService's requests (``call``). A reader task settles
+    each answer by its id the moment it arrives, so a notification handler may
+    query snapserver on the socket that carried the notification; the
+    notifications themselves are handled one at a time, in arrival order.
     """
 
     # Reconcile sweep cadence. Combined with SnapcastService.LAST_SEEN_FRESHNESS_S,
@@ -53,6 +59,13 @@ class SnapcastWebSocketService:
     # Bounds the handshake only: the session carries it, and aiohttp applies a
     # session timeout to the upgrade request, never to the socket after it.
     CONNECT_TIMEOUT_S = 5
+
+    # Bounds each request on the socket, as the HTTP timeout it replaces did.
+    REQUEST_TIMEOUT_S = 3.0
+
+    # The reconnect backoff's ceiling: a socket that dropped can stay down this
+    # long, plus a handshake, before the loop tries again.
+    RECONNECT_MAX_DELAY_S = 30
 
     def __init__(
         self,
@@ -100,8 +113,9 @@ class SnapcastWebSocketService:
         # Initialization state - suppress verbose logs during startup
         self._is_initializing = False
 
-        # ID for JSON-RPC requests
+        # ID for JSON-RPC requests, and each request awaiting its answer by id
         self.request_id = 0
+        self._pending: Dict[int, tuple] = {}
 
         # Ready event - signaled when WebSocket is connected and initialized
         self._ready_event = asyncio.Event()
@@ -273,7 +287,6 @@ class SnapcastWebSocketService:
     async def _connection_loop(self) -> None:
         """Connection loop with intelligent reconnection."""
         reconnect_delay = 5
-        max_delay = 30
 
         while self.running and self.should_connect:
             try:
@@ -288,16 +301,19 @@ class SnapcastWebSocketService:
             if self.running and self.should_connect:
                 self.logger.info(f"Reconnecting to Snapcast WebSocket in {reconnect_delay} seconds...")
                 await asyncio.sleep(reconnect_delay)
-                reconnect_delay = min(reconnect_delay * 1.5, max_delay)
+                reconnect_delay = min(reconnect_delay * 1.5, self.RECONNECT_MAX_DELAY_S)
 
     async def _connect_and_listen(self) -> bool:
-        """Connect and listen for WebSocket messages.
+        """Connect, admit the clients already there, then handle notifications.
 
         Returns whether the connection got as far as ready. A refused or
         timed-out connect is caught here, not raised, so this is the only way
         the reconnect loop can tell a failure from a connection that dropped.
+        The frames are read by ``_read_frames``, beside this: everything here
+        awaits answers only it can read.
         """
         ready = False
+        websocket = reader = None
         # Clear ready state so wait_for_ready() blocks until this connection
         # is fully initialized. Without this, a stale True from a previous
         # connection causes callers to proceed against a dead socket.
@@ -307,7 +323,7 @@ class SnapcastWebSocketService:
             self.logger.info(f"Connecting to Snapcast WebSocket: {self.ws_url}")
 
             try:
-                self.websocket = await self.session.ws_connect(self.ws_url)
+                websocket = self.websocket = await self.session.ws_connect(self.ws_url)
             except TimeoutError:
                 self.logger.warning(
                     f"Snapcast server did not answer the WebSocket handshake within {self.CONNECT_TIMEOUT_S} s"
@@ -315,8 +331,17 @@ class SnapcastWebSocketService:
                 return False
             self.logger.info("Connected to Snapcast WebSocket")
 
-            # Send initial ping to verify connection
-            await self._send_request("Server.GetRPCVersion")
+            notifications: asyncio.Queue = asyncio.Queue()
+            reader = self._bg.spawn(
+                self._read_frames(websocket, notifications), label="control_reader"
+            )
+
+            # An answer is what proves the socket is a snapserver and not just open.
+            try:
+                await self.call("Server.GetRPCVersion")
+            except SnapcastRequestError as e:
+                self.logger.warning(f"Snapcast WebSocket opened but did not answer: {e}")
+                return False
 
             # Initialize already connected clients
             self._is_initializing = True
@@ -327,20 +352,8 @@ class SnapcastWebSocketService:
             ready = True
             self.logger.info("Snapcast WebSocket ready and initialized")
 
-            # Listen for messages
-            async for msg in self.websocket:
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    try:
-                        data = json.loads(msg.data)
-                        await self._handle_message(data)
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"Invalid JSON received: {e}")
-                elif msg.type == aiohttp.WSMsgType.ERROR:
-                    self.logger.error(f"WebSocket error: {self.websocket.exception()}")
-                    break
-                elif msg.type == aiohttp.WSMsgType.CLOSE:
-                    self.logger.info("WebSocket connection closed")
-                    break
+            while (data := await notifications.get()) is not None:
+                await self._handle_message(data)
 
         except aiohttp.ClientConnectorError:
             self.logger.info("Cannot connect to Snapcast server - server may not be running")
@@ -348,7 +361,101 @@ class SnapcastWebSocketService:
             self.logger.error(f"WebSocket connection failed: {e}")
         finally:
             self.websocket = None
+            self._ready_event.clear()
+            if reader is not None:
+                # Out of receive() before the close, which would otherwise race it.
+                reader.cancel()
+                await asyncio.wait({reader})
+            # The reader's own pass, for a reader cancelled before it ever ran.
+            self._fail_pending("control WebSocket closed")
+            if websocket is not None:
+                await self._close_websocket(websocket)
         return ready
+
+    async def _read_frames(self, websocket, notifications: asyncio.Queue) -> None:
+        """Read the control socket until it ends.
+
+        An answer settles its request here, at once; anything else is queued
+        for ``_connect_and_listen`` to handle in order. The end is queued too
+        (None): the socket is dropped from ``self.websocket`` then, so a request
+        sent while the queue drains fails at once, and every request still
+        waiting fails too rather than at its timeout.
+        """
+        try:
+            async for msg in websocket:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                        if isinstance(data, dict) and "id" in data and ("result" in data or "error" in data):
+                            self._handle_response(data)
+                        else:
+                            notifications.put_nowait(data)
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"Invalid JSON received: {e}")
+                    except Exception as e:
+                        self.logger.error(f"Unreadable Snapcast frame skipped: {type(e).__name__}: {e}")
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    self.logger.error(f"WebSocket error: {websocket.exception()}")
+                    break
+                elif msg.type == aiohttp.WSMsgType.CLOSE:
+                    self.logger.info("WebSocket connection closed")
+                    break
+        except Exception as e:
+            self.logger.error(f"WebSocket connection failed: {e}")
+        finally:
+            if self.websocket is websocket:
+                self.websocket = None
+            self._fail_pending("control WebSocket closed")
+            notifications.put_nowait(None)
+
+    async def call(
+        self, method: str, params: Optional[Dict] = None, timeout: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """Send one JSON-RPC request on the control socket and return its ``result``.
+
+        Requests may be in flight together: each is paired with its answer by
+        id, whatever order snapserver answers in. Raises SnapcastRequestError,
+        naming the method, when the socket is not connected, drops before the
+        answer, sends nothing back within ``timeout`` (REQUEST_TIMEOUT_S by
+        default), or answers an error.
+        """
+        if timeout is None:
+            timeout = self.REQUEST_TIMEOUT_S
+        websocket = self.websocket
+        if websocket is None or websocket.closed:
+            raise SnapcastRequestError(f"{method}: control WebSocket not connected")
+
+        self.request_id += 1
+        request_id = self.request_id
+        request = {"id": request_id, "jsonrpc": "2.0", "method": method}
+        if params:
+            request["params"] = params
+
+        answer = asyncio.get_running_loop().create_future()
+        self._pending[request_id] = (method, answer)
+        try:
+            await websocket.send_str(json.dumps(request))
+            response = await asyncio.wait_for(answer, timeout)
+        except SnapcastRequestError:
+            raise
+        except TimeoutError:
+            raise SnapcastRequestError(
+                f"{method}: no answer on the control WebSocket within {timeout} s"
+            ) from None
+        except Exception as e:
+            raise SnapcastRequestError(f"{method}: {type(e).__name__}: {e}") from e
+        finally:
+            self._pending.pop(request_id, None)
+
+        if "error" in response:
+            raise SnapcastRequestError(f"{method}: {response['error']}")
+        return response.get("result", {})
+
+    def _fail_pending(self, reason: str) -> None:
+        """Fail every request still waiting for an answer, each naming its method."""
+        for method, answer in self._pending.values():
+            if not answer.done():
+                answer.set_exception(SnapcastRequestError(f"{method}: {reason}"))
 
     async def _clear_init_flag_after_delay(self, delay: float) -> None:
         """Clear the initialization flag after a delay."""
@@ -437,33 +544,11 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.error(f"Error initializing existing clients: {e}", exc_info=True)
 
-    async def _send_request(self, method: str, params: Optional[Dict] = None) -> None:
-        """Send a JSON-RPC request."""
-        if not self.websocket:
-            return
-
-        self.request_id += 1
-        request = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "id": self.request_id
-        }
-
-        if params:
-            request["params"] = params
-
-        try:
-            await self.websocket.send_str(json.dumps(request))
-        except Exception as e:
-            self.logger.error(f"Failed to send request: {e}")
-
     async def _handle_message(self, data: Dict[str, Any]) -> None:
-        """Process a received JSON-RPC message."""
+        """Process a received JSON-RPC notification (answers are settled by the reader)."""
         try:
             if "method" in data and "id" not in data:
                 await self._handle_notification(data)
-            elif "result" in data or "error" in data:
-                await self._handle_response(data)
 
         except Exception as e:
             self.logger.error(f"Error handling message: {e}")
@@ -675,10 +760,13 @@ class SnapcastWebSocketService:
             # Crossover recalculation is handled by CrossoverService._handle_registry_event
             # via CLIENT_CONNECTED/CLIENT_DISCONNECTED events emitted by set_client_online()
 
-    async def _handle_response(self, response: Dict[str, Any]) -> None:
-        """Process a response to a request."""
-        if "error" in response:
-            self.logger.error(f"Snapcast RPC error: {response['error']}")
+    def _handle_response(self, response: Dict[str, Any]) -> None:
+        """Settle the request this answer carries the id of."""
+        pending = self._pending.get(response["id"])
+        if pending is None:
+            self.logger.debug(f"Snapcast answer to no pending request: id={response['id']}")
+        elif not pending[1].done():
+            pending[1].set_result(response)
 
     def _identity_of(
         self, client: Dict[str, Any], host: str, ip: str, event: str

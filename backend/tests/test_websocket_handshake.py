@@ -27,6 +27,7 @@ from aiohttp import web
 
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.sources.spotify.websocket import LibrespotWebSocket
+from backend.tests.snapserver_world import FakeSnapserver, serving
 
 # Captured at import: the reconnect test patches `websocket.asyncio.sleep`, which
 # is the global `asyncio.sleep`, and this file's own waits must not go through it.
@@ -154,16 +155,16 @@ class TestLibrespotSocket:
 
 
 class TestSnapcastSocket:
-    async def test_connect_and_disable_use_the_api_aiohttp_supports(self, ws_server, deprecations):
-        port = await ws_server("/jsonrpc")
-        service = _snapcast_service(port)
-        await service.initialize()
-        try:
-            await service.start_connection()
-            assert await service.wait_for_ready(timeout=3.0)
-            await service.stop_connection()
-        finally:
-            await service.cleanup()
+    async def test_connect_and_disable_use_the_api_aiohttp_supports(self, deprecations):
+        async with serving(FakeSnapserver()) as snapserver:
+            service = _snapcast_service(snapserver.port)
+            await service.initialize()
+            try:
+                await service.start_connection()
+                assert await service.wait_for_ready(timeout=3.0)
+                await service.stop_connection()
+            finally:
+                await service.cleanup()
 
         assert deprecations() == []
 

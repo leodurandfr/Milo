@@ -25,7 +25,6 @@ the LAN, through snapweb.
 import asyncio
 import json
 import logging
-import aiohttp
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -34,7 +33,7 @@ from backend.tests.snapserver_world import BUREAU, CANAPE, CLIENT_IPS, FakeSnaps
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.websocket import SnapcastWebSocketService
-from backend.core.multiroom.snapcast import SnapcastService
+from backend.core.multiroom.snapcast import SnapcastRequestError, SnapcastService
 
 MAC = "aa:bb:cc:dd:ee:01"
 IP = "192.168.1.150"
@@ -113,19 +112,12 @@ def ws_service(registry, snapcast, volume_service, no_satellite_network):
 
 
 @pytest.fixture
-def on_snapserver(registry, volume_service, no_satellite_network, monkeypatch):
-    """The service on the real SnapcastService, answered by a given fake snapserver.
-
-    Taken after `no_satellite_network`, which replaces `aiohttp.ClientSession`:
-    snapserver's URL is answered by the fake, every other request by that
-    stand-in — so a request that missed the fake would read as an empty status.
-    """
+def on_snapserver(registry, volume_service, no_satellite_network):
+    """The service on the real SnapcastService, whose control channel a given
+    fake snapserver answers."""
     def wire(fake):
         snapcast = SnapcastService(systemd_manager=MagicMock(), host="snapserver.test")
-        monkeypatch.setattr(
-            aiohttp, "ClientSession",
-            fake.client_session(snapcast.base_url, aiohttp.ClientSession),
-        )
+        snapcast.set_control_channel(fake.control_channel())
         return _service_on(snapcast, registry, volume_service)
 
     return wire
@@ -264,20 +256,6 @@ class TestNotificationDispatch:
 
         assert registry.get_client(MAC).online is True
 
-    async def test_an_rpc_error_reply_reaches_the_operator(self, ws_service, caplog):
-        """A snapserver error is the one thing a reply carries that anyone reads.
-
-        It is logged at ERROR, which is what `WebSocketLogHandler` turns into the
-        UI's error banner — the only channel that reports a refused snapserver
-        command at all.
-        """
-        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.websocket"):
-            await ws_service._handle_message(
-                {"jsonrpc": "2.0", "id": 4, "error": {"code": -32601, "message": "nope"}}
-            )
-
-        assert [r for r in caplog.records if "Snapcast RPC error" in r.getMessage()]
-
     async def test_a_frame_milo_cannot_key_does_not_drop_the_snapserver_link(
         self, ws_service, registry
     ):
@@ -375,31 +353,41 @@ class TestAServerUpdateOnAStatusItCouldNotRead:
 
 
 class TestOutboundRequests:
-    """The only frame this service sends to snapserver."""
+    """The requests this service sends to snapserver, for SnapcastService."""
 
     async def test_a_request_is_sent_as_json_rpc_with_a_fresh_id(self, ws_service):
-        """The id is what lets snapserver's reply be matched to a request.
+        """The id is what pairs snapserver's answer with its request.
 
-        Reusing one would have two replies collapse onto the same request, which
-        is why it increments per send rather than per connection.
+        Reusing one would have two answers collapse onto the same request, which
+        is why it increments per send rather than per connection. A request with
+        no parameters carries no params key.
         """
+        sent = []
+
+        async def send_str(payload):
+            body = json.loads(payload)
+            sent.append(body)
+            ws_service._handle_response({"jsonrpc": "2.0", "id": body["id"], "result": {}})
+
         websocket = MagicMock()
-        websocket.send_str = AsyncMock()
+        websocket.closed = False
+        websocket.send_str = send_str
         ws_service.websocket = websocket
 
-        await ws_service._send_request("Server.GetRPCVersion")
-        await ws_service._send_request("Client.SetVolume", {"id": MAC})
+        await ws_service.call("Server.GetRPCVersion")
+        await ws_service.call("Client.SetVolume", {"id": MAC})
 
-        first, second = (json.loads(c.args[0]) for c in websocket.send_str.call_args_list)
-        assert first == {"jsonrpc": "2.0", "method": "Server.GetRPCVersion", "id": 1}
-        assert second == {"jsonrpc": "2.0", "method": "Client.SetVolume",
-                          "id": 2, "params": {"id": MAC}}
+        assert sent == [
+            {"jsonrpc": "2.0", "method": "Server.GetRPCVersion", "id": 1},
+            {"jsonrpc": "2.0", "method": "Client.SetVolume", "id": 2, "params": {"id": MAC}},
+        ]
 
     async def test_nothing_is_sent_without_a_socket(self, ws_service):
-        """`_connect_and_listen` pings before the socket is proven; with the
-        socket gone the send must be skipped, not raise into the connect path."""
+        """With the socket gone a request fails at once, naming it: there is no
+        other way to snapserver to fall back to."""
         ws_service.websocket = None
 
-        await ws_service._send_request("Server.GetRPCVersion")
+        with pytest.raises(SnapcastRequestError, match="Server.GetRPCVersion: control WebSocket not connected"):
+            await ws_service.call("Server.GetRPCVersion")
 
         assert ws_service.request_id == 0

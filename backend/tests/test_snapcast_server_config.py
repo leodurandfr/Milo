@@ -50,6 +50,7 @@ from backend.core.multiroom.snapcast import (
     SnapcastService,
 )
 from backend.tests.architecture.test_multiroom_capture_map import conf_sections, flashed_conf
+from backend.tests.snapserver_world import FakeSnapserver, serving
 
 DEPLOY_HELPER = Path(__file__).resolve().parents[2] / "rootfs/usr/local/bin/milo-deploy-update"
 
@@ -740,6 +741,36 @@ class TestTheRestart:
         assert any("API not available" in r.message for r in caplog.records)
 
 
+    async def test_the_restart_is_done_once_the_control_socket_is_back(
+        self, service, monkeypatch, caplog
+    ):
+        """The restart closed the socket every request rides: reported done
+        before it reconnects, the settings page's next read finds nothing to
+        ask snapserver. In direct mode no socket is expected and none is waited for."""
+        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+        service.is_available = AsyncMock(return_value=True)
+        control = MagicMock()
+        control.should_connect = True
+        control.RECONNECT_MAX_DELAY_S = 30
+        control.wait_for_ready = AsyncMock(return_value=False)
+        service.set_control_channel(control)
+
+        with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.snapcast"):
+            assert await service._restart_snapserver() is False
+        assert any("control WebSocket is not back" in r.message for r in caplog.records)
+
+        control.wait_for_ready = AsyncMock(return_value=True)
+        assert await service._restart_snapserver() is True
+        assert control.wait_for_ready.await_args.kwargs["timeout"] > control.RECONNECT_MAX_DELAY_S, (
+            "a socket backed off before the restart would be reported as not back"
+        )
+
+        control.should_connect = False
+        control.wait_for_ready = AsyncMock(return_value=False)
+        assert await service._restart_snapserver() is True
+        control.wait_for_ready.assert_not_awaited()
+
+
 class TestWaitingForTheDaemon:
     """`wait_until_available`: a wall-clock deadline, not a probe count."""
 
@@ -777,30 +808,20 @@ class TestWaitingForTheDaemon:
         assert await service.wait_until_available(timeout=10.0) is True
         assert service.is_available.await_count == 2
 
-    async def test_a_probe_failure_is_not_availability(self, service, caplog):
-        """`_request` raises a typed error on every transport failure so
-        `is_available` can tell an unreachable daemon from one that answered an
-        empty result — a bare `bool(result)` on a swallowed {} could not.
+    async def test_the_probe_is_one_http_request_to_the_daemon(self, systemd, caplog):
+        """It runs while snapserver starts, before any control socket exists: an
+        answer is availability, a JSON-RPC error or nobody listening is not."""
+        async with serving(FakeSnapserver()) as fake:
+            service = SnapcastService(systemd_manager=systemd, host="127.0.0.1", port=fake.port)
+            assert await service.is_available() is True
+            assert fake.http_requests == 1
 
-        The catch is the typed error alone, deliberately: anything else escaping
-        here is a fault in Milō, not in snapserver, and must not read as "the
-        daemon is down".
-        """
-        service._request = AsyncMock(return_value={})
-        assert await service.is_available() is True, (
-            "an empty result is a live daemon, not an unavailable one"
-        )
-
-        service._request = AsyncMock(side_effect=SnapcastRequestError("refused"))
+            fake.refuse["Server.GetRPCVersion"] = None
+            assert await service.is_available() is False
 
         with caplog.at_level(logging.DEBUG, logger="backend.core.multiroom.snapcast"):
             assert await service.is_available() is False
-
         assert any("availability check failed" in r.message for r in caplog.records)
-
-        service._request = AsyncMock(side_effect=TypeError("a bug in Milō"))
-        with pytest.raises(TypeError):
-            await service.is_available()
 
 
 class TestTheWholeUpdate:
@@ -1031,163 +1052,13 @@ class TestTheCommandsAndQueries:
         assert await service.get_server_status() == {}
 
 
-class ReachedTheLiveSnapserver(BaseException):
-    """A real HTTP session to snapserver's control port was being built.
+class TestTheRequest:
+    """`_request`: every request rides the control WebSocket, never HTTP."""
 
-    BaseException-derived: `_request` converts every `Exception` into a
-    `SnapcastRequestError`, and each of its callers is fail-open — an ordinary
-    error would be absorbed twice over and the run would stay green with
-    `http://localhost:1780/jsonrpc` actually dialled. snapserver answers there
-    on this machine.
-    """
-
-
-class TestTheTransport:
-    """`_request`: the error taxonomy every fail-open caller above depends on."""
-
-    @pytest.fixture(autouse=True)
-    def never_the_real_control_port(self, monkeypatch):
-        import aiohttp
-
-        class _Forbidden:
-            def __init__(self, *a, **k):
-                raise ReachedTheLiveSnapserver("a real session to snapserver was opening")
-
-        monkeypatch.setattr(aiohttp, "ClientSession", _Forbidden)
-
-    @staticmethod
-    def _session(monkeypatch, *, status=200, payload=None, delay=0.0):
-        import aiohttp
-
-        captured = {}
-
-        class _Response:
-            def __init__(self):
-                self.status = status
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *exc):
-                return False
-
-            async def json(self):
-                return payload if payload is not None else {"result": {}}
-
-        class _Session:
-            def __init__(self, *a, **k):
-                captured["timeout"] = k.get("timeout")
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *exc):
-                return False
-
-            def post(self, url, json=None):
-                captured["url"] = url
-                captured["body"] = json
-                return _Response()
-
-        monkeypatch.setattr(aiohttp, "ClientSession", _Session)
-        return captured
-
-    async def test_the_request_is_json_rpc_with_a_fresh_id_each_time(
-        self, service, monkeypatch
-    ):
-        """snapserver matches replies to requests by id, and this service shares
-        the daemon with snapweb; a frozen id makes two calls indistinguishable."""
-        captured = self._session(monkeypatch)
-
-        await service._request("Server.GetStatus")
-        first = captured["body"]["id"]
-        await service._request("Client.SetVolume", {"id": "x"})
-
-        assert captured["url"] == service.base_url
-        assert captured["body"]["jsonrpc"] == "2.0"
-        assert captured["body"]["method"] == "Client.SetVolume"
-        assert captured["body"]["params"] == {"id": "x"}
-        assert captured["body"]["id"] == first + 1
-
-    async def test_a_call_without_parameters_sends_no_params_key(
-        self, service, monkeypatch
-    ):
-        """`Server.GetStatus` and `Server.GetRPCVersion` take none, and snapserver
-        rejects a null params on some builds."""
-        captured = self._session(monkeypatch)
-
-        await service._request("Server.GetStatus")
-
-        assert "params" not in captured["body"]
-
-    async def test_the_request_is_bounded_so_a_hung_daemon_cannot_hold_a_caller(
-        self, service, monkeypatch
-    ):
-        """`is_available` is polled in a loop whose deadline assumes each probe
-        costs at most this; without it, one hung call holds the settings request,
-        the routing transition, and the reconcile sweep."""
-        captured = self._session(monkeypatch)
-
-        await service._request("Server.GetStatus")
-
-        assert captured["timeout"].total == 3
-
-    async def test_a_non_200_is_a_typed_failure_not_an_empty_result(
-        self, service, monkeypatch
-    ):
-        """The distinction the whole module rests on: a fail-open caller must be
-        able to tell "snapserver refused" from "snapserver has no clients"."""
-        self._session(monkeypatch, status=503)
-
-        with pytest.raises(SnapcastRequestError) as exc:
+    async def test_with_no_control_socket_a_request_is_a_typed_failure(self, service):
+        """Callers catch one type; there is no other way to snapserver to fall back to."""
+        with pytest.raises(SnapcastRequestError, match="no control WebSocket"):
             await service._request("Server.GetStatus")
-
-        assert "503" in str(exc.value)
-
-    async def test_a_json_rpc_error_reply_is_a_failure_even_at_200(
-        self, service, monkeypatch
-    ):
-        """snapserver answers 200 with an `error` member for an unknown method or
-        an unknown client id. Reading `result` would give {} — success."""
-        self._session(monkeypatch, payload={"error": {"code": -32601, "message": "unknown"}})
-
-        with pytest.raises(SnapcastRequestError) as exc:
-            await service._request("Client.SetVolume", {"id": "gone"})
-
-        assert "unknown" in str(exc.value)
-
-    async def test_a_transport_failure_is_converted_and_keeps_its_cause(
-        self, service, monkeypatch
-    ):
-        """Callers catch one type. Letting an `OSError` through would escape every
-        `except SnapcastRequestError` in the module."""
-        import aiohttp
-
-        class _Refusing:
-            def __init__(self, *a, **k):
-                pass
-
-            async def __aenter__(self):
-                raise OSError("connection refused")
-
-            async def __aexit__(self, *exc):
-                return False
-
-        monkeypatch.setattr(aiohttp, "ClientSession", _Refusing)
-
-        with pytest.raises(SnapcastRequestError) as exc:
-            await service._request("Server.GetStatus")
-
-        assert isinstance(exc.value.__cause__, OSError)
-        assert "OSError" in str(exc.value)
-
-    async def test_an_empty_result_is_returned_not_treated_as_a_failure(
-        self, service, monkeypatch
-    ):
-        """`Client.SetVolume` answers with an empty result on success."""
-        self._session(monkeypatch, payload={"result": {}})
-
-        assert await service._request("Client.SetVolume", {"id": "x"}) == {}
 
     async def test_a_slow_answer_is_recorded_because_it_is_the_desync_symptom(
         self, service, monkeypatch, caplog
@@ -1196,7 +1067,7 @@ class TestTheTransport:
         starvation, which is what desynchronises the fleet — and it leaves no
         other trace: the RPC still succeeds, so nothing else in the stack notices.
         """
-        self._session(monkeypatch)
+        service.set_control_channel(FakeSnapserver().control_channel())
         ticks = iter([1000.0, 1000.8])
         monkeypatch.setattr("backend.core.multiroom.snapcast.time.time", lambda: next(ticks))
 

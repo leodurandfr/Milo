@@ -18,7 +18,7 @@ import aiohttp
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.tests.conftest import attach_registry_broadcaster, drain_background_tasks
-from backend.tests.snapserver_world import listing_every_pinned_client
+from backend.tests.snapserver_world import CANAPE, FakeSnapserver, listing_every_pinned_client
 from backend.core.multiroom.models import (
     Client,
     Zone,
@@ -1165,67 +1165,42 @@ class TestSnapcastService:
     async def test_is_available_connection_error(self, snapcast_service):
         """Test is_available with connection error."""
         with patch("backend.core.multiroom.snapcast.aiohttp.ClientSession") as mock_session:
-            mock_session.return_value.__aenter__ = AsyncMock(side_effect=Exception("Connection refused"))
+            mock_session.return_value.__aenter__ = AsyncMock(side_effect=OSError("Connection refused"))
             result = await snapcast_service.is_available()
             assert result is False
 
-    @staticmethod
-    def _mock_jsonrpc_response(status=200, payload=None):
-        """Build a patch target for aiohttp returning one JSON-RPC response."""
-        response = MagicMock()
-        response.status = status
-        response.json = AsyncMock(return_value=payload if payload is not None else {})
-        post_ctx = MagicMock()
-        post_ctx.__aenter__ = AsyncMock(return_value=response)
-        post_ctx.__aexit__ = AsyncMock(return_value=False)
-        session = MagicMock()
-        session.post = MagicMock(return_value=post_ctx)
-        session_ctx = MagicMock()
-        session_ctx.__aenter__ = AsyncMock(return_value=session)
-        session_ctx.__aexit__ = AsyncMock(return_value=False)
-        return patch("backend.core.multiroom.snapcast.aiohttp.ClientSession", return_value=session_ctx)
-
-    @pytest.mark.asyncio
-    async def test_request_raises_on_transport_error(self, snapcast_service):
-        """A transport failure must raise, not be swallowed to {}."""
-        with patch("backend.core.multiroom.snapcast.aiohttp.ClientSession") as mock_session:
-            mock_session.return_value.__aenter__ = AsyncMock(side_effect=OSError("unreachable"))
-            with pytest.raises(SnapcastRequestError):
-                await snapcast_service._request("Server.GetStatus")
-
-    @pytest.mark.asyncio
-    async def test_request_raises_on_non_200(self, snapcast_service):
-        """A non-200 HTTP status must raise."""
-        with self._mock_jsonrpc_response(status=500):
-            with pytest.raises(SnapcastRequestError):
-                await snapcast_service._request("Server.GetStatus")
-
     @pytest.mark.asyncio
     async def test_request_raises_on_jsonrpc_error(self, snapcast_service):
-        """A JSON-RPC error object must raise even with HTTP 200."""
-        with self._mock_jsonrpc_response(payload={"error": {"code": -32601, "message": "nope"}}):
-            with pytest.raises(SnapcastRequestError):
-                await snapcast_service._request("Bogus.Method")
+        """A JSON-RPC error answer must raise, not read as an empty result."""
+        snapserver = FakeSnapserver()
+        snapcast_service.set_control_channel(snapserver.control_channel())
+        with pytest.raises(SnapcastRequestError):
+            await snapcast_service._request("Bogus.Method")
 
     @pytest.mark.asyncio
     async def test_request_passes_through_valid_empty_result(self, snapcast_service):
         """A valid but empty result ({}) is returned, NOT treated as failure."""
-        with self._mock_jsonrpc_response(payload={"jsonrpc": "2.0", "id": 1, "result": {}}):
-            result = await snapcast_service._request("Server.GetStatus")
-            assert result == {}
+        channel = MagicMock()
+        channel.call = AsyncMock(return_value={})
+        snapcast_service.set_control_channel(channel)
+        assert await snapcast_service._request("Server.GetStatus") == {}
 
     @pytest.mark.asyncio
     async def test_set_volume_returns_false_on_rpc_error(self, snapcast_service):
         """set_volume fails loud (returns False) when the RPC errors — the old
         bool({}) ambiguity is gone."""
-        with self._mock_jsonrpc_response(status=503):
-            assert await snapcast_service.set_volume("client-1", 50) is False
+        snapserver = FakeSnapserver()
+        snapserver.refuse["Client.SetVolume"] = None
+        snapcast_service.set_control_channel(snapserver.control_channel())
+        assert await snapcast_service.set_volume(CANAPE, 50) is False
 
     @pytest.mark.asyncio
     async def test_set_volume_returns_true_on_success(self, snapcast_service):
         """set_volume returns True when the RPC applies."""
-        with self._mock_jsonrpc_response(payload={"result": {"volume": {"percent": 50, "muted": False}}}):
-            assert await snapcast_service.set_volume("client-1", 50) is True
+        snapserver = FakeSnapserver()
+        snapcast_service.set_control_channel(snapserver.control_channel())
+        assert await snapcast_service.set_volume(CANAPE, 50) is True
+        assert snapserver.client(CANAPE)["config"]["volume"]["percent"] == 50
 
     @pytest.mark.asyncio
     async def test_set_latency_emits_the_setlatency_command(self, snapcast_service):
@@ -1248,8 +1223,10 @@ class TestSnapcastService:
     @pytest.mark.asyncio
     async def test_set_latency_returns_false_on_rpc_error(self, snapcast_service):
         """set_latency fails loud (returns False) when the RPC errors."""
-        with self._mock_jsonrpc_response(status=503):
-            assert await snapcast_service.set_latency("client-1", 40) is False
+        snapserver = FakeSnapserver()
+        snapserver.refuse["Client.SetLatency"] = None
+        snapcast_service.set_control_channel(snapserver.control_channel())
+        assert await snapcast_service.set_latency(CANAPE, 40) is False
 
 
 # =============================================================================

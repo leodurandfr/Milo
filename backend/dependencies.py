@@ -436,6 +436,10 @@ async def initialize_services() -> None:
     #   start/stop the control WS on a multiroom toggle.
     routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
 
+    # snapcast_service sends every JSON-RPC request over the control WebSocket
+    # snapcast_ws holds, which is constructed with snapcast_service.
+    get_service("snapcast_service").set_control_channel(snapcast_websocket_service)
+
     # Cycle: state_machine ↔ camilladsp_service
     #   state_machine reads effects_enabled when composing the state;
     #   camilladsp needs state_machine to broadcast.

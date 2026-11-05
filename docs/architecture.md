@@ -743,7 +743,10 @@ been silent for `idle_threshold` (5 s), so a switch lost up to 5 s in every room
 **Configuration:**
 - Server: JSON-RPC over HTTP and WebSocket on `127.0.0.1:1780`, for the backend
   alone — no snapweb, no TCP control port (1705); only the stream port (1704) is
-  on the LAN. The backend rewrites `[http]` and `[tcp-control]` with the captures
+  on the LAN. Every backend request rides the one control WebSocket that also
+  carries the notifications, each answer paired by id; HTTP carries only the
+  start-up probe (snapserver logs each HTTP control session the client closes as
+  an error, and 0.35 garbles requests in flight on a kept-alive one). The backend rewrites `[http]` and `[tcp-control]` with the captures
   at each start (`SNAPSERVER_CONTROL_SECTIONS`), and an admission lifts a mute
   snapserver kept on the client's group
 - Buffer: 300 ms by default (adjustable based on network latency)

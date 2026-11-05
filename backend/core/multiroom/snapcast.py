@@ -1,9 +1,10 @@
 # backend/core/multiroom/snapcast.py
 """
-Snapcast REST service - JSON-RPC commands to Snapcast server.
+Snapcast control service - JSON-RPC commands and queries to the Snapcast server.
 
-This service handles all REST commands to the Snapcast server. WebSocket
-notifications are handled separately by SnapcastWebSocketService.
+They travel over the control WebSocket SnapcastWebSocketService keeps open,
+which also hears snapserver's notifications; HTTP carries only the start-up
+probe (``SnapcastService.is_available``).
 """
 import asyncio
 import contextlib
@@ -89,7 +90,7 @@ class SnapcastRequestError(RuntimeError):
     """A Snapcast JSON-RPC request failed at the transport/protocol layer.
 
     Raised by ``SnapcastService._request`` so callers can distinguish a real
-    failure (unreachable, timeout, non-200, JSON-RPC error) from a valid but
+    failure (control socket down, timeout, JSON-RPC error) from a valid but
     empty ``result`` ({}). Fail-open callers absorb it via @handle_errors or a
     scoped except; command callers let it surface as a False return.
     """
@@ -119,10 +120,13 @@ NETWORK_PRESETS = [
 
 class SnapcastService:
     """
-    Snapcast REST service for JSON-RPC commands.
+    Snapcast JSON-RPC commands and queries.
 
-    Handles all direct communication with Snapcast server via HTTP/JSON-RPC.
-    WebSocket notifications are handled by SnapcastWebSocketService.
+    Every request rides the control WebSocket (``set_control_channel``), never
+    an HTTP connection of its own: snapserver logs each HTTP control session
+    the client closes as `Failed to shudown socket`, ~5 000 lines a day from
+    the reconcile sweep alone, and 0.35 garbles two requests in flight on a
+    kept-alive one. With the socket down a request fails, naming it.
     """
 
     # A client that dies without closing its socket (power cut, Wi-Fi drop) stays
@@ -142,42 +146,35 @@ class SnapcastService:
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
         self._systemd = systemd_manager
-        self._request_id = 0
+        self._control = None
         self.snapserver_conf = Path("/etc/snapserver.conf")
+
+    def set_control_channel(self, channel) -> None:
+        """Set the SnapcastWebSocketService every request rides (built after this one)."""
+        self._control = channel
+
+    @property
+    def control_connected(self) -> bool:
+        """True while the control WebSocket is open, so a request can be answered."""
+        return self._control is not None and self._control.connected
 
     async def _request(self, method: str, params: dict = None) -> dict:
         """Execute a JSON-RPC request and return its ``result`` field.
 
         Raises SnapcastRequestError on any transport/protocol failure
-        (unreachable, timeout, non-200, JSON-RPC error) so callers can tell a
+        (control socket down, timeout, JSON-RPC error) so callers can tell a
         real failure apart from a valid-but-empty ``result`` ({}) — a bare
         ``bool(result)`` on a swallowed {} could not. Fail-open callers wrap
         this with @handle_errors / a scoped except; do not swallow here.
         """
-        self._request_id += 1
-        request = {"id": self._request_id, "jsonrpc": "2.0", "method": method}
-        if params:
-            request["params"] = params
-
-        timeout = aiohttp.ClientTimeout(total=3)
+        if self._control is None:
+            raise SnapcastRequestError(f"{method}: no control WebSocket")
         start = time.time()
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(self.base_url, json=request) as response:
-                    elapsed = (time.time() - start) * 1000
-                    if elapsed > 500:
-                        self.logger.debug(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
-                    if response.status != 200:
-                        raise SnapcastRequestError(f"{method}: HTTP {response.status}")
-                    data = await response.json()
-        except SnapcastRequestError:
-            raise
-        except Exception as e:
-            raise SnapcastRequestError(f"{method}: {type(e).__name__}: {e}") from e
-
-        if "error" in data:
-            raise SnapcastRequestError(f"{method}: {data['error']}")
-        return data.get("result", {})
+        result = await self._control.call(method, params)
+        elapsed = (time.time() - start) * 1000
+        if elapsed > 500:
+            self.logger.debug(f"SNAPCAST_SLOW: {method} took {elapsed:.0f}ms")
+        return result
 
     # === CLIENT COMMANDS ===
 
@@ -413,12 +410,23 @@ class SnapcastService:
     # === AVAILABILITY CHECK ===
 
     async def is_available(self) -> bool:
-        """Check if Snapcast server is available (app-level readiness probe)."""
+        """Whether the snapserver daemon answers JSON-RPC: its start-up probe.
+
+        The one request sent over HTTP, on a connection of its own: it runs
+        while snapserver starts or restarts, before any control WebSocket can
+        exist, so it cannot ride one. No command falls back to it.
+        """
+        request = {"id": 0, "jsonrpc": "2.0", "method": "Server.GetRPCVersion"}
         try:
-            await self._request("Server.GetRPCVersion")
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+                async with session.post(self.base_url, json=request) as response:
+                    if response.status != 200:
+                        raise SnapcastRequestError(f"HTTP {response.status}")
+                    if "error" in await response.json():
+                        raise SnapcastRequestError("JSON-RPC error")
             return True
-        except SnapcastRequestError as e:
-            self.logger.debug(f"Snapcast availability check failed: {e}")
+        except (aiohttp.ClientError, OSError, TimeoutError, ValueError, SnapcastRequestError) as e:
+            self.logger.debug(f"Snapcast availability check failed: {type(e).__name__}: {e}")
             return False
 
     async def wait_until_available(self, timeout: float = 10.0) -> bool:
@@ -756,9 +764,18 @@ class SnapcastService:
         # would answer as "available" and mask the restart), then wait for the
         # fresh daemon's JSON-RPC to come up.
         await asyncio.sleep(3)
-        if await self.wait_until_available(timeout=10.0):
-            self.logger.info("Snapserver restarted successfully")
-            return True
+        if not await self.wait_until_available(timeout=10.0):
+            self.logger.warning("Snapserver restarted but API not available yet")
+            return False
 
-        self.logger.warning("Snapserver restarted but API not available yet")
-        return False
+        # The restart closed the control socket every request rides: done once
+        # it is back, or the next read of this resource finds nothing to ask.
+        # Bounded past the reconnect backoff, which a snapserver down before
+        # this restart (the repair case) may have reached.
+        if self._control is not None and self._control.should_connect:
+            if not await self._control.wait_for_ready(timeout=self._control.RECONNECT_MAX_DELAY_S + 10):
+                self.logger.warning("Snapserver restarted but its control WebSocket is not back yet")
+                return False
+
+        self.logger.info("Snapserver restarted successfully")
+        return True

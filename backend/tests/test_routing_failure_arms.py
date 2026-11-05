@@ -84,16 +84,18 @@ class TestThePostTransitionSetup:
 
     async def test_enabling_opens_the_socket_and_waits_for_it(self, service):
         """The wait is not decoration: `start_connection` only spawns the loop,
-        and the volume sync that follows reads the registry the connect sweep
-        fills. Announcing ready before the sweep would clear the spinner over a
-        room list that is still empty."""
+        and every request to snapserver rides the socket — the groups the enable
+        points next would find none. The post-transition leaves it alone."""
         ws = self._ws()
         service.snapcast_websocket_service = ws
 
-        await service._post_transition_setup_best_effort(True)
+        await service._open_control_socket()
 
         ws.start_connection.assert_awaited_once()
         ws.wait_for_ready.assert_awaited_once_with(timeout=15.0)
+
+        await service._post_transition_setup_best_effort(True)
+        ws.start_connection.assert_awaited_once()
         ws.stop_connection.assert_not_called()
 
     async def test_disabling_closes_the_socket(self, service):
@@ -110,24 +112,54 @@ class TestThePostTransitionSetup:
     async def test_a_socket_that_never_becomes_ready_is_a_warning_not_a_failure(
         self, service, caplog
     ):
-        """The physical mode has already switched. Raising here would report a
-        failed transition for an appliance that is in multiroom — and the volume
-        sync heals on its own through the delayed sync and client admissions."""
+        """snapserver itself is up. Raising here would fail the enable over a
+        socket that is merely late — and each client's admission points its
+        group and applies its level once the socket connects."""
         service.snapcast_websocket_service = self._ws(ready=False)
 
         with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.routing"):
-            await service._post_transition_setup_best_effort(True)
+            await service._open_control_socket()
 
         assert any("not ready after 15s" in r.message for r in caplog.records)
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
+    async def test_a_socket_that_raises_on_opening_is_a_warning_not_a_failure(
+        self, service, caplog
+    ):
+        ws = self._ws()
+        ws.start_connection = AsyncMock(side_effect=RuntimeError("no loop"))
+        service.snapcast_websocket_service = ws
+
+        with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.routing"):
+            await service._open_control_socket()
+
+        assert any("Could not open the Snapcast WebSocket" in r.message for r in caplog.records)
+
+    async def test_a_failed_enable_closes_the_socket_it_opened(self, service):
+        """The switch opens the socket before the mode is committed. Left open
+        after a failure, it admits rooms (levels, streams) against a snapserver
+        the backend holds off, and the next disable is a no-op that never
+        closes it."""
+        ws = self._ws()
+        service.snapcast_websocket_service = ws
+        service._apply_transition = AsyncMock(side_effect=RuntimeError("routing.env not written"))
+
+        assert await service.set_multiroom_enabled(True) is False
+        ws.stop_connection.assert_awaited_once()
+
+        service._apply_transition = AsyncMock(side_effect=RuntimeError("snapclient still up"))
+        service.settings_service._storage["routing.multiroom_enabled"] = True
+        ws.stop_connection.reset_mock()
+        assert await service.set_multiroom_enabled(False) is False
+        ws.stop_connection.assert_not_called()
+
     async def test_a_socket_lifecycle_that_raises_does_not_stop_the_rest(
         self, service, caplog
     ):
-        """Three independent steps. A WS failure that swallowed the volume mode
-        update would leave the global level denoting the old mode."""
+        """Independent steps. A WS failure that swallowed the volume mode update
+        would leave the global level denoting the old mode."""
         ws = self._ws()
-        ws.start_connection = AsyncMock(side_effect=RuntimeError("no loop"))
+        ws.stop_connection = AsyncMock(side_effect=RuntimeError("no loop"))
         service.snapcast_websocket_service = ws
         volume = MagicMock()
         volume.update_volume_mode = AsyncMock()
@@ -135,10 +167,10 @@ class TestThePostTransitionSetup:
         service.volume_service = volume
 
         with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.routing"):
-            await service._post_transition_setup_best_effort(True)
+            await service._post_transition_setup_best_effort(False)
 
         assert any("WS lifecycle failed" in r.message for r in caplog.records)
-        volume.update_volume_mode.assert_awaited_once_with(True)
+        volume.update_volume_mode.assert_awaited_once_with(False)
 
     @pytest.mark.parametrize("volume_control", [True, False])
     async def test_switching_mode_never_moves_or_reads_a_level(self, service, volume_control):

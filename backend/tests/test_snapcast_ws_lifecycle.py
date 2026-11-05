@@ -33,6 +33,7 @@ loopback through on purpose. A test that lost its double would not merely read â
 syncs volume, EQ and snapclient buffer config to a speaker in an occupied room.
 """
 import asyncio
+import contextlib
 import json
 import logging
 from unittest.mock import AsyncMock, MagicMock
@@ -84,14 +85,18 @@ class FakeMessage:
 class FakeWebSocket:
     """The snapserver control socket, doubled.
 
+    Answers every request it is sent, ahead of the frames still scripted, as
+    snapserver answers on its own (`answer=False`: a socket that never does).
     Bounded by construction: the frame list is finite and `park` is drained by
     the cancellation `cleanup`/`stop_connection` issue. A double that could
     iterate forever turns a mutation into a hung suite instead of a red one.
     """
 
-    def __init__(self, frames=(), park: bool = False, error=None):
+    def __init__(self, frames=(), park: bool = False, error=None, answer: bool = True):
         self._frames = list(frames)
         self._park = park
+        self._answer = answer
+        self._arrived = asyncio.Event()
         self.closed = False
         self.sent: list[str] = []
         self.close_calls = 0
@@ -100,6 +105,10 @@ class FakeWebSocket:
     async def send_str(self, payload: str) -> None:
         await _REAL_SLEEP(0)
         self.sent.append(payload)
+        if self._answer:
+            reply = {"jsonrpc": "2.0", "id": json.loads(payload)["id"], "result": {}}
+            self._frames.insert(0, FakeMessage(aiohttp.WSMsgType.TEXT, json.dumps(reply)))
+            self._arrived.set()
 
     def exception(self):
         return self._error
@@ -113,10 +122,11 @@ class FakeWebSocket:
 
     async def __anext__(self):
         await _REAL_SLEEP(0)
+        while not self._frames and self._park:
+            self._arrived.clear()
+            await self._arrived.wait()  # an answer, or the teardown under test cancelling
         if self._frames:
             return self._frames.pop(0)
-        if self._park:
-            await asyncio.Event().wait()  # cancelled by the teardown under test
         raise StopAsyncIteration
 
 
@@ -289,7 +299,7 @@ class TestConnectAndListen:
     ):
         """Order, not presence: `wait_for_ready` returning early lets the routing
         transition declare multiroom ready against an empty registry."""
-        session_factory(websocket=FakeWebSocket())
+        session_factory(websocket=FakeWebSocket(park=True))
         service = make_service(multiroom_enabled=False)
         await service.initialize()
 
@@ -300,13 +310,29 @@ class TestConnectAndListen:
 
         service._initialize_existing_clients = _admit
 
-        await service._connect_and_listen()
+        listening = asyncio.create_task(service._connect_and_listen())
+        try:
+            assert await service.wait_for_ready(timeout=2.0)
+            assert seen == [("admitting", False)], "ready was set before admission ran"
+        finally:
+            listening.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await listening
+        await service._bg.cancel_all()
 
-        assert seen == [("admitting", False)], "ready was set before admission ran"
-        assert service._ready_event.is_set()
+    async def test_a_socket_that_ended_is_no_longer_ready(self, session_factory):
+        """A restart of snapserver waits for the socket to be back: a True left
+        by the socket that dropped would answer before it is."""
+        session_factory(websocket=FakeWebSocket())
+        service = make_service(multiroom_enabled=False)
+        await service.initialize()
+        service._initialize_existing_clients = AsyncMock()
 
-    async def test_the_rpc_ping_goes_out_before_any_frame_is_read(self, session_factory):
-        """The first send is what proves the socket is a snapserver and not just open."""
+        assert await service._connect_and_listen() is True
+        assert not service._ready_event.is_set()
+
+    async def test_the_rpc_ping_is_the_first_request(self, session_factory):
+        """Its answer is what proves the socket is a snapserver and not just open."""
         ws = FakeWebSocket(frames=[FakeMessage(aiohttp.WSMsgType.CLOSE)])
         session_factory(websocket=ws)
         service = make_service(multiroom_enabled=False)
@@ -317,6 +343,25 @@ class TestConnectAndListen:
 
         assert len(ws.sent) == 1
         assert json.loads(ws.sent[0])["method"] == "Server.GetRPCVersion"
+
+    async def test_a_socket_that_never_answers_is_closed_not_announced(
+        self, session_factory, monkeypatch
+    ):
+        """Open but mute: announced ready, every request after would wait out
+        its timeout. Closed, the reconnect loop tries again."""
+        ws = FakeWebSocket(park=True, answer=False)
+        session_factory(websocket=ws)
+        service = make_service(multiroom_enabled=False)
+        monkeypatch.setattr(service, "REQUEST_TIMEOUT_S", 0.05)
+        await service.initialize()
+        service._initialize_existing_clients = AsyncMock()
+
+        assert await service._connect_and_listen() is False
+
+        service._initialize_existing_clients.assert_not_awaited()
+        assert not service._ready_event.is_set()
+        assert ws.closed
+        await service._bg.cancel_all()
 
     async def test_text_frames_reach_the_message_handler(self, session_factory):
         """The only route a snapserver notification has into this service."""
@@ -354,6 +399,24 @@ class TestConnectAndListen:
 
         assert handled == ["Client.OnConnect"], "the frame after the bad one was dropped"
         assert any("Invalid JSON" in r.message for r in caplog.records)
+
+    async def test_an_answer_milo_cannot_pair_does_not_end_the_stream(self, session_factory):
+        """An answer whose id is no request's key costs that frame: raised out of
+        the reader, it would drop the socket and take every room offline."""
+        frames = [
+            FakeMessage(aiohttp.WSMsgType.TEXT, json.dumps({"jsonrpc": "2.0", "id": [1], "result": {}})),
+            FakeMessage(aiohttp.WSMsgType.TEXT, json.dumps({"method": "Client.OnConnect"})),
+        ]
+        session_factory(websocket=FakeWebSocket(frames=frames))
+        service = make_service(multiroom_enabled=False)
+        await service.initialize()
+        service._initialize_existing_clients = AsyncMock()
+        handled = []
+        service._handle_message = AsyncMock(side_effect=lambda d: handled.append(d["method"]))
+
+        await service._connect_and_listen()
+
+        assert handled == ["Client.OnConnect"]
 
     async def test_an_error_frame_ends_the_stream(self, session_factory):
         """Returning to the connection loop is what gets a fresh socket; staying

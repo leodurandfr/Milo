@@ -157,8 +157,7 @@ def create_routing_router(
         """
         capabilities = {"codecs": SUPPORTED_CODECS, "presets": NETWORK_PRESETS}
         try:
-            available = await snapcast_service.is_available()
-            if not available:
+            if not snapcast_service.control_connected:
                 return {"config": None, "capabilities": capabilities,
                         "error": "Snapcast server not available"}
 

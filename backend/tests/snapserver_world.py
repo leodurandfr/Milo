@@ -1,8 +1,9 @@
 """snapserver's JSON-RPC, as far as Milō drives it.
 
-Served on an ephemeral loopback port (`serving`), or answered in process by an
-`aiohttp.ClientSession` stand-in (`client_session`) — never snapserver's 1780,
-which answers on this machine and reaches speakers in occupied rooms. The fake knows exactly the streams `provisioning/snapcast.sh`
+Served on an ephemeral loopback port (`serving`) — JSON-RPC over HTTP and over
+the `/jsonrpc` WebSocket, as snapserver serves both — or answered in process by
+a control-channel stand-in (`control_channel`), never snapserver's 1780, which
+answers on this machine and reaches speakers in occupied rooms. The fake knows exactly the streams `provisioning/snapcast.sh`
 declares and keeps the state snapserver persists in its server.json — one group
 per client, each with its own stream and its own mute — and applies every
 command to it, so a test reads what the rooms would hear rather than what was
@@ -11,15 +12,16 @@ whatever else it orders against.
 """
 import asyncio
 import copy
+import json
 import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from aiohttp import web
+from aiohttp import WSMsgType, web
 
-from backend.core.multiroom.snapcast import SnapcastService
+from backend.core.multiroom.snapcast import SnapcastRequestError, SnapcastService
 
 PROVISIONING = Path(__file__).resolve().parents[2] / "provisioning" / "snapcast.sh"
 
@@ -59,7 +61,13 @@ class FakeSnapserver:
     `clients` maps each client id to its address (`CLIENT_IPS` by default).
     `refuse` maps a method to how many of its next calls answer a JSON-RPC
     error (None: all of them). `on_request` runs as each request arrives, which
-    is how a test lands something between a command and its answer.
+    is how a test lands something between a command and its answer; `delay`
+    maps a method to the seconds its answer takes.
+
+    Served, it counts what reaches it: `http_requests` (each a connection of its
+    own, as the backend opens them) and `ws_sessions`. A WebSocket answers each
+    request from a task of its own, so answers can leave in another order than
+    their requests, which snapserver does not promise either.
     """
 
     def __init__(self, journal=None, streams=None, clients=None):
@@ -67,9 +75,13 @@ class FakeSnapserver:
         self.streams = shipped_stream_names() if streams is None else streams
         self.refuse = {}
         self.on_request = None
+        self.delay = {}
         self.hang = False
         self.released = asyncio.Event()
         self.port = None
+        self.http_requests = 0
+        self.ws_sessions = 0
+        self._sockets = []
         self.groups = [_group(client, ip) for client, ip in (CLIENT_IPS if clients is None else clients).items()]
 
     def group_of(self, client_id):
@@ -109,6 +121,8 @@ class FakeSnapserver:
             self.on_request(method, params)
         if self.hang:
             await self.released.wait()
+        if method in self.delay:
+            await asyncio.sleep(self.delay[method])
 
         def error(message):
             return {"id": body["id"], "jsonrpc": "2.0", "error": {"code": -32603, "message": message}}
@@ -151,60 +165,65 @@ class FakeSnapserver:
         return {"id": body["id"], "jsonrpc": "2.0", "result": result}
 
     async def handle(self, request):
+        self.http_requests += 1
         return web.json_response(await self.answer(await request.json()))
 
-    def client_session(self, url, fallback):
-        """An `aiohttp.ClientSession` stand-in answering `url` in process, as this
-        snapserver, and handing every other request to a `fallback` session.
+    async def handle_ws(self, request):
+        """The control WebSocket: answers requests, carries `notify`'s pushes."""
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        self.ws_sessions += 1
+        self._sockets.append(ws)
+        answering = set()
 
-        For a test whose satellites are already doubled by replacing
-        `aiohttp.ClientSession` (`no_satellite_network`): a real session to a
-        served fake would be replaced too.
-        """
+        async def reply(body):
+            answer = await self.answer(body)
+            if not ws.closed:
+                await ws.send_str(json.dumps(answer))
+
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    task = asyncio.create_task(reply(json.loads(msg.data)))
+                    answering.add(task)
+                    task.add_done_callback(answering.discard)
+        finally:
+            self._sockets.remove(ws)
+            for task in answering:
+                task.cancel()
+        return ws
+
+    async def notify(self, method, params=None):
+        """Push a notification to every open control WebSocket."""
+        for ws in list(self._sockets):
+            await ws.send_str(json.dumps({"jsonrpc": "2.0", "method": method, "params": params or {}}))
+
+    async def drop_sockets(self):
+        """Close every control WebSocket, as snapserver going down does."""
+        for ws in list(self._sockets):
+            await ws.close()
+
+    def control_channel(self):
+        """A control channel answering in process, as this snapserver, for a
+        `SnapcastService` whose test is not about the socket carrying it."""
         fake = self
 
-        class _Response:
-            status = 200
+        class _Channel:
+            connected = True
 
-            def __init__(self, payload):
-                self._payload = payload
+            async def call(self, method, params=None, timeout=3.0):
+                body = {"id": 0, "jsonrpc": "2.0", "method": method}
+                if params:
+                    body["params"] = params
+                try:
+                    answer = await asyncio.wait_for(fake.answer(body), timeout)
+                except TimeoutError:
+                    raise SnapcastRequestError(f"{method}: no answer within {timeout} s") from None
+                if "error" in answer:
+                    raise SnapcastRequestError(f"{method}: {answer['error']}")
+                return answer["result"]
 
-            async def json(self):
-                return self._payload
-
-        class _Answer:
-            def __init__(self, body):
-                self._body = body
-
-            async def __aenter__(self):
-                return _Response(await fake.answer(self._body))
-
-            async def __aexit__(self, *exc):
-                return False
-
-        class _Session:
-            def __init__(self, *args, **kwargs):
-                self._fallback = fallback(*args, **kwargs)
-
-            async def __aenter__(self):
-                await self._fallback.__aenter__()
-                return self
-
-            async def __aexit__(self, *exc):
-                return await self._fallback.__aexit__(*exc)
-
-            def post(self, target, json=None, **kwargs):
-                if target == url:
-                    return _Answer(json)
-                return self._fallback.post(target, json=json, **kwargs)
-
-            def get(self, target, **kwargs):
-                return self._fallback.get(target, **kwargs)
-
-            def put(self, target, **kwargs):
-                return self._fallback.put(target, **kwargs)
-
-        return _Session
+        return _Channel()
 
 
 @asynccontextmanager
@@ -212,6 +231,7 @@ async def serving(fake):
     """Serve `fake` on 127.0.0.1 until the block ends; its port is `fake.port`."""
     app = web.Application()
     app.router.add_post("/jsonrpc", fake.handle)
+    app.router.add_get("/jsonrpc", fake.handle_ws)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "127.0.0.1", 0)
@@ -221,6 +241,7 @@ async def serving(fake):
         yield fake
     finally:
         fake.released.set()
+        await fake.drop_sockets()
         await runner.cleanup()
 
 

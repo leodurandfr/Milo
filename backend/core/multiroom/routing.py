@@ -531,13 +531,14 @@ class AudioRoutingService:
         No phased commit, no rollback. Each step is either idempotent or a
         single atomic write:
           1. Pre-broadcast (UI loading state).
-          2. `_apply_transition`: stop source → reconcile snapcast → write
-             routing.env (derived) → start source (best-effort).
+          2. `_apply_transition`: stop source → reconcile snapcast (enabling:
+             open the control WS, point the groups) → write routing.env
+             (derived) → start source (best-effort).
           3. Persist settings (strict; raises on disk failure).
-          4. Post-transition (WS readiness, volume sync, ready broadcast).
+          4. Post-transition (WS close on leaving, volume sync, ready broadcast).
 
         On any exception in steps 1-3: log + broadcast `multiroom_error`,
-        return False. Step 4 is genuinely best-effort: `_apply_transition` has
+        close a control WS the failed enable opened, return False. Step 4 is genuinely best-effort: `_apply_transition` has
         already started snapserver + snapclient, and both snapclient and the
         control WS auto-reconnect as the daemon finishes coming up — so a
         WS-not-ready-yet or a transient volume-push miss is self-healing
@@ -585,12 +586,18 @@ class AudioRoutingService:
                         )
                 except Exception as e:
                     self.logger.error(f"multiroom transition failed: {e}")
+                    if enabled and self.snapcast_websocket_service:
+                        # The mode stays direct: nothing may admit a room now.
+                        try:
+                            await self.snapcast_websocket_service.stop_connection()
+                        except Exception as close_error:
+                            self.logger.warning(f"Could not close the Snapcast WebSocket: {close_error}")
                     await self._broadcast_error(enabled)
                     return False
 
-                # Physical mode is committed above. Follow-up sync (WS readiness,
-                # volume push, multiroom_ready) is best-effort and self-healing —
-                # it logs warnings but never fails the transition.
+                # Physical mode is committed above. Follow-up sync (WS close on
+                # leaving, volume push, multiroom_ready) is best-effort and
+                # self-healing — it logs warnings but never fails the transition.
                 await self._post_transition_setup_best_effort(enabled)
 
             self.logger.info(f"Multiroom transition complete: {enabled}")
@@ -625,6 +632,8 @@ class AudioRoutingService:
                 # source carried across is what they must play once reacquired.
                 # Not through point_multiroom_at: the mode is persisted only
                 # after this switch, so its direct-mode gate would still hold.
+                # Over the control socket, which direct mode closed: open first.
+                await self._open_control_socket()
                 await self._point_groups_at(self.state_machine.system_state.active_source)
             else:
                 self.logger.info("Stopping snapcast services")
@@ -662,9 +671,30 @@ class AudioRoutingService:
             )
         return pointed
 
+    async def _open_control_socket(self) -> None:
+        """Open the snapserver control WebSocket and wait until it is ready.
+
+        Every JSON-RPC request rides it, so nothing can be asked of snapserver
+        before. Best-effort, as the rest of the enable: a socket late past the
+        wait leaves the pointing to each client's admission.
+        """
+        if not self.snapcast_websocket_service:
+            return
+        try:
+            await self.snapcast_websocket_service.start_connection()
+            if await self.snapcast_websocket_service.wait_for_ready(timeout=15.0):
+                self.logger.info("Snapcast WebSocket is ready")
+            else:
+                self.logger.warning(
+                    "Snapcast WebSocket not ready after 15s — each client's "
+                    "admission applies its level and stream once it connects"
+                )
+        except Exception as e:
+            self.logger.warning(f"Could not open the Snapcast WebSocket (non-fatal): {e}")
+
     async def _post_transition_setup_best_effort(self, enabled: bool) -> None:
-        """Post-transition: WebSocket lifecycle, volume mode, the local trim, the
-        subwoofer split on leaving, and the ready broadcast.
+        """Post-transition: the WebSocket's close on leaving, volume mode, the
+        local trim, the subwoofer split on leaving, and the ready broadcast.
 
         Settings + routing.env are already committed by the caller and snapserver
         has been started, so every step here is best-effort and self-healing: a
@@ -672,21 +702,10 @@ class AudioRoutingService:
         its level and retries. Failures are logged (warning) but never fail
         the transition — the physical mode has switched regardless.
         """
-        # WebSocket connection lifecycle + readiness wait
+        # The WebSocket was opened by the switch itself on enabling (_open_control_socket).
         try:
-            if self.snapcast_websocket_service:
-                if enabled:
-                    await self.snapcast_websocket_service.start_connection()
-                    self.logger.info("POST_TRANSITION: Waiting for Snapcast WebSocket to be ready...")
-                    if await self.snapcast_websocket_service.wait_for_ready(timeout=15.0):
-                        self.logger.info("POST_TRANSITION: Snapcast WebSocket is ready")
-                    else:
-                        self.logger.warning(
-                            "POST_TRANSITION: Snapcast WebSocket not ready after 15s — "
-                            "each client's admission applies its level once it connects"
-                        )
-                else:
-                    await self.snapcast_websocket_service.stop_connection()
+            if self.snapcast_websocket_service and not enabled:
+                await self.snapcast_websocket_service.stop_connection()
         except Exception as e:
             self.logger.warning(f"POST_TRANSITION: WS lifecycle failed (non-fatal): {e}")
 

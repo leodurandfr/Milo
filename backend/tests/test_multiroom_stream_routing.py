@@ -11,7 +11,8 @@ reach the rooms.
 
 The outside world is the fake snapserver of `tests/snapserver_world.py`, on an
 ephemeral loopback port and knowing exactly the streams `provisioning/snapcast.sh`
-declares. Everything else is the real thing: `SnapcastService`,
+declares. Everything else is the real thing: `SnapcastService`, the control
+WebSocket every request rides (`SnapcastWebSocketService`),
 `AudioRoutingService`, `AudioStateMachine`.
 """
 import logging
@@ -23,6 +24,7 @@ from backend.core.models.audio_state import AudioSource, NetworkRequirement
 from backend.core.models.audio_wire import SourceView
 from backend.core.multiroom.routing import AudioRoutingService
 from backend.core.multiroom.snapcast import SnapcastService
+from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.state import AudioStateMachine
 from backend.tests.conftest import free_mailbox
 from backend.tests.snapserver_world import FakeSnapserver, serving
@@ -59,7 +61,7 @@ def _source(name, journal):
 
 
 @pytest.fixture
-def appliance(snapserver, mock_settings_service):
+async def appliance(snapserver, mock_settings_service):
     systemd = Mock()
     systemd.start = AsyncMock(return_value=True)
     systemd.stop = AsyncMock(return_value=True)
@@ -78,7 +80,20 @@ def appliance(snapserver, mock_settings_service):
     routing.set_state_machine(state_machine)
     for name in (AudioSource.SPOTIFY, AudioSource.RADIO, AudioSource.PODCAST):
         state_machine.register_source(name, _source(name, snapserver.journal))
-    return state_machine, routing, mock_settings_service
+
+    control = SnapcastWebSocketService(
+        state_machine=state_machine, routing_service=routing,
+        host="127.0.0.1", port=snapserver.port, snapcast_service=snapcast,
+    )
+    snapcast.set_control_channel(control)
+    routing.set_snapcast_websocket_service(control)
+    await control.initialize()
+    try:
+        assert await control.wait_for_ready(timeout=5.0)
+        snapserver.journal.clear()  # the connect sweep's reads
+        yield state_machine, routing, mock_settings_service
+    finally:
+        await control.cleanup()
 
 
 def _set_streams(journal):
@@ -172,6 +187,7 @@ async def test_enabling_multiroom_points_the_groups_at_the_carried_source_before
     switches, so this pointing cannot go through the direct-mode gate."""
     state_machine, routing, settings = appliance
     settings._storage["routing.multiroom_enabled"] = False
+    await routing.snapcast_websocket_service.stop_connection()
     state_machine.system_state.active_source = AudioSource.RADIO
     snapserver.set_streams("Spotify")
 
@@ -186,7 +202,8 @@ async def test_enabling_multiroom_points_the_groups_at_the_carried_source_before
 
 async def test_a_stream_snapserver_does_not_know_is_a_refusal(snapserver):
     """snapserver answers a JSON-RPC error; the verdict carries it."""
-    snapcast = SnapcastService(systemd_manager=Mock(), host="127.0.0.1", port=snapserver.port)
+    snapcast = SnapcastService(systemd_manager=Mock())
+    snapcast.set_control_channel(snapserver.control_channel())
 
     assert await snapcast.point_groups_at("DLNA") is False
     assert [g["stream_id"] for g in snapserver.groups] == ["Multiroom"] * 3

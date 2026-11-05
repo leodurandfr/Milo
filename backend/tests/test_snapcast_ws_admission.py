@@ -453,18 +453,13 @@ def snapserver():
 
 
 @pytest.fixture
-def admitted(service, registry, snapserver, monkeypatch):
-    """The service on the real SnapcastService, which the fake snapserver answers,
-    and every change of a client's online flag written to the snapserver's journal.
-
-    Taken after `service`, whose `no_satellite_network` replaces
-    `aiohttp.ClientSession`: snapserver's URL is answered by the fake, every
-    other request by that stand-in.
+def admitted(service, registry, snapserver):
+    """The service on the real SnapcastService, whose control channel the fake
+    snapserver answers, and every change of a client's online flag written to
+    the snapserver's journal.
     """
     snapcast = SnapcastService(systemd_manager=MagicMock(), host="snapserver.test")
-    monkeypatch.setattr(
-        aiohttp, "ClientSession", snapserver.client_session(snapcast.base_url, aiohttp.ClientSession)
-    )
+    snapcast.set_control_channel(snapserver.control_channel())
     service._snapcast_service = snapcast
     set_online = registry.set_client_online
 
@@ -936,21 +931,8 @@ class TestTheNameChangedResolution:
         service.registry.update_client.assert_not_called()
 
 
-class TestTheRequestPath:
-    """Sending on the control socket, and the flag that quiets the admission burst."""
-
-    async def test_a_send_that_fails_is_reported_not_raised(self, service, caplog):
-        """`_send_request` is awaited from `_connect_and_listen` right after the
-        socket opens; a raise there would be read as a connection failure and
-        trigger the whole backoff for a socket that is fine."""
-        ws = MagicMock()
-        ws.send_str = AsyncMock(side_effect=ConnectionResetError("peer went away"))
-        service.websocket = ws
-
-        with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.websocket"):
-            await service._send_request("Server.GetRPCVersion")
-
-        assert any("Failed to send request" in r.message for r in caplog.records)
+class TestTheInitPhase:
+    """The flag that quiets the admission burst."""
 
     async def test_the_init_phase_marks_its_notifications_apart(self, service, caplog):
         """A whole fleet re-admitting on one reconnection is normal traffic; the

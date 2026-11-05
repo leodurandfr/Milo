@@ -82,7 +82,7 @@ class TestSnapcastRoutes:
     def mock_snapcast_service(self):
         """Snapcast service mock"""
         service = Mock()
-        service.is_available = AsyncMock(return_value=True)
+        service.control_connected = True
         service.get_server_config = AsyncMock(return_value={"version": "0.27.0"})
         service.update_server_config = AsyncMock(return_value=True)
         return service
@@ -129,7 +129,7 @@ class TestSnapcastRoutes:
 
     def test_get_server_config_unavailable(self, client):
         """Test GET /api/routing/snapcast/server-config when unavailable"""
-        client._mock_snapcast.is_available = AsyncMock(return_value=False)
+        client._mock_snapcast.control_connected = False
         response = client.get("/api/routing/snapcast/server-config")
         assert response.status_code == 200
         assert response.json()["config"] is None
@@ -197,7 +197,7 @@ class TestSnapcastRoutes:
         answer 409 to every retry and strand a failed unit with no route back
         from the settings page.
         """
-        client._mock_snapcast.is_available = AsyncMock(return_value=False)
+        client._mock_snapcast.control_connected = False
 
         response = client.put(
             "/api/routing/snapcast/server-config",
@@ -234,7 +234,7 @@ class TestSnapclientBufferSetting:
         routing_service = _routing_service(settings_service)
 
         snapcast_service = Mock()
-        snapcast_service.is_available = AsyncMock(return_value=True)
+        snapcast_service.control_connected = True
         snapcast_service.get_server_config = AsyncMock(return_value={"buffer_ms": 1000})
         snapcast_service.update_server_config = AsyncMock(return_value=True)
 
@@ -386,7 +386,7 @@ class TestStoredFragmentsReachBothSidesClamped:
         routing_service = _routing_service(settings_service)
 
         snapcast_service = Mock()
-        snapcast_service.is_available = AsyncMock(return_value=True)
+        snapcast_service.control_connected = True
         snapcast_service.update_server_config = AsyncMock(return_value=True)
 
         state_machine = Mock()
