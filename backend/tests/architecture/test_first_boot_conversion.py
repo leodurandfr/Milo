@@ -13,7 +13,7 @@ an empty surface.
 """
 import re
 
-from tests.architecture.test_helper_deployment import REPO_ROOT, _shell_function, _uncommented
+from backend.tests.architecture.test_helper_deployment import REPO_ROOT, _shell_function, _uncommented
 
 FIRST_BOOT = REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-first-boot"
 CLIENT_BIN = REPO_ROOT / "milo-client" / "rootfs" / "usr" / "local" / "bin"
