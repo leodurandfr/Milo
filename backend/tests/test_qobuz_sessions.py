@@ -12,6 +12,10 @@ from backend.tests.qobuz_world import NEXT_LIFETIME, ON_AND_ON, TYRONE, QobuzWor
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
 
+# The owner's bound for a pause or a resume made in the app to reach the
+# screen, and for the bar's step when it does (measured at 1 Hz: 0.5-1.0 s).
+SCREEN_WITHIN_S = 0.25
+
 
 @pytest.fixture
 async def world(monkeypatch, tmp_path):
@@ -122,7 +126,55 @@ async def test_a_moving_playhead_is_not_a_full_state_every_second(world):
     await world.plays_on(20)
     assert len(world.published()) == before
     assert len(world.positions()) == sent
-    assert world.position_ms() == 20000
+    assert world.position_ms() == world.sidecar.position_ms
+
+
+async def test_four_readings_a_second_put_nothing_on_the_wire(world):
+    """The poll runs at 4 Hz so a pause reaches the screen in a quarter of a
+    second; the readings in between must still cost nothing — through the
+    settling window a resume opens too, where a reading 250 ms off the anchor
+    would move it (core/audio_source.py, SETTLE_TOLERANCE_MS)."""
+    await world.app_plays(ON_AND_ON)
+    await world.app_pauses()
+    await world.app_resumes()
+    before, sent, polls = len(world.published()), len(world.positions()), world.sidecar.polls
+    await world.plays_on(20)
+    assert world.sidecar.polls - polls >= 20 / SCREEN_WITHIN_S
+    assert len(world.published()) == before
+    assert len(world.positions()) == sent
+    assert world.position_ms() == world.sidecar.position_ms
+
+
+async def test_a_pause_reaches_the_screen_within_a_quarter_second(world):
+    """Measured at 1 Hz: every pause was published 0.5-1.0 s after the sound
+    stopped, the bar running on meanwhile and then jumping back 0.76-0.92 s.
+    The worst case is a pause pressed just after a poll."""
+    await world.app_plays(ON_AND_ON)
+    await world.plays_on(10.01)
+    playing = world.session()["position"]
+    world.sidecar.player_state = "paused"
+    stopped_at = world.sidecar.position_ms
+    await world.advance(SCREEN_WITHIN_S)
+    assert world.phase() == "paused"
+    paused = world.session()["position"]
+    assert paused["ms"] == stopped_at
+    ran_on = playing["ms"] + (paused["at"] - playing["at"]) * 1000 - paused["ms"]
+    assert 0 <= ran_on <= SCREEN_WITHIN_S * 1000
+
+
+async def test_a_resume_reaches_the_screen_within_a_quarter_second(world):
+    """Measured at 1 Hz: every resume jumped the bar ~0.3 s forward, the music
+    having played that long before the poll saw it."""
+    await world.app_plays(ON_AND_ON)
+    await world.plays_on(10)
+    await world.app_pauses()
+    await world.advance(5.01)
+    paused = world.session()["position"]
+    world.sidecar.player_state = "playing"
+    await world.advance(SCREEN_WITHIN_S)
+    assert world.playing()
+    jumped = world.session()["position"]["ms"] - paused["ms"]
+    assert 0 <= jumped <= SCREEN_WITHIN_S * 1000
 
 
 async def test_a_seek_in_the_app_goes_out_at_once(world):
@@ -211,8 +263,8 @@ async def test_a_resume_withdraws_the_end_request(world):
 
 
 async def test_a_resume_the_poll_has_not_shown_yet_is_not_cut(world):
-    """The pause timer decided on the last poll, up to a second old: a play
-    pressed in the app within that second was cut by the restart, the music
+    """The pause timer decided on the last poll, up to an interval old: a play
+    pressed in the app within that interval was cut by the restart, the music
     that had just come back stopping in the room."""
     await world.app_plays(ON_AND_ON)
     await world.app_pauses()
@@ -373,7 +425,7 @@ async def test_a_new_track_keeps_the_length_until_its_own_is_known(world):
 
 
 async def test_an_idle_speaker_publishes_nothing_per_poll(world):
-    """Idle is a steady state: the poll runs at ~1 Hz for as long as Qobuz is
+    """Idle is a steady state: the poll runs at 4 Hz for as long as Qobuz is
     selected, and READY said everything the next tick would."""
     await world.advance(1)
     before = len(world.published())

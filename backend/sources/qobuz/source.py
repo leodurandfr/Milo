@@ -36,6 +36,7 @@ from typing import Any, Dict, Optional
 import aiohttp
 
 from backend.config.constants import MILO_DATA_DIR
+from backend.core import audio_source
 from backend.core.audio_source import BaseAudioSource, Result
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.session import (
@@ -69,9 +70,15 @@ _PHASES = {
 }
 _STATE_ERROR = "error"
 
-# The status is polled about once a second; each reading goes to the position
-# axis, which publishes only a jump (a seek in the app, a new track).
+# The status is polled four times a second (monitor.POLL_INTERVAL_S); each
+# reading goes to the position axis, which publishes only a jump (a seek in the
+# app, a new track) or, right after one, a correction (SETTLE_TOLERANCE_MS).
 TRACK_FIELDS = ("title", "artist", "album", "album_art_url")
+
+# Measured: a sidecar coming up answers `authenticated: false` for ~0.3 s before
+# its credentials load, and every idle timeout restarts it. A logout is one that
+# lasts this long — in time, so the poll's rate does not move it.
+LOGOUT_S = 1.0
 
 
 @dataclass(eq=False)
@@ -121,10 +128,10 @@ class QobuzSource(BaseAudioSource):
 
         self._monitor: Optional[QobuzMonitor] = None
         # The account (docs: "le fil", §3): while the sidecar runs, what its
-        # poll says (auth.authenticated, two polls in a row to call a logout);
+        # poll says (auth.authenticated, held LOGOUT_S to call a logout);
         # otherwise the token cache the account route reads.
         self._authenticated = True
-        self._unauthenticated_polls = 0
+        self._unauthenticated_since: Optional[float] = None
         self._account_cached = False
         # The player state last seen, session or not: an ERROR is reported once,
         # on the snapshot that enters it.
@@ -161,7 +168,7 @@ class QobuzSource(BaseAudioSource):
             await self._load_auto_stop_config()
             # The cache is what the sidecar authenticates from: the first polls
             # start from it rather than flashing "connect an account".
-            self._authenticated, self._unauthenticated_polls = self._account_cached, 0
+            self._authenticated, self._unauthenticated_since = self._account_cached, None
 
             self._monitor = QobuzMonitor(
                 status_url=self._status_url,
@@ -211,7 +218,7 @@ class QobuzSource(BaseAudioSource):
         return restarted
 
     async def _still_idle(self, session: Session) -> bool:
-        """The phase is a poll up to a second old: read the sidecar once more,
+        """The phase is a poll up to an interval old: read the sidecar once more,
         through the feed, so a play pressed since moves the session (and the
         pause timer) as any poll would. A sidecar that does not answer is what
         the restart is for."""
@@ -356,16 +363,17 @@ class QobuzSource(BaseAudioSource):
         return failed
 
     def _apply_login(self, authenticated: bool) -> None:
-        """Measured: a sidecar coming up answers `authenticated: false` for
-        ~0.3 s before its credentials load, and every idle timeout restarts it.
-        One poll cannot tell that window from a logout; two in a row, a second
-        apart, can."""
+        """A logout is `authenticated: false` held for LOGOUT_S: the ~0.3 s a
+        starting sidecar answers it can span two polls at 4 Hz, so a count
+        of polls would call every idle timeout's restart a logout."""
         before = self._authenticated
         if authenticated:
-            self._authenticated, self._unauthenticated_polls = True, 0
+            self._authenticated, self._unauthenticated_since = True, None
         else:
-            self._unauthenticated_polls += 1
-            if self._unauthenticated_polls >= 2:
+            now = audio_source.step_reference()
+            if self._unauthenticated_since is None:
+                self._unauthenticated_since = now
+            if now - self._unauthenticated_since >= LOGOUT_S:
                 self._authenticated = False
         if self._authenticated is not before:
             self._availability_changed()

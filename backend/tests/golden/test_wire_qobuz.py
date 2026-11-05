@@ -1,7 +1,7 @@
 """Qobuz's wire, scenario by scenario (see harness.py for the rules).
 
 The outside world is qobuz-proxy's GET /api/status as milo-qobuz extends it,
-polled about once a second. FakeQobuzProxy answers it; the real QobuzMonitor runs over it with its poll
+polled four times a second. FakeQobuzProxy answers it; the real QobuzMonitor runs over it with its poll
 sleep gated, so one `tick()` is one poll and a stimulus is the payload the
 proxy answers from then on. Qobuz takes no command (Family B).
 """

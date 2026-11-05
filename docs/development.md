@@ -516,7 +516,7 @@ sidecar, **qobuz-proxy**. It is the reference for wiring a source whose playback
 is driven entirely by an external app:
 
 - **No `routes.py`, no binary artwork.** `QobuzSource` starts `milo-qobuz.service`
-  and a `QobuzMonitor` that polls `GET http://127.0.0.1:8689/api/status` (~1 Hz).
+  and a `QobuzMonitor` that polls `GET http://127.0.0.1:8689/api/status` (4 Hz, while Qobuz is the active source).
   The session belongs to the Qobuz cloud, so the source follows it through
   `reconcile(DaemonSnapshot)`: the session lives while `renderer_active` says the
   app has picked Milō, and its phase is the player's own `player_state` — never

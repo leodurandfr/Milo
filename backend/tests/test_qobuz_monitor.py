@@ -31,12 +31,16 @@ Two rule-5 precautions, both measured rather than assumed:
 """
 import asyncio
 import contextlib
+import logging
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
-from backend.sources.qobuz.monitor import QobuzMonitor, StatusUnanswered
+from backend.sources.qobuz import monitor as monitor_module
+from backend.sources.qobuz.monitor import OUTAGE_S, QobuzMonitor, StatusUnanswered
 from backend.sources.qobuz.source import QobuzSource
+from backend.tests.golden.harness import AsyncioProxy
 
 
 @pytest.fixture(autouse=True)
@@ -244,60 +248,6 @@ class TestThePollLoop:
 
         assert mon.seen[0][0]["name"] == "Milō"
 
-    async def test_an_outage_is_logged_once_and_its_end_once(self, caplog):
-        """A sidecar restart — the idle timeout's end request — refuses about
-        five polls in a row: one warning names the outage, one line its end,
-        instead of a warning a second."""
-        payloads = Payloads(body(speaker()))
-        session = session_answering(payloads)
-        calls = {"n": 0}
-
-        def get(_url):
-            calls["n"] += 1
-            if 2 <= calls["n"] <= 6:
-                raise ConnectionRefusedError("Connect call failed ('127.0.0.1', 8689)")
-            if calls["n"] >= 7:
-                mon.delivered.set()
-            return payloads
-
-        session.get = Mock(side_effect=get)
-        mon = monitor(session)
-        mon._running = True
-
-        with caplog.at_level("INFO", logger="source.qobuz.monitor"):
-            task = asyncio.create_task(mon._loop())
-            await asyncio.wait_for(_until(lambda: calls["n"] >= 8), timeout=5)
-            mon._running = False
-            task.cancel()
-
-        assert [r.levelname for r in caplog.records] == ["WARNING", "INFO"]
-        assert "Connect call failed" in caplog.records[0].getMessage()
-
-    async def test_a_sidecar_that_never_answers_is_reported(self, caplog):
-        """A sidecar crash-looping after an update, or answering 500 for good,
-        never answers at all: that is an outage, not a start, and it has to
-        reach the journal."""
-        session = session_answering(Payloads(body(speaker()), status=500))
-        calls = {"n": 0}
-        real_get = session.get
-
-        def get(url):
-            calls["n"] += 1
-            return real_get(url)
-
-        session.get = Mock(side_effect=get)
-        mon = monitor(session)
-        mon._running = True
-
-        with caplog.at_level("WARNING", logger="source.qobuz.monitor"):
-            task = asyncio.create_task(mon._loop())
-            await asyncio.wait_for(_until(lambda: calls["n"] >= 8), timeout=5)
-            mon._running = False
-            task.cancel()
-
-        assert [r.levelname for r in caplog.records] == ["WARNING"]
-        assert "500" in caplog.records[0].getMessage()
-
     async def test_a_failing_poll_does_not_kill_the_loop(self, caplog):
         """Background-loop doctrine, and it is the whole reason the source
         survives a sidecar restart: without the body guard one refused poll
@@ -397,6 +347,118 @@ class TestThePollLoop:
         mon._running = False
 
         await asyncio.wait_for(mon._loop(), timeout=1)
+
+
+class _PollClock:
+    """The monitor's monotonic clock, moved only by its own poll sleep: each
+    interval slept is that much time gone, so an outage lasts what the
+    scenario says in seconds whatever the interval."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    async def sleep(self, delay, *a, **k):
+        self.now += delay
+        await asyncio.sleep(0)
+
+
+class _StampedLines(logging.Handler):
+    """The monitor's log lines, each with the poll clock's time."""
+
+    def __init__(self, clock):
+        super().__init__()
+        self.clock = clock
+        self.lines = []
+
+    def emit(self, record):
+        self.lines.append((record.levelname, self.clock.now, record.getMessage()))
+
+
+async def _poll_through(monkeypatch, *, interval, until, answer):
+    """Run the real loop at `interval` until the poll clock reaches `until`,
+    each poll answered by `answer(now)` (raise to refuse). Returns the lines
+    the monitor logged at INFO and above, stamped."""
+    clock = _PollClock()
+    monkeypatch.setattr(monitor_module, "asyncio", AsyncioProxy(clock.sleep))
+    monkeypatch.setattr(monitor_module, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    session = MagicMock()
+    session.close = AsyncMock()
+
+    def get(_url):
+        if clock.now >= until:
+            mon._running = False
+        return answer(clock.now)
+
+    session.get = Mock(side_effect=get)
+    mon = monitor(session, interval=interval)
+    mon._running = True
+    logger = logging.getLogger("source.qobuz.monitor")
+    stamped = _StampedLines(clock)
+    logger.addHandler(stamped)
+    level = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        await asyncio.wait_for(mon._loop(), timeout=5)
+    finally:
+        logger.removeHandler(stamped)
+        logger.setLevel(level)
+    assert mon.seen, "the scenario never let the sidecar answer"
+    return stamped.lines
+
+
+def _down_between(start, end, payloads):
+    def answer(now):
+        if start <= now < end:
+            raise ConnectionRefusedError("Connect call failed ('127.0.0.1', 8689)")
+        return payloads
+    return answer
+
+
+class TestTheOutageRule:
+    """An outage is a length of time, not a number of polls: the rule was three
+    polls at 1 Hz, and a faster poll would have shrunk it to a sidecar restart
+    Milō asked for. Measured: a sidecar coming up refuses connections ~0.45 s,
+    a restart takes about a second."""
+
+    @pytest.mark.parametrize("interval", [1.0, 0.25])
+    async def test_a_restart_is_not_an_outage(self, monkeypatch, interval):
+        lines = await _poll_through(
+            monkeypatch, interval=interval, until=5.0,
+            answer=_down_between(1.0, 2.45, Payloads(body(speaker()))),
+        )
+
+        assert lines == []
+
+    @pytest.mark.parametrize("interval", [1.0, 0.25])
+    async def test_an_outage_is_reported_once_after_its_length_and_its_end_once(
+        self, monkeypatch, interval,
+    ):
+        lines = await _poll_through(
+            monkeypatch, interval=interval, until=10.0,
+            answer=_down_between(1.0, 6.0, Payloads(body(speaker()))),
+        )
+
+        assert [level for level, _, _ in lines] == ["WARNING", "INFO"]
+        (_, warned_at, message), (_, back_at, _) = lines
+        assert OUTAGE_S <= warned_at - 1.0 < OUTAGE_S + interval
+        assert "Connect call failed" in message
+        assert 6.0 <= back_at < 6.0 + interval
+
+    @pytest.mark.parametrize("interval", [1.0, 0.25])
+    async def test_a_sidecar_that_never_answers_is_reported_once(self, monkeypatch, interval):
+        """A sidecar crash-looping after an update, or answering 500 for good,
+        never answers at all: that is an outage, not a start, and it has to
+        reach the journal — once."""
+        broken = Payloads(body(speaker()), status=500)
+        answered = Payloads(body(speaker()))
+
+        def answer(now):
+            return answered if now == 0.0 else broken
+
+        lines = await _poll_through(monkeypatch, interval=interval, until=8.0, answer=answer)
+
+        assert [level for level, _, _ in lines] == ["WARNING"]
+        assert "500" in lines[0][2]
 
 
 class TestStartAndStop:
@@ -667,7 +729,7 @@ class TestTheSourceBoot:
         source._cleanup.assert_awaited_once()
 
     async def test_stopping_the_source_stops_the_poll(self, source):
-        """The loop runs at ~1 Hz for as long as it lives; leaving it behind
+        """The loop runs at 4 Hz for as long as it lives; leaving it behind
         polls a sidecar the source no longer owns, forever."""
         stopped = AsyncMock()
         source._monitor = MagicMock(stop=stopped)

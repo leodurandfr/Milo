@@ -401,7 +401,7 @@ def apply():
         now_playing = status.get("now_playing")
         if now_playing is not None:
             # `current_position_ms` extrapolates from the last backend report, so
-            # it stays smooth between Milo's ~1 Hz polls.
+            # it stays smooth between Milo's 4 Hz polls.
             now_playing["position_ms"] = self._player.current_position_ms
             now_playing["duration_ms"] = self._player.duration_ms
         return status

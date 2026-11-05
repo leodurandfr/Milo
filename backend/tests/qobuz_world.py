@@ -25,6 +25,7 @@ free account, a tracing copy of milo-qobuz):
 import asyncio
 import copy
 import itertools
+from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from unittest.mock import AsyncMock, Mock
 
@@ -73,22 +74,50 @@ class _Exchange:
 
 
 class Sidecar:
-    """qobuz-proxy's local HTTP API as milo-qobuz extends it."""
+    """qobuz-proxy's local HTTP API as milo-qobuz extends it.
 
-    def __init__(self) -> None:
+    The playhead is upstream's `current_position_ms`: the last position set,
+    plus the time since while the player plays — read on `clock`, so a poll
+    at any instant reads where the track is, as the unit's 4 Hz polls do.
+    """
+
+    def __init__(self, clock: VirtualClock) -> None:
+        self._clock = clock
         self.up = False
         self.refusals = 0
         self.http_status = 200
         self.authenticated = True
+        self.polls = 0
         self.reset()
 
     def reset(self) -> None:
         """A fresh process: nobody's output, nothing loaded."""
         self.renderer_active = False
-        self.player_state = "stopped"
+        self._player_state = "stopped"
         self.track: Optional[Dict[str, Any]] = None
         self.position_ms = 0
         self.duration_ms = 0
+
+    @property
+    def position_ms(self) -> int:
+        elapsed = self._clock.now - self._position_at if self._player_state == "playing" else 0
+        return self._position_value + round(elapsed * 1000)
+
+    @position_ms.setter
+    def position_ms(self, ms: int) -> None:
+        self._position_value, self._position_at = ms, self._clock.now
+
+    @property
+    def player_state(self) -> str:
+        return self._player_state
+
+    @player_state.setter
+    def player_state(self, state: str) -> None:
+        # Upstream re-stamps its position at every command: a pause freezes it
+        # where the track stopped, a play counts on from there.
+        position = self.position_ms
+        self._player_state = state
+        self.position_ms = position
 
     # -- aiohttp.ClientSession surface --------------------------------------
 
@@ -96,6 +125,7 @@ class Sidecar:
         return self
 
     def get(self, url: str, *a: Any, **k: Any) -> _Exchange:
+        self.polls += 1
         if not self.up or self.refusals:
             self.refusals = max(0, self.refusals - 1)
             raise ConnectionRefusedError("Connect call failed ('127.0.0.1', 8689)")
@@ -136,7 +166,8 @@ class _AiohttpProxy:
 class QobuzWorld(WireReader):
     """The Qobuz source on a real state machine, in a world the scenario drives.
 
-    The monitor polls once per virtual second: `advance(1)` is one poll.
+    The monitor polls on the virtual clock at its own interval: `advance(1)`
+    is a second of polls, whatever their rate.
     """
 
     def __init__(
@@ -146,13 +177,13 @@ class QobuzWorld(WireReader):
         world = self
         self.clock = VirtualClock()
         use_virtual_wall(monkeypatch, self.clock)
-        self.sidecar = Sidecar()
+        self.sidecar = Sidecar(self.clock)
         self._pids = itertools.count(FIRST_PID)
         self.pid: Optional[int] = None
         self.watches: List[Tuple[int, Callable[[], None]]] = []
         self.restarts: List[float] = []
         # A poll the old sidecar answers between Milō asking for the restart
-        # and systemd stopping it (the restart takes ~0.5-1 s at 1 Hz polls).
+        # and systemd stopping it (the restart takes ~0.5-1 s).
         self.poll_lands_during_restart = False
         # The app pressing play while that restart is under way, after Milō
         # read the sidecar one last time.
@@ -196,7 +227,10 @@ class QobuzWorld(WireReader):
 
 
         monkeypatch.setattr(monitor_module, "aiohttp", _AiohttpProxy(self.sidecar))
-        monkeypatch.setattr(monitor_module, "asyncio", AsyncioProxy(sleep))
+        # The poll's only sleep is its interval, and its outage rule reads the
+        # monotonic clock: both on the virtual clock, whatever the interval.
+        monkeypatch.setattr(monitor_module, "asyncio", AsyncioProxy(self.clock.sleep))
+        monkeypatch.setattr(monitor_module, "time", SimpleNamespace(monotonic=lambda: self.clock.now))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
         self.volume_flag = tmp_path / "allow_app_volume"
@@ -299,10 +333,8 @@ class QobuzWorld(WireReader):
         self.sidecar.track, self.sidecar.position_ms = track, 0
         await self.advance(1)
 
-    async def plays_on(self, seconds: int) -> None:
-        for _ in range(seconds):
-            self.sidecar.position_ms += 1000
-            await self.advance(1)
+    async def plays_on(self, seconds: float) -> None:
+        await self.advance(seconds)
 
     async def app_pauses(self) -> None:
         self.sidecar.player_state = "paused"
