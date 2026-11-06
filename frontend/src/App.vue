@@ -569,9 +569,9 @@ provide('closeModals', () => {
 provide('registerDockControl', registerDockControl);
 
 // === WebSocket dispatch tables ===
-// 46 of the 64 subscriptions do one thing: hand a payload to a store. Written
-// out, they were 160 lines in which the only varying parts were the event name
-// and the mutator — so they live here as data, and a new event is one row.
+// Most subscriptions do one thing: hand a payload to a store. Written out,
+// they were 160 lines in which the only varying parts were the event name and
+// the mutator — so they live here as data, and a new event is one row.
 // The arms registered further down are the ones that genuinely do more: read a
 // discriminator, drive the notification banner, or touch app-level UI state.
 
