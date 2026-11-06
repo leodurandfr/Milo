@@ -12,8 +12,8 @@
 #   - no ethernet IP available                         → no-op (cannot probe)
 #
 # Skips entirely once setup_completed is true in settings.json. That flag is
-# written by the server wizard or by the milo-client hardware-apply handler
-# once the user has fully configured the device.
+# written by the server wizard, or here by configure_client as it converts the
+# card into a satellite (step 10), before any audio card is picked.
 #
 # Must be run as root (systemd service).
 
