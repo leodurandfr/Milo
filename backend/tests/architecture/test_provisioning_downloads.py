@@ -282,6 +282,11 @@ SECOND_METHOD_RE = re.compile(
 
 LATEST_RE = re.compile(r"releases/latest\b|/latest/download\b")
 
+# What puts a pinned dependency's source or package on the image. `git clone` is
+# here and not in FETCH_RE: an unpinned clone (the Milō checkout itself) must abort
+# like a pinned fetch, so the guard rule above has nothing to say about it.
+ACQUISITION_RE = re.compile(rf"{FETCH_RE.pattern}|\bgit\s+clone\b|{APT_INSTALL_RE.pattern}")
+
 
 def _install_fallbacks(line: str, declared: set[str]) -> list[str]:
     """What in this statement lets a pinned install land something else."""
@@ -292,8 +297,8 @@ def _install_fallbacks(line: str, declared: set[str]) -> list[str]:
         found.append("a second install method")
     if FETCH_RE.search(line) and LATEST_RE.search(line):
         found.append("fetches 'latest'")
-    if _is_pinned(line, declared) and APT_INSTALL_RE.search(line) and "||" in line:
-        found.append("a pinned install with an alternative")
+    if _is_pinned(line, declared) and ACQUISITION_RE.search(line) and "||" in line:
+        found.append("a pinned fetch or install with an alternative")
     return found
 
 
@@ -328,6 +333,26 @@ def test_a_pinned_dependency_installs_one_way_for_one_system():
         'apt-get install -y "./snapserver_${SNAPCAST_VERSION}-1_arm64_${CODENAME}.deb"', declared
     )
     assert not _install_fallbacks("apt-get install -y chromium || apt-get install -y chromium-browser", declared)
+    # A pinned fetch or clone has no alternative either: another version, another
+    # architecture, or the default branch is still not the pin for this image.
+    assert _install_fallbacks(
+        "wget https://x/v${GO_LIBRESPOT_VERSION}/go-librespot_linux_arm64.tar.gz "
+        "|| wget https://x/v0.8.0/go-librespot_linux_arm64.tar.gz",
+        declared,
+    )
+    assert _install_fallbacks(
+        "wget https://x/snapserver_${SNAPCAST_VERSION}-1_arm64_${CODENAME}.deb "
+        "|| wget https://x/snapserver_${SNAPCAST_VERSION}-1_armhf_${CODENAME}.deb",
+        declared,
+    )
+    assert _install_fallbacks(
+        "git clone --branch ${NQPTP_VERSION} --depth 1 https://github.com/mikebrady/nqptp.git "
+        "|| git clone --depth 1 https://github.com/mikebrady/nqptp.git",
+        declared,
+    )
+    assert not _install_fallbacks(
+        "git clone --branch ${NQPTP_VERSION} --depth 1 https://github.com/mikebrady/nqptp.git", declared
+    )
 
     fallbacks = [
         f"{tree}: {path.relative_to(REPO_ROOT)}: {reason}: {line.strip()[:80]}"
