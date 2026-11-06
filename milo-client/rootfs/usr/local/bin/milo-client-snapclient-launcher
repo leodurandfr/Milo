@@ -11,8 +11,9 @@
 # snapclient retries a dead address in-process forever rather than exiting, so
 # the unit never fails. Following the server when it moves between Ethernet and
 # WiFi is the job of the API's follow_server_address(), which stop/starts this
-# unit once the literal below has gone stale *and* snapclient holds no
-# connection — a client that is streaming is never interrupted for an address.
+# unit once the literal below has gone stale *and* snapclient plays nothing —
+# no connection, or its ALSA output closed. A playing room is never interrupted
+# for an address.
 #
 # Before resolving, it waits for NetworkManager's startup: the image masks
 # NetworkManager-wait-online, so the unit's After=network-online.target waits for

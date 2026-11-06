@@ -14,11 +14,26 @@ snapclient was restarted by hand. The registration loop next door had followed
 the move on its own, because it re-resolves on every heartbeat.
 
 This closes that asymmetry from the same side, under one rule: **a client that
-is streaming is never interrupted.** A new address only matters to a client that
-has to dial again, so the comparison is made on a snapclient with no connection
-to a snapserver — where a restart costs nothing, because there is no audio to
-cut. A connected client keeps whatever address it dialled, however stale that
-address has since become, until the connection drops on its own.
+is playing is never interrupted.** A restart is free in two states only, and the
+address is compared in those two:
+
+- **No connection to a snapserver.** The server lost the address snapclient
+  dialled — its cable went, and it answers on WiFi now. The loss is seen by
+  reading the socket table every second, which costs two procfs reads; once it
+  is seen, the address is compared every 2 s for a minute, while mDNS catches
+  up (avahi published the WiFi address 2.4 s after the cable went, measured
+  2026-11-05). Pacing the check on the connected state instead sees a loss a
+  whole interval late, because the loss always comes while connected: measured
+  6 s on Bureau and 25 s on Canapé on 2026-11-05. Past that minute it falls
+  back to every 30 s, since a snapserver stopped for hours (multiroom off) is a
+  disconnection too.
+- **Connected, with its ALSA output closed.** snapclient closes it 5 s after
+  its last chunk, which the server stops sending 5 s into a silence. This is
+  how a satellite comes back to the wired address once the cable has returned:
+  it re-dials the literal it holds, and when the server only restarts
+  snapserver it is back in ~1 s (measured twice on 2026-11-05) — too fast to
+  ever be seen disconnected — so it stayed on the WiFi address, through every
+  backend restart, until someone restarted it by hand.
 
 The lookup runs here, in the API process, and never in snapclient's reconnect
 path — which is what the launcher's design protects.
@@ -39,8 +54,16 @@ PROC_CMDLINE = "/proc/{pid}/cmdline"
 # snapclient resolve for itself, and that answer can be IPv6.
 PROC_NET_TCP = ("/proc/net/tcp", "/proc/net/tcp6")
 SNAPSERVER_PORT = 1704
+# snapclient's output, `camilladsp_input` in asound.conf: the Loopback card's
+# playback device 0, subdevice 0, addressed by the card's id like the PCM is.
+LOOPBACK_PLAYBACK_STATUS = "/proc/asound/Loopback/pcm0p/sub0/status"
 
+POLL_INTERVAL = 1  # seconds between two reads of the socket table
 CHECK_INTERVAL = 30  # seconds
+# After a lost connection, compare this often for this long: mDNS answers the
+# new address a few seconds after the loss, and snapclient reconnects in < 1 s.
+LOSS_CHECK_INTERVAL = 2
+LOSS_WINDOW = 60
 # After a restart, wait longer before comparing again: the unit needs time to
 # dial, and a check-interval loop would otherwise stop/start it on every pass
 # while it is still trying.
@@ -83,7 +106,7 @@ def _holds_snapserver_connection(proc_net_tcp: str) -> bool:
     return False
 
 
-async def _is_streaming() -> bool:
+async def _is_connected() -> bool:
     """True while snapclient holds a connection to a snapserver."""
     for path in PROC_NET_TCP:
         try:
@@ -93,6 +116,19 @@ async def _is_streaming() -> bool:
         if _holds_snapserver_connection(table):
             return True
     return False
+
+
+async def _is_playing() -> bool:
+    """False only when snapclient's ALSA output reads closed.
+
+    An unreadable status counts as playing: closed has to be seen, because a
+    guess here is a room cut mid-song.
+    """
+    try:
+        status = await asyncio.to_thread(Path(LOOPBACK_PLAYBACK_STATUS).read_text)
+    except OSError:
+        return True
+    return status.split()[:1] != ["closed"]
 
 
 async def _main_pid() -> int:
@@ -160,14 +196,13 @@ async def _reconcile() -> bool:
             await _stop_then_start()
             return True
 
-    running = await _running_server_address()
-    if running is None:
+    # The whole gate, read before anything that spawns or queries: no address
+    # is worth cutting a room for.
+    if await _is_connected() and await _is_playing():
         return False
 
-    # The whole gate: a connected client is streaming, and no address is worth
-    # cutting a room for. The stale address it holds costs nothing until the
-    # connection drops, which is exactly when this check fires instead.
-    if await _is_streaming():
+    running = await _running_server_address()
+    if running is None:
         return False
 
     # A literal MILO_PRINCIPAL_IP resolves to itself, so an operator-pinned
@@ -186,13 +221,53 @@ async def _reconcile() -> bool:
     return True
 
 
+class _Pacer:
+    """Which reads of the socket table also run the address check.
+
+    Counted in polls, not read off a clock: the loop's own passes are the time.
+    """
+
+    def __init__(self) -> None:
+        self._connected = False
+        self._loss_polls = 0  # polls left in the fast window after a loss
+        self._skip = 0  # polls to let pass before the next check
+        self._cooling = False
+
+    def due(self, connected: bool) -> bool:
+        if self._connected and not connected:
+            self._loss_polls = LOSS_WINDOW // POLL_INTERVAL
+            if not self._cooling:
+                self._skip = 0
+        self._connected = connected
+        if self._loss_polls:
+            self._loss_polls -= 1
+        if self._skip:
+            self._skip -= 1
+            return False
+        return True
+
+    def checked(self, restarted: bool) -> None:
+        self._cooling = restarted
+        if restarted:
+            interval = COOLDOWN_INTERVAL
+        elif self._loss_polls:
+            interval = LOSS_CHECK_INTERVAL
+        else:
+            interval = CHECK_INTERVAL
+        self._skip = interval // POLL_INTERVAL - 1
+
+
 async def follow_server_address() -> None:
-    """Restart a disconnected snapclient whose server has moved to a new address."""
+    """Restart a snapclient playing nothing whose server has moved to a new address."""
+    pacer = _Pacer()
     while True:
-        interval = CHECK_INTERVAL
         try:
-            if await _reconcile():
-                interval = COOLDOWN_INTERVAL
+            if pacer.due(await _is_connected()):
+                restarted = False
+                try:
+                    restarted = await _reconcile()
+                finally:
+                    pacer.checked(restarted)
         except Exception as e:
             logger.error(f"Server address check failed: {e}")
-        await asyncio.sleep(interval)
+        await asyncio.sleep(POLL_INTERVAL)
