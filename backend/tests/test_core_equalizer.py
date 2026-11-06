@@ -9,6 +9,8 @@ Tests cover:
 """
 import asyncio
 import logging
+import os
+import threading
 
 import aiohttp
 import pytest
@@ -28,6 +30,8 @@ from backend.core.equalizer import (
 from backend.core.equalizer.client_proxy import SatelliteUnreachable, is_ip_address
 from backend.core.equalizer.presets import DEFAULT_EQ_FREQS
 from backend.core.multiroom.models import EqFilter, EqualizerSettings, FilterType
+from backend.shared import persistence
+from backend.shared.persistence import load_versioned_json
 
 
 # =============================================================================
@@ -538,6 +542,69 @@ class TestCamillaDSPService:
         monkeypatch.setattr(camilladsp_service, "_persist_state_async", fake_async)
         await camilladsp_service.persist_state()
         assert calls == [True]
+
+    @pytest.mark.parametrize("flush", ["persist_state", "cleanup"])
+    @pytest.mark.asyncio
+    async def test_a_flush_cannot_land_under_the_debounced_write(
+        self, camilladsp_service, tmp_path, monkeypatch, flush
+    ):
+        """A preset loaded (or a shutdown) while the debounced write is on disk
+        must leave the newest EQ in equalizer.json.
+
+        Both flushes cancel the debounced write and write at once, but the
+        cancellation does not stop the worker thread already writing the older
+        snapshot: when it renames last, the next boot restores an EQ the user
+        had already replaced, and nothing says so.
+        """
+        camilladsp_service.STORAGE_PATH = tmp_path / "equalizer.json"
+        camilladsp_service.PERSIST_DEBOUNCE_S = 0
+        # The debounced write is held inside fsync; a flush reaching fsync
+        # meanwhile is let land first — the order that loses the newest state.
+        first_in, first_go = threading.Event(), threading.Event()
+        second_in, second_go = threading.Event(), threading.Event()
+        landed, both_landed = threading.Event(), threading.Event()
+        real_fsync, real_replace = os.fsync, os.replace
+        fsyncs, replaces = [], []
+
+        def fsync(fd):
+            fsyncs.append(fd)
+            gate = {1: (first_in, first_go), 2: (second_in, second_go)}.get(len(fsyncs))
+            if gate:
+                gate[0].set()
+                gate[1].wait(5)  # deadlock guard, not a time budget
+            return real_fsync(fd)
+
+        def replace(src, dst):
+            real_replace(src, dst)
+            replaces.append(dst)
+            landed.set()
+            if len(replaces) == 2:
+                both_landed.set()
+
+        monkeypatch.setattr(persistence.os, "fsync", fsync)
+        monkeypatch.setattr(persistence.os, "replace", replace)
+
+        camilladsp_service._active_preset = "rock"
+        camilladsp_service.schedule_persist()
+        assert await asyncio.to_thread(first_in.wait, 5), "the debounced write never reached fsync"
+
+        camilladsp_service._active_preset = "jazz"
+        done = asyncio.ensure_future(getattr(camilladsp_service, flush)())
+        # How long a flush that does not wait is given to overtake; a correct
+        # one never reaches fsync here, and this wait simply runs out.
+        overtaken = await asyncio.to_thread(second_in.wait, 0.5)
+        second_go.set()
+        if overtaken:
+            assert await asyncio.to_thread(landed.wait, 5)
+        first_go.set()
+        await asyncio.wait_for(done, 5)
+        # The orphaned thread of a flush that did not wait renames after it.
+        assert await asyncio.to_thread(both_landed.wait, 5), "a write never landed"
+
+        stored = await load_versioned_json(
+            camilladsp_service.STORAGE_PATH, camilladsp_service.SCHEMA_VERSION
+        )
+        assert stored["active_preset"] == "jazz"
 
     @pytest.mark.asyncio
     async def test_update_cache_overwrites_cache_and_persists_while_disconnected(

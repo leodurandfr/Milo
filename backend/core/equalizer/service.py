@@ -157,6 +157,7 @@ class CamillaDSPService:
 
         # Debounced persistence for equalizer.json (EQ rotary is a hot path)
         self._persist_debounce_task: Optional[asyncio.Task] = None
+        self._persist_lock = asyncio.Lock()
         self._bg = BackgroundTaskSet(self.logger, "equalizer")
 
         # Owned state: equalizer effects on/off. Loaded from
@@ -1260,25 +1261,42 @@ class CamillaDSPService:
         self._persist_debounce_task = self._bg.spawn(_debounced(), label="persist_state")
 
     async def _persist_state_async(self) -> None:
-        """Write current equalizer state to /var/lib/milo/equalizer.json atomically."""
-        try:
-            data = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "active_preset": self._active_preset,
-                "custom_gains": list(self._custom_gains),
-                "mono": self._mono,
-                "filters": self._filters,
-                "compressor": dict(self._compressor),
-                "loudness": dict(self._loudness),
-            }
+        """Write current equalizer state to /var/lib/milo/equalizer.json atomically.
 
-            await save_versioned_json(self.STORAGE_PATH, data, self.SCHEMA_VERSION)
+        The write runs in a worker thread, which a cancellation does not stop:
+        a cancelled persist still waits for its file to land, and the lock
+        keeps every later write behind it, so the newest state is the last
+        one renamed into place.
+        """
+        cancelled = False
+        try:
+            async with self._persist_lock:
+                data = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "active_preset": self._active_preset,
+                    "custom_gains": list(self._custom_gains),
+                    "mono": self._mono,
+                    "filters": self._filters,
+                    "compressor": dict(self._compressor),
+                    "loudness": dict(self._loudness),
+                }
+                write = asyncio.ensure_future(
+                    save_versioned_json(self.STORAGE_PATH, data, self.SCHEMA_VERSION)
+                )
+                while not write.done():
+                    try:
+                        await asyncio.wait({write})
+                    except asyncio.CancelledError:
+                        cancelled = True
+                write.result()
             self.logger.debug(
                 f"Persisted equalizer state: {len(self._filters)} filters, preset={self._active_preset}"
             )
 
         except Exception as e:
             self.logger.error(f"Error persisting equalizer state: {e}", exc_info=True)
+        if cancelled:
+            raise asyncio.CancelledError
 
     async def persist_state(self) -> None:
         """Immediately flush the local client's full EQ state to equalizer.json.
@@ -1290,9 +1308,15 @@ class CamillaDSPService:
         record survives a restart. A *streamed* write — the band drag, which
         emits 20 requests a second — must use :meth:`schedule_persist` instead.
         """
-        if self._persist_debounce_task and not self._persist_debounce_task.done():
-            self._persist_debounce_task.cancel()
+        await self._cancel_debounced_persist()
         await self._persist_state_async()
+
+    async def _cancel_debounced_persist(self) -> None:
+        """Cancel the pending debounced write and wait for it to settle."""
+        pending = self._persist_debounce_task
+        if pending and not pending.done():
+            pending.cancel()
+            await asyncio.wait({pending})
 
     def schedule_persist(self) -> None:
         """Snapshot the live cache to equalizer.json ~1 s after the last change.
@@ -1393,7 +1417,7 @@ class CamillaDSPService:
         # Flush any pending debounced persist before shutdown, then drain the
         # task set that owns it (and anything else spawned through _bg).
         if self._persist_debounce_task and not self._persist_debounce_task.done():
-            self._persist_debounce_task.cancel()
+            await self._cancel_debounced_persist()
             await self._persist_state_async()
         await self._bg.cancel_all()
 
