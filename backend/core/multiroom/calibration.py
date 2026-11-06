@@ -197,8 +197,12 @@ def _pick_codec(
 
     Lossless takes PCM only when the weakest link is both *wide* enough for every
     client's uncompressed stream and *clean*. The server's link is one of the
-    candidates: snapserver sends one stream per client, so its link carries all
-    of them at once. Width alone is not enough: PCM puts twice FLAC's bytes on
+    candidates whenever the server's own speaker is in the reading, whose row
+    carries it: snapserver sends one stream per client, so its link carries all
+    of them at once. That row is missing only when the local snapclient is
+    offline while snapserver runs -- the two units start and stop together
+    (`_sync_snapcast_state`), so only a failed local unit leaves the server's
+    link unweighed. Width alone is not enough: PCM puts twice FLAC's bytes on
     the wire, and on a link that already drops packets the extra traffic buys
     retransmissions. A single speaker on a 72 Mbit/s Wi-Fi has
     ample room for 3 Mbit/s and still wants the smaller stream.

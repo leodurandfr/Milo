@@ -69,13 +69,42 @@ def fast_local_sample():
         yield
 
 
+class _IpRoute:
+    """The `ip -o route get <ip>` processes the probe spawns: `table` maps a
+    destination to the interface the kernel routes it by (None: unreachable,
+    which `ip` reports on stderr only); anything unlisted goes by `default`."""
+
+    def __init__(self):
+        self.table = {}
+        self.default = "eth0"
+        self.asked = []
+
+    async def __call__(self, *argv, **kwargs):
+        assert argv[:4] == ("ip", "-o", "route", "get"), argv
+        self.asked.append(argv[4])
+        iface = self.table.get(argv[4], self.default)
+        line = f"{argv[4]} dev {iface} src 10.0.0.1 uid 1000 \\    cache \n" if iface else ""
+        return _Process(line.encode())
+
+
+class _Process:
+    def __init__(self, stdout):
+        self._stdout = stdout
+        self.returncode = None
+
+    async def communicate(self):
+        self.returncode = 0
+        return self._stdout, None
+
+    def kill(self):
+        raise AssertionError("an answered process is never killed")
+
+
 @pytest.fixture
 def routed_over():
-    """`ip route get` answering one interface for every satellite."""
-    def install(iface="eth0"):
-        return patch.object(probe_module, "routed_interface", new=AsyncMock(return_value=iface))
-    with install() as default:
-        yield install, default
+    route = _IpRoute()
+    with patch.object(probe_module.asyncio, "create_subprocess_exec", new=route):
+        yield route
 
 
 @pytest.fixture
@@ -159,7 +188,7 @@ async def test_the_server_row_carries_the_link_its_satellites_are_reached_by(
     off the interface the satellites are actually routed through -- not eth0
     because it exists: during an `nmcli device disconnect` eth0 keeps its
     carrier and its 1000 while the traffic has moved to wlan0."""
-    install, _ = routed_over
+    routed_over.default = "wlan0"
     network = _Network({
         "eth0": InterfaceLink(kind="ethernet", speed_mbps=1000.0, signal_percent=None),
         "wlan0": InterfaceLink(kind="wifi", speed_mbps=15.0, signal_percent=58),
@@ -168,14 +197,38 @@ async def test_the_server_row_carries_the_link_its_satellites_are_reached_by(
         _client("Canapé", "10.0.0.2"), _client("Milō", "127.0.0.1", is_local=True),
     ], network)
 
-    with install("wlan0"), \
-            patch.object(probe_module, "_fetch_probe", new=AsyncMock(return_value=_probe_payload())):
+    with patch.object(probe_module, "_fetch_probe", new=AsyncMock(return_value=_probe_payload())):
         readings, assumed = await service.measure()
 
     server = next(r for r in readings if r.is_local)
     assert (server.link, server.link_speed_mbps, server.signal_percent) == ("wifi", 15.0, 58)
+    assert routed_over.asked == ["10.0.0.2"]
     assert network.asked == ["wlan0"]
     assert assumed == []
+
+
+async def test_satellites_reached_by_two_links_weigh_the_narrower(
+    fast_local_sample, healthy_ping, routed_over
+):
+    """A server on both links reaches one satellite over eth0 and another over
+    wlan0, and both streams leave by the interface that carries them: the
+    server row is the narrower of the two, the one PCM would saturate first."""
+    routed_over.table = {"10.0.0.2": "eth0", "10.0.0.3": "wlan0"}
+    network = _Network({
+        "eth0": InterfaceLink(kind="ethernet", speed_mbps=1000.0, signal_percent=None),
+        "wlan0": InterfaceLink(kind="wifi", speed_mbps=15.0, signal_percent=58),
+    })
+    service = _service([
+        _client("Canapé", "10.0.0.2"), _client("Bureau", "10.0.0.3"),
+        _client("Milō", "127.0.0.1", is_local=True),
+    ], network)
+
+    with patch.object(probe_module, "_fetch_probe", new=AsyncMock(return_value=_probe_payload())):
+        readings, _ = await service.measure()
+
+    server = next(r for r in readings if r.is_local)
+    assert (server.link, server.link_speed_mbps) == ("wifi", 15.0)
+    assert sorted(network.asked) == ["eth0", "wlan0"]
 
 
 @pytest.mark.parametrize("routed, links, kind_known", [
@@ -189,13 +242,12 @@ async def test_a_server_link_that_cannot_be_read_is_assumed_and_declared(
     """No route, no NetworkManager, or a link with no rate: the server row gets
     the same pessimistic default a satellite would, and says so -- never the
     Ethernet it used to claim without reading anything."""
-    install, _ = routed_over
+    routed_over.default = routed
     service = _service([
         _client("Canapé", "10.0.0.2"), _client("Milō", "127.0.0.1", is_local=True),
     ], _Network(links))
 
-    with install(routed), \
-            patch.object(probe_module, "_fetch_probe", new=AsyncMock(return_value=_probe_payload())):
+    with patch.object(probe_module, "_fetch_probe", new=AsyncMock(return_value=_probe_payload())):
         readings, assumed = await service.measure()
 
     server = next(r for r in readings if r.is_local)

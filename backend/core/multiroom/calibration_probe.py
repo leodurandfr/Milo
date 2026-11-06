@@ -11,11 +11,11 @@ Two probes per remote client, run together across the fleet:
   dual-homed satellite answers a probe addressed to its Wi-Fi IP over whichever
   route wins the metric contest, and ICMP never touches the scheduler at all.
 
-The server's own row carries the link its satellites are routed through, the
-one that carries every speaker's stream at once: the interface ``ip route get``
-names, read by NetworkService over D-Bus. Never eth0 because it exists -- an
-``nmcli device disconnect`` leaves it its carrier and its 1000 Mbit/s while the
-traffic has moved to wlan0.
+The server's own row -- present while its own speaker is online -- carries the
+link its satellites are routed through, the one that carries every speaker's
+stream at once: the interface ``ip route get`` names, read by NetworkService
+over D-Bus. Never eth0 because it exists -- an ``nmcli device disconnect``
+leaves it its carrier and its 1000 Mbit/s while the traffic has moved to wlan0.
 
 A client that is online but cannot be probed **fails the whole analysis**. The
 buffer is one server-wide value sized by the worst link, so a client left out of
