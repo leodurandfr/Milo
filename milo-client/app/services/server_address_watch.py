@@ -40,17 +40,34 @@ path — which is what the launcher's design protects.
 
 The satellite's own link is followed too, and there a playing room *is* cut: the
 owner chose Ethernet first, at the cost of a few seconds of silence (2026-11-06).
-Losing the cable needs nothing here — the stream's address goes with it, and
-snapclient sees its time sync fail within 2-3 s and re-dials from the WiFi
-address. Getting it back moves nothing: new connections prefer eth0 (metric 100
-against the WiFi's 600) but the open one keeps its source, and the audio then
-arrives over wlan0 for as long as it lasts. Measured on Bureau the same day: 3 min
-38 s on its WiFi address after the replug, until a reboot. So once eth0 has held
-its carrier and its address for `LINK_HOLD`, and the kernel would route a new
-connection to the server through it, a stream still leaving from another address
-is restarted. The hold is what keeps a flapping cable from cutting the room on
-every return; the route check is what keeps a degraded eth0 (NetworkManager
-raises its metric) from being chased onto WiFi again at every cooldown.
+Losing the cable is left to snapclient, and that half is expected, not measured:
+no satellite cable has been pulled yet. The stream's address goes with the
+cable, snapclient's time sync should fail within 2-3 s (what it did when the
+*server* lost its cable) and its re-dial should leave from the WiFi address —
+but only once the kernel stops choosing eth0's routes, which it keeps marked
+`linkdown` until NetworkManager removes the address unless
+`ignore_routes_with_linkdown` is set, and no image sets it yet. Until a real
+unplug says otherwise, budget seconds to ~25 s for that re-dial.
+
+Getting the cable back moves nothing by itself: new connections prefer eth0
+(metric 100 against the WiFi's 600) but the open one keeps its source, and the
+audio then arrives over wlan0 for as long as it lasts. Measured on Bureau the
+same day: 3 min 38 s on its WiFi address after the replug, until a reboot. So
+once eth0 has held its carrier and its address for the hold, and the kernel
+would route a new connection to the server through it, a stream still leaving
+from another address is restarted. The route check keeps a degraded eth0
+(NetworkManager raises its metric) from being chased onto WiFi again at every
+cooldown. The hold, `LINK_HOLD` at first, absorbs a cable that flaps faster
+than it; a cable that flaps slower would earn a return, and a cut, at every
+cooldown, so a return the cable does not keep for `LINK_SETTLE` doubles the
+hold, up to `LINK_HOLD_MAX`, and a stream that stays on the cable that long
+brings it back to `LINK_HOLD`.
+
+Only an IPv4 stream is moved. The launcher's literal is IPv4 (the image resolves
+`.local` through `mdns4_minimal`); an IPv6 stream can exist only on its hostname
+fallback, where snapclient resolved for itself, and the address check replaces
+that hostname with a literal at the unit's next idle moment — after which this
+rule applies.
 """
 import asyncio
 import fcntl
@@ -58,6 +75,7 @@ import ipaddress
 import logging
 import socket
 import struct
+from enum import Enum, auto
 from pathlib import Path
 from typing import Optional
 
@@ -67,9 +85,10 @@ from services.snapclient import SNAPCLIENT_SERVICE
 logger = logging.getLogger(__name__)
 
 PROC_CMDLINE = "/proc/{pid}/cmdline"
-# Where the kernel lists this host's sockets. Both families are read: the
-# launcher hands snapclient an IPv4 literal, but its hostname fallback lets
-# snapclient resolve for itself, and that answer can be IPv6.
+# Where the kernel lists this host's sockets. Both families are read, so the
+# connection is seen whatever snapclient dialled: the launcher hands it an IPv4
+# literal, but its hostname fallback lets snapclient resolve for itself, and
+# that answer can be IPv6.
 PROC_NET_TCP = ("/proc/net/tcp", "/proc/net/tcp6")
 SNAPSERVER_PORT = 1704
 WIRED_INTERFACE = "eth0"
@@ -89,8 +108,12 @@ LOSS_WINDOW = 60
 # dial, and a check-interval loop would otherwise stop/start it on every pass
 # while it is still trying.
 COOLDOWN_INTERVAL = 60
-# How long eth0 must stay usable before a stream is moved onto it.
+# How long eth0 must stay usable before a stream is moved onto it, and how far
+# the cable's own flapping can stretch that.
 LINK_HOLD = 10
+LINK_HOLD_MAX = 300
+# How long a stream must stay on the cable for its return to count as kept.
+LINK_SETTLE = 120
 
 # Set between the stop and the start of a restart. A start that fails leaves the
 # unit dead, and a dead unit has no address to compare — so without this the
@@ -182,14 +205,25 @@ def _wired_route(server: str) -> Optional[str]:
     return wired if preferred == wired else None
 
 
-async def _stranded_off_the_cable(stream: Optional[tuple[str, str]]) -> bool:
-    """True when the stream leaves from an address a new connection would not take,
-    and a new one would take eth0."""
+class _Link(Enum):
+    """Where an IPv4 stream stands against eth0."""
+
+    ON = auto()  # it leaves from eth0
+    STRANDED = auto()  # a new connection would take eth0, and it leaves from elsewhere
+    OFF = auto()  # a new connection would not take eth0
+
+
+async def _cable_link(stream: Optional[tuple[str, str]]) -> Optional[_Link]:
+    """Where the stream stands against eth0; None without a stream, or for an IPv6 one."""
     if stream is None:
-        return False
+        return None
     local, server = stream
+    if ipaddress.ip_address(server).version != 4:
+        return None
     wired = await asyncio.to_thread(_wired_route, server)
-    return wired is not None and local != wired
+    if wired is None:
+        return _Link.OFF
+    return _Link.ON if local == wired else _Link.STRANDED
 
 
 async def _is_playing() -> bool:
@@ -335,22 +369,38 @@ class _CableHold:
     """Whether a stream stranded off the cable has been so for the whole hold.
 
     Counted in polls like `_Pacer`: one poll that breaks the condition starts the
-    hold again. A restart for either reason opens the same cooldown here.
+    hold again. A return followed within `LINK_SETTLE` by a poll off the cable
+    doubles the hold; `LINK_SETTLE` polls on the cable restore it. A restart for
+    either reason opens the same cooldown here.
     """
 
     def __init__(self) -> None:
+        self._hold = LINK_HOLD // POLL_INTERVAL
         self._held = 0
+        self._on_cable = 0
+        self._unsettled = 0  # polls left in which a loss undoes the last return
         self._cooling = 0
 
-    def due(self, stranded: bool) -> bool:
+    def due(self, link: Optional[_Link]) -> bool:
         if self._cooling:
             self._cooling -= 1
-        self._held = self._held + 1 if stranded else 0
-        return self._held >= LINK_HOLD // POLL_INTERVAL and not self._cooling
+        if self._unsettled:
+            self._unsettled -= 1
+            if link in (_Link.STRANDED, _Link.OFF):
+                self._hold = min(self._hold * 2, LINK_HOLD_MAX // POLL_INTERVAL)
+                self._unsettled = 0
+        self._on_cable = self._on_cable + 1 if link is _Link.ON else 0
+        if self._on_cable >= LINK_SETTLE // POLL_INTERVAL:
+            self._hold = LINK_HOLD // POLL_INTERVAL
+        self._held = self._held + 1 if link is _Link.STRANDED else 0
+        return self._held >= self._hold and not self._cooling
 
-    def restarted(self) -> None:
+    def restarted(self, returned: bool = False) -> None:
+        """A restart happened; `returned` when it was this hold's own, onto the cable."""
         self._held = 0
         self._cooling = COOLDOWN_INTERVAL // POLL_INTERVAL
+        if returned:
+            self._unsettled = LINK_SETTLE // POLL_INTERVAL
 
 
 async def follow_server_address() -> None:
@@ -368,13 +418,13 @@ async def follow_server_address() -> None:
                     pacer.checked(restarted)
             if restarted:
                 cable.restarted()
-            elif cable.due(await _stranded_off_the_cable(stream)):
+            elif cable.due(await _cable_link(stream)):
                 logger.warning(f"Stream to {stream[1]} still leaves from {stream[0]} with "
                                f"{WIRED_INTERFACE} back, restarting snapclient")
                 try:
                     await restart_snapclient()
                 finally:
-                    cable.restarted()
+                    cable.restarted(returned=True)
                 pacer.checked(True)
         except Exception as e:
             logger.error(f"Server address check failed: {e}")

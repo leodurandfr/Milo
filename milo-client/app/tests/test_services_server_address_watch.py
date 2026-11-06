@@ -28,6 +28,7 @@ tests run `follow_server_address` itself on a virtual clock its sleeps advance,
 so what they count is passes of the real loop, never wall-clock time.
 """
 import errno
+import ipaddress
 import re
 import socket
 from contextlib import contextmanager
@@ -337,8 +338,9 @@ def test_the_watcher_reads_the_output_snapclient_actually_plays_into():
 # --- The loop, on a virtual clock ------------------------------------------------
 
 def _hex(address):
-    """An IPv4 address as /proc/net/tcp prints it: the 32-bit word, little-endian."""
-    return socket.inet_aton(address)[::-1].hex().upper()
+    """An address as /proc/net/tcp(6) prints it: each 32-bit word little-endian."""
+    packed = ipaddress.ip_address(address).packed
+    return "".join(packed[i:i + 4][::-1].hex() for i in range(0, len(packed), 4)).upper()
 
 
 def _tcp_stream(local, remote):
@@ -697,3 +699,113 @@ async def test_two_reasons_never_restart_inside_one_cooldown(tmp_path, paused_at
     assert len(world.restarts) >= 2, "neither rule restarted the stranded client"
     gaps = [b - a for a, b in zip(world.restarts, world.restarts[1:])]
     assert min(gaps) >= watch.COOLDOWN_INTERVAL
+
+
+@pytest.mark.asyncio
+async def test_a_stream_already_on_the_cable_is_left_alone(tmp_path):
+    """The state every wired satellite sits in all day: cable in, stream on eth0.
+
+    Only the stream's own source tells it apart from a stranded one, so a rule
+    that stopped comparing it would restart every wired room at each cooldown,
+    for as long as it plays.
+    """
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: True, local=lambda t: SAT_WIRED,
+        carrier=lambda t: "1", wired=lambda t: SAT_WIRED, preferred=lambda t: SAT_WIRED,
+    ).run()
+
+    assert world.restarted_at is None
+
+
+# A cable that comes and goes slowly: present for FLAP_ON seconds of every
+# FLAP_PERIOD, long enough to outlast the hold, never long enough to stay.
+FLAP_PERIOD, FLAP_ON = 30, 15
+
+
+def _flapping(t):
+    return t % FLAP_PERIOD < FLAP_ON
+
+
+def _source_after_restarts(cable, restarts):
+    """The stream's source: eth0 once a restart dialled over a cable that has held
+    since, the WiFi address otherwise — the open socket never moves by itself."""
+    def local(t):
+        on_cable = any(all(cable(s) for s in range(int(r), int(t) + 1))
+                       for r in restarts if r <= t)
+        return SAT_WIRED if on_cable else SAT_WIFI
+    return local
+
+
+def _cable_world(tmp_path, cable, until):
+    """A playing satellite whose eth0 follows `cable(t)`, restarts recorded past the first."""
+    restarts = []
+    world = _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: True, local=_source_after_restarts(cable, restarts),
+        carrier=lambda t: "1" if cable(t) else "0",
+        wired=lambda t: SAT_WIRED if cable(t) else None,
+        preferred=lambda t: SAT_WIRED if cable(t) else SAT_WIFI,
+        until=until, past_restarts=True,
+    )
+    world.restarts = restarts
+    return world
+
+
+@pytest.mark.asyncio
+async def test_a_slowly_flapping_cable_stops_earning_returns(tmp_path):
+    """A cable that holds longer than the hold, then goes, then comes back.
+
+    Each loss cuts the room, and nothing can spare that one; each return cuts it
+    again. Without a backoff a bad cable or a port that keeps renegotiating
+    costs a return per cooldown for as long as it lasts — 20 in 20 minutes here.
+    A return the cable does not keep doubles the hold, so only the holds that
+    fit inside one present phase can still earn one.
+    """
+    world = await _cable_world(tmp_path, _flapping, until=1200).run()
+
+    holds = {min(watch.LINK_HOLD * 2 ** k, watch.LINK_HOLD_MAX) for k in range(16)}
+    fitting = sum(1 for hold in holds if hold <= FLAP_ON)
+    assert world.restarts, "the first return was never made"
+    assert len(world.restarts) <= fitting
+
+
+SETTLED, UNPLUG, REPLUG_AGAIN = 300, 900, 930
+
+
+@pytest.mark.asyncio
+async def test_a_cable_that_settles_earns_back_the_short_hold(tmp_path):
+    """After flapping, the cable stays in; much later it is pulled once and put back.
+
+    The longer hold a flapping cable earned must not outlive the flapping: that
+    clean replug is the owner's own gesture, and the stream comes back after the
+    usual hold, not after whatever hold the bad minutes left behind.
+    """
+    def cable(t):
+        if t < SETTLED:
+            return _flapping(t)
+        return not UNPLUG <= t < REPLUG_AGAIN
+
+    world = await _cable_world(tmp_path, cable, until=1100).run()
+
+    assert world.restarts and world.restarts[-1] > REPLUG_AGAIN, "the replug was never followed"
+    assert world.restarts[-1] - REPLUG_AGAIN <= watch.LINK_HOLD + 1
+
+
+@pytest.mark.asyncio
+async def test_an_ipv6_stream_is_left_to_the_address_check(tmp_path):
+    """snapclient is on IPv6 only on the launcher's hostname fallback.
+
+    What eth0 would take is answered in IPv4 — its IPv4 address, the IPv4
+    route — so an IPv6 stream has nothing to be compared with. The cable rule
+    leaves it by name, not through a lookup that happens to fail across
+    families; the address check hands that unit an IPv4 literal the next time
+    its room idles.
+    """
+    world = await _World(
+        tmp_path, dialled="2a01:e0a:1::55", resolves=lambda t: WIRED,
+        connected=lambda t: True, local=lambda t: "2a01:e0a:1::69",
+        carrier=lambda t: "1", wired=lambda t: SAT_WIRED, preferred=lambda t: SAT_WIRED,
+    ).run()
+
+    assert world.restarted_at is None
