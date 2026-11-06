@@ -26,7 +26,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from backend.core.multiroom.wifi_adoption import ADOPTION_DEADLINE
+from backend.core.multiroom.wifi_adoption import ADOPTION_DEADLINE, RESTORE_WORST_CASE, STEPS_DEADLINE
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -199,20 +199,24 @@ def test_client_timeouts_fit_the_proxy():
 
 
 def test_the_client_outwaits_the_adoption_deadline():
-    """The adoption answers by ADOPTION_DEADLINE; the wizard must still be listening.
+    """The adoption answers once the server's WiFi is restored, by ADOPTION_DEADLINE;
+    the wizard must still be listening.
 
     Fails when `ADOPT_TIMEOUT_MS` (stores/discoveryStore.js) comes down to, or
-    `ADOPTION_DEADLINE` (core/multiroom/wifi_adoption.py) goes up to, within
-    ANSWER_MARGIN_S of the other: the client then gives up on its own and shows
-    the generic message, while the backend's answer — a success, or the step
-    that failed — reaches nobody. Nginx waiting longer than the client is
+    the backend's answer goes up to, within ANSWER_MARGIN_S of the other. The
+    answer is due at the later of ADOPTION_DEADLINE and the steps' deadline plus
+    the restore at its worst: on a WiFi-only server it travels only once wlan0
+    is home again. Past the client's budget, the wizard gives up on its own and
+    shows the generic message, while the backend's answer — a success, or the
+    step that failed — reaches nobody. Nginx waiting longer than the client is
     `test_client_timeouts_fit_the_proxy`'s.
     """
     adopt = [t for t in _client_timeouts() if t.url == "/api/discovery/adopt-speaker"]
     assert len(adopt) == 1, adopt
-    assert ADOPTION_DEADLINE + ANSWER_MARGIN_S <= adopt[0].ms / 1000, (
+    answered_by = max(ADOPTION_DEADLINE, STEPS_DEADLINE + RESTORE_WORST_CASE)
+    assert answered_by + ANSWER_MARGIN_S <= adopt[0].ms / 1000, (
         f"{adopt[0].file} waits {adopt[0].ms} ms for an adoption the backend may "
-        f"answer at {ADOPTION_DEADLINE:g} s"
+        f"answer at {answered_by:g} s"
     )
 
 

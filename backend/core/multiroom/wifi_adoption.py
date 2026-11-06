@@ -25,9 +25,12 @@ runs inside `NetworkService.recovery_held()`: off its home network, a
 WiFi-only server reads "no link", and the recovery AP it would raise takes the
 one radio from under the adoption.
 
-The request is answered by ADOPTION_DEADLINE whatever the steps cost, and the
-return to the server's own WiFi is the one thing that deadline never cuts: it
-runs to its end after the answer if it must, still under the lock and the hold.
+The steps are cut at STEPS_DEADLINE and the request is answered once the
+server is back on its own WiFi, which a WiFi-only server needs for the answer
+to reach the caller at all; the restore's own caps fit before
+ADOPTION_DEADLINE. The restore is the one thing no deadline cuts: should it
+outrun its caps, the answer leaves at ADOPTION_DEADLINE and the restore runs to
+its end after it, still under the lock and the hold.
 """
 import asyncio
 import contextlib
@@ -50,6 +53,9 @@ logger = logging.getLogger(__name__)
 # Backend port on a fresh speaker (it runs as a server, listening on 8000).
 SETUP_API_PORT = 8000
 
+# Each nmcli call not given a cap of its own.
+NMCLI_TIMEOUT = 10.0
+
 # Allow NM up to this long to associate with the speaker hotspot.
 HOTSPOT_CONNECT_TIMEOUT = 30.0
 
@@ -68,12 +74,20 @@ BECOME_CLIENT_TIMEOUT = 20.0
 
 WLAN_INTERFACE = "wlan0"
 
-# The adoption is answered within this, counted from the request. Each step
-# above is capped, but stalled just under every cap they add up to ~170 s,
-# restore included: past the client's ADOPT_TIMEOUT_MS
-# (frontend/src/stores/discoveryStore.js, held above this by
-# tests/architecture/test_proxy_timeouts.py).
-ADOPTION_DEADLINE = 100.0
+# The return to the server's own WiFi at its worst: the temporary profile
+# deleted, the home connection brought up, wlan0 released when that fails.
+RESTORE_WORST_CASE = NMCLI_TIMEOUT + RESTORE_CONNECT_TIMEOUT + NMCLI_TIMEOUT
+
+# The adoption is answered within this, counted from the request: past the
+# client's ADOPT_TIMEOUT_MS (frontend/src/stores/discoveryStore.js, held above
+# this by tests/architecture/test_proxy_timeouts.py) the outcome reaches nobody.
+ADOPTION_DEADLINE = 110.0
+
+# The steps up to the push are cut at this, so that the restore fits before the
+# answer: on a WiFi-only server, the answer reaches the caller only once wlan0
+# is home again. Each step is capped, but stalled just under every cap they
+# add up to ~120 s on their own.
+STEPS_DEADLINE = ADOPTION_DEADLINE - RESTORE_WORST_CASE
 
 
 class AdoptionError(Exception):
@@ -124,25 +138,23 @@ class WifiAdoptionService:
         if not wifi_ssid:
             raise AdoptionError("invalid_target_wifi", "Target wifi SSID is required")
 
-        deadline = asyncio.get_running_loop().time() + ADOPTION_DEADLINE
+        now = asyncio.get_running_loop().time()
         verdict = _Verdict()
         adoption = self._bg.spawn(
             self._adopt_by(
-                deadline, verdict, ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password
+                now + STEPS_DEADLINE, verdict,
+                ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password,
             ),
             label="adopt_speaker",
         )
-        # Shielded: the deadline ends this wait, never the restore under way.
+        # Shielded: a deadline ends this wait, never the restore under way.
         with contextlib.suppress(TimeoutError):
-            async with asyncio.timeout_at(deadline):
+            async with asyncio.timeout_at(now + ADOPTION_DEADLINE):
                 await asyncio.shield(adoption)
         if verdict.error is not None:
             raise verdict.error
         if verdict.result is None:
-            raise AdoptionError(
-                "adoption_timeout",
-                f"Not settled within {ADOPTION_DEADLINE:.0f}s; the server's WiFi is restored in the background",
-            )
+            raise AdoptionError("adoption_timeout", f"Not settled within {STEPS_DEADLINE:.0f}s")
         return verdict.result
 
     async def _adopt_by(
@@ -388,7 +400,7 @@ class WifiAdoptionService:
         return match.group(1) if match else None
 
     async def _run_nmcli(
-        self, *args: str, timeout: float = 10.0
+        self, *args: str, timeout: float = NMCLI_TIMEOUT
     ) -> Tuple[int, str, str]:
         proc = None
         try:
