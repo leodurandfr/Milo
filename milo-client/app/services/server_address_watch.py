@@ -39,7 +39,14 @@ This closes that asymmetry from the same side, in two states:
   the cost of a few seconds of silence in that room (2026-11-06). Waiting for
   the room to fall silent instead kept a room that played on the server's WiFi
   for as long as it played. The hold keeps an answer that does not last —
-  avahi restarts on the other interface at each move — from cutting a room.
+  avahi restarts on the other interface at each move — from cutting a room,
+  and it backs off as the cable's hold does (below): a server cable that flaps
+  slower than the hold would otherwise cost a return and a loss per flap, so a
+  return the stream does not keep for `RETURN_SETTLE` doubles it, up to
+  `SERVER_HOLD_MAX`. A return also opens the cooldown, which ends as soon as
+  the restarted client has connected and lost that connection: the server's
+  cable going again right after it is a loss like the first, followed in
+  seconds rather than at the end of the cooldown.
   The stream's server address is read from the socket table, so this path
   spawns nothing; the lookup, every `SERVER_CHECK_INTERVAL`, is answered from
   avahi's cache, as the registration's every heartbeat is.
@@ -67,7 +74,7 @@ from another address is restarted. The route check keeps a degraded eth0
 (NetworkManager raises its metric) from being chased onto WiFi again at every
 cooldown. The hold, `LINK_HOLD` at first, absorbs a cable that flaps faster
 than it; a cable that flaps slower would earn a return, and a cut, at every
-cooldown, so a return the cable does not keep for `LINK_SETTLE` doubles the
+cooldown, so a return the cable does not keep for `RETURN_SETTLE` doubles the
 hold, up to `LINK_HOLD_MAX`, and a stream that stays on the cable that long
 brings it back to `LINK_HOLD`.
 
@@ -105,10 +112,12 @@ SIOCGIFADDR = 0x8915
 
 POLL_INTERVAL = 1  # seconds between two reads of the socket table
 CHECK_INTERVAL = 30  # seconds, without a connection and past the loss window
-# While connected: how often mDNS is asked, and how long it must answer the same
-# other address before the stream is moved there.
+# While connected: how often mDNS is asked, how long it must answer the same
+# other address before the stream is moved there, and how far a server cable's
+# own flapping can stretch that.
 SERVER_CHECK_INTERVAL = 5
 SERVER_HOLD = 10
+SERVER_HOLD_MAX = 300
 # After a lost connection, compare this often for this long: mDNS answers the
 # new address a few seconds after the loss, and snapclient reconnects in < 1 s.
 LOSS_CHECK_INTERVAL = 2
@@ -121,8 +130,9 @@ COOLDOWN_INTERVAL = 60
 # the cable's own flapping can stretch that.
 LINK_HOLD = 10
 LINK_HOLD_MAX = 300
-# How long a stream must stay on the cable for its return to count as kept.
-LINK_SETTLE = 120
+# How long a stream must stay where a return put it — on the cable, or on the
+# server address it followed — for that return to count as kept.
+RETURN_SETTLE = 120
 
 # Set between the stop and the start of a restart. A start that fails leaves the
 # unit dead, and a dead unit has no address to compare — so without this the
@@ -336,16 +346,36 @@ class _ServerHold:
     """Whether mDNS has answered the same other address for the whole hold.
 
     Counted in readings, which the pacer spaces `SERVER_CHECK_INTERVAL` apart
-    while connected; any other reading starts the hold again.
+    while connected; any other reading starts the hold again. The backoff is the
+    cable's, counted in polls: a return followed within `RETURN_SETTLE` by a
+    stream to another server doubles the hold, `RETURN_SETTLE` polls on the
+    address it returned to restore it.
     """
 
     def __init__(self) -> None:
+        self._hold = SERVER_HOLD
         self._address: Optional[str] = None
         self._readings = 0
+        self._returned_to: Optional[str] = None
+        self._on_it = 0
+        self._unsettled = 0  # polls left in which another server undoes the last return
 
     def reset(self) -> None:
         self._address = None
         self._readings = 0
+
+    def observe(self, server: Optional[str]) -> None:
+        """One poll: the stream's server, None without a stream."""
+        if server is None:
+            self.reset()
+        if self._unsettled:
+            self._unsettled -= 1
+            if server is not None and server != self._returned_to:
+                self._hold = min(self._hold * 2, SERVER_HOLD_MAX)
+                self._unsettled = 0
+        self._on_it = self._on_it + 1 if server is not None and server == self._returned_to else 0
+        if self._on_it >= RETURN_SETTLE // POLL_INTERVAL:
+            self._hold = SERVER_HOLD
 
     def held(self, elsewhere: Optional[str]) -> bool:
         if elsewhere is None or elsewhere != self._address:
@@ -354,7 +384,13 @@ class _ServerHold:
         if elsewhere is None:
             return False
         self._readings += 1
-        return self._readings > SERVER_HOLD // SERVER_CHECK_INTERVAL
+        return self._readings > self._hold // SERVER_CHECK_INTERVAL
+
+    def returned(self, address: str) -> None:
+        self.reset()
+        self._returned_to = address
+        self._on_it = 0
+        self._unsettled = RETURN_SETTLE // POLL_INTERVAL
 
 
 async def _follow_server(server: str, hold: _ServerHold) -> bool:
@@ -362,7 +398,7 @@ async def _follow_server(server: str, hold: _ServerHold) -> bool:
     current = await _server_elsewhere(server)
     if not hold.held(current):
         return False
-    hold.reset()
+    hold.returned(current)
     logger.warning(f"Main Milo moved {server} -> {current}, restarting snapclient")
     await restart_snapclient()
     return True
@@ -372,6 +408,8 @@ class _Pacer:
     """Which reads of the socket table also run an address check.
 
     Counted in polls, not read off a clock: the loop's own passes are the time.
+    The cooldown after a restart lasts until the restarted client has connected
+    and lost that connection: past that, a loss is the network's again.
     """
 
     def __init__(self) -> None:
@@ -379,10 +417,15 @@ class _Pacer:
         self._loss_polls = 0  # polls left in the fast window after a loss
         self._skip = 0  # polls to let pass before the next check
         self._cooling = False
+        self._redialled = False  # the restarted client has connected since
 
     def due(self, connected: bool) -> bool:
+        if self._cooling and self._redialled and self._connected and not connected:
+            self._cooling = False
         if connected != self._connected and not self._cooling:
             self._skip = 0
+        if self._cooling and connected:
+            self._redialled = True
         if self._connected and not connected:
             self._loss_polls = LOSS_WINDOW // POLL_INTERVAL
         self._connected = connected
@@ -395,6 +438,7 @@ class _Pacer:
 
     def checked(self, restarted: bool) -> None:
         self._cooling = restarted
+        self._redialled = False
         if restarted:
             interval = COOLDOWN_INTERVAL
         elif self._connected:
@@ -410,8 +454,8 @@ class _CableHold:
     """Whether a stream stranded off the cable has been so for the whole hold.
 
     Counted in polls like `_Pacer`: one poll that breaks the condition starts the
-    hold again. A return followed within `LINK_SETTLE` by a poll off the cable
-    doubles the hold; `LINK_SETTLE` polls on the cable restore it. A restart for
+    hold again. A return followed within `RETURN_SETTLE` by a poll off the cable
+    doubles the hold; `RETURN_SETTLE` polls on the cable restore it. A restart for
     either reason opens the same cooldown here.
     """
 
@@ -431,7 +475,7 @@ class _CableHold:
                 self._hold = min(self._hold * 2, LINK_HOLD_MAX // POLL_INTERVAL)
                 self._unsettled = 0
         self._on_cable = self._on_cable + 1 if link is _Link.ON else 0
-        if self._on_cable >= LINK_SETTLE // POLL_INTERVAL:
+        if self._on_cable >= RETURN_SETTLE // POLL_INTERVAL:
             self._hold = LINK_HOLD // POLL_INTERVAL
         self._held = self._held + 1 if link is _Link.STRANDED else 0
         return self._held >= self._hold and not self._cooling
@@ -441,7 +485,7 @@ class _CableHold:
         self._held = 0
         self._cooling = COOLDOWN_INTERVAL // POLL_INTERVAL
         if returned:
-            self._unsettled = LINK_SETTLE // POLL_INTERVAL
+            self._unsettled = RETURN_SETTLE // POLL_INTERVAL
 
 
 async def follow_server_address() -> None:
@@ -452,8 +496,7 @@ async def follow_server_address() -> None:
     while True:
         try:
             stream = await _stream()
-            if stream is None:
-                server.reset()
+            server.observe(stream[1] if stream else None)
             restarted = False
             if pacer.due(stream is not None):
                 try:

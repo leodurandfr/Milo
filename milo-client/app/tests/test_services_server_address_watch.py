@@ -771,3 +771,179 @@ async def test_an_ipv6_stream_is_left_to_the_address_check(tmp_path):
     ).run()
 
     assert world.restarted_at is None
+
+
+class _ServerCableWorld(_World):
+    """A playing satellite whose server's eth0 follows `cable(t)`.
+
+    mDNS answers the server's WiFi address once the cable has been out for
+    AVAHI_LAG, its wired one as soon as it is back. Each restart relaunches
+    snapclient on what mDNS answers at that moment, as the launcher does, and
+    leaves it disconnected for RESTART_GAP; a stream to the wired address
+    lasts only while the cable is in. Restarts to the wired address are
+    recorded apart, as `returns`.
+    """
+
+    RESTART_GAP = 2
+
+    def __init__(self, tmp_path, cable, until):
+        self.cable = cable
+        self.returns = []
+        super().__init__(
+            tmp_path, dialled=WIRED,
+            resolves=lambda t: WIRED if any(cable(t - d) for d in range(AVAHI_LAG + 1)) else WIFI,
+            connected=self._connected, until=until, past_restarts=True,
+        )
+
+    def _connected(self, t):
+        if any(r <= t < r + self.RESTART_GAP for r in self.restarts):
+            return False
+        return self.dialled == WIFI or self.cable(t)
+
+    async def _exec(self, *argv, **kwargs):
+        proc = await super()._exec(*argv, **kwargs)
+        if argv[0] == "sudo" and argv[2] == "start":
+            self.dialled = self.resolves(self.now)
+            _write_cmdline(self.tmp_path, 1077, "/usr/bin/snapclient", "-h", self.dialled, "-p", "1704")
+            if self.dialled == WIRED:
+                self.returns.append(self.now)
+        return proc
+
+
+SERVER_CUT, SERVER_RESTORED, SERVER_CUT_AGAIN = 100.5, 160.5, 200.5
+
+
+@pytest.mark.asyncio
+async def test_a_loss_soon_after_a_return_is_followed_within_seconds(tmp_path):
+    """The checklist's own gesture: cut the server's cable, restore it, cut it again.
+
+    The return to the wired address restarts a playing client, and the cooldown
+    that keeps a restart from being repeated while its client still dials must
+    not outlive that client's reconnection: a loss after it is a loss like the
+    first, and the room would otherwise stay silent until the cooldown ends —
+    51 s, where the first loss took 4.
+    """
+    world = await _ServerCableWorld(
+        tmp_path, cable=lambda t: not (SERVER_CUT <= t < SERVER_RESTORED or t >= SERVER_CUT_AGAIN),
+        until=400,
+    ).run()
+
+    assert any(SERVER_RESTORED < r < SERVER_CUT_AGAIN for r in world.returns), \
+        "the client never came back to the wired address"
+    follows = [r for r in world.restarts if r > SERVER_CUT_AGAIN]
+    assert follows, "the second loss was never followed"
+    assert follows[0] - SERVER_CUT_AGAIN <= AVAHI_LAG + 3
+
+
+# A server cable that comes and goes slowly, after a first loss: present for
+# SERVER_FLAP_ON seconds of every SERVER_FLAP_PERIOD.
+SERVER_FLAP_START, SERVER_FLAP_PERIOD, SERVER_FLAP_ON = 100, 60, 30
+
+
+@pytest.mark.asyncio
+async def test_a_slowly_flapping_server_cable_stops_earning_returns(tmp_path):
+    """The server's cable holds longer than the hold, then goes, then comes back.
+
+    The satellite can sit on the server's WiFi, which the flapping never
+    touches; each return to the wired address cuts the room, and each loss that
+    follows cuts it again. Without a backoff that is a pair of cuts per flap —
+    14 restarts in 20 minutes here. A return the stream does not keep doubles
+    the hold, so only the holds that fit inside one present phase can still
+    earn one.
+    """
+    def cable(t):
+        return t < SERVER_FLAP_START or (t - SERVER_FLAP_START) % SERVER_FLAP_PERIOD >= SERVER_FLAP_PERIOD - SERVER_FLAP_ON
+
+    world = await _ServerCableWorld(tmp_path, cable, until=1300).run()
+
+    holds = {min(watch.SERVER_HOLD * 2 ** k, watch.SERVER_HOLD_MAX) for k in range(16)}
+    fitting = sum(1 for hold in holds if hold <= SERVER_FLAP_ON)
+    assert world.returns, "the first return was never made"
+    assert len(world.returns) <= fitting
+
+
+@pytest.mark.asyncio
+async def test_a_server_cable_that_settles_earns_back_the_short_hold(tmp_path):
+    """After flapping, the server's cable stays in; much later it is cut once and restored.
+
+    The longer hold the flapping earned must not outlive it: that clean
+    restore comes back after the usual hold.
+    """
+    settled, cut, restored = 400, 1000, 1060
+
+    def cable(t):
+        if t < settled:
+            return t < SERVER_FLAP_START or (t - SERVER_FLAP_START) % SERVER_FLAP_PERIOD >= SERVER_FLAP_PERIOD - SERVER_FLAP_ON
+        return not cut <= t < restored
+
+    world = await _ServerCableWorld(tmp_path, cable, until=1200).run()
+
+    assert world.returns and world.returns[-1] > restored, "the restore was never followed"
+    assert world.returns[-1] - restored <= watch.SERVER_HOLD + watch.SERVER_CHECK_INTERVAL + 1
+
+
+@pytest.mark.asyncio
+async def test_a_cable_restart_starts_the_server_hold_again(tmp_path):
+    """Two readings of another server address, then the satellite's own cable
+    rule restarts the client onto eth0: the readings belonged to the stream it
+    replaced, so the server rule waits a whole hold again once the cooldown is
+    over."""
+    restarts = []
+    world = _World(
+        tmp_path, dialled=WIFI, resolves=lambda t: WIRED,
+        connected=lambda t: True, local=lambda t: SAT_WIRED if restarts else SAT_WIFI,
+        carrier=lambda t: "1", wired=lambda t: SAT_WIRED, preferred=lambda t: SAT_WIRED,
+        until=400, past_restarts=True,
+    )
+    restarts = world.restarts
+    await world.run()
+
+    assert world.restarts and world.restarts[0] < watch.SERVER_HOLD, "the cable rule did not restart first"
+    assert len(world.restarts) >= 2, "the server rule never followed"
+    assert world.restarts[1] - world.restarts[0] >= watch.COOLDOWN_INTERVAL + watch.SERVER_HOLD
+
+
+@pytest.mark.asyncio
+async def test_a_dropped_stream_starts_the_server_hold_again(tmp_path):
+    """Two readings of another server address, then the stream drops and comes
+    back with nothing restarted (the lookup failed meanwhile): the stream is a
+    new one, and a whole hold is owed before it is cut."""
+    gap, back = 6.5, 9.5
+    world = await _World(
+        tmp_path, dialled=WIFI,
+        resolves=lambda t: None if gap <= t < back else WIRED,
+        connected=lambda t: not gap <= t < back,
+    ).run()
+
+    assert world.restarted_at is not None, "the server rule never followed"
+    assert world.restarted_at >= back + watch.SERVER_HOLD
+
+
+@pytest.mark.asyncio
+async def test_two_other_answers_that_alternate_restart_nothing(tmp_path):
+    """mDNS answers two addresses in turn, neither the stream's: no one of them
+    has held, so the hold never completes."""
+    world = await _World(
+        tmp_path, dialled=WIRED,
+        resolves=lambda t: WIFI if t % (2 * watch.SERVER_CHECK_INTERVAL) < watch.SERVER_CHECK_INTERVAL
+        else "192.168.1.40",
+        connected=lambda t: True,
+    ).run()
+
+    assert world.restarted_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_client_that_connects_is_compared_at_once(tmp_path):
+    """Multiroom off for minutes, the check every 30 s; the client then connects
+    to the server's WiFi address while mDNS answers the wired one. The connected
+    pace starts at the connection, not at whatever was left of the 30 s."""
+    connect = 200.5
+    world = await _World(
+        tmp_path, dialled=WIFI,
+        resolves=lambda t: WIRED if t >= connect else WIFI,
+        connected=lambda t: t >= connect, until=400,
+    ).run()
+
+    assert world.restarted_at is not None, "the connected client was never compared"
+    assert world.restarted_at <= connect + watch.SERVER_HOLD + 1
