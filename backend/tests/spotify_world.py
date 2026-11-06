@@ -46,7 +46,10 @@ owner's iPhone): `provider` is "context", "queue" (the user's queue, listed
 first in next_tracks and kept across a new context) or "autoplay" (the station
 that replaces a context once it has run out, never listed after it); a
 playlist's entries carry a uid, an album's none, the user's queue numbers its
-own ("q1", "q2", the same track queued twice included).
+own ("q1", "q2", the same track queued twice included). While a track loads,
+the current entry is the one loading, described at position 0 once its metadata
+is cached (read in the fork's player_queue.go, not measured): /status names no
+track until it has streamed.
 
 Time is a VirtualClock the scenario advances; the daemon's death is heard
 through the same pidfd watch the source opens (patched here, as for AirPlay).
@@ -208,6 +211,12 @@ class Librespot:
         self.repeat_context = False
         self.repeat_track = False
         self.track: Optional[Dict[str, Any]] = None
+        # The track a load points at while /status names none (the fork's
+        # GET /player/queue lists it as the current entry, described at 0 once
+        # its metadata is cached; `loading_known` False: not cached, a null
+        # track).
+        self.loading: Optional[Dict[str, Any]] = None
+        self.loading_known = True
         # The play order GET /player/queue lists around the track, as
         # {uri, uid, provider, track} entries (track None until its metadata
         # is cached). Any change of that answer raises `queue` ahead of the
@@ -376,6 +385,9 @@ class Librespot:
         if self.session and self.track:
             current = {"uri": self.track["uri"], "uid": None, "provider": "context",
                        "track": copy.deepcopy(self.track)}
+        elif self.session and self.loading:
+            described = {**copy.deepcopy(self.loading), "position": 0} if self.loading_known else None
+            current = {"uri": self.loading["uri"], "uid": None, "provider": "context", "track": described}
         return {"prev_tracks": copy.deepcopy(self.prev_tracks), "track": current,
                 "next_tracks": copy.deepcopy(self.next_tracks)}
 
@@ -607,12 +619,14 @@ class Librespot:
         self.taken_over, self.remote = self.remote, None
         self.session, self.account = True, self.stored
         self.track, self.paused, self.buffering = None, True, True
+        self.loading = self.taken_over["track"]
         self.says({"type": "active"}, {"type": "will_play", "uri": self.taken_over["track"]["uri"]})
 
     def transfer_lands(self) -> None:
         """~0.25 s later: the track it brought, where it stood, playing."""
         self.transfer_pending = False
         self.track, self.paused, self.buffering = copy.deepcopy(self.taken_over["track"]), False, False
+        self.loading = None
         self.says(self.metadata(), self.playing())
 
     def _resumed(self) -> None:
@@ -621,6 +635,7 @@ class Librespot:
 
     def _ends(self) -> None:
         self.session, self.track, self.paused, self.buffering = False, None, True, False
+        self.loading = None
         self.context = None
         self._later({"type": "inactive"})
         self._later({"type": "stopped"})
@@ -633,7 +648,7 @@ class Librespot:
 
     def dies(self) -> None:
         self.up = False
-        self.session, self.track = False, None
+        self.session, self.track, self.loading = False, None, None
         if self._volume_report is not None:
             self._volume_report.cancel()
         if self.socket is not None:
@@ -872,8 +887,9 @@ class SpotifyWorld(WireReader):
         """A phone moves its playback here: it loads paused, then plays 1.6 s later."""
         d = self.daemon
         d.session, d.account, d.track, d.paused, d.buffering = True, ACCOUNT, None, True, True
+        d.loading = song
         await self._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
-        d.track, d.buffering = {**copy.deepcopy(song), "position": at_ms}, False
+        d.track, d.buffering, d.loading = {**copy.deepcopy(song), "position": at_ms}, False, None
         await self._says(d.metadata(), {"type": "paused"})
         await self.advance(1.6)
         d.paused = False
@@ -883,9 +899,10 @@ class SpotifyWorld(WireReader):
         """A phone starts a track here from the top."""
         d = self.daemon
         d.session, d.account, d.track, d.paused, d.buffering = True, account, None, False, True
+        d.loading = song
         await self._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
         await self.advance(0.07)
-        d.track, d.buffering = copy.deepcopy(song), False
+        d.track, d.buffering, d.loading = copy.deepcopy(song), False, None
         await self._says(d.metadata(), d.playing())
 
     async def phone_pauses(self) -> None:

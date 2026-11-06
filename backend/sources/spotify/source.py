@@ -199,11 +199,14 @@ def repeat_posts(mode: str) -> List[tuple]:
 @dataclass(frozen=True)
 class PlayOrder:
     """What GET /player/queue said: the entries ({uri, uid, provider, track})
-    before the current one oldest first, the ones after it nearest first, and
-    the uris that name the current one (its own, and its track's if relinked)."""
+    before the current one oldest first, the ones after it nearest first, the
+    uris that name the current one (its own, and its track's if relinked), and
+    the current one's track — during a load, the track loading, which /status
+    does not name yet (null until its metadata is cached)."""
     current: frozenset = frozenset()
     prev_tracks: Tuple[Dict[str, Any], ...] = ()
     next_tracks: Tuple[Dict[str, Any], ...] = ()
+    track: Optional[Dict[str, Any]] = None
 
     def surrounds(self, uri: Optional[str]) -> bool:
         return uri is not None and uri in self.current
@@ -220,6 +223,7 @@ def play_order(data: Dict[str, Any]) -> PlayOrder:
         current=frozenset(uri for uri in (current.get("uri"), track.get("uri")) if uri),
         prev_tracks=entries("prev_tracks"),
         next_tracks=entries("next_tracks"),
+        track=track or None,
     )
 
 
@@ -1528,25 +1532,26 @@ class SpotifySource(BaseAudioSource):
             return
         session.context_uri = status.context_uri or None
         session.context_name = status.context_name or None
-        if status.track:
-            content = self.transform_track_metadata(status.track)
+        track = status.track or await self._loading_track(session, status)
+        if track:
+            content = self.transform_track_metadata(track)
             position = content.pop("position") or 0
-            uri = status.track.get("uri")
+            uri = track.get("uri")
             new_track = uri != session.uri
             session.track, session.uri = content, uri
-            session.album_uri = status.track.get("album_uri") or None
-            session.artists = artists_of(status.track)
-            # Only with a track: a buffering read keeps the order around the
-            # track still on screen. An order that does not surround this track
-            # is no order for it, and with nothing around it there is no order
-            # to swipe through.
+            session.album_uri = track.get("album_uri") or None
+            session.artists = artists_of(track)
+            # Only with a track: a load nothing names keeps the order around
+            # the track still on screen. An order that does not surround this
+            # track is no order for it, and with nothing around it there is no
+            # order to swipe through.
             if self._order_stale or not self._order.surrounds(uri):
                 await self._read_order()
             order = self._order
             if order.surrounds(uri) and (order.prev_tracks or order.next_tracks):
                 session.queue = [
                     *(queue_entry(item.get("uri"), item.get("track")) for item in order.prev_tracks),
-                    queue_entry(uri, status.track),
+                    queue_entry(uri, track),
                     *(queue_entry(item.get("uri"), item.get("track")) for item in order.next_tracks),
                 ]
                 session.queue_index = len(order.prev_tracks)
@@ -1557,6 +1562,24 @@ class SpotifySource(BaseAudioSource):
             else:
                 # A read of the same track: only a jump (a seek) moves the anchor.
                 self._observe_position(position)
+
+    async def _loading_track(self, session: SpotifySession, status: LibrespotStatus) -> Optional[Dict[str, Any]]:
+        """The track a load points at, which /status names only once it has
+        streamed (1-2 s after a daemon restart, a minute while spclient hung,
+        measured): GET /player/queue's current entry, described at 0. The
+        order is read again only when a `queue` said it moved. None when
+        nothing names a new one (a stock go-librespot, metadata not cached, a
+        read that failed): the track on screen stands, nothing cleared."""
+        if not status.buffering:
+            return None
+        if self._order_stale:
+            await self._read_order()
+        if self._order_stale:
+            return None
+        track = self._order.track
+        if not (track and track.get("name")) or track.get("uri") == session.uri:
+            return None
+        return track
 
     def _follow_remote(self, status: Optional[LibrespotStatus]) -> None:
         """Follow what plays on another device, after the session and the

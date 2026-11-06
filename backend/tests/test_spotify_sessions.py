@@ -99,6 +99,72 @@ async def test_a_skip_is_loading_until_the_next_track_plays(world):
     assert world.session()["title"] == "Trois Neuf Trois"
 
 
+async def test_a_skip_names_the_track_it_loads(world):
+    """A load that waits on Spotify (1-2 s after a daemon restart, 60 s while
+    spclient hung, measured 2026-11-05) showed the hourglass over the track
+    that had just been left, its cover and its frozen time. /status names no
+    track while one loads; the fork's GET /player/queue names the one loading,
+    and that is what the screen shows, from its start."""
+    d = world.daemon
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
+    await world.phone_plays(PARAPLUIE)
+    await world.advance(30)
+    d.track, d.buffering, d.loading = None, True, TROIS_NEUF_TROIS
+    d.prev_tracks, d.next_tracks = [_listed(PARAPLUIE)], []
+    await world._says({"type": "will_play", "uri": TROIS_NEUF_TROIS["uri"]})
+
+    assert world.buffering()
+    assert world.session()["title"] == "Trois Neuf Trois"
+    assert world.session()["duration_ms"] == TROIS_NEUF_TROIS["duration"]
+    assert world.state()["details"]["track_uri"] == TROIS_NEUF_TROIS["uri"]
+    assert world.position_ms() == 0
+
+    await world.advance(1.5)
+    d.track, d.buffering, d.loading = {**TROIS_NEUF_TROIS, "position": 3}, False, None
+    await world._says(d.metadata(), d.playing())
+    assert world.playing()
+    assert world.session()["title"] == "Trois Neuf Trois"
+
+
+@pytest.mark.parametrize("unnamed", ["not cached", "no queue route", "queue read fails"])
+async def test_a_load_nothing_names_keeps_the_track_on_screen(world, unnamed):
+    """When the loading track cannot be named (its metadata not cached, a stock
+    go-librespot with no GET /player/queue, a read that fails), the track on
+    screen stands as it was: a field cleared while its replacement loads
+    deletes the player it draws."""
+    d = world.daemon
+    d.has_queue_route = unnamed != "no queue route"
+    d.loading_known = unnamed != "not cached"
+    await world.phone_plays(PARAPLUIE)
+    await world.advance(30)
+    held = world.position_ms()
+    d.queue_answers = unnamed != "queue read fails"
+    d.track, d.buffering, d.loading = None, True, TROIS_NEUF_TROIS
+    await world._says({"type": "will_play", "uri": TROIS_NEUF_TROIS["uri"]})
+
+    assert world.buffering()
+    session = world.session()
+    assert session["title"] == "Parapluie"
+    assert session["duration_ms"] == PARAPLUIE["duration"]
+    assert world.state()["details"]["track_uri"] == PARAPLUIE["uri"]
+    assert world.position_ms() == held
+
+
+async def test_a_loading_track_is_named_once_its_metadata_is_cached(world):
+    """The fork raises `queue` when a fetch caches the metadata of an entry it
+    lists: that event, alone in its burst, is when to name the track loading."""
+    d = world.daemon
+    await world.phone_plays(PARAPLUIE)
+    d.track, d.buffering, d.loading, d.loading_known = None, True, TROIS_NEUF_TROIS, False
+    await world._says({"type": "will_play", "uri": TROIS_NEUF_TROIS["uri"]})
+    assert world.session()["title"] == "Parapluie"
+
+    d.loading_known = True
+    await world._says()
+    assert world.buffering()
+    assert world.session()["title"] == "Trois Neuf Trois"
+
+
 async def test_every_artist_of_the_track_is_published_with_its_uri(world):
     """The player draws each name of the artist line as a link to its own page
     (SpotifySource.vue): a track by two artists must name both, in the line's
