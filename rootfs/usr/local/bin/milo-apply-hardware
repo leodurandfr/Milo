@@ -176,6 +176,12 @@ fi
 
 backup_config
 
+# Ensure usb_max_current_enable is present, ahead of the managed blocks so the
+# next apply finds them after it, where this one leaves them.
+if ! grep -q "usb_max_current_enable=1" "$CONFIG_FILE"; then
+    echo "usb_max_current_enable=1" >> "$CONFIG_FILE"
+fi
+
 # =============================================================================
 # Audio configuration
 # =============================================================================
@@ -277,11 +283,6 @@ if [[ "$POWER_BUTTON_ENABLED" == "True" ]]; then
 gpio=${POWER_BUTTON_LED_GPIO}=op,dl
 # END MILO POWER LED
 EOF
-fi
-
-# Ensure usb_max_current_enable is present
-if ! grep -q "usb_max_current_enable=1" "$CONFIG_FILE"; then
-    echo "usb_max_current_enable=1" >> "$CONFIG_FILE"
 fi
 
 # =============================================================================

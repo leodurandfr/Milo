@@ -33,9 +33,20 @@ print(val if val is not None else '')
 }
 
 # --- Managed-block removal ---
+# The blank lines before the block go with it, since its writer puts one there,
+# and any other run of blank lines is squeezed to one: removing BEGIN..END alone
+# left one more blank line per apply (38 of the server's 109 lines). Rewritten
+# through a sibling renamed over config.txt, as sed -i does.
 remove_block() {
-    local tag="$1"
-    sed -i "/^# BEGIN $tag$/,/^# END $tag$/d" "$CONFIG_FILE"
+    local tag="$1" tmp="$CONFIG_FILE.milo-tmp"
+    cp "$CONFIG_FILE" "$tmp"
+    awk -v begin="# BEGIN $tag" -v end="# END $tag" '
+        skip { if ($0 == end) skip = 0; next }
+        $0 == begin { blank = 0; skip = 1; next }
+        $0 == "" { blank = 1; next }
+        { if (blank) print ""; blank = 0; print }
+    ' "$CONFIG_FILE" > "$tmp"
+    mv -f "$tmp" "$CONFIG_FILE"
 }
 
 # --- Resolve config.txt path (with Pi OS fallback) ---
