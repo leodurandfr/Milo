@@ -46,9 +46,12 @@ install_self() {
 
 # A sudoers policy is validated before it can take effect, and swapped in by
 # rename. sudo >= 1.9.3 does not refuse to run over a policy file with a syntax
-# error — it skips that file — so a malformed one silently drops every grant
-# the satellite holds, and the failure surfaces later as a `sat restart` that
-# answers "a password is required". The staging name ends in `.new`: sudo
+# error — it skips that file — so a malformed one is silently ignored, and what
+# that costs depends on the unit. Where milo-client is the image's first user,
+# the base image's blanket NOPASSWD: ALL (010_pi-nopasswd), which the policy's
+# first rule takes back, is in force again. Elsewhere every grant the satellite
+# holds is gone, surfacing later as a `sat restart` that answers "a password is
+# required". The staging name ends in `.new`: sudo
 # ignores any file in sudoers.d whose name contains a dot, so the
 # half-installed copy is never read as a policy. Same shape as the server's
 # milo-deploy-update.
