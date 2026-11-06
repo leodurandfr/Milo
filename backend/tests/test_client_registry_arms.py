@@ -196,6 +196,23 @@ class TestTheRegistrationUpsert:
         assert registry.get_client(MAC).name == "Canapé"
         assert registry.get_client(MAC).ip == "192.168.1.200"
 
+    async def test_the_update_line_names_the_name_the_registry_kept(
+        self, registry, caplog
+    ):
+        """The journal is the only record of an admission. Logging the fallback
+        the caller passed read as a rename that never happened, right after the
+        adopted identity was applied (measured: "client_updated … (Milō Client)"
+        while the registry held "Test")."""
+        await registry.register_client(MAC, "Test", IP)
+        caplog.clear()
+
+        with caplog.at_level(logging.INFO):
+            await registry.register_client(MAC, "Milō Client", IP)
+
+        line = next(r.getMessage() for r in caplog.records if MAC in r.getMessage())
+        assert "(Test)" in line
+        assert "Milō Client" not in line
+
     async def test_an_empty_name_is_filled_in_rather_than_left_blank(self, registry):
         """A client admitted from a frame carrying no name has none; the next
         registration that has one must supply it, or the speaker stays unnamed

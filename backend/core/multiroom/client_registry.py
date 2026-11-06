@@ -191,7 +191,7 @@ class ClientRegistryService:
                 self._clients[mac_id] = client
                 event_type = RegistryEventType.CLIENT_CONNECTED
 
-            self.logger.info(f"Client {event_type}: {mac_id} ({name})")
+            self.logger.info(f"Client {event_type}: {mac_id} ({client.name})")
 
         # Persist and emit event outside lock
         persisted = await self._persist_state()
