@@ -730,8 +730,8 @@ class TestRecoveryAccessPoint:
 
     @pytest.fixture
     def network(self):
-        """What the gate reads of NetworkService: the AP flag, nothing else."""
-        return SimpleNamespace(hotspot_active=True)
+        """What the gate reads of NetworkService: whether the AP may be up, nothing else."""
+        return SimpleNamespace(recovery_ap_possible=True)
 
     @pytest.fixture
     def settings(self):
@@ -809,7 +809,7 @@ class TestRecoveryAccessPoint:
     ):
         """The kiosk is the owner at the unit itself, a home LAN may well be
         10.42.0.0/24, and an unconfigured unit has nothing yet to protect."""
-        network.hotspot_active = ap_up
+        network.recovery_ap_possible = ap_up
         settings.stored["setup_completed"] = setup_done
 
         assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)

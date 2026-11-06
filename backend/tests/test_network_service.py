@@ -1574,6 +1574,34 @@ async def test_an_access_point_nm_did_not_remove_is_removed_at_the_next_evaluati
     assert service.hotspot_active is False
 
 
+READ_DEVICES = ("-t", "-f", "TYPE,STATE,CONNECTION", "device", "status")
+
+
+@pytest.mark.parametrize("failure", ["timeout", "refused"])
+@pytest.mark.asyncio
+async def test_an_access_point_whose_adoption_could_not_be_read_is_adopted_later(service, failure):
+    """The restart's one look at NM failed, and a failed read counted as "no
+    AP": the AP NM kept stayed up with nothing owning it, `hotspot_active`
+    false, and the recovery gate open to its clients — for good once the link
+    was back, since no evaluation then has an AP to take down. Unread, the gate
+    stays shut; the read is tried again, and the AP adopted then goes down."""
+    nm = FakeNetworkManager(ethernet=True, profiles={HOTSPOT_NAME: "ap"}, active={HOTSPOT_NAME})
+    nm.fail(*READ_DEVICES, answer=(8, "", "Error: NetworkManager is not running.") if failure == "refused" else None)
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.ADOPTION_READ_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        while_unread = await recovery_gate_answer(service)
+        await settle_until(lambda: HOTSPOT_NAME not in nm.active)
+        once_down = await recovery_gate_answer(service)
+        await service.cleanup()
+
+    assert while_unread == 403
+    assert once_down == 200
+    assert service.hotspot_active is False
+
+
 @pytest.mark.parametrize("failure", ["timeout", "refused"])
 @pytest.mark.asyncio
 async def test_a_station_retry_whose_teardown_nm_did_not_carry_out_tries_again(service, failure):

@@ -87,6 +87,12 @@ STATION_RETRY_S = 300.0
 # AP and keeps polling it would otherwise keep the unit off its home network.
 STATION_RETRY_MAX_HOLDS = 2
 
+# How often, and how many times, a restart that could not read whether NM kept
+# the access point up reads it again. Until one read answers, the recovery gate
+# counts the AP as up.
+ADOPTION_READ_TRIES = 5
+ADOPTION_READ_RETRY_S = 10.0
+
 # The bound on each nmcli call that creates and activates the access point.
 HOTSPOT_NMCLI_TIMEOUT_S = 20.0
 
@@ -155,6 +161,9 @@ class NetworkService:
         self.state_machine = state_machine
         self.settings_service = settings_service
         self._hotspot_active: bool = False
+        # True while a restart could not read whether NM kept an AP up: neither
+        # adopted nor ruled out, read again by `_retry_hotspot_adoption`.
+        self._hotspot_unread: bool = False
         # One teardown of the AP at a time: a second one waits for the first,
         # then finds the AP gone, or tries again where the first could not.
         self._hotspot_teardown = asyncio.Lock()
@@ -234,6 +243,12 @@ class NetworkService:
         """Whether the recovery access point is up, being raised, or not yet
         removed — NM carries it, and its clients, until a delete succeeds."""
         return self._hotspot_active
+
+    @property
+    def recovery_ap_possible(self) -> bool:
+        """Whether the AP may be carrying clients: up, or not yet read back
+        after a restart — what the recovery gate refuses on."""
+        return self._hotspot_active or self._hotspot_unread
 
     @contextlib.contextmanager
     def serving_recovery_client(self) -> Iterator[None]:
@@ -924,6 +939,7 @@ class NetworkService:
         keeps the AP owned, with the retry loop armed to take it down again.
         """
         self._hotspot_active = True
+        self._hotspot_unread = False
         try:
             await self._activate_hotspot()
         except Exception as e:
@@ -1073,7 +1089,9 @@ class NetworkService:
         Both recovery effects outlive the process that made them — NM keeps the
         AP up and the radio on across a backend restart — while the flags that
         own them start False, and the teardown and the restore read nothing
-        else. Fails open: what cannot be read is not adopted.
+        else. An override that cannot be read is not adopted; an AP that cannot
+        be read is neither adopted nor ruled out (`_hotspot_unread`), and read
+        again once `initialize()` is past the bus.
         """
         try:
             self._radio_forced_on = await asyncio.to_thread(WIFI_RADIO_FORCED_FILE.exists)
@@ -1082,39 +1100,72 @@ class NetworkService:
         if self._radio_forced_on:
             self.logger.info("WiFi radio is on only for the recovery — switched back off once ethernet returns")
 
-        try:
-            left_up = await self._hotspot_left_up()
-        except (asyncio.TimeoutError, OSError) as e:
-            self.logger.warning("Could not read back an access point left up: %r", e)
-            return
-        if left_up:
-            self._hotspot_active = True
-            self.logger.info("Access point '%s' is up from a previous run — adopted", HOTSPOT_NAME)
+        left_up = await self._hotspot_left_up()
+        if left_up is None:
+            self._hotspot_unread = True
+        elif left_up:
+            self._adopt_hotspot()
 
-    async def _hotspot_left_up(self) -> bool:
+    def _adopt_hotspot(self) -> None:
+        self._hotspot_active = True
+        self.logger.info("Access point '%s' is up from a previous run — adopted", HOTSPOT_NAME)
+
+    async def _retry_hotspot_adoption(self) -> None:
+        """Read again whether NM kept an AP up, after a restart that could not
+        tell. An AP adopted here is taken down at once if the link is back: no
+        evaluation would otherwise come, the link having nothing left to change.
+        An AP raised meanwhile settles the question (`_start_hotspot`)."""
+        for _ in range(ADOPTION_READ_TRIES):
+            await asyncio.sleep(ADOPTION_READ_RETRY_S)
+            if not self._hotspot_unread:
+                return
+            left_up = await self._hotspot_left_up()
+            if left_up is None:
+                continue
+            self._hotspot_unread = False
+            if left_up:
+                self._adopt_hotspot()
+                self._arm_station_retry()
+                await self.evaluate_reachability()
+            return
+        self.logger.error(
+            "Could not read whether access point '%s' is up after %d tries"
+            " — its clients stay refused by the recovery gate",
+            HOTSPOT_NAME, ADOPTION_READ_TRIES,
+        )
+
+    async def _hotspot_left_up(self) -> Optional[bool]:
         """Whether wlan0 carries this unit's own AP, up or still activating —
         NM finishes an activation whether or not its caller is still there.
+        None when nmcli could not say: unknown is not "no AP".
 
         The name alone is not proof: a station profile can carry it too (one
         made by hand to join a speaker's `Milō`), and adopting that would read
         `hotspot_active` on a unit that raised nothing. Only `ap` mode is ours.
         """
-        rc, stdout, _ = await self._run_nmcli(
-            "-t", "-f", "TYPE,STATE,CONNECTION", "device", "status"
-        )
+        try:
+            rc, stdout, _ = await self._run_nmcli(
+                "-t", "-f", "TYPE,STATE,CONNECTION", "device", "status"
+            )
+            if rc != 0:
+                self.logger.warning("nmcli device status failed (rc=%s) — an access point left up is unknown", rc)
+                return None
+            if not any(
+                fields[2] == HOTSPOT_NAME and (fields[1] == "connected" or fields[1].startswith("connecting"))
+                for fields in map(_parse_nmcli_line, stdout.split("\n"))
+                if len(fields) >= 3
+            ):
+                return False
+            rc, stdout, _ = await self._run_nmcli(
+                "-t", "-f", "802-11-wireless.mode", "connection", "show", HOTSPOT_NAME
+            )
+        except (asyncio.TimeoutError, OSError) as e:
+            self.logger.warning("Could not read back an access point left up: %r", e)
+            return None
         if rc != 0:
-            self.logger.warning("nmcli device status failed (rc=%s) — an access point left up is not adopted", rc)
-            return False
-        if not any(
-            fields[2] == HOTSPOT_NAME and (fields[1] == "connected" or fields[1].startswith("connecting"))
-            for fields in map(_parse_nmcli_line, stdout.split("\n"))
-            if len(fields) >= 3
-        ):
-            return False
-        rc, stdout, _ = await self._run_nmcli(
-            "-t", "-f", "802-11-wireless.mode", "connection", "show", HOTSPOT_NAME
-        )
-        return rc == 0 and _parse_nmcli_line(stdout)[-1] == "ap"
+            self.logger.warning("nmcli connection show failed (rc=%s) — an access point left up is unknown", rc)
+            return None
+        return _parse_nmcli_line(stdout)[-1] == "ap"
 
     async def _has_active_connection(self) -> Optional[bool]:
         """True/False if any Ethernet or WiFi client (non-AP) connection is
@@ -1400,8 +1451,9 @@ class NetworkService:
         The adoption comes first: the priming spawns the first evaluation, which
         must already see an AP left up. It is an nmcli read, so it stands outside
         the bus's `try` and does not fail with it. An adopted AP's home-network
-        retry starts last, after the bus's fate: a bus that fails runs
-        `cleanup()`, which would end it.
+        retry, or the read again of one that could not be read, starts last,
+        after the bus's fate: a bus that fails runs `cleanup()`, which would
+        end it.
 
         Returns True if at least the system bus connection succeeded. Even
         when individual interfaces are missing (e.g. boards without wlan0),
@@ -1436,6 +1488,8 @@ class NetworkService:
         finally:
             if self._hotspot_active:
                 self._arm_station_retry()
+            elif self._hotspot_unread:
+                self._bg.spawn(self._retry_hotspot_adoption(), label="hotspot_adoption_read")
 
     async def cleanup(self) -> None:
         """Detach every listener and disconnect the bus. Idempotent."""

@@ -130,7 +130,8 @@ class RecoveryAccessPointGate:
     owner can always reach a unit that lost its network — which lets anyone in
     radio range reach it too, and this API authenticates nobody. A route whose
     effect outlives the outage (SSH, the `milo` password, which is sudo's) is
-    therefore refused to 10.42.0.0/24 while the AP is up, once setup is done:
+    therefore refused to 10.42.0.0/24 while the AP may be up — up, or not yet
+    read back after a restart (`recovery_ap_possible`) — once setup is done:
     the first-boot wizard runs over that same AP. Routes the AP exists for stay
     open.
 
@@ -146,7 +147,7 @@ class RecoveryAccessPointGate:
         self.settings_service = settings_service
 
     async def __call__(self, request: Request) -> None:
-        if self.network_service is None or not self.network_service.hotspot_active:
+        if self.network_service is None or not self.network_service.recovery_ap_possible:
             return
         if not is_recovery_ap_client(request.scope):
             return
