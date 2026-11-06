@@ -242,6 +242,31 @@ class TestTheRegistrationUpsert:
         assert registry.get_client(MAC).volume_control is False
 
 
+class TestTheZoneCreation:
+    """`create_zone`: what a client brings into a zone it is created in."""
+
+    async def test_a_new_member_shares_the_zone_equalizer(self, registry):
+        """The route that sets the override does not check the client is in a
+        zone, so a standalone client can carry it. Brought into a zone that way,
+        it is skipped by every zone EQ edit and the EQ tab addresses it on its
+        own, as though the user had detached it — `add_client_to_zone` already
+        clears the flag; a zone created around the client has to as well."""
+        for mac in (MAC, OTHER):
+            await registry.register_client(mac, mac, IP)
+        await registry.set_client_eq_independent(MAC, True)
+        seen = []
+        registry.subscribe(AsyncMock(side_effect=lambda t, d: seen.append((t, d))))
+
+        await registry.create_zone("z1", "Salon", [MAC, OTHER])
+
+        assert registry.get_client(MAC).eq_independent is False
+        announced = [
+            d["client"] for t, d in seen
+            if t == RegistryEventType.CLIENT_UPDATED and d["mac_id"] == MAC
+        ]
+        assert announced and announced[-1]["eq_independent"] is False
+
+
 class TestTheDeparture:
     """`unregister_client`: the zone bookkeeping and the EQ record it takes with it."""
 

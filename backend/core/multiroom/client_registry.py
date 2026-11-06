@@ -575,9 +575,11 @@ class ClientRegistryService:
             self._zones[zone_id] = zone
 
             # Update client zone_id references (EQ records are left untouched —
-            # the access layer applies the neutral zone EQ to each member)
+            # the access layer applies the neutral zone EQ to each member). A
+            # member shares the zone's EQ, as in add_client_to_zone.
             for cid in client_ids:
                 self._clients[cid].zone_id = zone_id
+                self._clients[cid].eq_independent = False
             moved = self._clients_moved_since(marks)
 
         await self._persist_state()
