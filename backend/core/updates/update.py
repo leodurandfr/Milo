@@ -1958,30 +1958,28 @@ class UpdateService(VersionService):
 
 
     async def _get_debian_codename(self) -> str:
-        """Detects the Debian version of the system (bookworm, trixie, etc.)"""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "bash", "-c", "source /etc/os-release && echo $VERSION_CODENAME",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+        """The Debian release this unit runs (bookworm, trixie, ...), read from /etc/os-release.
+
+        Raises when it cannot be read: snapcast publishes one .deb per release,
+        and another release's package is not the pinned dependency for this one.
+        `_update_multiroom` reports the exception as the update's failure.
+        """
+        proc = await asyncio.create_subprocess_exec(
+            "bash", "-c", "source /etc/os-release && echo $VERSION_CODENAME",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        codename = stdout.decode().strip()
+        if proc.returncode != 0 or not codename:
+            raise RuntimeError(
+                f"Debian codename unreadable from /etc/os-release: {stderr.decode().strip() or 'empty'}"
             )
-
-            stdout, _ = await proc.communicate()
-            codename = stdout.decode().strip()
-
-            if codename:
-                self.update_logger.info(f"Detected Debian codename: {codename}")
-                return codename
-            else:
-                self.update_logger.warning("Could not detect Debian codename, using 'bookworm' as fallback")
-                return "bookworm"
-
-        except Exception as e:
-            self.update_logger.error(f"Error detecting Debian codename: {e}, using 'bookworm' as fallback")
-            return "bookworm"
+        self.update_logger.info(f"Detected Debian codename: {codename}")
+        return codename
 
     async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
-        """Downloads a snapcast component (.deb) with auto Debian detection"""
+        """Downloads a snapcast component (.deb) built for this unit's Debian release."""
         debian_codename = await self._get_debian_codename()
 
         # Determine package name according to component

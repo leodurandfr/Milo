@@ -619,17 +619,31 @@ class TestGetDebianCodename:
         assert result == "trixie"
 
     @pytest.mark.asyncio
-    async def test_empty_output_fallback(self, update_service):
+    async def test_an_unreadable_codename_fails_the_multiroom_update(self, update_service):
+        """No codename, no snapcast update: the .deb is built per Debian release.
+
+        If this fails, a unit whose /etc/os-release names no codename installs
+        another release's package — bookworm's, under a trixie image — with a
+        green update, or downloads before anything has said which one it needs.
+        """
         proc = _make_mock_proc(stdout=b"\n")
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            result = await update_service._get_debian_codename()
-        assert result == "bookworm"
+        stop = AsyncMock(return_value=True)
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+                patch("backend.core.updates.update.aiohttp.ClientSession") as session, \
+                patch.object(update_service, "_stop_service", stop):
+            result = await update_service._update_multiroom(TestUpdateMultiroom.STATUS)
+
+        assert result["success"] is False
+        assert "codename" in result["error"]
+        session.assert_not_called()
+        stop.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_exception_fallback(self, update_service):
-        with patch("asyncio.create_subprocess_exec", side_effect=Exception("fail")):
-            result = await update_service._get_debian_codename()
-        assert result == "bookworm"
+    async def test_a_failed_read_is_not_a_codename(self, update_service):
+        proc = _make_mock_proc(returncode=1, stdout=b"trixie\n")
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            with pytest.raises(RuntimeError, match="codename"):
+                await update_service._get_debian_codename()
 
 
 class TestGetCurrentCommit:
@@ -4152,7 +4166,8 @@ class TestDownloadSnapcastComponent:
         the caller no `temp_dir` to release — and must therefore not have made
         one."""
         made = []
-        with patch("tempfile.mkdtemp", side_effect=lambda **kw: made.append(1)):
+        with patch.object(update_service, "_get_debian_codename", return_value="trixie"), \
+                patch("tempfile.mkdtemp", side_effect=lambda **kw: made.append(1)):
             result = await update_service._download_snapcast_component("snapproxy", "0.31.0")
 
         assert result["success"] is False
