@@ -677,6 +677,27 @@ class TestAFailingSaveNeverBlocksAnEnd:
         assert rig.session_ends() == ["idle_timeout"]
         assert rig.state()["session"] is None
 
+    async def test_a_stopped_skip_with_a_failing_save_still_moves_the_resume_point(
+        self, rig, monkeypatch, caplog
+    ):
+        """The resume point is published before the write: answering the skip
+        as failed would contradict the second already on screen."""
+        await self.playing_a(rig)
+        clock = VirtualClock()
+        monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(clock.sleep))
+        await rig.command("pause")
+        await clock.advance(121)                       # the session ends, the episode is kept
+        await settle()
+        assert rig.state()["session"] is None
+        caplog.clear()
+
+        with caplog.at_level("ERROR"):
+            result = await rig.command("skip", {"seconds": 30})
+
+        assert result["success"] is True
+        assert rig.state()["resume"]["position_ms"] == 670_000
+        assert "Progress save failed: [Errno 28] No space left on device" in caplog.text
+
 
 class TestAPausedEpisodeReplacedByAnother:
     """Pausing arms the auto-stop timer; starting another episode must disarm

@@ -435,27 +435,29 @@ class PodcastSource(MpvAudioSource):
             await self._read_playhead(session)
 
     async def _save_progress(self, session: Optional[PodcastSession]) -> None:
-        """Save the session's position to the progress file. Best-effort: every
-        end saves first, and a disk that refuses the write costs this save,
-        never the end."""
+        """Save the session's position to the progress file."""
         if not isinstance(session, PodcastSession) or session.position <= 0:
             return
-        try:
-            await self._write_progress(session.episode, session.position, session.duration)
-        except Exception as e:
-            self._logger.error(f"Progress save failed: {e}")
+        await self._write_progress(session.episode, session.position, session.duration)
 
     async def _write_progress(self, episode: Dict[str, Any], position: int, duration: int) -> None:
+        """Best-effort: every end saves first and a moved resume point is
+        already published, so a disk that refuses the write costs this write,
+        never the message that made it."""
         podcast_info = episode.get('podcast', {})
-        await self._podcast_data.update_playback_progress(
-            episode_uuid=episode['uuid'],
-            position=position,
-            duration=duration,
-            podcast_uuid=podcast_info.get('uuid', ''),
-            episode_name=episode.get('name', ''),
-            podcast_name=podcast_info.get('name', ''),
-            image_url=episode.get('image_url', '')
-        )
+        try:
+            await self._podcast_data.update_playback_progress(
+                episode_uuid=episode['uuid'],
+                position=position,
+                duration=duration,
+                podcast_uuid=podcast_info.get('uuid', ''),
+                episode_name=episode.get('name', ''),
+                podcast_name=podcast_info.get('name', ''),
+                image_url=episode.get('image_url', '')
+            )
+        except Exception as e:
+            self._logger.error(f"Progress save failed: {e}")
+            return
         self._logger.debug(f"Saved progress: {position}/{duration}s")
 
     async def _cleanup(self) -> None:
