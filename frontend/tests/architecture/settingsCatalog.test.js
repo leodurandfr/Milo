@@ -32,20 +32,13 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import { stripComments } from '../helpers/stripComments.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
 const MODAL = join(SRC_DIR, 'components/settings/SettingsModal.vue');
 
 const source = readFileSync(MODAL, 'utf8');
-
-/** Comments are stripped: a rule must read code, never the prose above it. */
-function stripComments(text) {
-  return text
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-}
 
 const CODE = stripComments(source);
 
