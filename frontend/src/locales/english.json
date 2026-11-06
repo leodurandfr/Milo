@@ -178,6 +178,7 @@
         "pushFailed": "Milō could not reach the speaker over its setup network. Move it closer, then try again.",
         "noGateway": "Milō joined the speaker's setup network but got no address from it. Restart the speaker, then try again.",
         "hotspotConnectFailed": "Milō could not join the speaker's setup network. Check that the speaker is on and nearby, then try again.",
+        "adoptionTimeout": "Configuring the speaker took too long. If it does not appear among your speakers shortly, restart it, then try again.",
         "internalError": "Something went wrong on Milō while configuring this speaker. Try again."
       }
     },

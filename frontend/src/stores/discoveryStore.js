@@ -16,9 +16,10 @@ import { apiCall } from '@/services/apiCall';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 const POLL_INTERVAL_MS = 10000;
-// Worst-case server-side adoption: ~30s hotspot connect + ~20s push + ~30s
-// restore wifi → ~80s. Add headroom so the request doesn't dangle if a step
-// stalls just below its own timeout.
+// The backend answers an adoption by its ADOPTION_DEADLINE
+// (backend/core/multiroom/wifi_adoption.py); this waits past it so that answer,
+// a timeout included, is the one the wizard shows. Held above it by
+// backend/tests/architecture/test_proxy_timeouts.py.
 const ADOPT_TIMEOUT_MS = 120000;
 
 export const useDiscoveryStore = defineStore('discovery', () => {

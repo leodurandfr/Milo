@@ -129,16 +129,19 @@ async def test_a_target_wifi_other_than_the_servers_own_is_not_judged_by_it(adop
 class _Proc:
     """One spawned process, scripted."""
 
-    def __init__(self, returncode, stdout, stderr, hangs=False):
+    def __init__(self, returncode, stdout, stderr, hangs=False, takes=0.0):
         self.returncode = returncode
         self._out = stdout.encode()
         self._err = stderr.encode()
         self._hangs = hangs
+        self._takes = takes
         self.killed = False
 
     async def communicate(self):
         if self._hangs:
             await asyncio.sleep(3600)
+        if self._takes:
+            await asyncio.sleep(self._takes)
         return self._out, self._err
 
     def kill(self):
@@ -164,8 +167,8 @@ class _Spawns:
         self.scripted = {}
         self.procs = []
 
-    def script(self, match: str, returncode=0, stdout="", stderr="", hangs=False):
-        self.scripted[match] = (returncode, stdout, stderr, hangs)
+    def script(self, match: str, returncode=0, stdout="", stderr="", hangs=False, takes=0.0):
+        self.scripted[match] = (returncode, stdout, stderr, hangs, takes)
 
     async def __call__(self, program, *args, **kwargs):
         argv = (program, *args)
@@ -227,6 +230,7 @@ def speaker(monkeypatch):
 
         def __init__(self):
             self.status = 200
+            self.takes = 0.0
             self.posts = []
 
     speaker = _Speaker()
@@ -236,6 +240,8 @@ def speaker(monkeypatch):
             self.status = speaker.status
 
         async def __aenter__(self):
+            if speaker.takes:
+                await asyncio.sleep(speaker.takes)
             return self
 
         async def __aexit__(self, *exc):
@@ -283,7 +289,7 @@ async def _adopt(service):
 class TestAdoptionOrchestration:
     """The server leaves its own network to reach the speaker — and must come back.
 
-    What breaks when these fail: `_adopt_impl` walks the server off its home
+    What breaks when these fail: `_adopt_by` walks the server off its home
     wifi onto the speaker's setup hotspot, and the `finally` that deletes the
     temporary profile and brings the home connection back is the only thing that
     returns it. If it stops firing, a wifi server sits on a hotspot that stops
@@ -385,8 +391,8 @@ class TestAdoptionOrchestration:
     async def test_a_failed_association_is_cleaned_up_on_its_own_path(
         self, adopting, spawns
     ):
-        """`_connect_to_hotspot` raises before the `try/finally` is entered, so
-        its cleanup is a second, separate site — one that is easy to forget."""
+        """`_connect_to_hotspot` raises before any lease or push: the server has
+        already left home, so the same restore must follow the earliest failure."""
         spawns.script(f"connection up {ADOPTION_PROFILE}", returncode=4, stderr="no such network")
 
         with pytest.raises(AdoptionError) as exc:
@@ -528,3 +534,182 @@ class TestWhichConnectionIsRestored:
         await _adopt(adopting)
 
         assert spawns.argv_containing("connection", "up", "Chez:Moi")
+
+
+class _Clock:
+    """The event loop's clock, moved by hand.
+
+    Every budget the adoption keeps is read off `loop.time()` — its deadline,
+    each `wait_for`, every `asyncio.sleep` the fakes above spend — so moving this
+    one clock moves them all, and nothing here waits for real time.
+    """
+
+    STEP = 0.1
+
+    def __init__(self, monkeypatch):
+        loop = asyncio.get_running_loop()
+        self._start = loop.time()
+        self._ticks = 0
+        monkeypatch.setattr(loop, "time", self.time)
+
+    def time(self) -> float:
+        return self._start + self._ticks * self.STEP
+
+    @property
+    def elapsed(self) -> float:
+        return self._ticks * self.STEP
+
+    async def run_until(self, elapsed: float) -> None:
+        """Let every timer due before `elapsed` fire, in order, and what it wakes run."""
+        while self.elapsed < elapsed - self.STEP / 2:
+            self._ticks += 1
+            for _ in range(20):
+                await asyncio.sleep(0)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        # Pass or fail, what the test started ends on this clock: handed back to
+        # real time, a restore still pending would sleep its 30 s for real.
+        await self.run_until(self.elapsed + 300)
+        return False
+
+
+class TestTheAdoptionDeadline:
+    """The adoption answers before the wizard gives up on it.
+
+    What breaks when these fail: every step has its own cap (each nmcli 10 s,
+    the association and the restore 30 s, the push 20 s), and stalled just under
+    each of them the steps add up past the client's ADOPT_TIMEOUT_MS. The wizard
+    then shows a failure of its own — no code, the generic message — while the
+    backend carries on and a success, or the real cause, reaches nobody. Bounded
+    by ADOPTION_DEADLINE instead, with one exception that matters more than the
+    answer: the return to the server's own WiFi, which, cut, strands a WiFi-only
+    server on a hotspot that stops broadcasting when the speaker reboots.
+
+    Consumer: `stores/discoveryStore.js::adoptSpeaker`, which waits
+    ADOPT_TIMEOUT_MS (held above the deadline by
+    `tests/architecture/test_proxy_timeouts.py`).
+    """
+
+    @staticmethod
+    def _every_step_at_its_cap(adopting, spawns, speaker):
+        """Each step stalls just under its own cap: ~104 s before the restore."""
+        async def profile_read():
+            await asyncio.sleep(19.9)  # NetworkService: two nmcli at 10 s each
+            return MAISON
+
+        adopting.network_service.get_active_wifi_profile = profile_read
+        spawns.script("connection show --active", stdout=ACTIVE_WIFI_SERVER, takes=9.9)
+        spawns.script("connection delete", takes=9.9)
+        spawns.script("connection add", takes=9.9)
+        spawns.script(f"connection up {ADOPTION_PROFILE}", takes=29.9)
+        spawns.script("ip -4 route show default", stdout=GATEWAY_LINE, takes=4.9)
+        spawns.script("connection up Maison", takes=29.9)
+        speaker.takes = 19.9
+
+    @staticmethod
+    def _hold_marks(adopting):
+        """The recovery hold, as the list of its entry and its release."""
+        marks = []
+
+        @contextlib.asynccontextmanager
+        async def recovery_held():
+            marks.append("held")
+            yield
+            marks.append("released")
+
+        adopting.network_service.recovery_held = recovery_held
+        return marks
+
+    async def test_a_stalled_adoption_answers_at_its_deadline_and_still_comes_home(
+        self, adopting, spawns, speaker, monkeypatch
+    ):
+        """The deadline lands during the push: the answer is a timeout, the
+        hung push is let go, and the restore runs to its end after the answer."""
+        self._every_step_at_its_cap(adopting, spawns, speaker)
+        marks = self._hold_marks(adopting)
+
+        async with _Clock(monkeypatch) as clock:
+            answer = asyncio.create_task(_adopt(adopting))
+            await clock.run_until(wifi_adoption.ADOPTION_DEADLINE + 0.5)
+
+            assert answer.done(), f"no answer {clock.elapsed:.1f}s in"
+            with pytest.raises(AdoptionError) as exc:
+                answer.result()
+            assert exc.value.code == "adoption_timeout"
+            assert marks == ["held"], "the restore was cut, or never started"
+
+            await clock.run_until(wifi_adoption.ADOPTION_DEADLINE + 60)
+
+            restore = spawns.index_of("connection", "up", "Maison")
+            assert spawns.indexes_of("connection", "delete", ADOPTION_PROFILE)[-1] < restore
+            assert not spawns.procs[restore].killed
+            assert marks == ["held", "released"]
+
+    async def test_a_speaker_that_accepted_is_reported_adopted_while_home_is_restored(
+        self, adopting, spawns, speaker, monkeypatch
+    ):
+        """The push succeeded and the restore straddles the deadline: the
+        speaker is already rebooting onto the house, so the answer is a success,
+        sent at the deadline while the restore goes on."""
+        self._every_step_at_its_cap(adopting, spawns, speaker)
+        marks = self._hold_marks(adopting)
+        speaker.takes = 9.9
+
+        async with _Clock(monkeypatch) as clock:
+            answer = asyncio.create_task(_adopt(adopting))
+            await clock.run_until(wifi_adoption.ADOPTION_DEADLINE + 0.5)
+
+            assert answer.done(), f"no answer {clock.elapsed:.1f}s in"
+            assert answer.result() == {"ssid": HOTSPOT_NAME, "gateway": "10.42.0.1"}
+            assert marks == ["held"]
+
+            await clock.run_until(wifi_adoption.ADOPTION_DEADLINE + 60)
+
+            assert not spawns.procs[spawns.index_of("connection", "up", "Maison")].killed
+            assert marks == ["held", "released"]
+
+    async def test_an_adoption_queued_behind_another_gives_up_without_leaving_home(
+        self, adopting, spawns, speaker, monkeypatch
+    ):
+        """A second request waits for the first, restore included — and when its
+        own deadline passes first, it answers and never touches the network."""
+        self._every_step_at_its_cap(adopting, spawns, speaker)
+
+        async with _Clock(monkeypatch) as clock:
+            first = asyncio.create_task(_adopt(adopting))
+            await clock.run_until(30)
+            second = asyncio.create_task(_adopt(adopting))
+            await clock.run_until(30 + wifi_adoption.ADOPTION_DEADLINE + 0.5)
+
+            assert second.done(), f"no answer {clock.elapsed:.1f}s in"
+            with pytest.raises(AdoptionError) as exc:
+                second.result()
+            assert exc.value.code == "adoption_timeout"
+
+            await clock.run_until(30 + wifi_adoption.ADOPTION_DEADLINE + 120)
+
+            assert first.done()
+            assert len(spawns.argv_containing("connection", "add")) == 1
+            assert len(spawns.argv_containing("connection", "show", "--active")) == 1
+
+    async def test_an_association_cut_by_the_deadline_is_killed_before_the_restore(
+        self, adopting, spawns, speaker, monkeypatch
+    ):
+        """Left running, `nmcli connection up` keeps steering wlan0 onto the
+        speaker's hotspot while the restore asks for the home network."""
+        monkeypatch.setattr(wifi_adoption, "HOTSPOT_CONNECT_TIMEOUT", 2 * wifi_adoption.ADOPTION_DEADLINE)
+        spawns.script(f"connection up {ADOPTION_PROFILE}", hangs=True)
+
+        async with _Clock(monkeypatch) as clock:
+            answer = asyncio.create_task(_adopt(adopting))
+            await clock.run_until(wifi_adoption.ADOPTION_DEADLINE + 0.5)
+
+            with pytest.raises(AdoptionError) as exc:
+                answer.result()
+            assert exc.value.code == "adoption_timeout"
+            association = spawns.index_of("connection", "up", ADOPTION_PROFILE)
+            assert spawns.procs[association].killed
+            assert spawns.index_of("connection", "up", "Maison") > association

@@ -47,7 +47,8 @@ class AdoptSpeakerRequest(BaseModel):
 
 
 # Map AdoptionError.code → HTTP status. 4xx = caller/state issue, 502 = the
-# server is fine but an upstream step (speaker hotspot, push, gateway) failed.
+# server is fine but an upstream step (speaker hotspot, push, gateway) failed,
+# 504 = the steps had not settled by the adoption's deadline.
 # Anything not listed falls through to 500 (genuinely internal).
 _ADOPTION_CLIENT_ERROR_CODES = {
     "invalid_ssid": 400,
@@ -59,6 +60,7 @@ _ADOPTION_CLIENT_ERROR_CODES = {
     "push_failed": 502,
     "no_gateway": 502,
     "hotspot_connect_failed": 502,
+    "adoption_timeout": 504,
 }
 
 

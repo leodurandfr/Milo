@@ -178,6 +178,7 @@
         "pushFailed": "Milō n'a pas pu joindre le haut-parleur par son réseau de configuration. Rapprochez-le, puis réessayez.",
         "noGateway": "Milō a rejoint le réseau de configuration du haut-parleur sans en obtenir d'adresse. Redémarrez le haut-parleur, puis réessayez.",
         "hotspotConnectFailed": "Milō n'a pas pu rejoindre le réseau de configuration du haut-parleur. Vérifiez qu'il est allumé et à proximité, puis réessayez.",
+        "adoptionTimeout": "La configuration du haut-parleur a pris trop de temps. S'il n'apparaît pas bientôt parmi vos haut-parleurs, redémarrez-le, puis réessayez.",
         "internalError": "Une erreur est survenue sur Milō pendant la configuration de ce haut-parleur. Réessayez."
       }
     },

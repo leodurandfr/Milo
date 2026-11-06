@@ -178,6 +178,7 @@
         "pushFailed": "O Milō não conseguiu contactar o altifalante através da rede de configuração. Aproxime-o e tente novamente.",
         "noGateway": "O Milō ligou-se à rede de configuração do altifalante, mas não obteve nenhum endereço. Reinicie o altifalante e tente novamente.",
         "hotspotConnectFailed": "O Milō não conseguiu ligar-se à rede de configuração do altifalante. Verifique se está ligado e por perto e tente novamente.",
+        "adoptionTimeout": "A configuração do altifalante demorou demasiado. Se não aparecer em breve entre os seus altifalantes, reinicie-o e tente novamente.",
         "internalError": "Ocorreu um erro no Milō ao configurar este altifalante. Tente novamente."
       }
     },

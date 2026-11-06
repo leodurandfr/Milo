@@ -26,12 +26,19 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.core.multiroom.wifi_adoption import ADOPTION_DEADLINE
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 NETWORK_SH = REPO_ROOT / "provisioning" / "network.sh"
 FRONTEND_SRC = REPO_ROOT / "frontend" / "src"
 
 NGINX_DEFAULT_READ_TIMEOUT_S = 60
+
+# What separates the backend's deadline, counted from when the handler starts,
+# from the client's, counted from when the request left: nginx, uvicorn, the
+# event loop, and the answer's way back.
+ANSWER_MARGIN_S = 10
 
 HEREDOC_RE = re.compile(r"write_nginx_site\(\)\s*\{.*?<< 'EOF'\n(.*?)\nEOF\n", re.DOTALL)
 LOCATION_RE = re.compile(r"^\s*location\s+(?:(=|\^~|~\*|~)\s+)?(\S+)\s*\{", re.MULTILINE)
@@ -189,6 +196,24 @@ def test_client_timeouts_fit_the_proxy():
                 f"{'does not proxy it' if not loc.proxies else f'cuts it at {loc.read_timeout_s:g} s'}"
             )
     assert not short, "\n".join(short)
+
+
+def test_the_client_outwaits_the_adoption_deadline():
+    """The adoption answers by ADOPTION_DEADLINE; the wizard must still be listening.
+
+    Fails when `ADOPT_TIMEOUT_MS` (stores/discoveryStore.js) comes down to, or
+    `ADOPTION_DEADLINE` (core/multiroom/wifi_adoption.py) goes up to, within
+    ANSWER_MARGIN_S of the other: the client then gives up on its own and shows
+    the generic message, while the backend's answer — a success, or the step
+    that failed — reaches nobody. Nginx waiting longer than the client is
+    `test_client_timeouts_fit_the_proxy`'s.
+    """
+    adopt = [t for t in _client_timeouts() if t.url == "/api/discovery/adopt-speaker"]
+    assert len(adopt) == 1, adopt
+    assert ADOPTION_DEADLINE + ANSWER_MARGIN_S <= adopt[0].ms / 1000, (
+        f"{adopt[0].file} waits {adopt[0].ms} ms for an adoption the backend may "
+        f"answer at {ADOPTION_DEADLINE:g} s"
+    )
 
 
 def test_api_locations_forward_the_same_headers():

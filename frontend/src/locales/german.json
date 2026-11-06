@@ -178,6 +178,7 @@
         "pushFailed": "Milō konnte den Lautsprecher über sein Einrichtungsnetzwerk nicht erreichen. Stellen Sie ihn näher auf und versuchen Sie es erneut.",
         "noGateway": "Milō hat sich mit dem Einrichtungsnetzwerk des Lautsprechers verbunden, aber keine Adresse erhalten. Starten Sie den Lautsprecher neu und versuchen Sie es erneut.",
         "hotspotConnectFailed": "Milō konnte sich nicht mit dem Einrichtungsnetzwerk des Lautsprechers verbinden. Prüfen Sie, ob er eingeschaltet und in der Nähe ist, und versuchen Sie es erneut.",
+        "adoptionTimeout": "Die Einrichtung des Lautsprechers hat zu lange gedauert. Wenn er nicht bald unter Ihren Lautsprechern erscheint, starten Sie ihn neu und versuchen Sie es erneut.",
         "internalError": "Beim Einrichten dieses Lautsprechers ist auf Milō ein Fehler aufgetreten. Versuchen Sie es erneut."
       }
     },

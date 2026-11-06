@@ -22,6 +22,7 @@ export const ADOPTION_ERROR_KEYS = {
   push_failed: 'multiroom.adopt.errors.pushFailed',
   no_gateway: 'multiroom.adopt.errors.noGateway',
   hotspot_connect_failed: 'multiroom.adopt.errors.hotspotConnectFailed',
+  adoption_timeout: 'multiroom.adopt.errors.adoptionTimeout',
   internal_error: 'multiroom.adopt.errors.internalError',
 };
 

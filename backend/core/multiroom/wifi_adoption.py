@@ -24,10 +24,16 @@ the caller's responsibility (UI) to handle the brief outage. The whole switch
 runs inside `NetworkService.recovery_held()`: off its home network, a
 WiFi-only server reads "no link", and the recovery AP it would raise takes the
 one radio from under the adoption.
+
+The request is answered by ADOPTION_DEADLINE whatever the steps cost, and the
+return to the server's own WiFi is the one thing that deadline never cuts: it
+runs to its end after the answer if it must, still under the lock and the hold.
 """
 import asyncio
+import contextlib
 import logging
 import re
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import aiohttp
@@ -35,6 +41,7 @@ import aiohttp
 from backend.core.network.service import (
     ADOPTION_PROFILE, HOTSPOT_NAME, OWN_PROFILES, _parse_nmcli_line, is_rebuildable_wifi_profile,
 )
+from backend.shared.background import BackgroundTaskSet
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +68,13 @@ BECOME_CLIENT_TIMEOUT = 20.0
 
 WLAN_INTERFACE = "wlan0"
 
+# The adoption is answered within this, counted from the request. Each step
+# above is capped, but stalled just under every cap they add up to ~170 s,
+# restore included: past the client's ADOPT_TIMEOUT_MS
+# (frontend/src/stores/discoveryStore.js, held above this by
+# tests/architecture/test_proxy_timeouts.py).
+ADOPTION_DEADLINE = 100.0
+
 
 class AdoptionError(Exception):
     """Adoption failure with a stable code for UI mapping."""
@@ -71,6 +85,14 @@ class AdoptionError(Exception):
         self.detail = detail
 
 
+@dataclass
+class _Verdict:
+    """What an adoption settled before the server's WiFi was restored."""
+
+    result: Optional[dict] = None
+    error: Optional[AdoptionError] = None
+
+
 class WifiAdoptionService:
     """Orchestrates wifi-based adoption of a fresh Milō speaker."""
 
@@ -78,6 +100,10 @@ class WifiAdoptionService:
         self.network_service = network_service
         self.logger = logger
         self._lock = asyncio.Lock()
+        self._bg = BackgroundTaskSet(logger, "wifi_adoption")
+
+    async def cleanup(self) -> None:
+        await self._bg.cancel_all()
 
     async def adopt_speaker(
         self,
@@ -98,29 +124,96 @@ class WifiAdoptionService:
         if not wifi_ssid:
             raise AdoptionError("invalid_target_wifi", "Target wifi SSID is required")
 
-        async with self._lock, self.network_service.recovery_held():
-            # Read inside the hold: entering it lets a raise already under way
-            # finish first.
-            if self.network_service.hotspot_active:
-                raise AdoptionError(
-                    "server_in_hotspot_mode",
-                    "Cannot adopt while broadcasting the setup hotspot",
-                )
-            # The speaker rebuilds its target as a visible wpa-psk profile. Only
-            # the server's own network can be judged from here, a typed one
-            # cannot; read under the lock, while no other adoption holds wlan0.
-            profile = await self.network_service.get_active_wifi_profile()
-            if profile is not None and profile["ssid"] == wifi_ssid and not is_rebuildable_wifi_profile(profile):
-                kind = "hidden" if profile["hidden"] else profile["key_mgmt"]
-                raise AdoptionError(
-                    "unsupported_target_wifi",
-                    f"'{wifi_ssid}' is a {kind} network: the speaker could not rebuild it from its name and key",
-                )
-            return await self._adopt_impl(
-                ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password
+        deadline = asyncio.get_running_loop().time() + ADOPTION_DEADLINE
+        verdict = _Verdict()
+        adoption = self._bg.spawn(
+            self._adopt_by(
+                deadline, verdict, ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password
+            ),
+            label="adopt_speaker",
+        )
+        # Shielded: the deadline ends this wait, never the restore under way.
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout_at(deadline):
+                await asyncio.shield(adoption)
+        if verdict.error is not None:
+            raise verdict.error
+        if verdict.result is None:
+            raise AdoptionError(
+                "adoption_timeout",
+                f"Not settled within {ADOPTION_DEADLINE:.0f}s; the server's WiFi is restored in the background",
+            )
+        return verdict.result
+
+    async def _adopt_by(
+        self,
+        deadline: float,
+        verdict: _Verdict,
+        ssid: str,
+        audio_id: str,
+        speaker_name: str,
+        speaker_type: str,
+        wifi_ssid: str,
+        wifi_password: str,
+    ) -> None:
+        """Settle `verdict` by `deadline`, then bring the server's WiFi back.
+
+        The lock and the recovery hold are let go only once the restore is done,
+        deadline or not: the next adoption and the recovery AP both want the
+        radio the restore is using.
+        """
+        async with contextlib.AsyncExitStack() as held:
+            switched, original_connection = False, None
+            try:
+                async with asyncio.timeout_at(deadline):
+                    await held.enter_async_context(self._lock)
+                    await held.enter_async_context(self.network_service.recovery_held())
+                    await self._refuse_unadoptable(wifi_ssid)
+                    original_connection = await self._get_active_wifi_name()
+                    self.logger.info(
+                        "Adopting speaker '%s' (server wifi='%s', target wifi='%s')",
+                        ssid, original_connection or "<none>", wifi_ssid,
+                    )
+                    switched = True
+                    gateway = await self._join_and_push(
+                        ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password
+                    )
+                verdict.result = {"ssid": ssid, "gateway": gateway}
+            except TimeoutError:
+                self.logger.info("Adoption of '%s' ran out of time", ssid)
+            except AdoptionError as e:
+                verdict.error = e
+            finally:
+                if switched:
+                    await self._cleanup_temp_profile()
+                    await self._restore_connection(original_connection)
+
+        if verdict.result is not None:
+            self.logger.info(
+                "Speaker '%s' adoption succeeded; device will reboot and join '%s'",
+                ssid, wifi_ssid,
             )
 
-    async def _adopt_impl(
+    async def _refuse_unadoptable(self, wifi_ssid: str) -> None:
+        # Read inside the hold: entering it lets a raise already under way
+        # finish first.
+        if self.network_service.hotspot_active:
+            raise AdoptionError(
+                "server_in_hotspot_mode",
+                "Cannot adopt while broadcasting the setup hotspot",
+            )
+        # The speaker rebuilds its target as a visible wpa-psk profile. Only
+        # the server's own network can be judged from here, a typed one
+        # cannot; read under the lock, while no other adoption holds wlan0.
+        profile = await self.network_service.get_active_wifi_profile()
+        if profile is not None and profile["ssid"] == wifi_ssid and not is_rebuildable_wifi_profile(profile):
+            kind = "hidden" if profile["hidden"] else profile["key_mgmt"]
+            raise AdoptionError(
+                "unsupported_target_wifi",
+                f"'{wifi_ssid}' is a {kind} network: the speaker could not rebuild it from its name and key",
+            )
+
+    async def _join_and_push(
         self,
         ssid: str,
         audio_id: str,
@@ -128,41 +221,19 @@ class WifiAdoptionService:
         speaker_type: str,
         wifi_ssid: str,
         wifi_password: str,
-    ) -> dict:
-        original_connection = await self._get_active_wifi_name()
-        self.logger.info(
-            "Adopting speaker '%s' (server wifi='%s', target wifi='%s')",
-            ssid, original_connection or "<none>", wifi_ssid,
-        )
-
-        try:
-            await self._connect_to_hotspot(ssid)
-        except AdoptionError:
-            await self._cleanup_temp_profile()
-            await self._restore_connection(original_connection)
-            raise
-
-        try:
-            gateway = await self._wait_for_default_gateway()
-            if not gateway:
-                raise AdoptionError(
-                    "no_gateway",
-                    f"No default route on {WLAN_INTERFACE} {GATEWAY_WAIT_TIMEOUT:.0f}s "
-                    f"after associating with the speaker hotspot",
-                )
-
-            await self._push_become_client(
-                gateway, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password
+    ) -> str:
+        await self._connect_to_hotspot(ssid)
+        gateway = await self._wait_for_default_gateway()
+        if not gateway:
+            raise AdoptionError(
+                "no_gateway",
+                f"No default route on {WLAN_INTERFACE} {GATEWAY_WAIT_TIMEOUT:.0f}s "
+                f"after associating with the speaker hotspot",
             )
-        finally:
-            await self._cleanup_temp_profile()
-            await self._restore_connection(original_connection)
-
-        self.logger.info(
-            "Speaker '%s' adoption succeeded; device will reboot and join '%s'",
-            ssid, wifi_ssid,
+        await self._push_become_client(
+            gateway, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password
         )
-        return {"ssid": ssid, "gateway": gateway}
+        return gateway
 
     async def _connect_to_hotspot(self, ssid: str) -> None:
         await self._run_nmcli("connection", "delete", ADOPTION_PROFILE)
@@ -309,6 +380,10 @@ class WifiAdoptionService:
                 proc.kill()
             self.logger.error("'ip route show default' timed out")
             return None
+        except asyncio.CancelledError:
+            if proc:
+                proc.kill()
+            raise
         match = re.search(r"default via (\d+\.\d+\.\d+\.\d+)", stdout.decode())
         return match.group(1) if match else None
 
@@ -329,3 +404,9 @@ class WifiAdoptionService:
                 proc.kill()
             self.logger.error("nmcli timed out: nmcli %s", " ".join(args))
             return 124, "", "nmcli timeout"
+        except asyncio.CancelledError:
+            # The adoption's deadline: an association it gave up on must not
+            # carry on under the restore.
+            if proc:
+                proc.kill()
+            raise

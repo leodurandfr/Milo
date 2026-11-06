@@ -199,6 +199,7 @@ async def lifespan(app: FastAPI):
         ("ir_remote", ir_remote_controller.cleanup),
         ("fan", fan_controller.cleanup),
         ("connectivity", get_service("connectivity_service").cleanup),
+        ("wifi_adoption", wifi_adoption_service.cleanup),
         ("network", network_service.cleanup),
         ("crossover", crossover_service.cleanup),
         ("hostname_conflict", get_service("hostname_conflict_service").cleanup),
