@@ -362,7 +362,10 @@ class SystemdServiceManager:
                     self.logger.warning(f"Could not read {what} of {service}: {reply.error_name}")
                     return None
                 values.append(reply.body[0].value)
-        except (OSError, asyncio.TimeoutError) as e:
+        except Exception as e:
+            # dbus-next fails in its own types (AuthError, DBusError, a bare
+            # Exception handed to the pending call when its reader breaks) as
+            # well as OSError and timeouts: each one means "cannot be read".
             self.logger.warning(f"Could not read {what} of {service}: {e!r}")
             return None
         finally:

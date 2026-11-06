@@ -684,7 +684,10 @@ class TestUnitState:
 
             async def call(self, message):
                 calls.append((message.member, message.body))
-                return replies[len(calls) - 1]
+                reply = replies[len(calls) - 1]
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
 
             def disconnect(self):
                 calls.append(("disconnect", None))
@@ -734,6 +737,30 @@ class TestUnitState:
             self._Reply(error="org.freedesktop.DBus.Error.AccessDenied"),
         )
         assert await manager.unit_state("milo-spotify.service") is None
+
+    @pytest.mark.parametrize("failure", ["auth", "dropped", "malformed"])
+    @pytest.mark.parametrize("read", ["unit_state", "ambient_capabilities"])
+    async def test_a_bus_error_is_not_an_answer(self, manager, monkeypatch, failure, read):
+        """dbus-next fails in its own types, not as an OSError: a refused
+        handshake (AuthError), a bus that dropped mid-read (whatever broke the
+        reader is handed to the pending call), a reply without the body asked
+        for. Raised, it escaped the boot sweep's gather and failed the
+        backend's start, and sent the updater's capability check down its
+        generic failure path instead of the "retry the update" it answers."""
+        from dbus_next.errors import AuthError, InvalidMessageError
+        if failure == "auth":
+            async def refuse():
+                raise AuthError("authentication failed")
+            self._bus(monkeypatch, connect=refuse)
+        elif failure == "dropped":
+            self._bus(monkeypatch, InvalidMessageError("got unknown message type"))
+        else:
+            self._bus(
+                monkeypatch,
+                self._Reply(["/org/freedesktop/systemd1/unit/x"]),
+                self._Reply([]),
+            )
+        assert await getattr(manager, read)("milo-spotify.service") is None
 
 
 class TestMainStart:
