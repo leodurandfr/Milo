@@ -11,6 +11,12 @@ Two probes per remote client, run together across the fleet:
   dual-homed satellite answers a probe addressed to its Wi-Fi IP over whichever
   route wins the metric contest, and ICMP never touches the scheduler at all.
 
+The server's own row carries the link its satellites are routed through, the
+one that carries every speaker's stream at once: the interface ``ip route get``
+names, read by NetworkService over D-Bus. Never eth0 because it exists -- an
+``nmcli device disconnect`` leaves it its carrier and its 1000 Mbit/s while the
+traffic has moved to wlan0.
+
 A client that is online but cannot be probed **fails the whole analysis**. The
 buffer is one server-wide value sized by the worst link, so a client left out of
 the reading is a link that was never weighed -- and it is exactly as likely to
@@ -23,12 +29,12 @@ import logging
 import re
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import aiohttp
 
 from backend.config.constants import CLIENT_API_PORT
-from backend.core.multiroom.calibration import ClientReading
+from backend.core.multiroom.calibration import LINK_USABLE_FRACTION, ClientReading
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +52,7 @@ PING_TIMEOUT_S = 1
 EXPECTED_DURATION_S = PING_COUNT * PING_INTERVAL_S + 2
 
 PROBE_TIMEOUT_S = 10
+ROUTE_TIMEOUT_S = 5
 
 # The satellite samples its own scheduling; this is the same measurement taken
 # here for the local speaker. The two trees are independent deployments, so the
@@ -65,6 +72,7 @@ ASSUMED_LINK = "wifi"
 ASSUMED_LINK_SPEED_MBPS = 72.0
 
 _PING_REPLY = re.compile(r"icmp_seq=(\d+).*?time=([\d.]+)\s*ms")
+_ROUTE_DEV = re.compile(r"\bdev\s+(\S+)")
 
 
 class NoRemoteClientError(RuntimeError):
@@ -194,6 +202,33 @@ async def ping(ip: str, count: int = PING_COUNT) -> PingReading:
     return PingReading(p50, worst, loss, _longest_loss_run(set(replies), count))
 
 
+def parse_route_dev(output: str) -> Optional[str]:
+    """The interface `ip -o route get` names, or None when it names none."""
+    match = _ROUTE_DEV.search(output)
+    return match.group(1) if match else None
+
+
+async def routed_interface(ip: str) -> Optional[str]:
+    """The interface this server reaches `ip` by, as the routing table says now."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ip", "-o", "route", "get", ip,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        logger.warning("Could not run ip route get %s: %s", ip, exc)
+        return None
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), ROUTE_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        logger.warning("ip route get %s did not answer", ip)
+        return None
+    finally:
+        _kill_if_running(proc)
+    return parse_route_dev(stdout.decode("utf-8", errors="ignore"))
+
+
 async def _fetch_probe(session: aiohttp.ClientSession, ip: str) -> Dict:
     url = f"http://{ip}:{CLIENT_API_PORT}/probe"
     async with session.get(url, timeout=aiohttp.ClientTimeout(total=PROBE_TIMEOUT_S)) as response:
@@ -285,8 +320,21 @@ async def _measure_remote(session: aiohttp.ClientSession, client) -> Tuple[Clien
 class CalibrationProbeService:
     """Measures the fleet for the calibration model."""
 
-    def __init__(self, client_registry):
+    def __init__(self, client_registry, network_service):
         self._registry = client_registry
+        self._network = network_service
+
+    async def _read_server_link(self, satellite_ips: List[str]):
+        """The narrowest link the satellites are reached by, or None if any of
+        them is reached by a link nothing could read."""
+        interfaces = set(await asyncio.gather(*[routed_interface(ip) for ip in satellite_ips]))
+        if None in interfaces:
+            return None
+        links = [await self._network.read_link(iface) for iface in sorted(interfaces)]
+        if None in links:
+            return None
+        return min(links, key=lambda link: (link.speed_mbps or ASSUMED_LINK_SPEED_MBPS)
+                   * LINK_USABLE_FRACTION[link.kind])
 
     async def measure(self) -> Tuple[List[ClientReading], List[str]]:
         """Read every online client, or fail naming the one that could not be.
@@ -324,9 +372,20 @@ class CalibrationProbeService:
 
         local = next((c for c in online if c.is_local), None)
         if local is not None:
+            server_link = await self._read_server_link([c.ip for c in remote])
+            kind = server_link.kind if server_link else None
+            speed = server_link.speed_mbps if server_link else None
+            signal = server_link.signal_percent if server_link else None
+            if kind is None:
+                kind = ASSUMED_LINK
+                assumed.append(f"{local.name}.link")
+            if speed is None:
+                speed = ASSUMED_LINK_SPEED_MBPS
+                assumed.append(f"{local.name}.link_speed_mbps")
             readings.append(ClientReading(
-                mac_id=local.mac_id, name=local.name, link="ethernet",
-                link_speed_mbps=0.0, rtt_p50_ms=0.0, rtt_max_ms=0.0, signal_percent=None,
+                mac_id=local.mac_id, name=local.name, link=kind,
+                link_speed_mbps=float(speed), rtt_p50_ms=0.0, rtt_max_ms=0.0,
+                signal_percent=float(signal) if signal is not None else None,
                 loss_pct=0.0, sched_max_ms=float(local_sched), is_local=True,
             ))
 

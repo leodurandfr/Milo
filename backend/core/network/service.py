@@ -32,7 +32,8 @@ import asyncio
 import contextlib
 import logging
 import time
-from typing import AsyncIterator, Iterator, List, Optional, Set, Tuple
+from dataclasses import dataclass
+from typing import AsyncIterator, Iterator, List, Literal, Optional, Set, Tuple
 
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
@@ -118,9 +119,14 @@ NM_PATH = "/org/freedesktop/NetworkManager"
 NM_IFACE = "org.freedesktop.NetworkManager"
 NM_DEVICE_IFACE = "org.freedesktop.NetworkManager.Device"
 NM_DEVICE_WIRELESS_IFACE = "org.freedesktop.NetworkManager.Device.Wireless"
+NM_DEVICE_WIRED_IFACE = "org.freedesktop.NetworkManager.Device.Wired"
 NM_ACCESS_POINT_IFACE = "org.freedesktop.NetworkManager.AccessPoint"
 NM_IP4_CONFIG_IFACE = "org.freedesktop.NetworkManager.IP4Config"
 DBUS_PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
+
+# NMDeviceType values `read_link` can weigh.
+NM_DEVICE_TYPE_ETHERNET = 1
+NM_DEVICE_TYPE_WIFI = 2
 
 # Base-Device properties whose change should force a status re-broadcast.
 _DEVICE_BASE_PROPS = {"State", "Ip4Config", "ActiveConnection"}
@@ -128,6 +134,15 @@ _DEVICE_BASE_PROPS = {"State", "Ip4Config", "ActiveConnection"}
 # these in place when DHCP completes, without re-emitting Device.Ip4Config
 # PropertiesChanged, so we must subscribe to the IP4Config object itself.
 _IP4_CONFIG_PROPS = {"AddressData", "Addresses"}
+
+
+@dataclass(frozen=True)
+class InterfaceLink:
+    """What one interface negotiated: its kind, its rate in Mbit/s (None when
+    NM reports none), and for Wi-Fi the associated AP's strength (0-100)."""
+    kind: Literal["ethernet", "wifi"]
+    speed_mbps: Optional[float]
+    signal_percent: Optional[int]
 
 
 class NetworkService:
@@ -1600,6 +1615,49 @@ class NetworkService:
         """
         _, signal = await self._read_active_ap_info()
         return signal
+
+    async def read_link(self, iface_name: str) -> Optional[InterfaceLink]:
+        """The link `iface_name` negotiated, read over D-Bus; None when unknown.
+
+        Wi-Fi reports Device.Wireless.Bitrate, the rate this link negotiated —
+        not the AP's MaxBitrate, which is what `nmcli dev wifi` prints as RATE —
+        and never triggers a scan. None with no bus (a dev host), for an
+        interface NM does not manage, or for a type that is neither.
+        """
+        if self._bus is None:
+            return None
+        path = await self._resolve_device_path(iface_name)
+        if not path:
+            return None
+        try:
+            introspect = await self._bus.introspect(NM_SERVICE, path)
+            proxy = self._bus.get_proxy_object(NM_SERVICE, path, introspect)
+            device_type = await proxy.get_interface(NM_DEVICE_IFACE).get_device_type()
+            if device_type == NM_DEVICE_TYPE_ETHERNET:
+                wired = proxy.get_interface(NM_DEVICE_WIRED_IFACE)
+                speed, carrier = await asyncio.gather(wired.get_speed(), wired.get_carrier())
+                return InterfaceLink("ethernet", float(speed) if carrier and speed > 0 else None, None)
+            if device_type == NM_DEVICE_TYPE_WIFI:
+                wireless = proxy.get_interface(NM_DEVICE_WIRELESS_IFACE)
+                bitrate_kbps, ap_path = await asyncio.gather(
+                    wireless.get_bitrate(), wireless.get_active_access_point()
+                )
+                return InterfaceLink(
+                    "wifi",
+                    bitrate_kbps / 1000.0 if bitrate_kbps > 0 else None,
+                    await self._read_strength(ap_path),
+                )
+            return None
+        except Exception as exc:
+            self.logger.warning("Could not read the link of %s over D-Bus: %s", iface_name, exc)
+            return None
+
+    async def _read_strength(self, ap_path: str) -> Optional[int]:
+        if not ap_path or ap_path == "/":
+            return None
+        introspect = await self._bus.introspect(NM_SERVICE, ap_path)
+        ap = self._bus.get_proxy_object(NM_SERVICE, ap_path, introspect)
+        return int(await ap.get_interface(NM_ACCESS_POINT_IFACE).get_strength())
 
     async def _read_active_ap_info(self) -> Tuple[Optional[str], Optional[int]]:
         """Return (ssid, strength) from the cached AP proxy. (None, None) on miss."""

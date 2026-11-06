@@ -165,6 +165,23 @@ def test_lossless_never_falls_back_to_a_lossy_codec():
     assert result.config["codec"] == "flac"
 
 
+def test_a_server_on_a_narrow_wifi_takes_flac_even_on_a_clean_network():
+    """Snapserver sends one PCM stream per speaker, so the server's own link
+    carries all of them at once. Two clean gigabit satellites behind a server
+    whose Wi-Fi negotiated 15 Mbit/s (4.5 usable) cannot take the 6.1 that PCM
+    needs, and the reason has to name the server as the narrow link."""
+    fleet = _wired_fleet()
+    server = next(r for r in fleet if r.is_local)
+    server.link, server.link_speed_mbps = "wifi", 15
+
+    result = compute_configuration(fleet, quality="lossless")
+
+    code, params = result.reasons[0]
+    assert result.config["codec"] == "flac"
+    assert code == "codec_flac_too_narrow"
+    assert params["client"] == server.name
+
+
 def test_every_decision_carries_a_reason_code_and_no_prose():
     """The UI resolves these through i18n, so a reason must be a key plus its
     parameters. A sentence composed here would reach the user untranslated and

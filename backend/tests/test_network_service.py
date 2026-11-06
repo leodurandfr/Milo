@@ -2401,6 +2401,7 @@ AP_PATH = "/org/freedesktop/NetworkManager/AccessPoint/7"
 
 from backend.core.network.service import (            # noqa: E402 — grouped with its block
     DBUS_PROPERTIES_IFACE, NM_ACCESS_POINT_IFACE, NM_DEVICE_IFACE,
+    NM_DEVICE_TYPE_ETHERNET, NM_DEVICE_TYPE_WIFI, NM_DEVICE_WIRED_IFACE,
     NM_DEVICE_WIRELESS_IFACE, NM_IP4_CONFIG_IFACE,
 )
 
@@ -2439,7 +2440,8 @@ class FakeNM:
     """The NetworkManager object tree, as far as this service walks it."""
 
     def __init__(self, *, devices=None, ip4=None, ap_path=AP_PATH,
-                 ssid=b"Freebox-CA3555", strength=71):
+                 ssid=b"Freebox-CA3555", strength=71,
+                 bitrate_kbps=390000, wired_speed=1000, carrier=True):
         self.devices = devices if devices is not None else {
             "eth0": ETH_PATH, "wlan0": WLAN_PATH,
         }
@@ -2462,17 +2464,27 @@ class FakeNM:
                       types.SimpleNamespace(call_get_device_by_ip_iface=get_device)}
         )
         for iface_name, path in self.devices.items():
+            wireless = iface_name == "wlan0"
             ifaces = {NM_DEVICE_IFACE: types.SimpleNamespace(
-                get_ip4_config=self._ip4_getter(path))}
-            if iface_name == "wlan0":
+                get_ip4_config=self._ip4_getter(path),
+                get_device_type=self._const(NM_DEVICE_TYPE_WIFI if wireless
+                                            else NM_DEVICE_TYPE_ETHERNET))}
+            if wireless:
                 ifaces[NM_DEVICE_WIRELESS_IFACE] = types.SimpleNamespace(
-                    get_active_access_point=self._ap_getter())
+                    get_active_access_point=self._ap_getter(),
+                    get_bitrate=self._const(bitrate_kbps))
+            else:
+                ifaces[NM_DEVICE_WIRED_IFACE] = types.SimpleNamespace(
+                    get_speed=self._const(wired_speed), get_carrier=self._const(carrier))
             self.objects[path] = FakeObject(path, ifaces)
         for path in set(self.ip4.values()):
             self.objects[path] = FakeObject(path, {})
         self.objects[AP_PATH] = FakeObject(AP_PATH, {
             NM_ACCESS_POINT_IFACE: types.SimpleNamespace(
-                get_ssid=self._const(ssid), get_strength=self._const(strength))
+                get_ssid=self._const(ssid), get_strength=self._const(strength),
+                # What `nmcli dev wifi` prints as RATE: the AP's ceiling, measured
+                # at 270000 while the link itself had negotiated 390000.
+                get_max_bitrate=self._const(270000))
         })
 
     def _ip4_getter(self, device_path):
@@ -2640,6 +2652,67 @@ async def test_cleanup_detaches_every_handler_and_drops_the_bus(service, wired):
     assert nm.props(IP4_ETH).handlers == []
     assert nm.disconnected is True
     assert service._bus is None
+
+
+@pytest.mark.asyncio
+async def test_a_wifi_link_reads_the_negotiated_rate_not_the_access_points_ceiling(service, wired):
+    """The multiroom analysis weighs the server's link by this rate. `nmcli dev
+    wifi` RATE is the AP's MaxBitrate — a constant of the access point, not of
+    this link — and its implicit rescan blocks the radio for seconds, in the
+    middle of the ping window the analysis is timing."""
+    nm = FakeNM(bitrate_kbps=390000, strength=64)
+    fake, patcher = with_nmcli(wired)
+    with with_nm(nm), patcher:
+        await service.initialize()
+        await settle()
+        before = len(fake.calls)
+        link = await service.read_link("wlan0")
+
+    assert (link.kind, link.speed_mbps, link.signal_percent) == ("wifi", 390.0, 64)
+    assert fake.calls[before:] == []
+
+
+@pytest.mark.asyncio
+async def test_a_wired_link_reads_its_negotiated_speed(service, wired):
+    nm = FakeNM(wired_speed=100)
+    fake, patcher = with_nmcli(wired)
+    with with_nm(nm), patcher:
+        await service.initialize()
+        await settle()
+        link = await service.read_link("eth0")
+
+    assert (link.kind, link.speed_mbps, link.signal_percent) == ("ethernet", 100.0, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nm_kwargs, iface", [
+    ({"carrier": False}, "eth0"),
+    ({"bitrate_kbps": 0}, "wlan0"),
+])
+async def test_a_link_with_no_rate_reports_none_rather_than_zero(service, wired, nm_kwargs, iface):
+    """A zero would be read as a link with no room at all; unknown is what the
+    caller can declare as assumed."""
+    nm = FakeNM(**nm_kwargs)
+    fake, patcher = with_nmcli(wired)
+    with with_nm(nm), patcher:
+        await service.initialize()
+        await settle()
+        link = await service.read_link(iface)
+
+    assert link.speed_mbps is None
+
+
+@pytest.mark.asyncio
+async def test_a_link_nothing_can_read_is_unknown(service, wired):
+    """No bus (a dev host), or an interface NM does not manage: fail open."""
+    assert await service.read_link("eth0") is None
+
+    nm = FakeNM()
+    fake, patcher = with_nmcli(wired)
+    with with_nm(nm), patcher:
+        await service.initialize()
+        await settle()
+        assert await service.read_link("tailscale0") is None
 
 
 @pytest.mark.asyncio

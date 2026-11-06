@@ -196,9 +196,11 @@ def _pick_codec(
     """Choose the codec and say why.
 
     Lossless takes PCM only when the weakest link is both *wide* enough for every
-    client's uncompressed stream and *clean*. Width alone is not enough: PCM puts
-    twice FLAC's bytes on the wire, and on a link that already drops packets the
-    extra traffic buys retransmissions. A single speaker on a 72 Mbit/s Wi-Fi has
+    client's uncompressed stream and *clean*. The server's link is one of the
+    candidates: snapserver sends one stream per client, so its link carries all
+    of them at once. Width alone is not enough: PCM puts twice FLAC's bytes on
+    the wire, and on a link that already drops packets the extra traffic buys
+    retransmissions. A single speaker on a 72 Mbit/s Wi-Fi has
     ample room for 3 Mbit/s and still wants the smaller stream.
 
     It falls back to FLAC, never to a lossy codec: "lossless" is the user's
@@ -209,7 +211,7 @@ def _pick_codec(
 
     remote = [r for r in readings if not r.is_local]
     needed = PCM_BITRATE_MBPS * max(1, len(remote))
-    weakest = min(remote, key=lambda r: r.link_speed_mbps * LINK_USABLE_FRACTION[r.link])
+    weakest = min(readings, key=lambda r: r.link_speed_mbps * LINK_USABLE_FRACTION[r.link])
     usable = weakest.link_speed_mbps * LINK_USABLE_FRACTION[weakest.link]
     params = {"needed": round(needed, 1), "usable": round(usable), "client": weakest.name}
 

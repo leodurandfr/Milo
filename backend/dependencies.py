@@ -98,7 +98,10 @@ def _create_service(name: str) -> Any:
             state_machine=get_service("audio_state_machine"),
             probe_service=_import(
                 "backend.core.multiroom.calibration_probe", "CalibrationProbeService"
-            )(client_registry=get_service("client_registry_service")),
+            )(
+                client_registry=get_service("client_registry_service"),
+                network_service=get_service("network_service"),
+            ),
         ),
         "camilladsp_service": lambda: _import("backend.core.equalizer", "CamillaDSPService")(
             settings_service=get_service("settings_service")

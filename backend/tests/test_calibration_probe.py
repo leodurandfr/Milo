@@ -15,10 +15,13 @@ import pytest
 from backend.core.multiroom import calibration_probe as probe_module
 from backend.core.multiroom.calibration_probe import (
     ASSUMED_LINK,
+    ASSUMED_LINK_SPEED_MBPS,
     CalibrationProbeError,
     CalibrationProbeService,
     NoRemoteClientError,
+    parse_route_dev,
 )
+from backend.core.network.service import InterfaceLink
 
 
 def _client(name, ip, is_local=False):
@@ -31,6 +34,24 @@ class _Registry:
 
     def get_online_clients(self):
         return self._clients
+
+
+class _Network:
+    """NetworkService's public link read, answering per interface."""
+
+    def __init__(self, links=None):
+        self._links = links if links is not None else {
+            "eth0": InterfaceLink(kind="ethernet", speed_mbps=1000.0, signal_percent=None),
+        }
+        self.asked = []
+
+    async def read_link(self, iface):
+        self.asked.append(iface)
+        return self._links.get(iface)
+
+
+def _service(clients, network=None):
+    return CalibrationProbeService(_Registry(clients), network or _Network())
 
 
 def _probe_payload(kind="ethernet", speed=1000, sched_max=0.4):
@@ -49,17 +70,28 @@ def fast_local_sample():
 
 
 @pytest.fixture
+def routed_over():
+    """`ip route get` answering one interface for every satellite."""
+    def install(iface="eth0"):
+        return patch.object(probe_module, "routed_interface", new=AsyncMock(return_value=iface))
+    with install() as default:
+        yield install, default
+
+
+@pytest.fixture
 def healthy_ping():
     with patch.object(probe_module, "ping", new=AsyncMock(return_value=probe_module.PingReading(0.3, 1.2, 0.0, 0))):
         yield
 
 
-async def test_a_fleet_that_answers_is_read_without_assumptions(fast_local_sample, healthy_ping):
+async def test_a_fleet_that_answers_is_read_without_assumptions(
+    fast_local_sample, healthy_ping, routed_over
+):
     """The nominal path: every field comes from a measurement, so `assumed` is
     empty and the UI has nothing to qualify."""
-    service = CalibrationProbeService(_Registry([
+    service = _service([
         _client("Canapé", "10.0.0.2"), _client("Milō", "127.0.0.1", is_local=True),
-    ]))
+    ])
 
     with patch.object(probe_module, "_fetch_probe", new=AsyncMock(return_value=_probe_payload())):
         readings, assumed = await service.measure()
@@ -76,9 +108,7 @@ async def test_one_unreachable_speaker_fails_the_whole_analysis(fast_local_sampl
     confident proposal sized against links that were never the constraint. The
     failure names the client so the user can act on it.
     """
-    service = CalibrationProbeService(_Registry([
-        _client("Canapé", "10.0.0.2"), _client("Bureau", "10.0.0.3"),
-    ]))
+    service = _service([_client("Canapé", "10.0.0.2"), _client("Bureau", "10.0.0.3")])
 
     async def one_fails(session, ip):
         if ip == "10.0.0.3":
@@ -96,7 +126,7 @@ async def test_a_satellite_that_cannot_time_itself_is_refused_not_defaulted(
     """Scheduling decides the client's ALSA buffer, which is the largest single
     term in the budget. Substituting a default would hand the model a number
     nothing measured, on the one machine that failed to measure itself."""
-    service = CalibrationProbeService(_Registry([_client("Canapé", "10.0.0.2")]))
+    service = _service([_client("Canapé", "10.0.0.2")])
     payload = _probe_payload()
     payload["scheduling"] = {}
 
@@ -112,7 +142,7 @@ async def test_an_unnamed_link_is_assumed_wireless_and_declared(fast_local_sampl
     server knows least about, and the optimistic direction is the one that costs
     audio rather than latency.
     """
-    service = CalibrationProbeService(_Registry([_client("Canapé", "10.0.0.2")]))
+    service = _service([_client("Canapé", "10.0.0.2")])
 
     with patch.object(probe_module, "_fetch_probe",
                       new=AsyncMock(return_value=_probe_payload(kind=None, speed=None))):
@@ -122,6 +152,71 @@ async def test_an_unnamed_link_is_assumed_wireless_and_declared(fast_local_sampl
     assert "Canapé.link" in assumed and "Canapé.link_speed_mbps" in assumed
 
 
+async def test_the_server_row_carries_the_link_its_satellites_are_reached_by(
+    fast_local_sample, healthy_ping, routed_over
+):
+    """The server's link carries every speaker's stream at once, so it is read
+    off the interface the satellites are actually routed through -- not eth0
+    because it exists: during an `nmcli device disconnect` eth0 keeps its
+    carrier and its 1000 while the traffic has moved to wlan0."""
+    install, _ = routed_over
+    network = _Network({
+        "eth0": InterfaceLink(kind="ethernet", speed_mbps=1000.0, signal_percent=None),
+        "wlan0": InterfaceLink(kind="wifi", speed_mbps=15.0, signal_percent=58),
+    })
+    service = _service([
+        _client("Canapé", "10.0.0.2"), _client("Milō", "127.0.0.1", is_local=True),
+    ], network)
+
+    with install("wlan0"), \
+            patch.object(probe_module, "_fetch_probe", new=AsyncMock(return_value=_probe_payload())):
+        readings, assumed = await service.measure()
+
+    server = next(r for r in readings if r.is_local)
+    assert (server.link, server.link_speed_mbps, server.signal_percent) == ("wifi", 15.0, 58)
+    assert network.asked == ["wlan0"]
+    assert assumed == []
+
+
+@pytest.mark.parametrize("routed, links, kind_known", [
+    (None, None, False),
+    ("eth0", {}, False),
+    ("eth0", {"eth0": InterfaceLink(kind="ethernet", speed_mbps=None, signal_percent=None)}, True),
+])
+async def test_a_server_link_that_cannot_be_read_is_assumed_and_declared(
+    fast_local_sample, healthy_ping, routed_over, routed, links, kind_known
+):
+    """No route, no NetworkManager, or a link with no rate: the server row gets
+    the same pessimistic default a satellite would, and says so -- never the
+    Ethernet it used to claim without reading anything."""
+    install, _ = routed_over
+    service = _service([
+        _client("Canapé", "10.0.0.2"), _client("Milō", "127.0.0.1", is_local=True),
+    ], _Network(links))
+
+    with install(routed), \
+            patch.object(probe_module, "_fetch_probe", new=AsyncMock(return_value=_probe_payload())):
+        readings, assumed = await service.measure()
+
+    server = next(r for r in readings if r.is_local)
+    assert server.link_speed_mbps == ASSUMED_LINK_SPEED_MBPS
+    assert "Milō.link_speed_mbps" in assumed
+    if kind_known:
+        assert server.link == "ethernet" and "Milō.link" not in assumed
+    else:
+        assert server.link == ASSUMED_LINK and "Milō.link" in assumed
+
+
+@pytest.mark.parametrize("output, iface", [
+    ("192.168.1.60 dev eth0 src 192.168.1.55 uid 1000 \\    cache ", "eth0"),
+    ("192.168.1.60 via 192.168.1.1 dev wlan0 src 192.168.1.71 uid 1000", "wlan0"),
+    ("RTNETLINK answers: Network is unreachable", None),
+    ("", None),
+])
+def test_the_routed_interface_is_read_from_ip_route_get(output, iface):
+    assert parse_route_dev(output) == iface
+
+
 async def test_a_house_with_only_the_local_speaker_raises_its_own_error(fast_local_sample):
     """"Nothing here to tune" and "a speaker did not answer" are opposite facts.
 
@@ -129,7 +224,7 @@ async def test_a_house_with_only_the_local_speaker_raises_its_own_error(fast_loc
     speaker could not be measured -- and the string written for this case could
     never appear.
     """
-    service = CalibrationProbeService(_Registry([_client("Milō", "127.0.0.1", is_local=True)]))
+    service = _service([_client("Milō", "127.0.0.1", is_local=True)])
 
     with pytest.raises(NoRemoteClientError):
         await service.measure()
