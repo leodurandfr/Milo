@@ -11,9 +11,20 @@
 //
 // Purely visual: activation is the browser's own click, so a scroll, a fling or
 // the tap that stops one never activates anything the native rules would not.
+//
+// The shrink must not shrink the hit box with it: a press on the element's last
+// pixels found the pointer outside it at release, and the browser sent the click
+// to the parent (a mouse: the common ancestor of down and up; a finger: whatever
+// lies under the tap), so the element pressed and did nothing. While pressed, an
+// invisible pseudo-element (`.press-reach`) reaches back to the unshrunk box.
 
 const PRESS_SHRINK_PX = 4
 const PRESS_MIN_VISIBLE_MS = 150
+// The press curve (--transition-press) overshoots its target by 16.3 %.
+const PRESS_OVERSHOOT = 1.163
+// A touch's click follows its pointerup by a frame or two; the reach outlives
+// the release by this much so the tap still lands on it.
+const PRESS_REACH_LINGER_MS = 300
 
 // From the border box the ResizeObserver reports, never a read of the layout:
 // a page mounting or coming back holds hundreds of these, and a read between two
@@ -35,6 +46,14 @@ function updateScale(el, width, height) {
   if (el.style.getPropertyValue('--press-scale') !== value) {
     el.style.setProperty('--press-scale', value)
   }
+
+  // How far the unshrunk edge lies outside the shrunk box, at the curve's
+  // deepest point, in the element's own (scaled) coordinates.
+  const deepest = 1 - (1 - scale) * PRESS_OVERSHOOT
+  const reach = `${Math.ceil(Math.max(width, height) / 2 * (1 / deepest - 1)) + 1}px`
+  if (el.style.getPropertyValue('--press-reach') !== reach) {
+    el.style.setProperty('--press-reach', reach)
+  }
 }
 
 function setupPress(el, modifiers) {
@@ -43,6 +62,9 @@ function setupPress(el, modifiers) {
   } else if (modifiers.media) {
     setupMedia(el)
   } else {
+    // Only the element itself shrinks here: a flat row keeps its box, and a
+    // card's box stays put around its shrinking cover.
+    el._pressReaches = true
     observeScale(el, el)
   }
   listenPress(el)
@@ -81,6 +103,12 @@ function observeScale(el, measured) {
 function listenPress(el) {
   el.classList.add('interactive-press')
 
+  const dropReach = () => {
+    window.clearTimeout(el._pressReachTimer)
+    el.classList.remove('press-reach')
+  }
+  el._pressDropReach = dropReach
+
   // Held until release, with a minimum so quick taps still show feedback.
   // Raw window timer (window.* prefix): a directive has no component lifecycle,
   // so useTimer() can't be used here. Fire-and-forget CSS-class removal,
@@ -89,6 +117,10 @@ function listenPress(el) {
     if (el._pressPointerId == null) return
     el._pressPointerId = null
     document.removeEventListener('scroll', el._pressScrollHandler, true)
+    if (el._pressReaches) {
+      window.clearTimeout(el._pressReachTimer)
+      el._pressReachTimer = window.setTimeout(dropReach, PRESS_REACH_LINGER_MS)
+    }
     const remaining = PRESS_MIN_VISIBLE_MS - (performance.now() - el._pressStart)
     if (remaining <= 0) {
       el.classList.remove('pressed')
@@ -102,6 +134,7 @@ function listenPress(el) {
   // don't bubble, hence the capture phase on document.
   el._pressScrollHandler = () => {
     release()
+    dropReach()
     el.classList.remove('pressed')
   }
 
@@ -112,11 +145,18 @@ function listenPress(el) {
     el._pressPointerId = e.pointerId
     el._pressStart = performance.now()
     el.classList.add('pressed')
+    if (el._pressReaches) {
+      window.clearTimeout(el._pressReachTimer)
+      el.classList.add('press-reach')
+    }
     document.addEventListener('scroll', el._pressScrollHandler, { capture: true, passive: true })
   }
 
   el._pressEndHandler = (e) => {
-    if (e.pointerId === el._pressPointerId) release()
+    if (e.pointerId !== el._pressPointerId) return
+    release()
+    // The browser took the gesture (a scroll): no click is coming.
+    if (e.type === 'pointercancel') dropReach()
   }
 
   el.addEventListener('pointerdown', el._pressHandler, { passive: true })
@@ -124,6 +164,8 @@ function listenPress(el) {
   el.addEventListener('pointercancel', el._pressEndHandler, { passive: true })
   // A mouse leaving the element releases it, as :active does.
   el.addEventListener('pointerleave', el._pressEndHandler, { passive: true })
+  // The click has landed: the reach has done its work.
+  el.addEventListener('click', dropReach, { passive: true })
 }
 
 function cleanupPress(el) {
@@ -137,17 +179,23 @@ function cleanupPress(el) {
     el.removeEventListener('pointerup', el._pressEndHandler)
     el.removeEventListener('pointercancel', el._pressEndHandler)
     el.removeEventListener('pointerleave', el._pressEndHandler)
+    el.removeEventListener('click', el._pressDropReach)
     document.removeEventListener('scroll', el._pressScrollHandler, true)
     window.clearTimeout(el._pressReleaseTimer)
+    window.clearTimeout(el._pressReachTimer)
     delete el._pressHandler
     delete el._pressEndHandler
     delete el._pressScrollHandler
     delete el._pressPointerId
     delete el._pressStart
     delete el._pressReleaseTimer
+    delete el._pressReachTimer
+    delete el._pressDropReach
   }
-  el.classList.remove('interactive-press', 'press-media', 'pressed')
+  delete el._pressReaches
+  el.classList.remove('interactive-press', 'press-media', 'pressed', 'press-reach')
   el.style.removeProperty('--press-scale')
+  el.style.removeProperty('--press-reach')
 }
 
 export const vPress = {
