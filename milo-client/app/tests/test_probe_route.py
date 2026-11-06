@@ -99,7 +99,9 @@ def test_the_link_is_read_from_the_row_nmcli_does_not_translate():
     from two commands is how a unit comes to report a rate from one access
     point and a strength from another.
     """
-    listing = " :130 Mbit/s:87\n*:270 Mbit/s:61\n"
+    listing = ("CAPABILITIES.SPEED:270 Mb/s\n"
+               "AP[1].IN-USE: \nAP[1].ACTIVE:non\nAP[1].SIGNAL:87\n"
+               "AP[2].IN-USE:*\nAP[2].ACTIVE:oui\nAP[2].SIGNAL:61\n")
 
     with patch.object(probe_module, "_run", new=AsyncMock(return_value=listing)):
         link = asyncio.run(probe_module._wireless_link("wlan0"))
@@ -131,3 +133,71 @@ def test_the_real_sampler_measures_overshoot_and_not_elapsed_time():
     assert result["samples"] == 20
     assert 0.0 <= result["p50_ms"] < probe_module.SCHED_INTERVAL_S * 1000
     assert result["max_ms"] >= result["p50_ms"]
+
+
+class _Unit:
+    """The processes /probe spawns, answered as nmcli 1.52 answered for the
+    server's own wlan0 on 2026-11-06: the AP list's RATE is the access point's
+    maximum (270), CAPABILITIES.SPEED the rate this link negotiated (NM's
+    Device.Wireless.Bitrate, 433). `nmcli device wifi` rescans whenever its last
+    scan is over 30 s old, unless told `--rescan no`."""
+
+    def __init__(self, iface="wlan0"):
+        self.iface = iface
+        self.scans = 0
+
+    async def __call__(self, *argv, **kwargs):
+        if argv[:4] == ("ip", "-o", "route", "get"):
+            return _Process(f"{argv[4]} dev {self.iface} src 192.168.1.60 uid 1001 \\    cache \n")
+        assert argv[0] == "nmcli", argv
+        if "wifi" in argv:
+            if "--rescan" not in argv or argv[argv.index("--rescan") + 1] != "no":
+                self.scans += 1
+            return _Process(" :130 Mbit/s:87\n*:270 Mbit/s:61\n")
+        if argv[-3:] == ("device", "show", self.iface):
+            return _Process(
+                "CAPABILITIES.CARRIER-DETECT:no\nCAPABILITIES.SPEED:433 Mb/s\n"
+                "AP[1].IN-USE: \nAP[1].SIGNAL:87\nAP[1].RATE:130 Mbit/s\n"
+                "AP[2].IN-USE:*\nAP[2].SIGNAL:61\nAP[2].RATE:270 Mbit/s\n"
+            )
+        return _Process("", returncode=10)
+
+
+class _Process:
+    def __init__(self, stdout, returncode=0):
+        self._stdout = stdout.encode()
+        self.returncode = returncode
+
+    async def communicate(self):
+        return self._stdout, None
+
+
+def test_a_wireless_link_reports_the_rate_it_negotiated_without_scanning(client):
+    """The server sizes PCM against this rate. The AP list's RATE is what the
+    access point could do at best, not what this link runs at, and listing it
+    can start a scan -- which disturbs the very link being measured."""
+    unit = _Unit("wlan0")
+    with patch.object(probe_module.asyncio, "create_subprocess_exec", new=unit), \
+         patch.object(probe_module.Path, "exists", return_value=True):
+        body = client.get("/probe").json()
+
+    assert body["link"]["interface"] == "wlan0"
+    assert (body["link"]["speed_mbps"], body["link"]["signal_percent"]) == (433.0, 61.0)
+    assert unit.scans == 0
+    assert body["unavailable"] == []
+
+
+def test_a_cable_with_no_carrier_reports_no_rate(client):
+    """sysfs answers -1 for an interface with no carrier: a link of -1 Mbit/s
+    is no reading, and the server must assume one rather than divide by it."""
+    unit = _Unit("eth0")
+    sysfs = {"/sys/class/net/eth0/speed": "-1\n"}
+    with patch.object(probe_module.asyncio, "create_subprocess_exec", new=unit), \
+         patch.object(probe_module.Path, "exists", return_value=False), \
+         patch.object(probe_module.Path, "read_text", autospec=True,
+                      side_effect=lambda path, **kw: sysfs[str(path)]):
+        body = client.get("/probe").json()
+
+    assert body["link"]["kind"] == "ethernet"
+    assert body["link"]["speed_mbps"] is None
+    assert "link.speed_mbps" in body["unavailable"]

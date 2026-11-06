@@ -89,13 +89,18 @@ async def _interface_towards(peer: Optional[str]) -> Optional[str]:
 
 
 async def _wireless_link(interface: str) -> Dict[str, Optional[float]]:
-    """Negotiated rate (Mbit/s) and signal quality (%) of the associated AP.
+    """Negotiated rate (Mbit/s) and signal quality (%) of `interface`'s link.
 
-    `iw` is not on the satellite image, so this comes from NetworkManager. The
-    row is picked on IN-USE (`*`), never on ACTIVE: ACTIVE is translated, so a
+    `iw` is not on the satellite image, so this comes from NetworkManager's
+    device, which lists the access points it already knows and never scans --
+    a scan would disturb the very link being measured. The rate is
+    CAPABILITIES.SPEED, the rate this link negotiated (Device.Wireless.Bitrate),
+    never the AP list's RATE: that is the access point's maximum, 270 against a
+    negotiated 390-433 on the same radio (measured 2026-11-06).
+
+    The AP is picked on IN-USE (`*`), never on ACTIVE: ACTIVE is translated, so a
     unit running a French locale answers `oui` and a parser keyed on `yes`
-    silently finds no active network -- reporting an unknown rate on a perfectly
-    healthy radio.
+    silently finds no active network.
 
     Without the rate the server assumes a plain 802.11n link for every Wi-Fi
     satellite, and every analysis on a wireless fleet ends by warning that
@@ -106,21 +111,20 @@ async def _wireless_link(interface: str) -> Dict[str, Optional[float]]:
     WifiSignal bars take. Converting dBm to bars on the frontend would invent a
     curve here that nothing else in the app uses.
     """
-    out = await _run(["nmcli", "-t", "-f", "IN-USE,RATE,SIGNAL", "dev", "wifi"])
+    out = await _run(["nmcli", "-t", "-e", "no", "-f", "CAPABILITIES.SPEED,AP",
+                      "device", "show", interface])
     link: Dict[str, Optional[float]] = {"rate_mbps": None, "signal_percent": None}
     if not out:
         return link
-    for line in out.splitlines():
-        fields = line.split(":")
-        if len(fields) < 3 or fields[0].strip() != "*":
-            continue
-        match = re.match(r"\s*([\d.]+)", fields[1])
-        if match:
-            with contextlib.suppress(ValueError):
-                link["rate_mbps"] = float(match.group(1))
+    fields = dict(line.split(":", 1) for line in out.splitlines() if ":" in line)
+    rate = re.match(r"\s*(\d+)", fields.get("CAPABILITIES.SPEED", ""))
+    if rate and int(rate.group(1)) > 0:
+        link["rate_mbps"] = float(rate.group(1))
+    in_use = next((key[:-len(".IN-USE")] for key, value in fields.items()
+                   if key.endswith(".IN-USE") and value.strip() == "*"), None)
+    if in_use is not None:
         with contextlib.suppress(ValueError):
-            link["signal_percent"] = float(fields[2].strip())
-        break
+            link["signal_percent"] = float(fields.get(f"{in_use}.SIGNAL", "").strip())
     return link
 
 
@@ -175,9 +179,11 @@ def create_probe_router() -> APIRouter:
                 if link["signal_percent"] is None:
                     unavailable.append("link.signal_percent")
             else:
+                # -1 with no carrier: no rate to report.
                 speed = _read(Path(f"/sys/class/net/{interface}/speed"))
                 with contextlib.suppress(TypeError, ValueError):
-                    link["speed_mbps"] = int(speed)
+                    if int(speed) > 0:
+                        link["speed_mbps"] = int(speed)
             if link["speed_mbps"] is None:
                 unavailable.append("link.speed_mbps")
 
