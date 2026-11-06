@@ -354,6 +354,21 @@ def test_a_known_network_keeps_its_label_through_the_structural_rule():
     ) == "Deleting WiFi profile: milo-wifi-1 (ssid=wifi-1)"
 
 
+def test_a_known_network_is_replaced_in_any_case():
+    """A network name reaches a log lowercased as often as verbatim — a Host
+    header is folded before the middleware refuses it — and the SSID names the
+    household all the same. Matched on its exact case only, it stayed in the
+    report under the one spelling nothing else rewrote."""
+    redactor = wl.Redactor.build(
+        client_labels={}, client_names={}, zone_labels={}, zone_names={},
+        share_labels={}, share_names={}, usb_strings={},
+        ssid_labels={"Freebox-Leo": "wifi-1"},
+    )
+    out = redactor("untrusted Host 'freebox-leo.local' refused; FREEBOX-LEO seen")
+    assert "freebox-leo" not in out.lower()
+    assert out.count("wifi-1") == 2
+
+
 def test_a_network_named_like_the_appliance_does_not_rewrite_its_unit_names():
     """An SSID "milo" would turn every `milo-backend` into `wifi-1-backend`.
 

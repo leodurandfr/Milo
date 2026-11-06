@@ -403,19 +403,30 @@ class Redactor:
     `nas-leo` could eat half of it. Values under three characters are skipped:
     a room called "Ho" would rewrite the middle of unrelated words, and
     over-redaction that destroys the log helps nobody either.
+
+    The values in `folded` are matched in any case: a network name reaches a
+    log lowercased as well (a Host header is folded), and still names the
+    household.
     """
 
     MIN_LENGTH = 3
 
-    def __init__(self, replacements: Optional[Dict[str, str]] = None):
+    def __init__(
+        self,
+        replacements: Optional[Dict[str, str]] = None,
+        *,
+        folded: Iterable[str] = (),
+    ):
+        folded = set(folded)
         self._patterns = []
         for value, label in sorted(
             (replacements or {}).items(), key=lambda kv: -len(kv[0])
         ):
             if not value or len(value) < self.MIN_LENGTH:
                 continue
+            flags = re.IGNORECASE if value in folded else 0
             self._patterns.append(
-                (re.compile(rf"(?<!\w){re.escape(value)}(?!\w)"), label)
+                (re.compile(rf"(?<!\w){re.escape(value)}(?!\w)", flags), label)
             )
 
     def __call__(self, text: str) -> str:
@@ -454,7 +465,7 @@ class Redactor:
             if name:
                 replacements[name] = label
         replacements.update(usb_strings)
-        for ssid, label in ssid_labels.items():
-            if not _APPLIANCE_NAME.fullmatch(ssid):
-                replacements[ssid] = label
-        return cls(replacements)
+        ssids = [ssid for ssid in ssid_labels if not _APPLIANCE_NAME.fullmatch(ssid)]
+        for ssid in ssids:
+            replacements[ssid] = ssid_labels[ssid]
+        return cls(replacements, folded=ssids)
