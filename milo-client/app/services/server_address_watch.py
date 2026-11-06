@@ -14,8 +14,7 @@ on WiFi with a new IP, and both satellites sat on `No route to host` until their
 snapclient was restarted by hand. The registration loop next door had followed
 the move on its own, because it re-resolves on every heartbeat.
 
-This closes that asymmetry from the same side. The server's address is compared
-only where a restart is free, in two states:
+This closes that asymmetry from the same side, in two states:
 
 - **No connection to a snapserver.** The server lost the address snapclient
   dialled — its cable went, and it answers on WiFi now. The loss is seen by
@@ -27,27 +26,36 @@ only where a restart is free, in two states:
   6 s on Bureau and 25 s on Canapé on 2026-11-05. Past that minute it falls
   back to every 30 s, since a snapserver stopped for hours (multiroom off) is a
   disconnection too.
-- **Connected, with its ALSA output closed.** snapclient closes it 5 s after
-  its last chunk, which the server stops sending 5 s into a silence. This is
-  how a satellite comes back to the wired address once the cable has returned:
-  it re-dials the literal it holds, and when the server only restarts
-  snapserver it is back in ~1 s (measured twice on 2026-11-05) — too fast to
-  ever be seen disconnected — so it stayed on the WiFi address, through every
-  backend restart, until someone restarted it by hand.
+- **Connected.** This is how a satellite comes back to the server's wired
+  address once its cable has returned. snapclient re-dials the literal it
+  holds, and when the server only restarts snapserver it is back in ~1 s
+  (measured twice on 2026-11-05) — too fast to ever be seen disconnected — so
+  it stayed on the WiFi address, through every backend restart, until someone
+  restarted it by hand. The server publishes `milo.local` on one interface,
+  eth0 whenever it has an IPv4 address (its NetworkManager dispatcher), so an
+  answer other than the stream's own server address is the server preferring
+  another link. Once mDNS has given the same other answer for `SERVER_HOLD`,
+  the stream is restarted, playing or not: the owner chose Ethernet first, at
+  the cost of a few seconds of silence in that room (2026-11-06). Waiting for
+  the room to fall silent instead kept a room that played on the server's WiFi
+  for as long as it played. The hold keeps an answer that does not last —
+  avahi restarts on the other interface at each move — from cutting a room.
+  The stream's server address is read from the socket table, so this path
+  spawns nothing; the lookup, every `SERVER_CHECK_INTERVAL`, is answered from
+  avahi's cache, as the registration's every heartbeat is.
 
 The lookup runs here, in the API process, and never in snapclient's reconnect
 path — which is what the launcher's design protects.
 
-The satellite's own link is followed too, and there a playing room *is* cut: the
-owner chose Ethernet first, at the cost of a few seconds of silence (2026-11-06).
-Losing the cable is left to snapclient, and that half is expected, not measured:
-no satellite cable has been pulled yet. The stream's address goes with the
-cable, snapclient's time sync should fail within 2-3 s (what it did when the
-*server* lost its cable) and its re-dial should leave from the WiFi address —
-but only once the kernel stops choosing eth0's routes, which it keeps marked
-`linkdown` until NetworkManager removes the address unless
-`ignore_routes_with_linkdown` is set, and no image sets it yet. Until a real
-unplug says otherwise, budget seconds to ~25 s for that re-dial.
+The satellite's own link is followed too, under the same choice. Losing the
+cable is left to snapclient, and that half is expected, not measured: no
+satellite cable has been pulled yet. The stream's address goes with the cable,
+snapclient's time sync should fail within 2-3 s (what it did when the *server*
+lost its cable) and its re-dial should leave from the WiFi address — but only
+once the kernel stops choosing eth0's routes, which it keeps marked `linkdown`
+until NetworkManager removes the address unless `ignore_routes_with_linkdown` is
+set, and no image sets it yet. Until a real unplug says otherwise, budget
+seconds to ~25 s for that re-dial.
 
 Getting the cable back moves nothing by itself: new connections prefer eth0
 (metric 100 against the WiFi's 600) but the open one keeps its source, and the
@@ -63,11 +71,11 @@ cooldown, so a return the cable does not keep for `LINK_SETTLE` doubles the
 hold, up to `LINK_HOLD_MAX`, and a stream that stays on the cable that long
 brings it back to `LINK_HOLD`.
 
-Only an IPv4 stream is moved. The launcher's literal is IPv4 (the image resolves
-`.local` through `mdns4_minimal`); an IPv6 stream can exist only on its hostname
-fallback, where snapclient resolved for itself, and the address check replaces
-that hostname with a literal at the unit's next idle moment — after which this
-rule applies.
+Only an IPv4 stream is moved, by either rule. The launcher's literal is IPv4
+(the image resolves `.local` through `mdns4_minimal`); an IPv6 stream can exist
+only on its hostname fallback, where snapclient resolved for itself, and the
+check of a dropped stream replaces that hostname with a literal — after which
+both rules apply.
 """
 import asyncio
 import fcntl
@@ -94,12 +102,13 @@ SNAPSERVER_PORT = 1704
 WIRED_INTERFACE = "eth0"
 WIRED_CARRIER = f"/sys/class/net/{WIRED_INTERFACE}/carrier"
 SIOCGIFADDR = 0x8915
-# snapclient's output, `camilladsp_input` in asound.conf: the Loopback card's
-# playback device 0, subdevice 0, addressed by the card's id like the PCM is.
-LOOPBACK_PLAYBACK_STATUS = "/proc/asound/Loopback/pcm0p/sub0/status"
 
 POLL_INTERVAL = 1  # seconds between two reads of the socket table
-CHECK_INTERVAL = 30  # seconds
+CHECK_INTERVAL = 30  # seconds, without a connection and past the loss window
+# While connected: how often mDNS is asked, and how long it must answer the same
+# other address before the stream is moved there.
+SERVER_CHECK_INTERVAL = 5
+SERVER_HOLD = 10
 # After a lost connection, compare this often for this long: mDNS answers the
 # new address a few seconds after the loss, and snapclient reconnects in < 1 s.
 LOSS_CHECK_INTERVAL = 2
@@ -178,11 +187,6 @@ async def _stream() -> Optional[tuple[str, str]]:
     return None
 
 
-async def _is_connected() -> bool:
-    """True while snapclient holds a connection to a snapserver."""
-    return await _stream() is not None
-
-
 def _wired_route(server: str) -> Optional[str]:
     """eth0's IPv4 address, when it has its carrier and a new connection to
     `server` would leave from it — else None.
@@ -224,19 +228,6 @@ async def _cable_link(stream: Optional[tuple[str, str]]) -> Optional[_Link]:
     if wired is None:
         return _Link.OFF
     return _Link.ON if local == wired else _Link.STRANDED
-
-
-async def _is_playing() -> bool:
-    """False only when snapclient's ALSA output reads closed.
-
-    An unreadable status counts as playing: closed has to be seen, because a
-    guess here is a room cut mid-song.
-    """
-    try:
-        status = await asyncio.to_thread(Path(LOOPBACK_PLAYBACK_STATUS).read_text)
-    except OSError:
-        return True
-    return status.split()[:1] != ["closed"]
 
 
 async def _main_pid() -> int:
@@ -294,7 +285,8 @@ async def restart_snapclient() -> None:
 
 
 async def _reconcile() -> bool:
-    """Restart snapclient if its server address is stale. True if it was restarted."""
+    """Restart a snapclient with no stream if the address it was launched with is
+    stale. True if it was restarted."""
     if _start_owed:
         async with _restart_lock:
             # Read again under the lock: a restart in flight clears its own debt.
@@ -303,11 +295,6 @@ async def _reconcile() -> bool:
             logger.warning("Starting the snapclient a failed restart left stopped")
             await _stop_then_start()
             return True
-
-    # The whole gate, read before anything that spawns or queries: no address
-    # is worth cutting a room for.
-    if await _is_connected() and await _is_playing():
-        return False
 
     running = await _running_server_address()
     if running is None:
@@ -329,8 +316,60 @@ async def _reconcile() -> bool:
     return True
 
 
+async def _server_elsewhere(server: str) -> Optional[str]:
+    """What mDNS answers for the main Milo, when that is not the stream's `server`.
+
+    None for an IPv6 stream, whose server the IPv4 answer cannot be compared
+    with, and when the lookup fails, which says nothing about the server.
+    """
+    if ipaddress.ip_address(server).version != 4:
+        return None
+    try:
+        current = await asyncio.to_thread(resolve_milo_principal)
+    except RuntimeError as e:
+        logger.debug(f"Cannot check the server address: {e}")
+        return None
+    return current if current != server else None
+
+
+class _ServerHold:
+    """Whether mDNS has answered the same other address for the whole hold.
+
+    Counted in readings, which the pacer spaces `SERVER_CHECK_INTERVAL` apart
+    while connected; any other reading starts the hold again.
+    """
+
+    def __init__(self) -> None:
+        self._address: Optional[str] = None
+        self._readings = 0
+
+    def reset(self) -> None:
+        self._address = None
+        self._readings = 0
+
+    def held(self, elsewhere: Optional[str]) -> bool:
+        if elsewhere is None or elsewhere != self._address:
+            self._readings = 0
+        self._address = elsewhere
+        if elsewhere is None:
+            return False
+        self._readings += 1
+        return self._readings > SERVER_HOLD // SERVER_CHECK_INTERVAL
+
+
+async def _follow_server(server: str, hold: _ServerHold) -> bool:
+    """Restart a connected snapclient once the server has held another address."""
+    current = await _server_elsewhere(server)
+    if not hold.held(current):
+        return False
+    hold.reset()
+    logger.warning(f"Main Milo moved {server} -> {current}, restarting snapclient")
+    await restart_snapclient()
+    return True
+
+
 class _Pacer:
-    """Which reads of the socket table also run the address check.
+    """Which reads of the socket table also run an address check.
 
     Counted in polls, not read off a clock: the loop's own passes are the time.
     """
@@ -342,10 +381,10 @@ class _Pacer:
         self._cooling = False
 
     def due(self, connected: bool) -> bool:
+        if connected != self._connected and not self._cooling:
+            self._skip = 0
         if self._connected and not connected:
             self._loss_polls = LOSS_WINDOW // POLL_INTERVAL
-            if not self._cooling:
-                self._skip = 0
         self._connected = connected
         if self._loss_polls:
             self._loss_polls -= 1
@@ -358,6 +397,8 @@ class _Pacer:
         self._cooling = restarted
         if restarted:
             interval = COOLDOWN_INTERVAL
+        elif self._connected:
+            interval = SERVER_CHECK_INTERVAL
         elif self._loss_polls:
             interval = LOSS_CHECK_INTERVAL
         else:
@@ -406,19 +447,26 @@ class _CableHold:
 async def follow_server_address() -> None:
     """Keep snapclient on the server's current address, and on eth0 when it is up."""
     pacer = _Pacer()
+    server = _ServerHold()
     cable = _CableHold()
     while True:
         try:
             stream = await _stream()
+            if stream is None:
+                server.reset()
             restarted = False
             if pacer.due(stream is not None):
                 try:
-                    restarted = await _reconcile()
+                    if stream is None:
+                        restarted = await _reconcile()
+                    else:
+                        restarted = await _follow_server(stream[1], server)
                 finally:
                     pacer.checked(restarted)
             if restarted:
                 cable.restarted()
             elif cable.due(await _cable_link(stream)):
+                server.reset()
                 logger.warning(f"Stream to {stream[1]} still leaves from {stream[0]} with "
                                f"{WIRED_INTERFACE} back, restarting snapclient")
                 try:
