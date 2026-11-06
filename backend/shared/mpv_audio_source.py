@@ -59,10 +59,10 @@ class MpvAudioSource(BaseAudioSource):
     # it did.
     STALL_TIMEOUT_S = 30.0
 
-    # mpv's playhead needs no settling: every anchor an mpv source sets at a
-    # discontinuity is mpv's own word (playback-restart, where a seek landed),
-    # and time-pos agreed with it within 70 ms at every start, pause and resume
-    # measured (2026-11-05: Music Library, Podcast, CD).
+    # mpv's playhead needs no settling: every anchor an mpv source sets is
+    # mpv's own word — where a seek landed, and time-pos re-read as the sound
+    # stops (_handle_feed). A resume adds nothing to correct: mpv's audio
+    # restarts within 2 ms of the command (audio-pts, measured 2026-11-06).
     SETTLES_PLAYHEAD = False
 
     def __init__(self, **kwargs):
@@ -290,7 +290,14 @@ class MpvAudioSource(BaseAudioSource):
             elif name == "property-change":
                 await self._property_changed(session, event.get("name"), event.get("data"))
             if self._session is session:
+                before = session.phase
                 self._sync_phase(session, cause)
+                if before is Phase.PLAYING and session.phase is not Phase.PLAYING:
+                    # The anchor still moves: frozen as it stands, it would
+                    # stop where the wall clock was when this event got its
+                    # turn (behind a whole pause handler, 15-77 ms measured),
+                    # an error every resume carries on.
+                    await self._sync_position(session)
 
     async def _entry_started(self, session: MpvSession, entry: Optional[int]) -> None:
         """mpv started a playlist entry. Default: only the session's own entry
@@ -317,6 +324,10 @@ class MpvAudioSource(BaseAudioSource):
                 EndReason.STREAM_LOST if session.heard else EndReason.LOAD_FAILED,
                 detail=event.get("file_error") or reason,
             )
+
+    async def _sync_position(self, session: Optional[MpvSession]) -> Any:
+        """Hook: read mpv's playhead into the session, as this source maps it
+        (CD: onto the disc). Default: nothing — a live stream has no playhead."""
 
     async def _property_changed(self, session: MpvSession, name: Optional[str], value: Any) -> None:
         """mpv announced a property this source observes, on the session's

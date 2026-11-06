@@ -301,6 +301,25 @@ async def test_every_track_position_maps_through_the_same_lead_in(world):
     assert w.track() == 2
 
 
+async def test_a_stall_past_a_track_boundary_stops_in_the_track_it_reached(world):
+    """mpv's time-pos counts from where the read started, not from the
+    track: when sound stops, the playhead is re-read through the disc's map,
+    so the bar stops in the track the read has reached, at its own second and
+    with its own length. Read raw, a stall 5 s into track 3 showed track 2 at
+    2:35 — or past its end — with mpv's length for the whole read."""
+    w = await world()
+    await _playing_track(w, 2, 10)
+    w.playhead((OFFSETS[2] - OFFSETS[1]) / 75 + 5)
+
+    await w.mpv.stalls()
+    await settle()
+
+    assert w.buffering()
+    assert w.track() == 3
+    assert w.session()["duration_ms"] == 120_000
+    assert abs(w.position_ms() - 5_000) < 1000 / 75
+
+
 # === Commands ===
 
 async def test_a_track_past_the_disc_is_refused(world):

@@ -504,7 +504,7 @@
       "senders": [],
       "duration_ms": 562000,
       "position": {
-       "ms": 6900,
+       "ms": 7900,
        "at": 1790270004.0,
        "rate": 1.0
       }
@@ -632,7 +632,7 @@
       "senders": [],
       "duration_ms": 562000,
       "position": {
-       "ms": 6900,
+       "ms": 7900,
        "at": 1790270004.0,
        "rate": 1.0
       }
@@ -727,6 +727,20 @@
      },
      "multiroom_enabled": false,
      "equalizer_effects_enabled": false
+    }
+   },
+   {
+    "category": "source",
+    "type": "position",
+    "origin": "music_library",
+    "data": {
+     "source": "music_library",
+     "session_id": "session-1",
+     "position": {
+      "ms": 6000,
+      "at": 1790270005.0,
+      "rate": 1.0
+     }
     }
    },
    {
@@ -947,7 +961,7 @@
      "senders": [],
      "duration_ms": 562000,
      "position": {
-      "ms": 6900,
+      "ms": 7900,
       "at": 1790270004.0,
       "rate": 1.0
      }
@@ -3670,7 +3684,7 @@
       "senders": [],
       "duration_ms": 586000,
       "position": {
-       "ms": 75000,
+       "ms": 76000,
        "at": 1790270002.0,
        "rate": 1.0
       }

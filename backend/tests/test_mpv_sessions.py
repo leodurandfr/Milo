@@ -166,6 +166,24 @@ async def test_radio_stream_that_stalls_ends_and_keeps_the_station(radio):
     assert "stream_disconnected" in radio.errors()
 
 
+async def test_radio_stall_publishes_no_playhead(radio, real_watchdog):
+    """A live stream has no position: the playhead the mpv sources re-read
+    when sound stops is the source's own hook, which Radio leaves empty. Read
+    from mpv's time-pos instead, a stall would anchor a progress bar on a live
+    station (the player draws one wherever the state carries a position)."""
+    await radio.select()
+    await radio.tune(FIP)
+    radio.mpv.playhead(42)
+    await radio.tick()
+    assert radio.playing()
+
+    await radio.mpv.stalls()
+    await settle()
+
+    assert radio.buffering()
+    assert radio.session()["position"] is None
+
+
 async def test_radio_stream_that_ends_after_its_sound_is_a_lost_stream(radio):
     """A live stream has no normal end: mpv's `eof` after the first sound is the
     server going away (measured on the unit: a killed server ends in `eof`).

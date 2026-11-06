@@ -386,6 +386,48 @@ class TestTheHandshakePlayhead:
         assert await rig.source.refresh_when_idle() is False
 
 
+class TestThePausedPlayhead:
+    """Where the bar stops at a pause: mpv's paused time-pos, not the anchor
+    extrapolated to whenever the pause event was handled.
+
+    The pause handler writes the progress file before mpv's pause event
+    reaches the actor, and nothing re-anchors under POSITION_TOLERANCE_MS, so
+    an anchor frozen on the wall clock gained the handler's duration at every
+    pause — measured 15-77 ms, carried over each resume — until a tick jumped
+    the bar back ~2 s.
+    """
+
+    async def test_each_pause_stops_on_mpvs_playhead_however_long_the_save(
+        self, rig, monkeypatch
+    ):
+        clock = [0.0]
+        monkeypatch.setattr(audio_source, "wall_time", lambda: 1_700_000_000.0 + clock[0])
+        monkeypatch.setattr(audio_source, "step_reference", lambda: clock[0])
+        save = rig.data.update_playback_progress
+
+        async def slow_save(*args, **kwargs):
+            clock[0] += 0.07
+            return await save(*args, **kwargs)
+
+        rig.data.update_playback_progress = slow_save
+        await rig.select()
+        await rig.play(EPISODE_A)
+        assert rig.playing()
+
+        playhead, stops = 0.0, []
+        for _ in range(3):
+            clock[0] += 6
+            playhead += 6
+            rig.mpv.playhead(playhead)
+            await rig.command("pause")
+            assert rig.phase() == "paused"
+            stops.append(rig.position_ms() - int(playhead * 1000))
+            await rig.command("resume")
+            assert rig.playing()
+
+        assert stops == [0, 0, 0]
+
+
 class TestMpvGoingAwayUnderPlayback:
     async def test_the_position_is_persisted_and_the_episode_kept(self, rig):
         """mpv dying mid-episode is exactly when the owner most wants to come
