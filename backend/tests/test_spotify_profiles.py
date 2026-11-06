@@ -108,6 +108,68 @@ async def test_a_guest_who_casts_is_kept_beside_the_owner(world):
     assert world.state()["details"]["account"] == GUEST
 
 
+async def test_a_profile_forgotten_while_it_is_kept_again_stays_forgotten(world, monkeypatch):
+    """Each daemon run keeps the signed-in account again, off the mailbox; a
+    forget landing while that keep reads state.json must win, or the profile
+    the browser just removed is written back behind it."""
+    from backend.sources.spotify import profiles as profiles_module
+
+    await world.cast_from(GUEST)
+    await world.idle()
+    assert GUEST in kept(world)
+
+    read_started, read_open, read_done = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    real_open = spotify_module.aiofiles.open
+
+    class _HeldRead:
+        def __init__(self, inner):
+            self._inner = inner
+
+        async def __aenter__(self):
+            read_started.set()
+            await read_open.wait()
+            return await self._inner.__aenter__()
+
+        async def __aexit__(self, *exc):
+            result = await self._inner.__aexit__(*exc)
+            read_done.set()
+            return result
+
+    def held_open(path, mode="r", *a, **k):
+        inner = real_open(path, mode, *a, **k)
+        off_the_mailbox = asyncio.current_task() in world.source._bg._tasks
+        if off_the_mailbox and str(path) == str(world.state_file) and not read_started.is_set():
+            return _HeldRead(inner)
+        return inner
+
+    await world.leave()
+    await world.idle()
+    monkeypatch.setattr(spotify_module.aiofiles, "open", held_open)
+    await world.select()
+    await asyncio.wait_for(read_started.wait(), 5)
+
+    save_started, save_open = asyncio.Event(), asyncio.Event()
+    real_save = profiles_module.save_versioned_json
+
+    async def held_save(*a, **k):
+        if not save_started.is_set():
+            save_started.set()
+            await save_open.wait()
+        return await real_save(*a, **k)
+
+    monkeypatch.setattr(profiles_module, "save_versioned_json", held_save)
+    forget = asyncio.create_task(world.source.forget_profile(GUEST))
+    await asyncio.wait_for(save_started.wait(), 5)
+    read_open.set()
+    await asyncio.wait_for(read_done.wait(), 5)
+    await settle()
+    save_open.set()
+    await asyncio.wait_for(forget, 5)
+    await world.idle()
+
+    assert GUEST not in kept(world)
+
+
 async def test_a_profile_spotify_will_not_describe_shows_its_username(world):
     """The profile service failing must not cost the profile: it is kept, and
     named by its username until Spotify describes it."""
@@ -601,7 +663,7 @@ async def test_profiles_round_trip_and_fail_loud_on_a_schema_drift(tmp_path):
     file = tmp_path / "profiles.json"
     profiles = SpotifyProfiles(file)
     await profiles.initialize()
-    await profiles.harvest(ACCOUNT, "blob", 1.0)
+    await profiles.harvest(ACCOUNT, "blob", 1.0, wanted=lambda: True)
     await profiles.set_identity(ACCOUNT, {"spotify_name": "Léo", "avatar_url": None})
 
     reloaded = SpotifyProfiles(file)
@@ -618,9 +680,9 @@ async def test_the_successor_is_the_profile_signed_in_last(tmp_path):
     """Not the one added last: a profile signed in again moves ahead."""
     profiles = SpotifyProfiles(tmp_path / "profiles.json")
     await profiles.initialize()
-    await profiles.harvest(ACCOUNT, "blob", 1.0)
-    await profiles.harvest(GUEST, "blob", 2.0)
-    await profiles.harvest(ACCOUNT, "blob", 3.0)
+    await profiles.harvest(ACCOUNT, "blob", 1.0, wanted=lambda: True)
+    await profiles.harvest(GUEST, "blob", 2.0, wanted=lambda: True)
+    await profiles.harvest(ACCOUNT, "blob", 3.0, wanted=lambda: True)
 
     assert profiles.successor() == ACCOUNT
     await profiles.forget(ACCOUNT)

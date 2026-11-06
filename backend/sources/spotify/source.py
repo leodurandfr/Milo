@@ -1223,9 +1223,12 @@ class SpotifySource(BaseAudioSource):
         return self.success_response()
 
     async def _forget_profile(self, username: str) -> Dict[str, Any]:
-        if self._profiles is None or not await self._profiles.forget(username):
+        if self._profiles is None:
             return self.error_response("Unknown Spotify profile", unknown=True)
+        # Before the store's lock: a keep waiting on it then finds it unwanted.
         self._harvested.discard(username)
+        if not await self._profiles.forget(username):
+            return self.error_response("Unknown Spotify profile", unknown=True)
         self._forget_history(username)
         self._logger.info(f"Spotify profile forgotten ({len(self._profiles)} stored)")
         await self._profiles_changed()
@@ -1334,8 +1337,8 @@ class SpotifySource(BaseAudioSource):
         account = await self._stored_account() or self._persisted
         if account is None:
             return
+        self._harvested.discard(account)
         if self._profiles is not None and await self._profiles.forget(account):
-            self._harvested.discard(account)
             self._forget_history(account)
             self._logger.info(f"Refused Spotify profile forgotten ({len(self._profiles)} stored)")
             await self._profiles_changed()
@@ -1812,8 +1815,9 @@ class SpotifySource(BaseAudioSource):
 
     def _keep_profile(self, account: Optional[str]) -> None:
         """Keep the signed-in account's credentials and when it signed in,
-        once per daemon run. Off the mailbox: it touches only the profiles,
-        never the source."""
+        once per daemon run. Off the mailbox: it writes only the profiles, and
+        reads `_harvested` under their lock, which a forget takes after
+        clearing it."""
         if self._profiles is None or not account or account in self._harvested:
             return
         self._harvested.add(account)
@@ -1826,10 +1830,10 @@ class SpotifySource(BaseAudioSource):
             # Measured: the file is written before /status names the account.
             self._logger.warning("Signed-in account not found in go-librespot's state — profile not kept")
             return
-        if account not in self._harvested:
-            # Forgotten while the file was read: kept again, it would come back.
-            return
-        if await self._profiles.harvest(account, credentials["data"], signed_in_at):
+        # Forgotten meanwhile: kept again, it would come back.
+        if await self._profiles.harvest(
+            account, credentials["data"], signed_in_at, wanted=lambda: account in self._harvested,
+        ):
             self._logger.info(f"Spotify profile kept ({len(self._profiles)} stored)")
             await self._profiles_changed()
         # Read again at every sign-in (once per daemon run): a picture or a

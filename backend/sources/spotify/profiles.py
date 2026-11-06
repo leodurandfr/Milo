@@ -14,7 +14,7 @@ on Milō takes its place (`successor`).
 import asyncio
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
@@ -64,11 +64,16 @@ class SpotifyProfiles:
             return None
         return max(self._profiles, key=lambda username: self._profiles[username]["signed_in_at"])
 
-    async def harvest(self, username: str, credentials: str, at: float) -> bool:
-        """Keep `credentials` for `username`, signed in at `at`; True when the
-        account is new. A known account's blob is refreshed (Spotify rotates
-        it)."""
+    async def harvest(
+        self, username: str, credentials: str, at: float, *, wanted: Callable[[], bool],
+    ) -> bool:
+        """Keep `credentials` for `username`, signed in at `at`, if `wanted()`
+        still says so once the lock is held — a forget waited on before it has
+        had its say; True when the account is new. A known account's blob is
+        refreshed (Spotify rotates it)."""
         async with self._lock:
+            if not wanted():
+                return False
             profile = self._profiles.get(username)
             new = profile is None
             if new:

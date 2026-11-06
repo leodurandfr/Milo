@@ -194,15 +194,16 @@ NOT_CALLBACKS = {
     "_initialize_once": "Music Library's boot init, run as a task under asyncio.shield so a "
                         "selection's timeout cannot cut it: the startup path, not a callback",
 }
-# Coroutines started as tasks that touch no source state, so have nothing to
+# Coroutines started as tasks that write no source state, so have nothing to
 # post — still barred from what only the actor calls, each with its reason.
 STATELESS_TASKS = {
     "_apply_catalog": "Music Library starts or stops Navidrome under its own lock and tells "
                       "the share service; no session or view is read or written",
     "_send_scrobble": "Music Library's scrobble, one HTTP call to Navidrome whose failure "
                       "costs a log line",
-    "_harvest": "Spotify keeps the signed-in account's credentials in the profiles store, "
-                "which the source does not own",
+    "_harvest": "Spotify keeps the signed-in account's credentials in the profiles store; "
+                "it reads `_harvested` only under the store's lock, which a forget takes "
+                "after clearing it, so the decision cannot go stale",
 }
 # What only the actor may call: publishing, the session's lifecycle, the
 # feed's handler and the error banner.
