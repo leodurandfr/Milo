@@ -46,7 +46,7 @@ install_self() {
 
 # A sudoers policy is validated before it can take effect, and swapped in by
 # rename. sudo >= 1.9.3 does not refuse to run over a policy file with a syntax
-# error — it skips that file — so a malformed one silently drops all nine grants
+# error — it skips that file — so a malformed one silently drops every grant
 # the satellite holds, and the failure surfaces later as a `sat restart` that
 # answers "a password is required". The staging name ends in `.new`: sudo
 # ignores any file in sudoers.d whose name contains a dot, so the
