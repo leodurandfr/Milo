@@ -179,7 +179,7 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
    where the knobs belong. */
 .double-range-slider {
   --slider-accent: var(--color-text-secondary);
-  --track-thickness: 32px;
+  --track-thickness: var(--rail-height);
   --knob-width: 46px;
   --knob-height: 28px;
   --knob-grow: 0.087;
@@ -226,7 +226,7 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
 .slider-rail {
   grid-area: rail;
   position: relative;
-  height: 32px;
+  height: var(--rail-height);
 }
 
 .range-track {
@@ -362,6 +362,7 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
 .slider-value {
   display: grid;
   place-items: center;
+  height: var(--rail-height);
   min-width: 88px;
   padding: 0 var(--space-03);
   border-radius: var(--radius-full);
@@ -394,7 +395,6 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .double-range-slider {
-    --track-thickness: 28px;
     --knob-width: 40px;
     --knob-height: 24px;
     --knob-grow: 0.1;
@@ -411,14 +411,6 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
       "label label"
       "rail rail"
       "min max";
-  }
-
-  .slider-rail {
-    height: 28px;
-  }
-
-  .slider-value {
-    height: 28px;
   }
 
   .slider-value--min {

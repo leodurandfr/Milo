@@ -686,11 +686,12 @@ function handleClientMuteToggle(clientMacId, muted) {
   align-items: center;
 }
 
-/* Skeleton for volume */
+/* Skeleton for volume: the rail's box (see the stand-ins below), centered in
+   the 40px wrapper as the slider is. */
 .volume-skeleton {
   position: absolute;
   inset: 0;
-  border-radius: var(--radius-full);
+  margin-block: auto;
   opacity: 0;
   transition: opacity var(--transition-reveal);
   pointer-events: none;
@@ -845,13 +846,21 @@ function handleClientMuteToggle(clientMacId, muted) {
   min-width: 0;
 }
 
-/* The rail of the slider it stands in for: same height, same ground. */
+/* The slider's stand-ins — the skeleton while loading, the offline and
+   external-volume labels — take its rail's box: the rail's own height token
+   (one value per viewport, shared with RangeSlider) and its pill ends. */
+.volume-skeleton,
+.client-offline,
+.client-external-volume {
+  height: var(--rail-height);
+  border-radius: var(--radius-full);
+}
+
+/* Same ground as the rail it stands in for. */
 .client-offline {
   display: flex;
   align-items: center;
-  height: 32px;
   background: var(--color-fill-faint);
-  border-radius: var(--radius-full);
   color: var(--color-text-secondary);
   padding-left: var(--space-04);
   text-transform: uppercase;
@@ -860,12 +869,10 @@ function handleClientMuteToggle(clientMacId, muted) {
 .client-external-volume {
   display: flex;
   align-items: center;
-  height: 36px;
   /* White text on the light secondary in both themes: the dark one is too
      light to carry it. */
   color-scheme: light;
   background: var(--color-text-secondary);
-  border-radius: var(--radius-full);
   color: var(--color-text-on-contrast);
   padding-left: var(--space-04);
 }
@@ -990,11 +997,6 @@ function handleClientMuteToggle(clientMacId, muted) {
   .client-row .client-external-volume {
     grid-column: 1 / -1;
     grid-row: 2;
-  }
-
-  .client-offline,
-  .client-external-volume {
-    height: 28px;
   }
 
   .toggle-offline-placeholder {

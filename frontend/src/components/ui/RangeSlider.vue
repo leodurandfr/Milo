@@ -272,7 +272,7 @@ function handleChange(event) {
    and the fill follows its right edge out to keep the 2px around it. */
 .slider-container {
   --slider-accent: var(--color-text-secondary);
-  --track-thickness: 32px;
+  --track-thickness: var(--rail-height);
   --knob-width: 46px;
   --knob-height: 28px;
   /* The 4px the knob widens by, as a share of its width (a length cannot
@@ -319,11 +319,11 @@ function handleChange(event) {
 
 .slider-container.horizontal {
   width: 100%;
-  height: 32px;
+  height: var(--rail-height);
 }
 
 .slider-container.vertical {
-  width: 32px;
+  width: var(--rail-height);
   flex: 1;
   flex-direction: column;
 }
@@ -643,7 +643,7 @@ function handleChange(event) {
 
 .labeled .slider-rail {
   grid-area: rail;
-  height: 32px;
+  height: var(--rail-height);
 }
 
 .labeled .slider-value {
@@ -652,22 +652,9 @@ function handleChange(event) {
 
 @media (max-aspect-ratio: 4/3) {
   .slider-container {
-    --track-thickness: 28px;
     --knob-width: 40px;
     --knob-height: 24px;
     --knob-grow: 0.1;
-  }
-
-  .slider-container.horizontal {
-    height: 28px;
-  }
-
-  .labeled .slider-rail {
-    height: 28px;
-  }
-
-  .slider-container.vertical {
-    width: 28px;
   }
 }
 </style>

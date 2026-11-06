@@ -213,6 +213,7 @@ const KINDS = {
   'SOURCE GRADIENTS': 'swatch',
   SPACING: 'space',
   'CARD GRIDS': 'tokens',
+  CONTROLS: 'tokens',
   'BORDER RADIUS': 'radius',
   'TEXT STYLES': 'tokens',
   SHADOWS: 'shadow',
@@ -241,6 +242,7 @@ const NOTES = {
   'SOURCE GRADIENTS': 'The tint AudioSourceLayout washes behind a browsing source. Three one-off brand colours, which is why they are gradients here and not tokens in a ramp.',
   SPACING: 'A step that shrinks below 4:3 shows its portrait value beside the base one — and --space-05-fixed is the one that deliberately does not.',
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
+  CONTROLS: 'The thickness of a slider\'s rail, and of every box drawn in its place — a multiroom row\'s skeleton, its offline and external-volume labels — so a row keeps its shape whatever it shows.',
   'TEXT STYLES': 'The raw operands. What a component applies is the utility class below, never these directly.',
   BLUR: 'Drawn as backdrop-filter over a fixed backdrop, which is how every one of them is used.',
   STATES: 'One rule for a control that cannot be used now, whatever it is: the whole control at this opacity, keeping its shape and color, so it still says what it would do.'
@@ -289,8 +291,8 @@ const PAGES = [
   {
     id: 'spacing',
     title: 'Spacing & radius',
-    summary: 'The two measurement scales: the spacing steps, five of which shrink on a portrait viewport, and the corner radii, ending at a pill. Every gap and every corner in the app is one of these — plus the column count the artwork grids share.',
-    sections: ['SPACING', 'BORDER RADIUS', 'CARD GRIDS'],
+    summary: 'The two measurement scales: the spacing steps, five of which shrink on a portrait viewport, and the corner radii, ending at a pill. Every gap and every corner in the app is one of these — plus the column count the artwork grids share, and the rail thickness every slider shares.',
+    sections: ['SPACING', 'BORDER RADIUS', 'CARD GRIDS', 'CONTROLS'],
     extras: []
   },
   {

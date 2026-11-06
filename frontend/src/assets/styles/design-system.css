@@ -281,6 +281,14 @@
     --space-09: 96px;
 
 
+    /* === CONTROLS === */
+    /* The thickness of a slider's rail (RangeSlider, DoubleRangeSlider) and of
+       everything drawn in its place — a multiroom row's skeleton, its offline
+       and external-volume labels — so a row keeps one shape whatever it shows.
+       Declared once: a stand-in that restated it in pixels drifted to 36px. */
+    --rail-height: 32px;
+
+
     /* === CARD GRIDS === */
     /* Columns of the square-artwork grids (radio favorites, album browse). The
        count comes from the viewport rather than from the grid's own width,
@@ -538,6 +546,9 @@
         --space-07: 32px;
         --space-08: 48px;
         --space-09: 64px;
+
+        /* === CONTROLS (Mobile) === */
+        --rail-height: 28px;
 
 
 
