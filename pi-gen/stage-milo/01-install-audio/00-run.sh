@@ -37,30 +37,17 @@ chmod +x /usr/local/bin/camilladsp
 rm -f camilladsp-linux-aarch64.tar.gz camilladsp
 CHROOT
 
-# Snapcast (server + client)
+# Snapcast (server + client). One .deb per Debian release, so the image's own
+# codename picks it; there is no second release, method or source to fall back on.
 on_chroot << CHROOT
 cd /tmp
-DEBIAN_VERSION=\$(lsb_release -sc 2>/dev/null || grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
-DEBIAN_VERSION=\${DEBIAN_VERSION:-bookworm}
+CODENAME=\$(. /etc/os-release && echo "\$VERSION_CODENAME")
+[ -n "\$CODENAME" ] || { echo "FATAL: no VERSION_CODENAME in /etc/os-release"; exit 1; }
 
-SNAP_INSTALLED=false
+wget -q "https://github.com/snapcast/snapcast/releases/download/v${SNAPCAST_VERSION}/snapserver_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb"
+wget -q "https://github.com/snapcast/snapcast/releases/download/v${SNAPCAST_VERSION}/snapclient_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb"
+apt-get install -y "./snapserver_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb" "./snapclient_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb"
 
-# Try detected version first, then bookworm fallback
-for DEB_VER in "\$DEBIAN_VERSION" "bookworm"; do
-    if wget -q "https://github.com/snapcast/snapcast/releases/download/v${SNAPCAST_VERSION}/snapserver_${SNAPCAST_VERSION}-1_arm64_\${DEB_VER}.deb" 2>/dev/null && \
-       wget -q "https://github.com/snapcast/snapcast/releases/download/v${SNAPCAST_VERSION}/snapclient_${SNAPCAST_VERSION}-1_arm64_\${DEB_VER}.deb" 2>/dev/null; then
-        if apt-get install -y "./snapserver_${SNAPCAST_VERSION}-1_arm64_\${DEB_VER}.deb" "./snapclient_${SNAPCAST_VERSION}-1_arm64_\${DEB_VER}.deb" || \
-           { dpkg -i "snapserver_${SNAPCAST_VERSION}-1_arm64_\${DEB_VER}.deb" "snapclient_${SNAPCAST_VERSION}-1_arm64_\${DEB_VER}.deb" && \
-             apt-get --fix-broken install -y; }; then
-            SNAP_INSTALLED=true
-            break
-        fi
-    fi
-    rm -f snapserver_*.deb snapclient_*.deb
-done
-
-# Debian's snapcast is not the pinned one: an image without it must not build.
-[ "\$SNAP_INSTALLED" = true ] || { echo "FATAL: snapcast ${SNAPCAST_VERSION} not installed"; exit 1; }
 for p in snapserver snapclient; do
     [ "\$(dpkg-query -W -f='\${db:Status-Abbrev}\${Version}' \$p)" = "ii ${SNAPCAST_VERSION}-1" ] || { echo "FATAL: \$p is not ${SNAPCAST_VERSION}-1, installed"; exit 1; }
 done

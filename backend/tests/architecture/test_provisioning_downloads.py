@@ -267,3 +267,76 @@ def test_a_pinned_dependency_has_no_unpinned_install_fallback():
         "distribution, at whatever version it carries; the pinned fetch must "
         "abort the build instead:\n" + "\n".join(fallbacks)
     )
+
+
+# A Debian release spelled out in a build statement. The image's own is read from
+# its /etc/os-release, so a literal can only be a default or a second attempt.
+DEBIAN_RELEASE_RE = re.compile(r"\b(?:buster|bullseye|bookworm|trixie|forky|sid)\b")
+
+# Another way to put a package on the image than the one `apt-get install ./x.deb`:
+# `dpkg -i` then a repair, which satisfies a Depends it cannot meet by removing the
+# package it just unpacked.
+SECOND_METHOD_RE = re.compile(
+    r"\bdpkg\s+(?:-i|--install)\b|--fix-broken\b|\bapt(?:-get)?\s+-f\s+install\b"
+)
+
+LATEST_RE = re.compile(r"releases/latest\b|/latest/download\b")
+
+
+def _install_fallbacks(line: str, declared: set[str]) -> list[str]:
+    """What in this statement lets a pinned install land something else."""
+    found = []
+    if DEBIAN_RELEASE_RE.search(line):
+        found.append("names a Debian release instead of reading the image's")
+    if SECOND_METHOD_RE.search(line):
+        found.append("a second install method")
+    if FETCH_RE.search(line) and LATEST_RE.search(line):
+        found.append("fetches 'latest'")
+    if _is_pinned(line, declared) and APT_INSTALL_RE.search(line) and "||" in line:
+        found.append("a pinned install with an alternative")
+    return found
+
+
+def test_a_pinned_dependency_installs_one_way_for_one_system():
+    """A pinned install lands exactly its pin, built for this image, or the build fails.
+
+    The snapcast block tried the image's codename, then bookworm, then fell back
+    from `apt-get install` to `dpkg -i` and a repair — each arm one more way to
+    ship a package the manifest never validated, for a system it does not run
+    on, from a build that stayed green.
+    """
+    declared = _declared_versions()
+
+    pinned_installs = [
+        line
+        for paths in FETCH_TREES.values()
+        for path in paths
+        for line in _statements(path)
+        if _is_pinned(line, declared) and APT_INSTALL_RE.search(line)
+    ]
+    assert pinned_installs, "no pinned apt install extracted — the rule has nothing to check"
+
+    # The rule must discriminate before it is trusted.
+    assert _install_fallbacks('for V in "$C" "bookworm"; do', declared)
+    assert _install_fallbacks("CODENAME=${CODENAME:-trixie}", declared)
+    assert _install_fallbacks('dpkg -i "x.deb" && apt-get --fix-broken install -y', declared)
+    assert _install_fallbacks(
+        'apt-get install -y "./snapserver_${SNAPCAST_VERSION}.deb" || dpkg -i x.deb', declared
+    )
+    assert _install_fallbacks("wget https://github.com/a/b/releases/latest/download/x.tgz", declared)
+    assert not _install_fallbacks(
+        'apt-get install -y "./snapserver_${SNAPCAST_VERSION}-1_arm64_${CODENAME}.deb"', declared
+    )
+    assert not _install_fallbacks("apt-get install -y chromium || apt-get install -y chromium-browser", declared)
+
+    fallbacks = [
+        f"{tree}: {path.relative_to(REPO_ROOT)}: {reason}: {line.strip()[:80]}"
+        for tree, paths in FETCH_TREES.items()
+        for path in paths
+        for line in _statements(path)
+        for reason in _install_fallbacks(line, declared)
+    ]
+    assert not fallbacks, (
+        "these statements let a pinned dependency install something other than "
+        "its pin for this image; the build must fail instead:\n" + "\n".join(fallbacks)
+    )
