@@ -126,7 +126,7 @@ jobs:
             gh issue create \
               --title "Milo-Mac contract drift: refresh the vendored snapshot" \
               --label milo-mac-drift \
-              --body "$(printf 'Upstream Milo-Mac has moved past the vendored snapshot under \`backend/tests/contracts/vendor/milo-mac/\`.\n\nRefresh the two .swift files **and** \`milo_mac_contract.json\` together, then re-run \`pytest backend/tests/contracts/\`. See CLAUDE.md §%sExternal API clients — Milo-Mac and Milo-iOS%s.\n\n```\n%s\n```\n' "'" "'" "$(cat /tmp/freshness.txt)")"
+              --body "$(printf 'Upstream Milo-Mac has moved past the vendored snapshot under \`backend/tests/contracts/vendor/milo-mac/\`.\n\nRefresh the vendored .swift files **and** \`milo_mac_contract.json\` together, then re-run \`pytest backend/tests/contracts/\`. See CLAUDE.md §%sExternal API clients — Milo-Mac and Milo-iOS%s.\n\n```\n%s\n```\n' "'" "'" "$(cat /tmp/freshness.txt)")"
           fi
       - name: Close drift issue (back in sync)
         if: steps.check.outcome == 'success'
