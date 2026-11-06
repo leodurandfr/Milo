@@ -38,6 +38,19 @@ ETH_IP=""
 
 log() { echo "[milo-first-boot] $1"; }
 
+source /usr/local/lib/milo/hardware-helpers.sh
+
+# config.txt keeps no managed block of the role this unit leaves ($1): the
+# other role's apply never removes it. Flushed like the apply helpers do, since
+# the reboot that follows is the next thing a power cut can interrupt.
+clear_role_blocks() {
+    resolve_config_file
+    remove_role_blocks "$1"
+    sync -f "$CONFIG_FILE"
+    sync "$CONFIG_FILE"
+    log "config.txt: $1 blocks removed"
+}
+
 # Install the avahi interface selection matching the active role: the drop-in
 # (remove the other role's) and the NetworkManager dispatcher that feeds it.
 #
@@ -343,6 +356,10 @@ EOF
         done
         log "Client shared libraries installed"
     fi
+
+    # 7c. The server's overlays (audio, screen, IR, power LED) stay out of a
+    # satellite's config.txt, whichever way it got here.
+    clear_role_blocks server
 
     # 8. Disable server-only services. milo-ir-keytable is here for the same reason
     # as the rest and not by symmetry — it exists to run `Before=milo-backend.service`,
@@ -655,6 +672,9 @@ configure_server() {
     else
         log "Warning: could not restore milo-client/ — Milō updates will refuse a dirty tree"
     fi
+
+    # 4b. The satellite's audio overlay stays out of a server's config.txt.
+    clear_role_blocks client
 
     # 5. Set hostname back to milo (last — see top of function)
     hostnamectl set-hostname milo

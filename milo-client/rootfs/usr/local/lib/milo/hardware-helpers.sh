@@ -49,6 +49,26 @@ remove_block() {
     mv -f "$tmp" "$CONFIG_FILE"
 }
 
+# --- The managed blocks of each role ---
+# Exactly the blocks each role's apply script writes. A unit changes role in
+# place (milo-first-boot) and each apply removes only its own blocks, so the
+# role change clears the other role's: a server's MILO AUDIO left under a
+# satellite's MILO CLIENT AUDIO is two overlays for one card slot.
+SERVER_CONFIG_BLOCKS=("MILO AUDIO" "MILO SCREEN" "MILO IR" "MILO POWER LED")
+CLIENT_CONFIG_BLOCKS=("MILO CLIENT AUDIO")
+
+remove_role_blocks() {
+    local tag tags
+    case "$1" in
+        server) tags=("${SERVER_CONFIG_BLOCKS[@]}") ;;
+        client) tags=("${CLIENT_CONFIG_BLOCKS[@]}") ;;
+        *) echo "ERROR: Unknown role '$1'" >&2; return 1 ;;
+    esac
+    for tag in "${tags[@]}"; do
+        remove_block "$tag"
+    done
+}
+
 # --- Resolve config.txt path (with Pi OS fallback) ---
 resolve_config_file() {
     CONFIG_FILE="/boot/firmware/config.txt"

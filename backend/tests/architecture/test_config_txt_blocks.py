@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.tests.architecture.test_rootfs_deployment import APPLY_HARDWARE_SCRIPTS
+from backend.tests.architecture.test_rootfs_deployment import APPLY_HARDWARE_SCRIPTS, HARDWARE_HELPERS
 
 BEGIN_RE = re.compile(r"^# BEGIN (.+)$", re.MULTILINE)
 # The config-writing part of an apply script: from its backup to whatever
@@ -34,6 +34,7 @@ SCRIPT_VARIABLES = {
     },
     "milo-client-apply-hardware": {"AUDIO_OVERLAY": "hifiberry-dac"},
 }
+ROLE_OF_SCRIPT = {"milo-apply-hardware": "server", "milo-client-apply-hardware": "client"}
 
 # What Raspberry Pi OS ships, with a hand-added stanza after it and the blank
 # lines earlier applies left behind (16 in a row measured on the server).
@@ -96,3 +97,52 @@ def test_applying_twice_leaves_config_txt_as_applying_once(script, tmp_path):
     assert "\n\n\n" not in applied[0], f"a run of blank lines survived the apply:\n{applied[0]}"
     assert applied[1] == applied[0], f"a second apply changed config.txt:\n{applied[0]!r}\n{applied[1]!r}"
     assert applied[2] == applied[0], f"a third apply changed config.txt:\n{applied[0]!r}\n{applied[2]!r}"
+
+
+def _role_blocks(helpers: Path, role: str, cwd: Path) -> list[str]:
+    result = _bash(helpers, f'printf "%s\\n" "${{{role.upper()}_CONFIG_BLOCKS[@]}}"', cwd)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.splitlines()
+
+
+@pytest.mark.parametrize("script", APPLY_HARDWARE_SCRIPTS, ids=lambda p: p.name)
+def test_each_role_declares_every_block_its_apply_writes(script, tmp_path):
+    """The block list a conversion clears is exactly what the role's apply writes.
+
+    `milo-first-boot` clears the blocks of the role a unit leaves from that
+    list; a block added to an apply script and not to it survives the
+    conversion, and is loaded by a unit that no longer knows it is there.
+    """
+    written = set(BEGIN_RE.findall(script.read_text(encoding="utf-8")))
+    assert written, f"no `# BEGIN` line extracted from {script.name}; the extractor is broken"
+    for tree_helpers in HARDWARE_HELPERS.values():
+        assert set(_role_blocks(tree_helpers, ROLE_OF_SCRIPT[script.name], tmp_path)) == written
+
+
+@pytest.mark.parametrize("tree_name", sorted(HARDWARE_HELPERS))
+@pytest.mark.parametrize("leaving,staying", [("server", "client"), ("client", "server")])
+def test_a_role_change_removes_only_the_blocks_of_the_role_left(tree_name, leaving, staying, tmp_path):
+    """`remove_role_blocks <role>` takes out that role's blocks and nothing else.
+
+    A unit that ran the server wizard and is then adopted as a satellite kept
+    `# BEGIN MILO AUDIO`: the satellite's apply removes only `MILO CLIENT
+    AUDIO`, so config.txt then loaded two audio overlays for one card slot (and
+    the server's IR and power LED pins on a unit that drives neither). The
+    revert to a server is the same in the other direction.
+    """
+    helpers = HARDWARE_HELPERS[tree_name]
+    blocks = {role: _role_blocks(helpers, role, tmp_path) for role in ("server", "client")}
+    assert blocks["server"] and blocks["client"], f"role block lists not extracted: {blocks}"
+    config = tmp_path / "config.txt"
+    config.write_text(
+        IMAGE_CONFIG
+        + "".join(f"\n# BEGIN {tag}\ndtparam=x\n# END {tag}\n" for tag in blocks["server"] + blocks["client"]),
+        encoding="utf-8",
+    )
+
+    result = _bash(helpers, f"remove_role_blocks {leaving}", tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    left = BEGIN_RE.findall(config.read_text(encoding="utf-8"))
+    assert left == blocks[staying], f"after leaving the {leaving} role, config.txt holds {left}"
+    assert "dtparam=eee=off" in config.read_text(encoding="utf-8")

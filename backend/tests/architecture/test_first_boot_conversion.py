@@ -230,3 +230,37 @@ def test_the_client_account_can_read_the_whole_journal():
         "_apply_client_filesystem never adds $MILO_CLIENT_USER to adm outside its creation guard: "
         "the satellite's /diagnostic journal then misses every systemd and kernel line"
     )
+
+
+CONVERSIONS = {
+    "configure_client": "server",
+    "resume_client_conversion": "server",
+    "configure_client_with_hardware": "server",
+    "configure_server": "client",
+}
+
+
+def test_every_role_change_clears_the_config_txt_blocks_of_the_role_left():
+    """Each way into a role removes the other role's managed blocks from config.txt.
+
+    Each apply helper removes only its own blocks, so a unit that ran the
+    server wizard and is then adopted as a satellite booted with the server's
+    `MILO AUDIO` overlay next to the satellite's `MILO CLIENT AUDIO` one (and the
+    server's IR and power LED pins); the revert left the satellite's block under
+    the server's. Fails when one of the three conversion paths, or the revert,
+    reaches no `clear_role_blocks` of the role it leaves, or when that function
+    stops handing its role to `remove_role_blocks`.
+    """
+    text = FIRST_BOOT.read_text()
+    functions = _functions(text)
+    assert "clear_role_blocks" in functions, "milo-first-boot defines no clear_role_blocks"
+    assert re.search(r'^\s*remove_role_blocks "\$1"$', functions["clear_role_blocks"], re.MULTILINE), (
+        "clear_role_blocks no longer hands its role to remove_role_blocks"
+    )
+    for entry, leaving in CONVERSIONS.items():
+        reached = _reached(functions[entry], functions) | {entry}
+        calls = [
+            name for name in reached
+            if re.search(rf"^\s*clear_role_blocks {leaving}$", functions[name], re.MULTILINE)
+        ]
+        assert calls, f"{entry} never clears the {leaving} role's blocks from config.txt"
