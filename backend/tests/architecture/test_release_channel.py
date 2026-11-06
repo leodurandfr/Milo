@@ -490,3 +490,47 @@ def test_inspect_image_refuses_what_it_cannot_parse(tmp_path):
         assert reason in result.stderr, (
             f"{argv} was not refused for {reason!r}: {result.stderr!r}"
         )
+
+
+def _inspect_root(root: Path, ref: str) -> list[str]:
+    """The inspector's lines about `ref`, run over a provisioned-looking root."""
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "pi-gen" / INSPECTOR), "--ref", ref, str(root)],
+        cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+    )
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    lines = [" ".join(line.split()) for line in plain.splitlines() if ref in line]
+    assert lines, f"the inspector printed nothing about {ref}: {plain[-2000:]!r}"
+    return lines
+
+
+@pytest.mark.parametrize("tag", ["v9.8.7", "v0.2.0-rc1"])
+def test_inspect_image_ties_every_published_tag_to_its_checkout(tmp_path, tag):
+    """The workflow publishes a release for every `v*` tag, a pre-release one
+    included, and the stage seeds `describe --tags --always` — exactly the tag
+    there too. A check that skips the suffixed tags publishes a release
+    candidate whose checkout and satellite identity nobody looked at: the image
+    a test unit is flashed with to try that candidate before the fleet.
+    """
+    checkout = tmp_path / "home" / "milo" / "milo"
+    checkout.mkdir(parents=True)
+    git = ["git", "-C", str(checkout), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+    for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "release"], ["tag", tag]):
+        subprocess.run([*git, *args], check=True, capture_output=True, timeout=30)
+    identity = tmp_path / "var" / "lib" / "milo-client" / "app-version"
+    identity.parent.mkdir(parents=True)
+    identity.write_text(tag)
+
+    assert _inspect_root(tmp_path, tag) == [
+        f"ok checkout sits exactly on {tag}",
+        f"ok satellite identity seeded with {tag}",
+    ]
+
+    identity.write_text(f"{tag}-1-g0000000")
+    assert f"FAIL satellite identity seeded with {tag}" in _inspect_root(tmp_path, tag)
+
+
+def test_inspect_image_skips_a_ref_that_is_not_a_tag(tmp_path):
+    """A manual build from a branch has no tag to sit on: checking it would fail
+    every such image for a contract it never made."""
+    assert _inspect_root(tmp_path, "main") == ["skip checkout ref (main is not a release tag)"]

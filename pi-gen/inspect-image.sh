@@ -13,9 +13,10 @@
 #   sudo ./inspect-image.sh --img milo.img        # mount the image, check, unmount
 #
 # --ref <tag-or-branch> names what the image was supposed to be built from, in any
-# position. Given a release tag, the checkout inside the image must sit exactly on
-# it: that is the only check that ties the artefact to the version it is
-# published under. An unknown option, or an image and a root at once, is refused.
+# position. Given a release tag, pre-release included, the checkout inside the
+# image must sit exactly on it: that is the only check that ties the artefact to
+# the version it is published under. An unknown option, or an image and a root
+# at once, is refused.
 #
 # INSPECT_PARSE_ONLY=1 prints what the arguments parsed to and exits before
 # anything is mounted; test_release_channel.py replays the workflow's call with it.
@@ -376,7 +377,9 @@ check "origin fetches all branches" \
     "git -C '$MILO_CHECKOUT' config --get-all remote.origin.fetch | grep -q 'refs/heads/\*'"
 
 if [[ -n "$REF" ]]; then
-    if [[ "$REF" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    # A suffixed tag (v0.2.0-rc1) is published too, as a pre-release, and the
+    # stage seeds it the same way: the same two checks hold for it.
+    if [[ "$REF" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
         check "checkout sits exactly on $REF" \
             "[ \"\$(git -C '$MILO_CHECKOUT' describe --tags --exact-match 2>/dev/null)\" = '$REF' ]"
         check "satellite identity seeded with $REF" \
