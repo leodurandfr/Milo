@@ -128,6 +128,16 @@ export const useUpdatesStore = defineStore('updates', () => {
     return result.ok;
   }
 
+  // The satellites' "completed" is the same one-frame mark as the local
+  // programs', but the read a completion triggers is often taken while the
+  // satellite restarts and does not list it: only an answer from that satellite
+  // is the frame the mark was bridging.
+  function forgetAnsweredCompletions(completed, answered, newer) {
+    for (const id of [...completed.value]) {
+      if (answered.has(id) && !newer.has(id)) completed.value.delete(id);
+    }
+  }
+
   async function loadSatellites() {
     // `null` is the never-loaded state, and it is what draws the skeleton —
     // re-entering it on a refresh flashed every satellite section back to
@@ -144,12 +154,16 @@ export const useUpdatesStore = defineStore('updates', () => {
     if (result.ok) {
       const list = result.data.satellites || [];
       satellites.value = list;
-      reconcileActiveUpdates(satelliteUpdateStates, list.filter(s => s.updating).map(s => s.mac_id),
-        satClock.movedSince(seen[0]));
-      reconcileActiveUpdates(satelliteAppUpdateStates, list.filter(s => s.app_updating).map(s => s.mac_id),
-        satAppClock.movedSince(seen[1]));
+      const answered = new Set(list.map(s => s.mac_id));
+      const newer = [satClock.movedSince(seen[0]), satAppClock.movedSince(seen[1]),
+        satCamillaClock.movedSince(seen[2])];
+      reconcileActiveUpdates(satelliteUpdateStates, list.filter(s => s.updating).map(s => s.mac_id), newer[0]);
+      reconcileActiveUpdates(satelliteAppUpdateStates, list.filter(s => s.app_updating).map(s => s.mac_id), newer[1]);
       reconcileActiveUpdates(satelliteCamillaUpdateStates, list.filter(s => s.camilladsp_updating).map(s => s.mac_id),
-        satCamillaClock.movedSince(seen[2]));
+        newer[2]);
+      forgetAnsweredCompletions(satelliteCompletedUpdates, answered, newer[0]);
+      forgetAnsweredCompletions(satelliteAppCompletedUpdates, answered, newer[1]);
+      forgetAnsweredCompletions(satelliteCamillaCompletedUpdates, answered, newer[2]);
     } else {
       satellitesError.value = true;
     }

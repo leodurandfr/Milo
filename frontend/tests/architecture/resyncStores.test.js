@@ -492,8 +492,6 @@ const storeKey = binding => binding.replace(/Store$/, '');
 
 const SEARCH_VIEW = 'the search view of the user\'s last query, refetched by the next search; '
   + 'the favorites and custom stations an event touches are healed by resync()';
-const COMPLETED_MARK = 'a "just finished" mark bridging one stale frame until the inventory refetch '
-  + 'it triggers lands; a completion missed while away needs no mark, resync() reloads that inventory';
 /**
  * Refs a WS handler writes that no resync() path writes, each with why that is
  * right. An entry must name state the server has no read of, or one a resync
@@ -512,9 +510,6 @@ const DELTA_ONLY = new Map([
     + 'and cleared by the event or its timeout; the server offers no read of it'],
   ['equalizer.outputPeak', 'a live meter, overwritten by the next levels event'],
   ['radio.searchResults', SEARCH_VIEW],
-  ['updates.satelliteCompletedUpdates', COMPLETED_MARK],
-  ['updates.satelliteAppCompletedUpdates', COMPLETED_MARK],
-  ['updates.satelliteCamillaCompletedUpdates', COMPLETED_MARK],
 ]);
 
 /** App.vue's script, comments out: an apostrophe in prose would derail the paren matcher. */

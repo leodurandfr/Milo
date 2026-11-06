@@ -142,6 +142,37 @@ describe('updatesStore satellite return', () => {
     expect(apiCall.get.mock.calls.length).toBe(polls);
   });
 
+  it.each([
+    ['snapclient', 'handleSatelliteUpdateComplete', 'isSatelliteUpdateCompleted'],
+    ['app', 'handleSatelliteAppUpdateComplete', 'isSatelliteAppUpdateCompleted'],
+    ['CamillaDSP', 'handleSatelliteCamillaUpdateComplete', 'isSatelliteCamillaUpdateCompleted'],
+  ])('forgets a finished %s update once the satellite answers the fleet read', async (_, complete, completed) => {
+    // Kept past that read, the mark hides the row's real state for the rest of
+    // the page's life: the next release offered to that satellite has no
+    // button, and its row reads "up to date".
+    useMultiroomStore().clients.set(MAC, { mac_id: MAC, online: true });
+    apiCall.get.mockResolvedValue(withSatellite());
+
+    store[complete]({ mac_id: MAC, success: true });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(store[completed](MAC)).toBe(false);
+  });
+
+  it('keeps a finished update marked while the fleet read answers without that satellite', async () => {
+    // The first read after a completion is often taken while the satellite is
+    // restarting: an answer that does not list it says nothing about it.
+    useMultiroomStore().clients.set(MAC, { mac_id: MAC, online: true });
+    apiCall.get.mockResolvedValueOnce(withoutSatellite()).mockResolvedValue(withSatellite());
+
+    store.handleSatelliteAppUpdateComplete({ mac_id: MAC, success: true });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.isSatelliteAppUpdateCompleted(MAC)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(store.isSatelliteAppUpdateCompleted(MAC)).toBe(false);
+  });
+
   it('holds the fleet it already has while it refetches', async () => {
     // The skeleton is drawn from `satellites === null`, so re-entering that on
     // a refresh flashed every satellite section back to skeletons for the
