@@ -55,7 +55,7 @@ The 209 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | `PUT` | `/api/equalizer/target/{target}/filter/{filter_id}` | EqualizerFilterUpdateRequest | TargetFilterResponse | internal |
 | `PUT` | `/api/equalizer/target/{target}/compressor` | EqualizerCompressorRequest | TargetStatusResponse | internal |
 | `PUT` | `/api/equalizer/target/{target}/loudness` | EqualizerLoudnessRequest | TargetStatusResponse | internal |
-| `PUT` | `/api/equalizer/target/{target}/mono` |  | TargetMonoResponse | internal |
+| `PUT` | `/api/equalizer/target/{target}/mono` | EqualizerEnabledRequest | TargetMonoResponse | internal |
 | `PUT` | `/api/equalizer/target/{target}/crossover` | ZoneCrossoverRequest | untyped JSON | internal |
 | `PUT` | `/api/equalizer/target/{target}/enabled` | EqualizerEnabledRequest | EqualizerEnabledResponse | contracted |
 | `POST` | `/api/equalizer/target/{target}/preset` | EqualizerPresetRequest | TargetPresetResponse | internal |

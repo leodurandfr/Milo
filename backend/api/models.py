@@ -414,7 +414,8 @@ class EqualizerFilterUpdateRequest(BaseModel):
 
 
 class EqualizerEnabledRequest(BaseModel):
-    """Equalizer master toggle request — Milo-Mac's Equalizer switch sends it"""
+    """An equalizer switch: the master toggle (Milo-Mac's Equalizer switch
+    sends it) and a target's mono."""
     enabled: bool
 
 

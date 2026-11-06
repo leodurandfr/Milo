@@ -6,7 +6,7 @@ Supports multi-client equalizer control for multiroom setups
 """
 import logging
 from typing import Optional, TYPE_CHECKING
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 
 from backend.api.route_helpers import CONTRACTED, api_error_handler
 
@@ -231,28 +231,24 @@ def create_equalizer_router(
             return {"status": "success", "target": target}
 
     @router.put("/target/{target}/mono", response_model=TargetMonoResponse)
-    async def update_target_mono(target: str, request: Request):
+    async def update_target_mono(target: str, payload: EqualizerEnabledRequest):
         """Set mono/stereo for any target through the unified access layer.
 
         (The legacy local route was missing — toggling Mono on the local device
         used to 404. This uniform route fixes that by construction.)
         """
         async with api_error_handler(f"Error updating mono for target {target}", logger):
-            body = await request.json()
-            enabled = body.get("enabled")
-            if enabled is None:
-                raise HTTPException(status_code=400, detail="'enabled' field is required")
             target_type, target_id = _resolve_target(target)
             try:
                 await multiroom_equalizer_service.update_mono(
                     target_type=target_type,
                     target_id=target_id,
-                    enabled=enabled,
+                    enabled=payload.enabled,
                 )
             except ValueError as e:
                 logger.warning(f"Mono update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
-            return {"status": "success", "target": target, "mono": enabled}
+            return {"status": "success", "target": target, "mono": payload.enabled}
 
     @router.put("/target/{target}/crossover")
     async def set_target_crossover(target: str, payload: ZoneCrossoverRequest):

@@ -267,9 +267,12 @@ class TestTargetMonoWrite:
         kwargs = mock_mre.update_mono.call_args.kwargs
         assert (kwargs["target_type"], kwargs["target_id"]) == ("zone", "z1")
 
-    def test_mono_missing_enabled_returns_400(self, client, mock_mre):
-        resp = client.put("/api/equalizer/target/local/mono", json={})
-        assert resp.status_code == 400
+    @pytest.mark.parametrize("body", [{}, {"enabled": "maybe"}, {"enabled": [True]}])
+    def test_mono_without_a_boolean_is_refused(self, client, mock_mre, body):
+        """Read off a raw Request, any value but a missing one reached the DSP
+        and was echoed back as the mono state: a truthy string turned mono on."""
+        resp = client.put("/api/equalizer/target/local/mono", json=body)
+        assert resp.status_code == 422
         mock_mre.update_mono.assert_not_called()
 
 
