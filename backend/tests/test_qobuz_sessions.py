@@ -388,6 +388,27 @@ async def test_a_volume_lock_under_an_unreadable_probe_is_refused(world):
     assert world.volume_flag.read_text() == "0"
 
 
+async def test_a_volume_lock_whose_restart_failed_is_retried(world):
+    """A restart that did not happen leaves the sidecar on the policy its app
+    joined under. Kept at the new value, the flag made the retry read the
+    lock as applied and answer True without restarting, while the settings
+    screen showed the lock the app was not under."""
+    world.volume_flag.write_text("1")
+    await world.app_plays(ON_AND_ON)
+    restart = world.systemd.restart.side_effect
+    world.systemd.restart.side_effect = None
+    world.systemd.restart.return_value = False
+
+    assert await world.source.on_allow_app_volume_changed(False) is False
+    await world.advance(1)
+
+    world.systemd.restart.side_effect = restart
+    assert await world.source.on_allow_app_volume_changed(False) is True
+    await world.advance(1)
+    assert len(world.restarts) == 1
+    assert world.volume_flag.read_text() == "0"
+
+
 async def test_a_poll_the_old_sidecar_answers_opens_nothing_after_a_lock(world):
     """The poll keeps running across the volume-lock restart: an answer the old
     sidecar gave in that window, handled after the session ended, reopened it

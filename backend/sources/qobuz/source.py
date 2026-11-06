@@ -283,8 +283,9 @@ class QobuzSource(BaseAudioSource):
             # (a resync, a retry) must not end the session for nothing.
             return True
         applied = await self._submit(Result(self._restart_for_volume_policy))
-        if applied is None and previous is not None:
-            # Refused unread: the flag goes back, or the retry would read it as applied.
+        if applied is not True and previous is not None:
+            # Refused unread, interrupted or not restarted: the flag goes back,
+            # or the retry would read it as applied.
             self._write_volume_flag(previous)
         return applied is True
 
