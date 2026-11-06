@@ -1216,7 +1216,8 @@ class TestTheMiloReleaseOffer:
         row falls back to for a development checkout. They are doubled
         separately because which of the two the offer reads *is* the question:
         one string answering both cannot tell "v0.2.0-rc1" (a tag) from
-        "v0.1.0-2017-g36b9a0d7" (a tree 2017 commits past one).
+        "v0.1.0-2017-g36b9a0d7" (a tree 2017 commits past one). `published`
+        None is a GitHub that does not answer.
         """
         described = described or exact or "36b9a0d7"
 
@@ -1232,8 +1233,11 @@ class TestTheMiloReleaseOffer:
                 proc.communicate = AsyncMock(return_value=(described.encode(), b""))
             return proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=git), \
-                _patch_github_release(published, assets):
+        github = (
+            patch("aiohttp.ClientSession", side_effect=Exception("no network"))
+            if published is None else _patch_github_release(published, assets)
+        )
+        with patch("asyncio.create_subprocess_exec", side_effect=git), github:
             return await service.get_program_full_status("milo")
 
     @pytest.mark.asyncio
@@ -1394,14 +1398,21 @@ class TestTheMiloReleaseOffer:
     @pytest.mark.asyncio
     async def test_a_github_that_did_not_answer_offers_nothing(self, version_service):
         """The settings screen must render on a unit with no internet, and an
-        unanswered fetch is not a release to compare against.
+        unanswered fetch is not a release to compare against — but the tag the
+        unit sits on is still read: it is a local fact.
         """
-        proc = AsyncMock()
-        proc.communicate = AsyncMock(return_value=(b"v0.2.0", b""))
-        proc.returncode = 0
-        with patch("asyncio.create_subprocess_exec", return_value=proc), \
-                patch("aiohttp.ClientSession", side_effect=Exception("no network")):
-            row = await version_service.get_program_full_status("milo")
+        row = await self._row(version_service, exact="v0.2.0", published=None)
 
         assert row["update_available"] is False
-        assert "development_build" not in row
+        assert row["development_build"] is False
+        assert row["installed"]["release_tag"] == "v0.2.0"
+
+    @pytest.mark.asyncio
+    async def test_a_development_build_says_so_without_github(self, version_service):
+        """Whether the tree sits on a tag is asked of git, not of GitHub. Read
+        only after a release answered, an offline checkout past its tag had no
+        `development_build`, and the row fell back to "up to date"."""
+        row = await self._row(version_service, exact=None, published=None)
+
+        assert row["update_available"] is False
+        assert row["development_build"] is True

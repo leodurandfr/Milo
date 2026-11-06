@@ -536,13 +536,11 @@ class VersionService:
         tag, so it is told plainly what it runs and offered the stable release
         the channel publishes — which is how a test unit gets back.
         """
-        if latest.get("status") != "success":
-            return
-
+        # Asked of git, not of GitHub: an offline development tree is still one.
         tag = await self._exact_release_tag()
         result["development_build"] = tag is None
         result["installed"]["release_tag"] = tag
-        if tag is None:
+        if tag is None or latest.get("status") != "success":
             return
 
         published = latest.get("tag_name")
