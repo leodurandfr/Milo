@@ -39,7 +39,7 @@ def _get_mac_address() -> str:
     raise RuntimeError("No MAC address found on eth0 or wlan0")
 
 
-def _get_local_ip(remote_ip: str, remote_port: int) -> str:
+def local_ip_towards(remote_ip: str, remote_port: int) -> str:
     """Get the local IP used to reach the main Milo (most reliable routable IP)."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.connect((remote_ip, remote_port))
@@ -125,7 +125,7 @@ async def register_with_main_milo() -> None:
 
             # Get our own info (blocking file I/O — run in executor)
             mac_id = await loop.run_in_executor(None, _get_mac_address)
-            local_ip = await loop.run_in_executor(None, _get_local_ip, milo_ip, MILO_PRINCIPAL_PORT)
+            local_ip = await loop.run_in_executor(None, local_ip_towards, milo_ip, MILO_PRINCIPAL_PORT)
             hw_config = await loop.run_in_executor(None, _read_hardware_config)
             identity = await loop.run_in_executor(None, _read_identity)
 

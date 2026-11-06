@@ -9,16 +9,25 @@ the fleet notices. The speaker just disappears from the multiroom, with no error
 anywhere. Measured on both satellites 2026-09-19, after the server rebooted
 without its ethernet cable and came back on WiFi with a new IP.
 
+The same watcher brings a satellite's stream back to its own cable once the cable
+returns (the owner's decision of 2026-11-06: Ethernet first, even mid-song).
+Measured on Bureau the same day: replugged, it stayed on its WiFi address for
+3 min 38 s, until a reboot.
+
 The other half of what these pin is the restraint: the watcher restarts a unit,
 which silences a room, so every path that is *not* the defect must leave it
-alone — above all a snapclient that is playing.
+alone — a playing snapclient above all, which only that return to the cable may
+cut, and only once the cable has held.
 
 The mocked boundary is systemd (the unprivileged `systemctl show` and the two
-sudo verbs) and mDNS resolution. /proc is real, written under tmp_path, so the
-cmdline, socket-table and ALSA-status parsing run against real bytes. The loop
+sudo verbs), mDNS resolution, and the kernel's answers about eth0 (its carrier
+under tmp_path, its address over ioctl, the source a new connection would take).
+/proc is real, written under tmp_path, so the cmdline, socket-table and
+ALSA-status parsing run against real bytes. The loop
 tests run `follow_server_address` itself on a virtual clock its sleeps advance,
 so what they count is passes of the real loop, never wall-clock time.
 """
+import errno
 import re
 import socket
 from contextlib import contextmanager
@@ -327,6 +336,49 @@ def test_the_watcher_reads_the_output_snapclient_actually_plays_into():
 
 # --- The loop, on a virtual clock ------------------------------------------------
 
+def _hex(address):
+    """An IPv4 address as /proc/net/tcp prints it: the 32-bit word, little-endian."""
+    return socket.inet_aton(address)[::-1].hex().upper()
+
+
+def _tcp_stream(local, remote):
+    """A socket table holding one established connection from `local` to a snapserver."""
+    return TCP_HEADER + (f"   4: {_hex(local)}:D3FC {_hex(remote)}:06A8 01 00000000:00000000 "
+                         "00:00000000 00000000  1000        0 12107\n")
+
+
+# The satellite's two addresses: Bureau's eth0 and the WiFi standby it streamed
+# from for 3 min 38 s after its cable came back (measured 2026-11-06).
+SAT_WIRED, SAT_WIFI = "192.168.1.60", "192.168.1.69"
+
+
+class _FakeUdpSocket:
+    """The datagram socket the kernel is asked through: the source it would pick
+    for a new connection (`connect` + `getsockname`, nothing sent), and the fd an
+    ioctl goes through."""
+
+    def __init__(self, world):
+        self.world = world
+        self.source = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def fileno(self):
+        return -1
+
+    def connect(self, address):
+        self.source = self.world.preferred(self.world.now)
+        if self.source is None:
+            raise OSError(errno.ENETUNREACH, "Network is unreachable")
+
+    def getsockname(self):
+        return (self.source, 40000)
+
+
 class _End(BaseException):
     """Ends a loop run; a BaseException so the loop's own `except Exception` cannot eat it."""
 
@@ -335,15 +387,21 @@ class _World:
     """A satellite's outside world as functions of time, on a clock the loop's sleeps advance.
 
     `connected(t)` and `playing(t)` say what snapclient is doing, `resolves(t)`
-    what mDNS answers for the server. snapclient runs with `-h dialled`. The run
-    ends at `until`, or at the first restart unless `past_restarts`; restart
-    times are recorded.
+    what mDNS answers for the server. snapclient runs with `-h dialled`, from
+    the satellite address `local(t)`. The satellite's eth0 is `carrier(t)` (the
+    sysfs text, None: no such file), `wired(t)` its IPv4 address (None: none),
+    and `preferred(t)` the source the kernel picks for a new connection to the
+    server (None: no route). The run ends at `until`, or at the first restart
+    unless `past_restarts`; restart times are recorded.
     """
 
     def __init__(self, tmp_path, dialled, resolves, connected, playing=lambda t: True,
-                 until=600, past_restarts=False):
+                 until=600, past_restarts=False, local=lambda t: SAT_WIRED,
+                 carrier=lambda t: None, wired=lambda t: None, preferred=lambda t: None):
         self.tmp_path = tmp_path
+        self.dialled = dialled
         self.resolves, self.connected, self.playing = resolves, connected, playing
+        self.local, self.carrier, self.wired, self.preferred = local, carrier, wired, preferred
         self.until, self.past_restarts = until, past_restarts
         self.now = 0.0
         self.lookups = []      # virtual times of each mDNS resolution
@@ -353,8 +411,14 @@ class _World:
         self._write()
 
     def _write(self):
-        (self.tmp_path / "tcp").write_text(TCP_STREAMING if self.connected(self.now) else TCP_IDLE)
+        tcp = _tcp_stream(self.local(self.now), self.dialled) if self.connected(self.now) else TCP_IDLE
+        (self.tmp_path / "tcp").write_text(tcp)
         (self.tmp_path / "alsa").write_text(ALSA_RUNNING if self.playing(self.now) else ALSA_CLOSED)
+        carrier = self.tmp_path / "carrier"
+        if self.carrier(self.now) is None:
+            carrier.unlink(missing_ok=True)
+        else:
+            carrier.write_text(self.carrier(self.now) + "\n")
 
     async def _sleep(self, seconds):
         self.now += seconds
@@ -378,6 +442,13 @@ class _World:
         self.lookups.append(self.now)
         return [(2, 1, 6, "", (self.resolves(self.now), MILO_PRINCIPAL_PORT))]
 
+    def _ioctl(self, fd, request, ifreq):
+        """SIOCGIFADDR: the interface's IPv4 address, at bytes 20-24 of the ifreq."""
+        address = self.wired(self.now)
+        if address is None:
+            raise OSError(errno.EADDRNOTAVAIL, "Cannot assign requested address")
+        return ifreq[:20] + socket.inet_aton(address) + ifreq[24:]
+
     async def run(self):
         with patch.dict("os.environ", {"MILO_PRINCIPAL_IP": "milo.local"}, clear=True), \
              patch("services.server_address_watch.PROC_CMDLINE", str(self.tmp_path) + "/{pid}"), \
@@ -385,7 +456,10 @@ class _World:
              patch("services.server_address_watch.LOOPBACK_PLAYBACK_STATUS",
                    str(self.tmp_path / "alsa")), \
              patch("asyncio.create_subprocess_exec", side_effect=self._exec), \
+             patch("services.server_address_watch.WIRED_CARRIER", str(self.tmp_path / "carrier")), \
              patch("services.registration.socket.getaddrinfo", side_effect=self._getaddrinfo), \
+             patch("socket.socket", side_effect=lambda *a, **k: _FakeUdpSocket(self)), \
+             patch("fcntl.ioctl", side_effect=self._ioctl), \
              patch("asyncio.sleep", side_effect=self._sleep):
             try:
                 await follow_server_address()
@@ -494,5 +568,132 @@ async def test_a_restart_is_not_repeated_before_its_cooldown(tmp_path):
     await world.run()
 
     assert len(world.restarts) >= 2, "the stale client was not retried at all"
+    gaps = [b - a for a, b in zip(world.restarts, world.restarts[1:])]
+    assert min(gaps) >= watch.COOLDOWN_INTERVAL
+
+
+def test_the_stream_addresses_are_read_from_the_kernels_own_bytes():
+    """The return to the cable compares the address the stream leaves from.
+
+    Read off canape's own table: a parse that swapped the columns or the byte
+    order would compare an address no interface holds, and restart every room
+    that is playing.
+    """
+    assert watch._snapserver_stream(TCP_STREAMING) == ("192.168.1.153", "192.168.1.39")
+    assert watch._snapserver_stream(TCP_IDLE) is None
+
+
+def test_an_ipv4_stream_listed_in_the_ipv6_table_reads_as_ipv4():
+    """snapclient resolves for itself on the launcher's hostname fallback, and an
+    IPv4 connection then shows in /proc/net/tcp6 as ::ffff:a.b.c.d."""
+    tcp6 = TCP_HEADER + ("   0: 0000000000000000FFFF00009901A8C0:D3FC "
+                         "0000000000000000FFFF00002701A8C0:06A8 01 00000000:00000000 "
+                         "00:00000000 00000000  1000        0 12107\n")
+
+    assert watch._snapserver_stream(tcp6) == ("192.168.1.153", "192.168.1.39")
+
+
+# What the cable's return looks like: carrier, a lease, and the kernel's choice
+# moving to eth0 for every new connection — while the open stream stays on WiFi.
+REPLUG = 100.5
+
+
+def _cable_back(t):
+    return t >= REPLUG
+
+
+@pytest.mark.asyncio
+async def test_a_playing_stream_on_the_wifi_address_moves_once_ethernet_is_back(tmp_path):
+    """The defect: replugged, the satellite streamed from its WiFi address until a reboot.
+
+    New connections already prefer eth0; the open one never moves, because
+    snapclient has no reason to reconnect. The owner chose a few seconds of
+    silence in that room over a whole listening session on WiFi, so it moves
+    while playing — after the hold, never before.
+    """
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: True, playing=lambda t: True, local=lambda t: SAT_WIFI,
+        carrier=lambda t: "1" if _cable_back(t) else "0",
+        wired=lambda t: SAT_WIRED if _cable_back(t) else None,
+        preferred=lambda t: SAT_WIRED if _cable_back(t) else SAT_WIFI,
+    ).run()
+
+    assert world.restarted_at is not None, "the stream never came back to the cable"
+    assert REPLUG + watch.LINK_HOLD - 1 <= world.restarted_at <= REPLUG + watch.LINK_HOLD + 1
+
+
+@pytest.mark.asyncio
+async def test_a_flapping_cable_restarts_nothing(tmp_path):
+    """A cable that comes and goes faster than the hold never earns a restart.
+
+    Each restart is a gap in the room; one per flap would be worse than the WiFi.
+    Only the carrier flaps here: NetworkManager defers a carrier loss by a few
+    seconds, keeping eth0's lease, and the kernel keeps choosing its routes
+    (marked linkdown) meanwhile — so the address and the route alone never see
+    a flap that short.
+    """
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: True, local=lambda t: SAT_WIFI,
+        carrier=lambda t: "1" if int(t) % 8 < 4 else "0",
+        wired=lambda t: SAT_WIRED, preferred=lambda t: SAT_WIRED,
+    ).run()
+
+    assert world.restarted_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_preferred_wifi_route_is_never_chased(tmp_path):
+    """eth0 up with a lease, but the kernel still routes to the server over WiFi.
+
+    NetworkManager raises eth0's metric (20100) when its connectivity check reads
+    the link as degraded: a restart would land on WiFi again, every cooldown,
+    forever. The rule moves a stream only to where a new connection would go.
+    """
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: True, local=lambda t: SAT_WIFI,
+        carrier=lambda t: "1", wired=lambda t: SAT_WIRED, preferred=lambda t: SAT_WIFI,
+    ).run()
+
+    assert world.restarted_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_wifi_only_satellite_is_left_alone(tmp_path):
+    """No cable, or no eth0 at all: the WiFi stream is the only one there is."""
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: True, local=lambda t: SAT_WIFI,
+        carrier=lambda t: None, wired=lambda t: None, preferred=lambda t: SAT_WIFI,
+    ).run()
+
+    assert world.restarted_at is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("paused_at", [0, 15])
+async def test_two_reasons_never_restart_inside_one_cooldown(tmp_path, paused_at):
+    """The server-address rule and the cable rule share one cooldown.
+
+    Here both stay true for good — a client on the server's WiFi address,
+    streaming from its own WiFi address with the cable back — and each restart
+    lands it there again. Whichever rule restarts first (the cable while the
+    room plays, the address once it pauses), the other must wait the cooldown
+    too, or the room takes two gaps where one was due.
+    """
+    restarts = []
+    world = _World(
+        tmp_path, dialled=WIFI, resolves=lambda t: WIRED,
+        connected=lambda t: not any(r <= t < r + 3 for r in restarts),
+        playing=lambda t: t < paused_at, local=lambda t: SAT_WIFI,
+        carrier=lambda t: "1", wired=lambda t: SAT_WIRED, preferred=lambda t: SAT_WIRED,
+        until=400, past_restarts=True,
+    )
+    restarts = world.restarts
+    await world.run()
+
+    assert len(world.restarts) >= 2, "neither rule restarted the stranded client"
     gaps = [b - a for a, b in zip(world.restarts, world.restarts[1:])]
     assert min(gaps) >= watch.COOLDOWN_INTERVAL

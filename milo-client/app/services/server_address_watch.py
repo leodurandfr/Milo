@@ -1,5 +1,6 @@
 """
-Keep snapclient pointed at the main Milo when the server changes address.
+Keep snapclient pointed at the main Milo when the server changes address, and on
+the satellite's own cable when it has one.
 
 `milo-client-snapclient-launcher` resolves the server once, at service start,
 and execs snapclient with the literal IP — deliberately, so snapclient's own
@@ -13,9 +14,8 @@ on WiFi with a new IP, and both satellites sat on `No route to host` until their
 snapclient was restarted by hand. The registration loop next door had followed
 the move on its own, because it re-resolves on every heartbeat.
 
-This closes that asymmetry from the same side, under one rule: **a client that
-is playing is never interrupted.** A restart is free in two states only, and the
-address is compared in those two:
+This closes that asymmetry from the same side. The server's address is compared
+only where a restart is free, in two states:
 
 - **No connection to a snapserver.** The server lost the address snapclient
   dialled — its cable went, and it answers on WiFi now. The loss is seen by
@@ -37,13 +37,31 @@ address is compared in those two:
 
 The lookup runs here, in the API process, and never in snapclient's reconnect
 path — which is what the launcher's design protects.
+
+The satellite's own link is followed too, and there a playing room *is* cut: the
+owner chose Ethernet first, at the cost of a few seconds of silence (2026-11-06).
+Losing the cable needs nothing here — the stream's address goes with it, and
+snapclient sees its time sync fail within 2-3 s and re-dials from the WiFi
+address. Getting it back moves nothing: new connections prefer eth0 (metric 100
+against the WiFi's 600) but the open one keeps its source, and the audio then
+arrives over wlan0 for as long as it lasts. Measured on Bureau the same day: 3 min
+38 s on its WiFi address after the replug, until a reboot. So once eth0 has held
+its carrier and its address for `LINK_HOLD`, and the kernel would route a new
+connection to the server through it, a stream still leaving from another address
+is restarted. The hold is what keeps a flapping cable from cutting the room on
+every return; the route check is what keeps a degraded eth0 (NetworkManager
+raises its metric) from being chased onto WiFi again at every cooldown.
 """
 import asyncio
+import fcntl
+import ipaddress
 import logging
+import socket
+import struct
 from pathlib import Path
 from typing import Optional
 
-from services.registration import resolve_milo_principal
+from services.registration import local_ip_towards, resolve_milo_principal
 from services.snapclient import SNAPCLIENT_SERVICE
 
 logger = logging.getLogger(__name__)
@@ -54,6 +72,9 @@ PROC_CMDLINE = "/proc/{pid}/cmdline"
 # snapclient resolve for itself, and that answer can be IPv6.
 PROC_NET_TCP = ("/proc/net/tcp", "/proc/net/tcp6")
 SNAPSERVER_PORT = 1704
+WIRED_INTERFACE = "eth0"
+WIRED_CARRIER = f"/sys/class/net/{WIRED_INTERFACE}/carrier"
+SIOCGIFADDR = 0x8915
 # snapclient's output, `camilladsp_input` in asound.conf: the Loopback card's
 # playback device 0, subdevice 0, addressed by the card's id like the PCM is.
 LOOPBACK_PLAYBACK_STATUS = "/proc/asound/Loopback/pcm0p/sub0/status"
@@ -68,6 +89,8 @@ LOSS_WINDOW = 60
 # dial, and a check-interval loop would otherwise stop/start it on every pass
 # while it is still trying.
 COOLDOWN_INTERVAL = 60
+# How long eth0 must stay usable before a stream is moved onto it.
+LINK_HOLD = 10
 
 # Set between the stop and the start of a restart. A start that fails leaves the
 # unit dead, and a dead unit has no address to compare — so without this the
@@ -88,8 +111,20 @@ def _server_arg(cmdline: bytes) -> Optional[str]:
     return None
 
 
-def _holds_snapserver_connection(proc_net_tcp: str) -> bool:
-    """True when one line of a /proc/net/tcp table is an open snapcast socket.
+def _address(hex_address: str) -> str:
+    """An address as /proc/net/tcp(6) prints it: 32-bit words, each little-endian.
+
+    An IPv4 connection listed in the tcp6 table (::ffff:a.b.c.d) reads as IPv4.
+    """
+    raw = bytes.fromhex(hex_address)
+    address = ipaddress.ip_address(b"".join(raw[i:i + 4][::-1] for i in range(0, len(raw), 4)))
+    if address.version == 6 and address.ipv4_mapped:
+        return str(address.ipv4_mapped)
+    return str(address)
+
+
+def _snapserver_stream(proc_net_tcp: str) -> Optional[tuple[str, str]]:
+    """(local, remote) address of the open snapcast socket in a /proc/net/tcp table.
 
     Columns are `sl local_address rem_address st …`, addresses hex `IP:PORT` and
     `st` hex; 01 is ESTABLISHED. Only snapclient talks to a snapserver from a
@@ -100,22 +135,61 @@ def _holds_snapserver_connection(proc_net_tcp: str) -> bool:
         columns = line.split()
         if len(columns) < 4:
             continue
-        remote, state = columns[2], columns[3]
-        if state == "01" and remote.rsplit(":", 1)[-1].upper() == port:
-            return True
-    return False
+        local, remote, state = columns[1], columns[2], columns[3]
+        remote_address, _, remote_port = remote.rpartition(":")
+        if state == "01" and remote_port.upper() == port:
+            return _address(local.rpartition(":")[0]), _address(remote_address)
+    return None
 
 
-async def _is_connected() -> bool:
-    """True while snapclient holds a connection to a snapserver."""
+async def _stream() -> Optional[tuple[str, str]]:
+    """(local, remote) address of snapclient's connection, or None when it has none."""
     for path in PROC_NET_TCP:
         try:
             table = await asyncio.to_thread(Path(path).read_text)
         except OSError:
             continue  # tcp6 is absent on a kernel built without IPv6
-        if _holds_snapserver_connection(table):
-            return True
-    return False
+        stream = _snapserver_stream(table)
+        if stream:
+            return stream
+    return None
+
+
+async def _is_connected() -> bool:
+    """True while snapclient holds a connection to a snapserver."""
+    return await _stream() is not None
+
+
+def _wired_route(server: str) -> Optional[str]:
+    """eth0's IPv4 address, when it has its carrier and a new connection to
+    `server` would leave from it — else None.
+
+    Syscalls only: a sysfs read, an ioctl, and a datagram connect that sends
+    nothing. A carrier that cannot be read is an eth0 that is down or absent.
+    """
+    try:
+        if Path(WIRED_CARRIER).read_text().strip() != "1":
+            return None
+    except OSError:
+        return None
+    ifreq = struct.pack("256s", WIRED_INTERFACE.encode())
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            wired = socket.inet_ntoa(fcntl.ioctl(s.fileno(), SIOCGIFADDR, ifreq)[20:24])
+        preferred = local_ip_towards(server, SNAPSERVER_PORT)
+    except OSError:
+        return None  # no IPv4 on eth0 yet, or no route to the server at all
+    return wired if preferred == wired else None
+
+
+async def _stranded_off_the_cable(stream: Optional[tuple[str, str]]) -> bool:
+    """True when the stream leaves from an address a new connection would not take,
+    and a new one would take eth0."""
+    if stream is None:
+        return False
+    local, server = stream
+    wired = await asyncio.to_thread(_wired_route, server)
+    return wired is not None and local != wired
 
 
 async def _is_playing() -> bool:
@@ -257,17 +331,51 @@ class _Pacer:
         self._skip = interval // POLL_INTERVAL - 1
 
 
+class _CableHold:
+    """Whether a stream stranded off the cable has been so for the whole hold.
+
+    Counted in polls like `_Pacer`: one poll that breaks the condition starts the
+    hold again. A restart for either reason opens the same cooldown here.
+    """
+
+    def __init__(self) -> None:
+        self._held = 0
+        self._cooling = 0
+
+    def due(self, stranded: bool) -> bool:
+        if self._cooling:
+            self._cooling -= 1
+        self._held = self._held + 1 if stranded else 0
+        return self._held >= LINK_HOLD // POLL_INTERVAL and not self._cooling
+
+    def restarted(self) -> None:
+        self._held = 0
+        self._cooling = COOLDOWN_INTERVAL // POLL_INTERVAL
+
+
 async def follow_server_address() -> None:
-    """Restart a snapclient playing nothing whose server has moved to a new address."""
+    """Keep snapclient on the server's current address, and on eth0 when it is up."""
     pacer = _Pacer()
+    cable = _CableHold()
     while True:
         try:
-            if pacer.due(await _is_connected()):
-                restarted = False
+            stream = await _stream()
+            restarted = False
+            if pacer.due(stream is not None):
                 try:
                     restarted = await _reconcile()
                 finally:
                     pacer.checked(restarted)
+            if restarted:
+                cable.restarted()
+            elif cable.due(await _stranded_off_the_cable(stream)):
+                logger.warning(f"Stream to {stream[1]} still leaves from {stream[0]} with "
+                               f"{WIRED_INTERFACE} back, restarting snapclient")
+                try:
+                    await restart_snapclient()
+                finally:
+                    cable.restarted()
+                pacer.checked(True)
         except Exception as e:
             logger.error(f"Server address check failed: {e}")
         await asyncio.sleep(POLL_INTERVAL)
