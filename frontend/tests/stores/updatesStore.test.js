@@ -173,6 +173,30 @@ describe('updatesStore satellite return', () => {
     expect(store.isSatelliteAppUpdateCompleted(MAC)).toBe(false);
   });
 
+  it.each([
+    ['snapclient', 'handleSatelliteUpdateComplete', 'startSatelliteUpdate', 'isSatelliteUpdateCompleted'],
+    ['app', 'handleSatelliteAppUpdateComplete', 'startSatelliteAppUpdate', 'isSatelliteAppUpdateCompleted'],
+    ['CamillaDSP', 'handleSatelliteCamillaUpdateComplete', 'startSatelliteCamillaUpdate',
+      'isSatelliteCamillaUpdateCompleted'],
+  ])('keeps a finished %s mark through a fleet read sent before that update moved again',
+    async (_, complete, start, completed) => {
+      // The answer was read before the satellite's update moved, so it says
+      // nothing about that move; dropping the mark on it, or on another
+      // update's move, would decide from a list older than the event.
+      useMultiroomStore().clients.set(MAC, { mac_id: MAC, online: true });
+      let answer;
+      apiCall.get.mockReturnValueOnce(new Promise(resolve => { answer = resolve; }))
+        .mockResolvedValue(withSatellite());
+      apiCall.post.mockResolvedValue(ok({ status: 'success' }));
+
+      store[complete]({ mac_id: MAC, success: true });
+      await store[start](MAC);
+      answer(withSatellite());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(store[completed](MAC)).toBe(true);
+    });
+
   it('holds the fleet it already has while it refetches', async () => {
     // The skeleton is drawn from `satellites === null`, so re-entering that on
     // a refresh flashed every satellite section back to skeletons for the
