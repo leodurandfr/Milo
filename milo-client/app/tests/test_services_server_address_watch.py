@@ -49,6 +49,7 @@ from services.server_address_watch import (
     _server_arg,
     follow_server_address,
 )
+import services.registration as registration
 import services.server_address_watch as watch
 
 ROOTFS = Path(__file__).resolve().parents[2] / "rootfs"
@@ -256,6 +257,24 @@ def test_the_watcher_reads_the_flag_the_launcher_actually_passes():
     assert _server_arg(argv) == "192.0.2.1"
 
 
+def test_the_launcher_consumes_the_address_the_watcher_leaves():
+    """The watcher's choice reaches snapclient only through the launcher's next start.
+
+    Three spellings must agree, in files no test runs together: the path the
+    watcher writes, the path the launcher reads and removes, and the runtime
+    directory the app's unit asks systemd for. A path that drifts in one of them
+    leaves the choice unread, and the stream dials the silent address again.
+    """
+    launcher = LAUNCHER.read_text()
+    override = Path(watch.SERVER_OVERRIDE)
+    assert re.search(rf"^override={re.escape(str(override))}$", launcher, re.M), \
+        "the launcher does not read the watcher's path"
+    assert re.search(r'^\s+rm -f "\$override"$', launcher, re.M), "the launcher keeps the choice"
+    unit = (ROOTFS.parent / "system" / "milo-client.service").read_text()
+    assert re.search(rf"^RuntimeDirectory={re.escape(override.parent.name)}$", unit, re.M)
+    assert override.parent.parent == Path("/run")
+
+
 # --- The loop, on a virtual clock ------------------------------------------------
 
 def _hex(address):
@@ -302,6 +321,16 @@ class _FakeUdpSocket:
         return (self.source, 40000)
 
 
+class _FakeWriter:
+    """The writer half of a connection that answered; the probe only closes it."""
+
+    def close(self):
+        pass
+
+    async def wait_closed(self):
+        pass
+
+
 class _End(BaseException):
     """Ends a loop run; a BaseException so the loop's own `except Exception` cannot eat it."""
 
@@ -320,7 +349,10 @@ class _World:
 
     def __init__(self, tmp_path, dialled, resolves, connected,
                  until=600, past_restarts=False, local=lambda t: SAT_WIRED,
-                 carrier=lambda t: None, wired=lambda t: None, preferred=lambda t: None):
+                 carrier=lambda t: None, wired=lambda t: None, preferred=lambda t: None,
+                 server_addresses=(), answers=lambda t, address: True):
+        self.server_addresses, self.answers = server_addresses, answers
+        self.probes = []       # (virtual time, address) of each connection attempt
         self.tmp_path = tmp_path
         self.dialled = dialled
         self.resolves, self.connected = resolves, connected
@@ -374,7 +406,29 @@ class _World:
             raise OSError(errno.EADDRNOTAVAIL, "Cannot assign requested address")
         return ifreq[:20] + socket.inet_aton(address) + ifreq[24:]
 
+    async def _open_connection(self, host, port):
+        """A TCP connect to the server: it answers, or times out as a dead port does."""
+        self.probes.append((self.now, host))
+        if not self.answers(self.now, host):
+            self.now += watch.PROBE_TIMEOUT
+            raise TimeoutError
+        return None, _FakeWriter()
+
+    @property
+    def override(self):
+        """The address the watcher left for the launcher's next start, if any."""
+        path = self.tmp_path / "server-address"
+        return path.read_text() if path.exists() else None
+
     async def run(self):
+        registration.remember_server_addresses({"server_addresses": list(self.server_addresses)})
+        try:
+            await self._run()
+        finally:
+            registration.remember_server_addresses({"server_addresses": []})
+        return self
+
+    async def _run(self):
         with patch.dict("os.environ", {"MILO_PRINCIPAL_IP": "milo.local"}, clear=True), \
              patch("services.server_address_watch.PROC_CMDLINE", str(self.tmp_path) + "/{pid}"), \
              patch("services.server_address_watch.PROC_NET_TCP", (str(self.tmp_path / "tcp"),)), \
@@ -383,12 +437,13 @@ class _World:
              patch("services.registration.socket.getaddrinfo", side_effect=self._getaddrinfo), \
              patch("socket.socket", side_effect=lambda *a, **k: _FakeUdpSocket(self)), \
              patch("fcntl.ioctl", side_effect=self._ioctl), \
+             patch("asyncio.open_connection", side_effect=self._open_connection), \
+             patch("services.server_address_watch.SERVER_OVERRIDE", str(self.tmp_path / "server-address")), \
              patch("asyncio.sleep", side_effect=self._sleep):
             try:
                 await follow_server_address()
             except _End:
                 pass
-        return self
 
 
 WIRED, WIFI = "192.168.1.55", "192.168.1.39"
@@ -947,3 +1002,96 @@ async def test_a_client_that_connects_is_compared_at_once(tmp_path):
 
     assert world.restarted_at is not None, "the connected client was never compared"
     assert world.restarted_at <= connect + watch.SERVER_HOLD + 1
+
+
+# --- The server's other address, when the one dialled goes silent ----------------
+# A real server cable pull, 2026-11-06: the stream dropped 2.5 s after the cable,
+# and mDNS kept answering the wired address until NetworkManager withdrew it,
+# 6 s after the carrier — ~10 s of silence in every room. The server's WiFi
+# address answered all along.
+SERVER_ADDRESSES = (WIRED, WIFI)
+
+
+@pytest.mark.asyncio
+async def test_a_server_whose_wired_address_went_silent_is_dialled_on_its_other_one(tmp_path):
+    """mDNS still answers the wired address; the WiFi one answers a connect."""
+    loss = 20.5
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: t < loss, server_addresses=SERVER_ADDRESSES,
+        answers=lambda t, address: address == WIFI or t < loss,
+    ).run()
+
+    assert world.restarted_at is not None, "the silent wired address was never left"
+    assert world.restarted_at - loss <= 1 + watch.PROBE_TIMEOUT
+    assert world.override == WIFI
+
+
+@pytest.mark.asyncio
+async def test_a_server_silent_on_every_address_is_left_alone(tmp_path):
+    """The server is off: restarting the client fixes nothing, so the loss
+    window passes without a restart however often both addresses are tried."""
+    loss = 20.5
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: t < loss, server_addresses=SERVER_ADDRESSES,
+        answers=lambda t, address: t < loss, until=300,
+    ).run()
+
+    assert world.restarted_at is None
+    assert world.override is None
+
+
+@pytest.mark.asyncio
+async def test_a_wired_address_that_still_answers_is_kept(tmp_path):
+    """The satellite's own cable went, not the server's: the server's wired
+    address answers over the satellite's WiFi, and snapclient re-dials it by
+    itself, even with the server's other address answering too."""
+    loss, back = 20.5, 24.5
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: not loss <= t < back, server_addresses=SERVER_ADDRESSES,
+    ).run()
+
+    assert world.restarted_at is None
+    assert {address for _, address in world.probes} == {WIRED, WIFI}
+
+
+@pytest.mark.asyncio
+async def test_without_a_heartbeat_answer_nothing_is_probed(tmp_path):
+    """Before the first heartbeat answer the satellite knows no other address:
+    the stream is left to mDNS, as it always was."""
+    loss = 20.5
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: WIRED,
+        connected=lambda t: t < loss, until=200,
+        answers=lambda t, address: address == WIFI or t < loss,
+    ).run()
+
+    assert world.restarted_at is None
+    assert world.probes == []
+
+
+@pytest.mark.asyncio
+async def test_an_operator_pinned_ip_is_never_left_for_another_address(tmp_path):
+    """A literal MILO_PRINCIPAL_IP is a choice an operator made: even silent, and
+    with another listed address answering, the unit stays on it."""
+    _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", WIRED, "-p", "1704")
+    registration.remember_server_addresses({"server_addresses": list(SERVER_ADDRESSES)})
+    dialled = []
+
+    async def open_connection(host, port):
+        dialled.append(host)
+        if host != WIFI:
+            raise TimeoutError
+        return None, _FakeWriter()
+
+    try:
+        with _watching(tmp_path, 1077, principal=WIRED, resolves_to=WIRED) as spawned, \
+             patch("asyncio.open_connection", side_effect=open_connection):
+            assert await _reconcile() is False
+    finally:
+        registration.remember_server_addresses({"server_addresses": []})
+
+    assert _restarts(spawned) == []
+    assert dialled == []

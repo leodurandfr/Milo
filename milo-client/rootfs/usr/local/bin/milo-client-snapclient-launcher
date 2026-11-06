@@ -15,7 +15,9 @@
 # when mDNS has answered another address for its hold while snapclient is
 # connected — playing or not — and when the stream does not leave from the
 # satellite's own eth0 once that has come back. Ethernet first, at the cost of
-# a few seconds of silence in that room (the owner's choice, 2026-11-06).
+# a few seconds of silence in that room (the owner's choice, 2026-11-06). When the
+# address it dialled stops answering while mDNS still gives it, the watcher picks
+# the server's next address itself and leaves it in the override below.
 #
 # Before resolving, it waits for NetworkManager's startup: the image masks
 # NetworkManager-wait-online, so the unit's After=network-online.target waits for
@@ -64,6 +66,17 @@ fi
 # Numeric literals (1.2.3.4) are passed through unchanged — covers a LAN where
 # mDNS does not work and the env file carries a literal address.
 server="${MILO_PRINCIPAL_IP:-milo.local}"
+
+# Unless the API's watcher chose this start's address: the main Milo stopped
+# answering at the one mDNS still gives — a server whose cable went keeps its
+# wired address published for seconds — and answers at another it listed in its
+# heartbeat. Read once and removed, so only the start it was written for uses it.
+override=/run/milo-client/server-address
+if [ -s "$override" ]; then
+    server=$(cat "$override")
+    rm -f "$override"
+    echo "milo-client-snapclient-launcher: dialling $server, the address the watcher chose"
+fi
 case "$server" in
     *[!0-9.]*)
         # Hostname — try to resolve, retry up to ~10s for slow avahi/DNS at boot

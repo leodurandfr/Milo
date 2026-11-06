@@ -216,11 +216,13 @@ def test_multiroom_zone_or_message_branches():
 
 
 def test_register_client_branches():
-    # Reconnect path → {status, message}; staged path → {status, client}.
-    out = emit(R.RegisterClientResponse, {"status": "success", "message": "reconnect"}, exclude_none=True)
-    assert set(out) == {"status", "message"}
-    out = emit(R.RegisterClientResponse, {"status": "success", "client": {"mac_id": "m", "ip": "10.0.0.9"}}, exclude_none=True)
-    assert set(out) == {"status", "client"}
+    # Reconnect path → {status, message}; staged path → {status, client}; the
+    # server's addresses ride on both, since the satellite reads them off each.
+    addresses = {"server_addresses": ["192.168.1.55", "192.168.1.39"]}
+    out = emit(R.RegisterClientResponse, {"status": "success", "message": "reconnect", **addresses}, exclude_none=True)
+    assert set(out) == {"status", "message", "server_addresses"}
+    out = emit(R.RegisterClientResponse, {"status": "success", "client": {"mac_id": "m", "ip": "10.0.0.9"}, **addresses}, exclude_none=True)
+    assert set(out) == {"status", "client", "server_addresses"}
 
 
 def test_equalizer_record_preserves_all_ten_keys_and_opaque_subobjects():

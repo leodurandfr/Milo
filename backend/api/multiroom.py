@@ -40,6 +40,7 @@ from backend.api.responses import (
 )
 from backend.config.constants import CLIENT_API_PORT, get_client_display_name
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.network.addresses import server_addresses
 from backend.core.multiroom.models import EqualizerSettings
 
 if TYPE_CHECKING:
@@ -1004,6 +1005,8 @@ def create_multiroom_router(
                     detail=f"Declared IP {request.ip} does not match request origin {normalized_caller}",
                 )
 
+            addresses = await asyncio.to_thread(server_addresses)
+
             # Hardware already configured → snapclient will handle reconnection
             # Still sync volume_control from client's audio card to keep registry accurate
             if request.hardware_configured:
@@ -1014,8 +1017,8 @@ def create_multiroom_router(
                             if not request.volume_control:
                                 await _drop_trim_before_dac(request.mac_id, existing)
                         except (HTTPException, SatelliteUnreachable) as e:
-                            # The satellite reads nothing from this answer: the
-                            # flag waits, and its next heartbeat retries the clear.
+                            # The flag waits, and the satellite's next heartbeat
+                            # retries the clear.
                             logger.warning(
                                 f"Client {request.mac_id} reports an external amp, kept volume-managed "
                                 f"until its level trim is cleared: {e.detail}"
@@ -1037,7 +1040,8 @@ def create_multiroom_router(
                             f"{request.name} ({request.speaker_type or existing.speaker_type})"
                         )
                     logger.debug(f"Client {request.mac_id} heartbeat, hardware configured, skipping pending")
-                    return {"status": "success", "message": "Hardware configured, snapclient will reconnect"}
+                    return {"status": "success", "message": "Hardware configured, snapclient will reconnect",
+                            "server_addresses": addresses}
 
                 # Not in registry yet (e.g. wifi-adopted client on first boot).
                 # Stage identity in pending storage so the snapclient transfer
@@ -1055,7 +1059,7 @@ def create_multiroom_router(
                         name=request.name,
                         speaker_type=request.speaker_type,
                     ) or client
-                return {"status": "success", "client": client}
+                return {"status": "success", "client": client, "server_addresses": addresses}
 
             # Reinstall detection: if mac_id exists in registry, remove stale entry
             existing = registry_service.get_client(request.mac_id)
@@ -1076,7 +1080,7 @@ def create_multiroom_router(
                     name=request.name,
                     speaker_type=request.speaker_type,
                 ) or client
-            return {"status": "success", "client": client}
+            return {"status": "success", "client": client, "server_addresses": addresses}
 
     @router.get("/pending-clients", response_model=MultiroomPendingClientsResponse)
     async def get_pending_clients():

@@ -1550,21 +1550,86 @@ def test_the_server_declares_no_registration_field_the_satellite_never_sends():
     )
 
 
-def test_the_satellite_reads_nothing_off_the_registration_response():
-    """Side D has no mirror here, and this is what keeps that true.
+def _registration_answer_reads() -> set[str]:
+    """Keys the satellite reads off the registration answer.
 
-    The satellite reads only the HTTP status (plus the body as text, for the
-    failure log). The day it reads a key out of the response, that key needs the
-    same check side D applies in the other direction — and this test is where
-    that is noticed.
+    The answer is handed whole to a module function (`f(await resp.json())`);
+    the keys are that function's subscripts and `.get`s on its first parameter.
+    A read made inline on the awaited payload is collected too.
     """
     tree = ast.parse(REGISTRATION_MODULE.read_text())
-    json_reads = [
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "json"
-    ]
-    assert not json_reads, (
-        "milo-client now decodes the registration response; extend this side to "
-        "check the keys it reads against what the server's handler returns"
-    )
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+
+    def awaited_json(node):
+        return (isinstance(node, ast.Await) and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Attribute) and node.value.func.attr == "json")
+
+    reads = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and awaited_json(node.value) \
+                and isinstance(node.slice, ast.Constant):
+            reads.add(node.slice.value)
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        if not any(awaited_json(arg) for arg in node.args):
+            continue
+        handler = functions.get(node.func.id)
+        assert handler and handler.args.args, f"{node.func.id} is not a module function of registration.py"
+        param = handler.args.args[0].arg
+        for sub in ast.walk(handler):
+            if (isinstance(sub, ast.Subscript) and isinstance(sub.value, ast.Name)
+                    and sub.value.id == param and isinstance(sub.slice, ast.Constant)):
+                reads.add(sub.slice.value)
+            if (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                    and sub.func.attr == "get" and isinstance(sub.func.value, ast.Name)
+                    and sub.func.value.id == param and sub.args
+                    and isinstance(sub.args[0], ast.Constant)):
+                reads.add(sub.args[0].value)
+    return reads
+
+
+def _registration_answers() -> tuple[str | None, list[set[str]]]:
+    """(response-model name, the keys of each dict the handler returns)."""
+    source = SERVER_MULTIROOM.read_text()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            if not (isinstance(dec, ast.Call) and dec.args and isinstance(dec.args[0], ast.Constant)
+                    and _REG_PATH.endswith(dec.args[0].value)):
+                continue
+            model = next((kw.value.id for kw in dec.keywords
+                          if kw.arg == "response_model" and isinstance(kw.value, ast.Name)), None)
+            returns = [
+                {k.value for k in ret.value.keys if isinstance(k, ast.Constant)}
+                for ret in ast.walk(node)
+                if isinstance(ret, ast.Return) and isinstance(ret.value, ast.Dict)
+            ]
+            return model, returns
+    return None, []
+
+
+def test_every_key_the_satellite_reads_off_its_registration_answer_is_always_there():
+    """Side D, for the one answer a satellite reads.
+
+    The satellite keeps the server's addresses from each heartbeat answer and
+    dials the next one when the stream's own goes silent. A key it reads that a
+    branch of the handler leaves out raises inside the heartbeat's `try:`, which
+    logs at debug and keeps the satellite unregistered — so each read key must
+    be a required field of the response model and a key of every dict the
+    handler returns.
+    """
+    from backend.api import responses
+
+    reads = _registration_answer_reads()
+    assert reads, "registration.py reads nothing off the answer — the extractor is blind"
+    model_name, returns = _registration_answers()
+    assert model_name and returns, f"no response model or return dict found for {_REG_PATH}"
+    fields = getattr(responses, model_name).model_fields
+    for key in sorted(reads):
+        assert key in fields and fields[key].is_required(), (
+            f"the satellite reads `{key}` off its registration answer, but {model_name} "
+            f"does not declare it as required — exclude_none can drop it"
+        )
+        missing = [sorted(keys) for keys in returns if key not in keys]
+        assert not missing, f"`{key}` is absent from the handler's answers {missing}"

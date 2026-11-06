@@ -383,11 +383,14 @@ class RegisterClientResponse(BaseModel):
     """POST /api/multiroom/register-client (called by milo-client satellites).
 
     Returns `message` (hardware-configured / reconnect path) or `client` (the
-    staged pending record). Served with exclude_none per single-key branch.
+    staged pending record), served with exclude_none per single-key branch, and
+    always `server_addresses`: every IPv4 address the server answers on, wired
+    first, which the satellite tries in that order when its stream drops.
     """
     status: str
     message: Optional[str] = None
     client: Optional[Dict[str, Any]] = None
+    server_addresses: List[str]
 
 
 # --- Phase 4: equalizer read + per-target mutations ------------------------

@@ -25,6 +25,29 @@ REGISTER_ENDPOINT = "/api/multiroom/register-client"
 RETRY_INTERVAL = 30  # seconds (before first successful registration)
 HEARTBEAT_INTERVAL = 15  # seconds (after successful registration)
 
+# The main Milo's own IPv4 addresses, wired first, as its last heartbeat answer
+# listed them. The address watcher dials the next one when the stream's own stops
+# answering: mDNS keeps answering a server's wired address for seconds after its
+# cable has gone.
+_server_addresses: tuple[str, ...] = ()
+
+
+def remember_server_addresses(answer: dict) -> None:
+    """Keep the IPv4 addresses a heartbeat answer lists, in their order."""
+    global _server_addresses
+    kept = []
+    for address in answer["server_addresses"]:
+        try:
+            kept.append(str(ipaddress.IPv4Address(address)))
+        except ipaddress.AddressValueError:
+            logger.debug(f"Ignoring a server address that is not IPv4: {address!r}")
+    _server_addresses = tuple(kept)
+
+
+def known_server_addresses() -> tuple[str, ...]:
+    """The main Milo's addresses, wired first; empty before the first heartbeat answer."""
+    return _server_addresses
+
 
 def _get_mac_address() -> str:
     """Read MAC address from eth0, fallback to wlan0."""
@@ -148,6 +171,7 @@ async def register_with_main_milo() -> None:
             ) as session:
                 async with session.post(url, json=payload) as resp:
                     if resp.status == 200:
+                        remember_server_addresses(await resp.json())
                         if not registered:
                             logger.info(
                                 f"Registered with main Milo at {milo_ip} "

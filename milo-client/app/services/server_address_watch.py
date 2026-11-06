@@ -25,7 +25,13 @@ This closes that asymmetry from the same side, in two states:
   whole interval late, because the loss always comes while connected: measured
   6 s on Bureau and 25 s on Canapé on 2026-11-05. Past that minute it falls
   back to every 30 s, since a snapserver stopped for hours (multiroom off) is a
-  disconnection too.
+  disconnection too. mDNS can lag the loss itself: a server whose cable went
+  keeps its wired address published until NetworkManager withdraws it, 6 s
+  after the carrier — ~10 s of silence on a real server cable pull, measured
+  2026-11-06. So when mDNS still gives the dialled address, that address is
+  dialled once; if it does not answer, the server's other addresses, which its
+  heartbeat answer lists wired first, are, and the first that answers is handed
+  to the launcher for the next start.
 - **Connected.** This is how a satellite comes back to the server's wired
   address once its cable has returned. snapclient re-dials the literal it
   holds, and when the server only restarts snapserver it is back in ~1 s
@@ -86,16 +92,23 @@ check of a dropped stream replaces that hostname with a literal — after which
 both rules apply.
 """
 import asyncio
+import contextlib
 import fcntl
 import ipaddress
 import logging
+import os
 import socket
 import struct
 from enum import Enum, auto
 from pathlib import Path
 from typing import Optional
 
-from services.registration import local_ip_towards, resolve_milo_principal
+from services.registration import (
+    MILO_PRINCIPAL_PORT,
+    known_server_addresses,
+    local_ip_towards,
+    resolve_milo_principal,
+)
 from services.snapclient import SNAPCLIENT_SERVICE
 
 logger = logging.getLogger(__name__)
@@ -131,6 +144,13 @@ COOLDOWN_INTERVAL = 60
 # the cable's own flapping can stretch that.
 LINK_HOLD = 10
 LINK_HOLD_MAX = 300
+# How long the server's address has to answer a connect: a LAN round trip is a
+# millisecond, and a dead port answers nothing at all.
+PROBE_TIMEOUT = 1
+# The address the watcher chose for the next start of the unit, read and removed
+# by milo-client-snapclient-launcher. Under the app's RuntimeDirectory: a reboot
+# or an app restart leaves no stale choice behind.
+SERVER_OVERRIDE = "/run/milo-client/server-address"
 # How long a stream must stay where a return put it — on the cable, or on the
 # server address it followed — for that return to count as kept.
 RETURN_SETTLE = 120
@@ -273,6 +293,49 @@ async def _running_server_address() -> Optional[str]:
     return _server_arg(cmdline)
 
 
+async def _answers(address: str) -> bool:
+    """Whether the main Milo accepts a TCP connection at `address` within the probe timeout.
+
+    The backend's port is dialled, not snapserver's: a probe there would log a
+    session error on the server for every pass of a loss window.
+    """
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(address, MILO_PRINCIPAL_PORT), PROBE_TIMEOUT)
+    except (OSError, TimeoutError):
+        return False
+    writer.close()
+    with contextlib.suppress(OSError):
+        await writer.wait_closed()
+    return True
+
+
+async def _answering_address(running: str) -> Optional[str]:
+    """Another address of the main Milo that answers, when `running` does not.
+
+    Only among the addresses the server's own heartbeat answer listed, wired
+    first, so the stream never leaves for a host that is not the server; and
+    never on a unit whose MILO_PRINCIPAL_IP is a literal, which an operator
+    pinned. All are dialled at once, the dialled one included: tried one after
+    the other, a backend coming back between two connects would read as the
+    dialled address dead and the next alive, and move a stream that was about to
+    return by itself.
+    """
+    try:
+        ipaddress.IPv4Address(os.environ.get("MILO_PRINCIPAL_IP", ""))
+        return None
+    except ipaddress.AddressValueError:
+        pass
+    others = [address for address in known_server_addresses() if address != running]
+    if not others:
+        return None
+    running_answers, *answered = await asyncio.gather(
+        _answers(running), *(_answers(address) for address in others))
+    if running_answers:
+        return None
+    return next((address for address, ok in zip(others, answered) if ok), None)
+
+
 async def _stop_then_start() -> None:
     """Stop then start the unit — sudoers grants those two verbs, not `restart`."""
     global _start_owed
@@ -288,10 +351,16 @@ async def _stop_then_start() -> None:
         _start_owed = action == "stop"
 
 
-async def restart_snapclient() -> None:
+async def restart_snapclient(server: Optional[str] = None) -> None:
     """Restart the unit; a start that fails raises and leaves the start owed, so
-    the next pass of `follow_server_address` brings it back whoever stopped it."""
+    the next pass of `follow_server_address` brings it back whoever stopped it.
+
+    `server` is the address the launcher dials at that start instead of what mDNS
+    answers it then.
+    """
     async with _restart_lock:
+        if server is not None:
+            await asyncio.to_thread(Path(SERVER_OVERRIDE).write_text, server)
         await _stop_then_start()
 
 
@@ -319,11 +388,18 @@ async def _reconcile() -> bool:
         logger.debug(f"Cannot check the server address: {e}")
         return False
 
-    if running == current:
-        return False
+    if running != current:
+        logger.warning(f"Main Milo moved {running} -> {current}, restarting snapclient")
+        await restart_snapclient()
+        return True
 
-    logger.warning(f"Main Milo moved {running} -> {current}, restarting snapclient")
-    await restart_snapclient()
+    # mDNS still answers the address that went silent: a server whose cable has
+    # gone keeps it published until NetworkManager withdraws it, 6 s later.
+    other = await _answering_address(running)
+    if other is None:
+        return False
+    logger.warning(f"Main Milo silent at {running}, answering at {other}, restarting snapclient")
+    await restart_snapclient(server=other)
     return True
 
 

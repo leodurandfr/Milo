@@ -70,3 +70,15 @@ def test_unresolvable_target_names_itself_in_the_error():
                side_effect=socket_module.gaierror):
         with pytest.raises(RuntimeError, match="milo-server.lan"):
             resolve_milo_principal()
+
+
+def test_a_heartbeat_answer_keeps_the_servers_ipv4_addresses_in_order():
+    """The watcher dials these in order when the stream's own address goes
+    silent; an IPv6 entry would never match the launcher's IPv4 literal."""
+    from services.registration import known_server_addresses, remember_server_addresses
+
+    remember_server_addresses({"server_addresses": ["192.168.1.55", "fe80::1", "192.168.1.39"]})
+    try:
+        assert known_server_addresses() == ("192.168.1.55", "192.168.1.39")
+    finally:
+        remember_server_addresses({"server_addresses": []})

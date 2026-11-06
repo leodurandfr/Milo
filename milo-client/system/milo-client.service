@@ -15,6 +15,10 @@ RestartSec=5
 TimeoutStopSec=10
 
 EnvironmentFile=/var/lib/milo-client/env
+# /run/milo-client: the address server_address_watch chose for snapclient's next
+# start, read once by its launcher. Emptied with the app, so no choice outlives
+# the process that made it, nor a reboot.
+RuntimeDirectory=milo-client
 
 StandardOutput=journal
 StandardError=journal

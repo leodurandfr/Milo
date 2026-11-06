@@ -20,12 +20,15 @@ that nothing separated:
 `validate_mac_id` is the other half: the registry, the per-client EQ records and
 `settings.json: multiroom.client_equalizer[mac]` are all keyed by this string.
 """
+import errno
+import socket
+
 import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from backend.api.models import RegisterClientRequest
 from backend.api.multiroom import create_multiroom_router
@@ -457,3 +460,60 @@ class TestRegisterClientRequest:
         )
 
         assert request.name == "Bureau"
+
+
+# =============================================================================
+# The server's addresses, in every answer
+# =============================================================================
+
+def _ioctl_answering(addresses):
+    """SIOCGIFADDR as the kernel answers it: the interface's IPv4 at bytes 20-24,
+    or EADDRNOTAVAIL for an interface with none."""
+    def ioctl(fd, request, ifreq):
+        name = ifreq[:16].rstrip(b"\0").decode()
+        address = addresses.get(name)
+        if address is None:
+            raise OSError(errno.EADDRNOTAVAIL, "Cannot assign requested address")
+        return ifreq[:20] + socket.inet_aton(address) + ifreq[24:]
+    return ioctl
+
+
+class TestServerAddresses:
+    """The heartbeat answer lists every address the server answers on, wired first.
+
+    A satellite whose stream drops tries them in that order. Without the list it
+    can only follow `milo.local`, which keeps answering the wired address for the
+    6 s NetworkManager takes to withdraw it after the cable goes: measured
+    2026-11-06, ~10 s of silence on a real server cable pull.
+    """
+
+    @pytest.mark.parametrize("body, known", [
+        ({**BODY, "hardware_configured": True}, True),    # a paired speaker's heartbeat
+        ({**BODY, "hardware_configured": True}, False),   # wifi-adopted, not admitted yet
+        (BODY, False),                                     # a speaker the wizard has not set up
+    ])
+    def test_every_answer_carries_the_addresses_wired_first(
+        self, client, registry, body, known
+    ):
+        if known:
+            registry.get_client.return_value = Client(
+                mac_id=SAT_MAC, name="Bureau", ip=SAT_IP, online=True, volume_control=True
+            )
+        world = {"eth0": "192.168.1.55", "wlan0": "192.168.1.39"}
+        with patch("fcntl.ioctl", side_effect=_ioctl_answering(world)):
+            response = client.post("/api/multiroom/register-client", json=body)
+
+        assert response.status_code == 200
+        assert response.json()["server_addresses"] == ["192.168.1.55", "192.168.1.39"]
+
+    def test_an_interface_without_an_address_is_left_out(self, client, registry):
+        """The server on WiFi alone: its cable gone, or never plugged."""
+        registry.get_client.return_value = Client(
+            mac_id=SAT_MAC, name="Bureau", ip=SAT_IP, online=True, volume_control=True
+        )
+        with patch("fcntl.ioctl", side_effect=_ioctl_answering({"wlan0": "192.168.1.39"})):
+            response = client.post(
+                "/api/multiroom/register-client", json={**BODY, "hardware_configured": True}
+            )
+
+        assert response.json()["server_addresses"] == ["192.168.1.39"]
