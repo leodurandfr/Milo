@@ -23,14 +23,16 @@ has_ip() {
     ip -4 addr show "$1" 2>/dev/null | grep -q "inet "
 }
 
-# Update Avahi allow/deny-interfaces - only restarts if config actually changes.
-# Both keys are compared: Avahi 0.8 ignores allow-interfaces for interfaces that
-# appear dynamically, so deny-interfaces is what keeps the daemon strictly
-# mono-interface (and prevents self-loop renames) — drift on it matters as much.
+# Update Avahi allow/deny-interfaces - only restarts if the state or the config
+# would change. Both conf keys are compared: Avahi 0.8 ignores allow-interfaces
+# for interfaces that appear dynamically, so deny-interfaces is what keeps the
+# daemon strictly mono-interface (and prevents self-loop renames) — drift on it
+# matters as much.
 #
 # The conf itself is written by milo-client-apply-avahi-iface from the state
 # file, on every Avahi start. Sed-ing the conf here instead would be undone by
-# the very restart below.
+# the very restart below. The state is compared too: a conf that looks right
+# says nothing about what the next Avahi start applies.
 set_avahi_interface() {
     local interface="$1"
     local deny
@@ -43,14 +45,17 @@ set_avahi_interface() {
     local current_allow current_deny
     current_allow=$(grep "^allow-interfaces=" "$AVAHI_CONF" 2>/dev/null | cut -d= -f2)
     current_deny=$(grep "^deny-interfaces=" "$AVAHI_CONF" 2>/dev/null | cut -d= -f2)
-    [ "$current_allow" = "$interface" ] && [ "$current_deny" = "$deny" ] && return 0
+    [ "$(cat "$AVAHI_STATE_FILE" 2>/dev/null)" = "$interface" ] \
+        && [ "$current_allow" = "$interface" ] && [ "$current_deny" = "$deny" ] && return 0
 
     # Write desired interface to state file (applied by systemd ExecStartPre)
     mkdir -p "$(dirname "$AVAHI_STATE_FILE")"
     echo "$interface" > "$AVAHI_STATE_FILE"
 
-    # Restart Avahi - ExecStartPre will read state file and apply correct interface
-    systemctl restart avahi-daemon.service
+    # Restart Avahi - ExecStartPre will read state file and apply correct interface.
+    # --no-block: a blocking restart holds NetworkManager's dispatcher queue
+    # until Avahi is up.
+    systemctl restart --no-block avahi-daemon.service
 }
 
 # Decide and apply the correct Avahi interface for the current network state.
