@@ -327,7 +327,7 @@ def create_volume_router(
 
         Args:
             mac_url: MAC address without colons (e.g., "dca6327ed343")
-            request: Volume in dB (-80 to 0) or on the 0..1 slider scale
+            request: Volume in dB (-80 to 0)
 
         Returns:
             Success status with MAC (with colons) and the new volume, on both
@@ -338,11 +338,7 @@ def create_volume_router(
             - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event `volume_changed` is broadcast after the update
             - `volume_db` is checked against the operator's limits and answers
-              400 outside them. `volume` is **not**, and deliberately: 0..1
-              lands inside those limits by construction, and putting a
-              denormalized 1.0 through a strict comparison would answer 400 on
-              a few microdecibels of float rounding — a slider that springs
-              back at its own top end and says nothing.
+              400 outside them.
             - A client that answered and refused the level answers 502, never a
               200 carrying a dB it is not playing. The level is recorded all the
               same, and the state every screen reads shows it: a satellite
@@ -360,11 +356,7 @@ def create_volume_router(
             mac_id = _mac_from_url(mac_url)
             client = _validate_mac_exists(mac_id)
             config = volume_service.volume_config
-
-            if request.volume is not None:
-                volume_db = config.denormalize(request.volume)
-            else:
-                volume_db = _validate_volume_limits(request.volume_db)
+            volume_db = _validate_volume_limits(request.volume_db)
 
             if hasattr(client, 'online') and not client.online:
                 logger.info(

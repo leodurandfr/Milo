@@ -256,7 +256,7 @@ set in the unit's settings (`limit_min_db`, `limit_max_db`). The writes, all con
 |---|---|---|
 | `POST /api/volume/adjust` | `{"delta_db": 2}` | Moves the volume by a step, from where it is when the request lands. Answers the new level on both scales. |
 | `PATCH /api/volume/global` | `{"volume": 0.5}` | Sets the volume, on the 0–1 scale. |
-| `PATCH /api/volume/client/mac/{mac}` | `{"volume_db": -40}` or `{"volume": 0.5}` | Sets one speaker. `{mac}` is written **without colons** (`dca6327ed343`); a `volume_db` outside the limits is answered `400`. |
+| `PATCH /api/volume/client/mac/{mac}` | `{"volume_db": -40}` | Sets one speaker. `{mac}` is written **without colons** (`dca6327ed343`); a `volume_db` outside the limits is answered `400`. |
 | `PATCH /api/volume/client/mac/{mac}/mute` | `{"mute": true}` | Mutes or unmutes one speaker. |
 | `PATCH /api/volume/zone/{zone_id}` | `{"delta_db": -3}` or `{"volume_db": -40}` | Moves every speaker of a zone together. |
 

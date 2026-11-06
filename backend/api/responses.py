@@ -306,7 +306,7 @@ class ZoneVolumeDeltaResponse(BaseModel):
 class ClientVolumeSetResponse(BaseModel):
     """PATCH /api/volume/client/mac/{mac_url}.
 
-    The level that was written, on both scales, whichever one the request used.
+    The level that was written, in dB and on the 0..1 scale over the limits.
     """
     status: str
     mac_id: str

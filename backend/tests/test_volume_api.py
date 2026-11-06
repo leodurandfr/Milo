@@ -169,51 +169,14 @@ class TestMacAddressClientVolume:
         assert response.status_code == 400
         assert "out of configured range" in response.json()["detail"]
 
-    def test_a_slider_position_reaches_the_service_as_a_level(
-        self, test_client, mock_volume_service
-    ):
-        """0.5 over -60..-10 is -35 dB. The phone sends the position and never
-        the decibel, because the decibel depends on limits it cannot see move."""
-        mock_volume_service.volume_config = VolumeConfig(
-            limit_min_db=-60.0, limit_max_db=-10.0
-        )
-
-        response = test_client.patch(
-            "/api/volume/client/mac/dca6327ed343", json={"volume": 0.5}
-        )
-
-        assert response.status_code == 200
-        mock_volume_service.update_client_volume_db.assert_awaited_once_with(
-            "dc:a6:32:7e:d3:43", pytest.approx(-35.0)
-        )
-        assert response.json()["volume"] == 0.5
-
-    def test_the_top_of_the_slider_is_not_out_of_range(
-        self, test_client, mock_volume_service
-    ):
-        """The reason `volume` skips `_validate_volume_limits`. A denormalized
-        1.0 IS limit_max_db, and a strict comparison against it answers 400 on
-        whatever float rounding the span happens to produce — a slider that
-        springs back at its own top end and says nothing."""
-        mock_volume_service.volume_config = VolumeConfig(
-            limit_min_db=-77.3, limit_max_db=-8.7
-        )
-
-        for level in (0.0, 1.0):
-            response = test_client.patch(
-                "/api/volume/client/mac/dca6327ed343", json={"volume": level}
-            )
-            assert response.status_code == 200, level
-
-    @pytest.mark.parametrize(
-        "body", [{}, {"volume": 0.5, "volume_db": -30.0}, {"volume": 1.5}, {"volume_db": 12.0}]
-    )
-    def test_a_body_that_names_no_single_scale_is_refused(
+    @pytest.mark.parametrize("body", [{}, {"volume": 0.5}, {"volume_db": 12.0}])
+    def test_a_body_without_a_level_in_decibels_is_refused(
         self, test_client, mock_volume_service, body
     ):
-        """Both scales, or neither, is a caller that does not know which one it
-        is on — refused at the door rather than resolved by a precedence rule
-        nobody would remember."""
+        """The route takes decibels only: every caller left (the web UI,
+        Milo-Mac) sends `volume_db`, and the 0..1 scale went with the one app
+        that sent it (Milo-iOS 9a9ed25). A position on that scale is refused
+        rather than kept as a second unit with no caller to exercise it."""
         response = test_client.patch(
             "/api/volume/client/mac/dca6327ed343", json=body
         )

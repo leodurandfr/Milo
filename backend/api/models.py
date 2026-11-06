@@ -63,23 +63,13 @@ class VolumeSetRequest(BaseModel):
 
 
 class ClientVolumeRequest(BaseModel):
-    """Client volume request, in dB or on the slider's scale — exactly one.
+    """Client volume request, in dB.
 
-    Unlike the global route, this one has live callers on both scales: the web
-    UI and Milo-Mac send `volume_db` (the `body` of Milo-Mac's manifest entry,
-    resolved against this model by test_milo_mac_contract.py), while Milo-iOS
-    sends `volume`. Two units of one quantity, arbitrated at the door
-    rather than absorbed by a fallback chain — a request that names both, or
-    neither, is a caller that does not know which scale it is on.
+    The web UI and Milo-Mac send `volume_db` (the `body` of Milo-Mac's manifest
+    entry, resolved against this model by test_milo_mac_contract.py). The 0..1
+    scale went with its one caller, Milo-iOS, at its 9a9ed25.
     """
-    volume_db: Optional[float] = Field(default=None, ge=-80, le=0, description="Client volume in dB")
-    volume: Optional[float] = Field(default=None, ge=0, le=1, description="Client volume, 0..1 over volume_limits")
-
-    @model_validator(mode="after")
-    def _exactly_one_scale(self):
-        if (self.volume_db is None) == (self.volume is None):
-            raise ValueError("exactly one of 'volume_db' or 'volume' is required")
-        return self
+    volume_db: float = Field(..., ge=-80, le=0, description="Client volume in dB")
 
 
 class ZoneVolumeRequest(BaseModel):
