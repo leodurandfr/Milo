@@ -1751,12 +1751,18 @@ async def test_wifi_signal_fails_open_when_no_access_point_is_anchored(service):
 # Which profiles a forget deletes — and which it must not
 # --------------------------------------------------------------------------- #
 
-def _profiles_router(listing, deleted):
-    """Answers `connection show` with a listing, records every delete."""
+def _profiles_router(listing, deleted, ssids=None):
+    """Answers `connection show` with a listing and a profile's SSID from
+    `ssids` (by name; any other is unreadable), records every delete."""
     def router(args):
         if args[:2] == ("connection", "delete"):
             deleted.append(args[2])
             return (0, "", "")
+        if "802-11-wireless.ssid" in args:
+            ssid = (ssids or {}).get(args[-1])
+            if ssid is None:
+                return (10, "", "Error: no such connection profile.")
+            return (0, f"802-11-wireless.ssid:{ssid}", "")
         if "show" in args and "connection" in args:
             return (0, listing, "")
         return (0, "", "")
@@ -1784,6 +1790,43 @@ async def test_forgetting_a_network_takes_its_netplan_and_milo_twins_with_it(ser
 
     assert deleted, "nothing was deleted — the listing never reached the filter"
     assert set(deleted) == {"Livebox", "milo-Livebox", "netplan-wlan0-Livebox"}
+
+
+@pytest.mark.asyncio
+async def test_a_netplan_profile_is_matched_on_the_ssid_it_holds(service):
+    """A netplan profile is named `netplan-<id>-<ssid>`, and both halves are
+    free-form: matched on its name's end, forgetting "5GHz" also deleted the
+    twin of "Livebox-5GHz" — credentials the user must retype, from the setup
+    AP on a wifi-only unit. Its `802-11-wireless.ssid` says which network it
+    is, as `known_ssids` reads it, and a dash in the id cannot hide a twin."""
+    deleted = []
+    fake, patcher = with_nmcli(_profiles_router("\n".join([
+        "milo-5GHz:802-11-wireless",
+        "netplan-wlan0-Livebox-5GHz:802-11-wireless",
+        "netplan-home-net-5GHz:802-11-wireless",
+    ]), deleted, ssids={
+        "netplan-wlan0-Livebox-5GHz": "Livebox-5GHz",
+        "netplan-home-net-5GHz": "5GHz",
+    }))
+    with patcher:
+        await service.forget_network("5GHz")
+
+    assert deleted == ["milo-5GHz", "netplan-home-net-5GHz"]
+
+
+@pytest.mark.asyncio
+async def test_a_netplan_profile_whose_ssid_cannot_be_read_counts_by_its_name(service):
+    """An unreadable profile falls back to the name with its interface id cut
+    off — whole, never its end."""
+    deleted = []
+    fake, patcher = with_nmcli(_profiles_router("\n".join([
+        "netplan-wlan0-Livebox-5GHz:802-11-wireless",
+        "netplan-wlan0-5GHz:802-11-wireless",
+    ]), deleted))
+    with patcher:
+        await service.forget_network("5GHz")
+
+    assert deleted == ["netplan-wlan0-5GHz"]
 
 
 @pytest.mark.asyncio
@@ -3165,6 +3208,8 @@ async def test_one_refused_delete_does_not_stop_the_others_and_only_survivors_ar
             if args[2] == "milo-Maison":
                 return (1, "", "Error: unknown connection")
             return (0, "", "")
+        if "802-11-wireless.ssid" in args:
+            return (0, "802-11-wireless.ssid:Maison", "")
         return (0, "milo-Maison:802-11-wireless\nnetplan-wlan0-Maison:802-11-wireless", "")
 
     fake, patcher = with_nmcli(route)

@@ -1321,6 +1321,23 @@ class NetworkService:
                     return _ssid_from_profile(name)
         return None
 
+    async def _netplan_profile_ssid(self, name: str) -> str:
+        """The SSID a `netplan-<id>-<ssid>` profile connects to.
+
+        Read from the profile, as `known_ssids` does: the netplan id is
+        free-form, so its name cannot say where the SSID starts, and its end
+        is the SSID of every network whose name ends the same way. Unreadable,
+        it counts by the name with the interface id cut off, whole.
+        """
+        rc, stdout, _ = await self._run_nmcli(
+            "-t", "-f", "802-11-wireless.ssid", "connection", "show", "id", name
+        )
+        if rc == 0:
+            fields = _parse_nmcli_line(stdout.split("\n", 1)[0])
+            if len(fields) >= 2 and fields[1]:
+                return fields[1]
+        return name.split("-", 2)[-1]
+
     async def _delete_ssid_profiles(self, ssid: str) -> None:
         """Delete all NM connection profiles matching a given SSID.
 
@@ -1347,7 +1364,9 @@ class NetworkService:
             if len(fields) < 2 or "wireless" not in fields[1]:
                 continue
             name = fields[0]
-            netplan_twin = name.startswith("netplan-") and name.endswith(f"-{ssid}")
+            netplan_twin = (
+                name.startswith("netplan-") and await self._netplan_profile_ssid(name) == ssid
+            )
             if name == ssid or name == f"milo-{ssid}" or netplan_twin:
                 self.logger.info("Deleting WiFi profile: %s (ssid=%s)", name, ssid)
                 rc2, _, stderr2 = await self._run_nmcli("connection", "delete", name)
