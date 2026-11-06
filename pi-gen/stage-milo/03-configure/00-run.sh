@@ -108,6 +108,14 @@ on_chroot << 'CHROOT'
 cp /home/milo/milo/rootfs/etc/sysctl.d/90-milo-arp.conf /etc/sysctl.d/90-milo-arp.conf
 CHROOT
 
+# ── Link down: a cable without carrier is never routed through ───────────────
+# eth0's routes outrank wlan0's; this drops them the instant the cable goes,
+# rather than when NetworkManager removes the address (see the file).
+
+on_chroot << 'CHROOT'
+cp /home/milo/milo/rootfs/etc/sysctl.d/90-milo-linkdown.conf /etc/sysctl.d/90-milo-linkdown.conf
+CHROOT
+
 # ── udev rules ───────────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'

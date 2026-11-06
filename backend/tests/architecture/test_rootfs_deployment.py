@@ -285,6 +285,35 @@ def test_every_repo_file_a_stage_sources_exists_in_this_repo():
     assert not missing, "\n".join(missing)
 
 
+SERVER_SYSCTL_DIR = TREES["server"] / "etc" / "sysctl.d"
+INSPECT_IMAGE_SH = PI_GEN_DIR / "inspect-image.sh"
+
+
+def test_every_sysctl_file_the_server_tree_carries_is_flashed_and_inspected():
+    """A kernel setting in rootfs/ reaches a freshly flashed card, and is checked there.
+
+    A Milō update applies every `etc/sysctl.d/*` it installs, so a running unit
+    gets a new file at its next update; a card flashed from the image gets only
+    what the stage copies. A file the stage omits is a setting every new unit
+    lacks until its first update — for the network files, a WiFi fallback that
+    behaves differently on the one unit just set up. The server and the
+    satellites are flashed from the same image.
+    """
+    files = sorted(p.name for p in SERVER_SYSCTL_DIR.glob("*.conf"))
+    assert files, f"no sysctl file found under {SERVER_SYSCTL_DIR}"
+    stage, inspect = _stage_text(), INSPECT_IMAGE_SH.read_text()
+    unflashed = [
+        name for name in files
+        if not re.search(rf"cp\s+\S*/rootfs/etc/sysctl\.d/{re.escape(name)}\s", stage)
+    ]
+    uninspected = [
+        name for name in files
+        if not re.search(rf"cmp -s '\$REPO/rootfs/etc/sysctl\.d/{re.escape(name)}'", inspect)
+    ]
+    assert not unflashed, f"pi-gen/stage-milo never copies: {unflashed}"
+    assert not uninspected, f"pi-gen/inspect-image.sh never checks: {uninspected}"
+
+
 # --------------------------------------------------------------------------- #
 # BlueALSA's storage directory: declared by the build, created by the unit.
 # --------------------------------------------------------------------------- #
