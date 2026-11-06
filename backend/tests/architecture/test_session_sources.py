@@ -194,6 +194,16 @@ NOT_CALLBACKS = {
     "_initialize_once": "Music Library's boot init, run as a task under asyncio.shield so a "
                         "selection's timeout cannot cut it: the startup path, not a callback",
 }
+# Coroutines started as tasks that touch no source state, so have nothing to
+# post — still barred from what only the actor calls, each with its reason.
+STATELESS_TASKS = {
+    "_apply_catalog": "Music Library starts or stops Navidrome under its own lock and tells "
+                      "the share service; no session or view is read or written",
+    "_send_scrobble": "Music Library's scrobble, one HTTP call to Navidrome whose failure "
+                      "costs a log line",
+    "_harvest": "Spotify keeps the signed-in account's credentials in the profiles store, "
+                "which the source does not own",
+}
 # What only the actor may call: publishing, the session's lifecycle, the
 # feed's handler and the error banner.
 ACTOR_ONLY = ("_publish", "open_session", "end_session", "reconcile", "_handle_feed", "broadcast_error")
@@ -214,14 +224,40 @@ def _is_mailbox(node) -> bool:
     )
 
 
-def _outside_the_mailbox(node):
+def _posted_by_name(func) -> set[str]:
+    """The names `func` uses only inside mailbox messages. A nested function
+    also called or awaited outside one runs on the caller's task there."""
+    inside = {
+        id(name) for call in ast.walk(func) if isinstance(call, ast.Call) and _is_mailbox(call)
+        for name in ast.walk(call) if isinstance(name, ast.Name)
+    }
+    posted = {}
+    for name in ast.walk(func):
+        if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Load):
+            posted[name.id] = posted.get(name.id, True) and id(name) in inside
+    return {name for name, only in posted.items() if only}
+
+
+def _outside_the_mailbox(node, posted=frozenset()):
     """Every node under `node`, skipping what is handed to a mailbox message:
-    a lambda posted as a Result runs in the actor, and may publish."""
+    a lambda posted as a Result runs in the actor, and may publish — and so
+    does a nested function posted by its name and used nowhere else."""
     yield node
     if _is_mailbox(node):
         return
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if node.name in posted:
+            return
+        posted = posted | _posted_by_name(node)
     for child in ast.iter_child_nodes(node):
-        yield from _outside_the_mailbox(child)
+        yield from _outside_the_mailbox(child, posted)
+
+
+def _starts_a_task(node) -> bool:
+    """A raw `create_task`, or a BackgroundTaskSet's `spawn`."""
+    func = node.func
+    return (isinstance(func, ast.Attribute) and func.attr in ("create_task", "spawn")) or (
+        isinstance(func, ast.Name) and func.id == "create_task")
 
 
 def _methods(tree: ast.Module) -> dict:
@@ -233,6 +269,20 @@ def _methods(tree: ast.Module) -> dict:
     }
 
 
+def _nested(method) -> dict:
+    """The functions `method` defines, keyed `method.function`."""
+    return {
+        f"{method.name}.{f.name}": f for f in ast.walk(method)
+        if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)) and f is not method
+    }
+
+
+def _callables(tree: ast.Module) -> dict:
+    """The module's methods and the functions they define (`_nested`)."""
+    methods = _methods(tree)
+    return {**methods, **{k: f for m in methods.values() for k, f in _nested(m).items()}}
+
+
 def handed_callbacks(tree: ast.Module) -> set[str]:
     """The module's methods that run on someone else's task, NOT_CALLBACKS aside."""
     return handed_out(tree) - set(NOT_CALLBACKS)
@@ -242,15 +292,23 @@ def handed_out(tree: ast.Module) -> set[str]:
     """The module's methods handed to another component: a bound method passed
     as an argument (a listener, a keyword `on_*=`, a constructor's
     positional), a lambda passed as one that calls a method, or a coroutine
-    started as a raw task. What a mailbox message carries is not counted."""
+    started as a task (raw, or a BackgroundTaskSet's `spawn`) — a method's, or
+    one a method defines, named `method.function`. What a mailbox message
+    carries is not counted."""
     methods = _methods(tree)
     handed = set()
+    for method in methods.values():
+        nested = _nested(method)
+        for node in _outside_the_mailbox(method):
+            if isinstance(node, ast.Call) and not _is_mailbox(node) and _starts_a_task(node):
+                handed |= {
+                    f"{method.name}.{a.func.id}" for a in node.args
+                    if isinstance(a, ast.Call) and isinstance(a.func, ast.Name)
+                } & set(nested)
     for node in _outside_the_mailbox(tree):
         if not isinstance(node, ast.Call) or _is_mailbox(node):
             continue
-        func = node.func
-        if (isinstance(func, ast.Attribute) and func.attr == "create_task") or (
-                isinstance(func, ast.Name) and func.id == "create_task"):
+        if _starts_a_task(node):
             handed |= {_self_call(a) for a in node.args} & set(methods)
         for value in node.args + [kw.value for kw in node.keywords]:
             if (isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name)
@@ -264,9 +322,10 @@ def handed_out(tree: ast.Module) -> set[str]:
 def callbacks_that_touch_state(tree: ast.Module) -> list[str]:
     """Handed callbacks (`handed_callbacks`) that touch the source from the
     task they run on. Read with every `self._x(...)` they reach in the module,
-    short of what they post: each one must post, and none may reach what only
-    the actor calls (ACTOR_ONLY)."""
+    short of what they post: each one must post (STATELESS_TASKS aside), and
+    none may reach what only the actor calls (ACTOR_ONLY)."""
     methods = _methods(tree)
+    callables = _callables(tree)
     problems = []
     for name in sorted(handed_callbacks(tree)):
         reached, todo, calls = set(), [name], set()
@@ -275,7 +334,7 @@ def callbacks_that_touch_state(tree: ast.Module) -> list[str]:
             if current in reached:
                 continue
             reached.add(current)
-            for node in _outside_the_mailbox(methods[current]):
+            for node in _outside_the_mailbox(callables[current]):
                 called = _self_call(node)
                 if called is None:
                     continue
@@ -285,7 +344,7 @@ def callbacks_that_touch_state(tree: ast.Module) -> list[str]:
         touched = sorted(c for c in calls if c.startswith(ACTOR_ONLY))
         if touched:
             problems.append(f"{name} is a callback and calls {', '.join(touched)}")
-        elif not calls & set(CALLBACK_POSTS):
+        elif not calls & set(CALLBACK_POSTS) and name not in STATELESS_TASKS:
             problems.append(f"{name} is a callback and does not post")
     return problems
 
@@ -310,11 +369,16 @@ def test_the_callback_extractor_finds_the_handed_callbacks():
     assert "on_volume_changed" in handed["airplay"]
     assert "on_volume_changed" in handed["spotify"]
     assert "_monitor_logs" in handed["spotify"]
+    assert "_name_sender" in handed["mac"]
+    assert "_fetch_cover" in handed["cd"]
+    assert "_resolve_artwork" in handed["bluetooth"]
+    assert "_resolve_inband_artwork" in handed["radio"]
+    assert {"_read_toc.read", "_identify.lookup"} <= handed["cd"]
     exempted = {
         name for path in _source_modules()
         for name in handed_out(ast.parse(path.read_text()))
     }
-    assert set(NOT_CALLBACKS) <= exempted
+    assert set(NOT_CALLBACKS) | set(STATELESS_TASKS) <= exempted
 
 
 def test_the_callback_rule_bites():
@@ -400,6 +464,94 @@ class SpotifySource(BaseAudioSource):
         self.broadcast_error("track_load_failed")
 """
     assert callbacks_that_touch_state(ast.parse(posted)) == []
+
+
+def test_the_callback_rule_bites_on_a_spawned_task():
+    """A coroutine handed to a BackgroundTaskSet runs on its own task exactly
+    as one handed to create_task does."""
+    drifted = """
+class CdSource(BaseAudioSource):
+    def _on_disc(self, disc_id):
+        self._bg.spawn(self._fetch_cover(disc_id), label="cd_cover")
+    async def _fetch_cover(self, disc_id):
+        self._cover = await fetch(disc_id)
+        self._publish()
+"""
+    assert callbacks_that_touch_state(ast.parse(drifted)) == [
+        "_fetch_cover is a callback and calls _publish"
+    ]
+
+
+def test_the_callback_rule_bites_on_a_spawned_nested_coroutine():
+    """The CD names a disc in a coroutine it defines and spawns on its device
+    tasks: that body runs on its own task, not in the actor."""
+    drifted = """
+class CdSource(BaseAudioSource):
+    def _identify(self):
+        generation = self._generation
+        async def lookup():
+            info = await self._data_service.lookup_metadata(generation)
+            await self._adopt_disc(generation, info)
+        self._device_tasks.spawn(lookup(), label="cd_lookup")
+    async def _adopt_disc(self, generation, info):
+        self._disc = info
+        self._publish()
+"""
+    assert callbacks_that_touch_state(ast.parse(drifted)) == [
+        "_identify.lookup is a callback and calls _publish"
+    ]
+    posted = drifted.replace(
+        "await self._adopt_disc(generation, info)",
+        "self._post_result(lambda: self._adopt_disc(generation, info), token=generation)",
+    )
+    assert callbacks_that_touch_state(ast.parse(posted)) == []
+
+
+def test_a_nested_function_posted_by_name_runs_in_the_actor():
+    """Radio's cover lookup posts an `apply` it defines: that body runs in the
+    actor and may publish. The same body left unposted is a callback's."""
+    posted = """
+class RadioSource(MpvAudioSource):
+    def _on_track(self, session, track):
+        self._session_bg.spawn(self._resolve(session, track), label="artwork")
+    async def _resolve(self, session, track):
+        artwork = await self._artwork.resolve(track)
+        async def apply():
+            track["artwork"] = artwork
+            self._publish()
+        self._post_result(apply, token=session)
+"""
+    assert callbacks_that_touch_state(ast.parse(posted)) == []
+    unposted = posted.replace("self._post_result(apply, token=session)", "await apply()")
+    assert callbacks_that_touch_state(ast.parse(unposted)) == [
+        "_resolve is a callback and calls _publish"
+    ]
+    awaited_on_one_path = posted.replace(
+        "        self._post_result(apply, token=session)",
+        "        if artwork is None:\n"
+        "            await apply()\n"
+        "            return\n"
+        "        self._post_result(apply, token=session)",
+    )
+    assert callbacks_that_touch_state(ast.parse(awaited_on_one_path)) == [
+        "_resolve is a callback and calls _publish"
+    ]
+
+
+def test_a_stateless_task_is_still_barred_from_the_actor():
+    """An exemption from posting is not one from publishing: a named task that
+    touches no source state still may not reach what only the actor calls."""
+    name = next(iter(STATELESS_TASKS))
+    drifted = f"""
+class SpotifySource(BaseAudioSource):
+    def _keep(self, account):
+        self._bg.spawn(self.{name}(account), label="task")
+    async def {name}(self, account):
+        self._publish_changes()
+"""
+    assert callbacks_that_touch_state(ast.parse(drifted)) == [
+        f"{name} is a callback and calls _publish_changes"
+    ]
 
 
 @pytest.mark.parametrize("write", [
