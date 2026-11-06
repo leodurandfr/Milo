@@ -30,7 +30,7 @@ import os
 import platform
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from fastapi import APIRouter
 
@@ -148,8 +148,8 @@ def _alsa_states() -> List[str]:
     return lines
 
 
-async def _journal(units: Sequence[str]) -> List[str]:
-    """A tail per unit, plus the kernel ring.
+async def _journal(units: Sequence[str]) -> List[Tuple[str, List[str]]]:
+    """A tail per unit, plus the kernel ring, each oldest line first.
 
     `-b` and `--since` intersect, so the window is at most six hours and never
     crosses a reboot.
@@ -167,11 +167,39 @@ async def _journal(units: Sequence[str]) -> List[str]:
         ]
 
     results = await asyncio.gather(*[tail(["-u", unit]) for unit in units], tail(["-k"]))
-    blocks = []
-    for name, lines in zip([*units, "kernel"], results):
-        if lines:
-            blocks.append("\n".join([f"--- {name} ---", *lines]))
-    return blocks
+    return [(name, lines) for name, lines in zip([*units, "kernel"], results) if lines]
+
+
+def _fit_journal(tails: List[Tuple[str, List[str]]], budget: int) -> List[str]:
+    """The journal's blocks within `budget` bytes, each unit's oldest lines cut
+    first, from whichever unit holds the most.
+
+    The journal is the report's last section, so a cut from the end of the
+    text drops the newest lines and every unit after them — the lines a report
+    is generated for.
+    """
+    tails = [(name, list(lines), 0) for name, lines in tails]
+
+    def render() -> List[str]:
+        return [
+            "\n".join([f"--- {name} ---" + (f" ({cut} older lines cut)" if cut else ""), *lines])
+            for name, lines, cut in tails
+        ]
+
+    while len("\n\n".join(render()).encode("utf-8")) > budget:
+        index = max(
+            range(len(tails)), key=lambda i: sum(len(line.encode("utf-8")) for line in tails[i][1])
+        )
+        name, lines, cut = tails[index]
+        if not lines:
+            break
+        lines.pop(0)
+        tails[index] = (name, lines, cut + 1)
+    return render()
+
+
+async def _journal_within(units: Sequence[str], budget: int) -> List[str]:
+    return _fit_journal(await _journal(units), budget)
 
 
 def _journal_readable() -> bool:
@@ -229,7 +257,8 @@ def create_diagnostic_router() -> APIRouter:
             )
         await add("alsa", asyncio.to_thread(_alsa_states))
         await add("camilladsp", _camilladsp())
-        await add("journal", _journal(units))
+        used = len("\n\n".join([*blocks, "[journal]\n"]).encode("utf-8"))
+        await add("journal", _journal_within(units, MAX_TEXT_BYTES - used))
         if not _journal_readable():
             unavailable.append({
                 "section": "journal",

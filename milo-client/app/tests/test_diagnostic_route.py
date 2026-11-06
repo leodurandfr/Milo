@@ -251,3 +251,35 @@ def test_camilladsp_section_names_the_state_systemd_reports(client, monkeypatch,
     )
     assert units_line.split()[1] == state
     assert dsp_line.split(":", 1)[1].strip() == units_line.split()[1]
+
+
+def test_an_oversized_journal_loses_its_oldest_lines_not_its_newest(client, monkeypatch):
+    """The block is capped for the server's budget, and the journal is its last
+    section, each unit oldest line first. Cut from the end of the text, the
+    report lost the newest lines and every unit after the cut — the lines it
+    is generated for. Each unit keeps its newest lines instead, and the cut
+    says it happened."""
+    units = ["milo-client.service", "milo-client-camilladsp.service", "milo-client-snapclient.service"]
+    real_run = diagnostic._run
+
+    async def run(args, timeout=diagnostic.PROBE_TIMEOUT):
+        if args[0] == "systemctl" and "list-units" in args:
+            return "\n".join(f"{unit} loaded active running x" for unit in units)
+        if args[0] == "journalctl":
+            name = args[args.index("-u") + 1] if "-u" in args else "kernel"
+            return "\n".join(
+                f"2026-11-06T10:{n:02d}:00+00:00 host {name}[1]: line {n} " + "x" * 120
+                for n in range(diagnostic.JOURNAL_LINES_PER_UNIT)
+            )
+        return await real_run(args, timeout)
+
+    monkeypatch.setattr(diagnostic, "_run", run)
+    text = client.get("/diagnostic").json()["text"]
+
+    assert len(text.encode("utf-8")) <= diagnostic.MAX_TEXT_BYTES
+    assert "truncated on the satellite" not in text
+    newest = diagnostic.JOURNAL_LINES_PER_UNIT - 1
+    for name in [*units, "kernel"]:
+        assert f"{name}[1]: line {newest} " in text, name
+        assert f"{name}[1]: line 0 " not in text, name
+    assert "older lines cut" in text
