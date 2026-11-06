@@ -59,27 +59,25 @@ class SnapclientService:
             return None
 
     async def _get_debian_codename(self) -> str:
-        """Detects the system's Debian version (bookworm, trixie, etc.)."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "bash", "-c", "source /etc/os-release && echo $VERSION_CODENAME",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+        """The Debian release this unit runs (bookworm, trixie, ...), read from /etc/os-release.
+
+        Raises when it cannot be read: snapcast publishes one .deb per release,
+        and another release's package is not the pinned dependency for this one.
+        `_download_snapclient_deb` reports the exception as the update's failure.
+        """
+        proc = await asyncio.create_subprocess_exec(
+            "bash", "-c", "source /etc/os-release && echo $VERSION_CODENAME",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        codename = stdout.decode().strip()
+        if proc.returncode != 0 or not codename:
+            raise RuntimeError(
+                f"Debian codename unreadable from /etc/os-release: {stderr.decode().strip() or 'empty'}"
             )
-
-            stdout, _ = await proc.communicate()
-            codename = stdout.decode().strip()
-
-            if codename:
-                self.logger.info(f"Detected Debian codename: {codename}")
-                return codename
-            else:
-                self.logger.warning("Could not detect Debian codename, using 'bookworm' as fallback")
-                return "bookworm"
-
-        except Exception as e:
-            self.logger.error(f"Error detecting Debian codename: {e}, using 'bookworm' as fallback")
-            return "bookworm"
+        self.logger.info(f"Detected Debian codename: {codename}")
+        return codename
 
     async def is_service_running(self) -> bool:
         """Checks if the snapclient service is running."""
@@ -179,7 +177,7 @@ class SnapclientService:
             self.logger.error("Could not start snapclient back after the failed update")
 
     async def _download_snapclient_deb(self, version: str) -> Dict[str, Any]:
-        """Downloads the snapclient .deb package from GitHub with auto Debian detection."""
+        """Downloads the snapclient .deb built for this unit's Debian release from GitHub."""
         try:
             # Detect Debian version
             debian_codename = await self._get_debian_codename()

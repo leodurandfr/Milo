@@ -88,7 +88,7 @@ class TestServiceRunning:
 
 
 class TestSnapclientServiceDebianDetection:
-    """The codename picks the .deb variant; a wrong one downloads a 404."""
+    """The codename picks the .deb variant: snapcast publishes one per Debian release."""
 
     @pytest.mark.asyncio
     async def test_get_debian_codename_bookworm(self, snapclient_service):
@@ -96,10 +96,10 @@ class TestSnapclientServiceDebianDetection:
             assert await snapclient_service._get_debian_codename() == "bookworm"
 
     @pytest.mark.asyncio
-    async def test_get_debian_codename_fallback(self, snapclient_service):
-        """Should fallback to bookworm on error."""
-        with patch("asyncio.create_subprocess_exec", side_effect=Exception("Error")):
-            assert await snapclient_service._get_debian_codename() == "bookworm"
+    async def test_a_failed_read_is_not_a_codename(self, snapclient_service):
+        with _spawning(_FakeProc(returncode=1, stdout=b"trixie\n")):
+            with pytest.raises(RuntimeError, match="codename"):
+                await snapclient_service._get_debian_codename()
 
 
 class FakeMachine:
@@ -120,6 +120,7 @@ class FakeMachine:
     def __init__(self, install_returncode=0, install_raises=False):
         self.calls = []
         self.running = True
+        self.os_release_codename = b"bookworm\n"
         self.install_returncode = install_returncode
         self.install_raises = install_raises
         self.on_spawn = None
@@ -132,7 +133,7 @@ class FakeMachine:
         if argv[:2] == ("snapclient", "--version"):
             return _FakeProc(stdout=b"snapclient v0.29.0\n")
         if argv[0] == "bash":
-            return _FakeProc(stdout=b"bookworm\n")
+            return _FakeProc(stdout=self.os_release_codename)
         if argv[:2] == ("systemctl", "is-active"):
             return _FakeProc(stdout=b"active\n" if self.running else b"inactive\n")
         if argv == self.STOP:
@@ -284,3 +285,27 @@ class TestSnapclientUpdateLeavesTheServiceRunning:
         assert result["success"] is True
         assert machine.running is True
         assert machine.calls.count(FakeMachine.START) == 1
+
+
+class TestAnUnreadableCodenameFailsTheUpdate:
+    """The server pushes the manifest's pinned snapclient to every satellite.
+
+    The .deb is built per Debian release, so a unit whose /etc/os-release names
+    no codename has no package it can install. Guessing one installed another
+    release's build (bookworm's under a trixie image) that then fails to start.
+    """
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_downloaded_or_stopped(self, snapclient_service, patched_world):
+        import services.snapclient as snapclient_module
+
+        machine = patched_world
+        machine.os_release_codename = b"\n"
+
+        with patch.object(snapclient_module.aiohttp, "ClientSession") as github:
+            result = await snapclient_service.update_snapclient("0.29.0")
+
+        assert result["success"] is False
+        assert "codename" in result["error"]
+        github.assert_not_called()
+        assert FakeMachine.STOP not in machine.calls
