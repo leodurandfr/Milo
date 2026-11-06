@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join, relative } from 'node:path';
+import { stripComments } from '../helpers/stripComments';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, '../../src');
@@ -217,7 +218,7 @@ describe('transport icon scale', () => {
     const offenders = [];
     for (const file of STYLE_FILES) {
       if (rel(file) === 'assets/styles/design-system.css') continue;
-      const text = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      const text = stripComments(readFileSync(file, 'utf8'));
       for (const decl of text.matchAll(/--transport-(primary|secondary|toggle)\s*:\s*([^;}]+)/g)) {
         (bends[rel(file)] ??= []).push(decl[1]);
         const px = decl[2].trim().match(/^(\d+)px$/);

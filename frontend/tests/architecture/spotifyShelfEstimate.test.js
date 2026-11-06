@@ -16,9 +16,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { stripComments } from '../helpers/stripComments';
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../src');
-const read = (path) => readFileSync(resolve(SRC, path), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const read = (path) => stripComments(readFileSync(resolve(SRC, path), 'utf8'));
 
 const card = read('components/spotify/cards/SpotifyCard.vue');
 const row = read('components/spotify/SpotifyShelfRow.vue');

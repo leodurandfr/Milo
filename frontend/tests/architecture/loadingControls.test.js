@@ -76,7 +76,7 @@ function loadingComponents() {
     const script = [...source.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join('\n');
     if (!/\bisLoading\s*:/.test(propsDeclaration(stripComments(script)))) return [];
     const template = /<template>([\s\S]*)<\/template>/.exec(source)?.[1] ?? '';
-    return [{ file: relative(SRC, file), toggles: toggleTags(template.replace(/<!--[\s\S]*?-->/g, '')) }];
+    return [{ file: relative(SRC, file), toggles: toggleTags(stripComments(template)) }];
   });
 }
 

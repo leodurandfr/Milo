@@ -43,6 +43,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, relative } from 'node:path';
+import { stripComments } from '../helpers/stripComments';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
@@ -118,7 +119,7 @@ function clickableNatives() {
     const source = readFileSync(file, 'utf8');
     const end = source.lastIndexOf('</template>');
     if (end < 0) continue;
-    const template = source.slice(0, end).replace(/<!--[\s\S]*?-->/g, '');
+    const template = stripComments(source.slice(0, end));
     const tags = template.matchAll(/<([a-z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)\/?>/g);
     for (const [, tag, attrs] of tags) {
       const click = attrs.match(/@click[.\w]*(?:="([^"]*)")?/);

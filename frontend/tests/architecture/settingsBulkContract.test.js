@@ -29,6 +29,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { stripComments } from '../helpers/stripComments';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BACKEND = resolve(HERE, '../../../backend');
@@ -73,7 +74,7 @@ function configModels() {
 function loaderBody() {
   const m = STORE.match(/async function doLoadAllSettings\(\) \{([\s\S]*?)\n {2}\}/);
   if (!m) throw new Error('doLoadAllSettings not found in settingsStore.js — the extractor is broken');
-  const body = m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const body = stripComments(m[1]);
   if (!body.includes('/api/settings/bulk')) {
     throw new Error('doLoadAllSettings no longer reads /api/settings/bulk — the extractor is broken');
   }
