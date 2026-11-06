@@ -380,6 +380,9 @@ async def test_a_volume_lock_under_an_unreadable_probe_is_refused(world):
     assert await world.source.on_allow_app_volume_changed(False) is False
     await world.advance(1)
     assert world.restarts == []
+    # The sidecar reads the flag on every volume command: the lock holds the
+    # stream at unity already, and the retry still restarts.
+    assert world.volume_flag.read_text() == "0"
 
     world.systemd.probe_active.side_effect = readable
     assert await world.source.on_allow_app_volume_changed(False) is True
@@ -389,10 +392,11 @@ async def test_a_volume_lock_under_an_unreadable_probe_is_refused(world):
 
 
 async def test_a_volume_lock_whose_restart_failed_is_retried(world):
-    """A restart that did not happen leaves the sidecar on the policy its app
-    joined under. Kept at the new value, the flag made the retry read the
-    lock as applied and answer True without restarting, while the settings
-    screen showed the lock the app was not under."""
+    """A restart that did not happen leaves the app on the policy it joined
+    under, so the retry must restart even though the flag already holds the
+    lock. Put back to "1" instead, the flag let the stream follow the app's
+    slider — the sidecar reads it on every volume command — while the settings
+    screen showed the lock."""
     world.volume_flag.write_text("1")
     await world.app_plays(ON_AND_ON)
     restart = world.systemd.restart.side_effect
@@ -401,6 +405,7 @@ async def test_a_volume_lock_whose_restart_failed_is_retried(world):
 
     assert await world.source.on_allow_app_volume_changed(False) is False
     await world.advance(1)
+    assert world.volume_flag.read_text() == "0"
 
     world.systemd.restart.side_effect = restart
     assert await world.source.on_allow_app_volume_changed(False) is True
