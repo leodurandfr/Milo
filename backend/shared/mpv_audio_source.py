@@ -59,10 +59,16 @@ class MpvAudioSource(BaseAudioSource):
     # it did.
     STALL_TIMEOUT_S = 30.0
 
-    # mpv's playhead needs no settling: every anchor an mpv source sets is
-    # mpv's own word — where a seek landed, and time-pos re-read as the sound
-    # stops (_handle_feed). A resume adds nothing to correct: mpv's audio
-    # restarts within 2 ms of the command (audio-pts, measured 2026-11-06).
+    # No settling window for mpv: where mpv gives its word the anchor takes it
+    # (where a seek landed, time-pos re-read as the sound stops in
+    # _handle_feed). Two paths count instead, and a reading moves what they
+    # set only past POSITION_TOLERANCE_MS, until the next stop re-reads mpv:
+    # - entering PLAYING (a load's playback-restart, a resume) re-stamps the
+    #   anchor where it stood when the event got its turn in the mailbox,
+    #   while mpv's audio restarts within 2 ms of the command (audio-pts,
+    #   measured 2026-11-06);
+    # - a skip whose landing time-pos cannot be read (_skip_by) lands on this
+    #   source's own playhead plus the skip.
     SETTLES_PLAYHEAD = False
 
     def __init__(self, **kwargs):
