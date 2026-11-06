@@ -354,19 +354,53 @@ def test_a_known_network_keeps_its_label_through_the_structural_rule():
     ) == "Deleting WiFi profile: milo-wifi-1 (ssid=wifi-1)"
 
 
-def test_a_known_network_is_replaced_in_any_case():
-    """A network name reaches a log lowercased as often as verbatim — a Host
-    header is folded before the middleware refuses it — and the SSID names the
-    household all the same. Matched on its exact case only, it stayed in the
-    report under the one spelling nothing else rewrote."""
-    redactor = wl.Redactor.build(
+def _ssid_redactor(ssid_labels):
+    return wl.Redactor.build(
         client_labels={}, client_names={}, zone_labels={}, zone_names={},
         share_labels={}, share_names={}, usb_strings={},
-        ssid_labels={"Freebox-Leo": "wifi-1"},
+        ssid_labels=ssid_labels,
     )
-    out = redactor("untrusted Host 'freebox-leo.local' refused; FREEBOX-LEO seen")
+
+
+def test_a_known_network_is_replaced_in_a_host_name_whatever_its_case():
+    """A host name is folded to lowercase before it reaches a log — the
+    middleware refuses `Host: freebox-leo:8000` as the browser sent it — and
+    the SSID names the household all the same. Matched on its exact case
+    only, it stayed in the report under the one spelling nothing rewrote."""
+    redactor = _ssid_redactor({"Freebox-Leo": "wifi-1"})
+    out = redactor(
+        "Refused GET /api/audio/state: untrusted Host 'freebox-leo:8000'; "
+        "Refused WebSocket /ws: untrusted Origin 'http://FREEBOX-LEO.local'; "
+        "resolved freebox-leo.local"
+    )
     assert "freebox-leo" not in out.lower()
-    assert out.count("wifi-1") == 2
+    assert out.count("wifi-1") == 3
+
+
+def test_a_network_named_like_a_word_does_not_rewrite_the_word():
+    """Over-redaction that destroys the log helps nobody either.
+
+    An SSID is matched in another case only where a host name is written, so
+    a network called "Home" leaves every `/home/milo` path of a traceback
+    readable, and one called "WiFi" leaves the word wifi alone.
+    """
+    redactor = _ssid_redactor({"Home": "wifi-1", "WiFi": "wifi-3"})
+    for line in (
+        'File "/home/milo/milo/backend/main.py", line 12',
+        "home network up",
+        "wifi connected on wlan0",
+    ):
+        assert redactor(line) == line
+    assert redactor("Joined Home") == "Joined wifi-1"
+
+
+def test_a_label_is_never_rewritten_by_another_value():
+    """Each value is replaced in one pass over the original text, so a
+    network called "WiFi" cannot match inside the `wifi-2` another network
+    was just replaced by — the label would no longer say which network it is."""
+    redactor = _ssid_redactor({"Livebox-WiFi": "wifi-2", "WiFi": "wifi-3", "wifi": "wifi-4"})
+    assert redactor("Connected to Livebox-WiFi") == "Connected to wifi-2"
+    assert redactor("Joined wifi then Livebox-WiFi") == "Joined wifi-4 then wifi-2"
 
 
 def test_a_network_named_like_the_appliance_does_not_rewrite_its_unit_names():

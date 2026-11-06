@@ -404,9 +404,15 @@ class Redactor:
     a room called "Ho" would rewrite the middle of unrelated words, and
     over-redaction that destroys the log helps nobody either.
 
-    The values in `folded` are matched in any case: a network name reaches a
-    log lowercased as well (a Host header is folded), and still names the
-    household.
+    Every value is replaced in one pass over the original text, so a label
+    already written is never matched again: a network called "WiFi" would
+    otherwise turn the `wifi-2` of "Livebox-WiFi" into `wifi-3-2`.
+
+    The values in `folded` (network names) are also matched in another case,
+    but only where a host name is written — a `.local` name, or the value of a
+    refused Host/Origin header — because a host name reaches a log folded to
+    lowercase. Anywhere else a network called "Home" would rewrite every
+    `/home/milo` of a traceback.
     """
 
     MIN_LENGTH = 3
@@ -417,23 +423,44 @@ class Redactor:
         *,
         folded: Iterable[str] = (),
     ):
+        values = sorted(
+            (
+                value for value in (replacements or {})
+                if value and len(value) >= self.MIN_LENGTH
+            ),
+            key=len,
+            reverse=True,
+        )
         folded = set(folded)
-        self._patterns = []
-        for value, label in sorted(
-            (replacements or {}).items(), key=lambda kv: -len(kv[0])
-        ):
-            if not value or len(value) < self.MIN_LENGTH:
-                continue
-            flags = re.IGNORECASE if value in folded else 0
-            self._patterns.append(
-                (re.compile(rf"(?<!\w){re.escape(value)}(?!\w)", flags), label)
-            )
+        self._labels = [replacements[value] for value in values]
+        in_text, in_header = [], []
+        for i, value in enumerate(values):
+            word = rf"(?<!\w){re.escape(value)}"
+            exact = rf"(?P<v{i}>{word}(?!\w))"
+            in_text.append(exact)
+            in_header.append(exact)
+            if value in folded:
+                in_text.append(rf"(?P<f{i}>(?i:{word})(?=\.local(?!\w)))")
+                in_header.append(rf"(?P<f{i}>(?i:{word})(?!\w))")
+        self._header = re.compile("|".join(in_header)) if values else None
+        self._text = (
+            re.compile("|".join([r"(?P<header>\buntrusted (?:Host|Origin) '[^'\n]*')", *in_text]))
+            if values else None
+        )
+
+    def _label(self, match: "re.Match[str]") -> str:
+        return self._labels[int(match.lastgroup[1:])]
+
+    def _substitute(self, match: "re.Match[str]") -> str:
+        if match.lastgroup == "header":
+            return self._header.sub(self._label, match.group(0))
+        return self._label(match)
 
     def __call__(self, text: str) -> str:
         text = strip_global_ipv6(strip_query_strings(text))
         about_a_network = bool(_WIFI_LINE.search(text))
-        for pattern, label in self._patterns:
-            text = pattern.sub(label, text)
+        if self._text is not None:
+            text = self._text.sub(self._substitute, text)
         return strip_wifi_names(text, about_a_network)
 
     @classmethod
