@@ -165,6 +165,48 @@ async def test_a_loading_track_is_named_once_its_metadata_is_cached(world):
     assert world.session()["title"] == "Trois Neuf Trois"
 
 
+async def test_a_load_of_the_track_on_screen_leaves_its_playhead(world):
+    """The play order describes the loading track at 0. When the load is the
+    track already on screen (it re-buffers), that 0 is no playhead: the bar
+    stays where the track stood rather than snapping back to its start."""
+    d = world.daemon
+    await world.phone_plays(PARAPLUIE)
+    await world.advance(30)
+    held = world.position_ms()
+    d.track, d.buffering, d.loading = None, True, PARAPLUIE
+    await world._says({"type": "will_play", "uri": PARAPLUIE["uri"]})
+
+    assert world.buffering()
+    assert world.session()["title"] == "Parapluie"
+    assert world.position_ms() == held
+
+
+async def test_a_loading_track_described_without_a_name_is_not_taken(world):
+    """An entry the order describes but does not name is no title to draw: the
+    track on screen stands rather than a player with an empty title line."""
+    d = world.daemon
+    await world.phone_plays(PARAPLUIE)
+    d.track, d.buffering = None, True
+    d.loading = {**TROIS_NEUF_TROIS, "name": ""}
+    await world._says({"type": "will_play", "uri": TROIS_NEUF_TROIS["uri"]})
+
+    assert world.session()["title"] == "Parapluie"
+    assert world.state()["details"]["track_uri"] == PARAPLUIE["uri"]
+
+
+async def test_a_status_with_no_track_that_is_not_loading_names_none(world):
+    """Only a load points at a track. A status that names none and is not
+    buffering has nothing loading, whatever the order lists as current: the
+    track on screen stands."""
+    d = world.daemon
+    await world.phone_plays(PARAPLUIE)
+    d.track, d.buffering, d.loading = None, False, TROIS_NEUF_TROIS
+    await world._says({"type": "paused"})
+
+    assert world.session()["title"] == "Parapluie"
+    assert world.state()["details"]["track_uri"] == PARAPLUIE["uri"]
+
+
 async def test_every_artist_of_the_track_is_published_with_its_uri(world):
     """The player draws each name of the artist line as a link to its own page
     (SpotifySource.vue): a track by two artists must name both, in the line's
