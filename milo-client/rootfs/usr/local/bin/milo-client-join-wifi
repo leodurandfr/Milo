@@ -5,7 +5,8 @@
 #   COUNTRY: two uppercase characters (FR, US…), or empty to leave the
 #            regulatory domain alone
 #   SSID:    1–32 bytes
-#   PSK:     8–63 printable characters or 64 hex digits; empty = open network
+#   PSK:     8–63 printable characters or 64 hex digits; empty = open network,
+#            refused while a secured profile holds this SSID
 #
 # The server pushes the network it is on itself (`PUT /api/system/wifi`) every
 # time this satellite is admitted and every time its own WiFi changes, so a
@@ -98,6 +99,12 @@ while IFS=: read -r uuid type; do
     [[ "$type" == "802-11-wireless" ]] || continue
     [[ "$(nmcli -e no -g 802-11-wireless.ssid connection show "$uuid")" == "$SSID" ]] || continue
     matching+=("$uuid")
+    # An empty PSK for a network a profile secures is a key the server could not
+    # read, not a network that went open: replacing the profile would cut the link.
+    if [[ -z "$PSK" && -n "$(nmcli -e no -g 802-11-wireless-security.key-mgmt connection show "$uuid")" ]]; then
+        echo "ERROR: '$SSID' is saved as a secured network; refusing to replace it with an open one" >&2
+        exit 1
+    fi
     psk=$(nmcli -s -e no -g 802-11-wireless-security.psk connection show "$uuid")
     autoconnect=$(nmcli -e no -g connection.autoconnect connection show "$uuid")
     if [[ "$psk" == "$PSK" && "$autoconnect" == "yes" ]] && [[ -z "$keep" || "$uuid" == "$active" ]]; then
