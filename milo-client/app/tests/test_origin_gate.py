@@ -39,9 +39,7 @@ def sudo():
     """Every privileged step on a satellite is a `sudo` child process.
 
     The stand-in exits 1, so a run without the gate stops at the first
-    privileged step instead of going on to the files a real satellite writes
-    next — `/var/lib/milo/settings.json` among them, which on a dev host is the
-    server's own.
+    privileged step instead of going on to what a real satellite does next.
     """
     process = MagicMock(returncode=1)
     process.communicate = AsyncMock(return_value=(b"", b"refused by the test"))

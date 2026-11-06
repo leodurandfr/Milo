@@ -16,7 +16,6 @@ from services import registration
 
 logger = logging.getLogger(__name__)
 
-MILO_SETTINGS_FILE = "/var/lib/milo/settings.json"
 APPLY_HARDWARE_SCRIPT = "/usr/local/bin/milo-client-apply-hardware"
 
 # Exactly the overlay set of backend/hardware/registry.py::AUDIO_CARDS, restated
@@ -71,22 +70,6 @@ def _write_hardware_json(data: dict) -> None:
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp_path, registration.HARDWARE_FILE)
-
-
-def _set_setup_completed_in_milo_settings() -> None:
-    """Mark setup as completed in /var/lib/milo/settings.json (read by milo-first-boot)."""
-    try:
-        with open(MILO_SETTINGS_FILE) as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
-    data["setup_completed"] = True
-    tmp_path = MILO_SETTINGS_FILE + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path, MILO_SETTINGS_FILE)
 
 
 def create_hardware_router() -> APIRouter:
@@ -156,16 +139,6 @@ def create_hardware_router() -> APIRouter:
             except asyncio.TimeoutError:
                 # Still running after 2s — reboot is in progress, this is expected
                 pass
-
-            # Apply-hardware succeeded (or is rebooting) — lock the role now so
-            # milo-first-boot skips the mDNS probe on subsequent boots, preventing
-            # accidental client→server reverts. Setting it earlier risks locking the
-            # role on a device that never gets the audio overlay applied.
-            try:
-                _set_setup_completed_in_milo_settings()
-                logger.info("Marked setup_completed=true in /var/lib/milo/settings.json")
-            except Exception as e:
-                logger.error(f"Failed to mark setup_completed in milo settings: {e}")
 
             logger.info("Reboot triggered via milo-client-apply-hardware")
             return {"status": "success", "message": "Rebooting..."}
