@@ -589,12 +589,27 @@ class EqualizerService:
         await self._save_config_to_file(config)
 
     async def _save_config_to_file(self, config: Dict[str, Any]) -> None:
-        """Persist config to disk atomically. Raises if it did not land."""
+        """Persist config to disk atomically. Raises if it did not land.
+
+        A config identical to the file is not written again: every admission
+        re-sends the whole record through five setters, and each rewrite is a
+        write to the SD card.
+        """
         config_yaml = yaml.dump(config, default_flow_style=False, allow_unicode=True)
-        await asyncio.get_running_loop().run_in_executor(
-            None, self._write_atomic, self.config_file, config_yaml
-        )
+        loop = asyncio.get_running_loop()
+        if await loop.run_in_executor(None, self._read_if_present, self.config_file) == config_yaml:
+            return
+        await loop.run_in_executor(None, self._write_atomic, self.config_file, config_yaml)
         self.logger.info("Config saved to disk")
+
+    @staticmethod
+    def _read_if_present(path: str) -> Optional[str]:
+        """The file's text, or None when it cannot be read — then the write repairs it."""
+        try:
+            with open(path) as f:
+                return f.read()
+        except (OSError, UnicodeDecodeError):
+            return None
 
     @staticmethod
     def _write_atomic(path: str, content: str) -> None:

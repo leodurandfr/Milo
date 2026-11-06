@@ -1319,6 +1319,20 @@ class TestEqualizerServiceConfigPersistence:
         assert Path(equalizer_service.config_file).read_text() == persisted
 
     @pytest.mark.asyncio
+    async def test_a_push_that_changes_nothing_does_not_rewrite_the_card(self, equalizer_service):
+        """Every admission re-sends the whole record, five setters in a row, and
+        each one used to rewrite config.yml on the SD card although nothing had
+        moved (five saves per admission, measured on both satellites)."""
+        await equalizer_service.set_filter("eq_band_1", gain=3.0)
+        written = Path(equalizer_service.config_file).stat().st_ino
+
+        assert await equalizer_service.set_filter("eq_band_1", gain=3.0) is True
+        assert Path(equalizer_service.config_file).stat().st_ino == written
+
+        assert await equalizer_service.set_filter("eq_band_1", gain=4.0) is True
+        assert Path(equalizer_service.config_file).stat().st_ino != written
+
+    @pytest.mark.asyncio
     async def test_concurrent_setters_do_not_lose_a_mutation(self, tmp_path):
         """Two setters running at once must both reach the config.
 
