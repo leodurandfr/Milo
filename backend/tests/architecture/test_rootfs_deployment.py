@@ -301,7 +301,9 @@ def test_every_sysctl_file_the_server_tree_carries_is_flashed_and_inspected():
     """
     files = sorted(p.name for p in SERVER_SYSCTL_DIR.glob("*.conf"))
     assert files, f"no sysctl file found under {SERVER_SYSCTL_DIR}"
-    stage, inspect = _stage_text(), INSPECT_IMAGE_SH.read_text()
+    # A commented-out copy or check is no copy or check.
+    code = lambda text: "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+    stage, inspect = code(_stage_text()), code(INSPECT_IMAGE_SH.read_text())
     unflashed = [
         name for name in files
         if not re.search(rf"cp\s+\S*/rootfs/etc/sysctl\.d/{re.escape(name)}\s", stage)

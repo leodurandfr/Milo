@@ -61,8 +61,9 @@ snapclient's time sync should fail within 2-3 s (what it did when the *server*
 lost its cable) and its re-dial should leave from the WiFi address — but only
 once the kernel stops choosing eth0's routes, which it keeps marked `linkdown`
 until NetworkManager removes the address unless `ignore_routes_with_linkdown` is
-set, and no image sets it yet. Until a real unplug says otherwise, budget
-seconds to ~25 s for that re-dial.
+set — which `/etc/sysctl.d/90-milo-linkdown.conf` now does, shipped by the update
+and the image. How fast the re-dial then is has still to be measured on a
+real unplug.
 
 Getting the cable back moves nothing by itself: new connections prefer eth0
 (metric 100 against the WiFi's 600) but the open one keeps its source, and the
