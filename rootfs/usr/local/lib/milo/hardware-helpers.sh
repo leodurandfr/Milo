@@ -57,8 +57,9 @@ remove_block() {
 # `dtoverlay=` line, inside a block or not — and only once the new role's apply
 # runs, which neither the auto-detected conversion nor the revert does: until
 # then the unit boots the card of the role it left. The server's screen, IR and
-# power LED blocks meet nothing at all, so a satellite would load the panel
-# overlay, claim the IR pin and drive the LED pin low for good.
+# power LED blocks meet nothing at all, so a satellite would keep the server's
+# display setup (the DSI panel overlay, or the forced HDMI mode and framebuffer
+# size), claim the IR pin and drive the LED pin low for good.
 SERVER_CONFIG_BLOCKS=("MILO AUDIO" "MILO SCREEN" "MILO IR" "MILO POWER LED")
 CLIENT_CONFIG_BLOCKS=("MILO CLIENT AUDIO")
 

@@ -129,8 +129,8 @@ def test_a_role_change_removes_only_the_blocks_of_the_role_left(tree_name, leavi
     AUDIO`. Its legacy sweep does take the server's audio overlay line out, but
     only when it runs, which the auto-detected conversion does not, so the
     satellite booted the server's card; and nothing ever took out the screen
-    overlay, the IR pin or the power LED pin of a unit that drives none of
-    them. The revert to a server is the same in the other direction.
+    block (the DSI panel overlay, or the forced HDMI mode), the IR pin or the
+    power LED pin of a unit that drives none of them. The revert to a server is the same in the other direction.
     """
     helpers = HARDWARE_HELPERS[tree_name]
     blocks = {role: _role_blocks(helpers, role, tmp_path) for role in ("server", "client")}
