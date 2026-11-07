@@ -1,10 +1,11 @@
 import Foundation
 import NowPlaying
 
-/// Ce que montre la carte quand rien ne porte de titre : le nom de la source
-/// sur son icône du dock, et qui émet quand quelqu'un émet — la carte de Milō
-/// pour une source que la table ne connaît pas, et pour `none` le temps que
-/// le `end` de Milō arrive.
+/// Ce que montre la carte quand rien n'est nommé — pas de titre, ou une session
+/// connectée qui ne nomme pas à la fois son titre, son artiste et sa pochette
+/// (`MiloAudioState.shown`) : le nom de la source sur son icône du dock, et qui
+/// émet quand quelqu'un émet — la carte de Milō pour une source que la table ne
+/// connaît pas, et pour `none` le temps que le `end` de Milō arrive.
 ///
 /// **L'app ne ferme plus jamais la carte.** Elle le faisait dès que
 /// `MiloAudioState.shown` était vide, pendant que le push de Milō, lui, gardait
@@ -747,8 +748,9 @@ enum MiloNowPlayingBridge {
                 await MiloAPIClient.cacheArtwork(from: artwork)
             }
         } else {
-            // Rien ne porte de titre — un Mac, un récepteur sans émetteur, une
-            // source au repos, aucune source : sa carte, comme le push de Milō.
+            // Rien n'est nommé — un Mac, un récepteur sans émetteur, une source
+            // au repos, aucune source, ou une session connectée sans son titre,
+            // son artiste et sa pochette : sa carte, comme le push de Milō.
             let card = MiloSourceCard.card(for: state)
             track = MiloSessionAttributes.Track(
                 id: MiloTrackID.make(source: state.source, title: card.title),
