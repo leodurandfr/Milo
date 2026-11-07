@@ -1653,3 +1653,116 @@ class TestEqualizerServiceLevelTrim:
 
         persisted = yaml.safe_load(Path(equalizer_service.config_file).read_text())
         assert persisted["filters"]["gain_trim"]["parameters"]["gain"] == -4.5
+
+
+def _as_camilladsp_returns(config):
+    """`config` as GetConfigJson hands it back — measured on CamillaDSP 3, 2026-11-07.
+
+    Every filter parameter that is a number comes back a float (`freq: 31` is
+    `31.0`), a Gain stage gains `scale: null`, and each filter and pipeline step
+    carries its unset optional keys as null.
+    """
+    config = copy.deepcopy(config)
+    for definition in (config.get("filters") or {}).values():
+        definition.setdefault("description", None)
+        params = definition.get("parameters", {})
+        for key, value in params.items():
+            if isinstance(value, int) and not isinstance(value, bool):
+                params[key] = float(value)
+        if definition.get("type") == "Gain":
+            params.setdefault("scale", None)
+    for step in config.get("pipeline") or []:
+        step.setdefault("description", None)
+        step.setdefault("bypassed", None)
+    return config
+
+
+class TestEqualizerAdmissionPersistence:
+    """An admission re-sends the whole DSP state, and the SD card pays per save.
+
+    The server's admission (`_sync_reconnecting_client_volume`) sends, in this
+    order: the record through `apply_record` (filters, compressor, loudness,
+    mono, enabled), the level trim, then the crossover and the lowpass. Measured
+    2026-11-07 with only byte-identical YAML skipped: Canapé (bands boosted, so
+    a headroom stage) saved config.yml 3 times per admission, Bureau (flat) 2,
+    for admissions that changed nothing.
+    """
+
+    BAND_FREQS = (31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
+
+    def _admission(self, gains, headroom_db, mono):
+        """The requests one admission makes, with the JSON the server sends:
+        `EqFilter.frequency` is an int, and `filters` is a `List[dict]` the
+        route hands over untouched."""
+        filters = {
+            "filters": [
+                {"id": f"eq_band_{i:02d}", "gain": gain, "freq": freq, "q": 1.41,
+                 "filter_type": "Peaking"}
+                for i, (freq, gain) in enumerate(zip(self.BAND_FREQS, gains))
+            ],
+            "headroom_db": headroom_db,
+        }
+        return [
+            ("/equalizer/filters", filters),
+            ("/equalizer/compressor", {"enabled": False, "threshold": -20.0, "ratio": 4.0,
+                                       "attack": 10.0, "release": 100.0, "makeup_gain": 0.0}),
+            ("/equalizer/loudness", {"enabled": False, "high_boost": 5.0, "low_boost": 8.0,
+                                     "reference_level": -20.0}),
+            ("/equalizer/mono", {"enabled": mono}),
+            ("/equalizer/enabled", {"enabled": True}),
+            ("/equalizer/gain", {"gain_db": 0.0}),
+            ("/equalizer/crossover", {"enabled": False, "frequency": 80.0, "q": 0.707}),
+            ("/equalizer/lowpass", {"enabled": False, "frequency": 80.0, "q": 0.707}),
+        ]
+
+    def _count_saves(self, tmp_path, admissions):
+        """Replay `admissions` through the routes against a daemon that answers
+        as CamillaDSP does, returning the config.yml renames each one cost."""
+        import os
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from routes import create_equalizer_router
+        from services.equalizer import EqualizerService
+
+        tmp_path.mkdir()
+        daemon = {"config": _as_camilladsp_returns(yaml.safe_load(SHIPPED_CONFIG.read_text()))}
+        client = AsyncMock()
+        client.get_config.side_effect = lambda: copy.deepcopy(daemon["config"])
+
+        async def set_config(config):
+            daemon["config"] = _as_camilladsp_returns(config)
+        client.set_config.side_effect = set_config
+
+        service = EqualizerService(config_file=str(tmp_path / "config.yml"))
+        service._client = client
+        service._connected = True
+        app = FastAPI()
+        app.include_router(create_equalizer_router(service))
+
+        saves = []
+        with TestClient(app) as http, \
+                patch("services.equalizer.os.replace", side_effect=os.replace) as rename:
+            for admission in admissions:
+                before = rename.call_count
+                for path, body in admission:
+                    assert http.put(path, json=body).status_code == 200, path
+                saves.append(rename.call_count - before)
+        return saves
+
+    def test_an_admission_that_changes_nothing_writes_nothing(self, tmp_path):
+        """Canapé's record (boosted bands, so a headroom stage, mono on) and
+        Bureau's (flat), each admitted three times: the first one brings the
+        unit to its record, the next two must leave the card alone."""
+        canape = self._admission([3.0, 2.5, 1.5, 0.0, 0.0, 0.0, 0.5, 2.0, 2.5, 3.0], -3.6, True)
+        bureau = self._admission([0.0] * 10, 0.0, False)
+
+        assert self._count_saves(tmp_path / "canape", [canape] * 3)[1:] == [0, 0]
+        assert self._count_saves(tmp_path / "bureau", [bureau] * 3)[1:] == [0, 0]
+
+    def test_an_admission_that_changes_one_band_writes_once(self, tmp_path):
+        """A band moved while the speaker was away is one change, and one save."""
+        before = self._admission([3.0, 2.5, 1.5, 0.0, 0.0, 0.0, 0.5, 2.0, 2.5, 3.0], -3.6, True)
+        after = self._admission([3.0, 2.5, 1.5, 0.0, 4.0, 0.0, 0.5, 2.0, 2.5, 3.0], -4.1, True)
+
+        assert self._count_saves(tmp_path / "unit", [before, after])[1] == 1
