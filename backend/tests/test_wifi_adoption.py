@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from backend.core.multiroom import wifi_adoption
 from backend.core.multiroom.wifi_adoption import AdoptionError, WifiAdoptionService
-from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME
+from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME, WifiKeyUnreadable
 
 
 AUDIO = {
@@ -120,6 +120,17 @@ async def test_a_target_wifi_other_than_the_servers_own_is_not_judged_by_it(adop
     await _adopt(adopting)
 
     assert [body["wifi_ssid"] for _, body in speaker.posts] == ["Maison"]
+
+
+async def test_a_server_key_that_reads_back_empty_refuses_nothing(adopting, speaker):
+    """The server's network is visible wpa-psk, so the speaker can rebuild it,
+    and the key it joins with is the one typed: an empty read of the server's
+    own key (polkit stopped) must not turn the adoption into a server error."""
+    adopting.network_service.get_active_wifi_profile.side_effect = WifiKeyUnreadable("milo-Maison")
+
+    await _adopt(adopting)
+
+    assert [(body["wifi_ssid"], body["wifi_password"]) for _, body in speaker.posts] == [("Maison", "secret")]
 
 
 # =============================================================================

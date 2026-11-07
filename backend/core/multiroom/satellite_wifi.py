@@ -123,11 +123,18 @@ class SatelliteWifiService:
         if network is not None:
             await self._send(client_ip, network)
 
+    def _online_satellites(self):
+        return [c for c in self._registry.get_online_clients() if not c.is_local]
+
     async def push_all(self) -> None:
-        """Hand the server's WiFi to every satellite online now, read once for all of them."""
-        satellites = [c for c in self._registry.get_online_clients() if not c.is_local]
-        if not satellites:
+        """Hand the server's WiFi to every satellite online once it is read, read once for all of them.
+
+        The satellites are picked again after the read, which can wait on an
+        unreadable key: one that left meanwhile is not addressed, one that
+        arrived gets its own admission push.
+        """
+        if not self._online_satellites():
             return
         network = await self._server_network()
         if network is not None:
-            await asyncio.gather(*(self._send(c.ip, network) for c in satellites))
+            await asyncio.gather(*(self._send(c.ip, network) for c in self._online_satellites()))

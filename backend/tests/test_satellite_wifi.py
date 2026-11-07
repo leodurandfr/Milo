@@ -200,9 +200,9 @@ async def test_a_key_that_reads_back_empty_once_is_read_again_and_handed_over(ca
     assert _warnings(caplog) == []
 
 
-async def test_a_key_that_never_reads_is_reported_once_for_every_satellite(caplog):
-    """One line per push, naming the profile, and nothing sent: an empty key would rebuild the
-    satellite's standby link as an open network."""
+async def test_a_key_that_never_reads_is_reported_once_for_the_whole_push(caplog):
+    """One line per push_all, whatever the number of satellites, naming the profile, and nothing
+    sent: an empty key would rebuild the satellite's standby link as an open network."""
     satellites = [Mock(ip="192.168.1.60", is_local=False), Mock(ip="192.168.1.153", is_local=False)]
     satellite = _Satellite()
     service = _service(satellites=satellites)
@@ -216,6 +216,26 @@ async def test_a_key_that_never_reads_is_reported_once_for_every_satellite(caplo
     warnings = _warnings(caplog)
     assert len(warnings) == 1, warnings
     assert "milo-Freebox-CA3555" in warnings[0]
+
+
+async def test_a_satellite_gone_during_the_wait_is_not_addressed():
+    """Picked before the wait, a satellite that rebooted meanwhile was still sent the PUT, which
+    hung for the whole push timeout and logged a failure about a speaker already offline."""
+    staying = Mock(ip="192.168.1.60", is_local=False)
+    leaving = Mock(ip="192.168.1.153", is_local=False)
+    online = [staying, leaving]
+    satellite = _Satellite()
+    service = _service()
+    service._registry.get_online_clients = Mock(side_effect=lambda: list(online))
+    service._network.get_active_wifi_profile = AsyncMock(side_effect=[_UNREADABLE, _FREEBOX])
+
+    async def leaves(_seconds):
+        online.remove(leaving)
+
+    with _session(satellite), patch("asyncio.sleep", new=AsyncMock(side_effect=leaves)):
+        await service.push_all()
+
+    assert [url for url, _ in satellite.requests] == ["http://192.168.1.60:8001/api/system/wifi"]
 
 
 async def test_a_backend_stop_during_the_wait_sends_nothing_and_says_nothing(caplog):
