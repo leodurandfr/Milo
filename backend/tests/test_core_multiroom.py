@@ -3110,20 +3110,9 @@ class TestAdmissionPathConvergence:
 
         snapcast.set_latency.assert_awaited_once_with(self.MAC, 40)
 
-    @pytest.mark.asyncio
-    async def test_an_admitted_satellite_is_handed_the_servers_timezone_once(self, tmp_path, monkeypatch):
-        """Every unit of one Milō tells the server's time, read off the server's own system.
-
-        The admission is the push's only moment besides a change of the zone: a
-        satellite flashed from the image otherwise keeps Etc/UTC for good.
-        """
-        from backend.core.multiroom.satellite_timezone import SatelliteTimezoneService
-        from backend.core.system import localtime as localtime_module
-
-        link = tmp_path / "localtime"
-        link.symlink_to(f"{localtime_module.ZONEINFO_PREFIX}America/Los_Angeles")
-        monkeypatch.setattr(localtime_module, "LOCALTIME_LINK", str(link))
-        sent = []
+    @staticmethod
+    def _satellites_answer(monkeypatch, sent):
+        """Every satellite's HTTP surface: records each request, answers the timezone push as changed."""
 
         class _Answer:
             def __init__(self, url):
@@ -3159,10 +3148,24 @@ class TestAdmissionPathConvergence:
             post = get = put
 
         monkeypatch.setattr(aiohttp, "ClientSession", _Session)
-        service, registry, _, _ = await self._service(
-            satellite_timezone_service=SatelliteTimezoneService(MagicMock())
-        )
-        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+
+    @staticmethod
+    def _server_zone(tmp_path, monkeypatch):
+        """The server's `/etc/localtime`, relocated: call the answer with a zone to point it there."""
+        from backend.core.system import localtime as localtime_module
+
+        link = tmp_path / "localtime"
+        monkeypatch.setattr(localtime_module, "LOCALTIME_LINK", str(link))
+
+        def zone(name):
+            if link.is_symlink():
+                link.unlink()
+            link.symlink_to(f"{localtime_module.ZONEINFO_PREFIX}{name}")
+
+        return zone
+
+    @staticmethod
+    def _bare_volume_service():
         volume_service = MagicMock()
         volume_service.volume_config = VolumeConfig()
         volume_service.state_store.set_client_volume = AsyncMock()
@@ -3171,7 +3174,25 @@ class TestAdmissionPathConvergence:
         volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
         volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
         volume_service.broadcast_volume_state = AsyncMock()
-        service.set_volume_service(volume_service)
+        return volume_service
+
+    @pytest.mark.asyncio
+    async def test_an_admitted_satellite_is_handed_the_servers_timezone_once(self, tmp_path, monkeypatch):
+        """Every unit of one Milō tells the server's time, read off the server's own system.
+
+        The admission is the push's only moment besides a change of the zone: a
+        satellite flashed from the image otherwise keeps Etc/UTC for good.
+        """
+        from backend.core.multiroom.satellite_timezone import SatelliteTimezoneService
+
+        self._server_zone(tmp_path, monkeypatch)("America/Los_Angeles")
+        sent = []
+        self._satellites_answer(monkeypatch, sent)
+        service, registry, _, _ = await self._service(
+            satellite_timezone_service=SatelliteTimezoneService(MagicMock())
+        )
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        service.set_volume_service(self._bare_volume_service())
 
         assert await service._sync_reconnecting_client_volume(
             self.MAC, max_retries=0, retry_delay=0, snapcast_id=self.MAC
@@ -3181,6 +3202,51 @@ class TestAdmissionPathConvergence:
         assert [(url, body) for url, body in sent if url.endswith("/api/system/timezone")] == [
             (f"http://{self.IP}:8001/api/system/timezone", {"timezone": "America/Los_Angeles"}),
         ]
+
+    @pytest.mark.asyncio
+    async def test_a_zone_changed_while_the_satellite_comes_online_still_reaches_it(self, tmp_path, monkeypatch):
+        """The two pushes cover each other only if one of them sees the satellite.
+
+        A change hands the zone to the satellites *online*, so a satellite still
+        being admitted is the admission push's to serve — which must therefore
+        read the zone once the satellite counts as online. Here the online flip
+        waits on the registry (its lock held elsewhere) and the owner's change
+        lands in that wait: read before the flip, the admission sent the old
+        zone, the change listed nobody, and the unit kept the old zone until its
+        next admission.
+        """
+        from backend.core.multiroom.satellite_timezone import SatelliteTimezoneService
+
+        zone = self._server_zone(tmp_path, monkeypatch)
+        zone("Etc/UTC")
+        sent = []
+        self._satellites_answer(monkeypatch, sent)
+        # The service is handed its registry the way production hands it the
+        # one registry, which `_service` builds: through a forwarder.
+        online = MagicMock()
+        timezones = SatelliteTimezoneService(online)
+        service, registry, _, _ = await self._service(satellite_timezone_service=timezones)
+        online.get_online_clients.side_effect = registry.get_online_clients
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        service.set_volume_service(self._bare_volume_service())
+
+        flip_online = registry.set_client_online
+
+        async def contended(mac_id, online):
+            await asyncio.sleep(0)
+            zone("Europe/Paris")
+            await timezones.push_all()
+            await flip_online(mac_id, online)
+
+        monkeypatch.setattr(registry, "set_client_online", contended)
+
+        assert await service._sync_reconnecting_client_volume(
+            self.MAC, set_online_after=True, max_retries=0, retry_delay=0, snapcast_id=self.MAC
+        )
+        await drain_background_tasks()
+
+        pushed = [body["timezone"] for url, body in sent if url.endswith("/api/system/timezone")]
+        assert pushed and pushed[-1] == "Europe/Paris", pushed
 
     @pytest.mark.asyncio
     async def test_a_client_snapserver_lists_twice_is_admitted_once(self):

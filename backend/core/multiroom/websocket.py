@@ -1363,18 +1363,22 @@ class SnapcastWebSocketService:
                                 self._satellite_wifi_service.push(client.ip),
                                 label=f"push_wifi_{client.ip}",
                             )
-                        # The server's timezone, so the unit's clock reads like the server's.
-                        if self._satellite_timezone_service is not None:
-                            self._bg.spawn(
-                                self._satellite_timezone_service.push(client.ip),
-                                label=f"push_timezone_{client.ip}",
-                            )
 
                     # Volume confirmed on hardware — now safe to show online
                     if set_online_after and self.registry:
                         await self.registry.set_client_online(mac_id, True)
                         await self._deliver_what_moved_during_admission(
                             mac_id, pushed_delay_ms, snapcast_id
+                        )
+                    # The server's timezone, so the unit's clock reads like the
+                    # server's. Spawned once the client counts as online, never
+                    # before: a change of the zone pushes only to the clients
+                    # online, so one made while the flip waited on the registry
+                    # would otherwise reach neither push's zone read.
+                    if client and not client.is_local and self._satellite_timezone_service is not None:
+                        self._bg.spawn(
+                            self._satellite_timezone_service.push(client.ip),
+                            label=f"push_timezone_{client.ip}",
                         )
                     if self._volume_service:
                         await self._volume_service.broadcast_volume_state(show_bar=False)
