@@ -824,7 +824,11 @@ state_machine.system_state.active_source = source
 4. **No ad hoc `sudo`.** systemd and power actions go through `SystemdServiceManager`, privileged file
    work through the `milo-*` helpers in `rootfs/usr/local/bin/`; each command is granted by name in
    `rootfs/etc/sudoers.d/`, and `tests/contracts/test_privileged_exec_contract.py` checks both
-   directions.
+   directions. The satellite's helpers live in `milo-client/rootfs/usr/local/bin/` and its grants
+   are argument-scoped: a helper whose input sudo cannot check (a zone, a WiFi key) takes it on
+   stdin, validates it itself, and is granted with `""` (no argument allowed) where it can be —
+   `milo-client-set-timezone` is, and `milo-client/app/tests/test_set_timezone_helper.py` runs it under bash
+   against a stub `timedatectl` and a zoneinfo tree of its own.
 
 ### Frontend
 

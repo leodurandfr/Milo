@@ -752,6 +752,22 @@ been silent for `idle_threshold` (5 s), so a switch lost up to 5 s in every room
 - Buffer: 300 ms by default (adjustable based on network latency)
 - Format: PCM 48kHz 32-bit stereo (`48000:32:2`, forced in `snapcast.py`)
 
+**What the server hands every satellite besides the audio:** its own WiFi, kept
+as a standby link (`SatelliteWifiService` → `PUT :8001/api/system/wifi`), and its
+own timezone (`SatelliteTimezoneService` → `PUT :8001/api/system/timezone`). Both
+are pushed at every admission and again whenever the server's own value changes
+— its WiFi coming up or changing network, `PUT /api/system/timezone` — and never
+from a panel. The zone is read off the server's `/etc/localtime`
+(`core/system/localtime.py`), never from a browser, so a satellite is on the
+server's zone even before any browser opened the UI; without it a flashed
+satellite keeps the image's `Etc/UTC` for good. The satellite applies it through
+`milo-client-set-timezone`, which leaves a zone already in force alone (an
+admission writes nothing) and refuses one its own tzdata does not ship (400).
+journald stores UTC and formats at read time, so the journal follows at once;
+the app re-reads the zone (`time.tzset()`), while snapclient and CamillaDSP,
+whose own log text carries local time, follow at their next start. A satellite
+whose app predates the route answers 404, reported once at info.
+
 ## DSP Processing (CamillaDSP)
 
 **What is it?**
@@ -1207,7 +1223,7 @@ Allowed methods: `GET POST PUT PATCH DELETE OPTIONS`. Allowed headers: `Content-
 `Authorization`. Credentials allowed.
 
 ### Permissions
-- Backend runs as `milo` user, and on the server that user is **root by construction**: the `milo-backend` policy grants a bare `systemctl` (any argv), `milo-deploy-update` (installs, as root, a checkout `milo` can write) and `milo-set-password` (no old password asked). Scoping one of them closes nothing while the others stand. The boundary is the LAN — nothing on the API authenticates, see `set_ssh_state` in `backend/api/system.py` — plus `NoNewPrivileges=true` on every other unit running as `milo`, so a compromised daemon cannot reach those grants (`backend/tests/architecture/test_unit_hardening.py`), and `ProtectHome=read-only` on the source daemons, so none can rewrite the checkout systemd runs as the backend (a daemon that needs a writable HOME gets one under `/var/lib/milo`, as qobuz-proxy does). Known limits: a process of the same uid can still ptrace the backend, and the units without `ProtectHome` (kiosk, snapserver, snapclient, camilladsp, navidrome) can still write the checkout that the backend and the root oneshot `milo-navidrome-config` run. The satellite's policy is argument-scoped and has no such equivalence.
+- Backend runs as `milo` user, and on the server that user is **root by construction**: the `milo-backend` policy grants a bare `systemctl` (any argv), `milo-deploy-update` (installs, as root, a checkout `milo` can write) and `milo-set-password` (no old password asked). Scoping one of them closes nothing while the others stand. The boundary is the LAN — nothing on the API authenticates, see `set_ssh_state` in `backend/api/system.py` — plus `NoNewPrivileges=true` on every other unit running as `milo`, so a compromised daemon cannot reach those grants (`backend/tests/architecture/test_unit_hardening.py`), and `ProtectHome=read-only` on the source daemons, so none can rewrite the checkout systemd runs as the backend (a daemon that needs a writable HOME gets one under `/var/lib/milo`, as qobuz-proxy does). Known limits: a process of the same uid can still ptrace the backend, and the units without `ProtectHome` (kiosk, snapserver, snapclient, camilladsp, navidrome) can still write the checkout that the backend and the root oneshot `milo-navidrome-config` run. The satellite's policy is argument-scoped and has no such equivalence: a grant names the exact argv (`systemctl stop milo-client-snapclient.service`), or `""` for a helper that takes its one input on stdin and may then be run with no argument at all (`milo-client-set-timezone`, which validates the zone itself).
 - Privileged exec is centralized: systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager.
 - Each policy file is authored once under `rootfs/etc/sudoers.d/` (satellite: `milo-client/rootfs/`) and copied verbatim by `pi-gen/`, the only provisioning path, so no second spelling of a grant set exists. `backend/tests/contracts/test_privileged_exec_contract.py` compares the granted commands against the argv the code builds, in both directions.
 - The scoping only means something because each policy's first rule withdraws the blanket `NOPASSWD: ALL` Raspberry Pi OS grants the image's first user (`/etc/sudoers.d/010_pi-nopasswd`, shipped by `raspberrypi-sys-mods`, its username rewritten on first boot by `userconf-pi`). Any unit whose appliance account is also that first user held unrestricted passwordless root until then — measured on a satellite. sudo reads `/etc/sudoers.d` in lexical order and applies the *last* matching rule, so `milo-*` is read after `010_*` and the withdrawal must sit above the grants, never below them.
