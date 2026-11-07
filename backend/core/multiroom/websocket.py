@@ -1356,13 +1356,6 @@ class SnapcastWebSocketService:
                             self._push_snapclient_config(client.ip),
                             label=f"push_snapclient_config_{client.ip}",
                         )
-                        # The server's WiFi as a standby link, for when the
-                        # satellite's cable goes.
-                        if self._satellite_wifi_service is not None:
-                            self._bg.spawn(
-                                self._satellite_wifi_service.push(client.ip),
-                                label=f"push_wifi_{client.ip}",
-                            )
 
                     # Volume confirmed on hardware — now safe to show online
                     if set_online_after and self.registry:
@@ -1370,16 +1363,24 @@ class SnapcastWebSocketService:
                         await self._deliver_what_moved_during_admission(
                             mac_id, pushed_delay_ms, snapcast_id
                         )
-                    # The server's timezone, so the unit's clock reads like the
-                    # server's. Spawned once the client counts as online, never
-                    # before: a change of the zone pushes only to the clients
-                    # online, so one made while the flip waited on the registry
-                    # would otherwise reach neither push's zone read.
-                    if client and not client.is_local and self._satellite_timezone_service is not None:
-                        self._bg.spawn(
-                            self._satellite_timezone_service.push(client.ip),
-                            label=f"push_timezone_{client.ip}",
-                        )
+                    # The server's WiFi as a standby link, for when the
+                    # satellite's cable goes, and the server's timezone, so the
+                    # unit's clock reads like the server's. Spawned once the
+                    # client counts as online, never before: a change of either
+                    # pushes only to the clients online, so one made while the
+                    # flip waited on the registry would otherwise reach neither
+                    # push's read.
+                    if client and not client.is_local:
+                        if self._satellite_wifi_service is not None:
+                            self._bg.spawn(
+                                self._satellite_wifi_service.push(client.ip),
+                                label=f"push_wifi_{client.ip}",
+                            )
+                        if self._satellite_timezone_service is not None:
+                            self._bg.spawn(
+                                self._satellite_timezone_service.push(client.ip),
+                                label=f"push_timezone_{client.ip}",
+                            )
                     if self._volume_service:
                         await self._volume_service.broadcast_volume_state(show_bar=False)
                     self.logger.info(f"SYNC_RECONNECT: {mac_id} synced to {target_volume:.1f} dB (attempt {attempt + 1})")

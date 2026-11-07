@@ -2934,7 +2934,7 @@ class TestAdmissionPathConvergence:
             "lastSeen": {"sec": int(time.time()), "usec": 0},
         }]}]}}
 
-    async def _service(self, pending: dict = None, satellite_timezone_service=None):
+    async def _service(self, pending: dict = None, satellite_timezone_service=None, satellite_wifi_service=None):
         from backend.core.multiroom.websocket import SnapcastWebSocketService
 
         settings = AsyncMock()
@@ -2961,6 +2961,7 @@ class TestAdmissionPathConvergence:
             snapcast_service=snapcast,
             pending_clients_service=pending_service,
             satellite_timezone_service=satellite_timezone_service,
+            satellite_wifi_service=satellite_wifi_service,
         )
         service.set_registry(registry)
         return service, registry, snapcast, pending_service
@@ -3112,7 +3113,7 @@ class TestAdmissionPathConvergence:
 
     @staticmethod
     def _satellites_answer(monkeypatch, sent):
-        """Every satellite's HTTP surface: records each request, answers the timezone push as changed."""
+        """Every satellite's HTTP surface: records each request, answers the timezone and WiFi pushes as changed."""
 
         class _Answer:
             def __init__(self, url):
@@ -3126,7 +3127,8 @@ class TestAdmissionPathConvergence:
                 return False
 
             async def json(self):
-                return {"status": "success", "data": {"changed": True}} if self._url.endswith("/timezone") else {}
+                changed = self._url.endswith(("/timezone", "/wifi"))
+                return {"status": "success", "data": {"changed": True}} if changed else {}
 
             async def text(self):
                 return ""
@@ -3306,6 +3308,49 @@ class TestAdmissionPathConvergence:
 
         pushed = [body["timezone"] for url, body in sent if url.endswith("/api/system/timezone")]
         assert pushed and pushed[-1] == "Europe/Paris", pushed
+
+    @pytest.mark.asyncio
+    async def test_a_wifi_changed_while_the_satellite_comes_online_still_reaches_it(self, monkeypatch):
+        """The WiFi twin of the zone case above, for the same reason.
+
+        A change of the server's network hands it to the satellites online, so
+        the admission push must read the network once the satellite counts as
+        online. Read before the flip, the admission sent the old network, the
+        change listed nobody, and the satellite kept a standby link to a network
+        the server had left until its next admission.
+        """
+        from backend.core.multiroom.satellite_wifi import SatelliteWifiService
+
+        profile = {"ssid": "Freebox-OLD", "password": "old-key", "hidden": False, "key_mgmt": "wpa-psk"}
+        network = MagicMock()
+        network.get_active_wifi_profile = AsyncMock(side_effect=lambda: dict(profile))
+        network.get_country = AsyncMock(return_value="FR")
+        sent = []
+        self._satellites_answer(monkeypatch, sent)
+        online = MagicMock()
+        wifi = SatelliteWifiService(network, online)
+        service, registry, _, _ = await self._service(satellite_wifi_service=wifi)
+        online.get_online_clients.side_effect = registry.get_online_clients
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        service.set_volume_service(self._bare_volume_service())
+
+        flip_online = registry.set_client_online
+
+        async def contended(mac_id, online):
+            await asyncio.sleep(0)
+            profile.update(ssid="Freebox-NEW", password="new-key")
+            await wifi.push_all()
+            await flip_online(mac_id, online)
+
+        monkeypatch.setattr(registry, "set_client_online", contended)
+
+        assert await service._sync_reconnecting_client_volume(
+            self.MAC, set_online_after=True, max_retries=0, retry_delay=0, snapcast_id=self.MAC
+        )
+        await drain_background_tasks()
+
+        pushed = [body["ssid"] for url, body in sent if url.endswith("/api/system/wifi")]
+        assert pushed and pushed[-1] == "Freebox-NEW", pushed
 
     @pytest.mark.asyncio
     async def test_a_client_snapserver_lists_twice_is_admitted_once(self):
