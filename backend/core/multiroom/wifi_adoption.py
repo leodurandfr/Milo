@@ -42,7 +42,8 @@ from typing import Optional, Tuple
 import aiohttp
 
 from backend.core.network.service import (
-    ADOPTION_PROFILE, HOTSPOT_NAME, OWN_PROFILES, _parse_nmcli_line, is_rebuildable_wifi_profile,
+    ADOPTION_PROFILE, HOTSPOT_NAME, OWN_PROFILES, WifiKeyUnreadable, _parse_nmcli_line,
+    is_rebuildable_wifi_profile,
 )
 from backend.shared.background import BackgroundTaskSet
 
@@ -217,7 +218,12 @@ class WifiAdoptionService:
         # The speaker rebuilds its target as a visible wpa-psk profile. Only
         # the server's own network can be judged from here, a typed one
         # cannot; read under the lock, while no other adoption holds wlan0.
-        profile = await self.network_service.get_active_wifi_profile()
+        try:
+            profile = await self.network_service.get_active_wifi_profile()
+        except WifiKeyUnreadable:
+            # A visible wpa-psk network, so one the speaker can rebuild; the
+            # key it joins with is the typed one, not this read.
+            return
         if profile is not None and profile["ssid"] == wifi_ssid and not is_rebuildable_wifi_profile(profile):
             kind = "hidden" if profile["hidden"] else profile["key_mgmt"]
             raise AdoptionError(

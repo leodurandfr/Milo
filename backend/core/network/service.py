@@ -589,7 +589,14 @@ class NetworkService:
         speaker can rebuild from these two (`is_rebuildable_wifi_profile`).
         ``password`` is an empty string for open networks.
         """
-        profile = await self.get_active_wifi_profile()
+        try:
+            profile = await self.get_active_wifi_profile()
+        except WifiKeyUnreadable as unreadable:
+            name = unreadable.profile_name
+            self.logger.warning(
+                "WiFi profile '%s' is wpa-psk but its key read back empty: not offered for adoption", name
+            )
+            return None
         if profile is None or not is_rebuildable_wifi_profile(profile):
             return None
         return {"ssid": profile["ssid"], "password": profile["password"]}
@@ -603,9 +610,11 @@ class NetworkService:
         anything else (SAE alone, 802.1X, WEP) is a network an SSID and a PSK
         cannot rebuild.
 
-        ``None`` too when the key of a visible ``wpa-psk`` profile reads back
-        empty: that is a read that failed, not an open network, and handed
-        over it would rebuild the network as an open one.
+        Raises `WifiKeyUnreadable` when the key of a visible ``wpa-psk``
+        profile reads back empty: that is a read that failed, not an open
+        network, and handed over it would rebuild the network as an open one.
+        It is the caller's to report, since only the caller knows whether a
+        later read is worth trying.
         """
         rc, stdout, _ = await self._run_nmcli(
             "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"
@@ -667,10 +676,7 @@ class NetworkService:
             return None
         # A hidden one is still returned: its callers refuse it for being hidden.
         if key_mgmt == "wpa-psk" and not password and not hidden:
-            self.logger.warning(
-                "WiFi profile '%s' is wpa-psk but its key read back empty: not handed over", active_name
-            )
-            return None
+            raise WifiKeyUnreadable(active_name)
 
         return {"ssid": ssid, "password": password, "hidden": hidden, "key_mgmt": key_mgmt}
 
@@ -1885,6 +1891,19 @@ def _parse_nmcli_line(line: str) -> List[str]:
             i += 1
     fields.append("".join(current))
     return fields
+
+
+class WifiKeyUnreadable(Exception):
+    """The active profile is a visible ``wpa-psk`` one whose key read back empty.
+
+    NetworkManager answers rc 0 with an empty PSK when it cannot authorize the
+    secret read — measured during a reboot, polkit already stopped — so the
+    profile is sound and a later read may well return its key.
+    """
+
+    def __init__(self, profile_name: str):
+        super().__init__(profile_name)
+        self.profile_name = profile_name
 
 
 def is_rebuildable_wifi_profile(profile: dict) -> bool:

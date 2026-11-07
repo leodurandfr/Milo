@@ -45,6 +45,7 @@ from backend.core.network.service import (
     ADOPTION_READ_TRIES,
     HOTSPOT_NAME,
     NetworkService,
+    WifiKeyUnreadable,
     _parse_nmcli_line,
 )
 
@@ -2243,13 +2244,24 @@ async def test_an_open_home_network_yields_an_empty_password_not_none(service):
 
 @pytest.mark.parametrize("psk", ["", None])
 @pytest.mark.asyncio
-async def test_a_wpa_psk_profile_whose_key_reads_back_empty_is_unreadable(service, psk, caplog):
+async def test_a_wpa_psk_profile_whose_key_reads_back_empty_is_unreadable(service, psk):
     """A WPA network has a key: read back empty (rc 0), it is a read that
     failed, not an open network. Handed over, it rebuilt Bureau's standby link
-    as an open profile that never associates."""
+    as an open profile that never associates. Told apart from "no WiFi", so the
+    satellite push can read it again rather than wait for the next admission."""
     fake, patcher = with_nmcli(creds_router(key_mgmt="wpa-psk", hidden="no", psk=psk))
+    with patcher, pytest.raises(WifiKeyUnreadable) as unreadable:
+        await service.get_active_wifi_profile()
+    assert unreadable.value.profile_name == "milo-Freebox-CA3555"
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_key_offers_no_credentials_and_says_which_profile(service, caplog):
+    """The adoption form would pre-fill an empty password for a WPA network,
+    and the speaker would reboot onto an open profile that never associates."""
+    fake, patcher = with_nmcli(creds_router(key_mgmt="wpa-psk", hidden="no", psk=""))
     with patcher, caplog.at_level(logging.WARNING):
-        assert await service.get_active_wifi_profile() is None
+        assert await service.get_active_wifi_credentials() is None
     assert "milo-Freebox-CA3555" in caplog.text
 
 

@@ -13,6 +13,10 @@ own WiFi comes up or changes network (`NetworkService`). The satellite's helper
 leaves a matching profile alone, so a push that changes nothing costs a few
 nmcli reads and never touches a live link.
 
+A key NetworkManager reads back empty (it could not authorize the secret read,
+polkit stopped) is read again a few times inside the same push before the push
+gives up: otherwise a satellite would keep a stale key until the next admission.
+
 Best effort throughout: a satellite whose app predates the route, or that
 refuses, is logged and left as it was — never a reason to delay an admission or
 to touch the audio.
@@ -23,13 +27,17 @@ import logging
 import aiohttp
 
 from backend.config.constants import CLIENT_API_PORT
-from backend.core.network.service import is_rebuildable_wifi_profile
+from backend.core.network.service import WifiKeyUnreadable, is_rebuildable_wifi_profile
 
 logger = logging.getLogger(__name__)
 
 # The satellite's helper runs a handful of nmcli calls (and the country, once),
 # within its own 20 s budget.
 PUSH_TIMEOUT_S = 25
+
+# An unreadable key is read this many times in all, this far apart.
+KEY_READ_TRIES = 3
+KEY_READ_RETRY_S = 10
 
 
 class SatelliteWifiService:
@@ -47,7 +55,7 @@ class SatelliteWifiService:
         alone, 802.1X, WEP: the satellite would keep a profile that never
         associates, and the standby link would exist only in the log.
         """
-        profile = await self._network.get_active_wifi_profile()
+        profile = await self._read_profile()
         if profile is None:
             return None
         if not is_rebuildable_wifi_profile(profile):
@@ -64,6 +72,26 @@ class SatelliteWifiService:
             "password": profile["password"],
             "country": await self._network.get_country(),
         }
+
+    async def _read_profile(self):
+        """The server's active WiFi profile, its key read again while it reads back empty.
+
+        A cancellation during the wait (a backend stop) ends the push with
+        nothing sent and nothing logged.
+        """
+        for attempt in range(1, KEY_READ_TRIES + 1):
+            try:
+                return await self._network.get_active_wifi_profile()
+            except WifiKeyUnreadable as unreadable:
+                if attempt == KEY_READ_TRIES:
+                    name = unreadable.profile_name
+                    logger.warning(
+                        "WiFi profile '%s' is wpa-psk but its key read back empty %d times, %d s apart: "
+                        "not handed to the satellites",
+                        name, KEY_READ_TRIES, KEY_READ_RETRY_S,
+                    )
+                    return None
+            await asyncio.sleep(KEY_READ_RETRY_S)
 
     async def _send(self, client_ip: str, network: dict) -> None:
         ssid = network["ssid"]

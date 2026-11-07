@@ -13,8 +13,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
 
-from backend.core.multiroom.satellite_wifi import SatelliteWifiService
-from backend.core.network.service import NetworkService
+from backend.core.multiroom.satellite_wifi import KEY_READ_TRIES, SatelliteWifiService
+from backend.core.network.service import NetworkService, WifiKeyUnreadable
+from backend.shared.background import BackgroundTaskSet
 
 
 class _Response:
@@ -166,7 +167,8 @@ async def test_an_empty_key_on_a_wpa_psk_profile_is_never_handed_over(caplog):
         caplog.clear()
 
         with _session(satellite), caplog.at_level(logging.WARNING), \
-                patch("backend.core.network.service.asyncio.create_subprocess_exec", new=_Nmcli(psk_line)):
+                patch("backend.core.network.service.asyncio.create_subprocess_exec", new=_Nmcli(psk_line)), \
+                patch("asyncio.sleep", new=AsyncMock()):
             await SatelliteWifiService(NetworkService(AsyncMock(), settings), registry).push("192.168.1.60")
 
         assert satellite.requests == [], psk_line
@@ -174,3 +176,68 @@ async def test_an_empty_key_on_a_wpa_psk_profile_is_never_handed_over(caplog):
             r.levelno == logging.WARNING and "milo-Freebox-CA3555" in r.getMessage() for r in caplog.records
         ), psk_line
         settings.get_setting.assert_not_awaited()
+
+
+_UNREADABLE = WifiKeyUnreadable("milo-Freebox-CA3555")
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_a_key_that_reads_back_empty_once_is_read_again_and_handed_over(caplog):
+    """Measured during a reboot: polkit stopped, NetworkManager answered an empty key. Given up at once,
+    a satellite kept its stale standby key until the next admission or the next WiFi change."""
+    satellite = _Satellite()
+    service = _service()
+    service._network.get_active_wifi_profile = AsyncMock(side_effect=[_UNREADABLE, _FREEBOX])
+
+    with _session(satellite), caplog.at_level(logging.WARNING), patch("asyncio.sleep", new=AsyncMock()) as sleep:
+        await service.push("192.168.1.60")
+
+    assert [body["password"] for _, body in satellite.requests] == ["correct-horse"]
+    assert sleep.await_count == 1
+    assert _warnings(caplog) == []
+
+
+async def test_a_key_that_never_reads_is_reported_once_for_every_satellite(caplog):
+    """One line per push, naming the profile, and nothing sent: an empty key would rebuild the
+    satellite's standby link as an open network."""
+    satellites = [Mock(ip="192.168.1.60", is_local=False), Mock(ip="192.168.1.153", is_local=False)]
+    satellite = _Satellite()
+    service = _service(satellites=satellites)
+    service._network.get_active_wifi_profile = AsyncMock(side_effect=_UNREADABLE)
+
+    with _session(satellite), caplog.at_level(logging.WARNING), patch("asyncio.sleep", new=AsyncMock()):
+        await service.push_all()
+
+    assert satellite.requests == []
+    assert service._network.get_active_wifi_profile.await_count == KEY_READ_TRIES
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1, warnings
+    assert "milo-Freebox-CA3555" in warnings[0]
+
+
+async def test_a_backend_stop_during_the_wait_sends_nothing_and_says_nothing(caplog):
+    """The teardown's cancel_all ends the push mid-wait: a PUT then would carry a key read at
+    shutdown, and a WARNING would report a failure that is only the stop."""
+    satellite = _Satellite()
+    service = _service()
+    service._network.get_active_wifi_profile = AsyncMock(side_effect=[_UNREADABLE, _FREEBOX])
+    waiting = asyncio.Event()
+
+    async def wait_forever(_seconds):
+        waiting.set()
+        await asyncio.Event().wait()
+
+    bg = BackgroundTaskSet(logging.getLogger("test"), "test")
+    with _session(satellite), caplog.at_level(logging.WARNING), \
+            patch("asyncio.sleep", new=AsyncMock(side_effect=wait_forever)):
+        push = bg.spawn(service.push("192.168.1.60"), label="push_wifi")
+        await asyncio.wait({push, asyncio.ensure_future(waiting.wait())}, return_when=asyncio.FIRST_COMPLETED)
+        assert waiting.is_set(), "the push never waited to read the key again"
+        await bg.cancel_all()
+
+    assert satellite.requests == []
+    assert service._network.get_active_wifi_profile.await_count == 1
+    assert _warnings(caplog) == []
