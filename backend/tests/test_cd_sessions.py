@@ -8,6 +8,7 @@ import errno
 
 import pytest
 
+from backend.sources.cd.data import LOOKUP_TIMEOUT_S
 from backend.sources.cd.source import EJECT_CONFIRM_S, IDENTIFY_GRACE_S
 from backend.tests.cd_world import DISC_ID, OFFSETS, CdWorld, kernel_lba
 from backend.tests.golden.harness import settle
@@ -670,6 +671,20 @@ async def test_a_disc_already_in_when_the_source_opens_is_restored_paused_after_
     assert w.disc()["album"] == "Eight"
     assert w.phase() == "paused"
     assert w.log.count("mpv.loadfile") == loads
+
+
+async def test_the_sound_waits_for_a_name_a_fraction_of_what_the_lookup_may_take(world):
+    """Every other test here waits IDENTIFY_GRACE_S, whatever it is: a grace
+    grown near LOOKUP_TIMEOUT_S would keep them green and bring back the
+    two-minute silence. Bounded by the lookup it stands in for, not by a
+    restated number."""
+    w = await world(disc=None)
+    await w.select()
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    await w.advance(LOOKUP_TIMEOUT_S / 10)
+    assert w.availability() is None
+    assert w.playing()
 
 
 async def test_a_late_answer_that_names_nothing_leaves_the_retry_to_name_it(world):
