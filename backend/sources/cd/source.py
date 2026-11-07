@@ -36,6 +36,9 @@ Rules:
 - A disc already in the drive when the source opens (or when the drive is
   replugged) is preloaded paused; only a disc *inserted* while CD is the
   active source plays by itself (owner decision, 2026-09-23).
+- A disc MusicBrainz has not named IDENTIFY_GRACE_S after CD is active plays
+  (or is restored paused) unnamed; the answer, when it comes, names it in
+  place, with no reload.
 """
 import asyncio
 import errno
@@ -73,6 +76,11 @@ from backend.sources.cd.reader import (
 # Retry MusicBrainz when the lookup fell through to the fallback DiscInfo
 # (typically DNS not ready at boot when the disc was first read).
 METADATA_RETRY_INTERVAL_S = 60.0
+
+# How long a disc waits for its name before it plays unnamed, while the lookup
+# goes on. Measured: a healthy lookup answers in ~0.5 s; a fallback to the TOC
+# is two requests at MusicBrainz's 1 request/s.
+IDENTIFY_GRACE_S = 3.0
 
 # A disc still unreadable this long after it went in is reported unreadable
 # (E36). Measured: 10.2-10.3 s from insertion to a readable TOC, 8.7 s after
@@ -466,7 +474,11 @@ class CdSource(MpvAudioSource):
         archive in an outage retries for ~100 s, which must not hold the
         source's mailbox."""
         generation, toc = self._generation, self._toc
-        if toc is None or self._lookup_for is generation:
+        if toc is None:
+            return
+        if self._disc_state is DiscState.IDENTIFYING:
+            self._arm_timer("identify_grace", IDENTIFY_GRACE_S, generation)
+        if self._lookup_for is generation:
             return
         self._lookup_for = generation
 
@@ -485,6 +497,7 @@ class CdSource(MpvAudioSource):
     async def _adopt_disc(self, generation: DeviceToken, info: DiscInfo) -> None:
         if generation is not self._generation:
             return
+        self._disarm_timer("identify_grace")
         self._lookup_for = None
         first = self._disc_state is DiscState.IDENTIFYING
         if not first and not info.identified:
@@ -504,7 +517,25 @@ class CdSource(MpvAudioSource):
         if first:
             await self._disc_ready()
         elif not self._metadata_retry_pending:
-            self._logger.info(f"MusicBrainz retry named {info.disc_id}: {info.artist} — {info.album}")
+            self._logger.info(f"MusicBrainz named {info.disc_id}: {info.artist} — {info.album}")
+
+    async def _play_unnamed_meanwhile(self) -> None:
+        """The grace is over and MusicBrainz is still silent: the disc becomes
+        ready unnamed. The lookup in flight stands for the retry (a second one
+        would only queue behind it), and its answer renames the disc in
+        place."""
+        if (self._disc_state is not DiscState.IDENTIFYING or not self._looking_up
+                or not self._is_active_source):
+            return
+        self._logger.info(
+            f"MusicBrainz has not named disc {self._toc.disc_id} after "
+            f"{IDENTIFY_GRACE_S:.0f} s, playing it unnamed meanwhile"
+        )
+        self._disc = _unnamed(self._toc)
+        self._metadata_retry_pending = True
+        self._set_disc_state(DiscState.READY)
+        await self._publish_device()
+        await self._disc_ready()
 
     async def _disc_ready(self) -> None:
         """A disc just became playable: inserted while CD was active, it
@@ -538,7 +569,7 @@ class CdSource(MpvAudioSource):
         point = self._resume_point
         if point is not None and self._toc is not None and point.identity == self._toc.disc_id:
             self._set_resume_point(None)
-        for name in ("reading", "toc", "identify", "eject", "probe"):
+        for name in ("reading", "toc", "identify", "identify_grace", "eject", "probe"):
             self._disarm_timer(name)
         self._toc, self._disc, self._generation = None, None, None
         self._lookup_for = None
@@ -573,6 +604,9 @@ class CdSource(MpvAudioSource):
         elif name == "identify":
             if token is self._generation and self._metadata_retry_pending and self._is_active_source:
                 self._identify()
+        elif name == "identify_grace":
+            if token is self._generation:
+                await self._play_unnamed_meanwhile()
         elif name == "eject":
             await self._confirm_eject()
         elif name == "probe":

@@ -34,9 +34,10 @@ logger = logging.getLogger("source.cd.data")
 # for as long as the source stays open.
 COVER_FETCH_TIMEOUT_S = 150.0
 
-# How long a caller waits for MusicBrainz to name a disc before playing it
-# with untitled tracks; the source's own retry names it later. Past the ~100 s
-# its retries last in an outage, for the same missing socket timeout. Only one
+# How long an in-flight lookup is awaited before it is given up and the
+# source's retry takes over; the source already plays the disc unnamed after
+# IDENTIFY_GRACE_S. Past the ~100 s its retries last in an outage, for the
+# same missing socket timeout. Only one
 # lookup is ever in flight: musicbrainzngs holds its rate-limit lock for the
 # whole request, so a second thread would only queue behind a stalled one.
 LOOKUP_TIMEOUT_S = 120.0
@@ -140,9 +141,8 @@ class CdDataService:
         Falls back to untitled tracks if MusicBrainz is unavailable
         or the disc is unknown.
 
-        Never reaches the Cover Art Archive: the caller cannot publish the disc
-        until this returns, and the archive's retries once held a known disc
-        (and its auto-play) for 97 s. The jacket is `fetch_cover`'s job.
+        Never reaches the Cover Art Archive: the archive's retries once held a
+        known disc (and its auto-play) for 97 s. The jacket is `fetch_cover`'s job.
 
         Answers within LOOKUP_TIMEOUT_S, and at once while another disc's
         lookup is still in flight: past that, the disc comes back unnamed and
@@ -174,7 +174,7 @@ class CdDataService:
         except TimeoutError:
             logger.warning(
                 f"MusicBrainz did not answer for disc {disc_id} within "
-                f"{LOOKUP_TIMEOUT_S:.0f} s, playing it unnamed until a retry"
+                f"{LOOKUP_TIMEOUT_S:.0f} s, a retry will name it"
             )
             result = None
         except Exception as e:

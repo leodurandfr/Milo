@@ -8,6 +8,7 @@ import errno
 
 import pytest
 
+from backend.sources.cd.source import IDENTIFY_GRACE_S
 from backend.tests.cd_world import DISC_ID, OFFSETS, CdWorld, kernel_lba
 from backend.tests.golden.harness import settle
 
@@ -617,6 +618,114 @@ async def test_a_lookup_that_fails_leaves_the_disc_playable_untitled(world):
     assert w.track() == 1
     assert {t["title"] for t in w.disc()["tracks"]} == {None}
     assert (await w.command("play_track", {"track_number": 2}))["success"] is True
+
+
+# === A slow name never holds the sound ===
+
+async def test_a_disc_musicbrainz_is_slow_to_name_plays_unnamed_then_takes_its_name(world):
+    """A half-open connection to MusicBrainz held a new disc silent, its play
+    refused, for the lookup's full 120 s (measured 2026-11-04). Past the
+    grace it plays unnamed, and the late answer renames the session in
+    place: same session, no second load, so the sound never cuts."""
+    w = await world(disc=None)
+    await w.select()
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    w.playhead(1)
+    await w.advance(IDENTIFY_GRACE_S + 0.1)
+    assert w.availability() is None
+    assert w.playing()
+    assert w.session()["title"] is None
+    assert w.disc()["album"] is None
+    assert w.log.count("mpv.loadfile") == 1
+    session_id = w.session()["id"]
+
+    w.lookup_gate.set()
+    await w.advance(1.1)
+    assert w.disc()["album"] == "Eight"
+    assert w.session()["title"] == "One"
+    assert w.playing()
+    assert w.session()["id"] == session_id
+    assert w.log.count("mpv.loadfile") == 1
+
+
+async def test_a_disc_already_in_when_the_source_opens_is_restored_paused_after_the_grace(world):
+    """The grace ends in what the disc would have done named: a disc already
+    in the slot when CD opens is parked paused on track 1, never played
+    (owner decision, 2026-09-23), and its name changes nothing about that."""
+    w = await world(disc=None)
+    await w.insert()
+    await w.advance(1.1)
+    w.lookup_gate = asyncio.Event()
+    await w.select()
+    await w.advance(IDENTIFY_GRACE_S + 0.1)
+    assert w.phase() == "paused"
+    assert w.track() == 1
+    assert w.availability() is None
+    assert "play_track" in w.state()["controls"]
+    loads = w.log.count("mpv.loadfile")
+
+    w.lookup_gate.set()
+    await w.advance(1.1)
+    assert w.disc()["album"] == "Eight"
+    assert w.phase() == "paused"
+    assert w.log.count("mpv.loadfile") == loads
+
+
+async def test_a_late_answer_that_names_nothing_leaves_the_retry_to_name_it(world):
+    """A late answer that names nothing (the disc unknown, MusicBrainz down
+    by then) must arm the retry, or the disc playing unnamed stays unnamed
+    until it is reinserted."""
+    w = await world(disc=None)
+    await w.select()
+    w.named = False
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    w.playhead(1)
+    await w.advance(IDENTIFY_GRACE_S + 0.1)
+    assert w.playing()
+    loads = w.log.count("mpv.loadfile")
+
+    w.lookup_gate.set()
+    await w.advance(1.1)
+    assert w.disc()["album"] is None
+    assert w.log.count("mpv.loadfile") == loads
+
+    w.named = True
+    await w.advance(61)
+    assert w.disc()["album"] == "Eight"
+
+
+async def test_no_second_lookup_starts_while_the_first_still_runs(world):
+    """The lookup in flight when the disc plays unnamed stands for the retry:
+    a second one would queue behind the stalled thread musicbrainzngs keeps
+    its rate-limit lock in, and two answers would race to name the disc."""
+    w = await world(disc=None)
+    await w.select()
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    await w.advance(IDENTIFY_GRACE_S + 0.1)
+    await w.leave()
+    await w.select()
+    await w.advance(61)
+    assert w.lookups == 1
+
+
+async def test_a_disc_named_within_the_grace_is_never_shown_unnamed(world):
+    """A healthy lookup answers in ~0.5 s: within the grace, no screen, lock
+    screen or menu bar ever draws the disc as numbered tracks first."""
+    w = await world(disc=None)
+    await w.select()
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    await w.advance(0.5)
+    w.lookup_gate.set()
+    await w.advance(1.1)
+    discs = [s["details"]["disc"] for s in w.published()
+             if s["source"] == "cd" and s["details"] and s["details"]["disc"]]
+    assert discs
+    assert all(d["album"] == "Eight" for d in discs)
+    assert w.disc()["album"] == "Eight"
 
 
 async def test_a_toc_that_fails_once_is_read_again(world):
