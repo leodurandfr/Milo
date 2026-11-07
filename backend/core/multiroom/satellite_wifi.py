@@ -102,8 +102,17 @@ class SatelliteWifiService:
                     json={"ssid": ssid, "password": network["password"], "country": network["country"]},
                 ) as resp:
                     if resp.status == 200:
-                        body = await resp.json()
-                        if body["data"]["changed"]:
+                        # A body that is not the satellite's answer raises
+                        # outside aiohttp's errors: an ERROR at every admission.
+                        try:
+                            changed = (await resp.json())["data"]["changed"]
+                        except (ValueError, KeyError, TypeError) as exc:
+                            logger.warning(
+                                "Satellite %s answered WiFi '%s' with an unreadable body: %r",
+                                client_ip, ssid, exc,
+                            )
+                            return
+                        if changed:
                             logger.info("Satellite %s now keeps WiFi '%s' as a standby link", client_ip, ssid)
                         return
                     detail = await resp.text()

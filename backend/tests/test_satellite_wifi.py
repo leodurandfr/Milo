@@ -8,10 +8,12 @@ satellite that refuses or is gone breaks the admission that pushed to it, or
 the satellite is handed a network other than the one the server is on.
 """
 import asyncio
+import json
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 import aiohttp
+import pytest
 
 from backend.core.multiroom.satellite_wifi import KEY_READ_TRIES, SatelliteWifiService
 from backend.core.network.service import NetworkService, WifiKeyUnreadable
@@ -30,6 +32,8 @@ class _Response:
         return False
 
     async def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
         return self._payload
 
     async def text(self):
@@ -105,6 +109,28 @@ async def test_a_satellite_that_refuses_or_is_gone_raises_nothing():
     ):
         with _session(satellite):
             await _service().push("192.168.1.60")
+
+
+@pytest.mark.parametrize("payload", [
+    {},
+    {"status": "success", "data": None},
+    ["not", "an", "object"],
+    json.JSONDecodeError("Expecting value", "<html>", 0),
+], ids=["empty", "no-data", "a-list", "not-json"])
+async def test_a_200_that_is_not_the_satellites_answer_raises_nothing(caplog, payload):
+    """Something else on port 8001, or a satellite whose answer drifted.
+
+    A missing key is a KeyError and a body that is not JSON a ValueError, neither
+    of them aiohttp's: raised, the admission task dies at ERROR in
+    `BackgroundTaskSet`, the red banner at every admission.
+    """
+    satellite = _Satellite(payload=payload)
+
+    with _session(satellite), caplog.at_level(logging.WARNING, logger="backend.core.multiroom.satellite_wifi"):
+        await _service().push("192.168.1.60")
+
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert "192.168.1.60" in caplog.records[0].getMessage()
 
 
 async def test_every_online_satellite_is_handed_it_and_never_the_main_unit():
