@@ -11,7 +11,11 @@ import errno
 import logging
 import os
 import time
+from unittest.mock import Mock
 
+from backend.core.audio_source import BaseAudioSource
+from backend.core.models.audio_state import AudioSource
+from backend.core.state import AudioStateMachine
 from backend.shared.clock_step import WallClockStepWatch
 
 CANCEL_ON_SET = os.TFD_TIMER_ABSTIME | os.TFD_TIMER_CANCEL_ON_SET
@@ -41,12 +45,15 @@ class FakeTimerfdOs:
         self.armed = []
         self.closed = []
         self.read_raises = BlockingIOError(errno.EAGAIN, "would block")
+        self.settime_raises = None
 
     def timerfd_create(self, clockid, *, flags=0):
         self.created.append((clockid, flags))
         return 42
 
     def timerfd_settime(self, fd, *, flags=0, initial=0.0, interval=0.0):
+        if self.settime_raises is not None:
+            raise self.settime_raises
         self.armed.append((fd, flags))
 
     def read(self, fd, n):
@@ -116,3 +123,80 @@ def test_a_host_without_timerfd_fails_open(caplog):
     records = [r for r in caplog.records if r.name == "test.clock"]
     assert [r.levelno for r in records] == [logging.INFO]
     watch.close()
+
+
+def test_a_kernel_that_refuses_the_timer_fails_open():
+    """A kernel or sandbox can have timerfd and still refuse it (EINVAL,
+    EPERM). start() runs inside the lifespan, whose `except Exception`
+    re-raises: escaping, the refusal would fail the backend's boot over a
+    trigger the sources can do without. It is answered False, with the fd
+    closed and nothing left in the loop."""
+    fake_os, loop = FakeTimerfdOs(), FakeLoop()
+    fake_os.settime_raises = OSError(errno.EINVAL, "invalid argument")
+    watch = WallClockStepWatch(lambda: None, logging.getLogger("test"),
+                               os_module=fake_os, loop=loop)
+
+    assert watch.start() is False
+    assert fake_os.closed == [42]
+    assert loop.readers == {}
+
+
+def test_a_read_failing_for_another_reason_stops_the_watch():
+    """The loop's reader is level-triggered: an fd that stays readable and
+    fails with anything but ECANCELED (EBADF, EIO) would wake the loop on
+    every turn for good. The watch stops instead, and calls nothing."""
+    fake_os, loop, steps = FakeTimerfdOs(), FakeLoop(), []
+    watch = WallClockStepWatch(lambda: steps.append(1), logging.getLogger("test"),
+                               os_module=fake_os, loop=loop)
+    assert watch.start() is True
+
+    fake_os.read_raises = OSError(errno.EBADF, "bad file descriptor")
+    loop.readers[42]()
+
+    assert steps == []
+    assert loop.readers == {}
+    assert fake_os.closed == [42]
+
+
+def test_a_failing_callback_is_logged_and_the_watch_keeps_listening(caplog):
+    """`on_step` runs from the loop's reader callback, where an exception
+    reaches nothing but asyncio's default handler, with no Milō context. It
+    is logged at error, and the next step is still heard."""
+    fake_os, loop, calls = FakeTimerfdOs(), FakeLoop(), []
+
+    def on_step():
+        calls.append(1)
+        raise RuntimeError("source gone")
+
+    watch = WallClockStepWatch(on_step, logging.getLogger("test.clock"),
+                               os_module=fake_os, loop=loop)
+    assert watch.start() is True
+    fake_os.read_raises = OSError(errno.ECANCELED, "clock was set")
+
+    with caplog.at_level(logging.ERROR, logger="test.clock"):
+        loop.readers[42]()
+        loop.readers[42]()
+
+    assert calls == [1, 1]
+    assert [r.levelno for r in caplog.records if r.name == "test.clock"] == [logging.ERROR] * 2
+    assert 42 in loop.readers
+
+
+def test_a_clock_step_re_reads_the_active_source_alone():
+    """A step re-reads the source playing now. An idle source's daemon is
+    down or stopping (Spotify's unit, an mpv with nothing loaded), so
+    re-reading every registered source would send requests nobody answers,
+    at every boot. With no active source, nothing is re-read."""
+    machine = AudioStateMachine()
+    active, idle = Mock(spec=BaseAudioSource), Mock(spec=BaseAudioSource)
+    machine.register_source(AudioSource.RADIO, active)
+    machine.register_source(AudioSource.PODCAST, idle)
+
+    machine.clock_stepped()
+    active.follow_clock_step.assert_not_called()
+
+    machine.system_state.active_source = AudioSource.RADIO
+    machine.clock_stepped()
+
+    active.follow_clock_step.assert_called_once_with()
+    idle.follow_clock_step.assert_not_called()
