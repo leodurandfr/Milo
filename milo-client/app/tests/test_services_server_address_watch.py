@@ -345,7 +345,8 @@ class _World:
     and `preferred(t)` the source the kernel picks for a new connection to the
     server (None: no route). The run ends at `until`, or at the first restart
     unless `past_restarts`; restart times are recorded, and with `start_fails`
-    every `systemctl start` is refused.
+    every `systemctl start` is refused ("exit": systemd answers non-zero,
+    "spawn": the sudo process cannot even be created).
     """
 
     def __init__(self, tmp_path, dialled, resolves, connected,
@@ -389,7 +390,9 @@ class _World:
             return _FakeProc(stdout=b"1077\n")
         if argv[2] == "start":
             self.restarts.append(self.now)
-            if self.start_fails:
+            if self.start_fails == "spawn":
+                raise OSError(errno.EAGAIN, "Resource temporarily unavailable")
+            if self.start_fails == "exit":
                 return _FakeProc(returncode=1)
         return _FakeProc()
 
@@ -599,7 +602,8 @@ async def test_a_restart_is_not_repeated_before_its_cooldown(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_a_restart_that_fails_is_not_retried_before_its_cooldown(tmp_path):
+@pytest.mark.parametrize("fails", ["exit", "spawn"])
+async def test_a_restart_that_fails_is_not_retried_before_its_cooldown(tmp_path, fails):
     """A start systemd refuses leaves the unit dead and the start owed, and the
     owed start is a restart like any other: retried inside the loss window, it
     ran a sudo stop and start and logged an ERROR every two seconds for the
@@ -609,7 +613,7 @@ async def test_a_restart_that_fails_is_not_retried_before_its_cooldown(tmp_path)
         tmp_path, dialled=WIRED,
         resolves=lambda t: WIFI if t >= loss + AVAHI_LAG else WIRED,
         connected=lambda t: t < loss,
-        until=400, past_restarts=True, start_fails=True,
+        until=400, past_restarts=True, start_fails=fails,
     ).run()
 
     assert len(world.restarts) >= 2, "the owed start was never retried"
@@ -618,7 +622,8 @@ async def test_a_restart_that_fails_is_not_retried_before_its_cooldown(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_a_cable_return_that_fails_opens_the_cooldown_too(tmp_path):
+@pytest.mark.parametrize("fails", ["exit", "spawn"])
+async def test_a_cable_return_that_fails_opens_the_cooldown_too(tmp_path, fails):
     """The cable rule's restart, refused by systemd, owes its start like the
     address rule's, and the owed start must wait the same cooldown."""
     world = await _World(
@@ -627,7 +632,7 @@ async def test_a_cable_return_that_fails_opens_the_cooldown_too(tmp_path):
         carrier=lambda t: "1" if _cable_back(t) else "0",
         wired=lambda t: SAT_WIRED if _cable_back(t) else None,
         preferred=lambda t: SAT_WIRED if _cable_back(t) else SAT_WIFI,
-        until=400, past_restarts=True, start_fails=True,
+        until=400, past_restarts=True, start_fails=fails,
     ).run()
 
     assert len(world.restarts) >= 2, "the owed start was never retried"

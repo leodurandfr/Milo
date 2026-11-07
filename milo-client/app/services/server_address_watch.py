@@ -337,19 +337,23 @@ async def _answering_address(running: str) -> Optional[str]:
 
 
 class RestartFailed(RuntimeError):
-    """systemd refused a verb of a restart, which may have left the unit stopped."""
+    """A verb of a restart failed — refused by systemd or never spawned — which
+    may have left the unit stopped."""
 
 
 async def _stop_then_start() -> None:
     """Stop then start the unit — sudoers grants those two verbs, not `restart`."""
     global _start_owed
     for action in ("stop", "start"):
-        proc = await asyncio.create_subprocess_exec(
-            "sudo", "systemctl", action, SNAPCLIENT_SERVICE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await proc.communicate()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", action, SNAPCLIENT_SERVICE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+        except OSError as e:
+            raise RestartFailed(f"Failed to {action} snapclient: {e}") from e
         if proc.returncode != 0:
             raise RestartFailed(f"Failed to {action} snapclient: {stderr.decode().strip()}")
         _start_owed = action == "stop"
