@@ -11,6 +11,8 @@ zone again writes /etc/localtime at every reconnection. Consumer:
 `SatelliteTimezoneService`.
 """
 
+import os
+import pty
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +24,7 @@ HELPER = (
 )
 ZONEINFO_LINE = 'ZONEINFO_DIR="/usr/share/zoneinfo"\n'
 TZIF = b"TZif2" + b"\0" * 40
+LONG_NAME = "A" * 70
 
 # timedated as the helper reaches it: the zone in force in one file, every call
 # appended to a log. Only the two invocations the helper makes are modelled; any
@@ -60,6 +63,10 @@ def world(tmp_path):
     outside.write_bytes(TZIF)
     (zoneinfo / "Europe" / "Escape").symlink_to(outside)
     (zoneinfo / "localtime").symlink_to(zoneinfo / "Europe" / "Paris")
+    # Each refused by one guard alone: a compiled zone under a name past the
+    # length cap, and a FIFO, which `head` would wait on forever.
+    (zoneinfo / "Etc" / LONG_NAME).write_bytes(TZIF)
+    os.mkfifo(zoneinfo / "Europe" / "Pipe")
 
     text = HELPER.read_text(encoding="utf-8")
     assert text.count(ZONEINFO_LINE) == 1, f"{ZONEINFO_LINE.strip()!r} not found exactly once"
@@ -74,14 +81,14 @@ def world(tmp_path):
     return {"helper": helper, "stubs": stubs, "state": tmp_path / "tz", "log": tmp_path / "tz.log"}
 
 
-def _run(world, stdin, current="Etc/UTC", args=()):
+def _run(world, stdin, current="Etc/UTC", args=(), timeout=30):
     world["state"].write_text(current)
     result = subprocess.run(
         ["bash", str(world["helper"]), *args],
-        input=stdin,
+        **({"input": stdin} if isinstance(stdin, str) else {"stdin": stdin}),
         env={"PATH": f"{world['stubs']}:/usr/bin:/bin",
              "TZ_STATE": str(world["state"]), "TZ_LOG": str(world["log"])},
-        capture_output=True, text=True, timeout=30,
+        capture_output=True, text=True, timeout=timeout,
     )
     calls = world["log"].read_text().splitlines() if world["log"].exists() else []
     return result, calls, world["state"].read_text()
@@ -130,7 +137,8 @@ def test_every_shape_tzdata_ships_is_accepted(world, zone):
     "Europe/Missing",
     "Europe/notes",
     "Europe/Escape",
-    "Europe/Paris" + "x" * 64,
+    "America/Argentina",
+    f"Etc/{LONG_NAME}",
 ])
 def test_a_zone_it_cannot_vouch_for_never_reaches_timedatectl(world, zone):
     """Refused with exit 2, which the route answers 400 — before timedated is even asked."""
@@ -157,3 +165,24 @@ def test_an_argument_is_refused_whatever_it_says(world):
     assert result.returncode == 1
     assert calls == []
 
+
+
+def test_a_zone_that_is_no_regular_file_is_refused_without_reading_it(world):
+    """A FIFO under the tree is opened by nothing: `head` would block on it, the sudo session with it."""
+    result, calls, _ = _run(world, "Europe/Pipe\n", timeout=5)
+
+    assert result.returncode == 2, (result.stdout, result.stderr)
+    assert calls == []
+
+
+def test_a_terminal_on_stdin_is_refused_rather_than_waited_on(world):
+    """`sudo milo-client-set-timezone` typed by hand: `read` would hold the session open for good."""
+    primary, secondary = pty.openpty()
+    try:
+        result, calls, _ = _run(world, secondary, timeout=5)
+    finally:
+        os.close(primary)
+        os.close(secondary)
+
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    assert calls == []
