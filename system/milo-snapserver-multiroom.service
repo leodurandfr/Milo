@@ -6,16 +6,25 @@ PartOf=milo-backend.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf
+# server.json in RAM, not on the SD card: snapserver rewrites it two seconds
+# after every control request, the backend's 30 s Server.GetStatus included,
+# while holding the lock its time-sync answers and every audio chunk also take.
+# A write stalled on the card froze all rooms at once (7-18 s at a cold boot
+# on 2026-11-06, 2-4 s in normal running). Nothing in it needs to survive: each
+# admission pins the volume, mute, latency and stream, and what it would keep
+# is only harm, a mute or a move made by another JSON-RPC client.
+RuntimeDirectory=milo-snapserver
+ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf --server.datadir=/run/milo-snapserver
 User=milo
 Group=audio
 Restart=on-failure
 RestartSec=5
 MemoryMax=256M
 
-# Security hardening: no sudo (the backend's grants stay its own). No
-# ProtectHome: snapserver persists its groups in ~/.config/snapserver/server.json.
+# Security hardening: no sudo (the backend's grants stay its own), and no
+# write to the home that holds the backend's checkout.
 NoNewPrivileges=true
+ProtectHome=read-only
 
 CPUSchedulingPolicy=fifo
 CPUSchedulingPriority=10
