@@ -625,6 +625,11 @@ class CdSource(MpvAudioSource):
             # The disc never left: udev is silent while a disc sits in the
             # drive, so showing it gone would hide it for good.
             self._set_disc_state(DiscState.READY if self._disc else DiscState.IDENTIFYING)
+            if self._disc is None and self._is_active_source:
+                # Still unnamed: a grace that ran out meanwhile found it
+                # "ejecting", and an answer that named nothing armed a retry
+                # with nothing pending. A lookup still in flight is kept.
+                self._identify()
             await self._publish_device()
             return
         await self._disc_left(EndReason.USER_STOP)
@@ -922,6 +927,8 @@ class CdSource(MpvAudioSource):
         refuses leaves it exactly as it was (E34)."""
         if self._disc_state in (DiscState.NO_DRIVE, DiscState.EJECTING):
             return self.error_response("Nothing to eject")
+        # A disc asked out is not played by itself if the drive keeps it.
+        self._play_on_ready = False
         # What play would bring back if the drive refuses: the session ends
         # first (the drive is released for the eject), and USER_STOP forgets.
         kept = self._resume_point

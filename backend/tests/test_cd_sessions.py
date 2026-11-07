@@ -8,7 +8,7 @@ import errno
 
 import pytest
 
-from backend.sources.cd.source import IDENTIFY_GRACE_S
+from backend.sources.cd.source import EJECT_CONFIRM_S, IDENTIFY_GRACE_S
 from backend.tests.cd_world import DISC_ID, OFFSETS, CdWorld, kernel_lba
 from backend.tests.golden.harness import settle
 
@@ -725,6 +725,45 @@ async def test_a_disc_named_within_the_grace_is_never_shown_unnamed(world):
              if s["source"] == "cd" and s["details"] and s["details"]["disc"]]
     assert discs
     assert all(d["album"] == "Eight" for d in discs)
+    assert w.disc()["album"] == "Eight"
+
+
+async def test_an_eject_the_drive_does_not_carry_out_still_ends_in_a_playable_disc(world):
+    """E35 inside the grace: the grace expires while the disc is "ejecting",
+    and the disc the drive kept goes back to waiting for its name. It must
+    get a grace of its own, or play stays refused for the lookup's full
+    120 s. Pressed eject, it is parked paused, never played by itself."""
+    w = await world(disc=None)
+    await w.select()
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    w.eject_keeps_disc = True
+    await w.command("eject")
+    await w.advance(EJECT_CONFIRM_S + IDENTIFY_GRACE_S + 0.2)
+    assert w.availability() is None
+    assert "play_track" in w.state()["controls"]
+    assert w.phase() == "paused"
+    assert w.lookups == 1
+
+
+async def test_a_lookup_that_names_nothing_during_an_eject_the_drive_kept_leaves_it_playable(world):
+    """The answer lands while the disc is "ejecting" and names nothing: the
+    retry it arms has nothing pending, so the disc the drive kept sat waiting
+    for a name no lookup would bring, its play refused until CD reopened."""
+    w = await world(disc=None)
+    await w.select()
+    w.named = False
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    w.eject_keeps_disc = True
+    await w.command("eject")
+    w.lookup_gate.set()
+    await w.advance(EJECT_CONFIRM_S + IDENTIFY_GRACE_S + 0.2)
+    assert w.availability() is None
+    assert "play_track" in w.state()["controls"]
+
+    w.named = True
+    await w.advance(61)
     assert w.disc()["album"] == "Eight"
 
 
