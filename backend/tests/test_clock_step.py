@@ -67,7 +67,8 @@ def test_a_clock_set_is_heard_once_and_the_watch_rearms():
     """A timerfd armed with CANCEL_ON_SET reads ECANCELED once per set of the
     clock and must be armed again to hear the next one: a watch that does not
     re-arm hears the boot's first step and is deaf from then on. A wake-up
-    that reads nothing (EAGAIN) is not a step."""
+    that reads nothing (EAGAIN) is not a step, and it does not end the watch
+    either: closed there, the watch misses every step after it."""
     fake_os, loop, steps = FakeTimerfdOs(), FakeLoop(), []
     watch = WallClockStepWatch(lambda: steps.append(1), logging.getLogger("test"),
                                os_module=fake_os, loop=loop)
@@ -87,6 +88,12 @@ def test_a_clock_set_is_heard_once_and_the_watch_rearms():
     fake_os.read_raises = BlockingIOError(errno.EAGAIN, "would block")
     loop.readers[42]()
     assert steps == [1]
+    assert 42 in loop.readers and fake_os.closed == [], "a spurious wake-up ended the watch"
+
+    fake_os.read_raises = OSError(errno.ECANCELED, "clock was set")
+    loop.readers[42]()
+    assert steps == [1, 1]
+    assert fake_os.armed == [(42, CANCEL_ON_SET)] * 3
 
     watch.close()
     watch.close()
