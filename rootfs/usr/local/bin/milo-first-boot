@@ -406,8 +406,13 @@ EOF
     # decorative — the exact state 88c3c870 exists to prevent.
     #
     # Validated before it can take effect: sudo skips a policy with a syntax
-    # error rather than refusing to run, so a malformed one drops every grant it
-    # holds in silence. Same order as configure_server's restore path.
+    # error rather than refusing to run, so a malformed one is ignored whole —
+    # its grants and its first rule alike. That rule only takes back the blanket
+    # NOPASSWD: ALL the image gives its first user; on a card this function
+    # converts that user is `milo`, and milo-client, created at step 2, is named
+    # by no blanket, so a skipped policy leaves the satellite every grant short
+    # and asking for a password it has no way to type. Same order as
+    # configure_server's restore path.
     local client_policy="$MILO_APP_DIR/milo-client/rootfs/etc/sudoers.d/milo-client"
     if [[ -f "$client_policy" ]]; then
         cp "$client_policy" /etc/sudoers.d/milo-client
