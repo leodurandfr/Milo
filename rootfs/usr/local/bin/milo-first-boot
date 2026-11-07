@@ -392,6 +392,8 @@ EOF
     # they grant the milo user far more than the satellite's own argument-scoped
     # policy does (milo-backend alone carries an unrestricted `systemctl` verb).
     # configure_server copies them back from the repo tree on the revert path.
+    # milo-backend's first rule, the takeback of the image's blanket for `milo`,
+    # goes with it; milo-account, installed at step 8c, carries it on a satellite.
     local policy
     for policy in milo-backend milo-ir-remote; do
         if [[ -f "/etc/sudoers.d/$policy" ]]; then
@@ -400,7 +402,8 @@ EOF
         fi
     done
 
-    # 8c. Install the client's own sudoers policy, from the repo.
+    # 8c. Install the client's own sudoers policies, from the repo — every file
+    # the satellite tree carries, as milo-client-deploy-update does.
     #
     # Step 8a above removes the server's; without this the unit is left with
     # whatever the image baked, which nothing refreshes — milo-deploy-update
@@ -412,7 +415,9 @@ EOF
     # decorative — the exact state 88c3c870 exists to prevent. On a card this
     # function converts, the first user is `milo` and milo-client, created at
     # step 2, is named by no blanket; what a blanket there would expose is
-    # `milo`, whose own takeback lives in milo-backend, removed at step 8a.
+    # `milo`, the satellite's SSH login, whose takeback left with milo-backend at
+    # step 8a and comes back in milo-account (its header says why it is a file
+    # of its own).
     #
     # Validated before it can take effect: sudo skips a policy with a syntax
     # error rather than refusing to run, so a malformed one is ignored whole —
@@ -420,18 +425,22 @@ EOF
     # here, a skipped policy leaves the satellite every grant short and asking
     # for a password it has no way to type. Same order as configure_server's
     # restore path.
-    local client_policy="$MILO_APP_DIR/milo-client/rootfs/etc/sudoers.d/milo-client"
-    if [[ -f "$client_policy" ]]; then
-        cp "$client_policy" /etc/sudoers.d/milo-client
-        if visudo -c -f /etc/sudoers.d/milo-client >/dev/null; then
-            chmod 0440 /etc/sudoers.d/milo-client
-            log "Client sudoers policy installed"
-        else
-            rm -f /etc/sudoers.d/milo-client
-            log "Warning: client sudoers policy failed visudo — not installed"
-        fi
+    local src
+    if [[ -d "$client_rootfs/etc/sudoers.d" ]]; then
+        for src in "$client_rootfs"/etc/sudoers.d/*; do
+            [[ -f "$src" ]] || continue
+            policy=$(basename "$src")
+            cp "$src" "/etc/sudoers.d/$policy"
+            if visudo -c -f "/etc/sudoers.d/$policy" >/dev/null; then
+                chmod 0440 "/etc/sudoers.d/$policy"
+                log "Client sudoers policy $policy installed"
+            else
+                rm -f "/etc/sudoers.d/$policy"
+                log "Warning: client sudoers policy $policy failed visudo — not installed"
+            fi
+        done
     else
-        log "WARNING: $client_policy missing — client sudoers not installed"
+        log "WARNING: $client_rootfs/etc/sudoers.d missing — client sudoers not installed"
     fi
 
     # 8b. Switch mDNS interface selection to the client mechanism

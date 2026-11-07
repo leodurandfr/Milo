@@ -150,14 +150,19 @@ cp /home/milo/milo/rootfs/etc/sudoers.d/milo-backend /etc/sudoers.d/milo-backend
 visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
 chmod 0440 /etc/sudoers.d/milo-backend
 
-# Client sudoers (if exists). Validated like the server policy above: sudo
-# skips a file with a syntax error rather than refusing to run, so a malformed
-# policy drops every grant in it without saying so.
-if [ -f /home/milo/milo/milo-client/rootfs/etc/sudoers.d/milo-client ]; then
-    cp /home/milo/milo/milo-client/rootfs/etc/sudoers.d/milo-client /etc/sudoers.d/
-    visudo -c -f /etc/sudoers.d/milo-client || { echo "FATAL: sudoers syntax error"; exit 1; }
-    chmod 0440 /etc/sudoers.d/milo-client
-fi
+# Client sudoers — every policy the satellite tree carries, as the conversion
+# in milo-first-boot and milo-client-deploy-update install them. Validated like
+# the server policy above: sudo skips a file with a syntax error rather than
+# refusing to run, so a malformed policy drops every grant in it without saying
+# so. On this server image they are inert or repeat milo-backend: milo-account
+# sorts before it and carries the same first rule.
+for policy in /home/milo/milo/milo-client/rootfs/etc/sudoers.d/*; do
+    [ -f "$policy" ] || continue
+    name=$(basename "$policy")
+    cp "$policy" "/etc/sudoers.d/$name"
+    visudo -c -f "/etc/sudoers.d/$name" || { echo "FATAL: sudoers syntax error in $name"; exit 1; }
+    chmod 0440 "/etc/sudoers.d/$name"
+done
 CHROOT
 
 # ── Transparent cursor theme ─────────────────────────────────────────────────

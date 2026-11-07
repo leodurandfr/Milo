@@ -1,0 +1,28 @@
+# Milo Client - the `milo` login account on a satellite
+#
+# A satellite converted from the unified image keeps the image's first user,
+# `milo` (pi-gen/config FIRST_USER_NAME), as its SSH login: the client panel
+# sets its password (milo-set-password) and opens SSH for it. Raspberry Pi OS
+# may give that first user a blanket `NOPASSWD: ALL` through
+# /etc/sudoers.d/010_pi-nopasswd (a raspberrypi-sys-mods conffile whose username
+# userconf-pi rewrites on first boot). On the server, milo-backend's first rule
+# takes it back; milo-first-boot removes milo-backend from a satellite at the
+# conversion (step 8a), and this file is what takes its place for `milo`.
+#
+# It is its own file, and named to sort before `milo-backend`, because the
+# satellite tree's policies also sit on a server: pi-gen installs milo-client on
+# every image, and a satellite reverted to server (configure_server) keeps what
+# the conversion installed. sudo applies the *last* matching rule, so this rule
+# inside milo-client — read after milo-backend's grants — would ask the
+# server's backend for a password on every privileged command it has. Here it
+# precedes them, and repeats milo-backend's own first rule.
+#
+# What it changes is hygiene for the login account, not a privilege boundary:
+# milo-client is root by construction through its bare milo-client-deploy-update
+# grant (docs/architecture.md, Permissions). With a blanket in force, an SSH
+# login as `milo` with the factory password the source publishes reaches root
+# without that password being asked again; with this rule sudo asks for it. It
+# grants nothing new: on a satellite `milo` exists only as the image's first
+# user, which is in the `sudo` group, and where no `milo` account exists the
+# rule matches nobody.
+milo ALL=(ALL:ALL) PASSWD: ALL

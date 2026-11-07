@@ -57,7 +57,9 @@ BARE_COMMAND_PATHS = {
 # Each code tree runs as one user, and only that user's policies apply to it.
 # `milo-ir-remote` is a second file for the same user, deployed by
 # provisioning/ir-remote.sh::install_ir_helpers where pi-gen copies `milo-backend`
-# itself.
+# itself. `milo-account` names the other user, `milo`, and grants nothing: it is
+# that account's takeback on a satellite, which the conversion leaves without
+# milo-backend (test_no_account_a_policy_names_keeps_the_image_blanket).
 TREES = {
     "backend": {
         "sources": [REPO_ROOT / "backend"],
@@ -72,6 +74,7 @@ TREES = {
         "sources": [REPO_ROOT / "milo-client" / "app"],
         "user": "milo-client",
         "policies": [
+            REPO_ROOT / "milo-client" / "rootfs" / "etc" / "sudoers.d" / "milo-account",
             REPO_ROOT / "milo-client" / "rootfs" / "etc" / "sudoers.d" / "milo-client",
         ],
         "rootfs": REPO_ROOT / "milo-client" / "rootfs",
@@ -561,6 +564,118 @@ def test_the_image_blanket_grant_is_withdrawn_before_any_grant(tree_name):
         f"{tree_name}: the `{WITHDRAWAL_TAG}` rule must precede every grant; "
         f"{rules[max(withdrawals)]} comes after {rules[min(grants)]}"
     )
+
+
+FIRST_BOOT = REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-first-boot"
+# The user a sudoers rule is for: `milo ALL=…`, never `Defaults:milo …`.
+RULE_USER = re.compile(r"^([a-z_][a-z0-9_-]*)\s+\S+=")
+
+
+def _shipped_policies(tree_name: str) -> list[Path]:
+    return sorted((TREES[tree_name]["rootfs"] / "etc" / "sudoers.d").iterdir())
+
+
+def _conversion_body() -> str:
+    """`_apply_client_filesystem`, the one path from the image to a satellite."""
+    text = FIRST_BOOT.read_text(encoding="utf-8")
+    m = re.search(
+        r"^_apply_client_filesystem\(\) \{\n(.*?)^\}", text, re.MULTILINE | re.DOTALL
+    )
+    assert m, f"_apply_client_filesystem not found in {FIRST_BOOT.relative_to(REPO_ROOT)}"
+    return m.group(1)
+
+
+def _satellite_policies() -> list[Path]:
+    """What a converted satellite's /etc/sudoers.d holds of ours, read off the conversion.
+
+    The image carries both trees' policies; the conversion removes the server
+    ones it names (step 8a) and installs the satellite ones it names, or the
+    whole satellite directory when it loops over it (step 8c).
+    """
+    body = _conversion_body()
+    removal = re.search(r"for policy in ([\w -]+); do", body)
+    assert removal, "no `for policy in …` removal loop parsed from the conversion"
+    removed = set(removal.group(1).split())
+    server = _shipped_policies("backend")
+    assert removed and removed <= {p.name for p in server}, (
+        f"the conversion removes {sorted(removed)}, not all of them server policies"
+    )
+
+    satellite = _shipped_policies("milo-client")
+    loops_over_the_directory = any(
+        re.search(rf'for \w+ in "\${var}"/etc/sudoers\.d/\*', body)
+        for var in re.findall(r'local (\w+)="\$MILO_APP_DIR/milo-client/rootfs"', body)
+    )
+    named = set(re.findall(r'milo-client/rootfs/etc/sudoers\.d/([\w-]+)"', body))
+    installed = satellite if loops_over_the_directory else [
+        p for p in satellite if p.name in named
+    ]
+    assert installed, "the conversion installs no satellite policy at all"
+    return sorted([p for p in server if p.name not in removed] + installed,
+                  key=lambda p: p.name)
+
+
+# Each role's policies, as sudo reads them. A server carries every file of both
+# trees: pi-gen installs milo-client on every image, and a satellite reverted to
+# server (configure_server) keeps what its conversion installed.
+ROLES = {
+    "satellite": _satellite_policies,
+    "server": lambda: sorted(
+        _shipped_policies("backend") + _shipped_policies("milo-client"),
+        key=lambda p: p.name,
+    ),
+}
+
+
+@pytest.mark.parametrize("role", sorted(ROLES))
+def test_no_account_a_policy_names_keeps_the_image_blanket(role):
+    """A first user's blanket NOPASSWD is taken back on either role, before any grant.
+
+    The image's first user — the one 010_pi-nopasswd names, where an image ships
+    it — is `milo` on anything flashed from pi-gen, and `milo-client` on a
+    satellite installed by script. A conversion removes milo-backend, which held
+    `milo`'s takeback, and leaves `milo` as the satellite's SSH login: with no
+    takeback in the satellite's own policies, an image that ships the blanket
+    makes that login root without its password being asked again. The other
+    direction is just as real: a takeback for `milo` placed in a file read after
+    milo-backend's grants — inside milo-client, say, which every server carries —
+    would ask the server's backend for a password on every privileged command.
+
+    Every account named by any shipped policy counts, so a third one is checked
+    the day a rule names it.
+    """
+    users = {
+        m.group(1)
+        for tree in TREES
+        for policy in _shipped_policies(tree)
+        for line in policy.read_text(encoding="utf-8").splitlines()
+        if (m := RULE_USER.match(line.strip()))
+    }
+    assert users >= {tree["user"] for tree in TREES.values()}, (
+        f"only {sorted(users)} parsed as accounts the policies name"
+    )
+
+    policies = ROLES[role]()
+    failures = []
+    for user in sorted(users):
+        rules = [
+            (policy.name, line.strip())
+            for policy in policies
+            for line in policy.read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith(f"{user} ")
+        ]
+        withdrawals = [
+            i for i, (_, rule) in enumerate(rules)
+            if GRANT_TAG not in rule and rule.endswith(WITHDRAWAL_TAG)
+        ]
+        grants = [i for i, (_, rule) in enumerate(rules) if GRANT_TAG in rule]
+        if not withdrawals:
+            failures.append(f"{user}: no `{WITHDRAWAL_TAG}` rule in {[p.name for p in policies]}")
+        elif grants and max(withdrawals) > min(grants):
+            failures.append(
+                f"{user}: {rules[max(withdrawals)]} is read after {rules[min(grants)]}"
+            )
+    assert not failures, f"on a {role}:\n" + "\n".join(failures)
 
 
 @pytest.mark.parametrize("tree_name", sorted(TREES))

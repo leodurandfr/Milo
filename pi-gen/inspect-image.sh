@@ -137,7 +137,7 @@ check "shared hardware-helpers.sh" "[ -f '${ROOT%/}/usr/local/lib/milo/hardware-
 # --------------------------------------------------------------------------
 section "Sudoers — present, 0440, and parseable"
 # --------------------------------------------------------------------------
-for policy in milo-backend milo-ir-remote milo-client; do
+for policy in milo-backend milo-ir-remote milo-account milo-client; do
     f="${ROOT%/}/etc/sudoers.d/$policy"
     if [[ -f "$f" ]]; then
         mode=$(stat -c '%a' "$f")
@@ -153,7 +153,8 @@ done
 
 # The blanket NOPASSWD Raspberry Pi OS grants the image's first user is taken
 # back per *user*, not per file: sudo reads /etc/sudoers.d in lexical order and
-# applies the last match, so the `milo` withdrawal lives in milo-backend and
+# applies the last match, so the `milo` withdrawal lives in milo-backend (and in
+# milo-account, read before it, which carries it on a converted satellite) and
 # milo-ir-remote (read after) carries grants only. Checking each file alone
 # reported milo-ir-remote as broken when it is correct by design.
 for user in milo milo-client; do
