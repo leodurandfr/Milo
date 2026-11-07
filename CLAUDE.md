@@ -60,7 +60,7 @@ The pinned surface is [backend/tests/contracts/milo_mac_contract.json](backend/t
 
 Every operation the two manifests pin carries `openapi_extra=CONTRACTED` (`api/route_helpers.py`), published as `x-stability: contracted`; `tests/contracts/test_api_stability.py` holds the marks equal to the manifests both ways, so a manifest entry and its mark move together.
 
-**Workflow:** manifest + snapshot are refreshed *consciously, together in one commit*. Contract failure → backend dropped a route: restore it, or prune the manifest entry if Milo-Mac genuinely dropped it. Manifest ≠ snapshot: re-download the two `.swift` files and update the manifest to match. Never add a compatibility shim.
+**Workflow:** manifest + snapshot are refreshed *consciously, together in one commit*. Contract failure → backend dropped a route: restore it, or prune the manifest entry if Milo-Mac genuinely dropped it. Manifest ≠ snapshot: re-download the `.swift` files the manifest's `_snapshot.files` lists and update the manifest to match. Never add a compatibility shim.
 
 Milo-Mac couples to REST paths/methods + request/response keys, and to WS `(category, type)` pairs across `source`, `volume`, `routing`, `settings` and `multiroom` — plus `payload_invariants` naming the exact fields it reads. **Read the manifest for the list; never trust a summary here.** The one worth knowing by heart is `routing/multiroom_error`: its invariant is *presence only, no payload field is read*, so it looks unreferenced from every angle and is the easiest entry to delete by accident.
 
