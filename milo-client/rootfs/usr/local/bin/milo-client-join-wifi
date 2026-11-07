@@ -6,7 +6,8 @@
 #            regulatory domain alone
 #   SSID:    1–32 bytes
 #   PSK:     8–63 printable characters or 64 hex digits; empty = open network,
-#            refused while a secured profile holds this SSID
+#            refused while a secured profile holds this SSID, or while NM's
+#            last scan saw it secured only
 #
 # The server pushes the network it is on itself (`PUT /api/system/wifi`) every
 # time this satellite is admitted and every time its own WiFi changes, so a
@@ -84,6 +85,29 @@ fi
 nmcli radio wifi on
 # A `device disconnect` leaves wlan0 refusing autoconnect until told otherwise.
 nmcli device set "$IFACE" autoconnect yes
+
+# An empty PSK for a network that is secured everywhere it was last seen is a
+# key the server could not read, whether or not a profile holds it yet: saved
+# as an open profile, it would never associate, and the standby link would exist
+# only as "saved". The scan list is NM's cache (`--rescan no`): a scan takes the
+# radio off its channel, and this runs at every admission. A network the cache
+# has not seen, a radio just turned on included, is left to the server's guard.
+if [[ -z "$PSK" ]]; then
+    seen_open=""
+    seen_secured=""
+    while IFS= read -r line; do
+        # SECURITY never holds a colon, so the first one ends it.
+        [[ "${line#*:}" == "$SSID" ]] || continue
+        case "${line%%:*}" in
+            ""|--) seen_open=1 ;;
+            *) seen_secured=1 ;;
+        esac
+    done < <(nmcli -e no -g SECURITY,SSID device wifi list ifname "$IFACE" --rescan no 2>/dev/null || true)
+    if [[ -n "$seen_secured" && -z "$seen_open" ]]; then
+        echo "ERROR: '$SSID' is a secured network; refusing to save it as an open one" >&2
+        exit 1
+    fi
+fi
 
 # Profiles are matched on the SSID they carry, not on their name: the adoption
 # flow, an older Milō and netplan each name theirs differently, and two

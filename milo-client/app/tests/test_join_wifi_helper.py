@@ -55,6 +55,12 @@ elif words[0] == "-g" and words[2:4] == ["device", "show"]:
 elif words[0] == "-g" and words[1] == "UUID,TYPE" and words[2:4] == ["connection", "show"]:
     for uuid in profiles:
         print(f"{uuid}:802-11-wireless")
+elif words[0] == "-g" and words[1] == "SECURITY,SSID" and words[2:5] == ["device", "wifi", "list"]:
+    # NM's cache only: a rescan takes the radio off the channel a link is on.
+    if " ".join(args[-2:]) != "--rescan no":
+        sys.exit(f"nmcli stub: a scan list that rescans {args!r}")
+    for security, ssid in state["scan"]:
+        print(f"{security}:{ssid}")
 elif words[0] == "-g" and words[1] in fields and words[2:4] == ["connection", "show"]:
     print(profiles[words[4]].get(fields[words[1]], ""))
 elif words[:2] == ["connection", "delete"]:
@@ -93,8 +99,8 @@ def world(tmp_path):
     return {"helper": helper, "stubs": stubs, "state": tmp_path / "nm.json", "log": tmp_path / "nm.log"}
 
 
-def _run(world, profiles, psk, active=""):
-    world["state"].write_text(json.dumps({"profiles": profiles, "active": active, "added": []}))
+def _run(world, profiles, psk, active="", scan=()):
+    world["state"].write_text(json.dumps({"profiles": profiles, "active": active, "added": [], "scan": scan}))
     result = subprocess.run(
         ["bash", str(world["helper"])],
         input=f"\n{SSID}\n{psk}\n",
@@ -104,7 +110,7 @@ def _run(world, profiles, psk, active=""):
     )
     log = world["log"].read_text() if world["log"].exists() else ""
     # Without this, a PATH that missed the stub would drive the host's real nmcli.
-    assert "connection show" in log, f"the helper never reached the nmcli stub; stderr: {result.stderr!r}"
+    assert "radio wifi on" in log, f"the helper never reached the nmcli stub; stderr: {result.stderr!r}"
     return result, json.loads(world["state"].read_text())["profiles"]
 
 
@@ -144,3 +150,29 @@ def test_an_open_network_is_still_kept(world):
 
     result, profiles = _run(world, {"open": open_profile}, psk="")
     assert (result.returncode, result.stdout.strip()) == (0, "unchanged")
+
+
+def test_an_empty_key_for_a_network_seen_secured_saves_no_open_profile(world):
+    """No profile holds the SSID yet — an Ethernet satellite's first push — so the
+    profile guard has nothing to read: the open profile it saved never associates
+    with a WPA network, and the standby link existed only as "saved"."""
+    result, profiles = _run(world, {}, psk="", scan=[("WPA2", SSID), ("WPA1 WPA2", "Neighbour")])
+
+    assert result.returncode != 0
+    assert "open" in result.stderr and SSID in result.stderr
+    assert profiles == {}
+
+
+@pytest.mark.parametrize("scan", [
+    [],
+    [("WPA2", "Neighbour")],
+    [("", SSID)],
+    [("WPA2", SSID), ("", SSID)],
+], ids=["not-seen", "other-network-secured", "seen-open", "seen-open-and-secured"])
+def test_an_empty_key_is_saved_open_unless_the_network_was_seen_secured_only(world, scan):
+    """What the scan cache cannot rule out stays the server's call: a network it
+    has not seen, or one an open access point also carries, is still kept."""
+    result, profiles = _run(world, {}, psk="", scan=scan)
+
+    assert (result.returncode, result.stdout.strip()) == (0, "saved")
+    assert [p["key_mgmt"] for p in profiles.values()] == [""]
