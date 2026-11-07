@@ -251,6 +251,32 @@ class TestStartup:
         boot["state_machine"].start_inactivity_monitor.assert_called_once()
         boot["state_machine"].start_clock_step_watch.assert_called_once()
 
+    async def test_the_clock_step_watch_is_up_before_any_source_starts(self, boot):
+        """The kernel reports a step of the wall clock once, to a timerfd that
+        exists when it lands, and timesyncd's boot step came 5-7 s after the
+        end of the init join on four boots measured. Armed after the join, a
+        slower init or a faster NTP answer lets a source that started during
+        init keep its pre-step anchor, with nothing in the journal to say so.
+        Armed first, a step before any source plays finds none to re-date."""
+        steps = []
+
+        async def _init_task_body():
+            await asyncio.sleep(0)
+            steps.append("init")
+
+        task = asyncio.create_task(_init_task_body())
+        boot["monkeypatch"].setattr(main, "get_init_task", lambda: task)
+        boot["monkeypatch"].setattr(
+            main, "initialize_services", AsyncMock(side_effect=lambda: steps.append("services"))
+        )
+        boot["state_machine"].start_clock_step_watch = MagicMock(
+            side_effect=lambda: steps.append("watch")
+        )
+
+        await _run_lifespan(boot)
+
+        assert steps == ["watch", "services", "init"]
+
     async def test_the_schema_names_the_build_the_unit_runs(self, boot):
         """`info.version` of /api/openapi.json is what an integrator quotes in a
         report, and the release notes are read against it; FastAPI's own default
