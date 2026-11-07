@@ -10,6 +10,7 @@ what the watch asked of the kernel and when it called back.
 import errno
 import logging
 import os
+import time
 
 from backend.shared.clock_step import WallClockStepWatch
 
@@ -36,11 +37,13 @@ class FakeTimerfdOs:
     TFD_TIMER_CANCEL_ON_SET = os.TFD_TIMER_CANCEL_ON_SET
 
     def __init__(self):
+        self.created = []
         self.armed = []
         self.closed = []
         self.read_raises = BlockingIOError(errno.EAGAIN, "would block")
 
     def timerfd_create(self, clockid, *, flags=0):
+        self.created.append((clockid, flags))
         return 42
 
     def timerfd_settime(self, fd, *, flags=0, initial=0.0, interval=0.0):
@@ -70,6 +73,10 @@ def test_a_clock_set_is_heard_once_and_the_watch_rearms():
                                os_module=fake_os, loop=loop)
 
     assert watch.start() is True
+    # CANCEL_ON_SET only means something on CLOCK_REALTIME: the kernel takes
+    # the same flags on CLOCK_MONOTONIC without a word, and that timer never
+    # hears a step while the watch still logs that it is running.
+    assert fake_os.created == [(time.CLOCK_REALTIME, os.TFD_NONBLOCK | os.TFD_CLOEXEC)]
     assert fake_os.armed == [(42, CANCEL_ON_SET)]
 
     fake_os.read_raises = OSError(errno.ECANCELED, "clock was set")
