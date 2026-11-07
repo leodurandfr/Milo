@@ -155,6 +155,7 @@ async def lifespan(app: FastAPI):
         _ws_log_handler.set_state_machine(state_machine)
 
         state_machine.start_inactivity_monitor()
+        state_machine.start_clock_step_watch()
 
         # The unit must always be reachable: with no link at all it raises its
         # own access point. Re-evaluated on every NetworkManager property

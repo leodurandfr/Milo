@@ -239,7 +239,7 @@ The Spotify Jam the signed-in account hosts on Milō: everyone in it can add to 
 
 ### PositionAnchor
 
-The playhead: `ms` at the instant `at`, moving at `rate` while the session plays. position_now = ms + (phase == playing ? (now − at) × 1000 × rate : 0), bounded to [0, duration_ms]. `rate` is 1.0 for every source.
+The playhead: `ms` at the instant `at`, moving at `rate` while the session plays. position_now = ms + (phase == playing ? (now − at) × 1000 × rate : 0), bounded to [0, duration_ms]. `rate` is 1.0 for every source. `at` is on the server's wall clock: a client whose clock may differ reads it against the server's (the envelopes' `timestamp` estimate it).
 
 | Field | Type |
 |---|---|

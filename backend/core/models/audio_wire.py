@@ -46,6 +46,8 @@ class PositionAnchor(BaseModel):
     """The playhead: `ms` at the instant `at`, moving at `rate` while the
     session plays. position_now = ms + (phase == playing ? (now − at) × 1000 ×
     rate : 0), bounded to [0, duration_ms]. `rate` is 1.0 for every source.
+    `at` is on the server's wall clock: a client whose clock may differ reads
+    it against the server's (the envelopes' `timestamp` estimate it).
 
     Nothing plays faster or slower; `rate` stays because Milo-Mac and Milo-iOS
     decode it (`session.position.rate`, pinned by both manifests)."""

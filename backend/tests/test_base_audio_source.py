@@ -524,6 +524,31 @@ class TestThePlayheadReachesBothSinks:
         assert abs(read - 10000) <= 1000
 
     @pytest.mark.asyncio
+    async def test_a_clock_step_the_kernel_reports_re_dates_a_source_that_hears_nothing(self, wired, clock):
+        """AirPlay and a Spotify session hear nothing from their daemon between
+        events, so the re-dating before each message never came: the browsers'
+        server clock follows the step within one WS ping, and the bar sat at
+        the end of the track until the sender's next event. The kernel's
+        notice of the step is the message that re-dates them."""
+        source, state_machine = wired
+        await source.command("test_command", {})
+
+        clock[0] += 10.0
+        clock[1] += 2750.0
+        state_machine.clock_stepped()
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        positions = [
+            e["data"]["position"] for e in self._envelopes(state_machine)
+            if (e["category"], e["type"]) == ("source", "position")
+        ]
+        assert positions, "the re-dated anchor was never published"
+        anchor = positions[-1]
+        read = anchor["ms"] + (clock[0] + clock[1] - anchor["at"]) * 1000 * anchor["rate"]
+        assert abs(read - 10000) <= 1000
+
+    @pytest.mark.asyncio
     async def test_an_anchor_taken_after_a_step_is_not_re_dated_again(self, wired, clock):
         """The step can land while a handler awaits — Spotify waits on
         `GET /status` before it anchors, mpv on a load. The anchor that handler

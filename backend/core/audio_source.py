@@ -474,6 +474,18 @@ class BaseAudioSource(ABC):
             return False
         return await self._submit(Query())
 
+    def follow_clock_step(self) -> None:
+        """The kernel reported a step of the wall clock
+        (AudioStateMachine.clock_stepped). The message re-dates the session's
+        anchor before it runs (`_follow_clock_step`, at the top of every
+        message), then re-reads the player exactly as a state request does —
+        which also re-reads Spotify's other device, whose anchor is no
+        session's — and the net after it publishes what moved. Without it, a
+        source that hears nothing between its daemon's events kept its
+        pre-step anchor until the sender's next one. Posted, never inline: it
+        runs after any handler in flight, and a closed mailbox answers it."""
+        self._post_result(self.refresh_metadata)
+
     async def shutdown(self) -> None:
         """End the mailbox for good: backend teardown (main.py). Pending callers
         get the answer an interrupted message gets; later posts are refused."""

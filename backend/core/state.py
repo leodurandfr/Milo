@@ -44,6 +44,7 @@ from backend.core.models.ws_events import (
     WsEvent,
 )
 from backend.core.audio_source import BaseAudioSource
+from backend.shared.clock_step import WallClockStepWatch
 from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,7 @@ class AudioStateMachine:
         # Inactivity monitor
         self._last_activity_time: float = monotonic()
         self._inactivity_monitor_task: Optional[asyncio.Task] = None
+        self._clock_step_watch: Optional[WallClockStepWatch] = None
 
         # Set after creation in dependencies.py (circular dependency resolution).
         # Ownership map of the back-references composed into the state:
@@ -786,6 +788,27 @@ class AudioStateMachine:
             )
             logger.info("Inactivity monitor started (timeout: %ds)", self.INACTIVITY_TIMEOUT)
 
+    # === Wall clock steps ===
+
+    def start_clock_step_watch(self) -> None:
+        """Have the kernel say when the wall clock is set (main.py's lifespan).
+        Never raises: a host that cannot watch keeps re-dating each source at
+        its next message."""
+        if self._clock_step_watch is None:
+            watch = WallClockStepWatch(self.clock_stepped, logger)
+            if watch.start():
+                self._clock_step_watch = watch
+
+    def clock_stepped(self) -> None:
+        """The wall clock was set: the active source re-dates its anchor and
+        re-reads its player now, rather than at its daemon's next event."""
+        active = self.system_state.active_source
+        if active == AudioSource.NONE:
+            return
+        source = self.sources.get(active)
+        if source is not None:
+            source.follow_clock_step()
+
     async def reload_auto_stop_for_all_sources(self) -> bool:
         """Refresh the auto-stop delay on every registered source.
 
@@ -865,6 +888,9 @@ class AudioStateMachine:
         if self._inactivity_monitor_task:
             self._inactivity_monitor_task.cancel()
             self._inactivity_monitor_task = None
+        if self._clock_step_watch is not None:
+            self._clock_step_watch.close()
+            self._clock_step_watch = None
 
     async def stop_lingering_units(self, systemd_manager) -> None:
         """Stop the unit of every source but the selected one (backend boot, main.py).

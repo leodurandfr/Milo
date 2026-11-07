@@ -174,6 +174,7 @@ class TestStartup:
         await _run_lifespan(boot)
 
         boot["state_machine"].start_inactivity_monitor.assert_called_once()
+        boot["state_machine"].start_clock_step_watch.assert_called_once()
 
     async def test_a_source_selected_during_init_keeps_its_unit(self, boot):
         """The IR listener is live once `init_async` has started it, before the
@@ -248,6 +249,7 @@ class TestStartup:
         await _run_lifespan(boot)
 
         boot["state_machine"].start_inactivity_monitor.assert_called_once()
+        boot["state_machine"].start_clock_step_watch.assert_called_once()
 
     async def test_the_schema_names_the_build_the_unit_runs(self, boot):
         """`info.version` of /api/openapi.json is what an integrator quotes in a
@@ -271,6 +273,7 @@ class TestStartup:
 
         assert app.version == "0.1.0"
         boot["state_machine"].start_inactivity_monitor.assert_called_once()
+        boot["state_machine"].start_clock_step_watch.assert_called_once()
 
     async def test_reachability_is_evaluated_once_the_graph_is_up(self, boot):
         """A unit powered on with no network has no other way to be reached, and

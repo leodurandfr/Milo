@@ -10,8 +10,9 @@ import json
 import pytest
 import yaml
 
-from backend.tests.golden.harness import settle
+from backend.tests.golden.harness import EPOCH, settle
 
+from backend.core import audio_source
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.spotify import routes
 from backend.tests.spotify_world import ACCOUNT, LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld, track
@@ -1379,6 +1380,23 @@ async def test_a_state_request_rereading_the_same_remote_publishes_nothing(signe
     await signed_in.get_state()
 
     assert len(signed_in.published()) == sent
+
+
+async def test_a_clock_step_re_reads_the_other_devices_playhead(signed_in, monkeypatch):
+    """The remote card's anchor is stamped on the wall clock and nothing re-dated
+    it across a step: the unit boots ~5 min behind and steps at the first NTP
+    answer, and the bar sat at the end of the track until go-librespot next
+    said something. The kernel's notice of the step re-reads `GET /status`,
+    whose remote position is the daemon's own."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000)
+    monkeypatch.setattr(audio_source, "wall_time", lambda: EPOCH + signed_in.clock.now + 600)
+
+    signed_in.machine.clock_stepped()
+    await settle()
+
+    anchor = remote(signed_in)["position"]
+    read = anchor["ms"] + (audio_source.wall_time() - anchor["at"]) * 1000
+    assert abs(read - 12_000) <= 2000
 
 
 async def test_the_other_device_leaving_takes_the_remote_away(signed_in):
