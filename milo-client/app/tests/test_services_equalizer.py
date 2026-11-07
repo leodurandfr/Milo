@@ -1656,7 +1656,7 @@ class TestEqualizerServiceLevelTrim:
 
 
 def _as_camilladsp_returns(config):
-    """`config` as GetConfigJson hands it back — measured on CamillaDSP 3, 2026-11-07.
+    """`config` as GetConfigJson hands it back — measured on CamillaDSP 4.1.3, 2026-11-07.
 
     Every filter parameter that is a number comes back a float (`freq: 31` is
     `31.0`), a Gain stage gains `scale: null`, and each filter and pipeline step
