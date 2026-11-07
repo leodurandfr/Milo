@@ -164,7 +164,7 @@ browser sources give their view up for a missing link only.
 | `no_internet` | Radio, Podcast, Spotify, Tidal, Qobuz | connectivity × `NETWORK_REQUIREMENT` | Network settings |
 | `no_account` | Qobuz | the relay's account while it runs (two unauthenticated polls in a row), the credentials cache otherwise — the predicate `GET /api/qobuz/account` uses | Qobuz login |
 | `no_drive`, `no_disc` | CD | the drive's `DiscState` (`NO_DRIVE`, `EMPTY`) | none — the UI cannot plug a drive in or insert a disc |
-| `reading_disc`, `ejecting` | CD | `DiscState` `READING`, `IDENTIFYING` while its lookup runs (started only once CD is active, so a disc awaiting it under another source reads as ready), `EJECTING` | none — drawn as an operation under way, with a spinner |
+| `reading_disc`, `ejecting` | CD | `DiscState` `READING`, `IDENTIFYING` while its lookup runs, for at most `IDENTIFY_GRACE_S` (3 s) once CD is active (started only once CD is active, so a disc awaiting it under another source reads as ready), `EJECTING` | none — drawn as an operation under way, with a spinner |
 | `unreadable_disc` | CD | `DiscState.UNREADABLE` | Eject |
 | `no_storage`, `catalog_unavailable` | Music Library | no mounted storage carrying a library; Navidrome not answering or not provisioned | none on the card — the library's own view draws both, with the storage wizard at hand |
 
@@ -468,7 +468,15 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - An ioctl reader thread feeds raw PCM into a FIFO that mpv plays; a track
   change or a seek restarts both at the new LBA
 - A disc already in the drive when the source opens is preloaded paused; a
-  disc inserted while CD is the active source plays by itself
+  disc inserted while CD is the active source plays by itself. Inserted, then
+  left before it played, it is a disc already in the drive on the next open;
+  asked out by an eject the drive did not carry out (E35), it is parked paused
+- A disc MusicBrainz has not named within `IDENTIFY_GRACE_S` (3 s) of CD
+  being active does the same, unnamed (tracks numbered by each screen); the
+  lookup still in flight stands for the retry, and its answer names the disc
+  in place, with no reload. A disc the drive kept after an eject gets the
+  grace again. A half-open connection to MusicBrainz once held a new disc
+  silent for the lookup's full 120 s
 
 **Configuration:**
 - Service: milo-cd.service
