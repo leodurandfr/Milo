@@ -3204,6 +3204,65 @@ class TestAdmissionPathConvergence:
         ]
 
     @pytest.mark.asyncio
+    async def test_the_production_service_hands_each_admitted_satellite_both_pushes(self, monkeypatch):
+        """Built by `dependencies._create_service`, not by hand.
+
+        Both push services are optional collaborators and the admission runs the
+        same without them, so a creator that stopped passing one would leave
+        every test that builds the service itself green while no satellite was
+        handed the server's WiFi or timezone again. The creator's collaborators
+        are doubles; one it asks for that this test does not know fails here
+        rather than building a real service against this machine's daemons.
+        """
+        import backend.dependencies as deps
+
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        snapcast = SnapcastService(systemd_manager=MagicMock())
+        snapcast.get_server_status = AsyncMock(return_value=self._status())
+        for call in ("set_volume", "set_latency", "set_group_mute", "set_group_stream"):
+            setattr(snapcast, call, AsyncMock(return_value=True))
+        pending = MagicMock()
+        pending.get_client = MagicMock(return_value=None)
+        pending.remove_client = AsyncMock()
+        state_machine = MagicMock()
+        state_machine.broadcast = AsyncMock()
+        wifi, timezone = MagicMock(), MagicMock()
+        wifi.push, timezone.push = AsyncMock(), AsyncMock()
+
+        class _Doubles(dict):
+            def __contains__(self, name):
+                if not dict.__contains__(self, name):
+                    raise AssertionError(f"the creator asks for {name!r}, which this test does not double")
+                return True
+
+        monkeypatch.setattr(deps, "_services", _Doubles({
+            "audio_state_machine": state_machine,
+            "audio_routing_service": MagicMock(),
+            "settings_service": settings,
+            "snapcast_service": snapcast,
+            "crossover_service": None,
+            "equalizer_client_proxy_service": None,
+            "pending_clients_service": pending,
+            "satellite_wifi_service": wifi,
+            "satellite_timezone_service": timezone,
+        }))
+        service = deps._create_service("snapcast_websocket_service")
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        service.set_registry(registry)
+        await registry.register_client(self.MAC, "Bureau", self.IP, host="milo-client")
+        service.set_volume_service(self._bare_volume_service())
+
+        assert await service._sync_reconnecting_client_volume(
+            self.MAC, max_retries=0, retry_delay=0, snapcast_id=self.MAC
+        )
+        await drain_background_tasks()
+
+        wifi.push.assert_awaited_once_with(self.IP)
+        timezone.push.assert_awaited_once_with(self.IP)
+
+    @pytest.mark.asyncio
     async def test_a_zone_changed_while_the_satellite_comes_online_still_reaches_it(self, tmp_path, monkeypatch):
         """The two pushes cover each other only if one of them sees the satellite.
 

@@ -1020,6 +1020,25 @@ class TestTimezone:
 
         satellites.push_all.assert_not_awaited()
 
+    def test_the_production_router_hands_a_change_to_the_satellites(self, spawn, localtime, monkeypatch):
+        """The service is optional and the route answers the same without it, so
+        a `main.py` that stopped passing it would leave every test above green
+        while no change of the zone reached a satellite again."""
+        from backend.dependencies import get_service
+
+        push_all = AsyncMock()
+        monkeypatch.setattr(get_service("satellite_timezone_service"), "push_all", push_all)
+        monkeypatch.setattr(main.state_machine, "broadcast", AsyncMock())
+        app = FastAPI()
+        app.include_router(main.system_router, prefix="/api/system")
+        localtime("Asia/Singapore")
+        spawn.script(returncode=0)
+
+        response = TestClient(app).put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
+
+        assert response.status_code == 200
+        push_all.assert_awaited_once_with()
+
     def test_a_helper_failure_is_a_500_and_not_a_success(self, client, spawn, localtime):
         localtime("Etc/UTC")
         spawn.script(returncode=1, stderr=b"Unknown timezone")
