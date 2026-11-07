@@ -43,7 +43,10 @@ export function richSourceFor(state) {
   // A sender Milō cannot tell playing from paused is "Connecté à X" (§9) —
   // until it names a cover, a title and an artist: an iPhone's AirPlay stream
   // stays connected from start to end while naming every track (measured
-  // 2026-09-25), and the card hid all of it (D14).
+  // 2026-09-25), and the card hid all of it (D14). The Lock Screen follows the
+  // same clause, in the push (`payloads.shown_track`) and in the apps
+  // (`MiloAudioState.shown`): backend/tests/contracts/connected_naming_cases.json
+  // holds the three equal. The 300 px AirPlay gate below is this screen's alone.
   if (session?.phase === 'connected'
       && !(session.title && session.artist && session.artwork)) return null;
 

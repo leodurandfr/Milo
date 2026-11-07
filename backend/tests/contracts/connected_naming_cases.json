@@ -1,0 +1,130 @@
+{
+  "_domain": "Whether an audio state names a track, as three readers decide it: Milō's screen (`richSourceFor`, frontend/src/composables/useRichDisplay.js — a full view rather than the source card), its Lock Screen push (`payloads.shown_track`, backend/core/push/payloads.py — a track rather than the source card) and Milo-iOS / Milo-Mac (`MiloAudioState.shown`, held to the same predicate by test_milo_ios_contract.py::test_the_apps_name_a_connected_session_as_milo_does). The rule they share: a CONNECTED session — a sender Milō cannot call playing or paused — names its track only with a title, an artist and a cover (D14); any other session names it with a title. Read by backend/tests/contracts/test_naming_rule.py and frontend/tests/architecture/namingRule.test.js. Covered: sources without a browser (AirPlay, Bluetooth, Mac), with `service` running, `switching` false and no availability reason, and AirPlay covers wider than 300 px. Left out on purpose, because the readers differ there by design: the 300 px gate on an AirPlay sender's cover (the kiosk's own image-quality call, never the Lock Screen's), the browser sources (their view is drawn whatever the session names), and an availability reason or a source change (both draw the card on Milō's screen whatever the push shows). Every state is a whole wire state (`AudioState`), validated as such.",
+  "cases": [
+    {
+      "id": "bluetooth connected, a title alone",
+      "shown": false,
+      "state": {
+        "source": "bluetooth", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "b1a0c3d5e7f90b1a2c3d4e5f60718293", "phase": "connected",
+                    "title": "Says", "artist": null, "album": null, "artwork": null,
+                    "senders": ["iPhone de Léo"], "duration_ms": null, "position": null},
+        "controls": ["disconnect"], "resume": null,
+        "details": {"kind": "bluetooth", "artwork_pending": false},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "bluetooth connected, a title and an artist, the cover still looked up",
+      "shown": false,
+      "state": {
+        "source": "bluetooth", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "b1a0c3d5e7f90b1a2c3d4e5f60718294", "phase": "connected",
+                    "title": "Says", "artist": "Nils Frahm", "album": "Spaces", "artwork": null,
+                    "senders": ["iPhone de Léo"], "duration_ms": 528000, "position": null},
+        "controls": ["disconnect"], "resume": null,
+        "details": {"kind": "bluetooth", "artwork_pending": true},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "bluetooth connected, a title and a cover, no artist",
+      "shown": false,
+      "state": {
+        "source": "bluetooth", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "b1a0c3d5e7f90b1a2c3d4e5f60718295", "phase": "connected",
+                    "title": "Says", "artist": null, "album": null,
+                    "artwork": "https://is1-ssl.mzstatic.com/image/thumb/says/600x600bb.jpg",
+                    "senders": ["iPhone de Léo"], "duration_ms": null, "position": null},
+        "controls": ["disconnect"], "resume": null,
+        "details": {"kind": "bluetooth", "artwork_pending": false},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "bluetooth connected, an artist and a cover, no title",
+      "shown": false,
+      "state": {
+        "source": "bluetooth", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "b1a0c3d5e7f90b1a2c3d4e5f60718296", "phase": "connected",
+                    "title": null, "artist": "Nils Frahm", "album": null,
+                    "artwork": "https://is1-ssl.mzstatic.com/image/thumb/says/600x600bb.jpg",
+                    "senders": ["iPhone de Léo"], "duration_ms": null, "position": null},
+        "controls": ["disconnect"], "resume": null,
+        "details": {"kind": "bluetooth", "artwork_pending": false},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "bluetooth connected, a title, an artist and a cover",
+      "shown": true,
+      "state": {
+        "source": "bluetooth", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "b1a0c3d5e7f90b1a2c3d4e5f60718297", "phase": "connected",
+                    "title": "Says", "artist": "Nils Frahm", "album": "Spaces",
+                    "artwork": "https://is1-ssl.mzstatic.com/image/thumb/says/600x600bb.jpg",
+                    "senders": ["iPhone de Léo"], "duration_ms": 528000, "position": null},
+        "controls": ["disconnect"], "resume": null,
+        "details": {"kind": "bluetooth", "artwork_pending": false},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "airplay connected, a title, an artist and a 600 px cover",
+      "shown": true,
+      "state": {
+        "source": "airplay", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "a1a0c3d5e7f90b1a2c3d4e5f60718298", "phase": "connected",
+                    "title": "Hyperballad", "artist": "Björk", "album": "Post",
+                    "artwork": "/api/airplay/artwork?v=3",
+                    "senders": ["iPhone de Léo"], "duration_ms": 321000, "position": null},
+        "controls": [], "resume": null,
+        "details": {"kind": "airplay", "artwork_width": 600, "shuffle": false, "repeat": "off"},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "mac connected, two senders, nothing named",
+      "shown": false,
+      "state": {
+        "source": "mac", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "6d1a0c3d5e7f90b1a2c3d4e5f6071829", "phase": "connected",
+                    "title": null, "artist": null, "album": null, "artwork": null,
+                    "senders": ["Mac mini de Léo", "MacBook Air"], "duration_ms": null, "position": null},
+        "controls": [], "resume": null,
+        "details": null,
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "bluetooth playing, a title alone",
+      "shown": true,
+      "state": {
+        "source": "bluetooth", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "b1a0c3d5e7f90b1a2c3d4e5f60718299", "phase": "playing",
+                    "title": "Says", "artist": null, "album": null, "artwork": null,
+                    "senders": ["iPhone de Léo"], "duration_ms": 528000,
+                    "position": {"ms": 1000, "at": 1790270000.25, "rate": 1.0}},
+        "controls": ["pause", "next", "prev", "disconnect"], "resume": null,
+        "details": {"kind": "bluetooth", "artwork_pending": false},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    }
+  ]
+}

@@ -75,17 +75,30 @@ def widget_payload() -> Dict[str, Any]:
     return {"aps": {"content-changed": True}}
 
 
+def _names_its_track(record: Dict[str, Any]) -> bool:
+    return all(record.get(k) for k in ("title", "artist", "artwork"))
+
+
 def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """What the card shows: the session if it names something, else the
     resume point, else nothing (docs: "le fil", §9 — the rule Milo-iOS'
     `MiloAudioState.shown` follows too). An untitled CD track is shown by its
     number, `details.current_track`, carried as `track_number`: Milō does not
-    know the phone's language, so Milo-iOS names it (`MiloUntitledTrack`)."""
+    know the phone's language, so Milo-iOS names it (`MiloUntitledTrack`).
+
+    A CONNECTED session — a sender Milō cannot call playing or paused — names
+    its track only with a title, an artist and a cover, as Milō's own screen
+    draws it (D14, `richSourceFor`); otherwise the card is the source's. The
+    screen's 300 px gate on an AirPlay sender's cover is left out on purpose:
+    it is the kiosk's image-quality call, not the Lock Screen's. The three
+    implementations are held equal by `tests/contracts/connected_naming_cases.json`."""
     details = state.get("details") or {}
     number = details.get("current_track") if details.get("kind") == "cd" else None
     for key in ("session", "resume"):
         candidate = state.get(key)
         if not candidate:
+            continue
+        if key == "session" and candidate.get("phase") == "connected" and not _names_its_track(candidate):
             continue
         if candidate.get("title"):
             return candidate

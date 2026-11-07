@@ -794,3 +794,36 @@ def test_the_app_writes_the_artist_line_as_the_push_does():
     assert artist, "no artist argument in the titled branch's Track("
     assert artist.group(1).strip() == "shown.artist"
     assert "connectedTo" not in body and ".connected" not in body
+
+
+def _swift_code(source: str, signature: str) -> str:
+    """The code of the function opening at `signature`, up to the next `func`,
+    with its comment lines dropped: a doc comment naming a token is not the
+    function using it."""
+    start = source.find(signature)
+    assert start >= 0, f"{signature!r} is no longer in the vendored decoder"
+    end = _FRESHNESS._NEXT_FUNC.search(source, start + len(signature))
+    body = source[start: end.start() if end else None]
+    code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("//"))
+    assert code.count("\n") >= 2, f"{signature!r}: no body isolated"
+    return code
+
+
+def test_the_apps_name_a_connected_session_as_milo_does():
+    """Milo-iOS' Lock Screen card and Milo-Mac's now-playing row name a
+    CONNECTED session's track only when it carries a title, an artist and a
+    cover, as Milō's screen and its push do (connected_naming_cases.json,
+    test_naming_rule.py). Without it the app read a title the push had
+    replaced with the source card, and the Lock Screen flipped between the
+    two at every round trip. The rule lives in the shared decoder, not in the
+    bridge's `buildAttributes` (which must not test the phase: the test
+    above), so the Mac file — byte-identical, test_the_two_apps_decode_the_
+    state_with_one_file — carries it too."""
+    decoder = (VENDOR_DIR / "MiloAudioState.swift").read_text()
+    shown = _swift_code(decoder, "func shown(untitledTrack:")
+    assert ".connected" in shown and "namesItsTrack(session)" in shown, (
+        "MiloAudioState.shown no longer holds a connected session to namesItsTrack"
+    )
+    names = _swift_code(decoder, "static func namesItsTrack(")
+    for field in ("session.title", "session.artist", "session.artwork"):
+        assert field in names, f"namesItsTrack no longer requires {field}"

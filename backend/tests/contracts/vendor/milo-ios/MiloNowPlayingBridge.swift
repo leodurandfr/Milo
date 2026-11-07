@@ -54,7 +54,11 @@ enum MiloSourceCard {
 
     /// Ce que la carte nomme : la session, sinon la reprise
     /// (`MiloAudioState.shown`), une piste de CD sans titre sous son numéro,
-    /// dans la langue du téléphone (`MiloUntitledTrack`).
+    /// dans la langue du téléphone (`MiloUntitledTrack`). Une session
+    /// `connected` n'y nomme sa piste qu'avec un titre, un artiste et une
+    /// pochette, sinon c'est la carte de sa source — la règle de l'écran de
+    /// Milō (D14) et de son push. Le seuil de 300 px qu'applique l'écran de
+    /// Milō à la pochette d'un émetteur AirPlay reste propre à cet écran.
     static func shown(for state: MiloAudioState) -> MiloAudioState.Shown? {
         state.shown(untitledTrack: { MiloUntitledTrack.title($0) })
     }

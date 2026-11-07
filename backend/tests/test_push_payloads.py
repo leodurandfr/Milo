@@ -213,10 +213,11 @@ class TestNowPlayingAttributes:
         )
 
     def test_a_connected_session_naming_a_track_keeps_its_artist(self):
-        """An iPhone in Spotify Connect over Bluetooth names its track while
-        its stream is stopped: CONNECTED, and Milō's full player draws it with
-        its artist line. The Lock Screen says the same, and Milo-iOS'
-        `buildAttributes` is held to it by
+        """A sender Milō cannot call playing or paused that names a title, an
+        artist and a cover (an AirPlay stream naming every track, a Bluetooth
+        phone whose cover was found): CONNECTED, and Milō's full player draws
+        it with its artist line (D14). The Lock Screen says the same, and
+        Milo-iOS' `buildAttributes` is held to it by
         `test_the_app_writes_the_artist_line_as_the_push_does`."""
         state = {
             "source": "bluetooth", "controls": [], "resume": None,
@@ -228,6 +229,28 @@ class TestNowPlayingAttributes:
         }
 
         assert build_attributes("sess", state, [], now=NOW)["currentTrack"]["artist"] == "Nils Frahm"
+
+    def test_a_half_named_connected_session_shows_the_source_card(self):
+        """A Bluetooth phone names its track while its stream is stopped and
+        its cover is still being looked up: Milō's screen draws "Connected to
+        iPhone de Léo" (D14), so the Lock Screen draws the source's card, not
+        a title the kiosk does not show. Which states name a track is
+        `connected_naming_cases.json`'s; this pins the card it falls back to."""
+        state = {
+            "source": "bluetooth", "controls": ["disconnect"], "resume": None,
+            "session": {
+                "id": "b-2", "phase": "connected", "title": "Says", "artist": "Nils Frahm",
+                "album": None, "artwork": None, "senders": ["iPhone de Léo"],
+                "duration_ms": None, "position": None,
+            },
+            "details": {"kind": "bluetooth", "artwork_pending": True},
+        }
+
+        track = build_attributes("sess", state, [], now=NOW)["currentTrack"]
+
+        assert (track["title"], track["artist"], track["artworkURL"]) == (
+            "Bluetooth", "iPhone de Léo", "/now-playing/bluetooth.jpg",
+        )
 
     def test_a_source_with_nothing_playing_shows_its_own_card(self):
         """Selected, idle, nothing to resume: the source's name over its icon,
