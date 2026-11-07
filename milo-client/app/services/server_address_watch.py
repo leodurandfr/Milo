@@ -336,6 +336,10 @@ async def _answering_address(running: str) -> Optional[str]:
     return next((address for address, ok in zip(others, answered) if ok), None)
 
 
+class RestartFailed(RuntimeError):
+    """systemd refused a verb of a restart, which may have left the unit stopped."""
+
+
 async def _stop_then_start() -> None:
     """Stop then start the unit — sudoers grants those two verbs, not `restart`."""
     global _start_owed
@@ -347,13 +351,14 @@ async def _stop_then_start() -> None:
         )
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
-            raise RuntimeError(f"Failed to {action} snapclient: {stderr.decode().strip()}")
+            raise RestartFailed(f"Failed to {action} snapclient: {stderr.decode().strip()}")
         _start_owed = action == "stop"
 
 
 async def restart_snapclient(server: Optional[str] = None) -> None:
     """Restart the unit; a start that fails raises and leaves the start owed, so
-    the next pass of `follow_server_address` brings it back whoever stopped it.
+    `follow_server_address` brings it back whoever stopped it, at its first
+    check past the cooldown.
 
     `server` is the address the launcher dials at that start instead of what mDNS
     answers it then.
@@ -581,6 +586,11 @@ async def follow_server_address() -> None:
                         restarted = await _reconcile()
                     else:
                         restarted = await _follow_server(stream[1], server)
+                except RestartFailed as e:
+                    # Refused, it may still have stopped the unit and owe its
+                    # start, which then waits the cooldown like any restart.
+                    logger.error(f"Server address check failed: {e}")
+                    restarted = True
                 finally:
                     pacer.checked(restarted)
             if restarted:
@@ -593,7 +603,7 @@ async def follow_server_address() -> None:
                     await restart_snapclient()
                 finally:
                     cable.restarted(returned=True)
-                pacer.checked(True)
+                    pacer.checked(True)
         except Exception as e:
             logger.error(f"Server address check failed: {e}")
         await asyncio.sleep(POLL_INTERVAL)
