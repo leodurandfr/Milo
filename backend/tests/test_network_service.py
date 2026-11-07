@@ -1667,6 +1667,46 @@ async def test_an_access_point_unread_past_the_quick_tries_is_still_read_again(s
     assert service.hotspot_active is False
 
 
+@pytest.mark.asyncio
+async def test_an_access_point_unread_past_the_quick_tries_is_read_at_the_slow_pace(service, caplog):
+    """Past its quick tries the read slows down: one nmcli spawn every
+    `ADOPTION_READ_RETRY_S` for the life of the process, against an NM that may
+    stay unreachable for hours, is load the slow interval exists to spare. The
+    quick interval is collapsed and the slow one is an hour, so once the quick
+    tries are spent the next read is out of reach: NM answering by then must
+    leave the AP unread and up, where reading at the quick pace would adopt it
+    and take it down at once."""
+    nm = FakeNetworkManager(ethernet=True, profiles={HOTSPOT_NAME: "ap"}, active={HOTSPOT_NAME})
+    unreachable = [True]
+
+    def router(args):
+        if args == READ_DEVICES and unreachable[0]:
+            return NM_NOT_RUNNING
+        return nm.route(args)
+
+    fake, patcher = with_nmcli(router)
+    caplog.set_level(logging.ERROR, logger="backend.core.network.service")
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.ADOPTION_READ_RETRY_S", 0), \
+         patch("backend.core.network.service.ADOPTION_READ_SLOW_RETRY_S", 3600):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await settle_until(lambda: any(
+            f"after {ADOPTION_READ_TRIES} tries" in r.getMessage() for r in caplog.records
+        ))
+        unreachable[0] = False
+        reads_then = len(fake.argv_containing("device"))
+        for _ in range(50):
+            await asyncio.sleep(0)
+        reads_since = len(fake.argv_containing("device")) - reads_then
+        gate = await recovery_gate_answer(service)
+        await service.cleanup()
+
+    assert reads_since == 0
+    assert HOTSPOT_NAME in nm.active
+    assert gate == 403
+
+
 @pytest.mark.parametrize("failure", ["timeout", "refused"])
 @pytest.mark.asyncio
 async def test_a_station_retry_whose_teardown_nm_did_not_carry_out_tries_again(service, failure):
