@@ -75,7 +75,7 @@ function getZoneAverageVolume(zone) {
 }
 
 function getZoneMuted(zone) {
-  return unifiedStore.volumeState.zones[zone.id]?.all_muted ?? false;
+  return unifiedStore.getZoneMute(zone.id);
 }
 
 const showMessage = computed(() => {

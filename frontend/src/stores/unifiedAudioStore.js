@@ -389,23 +389,49 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return volumeState.value.clients[clientId]?.volume_db ?? DEFAULT_VOLUME_DB;
   }
 
-  /** One client's mute flag, from the WS-maintained state. */
+  // A mute PATCH answers once the speaker took it and the volume state was
+  // broadcast — a satellite round trip, up to 5 s behind a volume drag — so a
+  // switch drawn from the state alone would sit on the old position meanwhile.
+  // Per client and per zone, dropped when its request settles, exactly as
+  // `requestedMultiroom`.
+  const requestedMute = ref({ clients: {}, zones: {} });
+  const muteRequestSeq = { clients: {}, zones: {} };
+
+  /** Run `send` with `muted` shown for every `[kind, id]` of `targets` meanwhile. */
+  async function _withRequestedMute(targets, muted, send) {
+    const seqs = targets.map(([kind, id]) => (muteRequestSeq[kind][id] = (muteRequestSeq[kind][id] ?? 0) + 1));
+    for (const [kind, id] of targets) requestedMute.value[kind][id] = muted;
+    try {
+      return await send();
+    } finally {
+      targets.forEach(([kind, id], i) => {
+        if (muteRequestSeq[kind][id] === seqs[i]) delete requestedMute.value[kind][id];
+      });
+    }
+  }
+
+  /** One client's mute flag: the request in flight, else the WS-maintained state. */
   function getClientMute(clientId) {
-    return volumeState.value.clients[clientId]?.mute ?? false;
+    return requestedMute.value.clients[clientId] ?? volumeState.value.clients[clientId]?.mute ?? false;
+  }
+
+  /** Whether a whole zone is muted: the request in flight, else the WS-maintained state. */
+  function getZoneMute(zoneId) {
+    return requestedMute.value.zones[zoneId] ?? volumeState.value.zones[zoneId]?.all_muted ?? false;
   }
 
   /** Mute or unmute one client. */
   async function setClientMute(clientId, muted) {
     if (!_reachable(clientId, 'mute')) return false;
 
-    const result = await apiCall.patch(
+    const result = await _withRequestedMute([['clients', clientId]], muted, () => apiCall.patch(
       `/api/volume/client/mac/${macToUrlFormat(clientId)}/mute`,
       { mute: muted },
       {
         category: 'store',
         message: `Error updating mute for ${clientId}`,
       },
-    );
+    ));
     return result.ok;
   }
 
@@ -420,10 +446,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       return false;
     }
 
-    const result = await apiCall.patch(`/api/volume/zone/${zoneId}/mute`, { mute: muted }, {
-      category: 'store',
-      message: `Error setting zone mute for ${zoneId}`,
-    });
+    const members = useMultiroomStore().zoneList.find((zone) => zone.id === zoneId)?.client_ids ?? [];
+    const targets = [['zones', zoneId], ...members.map((mac) => ['clients', mac])];
+    const result = await _withRequestedMute(targets, muted, () => apiCall.patch(
+      `/api/volume/zone/${zoneId}/mute`, { mute: muted }, {
+        category: 'store',
+        message: `Error setting zone mute for ${zoneId}`,
+      },
+    ));
     return result.ok;
   }
 
@@ -453,6 +483,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // Per-client volume / mute
     getClientVolume,
     getClientMute,
+    getZoneMute,
     setClientVolume,
     setClientMute,
     setZoneVolume,

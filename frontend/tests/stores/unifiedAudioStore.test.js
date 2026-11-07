@@ -684,6 +684,74 @@ describe('unifiedAudioStore', () => {
     });
   });
 
+  describe('mute switch position — the request in flight, else the state', () => {
+    // Toggle draws only the value it is given, and a mute PATCH answers only
+    // once the speaker took it and the volume state was broadcast: the
+    // multiroom panel's switches read these, so a wrong value leaves a switch
+    // on the old position for a satellite round trip after a tap.
+    function holdPatch() {
+      const answers = [];
+      apiCall.patch.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+      return answers;
+    }
+
+    beforeEach(() => {
+      registerClient(multiroomStore, OTHER_MAC, { name: 'Bedroom' });
+      registerZone(multiroomStore, 'z1', [REMOTE_MAC, OTHER_MAC]);
+      setMultiroom(true, { [REMOTE_MAC]: { volume_db: -30, mute: false } });
+    });
+
+    it('shows a client\'s requested mute while its request is in flight', async () => {
+      const answers = holdPatch();
+
+      const request = store.setClientMute(REMOTE_MAC, true);
+
+      expect(store.getClientMute(REMOTE_MAC)).toBe(true);
+      expect(store.volumeState.clients[REMOTE_MAC].mute).toBe(false);
+      answers[0](ok({ status: 'success' }));
+      await request;
+    });
+
+    it('goes back to the state once a refused request settles', async () => {
+      const answers = holdPatch();
+
+      const request = store.setClientMute(REMOTE_MAC, true);
+      answers[0](fail('speaker refused'));
+
+      expect(await request).toBe(false);
+      expect(store.getClientMute(REMOTE_MAC)).toBe(false);
+    });
+
+    it('an earlier request settling does not drop a later one still in flight', async () => {
+      const answers = holdPatch();
+
+      const first = store.setClientMute(REMOTE_MAC, true);
+      const second = store.setClientMute(REMOTE_MAC, false);
+      setMultiroom(true, { [REMOTE_MAC]: { volume_db: -30, mute: true } });
+      answers[0](ok({ status: 'success' }));
+      await first;
+
+      expect(store.getClientMute(REMOTE_MAC)).toBe(false);
+      answers[1](ok({ status: 'success' }));
+      await second;
+    });
+
+    it('a zone request moves the zone\'s switch and its members\' together', async () => {
+      const answers = holdPatch();
+
+      const request = store.setZoneMute('z1', true);
+
+      expect(store.getZoneMute('z1')).toBe(true);
+      expect(store.getClientMute(REMOTE_MAC)).toBe(true);
+      expect(store.getClientMute(OTHER_MAC)).toBe(true);
+      expect(store.getClientMute(LOCAL_MAC)).toBe(false);
+      answers[0](fail('speaker refused'));
+      await request;
+      expect(store.getZoneMute('z1')).toBe(false);
+      expect(store.getClientMute(REMOTE_MAC)).toBe(false);
+    });
+  });
+
   describe('setZoneMute', () => {
     it('mutes a zone in one request, whatever its size', async () => {
       // One PATCH per member was one broadcast per member, and the offline
