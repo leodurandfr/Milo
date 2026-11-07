@@ -92,12 +92,13 @@ def test_a_wireless_interface_reports_its_negotiated_rate(client):
 
 def test_the_link_is_read_from_the_row_nmcli_does_not_translate():
     """`ACTIVE` is localized -- a unit in French answers `oui`. Keying on it
-    would report an unknown rate on a perfectly associated radio, and only on
-    units whose locale someone changed.
+    would report no signal on a perfectly associated radio, and only on units
+    whose locale someone changed. The access point is the one IN-USE marks
+    `*`, which nmcli never translates -- not the first listed, a neighbour at
+    87 here.
 
-    The row also carries the signal, so both come from one parse: reading them
-    from two commands is how a unit comes to report a rate from one access
-    point and a strength from another.
+    The rate is not on that row: it is the device's CAPABILITIES.SPEED, read
+    by the same `device show`, so one command answers both.
     """
     listing = ("CAPABILITIES.SPEED:270 Mb/s\n"
                "AP[1].IN-USE: \nAP[1].ACTIVE:non\nAP[1].SIGNAL:87\n"
