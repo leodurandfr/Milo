@@ -141,7 +141,7 @@ session nor the resume point has a title (and for an AirPlay cover too small
 to trust); the four sources played
 from Milō's own browser (Radio, Podcast, Music Library, Spotify — `BROWSER_SOURCES`) keep their
 view with nothing playing (Spotify only once an account is signed in), since it is where the first station, episode or album is
-chosen.
+chosen. The Lock Screen and the Mac's menu bar name a `connected` session by the same clause. The Now Playing push (`payloads.shown_track`) and both apps (`MiloAudioState.shown`, one file in Milo-iOS and Milo-Mac) show the source's card, and the Mac shows no row, unless the session names a cover, a title and an artist. `backend/tests/contracts/connected_naming_cases.json` holds the push and the screen to the same answers, paused and loading sessions included. The apps' rule, which no Milō test can run, is pinned word for word by `test_milo_ios_contract.py` and run by the apps' own `MiloAudioStateTests`. The AirPlay cover gate belongs to the screen alone (an image-quality call for the kiosk), so the Lock Screen still names a track whose cover is small.
 
 ### Unavailable, which is not a state
 
