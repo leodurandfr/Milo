@@ -482,6 +482,70 @@ describe('unifiedAudioStore', () => {
     });
   });
 
+  describe('multiroomTarget — the multiroom switch\'s position', () => {
+    // Toggle draws only the value it is given, and the PUT answers only once the
+    // whole switch is done: the settings and multiroom headers read this, so a
+    // wrong value leaves the switch on the old mode for seconds after a tap, or
+    // on a mode the unit refused.
+    function holdPut() {
+      const answers = [];
+      apiCall.put.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+      return answers;
+    }
+
+    it('shows the requested mode while the request is in flight', async () => {
+      setMultiroom(false);
+      const answers = holdPut();
+
+      const request = store.setMultiroomEnabled(true);
+
+      expect(store.multiroomTarget).toBe(true);
+      expect(store.systemState.multiroom_enabled).toBe(false);
+      answers[0](ok({ status: 'success' }));
+      await request;
+    });
+
+    it('goes back to the mode the state carries when the request is refused', async () => {
+      setMultiroom(false);
+      const answers = holdPut();
+
+      const request = store.setMultiroomEnabled(true);
+      answers[0](fail('Failed to change multiroom state'));
+
+      expect(await request).toBe(false);
+      expect(store.multiroomTarget).toBe(false);
+    });
+
+    it('follows the state once the request is done', async () => {
+      setMultiroom(false);
+      const answers = holdPut();
+
+      const request = store.setMultiroomEnabled(true);
+      store.updateState(stateEvent({ ...VALID_STATE, multiroom_enabled: true }));
+      answers[0](ok({ status: 'success' }));
+      await request;
+
+      // Switched back from elsewhere (Milo-Mac): nothing of the old request stays.
+      store.updateState(stateEvent({ ...VALID_STATE, multiroom_enabled: false }));
+      expect(store.multiroomTarget).toBe(false);
+    });
+
+    it('an earlier request settling does not drop a later one still in flight', async () => {
+      setMultiroom(false);
+      const answers = holdPut();
+
+      const first = store.setMultiroomEnabled(true);
+      const second = store.setMultiroomEnabled(false);
+      answers[0](ok({ status: 'success' }));
+      await first;
+
+      store.updateState(stateEvent({ ...VALID_STATE, multiroom_enabled: true }));
+      expect(store.multiroomTarget).toBe(false);
+      answers[1](ok({ status: 'success' }));
+      await second;
+    });
+  });
+
   describe('disconnectSource', () => {
     it('routes bluetooth through the generic control endpoint', async () => {
       // The dedicated /api/bluetooth router was retired; Family A commands all

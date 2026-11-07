@@ -10,7 +10,7 @@
     <template #header>
       <div class="ssh-header">
         <h2 class="heading-2">{{ t('system.ssh.title') }}</h2>
-        <Toggle :model-value="state.enabled" :disabled="busy" @change="$emit('toggle', $event)" />
+        <Toggle :model-value="switchPosition" :disabled="busy" @change="request" />
       </div>
     </template>
 
@@ -38,13 +38,14 @@
 </template>
 
 <script setup>
+import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 
-defineProps({
+const props = defineProps({
   /** { enabled, passwordIsDefault } */
   state: { type: Object, required: true },
   host: { type: String, required: true },
@@ -56,9 +57,26 @@ defineProps({
   error: { type: String, default: null },
 });
 
-defineEmits(['toggle', 'open-password']);
+const emit = defineEmits(['toggle', 'open-password']);
 
 const { t } = useI18n();
+
+// Both parents hold `busy` until the unit has opened or closed the door (a
+// systemctl on the server, a round trip to a satellite) and only then pass the
+// new state, so the switch shows the request for that wait and the state again
+// once it ends: a refused request is back where it was.
+const requested = ref(null);
+const switchPosition = computed(() =>
+  props.busy && requested.value !== null ? requested.value : props.state.enabled
+);
+watch(() => props.busy, (busy) => {
+  if (!busy) requested.value = null;
+});
+
+function request(enabled) {
+  requested.value = enabled;
+  emit('toggle', enabled);
+}
 </script>
 
 <style scoped>

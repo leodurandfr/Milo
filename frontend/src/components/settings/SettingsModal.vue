@@ -11,7 +11,7 @@
           <SvgIcon name="caretUp" size="large" color="var(--color-text)"
             class="power-toggle__icon" :class="{ 'power-toggle__icon--hidden': !showPowerMenu }" />
         </button>
-        <Toggle v-if="showMultiroomToggle" :model-value="isMultiroomActive"
+        <Toggle v-if="showMultiroomToggle" :model-value="unifiedStore.multiroomTarget"
           :disabled="unifiedStore.systemState.switching || multiroomStore.isTransitioning" @change="handleMultiroomToggle" />
         <Toggle v-if="showBtRemoteToggle" :model-value="settingsStore.btRemote.enabled"
           @change="handleBtRemoteToggle" />
@@ -637,8 +637,6 @@ async function runPowerAction(action) {
 }
 
 const showMultiroomToggle = computed(() => currentView.value === 'multiroom');
-
-const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);

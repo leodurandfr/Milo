@@ -55,10 +55,16 @@ function startPress(event) {
   if (!props.disabled) press(event);
 }
 
+// Controlled: the switch draws `modelValue` and nothing else. The browser has
+// already flipped the box when `change` fires, so it is put back at once, before
+// the frame is painted, and only the parent passing the new value moves it. A
+// parent that refuses (a write that failed, a guard, a store that did not move)
+// leaves the switch where it was rather than on a value nothing holds.
 function handleToggle(event) {
-  const newValue = event.target.checked;
-  emit('update:modelValue', newValue);
-  emit('change', newValue);
+  const requested = event.target.checked;
+  event.target.checked = props.modelValue;
+  emit('update:modelValue', requested);
+  emit('change', requested);
 }
 </script>
 

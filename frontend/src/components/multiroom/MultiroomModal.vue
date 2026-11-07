@@ -4,7 +4,7 @@
     <NavigationHeader :title="t('audioSources.multiroom')" icon="multiroom">
       <template #actions>
         <Toggle
-          :modelValue="isMultiroomActive"
+          :modelValue="unifiedStore.multiroomTarget"
           :disabled="unifiedStore.systemState.switching || multiroomStore.isTransitioning"
           @change="handleMultiroomToggle"
         />
@@ -18,7 +18,6 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -29,8 +28,6 @@ import MultiroomControl from './MultiroomControl.vue';
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
-
-const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);

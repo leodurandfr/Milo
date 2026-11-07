@@ -1,6 +1,6 @@
 // frontend/src/stores/unifiedAudioStore.js
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { reportError } from '@/services/errorReporter';
@@ -81,13 +81,32 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return result.ok;
   }
 
+  // The mode this tab asked for, while the request carrying it is in flight.
+  // The PUT answers only once the whole switch is done — seconds — and the state
+  // carries the new mode only then, so a switch drawn from the state alone would
+  // sit on the old mode for the whole wait. Dropped when the request settles:
+  // done, the state already says so; refused, the old mode is the truth.
+  const requestedMultiroom = ref(null);
+  let multiroomRequestSeq = 0;
+
+  /** The multiroom switch's position: the request in flight, else the state. */
+  const multiroomTarget = computed(() =>
+    requestedMultiroom.value ?? systemState.value.multiroom_enabled
+  );
+
   async function setMultiroomEnabled(enabled) {
-    const result = await apiCall.put('/api/routing/multiroom', { enabled }, {
-      category: 'store',
-      message: 'Set multiroom failed',
-      checkStatus: true,
-    });
-    return result.ok;
+    const seq = ++multiroomRequestSeq;
+    requestedMultiroom.value = enabled;
+    try {
+      const result = await apiCall.put('/api/routing/multiroom', { enabled }, {
+        category: 'store',
+        message: 'Set multiroom failed',
+        checkStatus: true,
+      });
+      return result.ok;
+    } finally {
+      if (seq === multiroomRequestSeq) requestedMultiroom.value = null;
+    }
   }
 
   // === DISCONNECT ===
@@ -412,6 +431,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     resync,
     // State
     systemState,
+    multiroomTarget,
     sessionOpening,
     volumeState,
     showVolumeBar,
