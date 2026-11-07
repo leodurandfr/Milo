@@ -372,7 +372,9 @@ const analysisNote = computed(() =>
   (calibration.value.result?.assumed?.length ? t('multiroomSettings.partlyAssumed') : ''));
 
 const measuredLinks = computed(() =>
-  // The local speaker has no link to weigh: its row was three em-dashes.
+  // The server's own row is left out of the table, though its link is measured
+  // and weighed in the codec choice (calibration_probe.py): it is the route every
+  // stream leaves by, not a speaker's link, and the table compares speakers.
   (calibration.value.result?.measurements || []).filter(row => !row.is_local)
 );
 
