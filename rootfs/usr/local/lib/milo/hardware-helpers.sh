@@ -52,8 +52,13 @@ remove_block() {
 # --- The managed blocks of each role ---
 # Exactly the blocks each role's apply script writes. A unit changes role in
 # place (milo-first-boot) and each apply removes only its own blocks, so the
-# role change clears the other role's: a server's MILO AUDIO left under a
-# satellite's MILO CLIENT AUDIO is two overlays for one card slot.
+# role change clears the other role's. Only the audio overlay line of the role
+# left meets anything else — remove_legacy_overlays sweeps every allowlisted
+# `dtoverlay=` line, inside a block or not — and only once the new role's apply
+# runs, which neither the auto-detected conversion nor the revert does: until
+# then the unit boots the card of the role it left. The server's screen, IR and
+# power LED blocks meet nothing at all, so a satellite would load the panel
+# overlay, claim the IR pin and drive the LED pin low for good.
 SERVER_CONFIG_BLOCKS=("MILO AUDIO" "MILO SCREEN" "MILO IR" "MILO POWER LED")
 CLIENT_CONFIG_BLOCKS=("MILO CLIENT AUDIO")
 

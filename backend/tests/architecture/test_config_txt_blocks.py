@@ -125,10 +125,12 @@ def test_a_role_change_removes_only_the_blocks_of_the_role_left(tree_name, leavi
     """`remove_role_blocks <role>` takes out that role's blocks and nothing else.
 
     A unit that ran the server wizard and is then adopted as a satellite kept
-    `# BEGIN MILO AUDIO`: the satellite's apply removes only `MILO CLIENT
-    AUDIO`, so config.txt then loaded two audio overlays for one card slot (and
-    the server's IR and power LED pins on a unit that drives neither). The
-    revert to a server is the same in the other direction.
+    the server's blocks: the satellite's apply removes only `MILO CLIENT
+    AUDIO`. Its legacy sweep does take the server's audio overlay line out, but
+    only when it runs, which the auto-detected conversion does not, so the
+    satellite booted the server's card; and nothing ever took out the screen
+    overlay, the IR pin or the power LED pin of a unit that drives none of
+    them. The revert to a server is the same in the other direction.
     """
     helpers = HARDWARE_HELPERS[tree_name]
     blocks = {role: _role_blocks(helpers, role, tmp_path) for role in ("server", "client")}

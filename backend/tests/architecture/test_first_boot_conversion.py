@@ -244,10 +244,10 @@ def test_every_role_change_clears_the_config_txt_blocks_of_the_role_left():
     """Each way into a role removes the other role's managed blocks from config.txt.
 
     Each apply helper removes only its own blocks, so a unit that ran the
-    server wizard and is then adopted as a satellite booted with the server's
-    `MILO AUDIO` overlay next to the satellite's `MILO CLIENT AUDIO` one (and the
-    server's IR and power LED pins); the revert left the satellite's block under
-    the server's. Fails when one of the three conversion paths, or the revert,
+    server wizard and is then adopted as a satellite kept the server's screen,
+    IR and power LED blocks for good, and booted the server's card until a
+    satellite apply swept that overlay line; the revert booted the satellite's
+    card the same way. Fails when one of the three conversion paths, or the revert,
     reaches no `clear_role_blocks` of the role it leaves, or when that function
     stops handing its role to `remove_role_blocks`.
     """
