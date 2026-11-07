@@ -229,6 +229,26 @@ async def test_a_state_read_never_waits_for_a_handler(probe):
     assert probe.reads == 1
 
 
+async def test_a_clock_step_re_reads_the_player_after_the_handler_in_flight(probe):
+    """The kernel's notice of a clock step lands at any moment, typically
+    while a Spotify handler awaits `GET /status`. Its re-read is a message, so
+    it waits for that handler: run beside it, the read could re-anchor the
+    playhead under a handler that already checked it, breaking the rule the
+    whole actor exists for."""
+    pressed = asyncio.ensure_future(probe.command("slow", None))
+    await _until(lambda: "slow begin" in probe.log)
+
+    probe.follow_clock_step()
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert probe.reads == 0, "the re-read ran beside the handler in flight"
+
+    probe.gate.set()
+    await pressed
+    await _until(lambda: probe.reads == 1)
+    assert probe.log == ["slow begin", "slow end"]
+
+
 async def test_shutdown_ends_the_mailbox(probe):
     await probe.command("play", None)
     await probe.shutdown()
