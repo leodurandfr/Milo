@@ -40,7 +40,13 @@ from starlette.requests import Request
 
 from backend.api.route_helpers import RecoveryAccessPointGate
 from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
-from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME, NetworkService, _parse_nmcli_line
+from backend.core.network.service import (
+    ADOPTION_PROFILE,
+    ADOPTION_READ_TRIES,
+    HOTSPOT_NAME,
+    NetworkService,
+    _parse_nmcli_line,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -1575,18 +1581,35 @@ async def test_an_access_point_nm_did_not_remove_is_removed_at_the_next_evaluati
 
 
 READ_DEVICES = ("-t", "-f", "TYPE,STATE,CONNECTION", "device", "status")
+READ_AP_MODE = ("-t", "-f", "802-11-wireless.mode", "connection", "show", HOTSPOT_NAME)
+NM_NOT_RUNNING = (8, "", "Error: NetworkManager is not running.")
 
 
+def refusing(nm, command, times):
+    """`nm.route`, with the next `times` of `command` refused by NM."""
+    left = [times]
+
+    def route(args):
+        if args == command and left[0]:
+            left[0] -= 1
+            return NM_NOT_RUNNING
+        return nm.route(args)
+    return route
+
+
+@pytest.mark.parametrize("read", [READ_DEVICES, READ_AP_MODE], ids=["devices", "ap-mode"])
 @pytest.mark.parametrize("failure", ["timeout", "refused"])
 @pytest.mark.asyncio
-async def test_an_access_point_whose_adoption_could_not_be_read_is_adopted_later(service, failure):
+async def test_an_access_point_whose_adoption_could_not_be_read_is_adopted_later(service, failure, read):
     """The restart's one look at NM failed, and a failed read counted as "no
     AP": the AP NM kept stayed up with nothing owning it, `hotspot_active`
     false, and the recovery gate open to its clients — for good once the link
     was back, since no evaluation then has an AP to take down. Unread, the gate
-    stays shut; the read is tried again, and the AP adopted then goes down."""
+    stays shut; the read is tried again, and the AP adopted then goes down.
+    Either read can fail: the devices, or the mode that tells our AP from a
+    station profile of the same name."""
     nm = FakeNetworkManager(ethernet=True, profiles={HOTSPOT_NAME: "ap"}, active={HOTSPOT_NAME})
-    nm.fail(*READ_DEVICES, answer=(8, "", "Error: NetworkManager is not running.") if failure == "refused" else None)
+    nm.fail(*read, answer=NM_NOT_RUNNING if failure == "refused" else None)
     fake, patcher = with_nmcli(nm.route)
     with patcher, patch("backend.core.network.service.MessageBus") as bus, \
          patch("backend.core.network.service.ADOPTION_READ_RETRY_S", 0):
@@ -1598,6 +1621,48 @@ async def test_an_access_point_whose_adoption_could_not_be_read_is_adopted_later
         await service.cleanup()
 
     assert while_unread == 403
+    assert once_down == 200
+    assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_an_unread_access_point_read_back_as_absent_opens_the_recovery_gate(service):
+    """No AP was left up; the restart merely could not say so. Left unread, the
+    gate refuses 10.42.0.0/24 — a home LAN may well be that subnet — the SSH
+    switch and the password for the whole run, over an AP that does not exist."""
+    nm = FakeNetworkManager(ethernet=True)
+    fake, patcher = with_nmcli(refusing(nm, READ_DEVICES, 1))
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.ADOPTION_READ_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        while_unread = await recovery_gate_answer(service)
+        await settle_until(lambda: not service.recovery_ap_possible)
+        once_read = await recovery_gate_answer(service)
+        await service.cleanup()
+
+    assert while_unread == 403
+    assert once_read == 200
+    assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
+async def test_an_access_point_unread_past_the_quick_tries_is_still_read_again(service):
+    """The read gave up after its quick tries, for the rest of the run: an AP
+    really left up stayed on air, open, unowned and with no home-network retry
+    — every route the gate does not cover reachable from anyone in radio range
+    — and an AP that was never there kept the gate shut on its subnet."""
+    nm = FakeNetworkManager(ethernet=True, profiles={HOTSPOT_NAME: "ap"}, active={HOTSPOT_NAME})
+    fake, patcher = with_nmcli(refusing(nm, READ_DEVICES, 1 + ADOPTION_READ_TRIES + 1))
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.ADOPTION_READ_RETRY_S", 0), \
+         patch("backend.core.network.service.ADOPTION_READ_SLOW_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await settle_until(lambda: HOTSPOT_NAME not in nm.active)
+        once_down = await recovery_gate_answer(service)
+        await service.cleanup()
+
     assert once_down == 200
     assert service.hotspot_active is False
 

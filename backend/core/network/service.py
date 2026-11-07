@@ -87,11 +87,13 @@ STATION_RETRY_S = 300.0
 # AP and keeps polling it would otherwise keep the unit off its home network.
 STATION_RETRY_MAX_HOLDS = 2
 
-# How often, and how many times, a restart that could not read whether NM kept
-# the access point up reads it again. Until one read answers, the recovery gate
-# counts the AP as up.
+# How often a restart that could not read whether NM kept the access point up
+# reads it again: quickly for a few tries, then slowly for as long as it takes.
+# Until one read answers, the recovery gate counts the AP as up — and nothing
+# owns an AP really left up, so the reading never stops while it is unanswered.
 ADOPTION_READ_TRIES = 5
 ADOPTION_READ_RETRY_S = 10.0
+ADOPTION_READ_SLOW_RETRY_S = 60.0
 
 # The bound on each nmcli call that creates and activates the access point.
 HOTSPOT_NMCLI_TIMEOUT_S = 20.0
@@ -963,9 +965,11 @@ class NetworkService:
         `_start_hotspot` owning it before `connection up`: until then NM still
         carries the AP and its clients, and the recovery gate
         (`api/route_helpers.py::RecoveryAccessPointGate`) refuses them only
-        while `hotspot_active` holds. A delete NM did not carry out — nmcli
-        timed out, or NM refused — keeps the flag and the retry loop, so the
-        next evaluation or the loop's next turn takes the AP down again."""
+        while `recovery_ap_possible` holds: `hotspot_active`, the half this
+        teardown clears, or an AP not yet read back after a restart. A delete
+        NM did not carry out — nmcli timed out, or NM refused — keeps the flag
+        and the retry loop, so the next evaluation or the loop's next turn
+        takes the AP down again."""
         async with self._hotspot_teardown:
             if not self._hotspot_active:
                 return True
@@ -1114,25 +1118,34 @@ class NetworkService:
         """Read again whether NM kept an AP up, after a restart that could not
         tell. An AP adopted here is taken down at once if the link is back: no
         evaluation would otherwise come, the link having nothing left to change.
-        An AP raised meanwhile settles the question (`_start_hotspot`)."""
-        for _ in range(ADOPTION_READ_TRIES):
-            await asyncio.sleep(ADOPTION_READ_RETRY_S)
+        An AP raised meanwhile settles the question (`_start_hotspot`).
+
+        It reads until it is answered, more slowly after `ADOPTION_READ_TRIES`.
+        Giving up left the question open for the run: an AP really left up
+        stayed on air, open and unowned, and one that was never there kept the
+        gate shut on 10.42.0.0/24, which a home LAN may be."""
+        tries = 0
+        while True:
+            tries += 1
+            await asyncio.sleep(
+                ADOPTION_READ_RETRY_S if tries <= ADOPTION_READ_TRIES else ADOPTION_READ_SLOW_RETRY_S
+            )
             if not self._hotspot_unread:
                 return
             left_up = await self._hotspot_left_up()
-            if left_up is None:
-                continue
-            self._hotspot_unread = False
-            if left_up:
-                self._adopt_hotspot()
-                self._arm_station_retry()
-                await self.evaluate_reachability()
-            return
-        self.logger.error(
-            "Could not read whether access point '%s' is up after %d tries"
-            " — its clients stay refused by the recovery gate",
-            HOTSPOT_NAME, ADOPTION_READ_TRIES,
-        )
+            if left_up is not None:
+                break
+            if tries == ADOPTION_READ_TRIES:
+                self.logger.error(
+                    "Could not read whether access point '%s' is up after %d tries"
+                    " — its clients stay refused by the recovery gate; read again every %d s",
+                    HOTSPOT_NAME, tries, ADOPTION_READ_SLOW_RETRY_S,
+                )
+        self._hotspot_unread = False
+        if left_up:
+            self._adopt_hotspot()
+            self._arm_station_retry()
+            await self.evaluate_reachability()
 
     async def _hotspot_left_up(self) -> Optional[bool]:
         """Whether wlan0 carries this unit's own AP, up or still activating —
