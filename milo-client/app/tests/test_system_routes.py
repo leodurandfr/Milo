@@ -2,7 +2,8 @@
 Tests for the satellite's remote access routes (routes/system.py).
 
 The outside world here is the process the route spawns — `sudo systemctl`,
-`sudo milo-set-password`, `nmcli` and `sudo milo-client-join-wifi` — so that is
+`sudo milo-set-password`, `nmcli`, `sudo milo-client-join-wifi` and
+`sudo milo-client-set-timezone` — so that is
 what is replaced: the assertions are on
 what the route handed it and on what it answered when it failed. The argv itself
 is pinned against the sudoers grants by test_privileged_exec_contract.py.
@@ -183,6 +184,65 @@ class TestWifi:
 
         assert response.status_code == 500
         assert "no wlan0" in response.json()["detail"]
+
+
+class TestTimezone:
+    """`PUT /api/system/timezone`, pushed by `SatelliteTimezoneService` at every admission."""
+
+    def test_the_zone_travels_on_stdin_and_the_argv_is_the_grant(self, client):
+        """The grant permits the helper with no argument: one in argv would be refused by sudo."""
+        helper = _Process(stdout=b"set")
+        spawn, patched = _spawning(helper)
+
+        with patched, patch("routes.system.time.tzset") as tzset:
+            response = client.put("/api/system/timezone", json={"timezone": "Europe/Paris"})
+
+        assert response.json()["data"] == {"changed": True}
+        assert spawn.await_args.args == ("sudo", "/usr/local/bin/milo-client-set-timezone")
+        assert helper.stdin_received == b"Europe/Paris\n"
+        # The app's own log lines are stamped in the zone it read at start.
+        tzset.assert_called_once_with()
+
+    def test_the_zone_already_in_force_is_no_change(self, client):
+        spawn, patched = _spawning(_Process(stdout=b"unchanged"))
+
+        with patched, patch("routes.system.time.tzset") as tzset:
+            response = client.put("/api/system/timezone", json={"timezone": "Europe/Paris"})
+
+        assert response.json()["data"] == {"changed": False}
+        tzset.assert_not_called()
+
+    @pytest.mark.parametrize("zone", [
+        "../../etc/passwd", "-h", "Europe/Paris\n../x", "UTC", "Europe/Paris; reboot", "",
+    ])
+    def test_a_malformed_zone_never_reaches_the_helper(self, client, zone):
+        spawn, patched = _spawning(_Process())
+
+        with patched:
+            response = client.put("/api/system/timezone", json={"timezone": zone})
+
+        assert response.status_code == 422
+        spawn.assert_not_awaited()
+
+    def test_a_zone_the_helper_refuses_is_the_callers_mistake(self, client, caplog):
+        """Exit 2 is a zone this unit's tzdata lacks: a 400, never an ERROR line."""
+        spawn, patched = _spawning(_Process(returncode=2, stderr=b"ERROR: unknown timezone 'Middle/Earth'"))
+
+        with patched:
+            response = client.put("/api/system/timezone", json={"timezone": "Middle/Earth"})
+
+        assert response.status_code == 400
+        assert "Middle/Earth" in response.json()["detail"]
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+    def test_a_failed_helper_is_not_a_success(self, client):
+        spawn, patched = _spawning(_Process(returncode=1, stderr=b"Failed to set time zone: Access denied"))
+
+        with patched:
+            response = client.put("/api/system/timezone", json={"timezone": "Europe/Paris"})
+
+        assert response.status_code == 500
+        assert "Access denied" in response.json()["detail"]
 
 
 class TestNetwork:

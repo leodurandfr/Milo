@@ -1,0 +1,82 @@
+#!/bin/bash
+# milo-client-set-timezone — Put this satellite on the server's timezone
+#
+# Usage: printf '%s\n' "<IANA_ZONE>" | milo-client-set-timezone
+#   IANA_ZONE: Area/Location — Europe/Paris, America/Argentina/Salta, Etc/UTC
+#
+# The server pushes the zone it runs on (`PUT /api/system/timezone`) every time
+# this satellite is admitted and every time its own zone changes, so every unit
+# of one Milō tells the same time. Without it a satellite keeps the Etc/UTC the
+# image ships, whatever room it plays in. Being called that often decides the
+# shape: **idempotent** — a zone already in force is left alone and answered
+# `unchanged`, so an admission writes nothing.
+#
+# The zone comes on **stdin**, and the policy grants this helper with no
+# argument at all (`""`): sudo then refuses any argv, which is the narrowest
+# grant every sudo a satellite may run honors (a regex argument needs sudo
+# 1.9.10, and a sudo that predates it reads the regex as a literal argument —
+# every push denied). The one input there is gets checked here, before
+# timedatectl sees it:
+#
+#   - its shape: ASCII letters, digits, `_`, `+` and `-`, in segments joined by
+#     `/`, at least two. No `.`, so no traversal; no leading `-`, so never an
+#     option; no bare name, so none of the files that sit beside the zones
+#     without being one (`localtime` — a link to /etc/localtime, which would
+#     then point at itself —, `posixrules`, `leapseconds`);
+#   - its existence: a file of this unit's tzdata, resolving inside the tree,
+#     that is a compiled zone (TZif). A zone the server's tzdata knows and this
+#     unit's does not is refused, never half-applied.
+#
+# Exit 2: the zone was refused (the caller's mistake, answered 400 by the
+# route); 1: anything else. Prints `unchanged` or `set`.
+# Must be run as root (via sudoers rule).
+
+set -euo pipefail
+# Bracket ranges are byte ranges only in the C locale.
+export LC_ALL=C
+
+ZONEINFO_DIR="/usr/share/zoneinfo"
+ZONE_RE='^[A-Za-z0-9][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)+$'
+# The longest IANA name is 32 characters (America/Argentina/ComodRivadavia).
+ZONE_MAX=64
+
+refuse() {
+    echo "ERROR: $1" >&2
+    exit 2
+}
+
+if (( $# != 0 )); then
+    echo "ERROR: takes no argument; the zone comes on stdin" >&2
+    exit 1
+fi
+
+# A terminal on stdin means the caller passed nothing to read; `read` would
+# block forever holding a sudo session open.
+if [[ -t 0 ]]; then
+    echo "ERROR: the zone must be piped on stdin" >&2
+    exit 1
+fi
+
+IFS= read -r ZONE || true
+
+if (( ${#ZONE} > ZONE_MAX )) || ! [[ "$ZONE" =~ $ZONE_RE ]]; then
+    refuse "invalid timezone $(printf '%q' "$ZONE")"
+fi
+
+root=$(realpath -e -- "$ZONEINFO_DIR")
+resolved=$(realpath -e -- "$ZONEINFO_DIR/$ZONE" 2>/dev/null) \
+    || refuse "unknown timezone '$ZONE' (no $ZONEINFO_DIR/$ZONE)"
+if [[ "$resolved" != "$root"/* || ! -f "$resolved" ]]; then
+    refuse "unknown timezone '$ZONE' (resolves outside $ZONEINFO_DIR)"
+fi
+if [[ "$(head -c 4 -- "$resolved")" != "TZif" ]]; then
+    refuse "unknown timezone '$ZONE' (not a compiled zone)"
+fi
+
+if [[ "$(timedatectl show --property=Timezone --value)" == "$ZONE" ]]; then
+    echo "unchanged"
+    exit 0
+fi
+
+timedatectl set-timezone "$ZONE"
+echo "set"

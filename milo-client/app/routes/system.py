@@ -1,6 +1,6 @@
 """
 System routes for Milo Client: SSH, the `milo` account password, the links the
-unit is on, and the server's WiFi kept as a standby link.
+unit is on, the server's WiFi kept as a standby link, and the server's timezone.
 
 The satellite has no UI of its own, so these are driven from the server's
 client panel, exactly like the server's own `/api/system/ssh` and
@@ -8,12 +8,14 @@ client panel, exactly like the server's own `/api/system/ssh` and
 off (pi-gen `ENABLE_SSH=0`); without this surface a flashed satellite could only
 be opened by writing a `ssh` file onto its boot partition. The WiFi is pushed by
 the server on its own, never from a panel: a satellite adopted over Ethernet
-then falls back to the WiFi when its cable goes.
+then falls back to the WiFi when its cable goes. So is the timezone, so that
+every unit of one Milō tells the same time.
 """
 import asyncio
 import logging
 import os
 import pwd
+import time
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 SSH_UNIT = "ssh.service"
 SET_PASSWORD_CMD = "/usr/local/bin/milo-set-password"
 JOIN_WIFI_CMD = "/usr/local/bin/milo-client-join-wifi"
+SET_TIMEZONE_CMD = "/usr/local/bin/milo-client-set-timezone"
 ETHERNET_INTERFACE = "eth0"
 WIFI_INTERFACE = "wlan0"
 # The image's first user, whose password the helper sets. A satellite provisioned
@@ -38,6 +41,11 @@ NMCLI_READ_TIMEOUT_S = 5
 # A handful of nmcli calls, plus the country on its first push only; the
 # helper never waits for the link to come up. The server's push is sized on it.
 JOIN_WIFI_TIMEOUT_S = 20
+# Two timedatectl calls; the server's push is sized on it.
+SET_TIMEZONE_TIMEOUT_S = 10
+# What milo-client-set-timezone exits with when it refuses the zone itself: a
+# zone this unit's tzdata does not ship, which is the caller's to fix.
+ZONE_REFUSED = 2
 
 
 class SshRequest(BaseModel):
@@ -74,6 +82,15 @@ class WifiRequest(BaseModel):
         if "\n" in v or "\r" in v:
             raise ValueError("contains a line break")
         return v
+
+
+class TimezoneRequest(BaseModel):
+    """Request body for PUT /api/system/timezone — the shape milo-client-set-timezone accepts.
+
+    Checked here too, so a malformed zone is a 422 before any sudo. Whether the
+    zone exists is the helper's to say, against this unit's tzdata.
+    """
+    timezone: str = Field(..., max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)+$")
 
 
 def _login_user():
@@ -176,6 +193,8 @@ def create_system_router() -> APIRouter:
     # An admission and the server's own WiFi coming up can push at once; two
     # helpers interleaving their delete and add would leave two profiles.
     wifi_lock = asyncio.Lock()
+    # Same for the zone: an admission and a change of the server's zone.
+    timezone_lock = asyncio.Lock()
 
     @router.get("/ssh")
     async def get_ssh():
@@ -257,6 +276,37 @@ def create_system_router() -> APIRouter:
         changed = stdout != "unchanged"
         if changed:
             logger.info("WiFi '%s' saved as a standby link", request.ssid)
+        return {"status": "success", "data": {"changed": changed}}
+
+    @router.put("/timezone")
+    async def follow_timezone(request: TimezoneRequest):
+        """Put this unit on a timezone — the server's, pushed at every admission and every change of it.
+
+        The zone reaches the helper on stdin: its sudoers grant permits no
+        argument at all, the narrowest one sudo has for an input it cannot
+        check itself. A zone already in force is answered `changed: false` and
+        writes nothing.
+        """
+        async with timezone_lock:
+            returncode, stdout, stderr = await _run_capturing(
+                ("sudo", SET_TIMEZONE_CMD), SET_TIMEZONE_TIMEOUT_S,
+                stdin=f"{request.timezone}\n".encode(),
+            )
+        if returncode == ZONE_REFUSED:
+            # The caller's zone, not this unit's fault: no ERROR line for it.
+            logger.warning("Timezone %s refused: %s", request.timezone, stderr)
+            raise HTTPException(status_code=400, detail=stderr or f"Unknown timezone: {request.timezone}")
+        if returncode != 0:
+            detail = stderr or f"exit code {returncode}"
+            logger.error("milo-client-set-timezone failed for %s (rc=%s): %s", request.timezone, returncode, detail)
+            raise HTTPException(status_code=500, detail=f"Failed to set timezone {request.timezone}: {detail}")
+
+        changed = stdout != "unchanged"
+        if changed:
+            # This process read the zone once, at start; its own log lines and
+            # the diagnostic's start time follow the new one from here on.
+            time.tzset()
+            logger.info("Timezone set to %s", request.timezone)
         return {"status": "success", "data": {"changed": changed}}
 
     return router

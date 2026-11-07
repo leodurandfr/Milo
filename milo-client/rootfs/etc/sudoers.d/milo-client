@@ -43,3 +43,8 @@ milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-set-password
 # app holds no NetworkManager right of its own: the polkit rule is the server's,
 # for the `milo` user only.
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-join-wifi
+
+# Following the server's timezone, pushed by the server like the WiFi
+# (routes/system.py). `""` permits the helper with no argument and nothing else:
+# the zone comes on stdin, and the helper checks it before timedatectl sees it.
+milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-set-timezone ""

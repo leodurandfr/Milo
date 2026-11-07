@@ -324,8 +324,13 @@ def _issued_argvs(tree_name: str) -> list[tuple[str, tuple]]:
 # Side B: what the policy grants.
 # --------------------------------------------------------------------------- #
 
+# sudoers' spelling of "this command with no argument at all" — the grant of a
+# helper that reads its one input on stdin (milo-client-set-timezone).
+NO_ARGUMENTS = ('""',)
+
+
 def _grants(policy: Path, user: str) -> list[tuple[str, tuple]]:
-    """(command, args) for each NOPASSWD line, args empty meaning "any"."""
+    """(command, args) for each NOPASSWD line, args empty meaning "any", NO_ARGUMENTS "none"."""
     out = []
     for line in policy.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -349,8 +354,9 @@ def _all_grants(tree_name: str) -> list[tuple[str, str, tuple]]:
 def _matches(argv: tuple, command: str, args: tuple) -> bool:
     """Does this grant permit this argv, under sudoers' matching rules?
 
-    A grant with no arguments permits any; a grant with arguments permits that
-    exact argument vector and nothing else. An argv the extractor could not
+    A grant with no arguments permits any; a grant of `""` permits the bare
+    command and nothing else; a grant with arguments permits that exact
+    argument vector and nothing else. An argv the extractor could not
     fully resolve therefore cannot satisfy an argument-scoped grant — better an
     honest failure than a match that assumed the unknown was right.
     """
@@ -359,6 +365,8 @@ def _matches(argv: tuple, command: str, args: tuple) -> bool:
         return False
     if not args:
         return True
+    if args == NO_ARGUMENTS:
+        return len(argv) == 1
     return tuple(argv[1:]) == args
 
 
@@ -396,6 +404,22 @@ def test_argument_scoped_grants_stay_argument_scoped():
     _, command, args = scoped[0]
     assert _matches((command, *args), command, args)
     assert not _matches((command, "restart", *args[1:]), command, args)
+
+
+def test_a_no_argument_grant_permits_the_bare_command_only():
+    """`""` is the narrowest grant sudoers has, and it must be read as one.
+
+    Read as the literal argument `""`, it matched no call and the grant
+    reported itself unused; read as "any", an argv carrying the zone would pass
+    here and be refused by sudo on the satellite.
+    """
+    no_argument = [g for g in _all_grants("milo-client") if g[2] == NO_ARGUMENTS]
+    assert no_argument, "no `\"\"` grant parsed in the satellite policy"
+
+    _, command, args = no_argument[0]
+    assert _matches((command,), command, args)
+    assert not _matches((command, "Europe/Paris"), command, args)
+    assert not _matches((command, '""'), command, args)
 
 
 @pytest.mark.parametrize(
