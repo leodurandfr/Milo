@@ -123,6 +123,7 @@ def _create_service(name: str) -> Any:
             equalizer_client_proxy_service=get_service("equalizer_client_proxy_service"),
             pending_clients_service=get_service("pending_clients_service"),
             satellite_wifi_service=get_service("satellite_wifi_service"),
+            satellite_timezone_service=get_service("satellite_timezone_service"),
         ),
         "equalizer_client_proxy_service": lambda: _import("backend.core.equalizer", "EqualizerClientProxyService")(
             routing_service=get_service("audio_routing_service")
@@ -192,6 +193,9 @@ def _create_service(name: str) -> Any:
         ),
         "satellite_wifi_service": lambda: _import("backend.core.multiroom.satellite_wifi", "SatelliteWifiService")(
             network_service=get_service("network_service"),
+            client_registry_service=get_service("client_registry_service"),
+        ),
+        "satellite_timezone_service": lambda: _import("backend.core.multiroom.satellite_timezone", "SatelliteTimezoneService")(
             client_registry_service=get_service("client_registry_service"),
         ),
         "wifi_adoption_service": lambda: _import("backend.core.multiroom.wifi_adoption", "WifiAdoptionService")(

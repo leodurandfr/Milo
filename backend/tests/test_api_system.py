@@ -990,6 +990,36 @@ class TestTimezone:
 
         state_machine.broadcast.assert_not_awaited()
 
+    def test_a_new_zone_is_handed_to_every_satellite(self, systemd, spawn, localtime):
+        """A satellite has no browser to adopt a zone from: the server's change is its only one."""
+        satellites = Mock()
+        satellites.push_all = AsyncMock()
+        app = FastAPI()
+        app.include_router(
+            create_system_router(systemd, satellite_timezone_service=satellites), prefix="/api/system"
+        )
+        localtime("Asia/Singapore")
+        spawn.script(returncode=0)
+
+        response = TestClient(app).put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
+
+        assert response.status_code == 200
+        satellites.push_all.assert_awaited_once_with()
+
+    def test_a_helper_failure_hands_nothing_to_the_satellites(self, systemd, spawn, localtime):
+        satellites = Mock()
+        satellites.push_all = AsyncMock()
+        app = FastAPI()
+        app.include_router(
+            create_system_router(systemd, satellite_timezone_service=satellites), prefix="/api/system"
+        )
+        localtime("Etc/UTC")
+        spawn.script(returncode=1, stderr=b"Unknown timezone")
+
+        TestClient(app).put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
+
+        satellites.push_all.assert_not_awaited()
+
     def test_a_helper_failure_is_a_500_and_not_a_success(self, client, spawn, localtime):
         localtime("Etc/UTC")
         spawn.script(returncode=1, stderr=b"Unknown timezone")

@@ -26,6 +26,7 @@ from backend.config.constants import (
 )
 
 if TYPE_CHECKING:
+    from backend.core.multiroom.satellite_timezone import SatelliteTimezoneService
     from backend.core.network.service import NetworkService
     from backend.core.settings import SettingsService
     from backend.core.state import AudioStateMachine
@@ -76,6 +77,7 @@ def create_system_router(
     state_machine: Optional["AudioStateMachine"] = None,
     network_service: Optional["NetworkService"] = None,
     settings_service: Optional["SettingsService"] = None,
+    satellite_timezone_service: Optional["SatelliteTimezoneService"] = None,
 ):
     router = APIRouter()
     # What outlives an outage is refused to the open recovery AP; see the gate.
@@ -495,8 +497,12 @@ def create_system_router(
         return {"status": "success", **await _daylight_location()}
 
     @router.put("/timezone")
-    async def set_timezone(payload: TimezoneRequest):
-        """Apply an IANA timezone."""
+    async def set_timezone(payload: TimezoneRequest, background_tasks: BackgroundTasks):
+        """Apply an IANA timezone, here and on every satellite online.
+
+        The satellites follow after the answer, from the zone read back off the
+        system: a slow or absent one never holds up the settings screen.
+        """
         if payload.timezone not in _available_timezones():
             logger.warning("Rejected unknown timezone %r", payload.timezone)
             raise HTTPException(status_code=400, detail=f"Unknown timezone: {payload.timezone}")
@@ -522,6 +528,8 @@ def create_system_router(
                 logger.warning("Could not record the timezone as chosen: %s", e)
             if state_machine is not None:
                 await state_machine.broadcast(SystemTimezoneChanged(**await _daylight_location()))
+            if satellite_timezone_service is not None:
+                background_tasks.add_task(satellite_timezone_service.push_all)
             return {"status": "success", "data": {"timezone": current_timezone()}}
 
     return router

@@ -79,6 +79,7 @@ class SnapcastWebSocketService:
         equalizer_client_proxy_service=None,
         pending_clients_service=None,
         satellite_wifi_service=None,
+        satellite_timezone_service=None,
     ):
         self.state_machine = state_machine
         self.routing_service = routing_service
@@ -127,6 +128,7 @@ class SnapcastWebSocketService:
         self._equalizer_client_proxy_service = equalizer_client_proxy_service
         self._pending_clients_service = pending_clients_service
         self._satellite_wifi_service = satellite_wifi_service
+        self._satellite_timezone_service = satellite_timezone_service
         self._volume_service = None
 
     @property
@@ -1360,6 +1362,12 @@ class SnapcastWebSocketService:
                             self._bg.spawn(
                                 self._satellite_wifi_service.push(client.ip),
                                 label=f"push_wifi_{client.ip}",
+                            )
+                        # The server's timezone, so the unit's clock reads like the server's.
+                        if self._satellite_timezone_service is not None:
+                            self._bg.spawn(
+                                self._satellite_timezone_service.push(client.ip),
+                                label=f"push_timezone_{client.ip}",
                             )
 
                     # Volume confirmed on hardware — now safe to show online
