@@ -9,6 +9,7 @@ admission. Consumer: `PUT /api/system/wifi` (routes/system.py), which answers
 the helper's stderr to `SatelliteWifiService`.
 """
 
+import functools
 import json
 import subprocess
 import sys
@@ -176,3 +177,28 @@ def test_an_empty_key_is_saved_open_unless_the_network_was_seen_secured_only(wor
 
     assert (result.returncode, result.stdout.strip()) == (0, "saved")
     assert [p["key_mgmt"] for p in profiles.values()] == [""]
+
+
+@pytest.mark.parametrize("args", [(SSID,), ("--help",), ("",)])
+def test_an_argument_is_refused_before_networkmanager_is_asked(world, args):
+    """sudo grants the helper with none (`""`); one given here is a caller that bypassed the route.
+
+    The control is the same push without the argument, which reaches nmcli and
+    saves the profile — so the refusal is the argument's doing, not a world
+    that cannot run the helper.
+    """
+    world["state"].write_text(json.dumps({"profiles": {}, "active": "", "added": [], "scan": []}))
+    run = functools.partial(
+        subprocess.run, input=f"\n{SSID}\n{PSK}\n",
+        env={"PATH": f"{world['stubs']}:/usr/bin:/bin",
+             "NM_STATE": str(world["state"]), "NM_LOG": str(world["log"])},
+        capture_output=True, text=True, timeout=30,
+    )
+
+    refused = run(["bash", str(world["helper"]), *args])
+    assert refused.returncode == 1, (refused.stdout, refused.stderr)
+    assert refused.stderr.startswith("ERROR:")
+    assert not world["log"].exists()
+
+    control = run(["bash", str(world["helper"])])
+    assert (control.returncode, control.stdout.strip()) == (0, "saved"), control.stderr

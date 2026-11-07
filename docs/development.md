@@ -826,10 +826,11 @@ state_machine.system_state.active_source = source
    `rootfs/etc/sudoers.d/`, and `tests/contracts/test_privileged_exec_contract.py` checks both
    directions. The satellite's helpers live in `milo-client/rootfs/usr/local/bin/` and its grants
    are argument-scoped: a helper whose input sudo cannot check (a zone, a WiFi key) takes it on
-   stdin, validates it itself, and is granted with `""` (no argument allowed), never bare —
-   `milo-client-set-timezone` is, and `milo-client/app/tests/test_set_timezone_helper.py` runs it under bash
-   against a stub `timedatectl` and a zoneinfo tree of its own. `milo-client-join-wifi` and
-   `milo-set-password` predate the rule and are still granted bare (any argv passes sudo); don't copy them.
+   stdin, validates it itself, refuses any argument (`if (( $# != 0 ))`, exit 1), and is granted
+   with `""` (no argument allowed), never bare — `milo-client-set-timezone`, `milo-client-join-wifi`
+   and `milo-set-password` are. The contract test holds the helpers that refuse an argument and the
+   `""` grants equal, and each helper's test runs it under bash against stubs
+   (`milo-client/app/tests/test_{set_timezone,join_wifi,set_password}_helper.py`).
 
 ### Frontend
 

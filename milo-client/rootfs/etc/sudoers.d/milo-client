@@ -34,17 +34,21 @@ milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-apply-hardware
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl restart milo-client.service
 
 # Remote access, driven from the server's client panel (routes/system.py) — the
-# same two switches the server's own policy grants its backend.
+# same two switches the server's own policy grants its backend. The password
+# comes on stdin, so the helper is granted with no argument at all (`""`).
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl enable --now ssh.service
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl disable --now ssh.service
-milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-set-password
+milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-set-password ""
 
-# Joining the server's WiFi, driven from the same panel (routes/system.py). The
-# app holds no NetworkManager right of its own: the polkit rule is the server's,
-# for the `milo` user only.
-milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-join-wifi
+# Keeping the server's WiFi as a standby link, pushed by the server at every
+# admission (routes/system.py), never from a panel. The app holds no
+# NetworkManager right of its own: the polkit rule is the server's, for the
+# `milo` user only. The country, SSID and PSK come on stdin: `""` again.
+milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-join-wifi ""
 
 # Following the server's timezone, pushed by the server like the WiFi
 # (routes/system.py). `""` permits the helper with no argument and nothing else:
 # the zone comes on stdin, and the helper checks it before timedatectl sees it.
+# All three stdin helpers refuse an argument themselves as well, and
+# test_privileged_exec_contract.py holds the two sides equal.
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-set-timezone ""

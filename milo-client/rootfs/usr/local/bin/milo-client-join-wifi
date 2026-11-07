@@ -24,7 +24,9 @@
 # The credentials come on **stdin, never argv**: sudo writes every command line
 # it runs to the journal, so a PSK passed as an argument would be kept there.
 # Past sudo, nmcli takes it as an argument — the profile it writes is root-only,
-# and every account on a satellite already holds the app's copy of it.
+# and every account on a satellite already holds the app's copy of it. So the
+# policy grants this helper with no argument at all (`""`), and an argument
+# given anyway is refused here too.
 #
 # The image boots in the world domain (`00`), where an access point on a DFS
 # channel or on 2.4 GHz channels 12-13 cannot be joined, so the server's country
@@ -36,6 +38,11 @@ set -euo pipefail
 
 IFACE="wlan0"
 SET_COUNTRY="/usr/local/bin/milo-set-wifi-country"
+
+if (( $# != 0 )); then
+    echo "ERROR: takes no argument; the country, SSID and PSK come on stdin" >&2
+    exit 1
+fi
 
 # A terminal on stdin means the caller passed nothing to read; `read` would
 # block forever holding a sudo session open.

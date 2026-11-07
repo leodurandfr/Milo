@@ -37,6 +37,7 @@ without checking the caller is one the appliance should have.
 import ast
 import functools
 import itertools
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -325,7 +326,8 @@ def _issued_argvs(tree_name: str) -> list[tuple[str, tuple]]:
 # --------------------------------------------------------------------------- #
 
 # sudoers' spelling of "this command with no argument at all" — the grant of a
-# helper that reads its one input on stdin (milo-client-set-timezone).
+# satellite helper that reads its input on stdin (milo-client-set-timezone,
+# milo-client-join-wifi, milo-set-password).
 NO_ARGUMENTS = ('""',)
 
 
@@ -420,6 +422,41 @@ def test_a_no_argument_grant_permits_the_bare_command_only():
     assert _matches((command,), command, args)
     assert not _matches((command, "Europe/Paris"), command, args)
     assert not _matches((command, '""'), command, args)
+
+
+# How a helper refuses any argument: its input comes on stdin, so an argv is a
+# caller that bypassed the route (milo-client-set-timezone, milo-set-password).
+ARGV_REFUSAL = re.compile(r"^\s*if \(\(\s*\$#\s*!=\s*0\s*\)\)", re.MULTILINE)
+
+
+def test_a_helper_that_refuses_every_argument_is_granted_none():
+    """The grant and the helper must agree that no argv belongs on this command line.
+
+    A bare grant on a helper that takes none lets sudo run it as root with an
+    argv nobody vetted — the helper's own check is then the only one, and a
+    future edit of the helper that starts reading `$1` reads it unvetted. A `""`
+    grant on a helper that does not refuse one leaves the helper wide open
+    wherever it is reached without that policy (by hand, as root, or through the
+    server's bare grant of the twin `milo-set-password`). Satellite only: the
+    server's grants are scoped by binary alone, and narrowing one closes nothing
+    while a bare `systemctl` stands (invariant 5).
+    """
+    rootfs = TREES["milo-client"]["rootfs"]
+    grants = [(c, a) for _, c, a in _all_grants("milo-client") if c.startswith("/usr/local/bin/")]
+    refusing = {
+        command for command, _ in grants
+        if ARGV_REFUSAL.search((rootfs / command.lstrip("/")).read_text(encoding="utf-8"))
+    }
+    granted_none = {command for command, args in grants if args == NO_ARGUMENTS}
+    # Either side read empty would let the equality below pass on nothing.
+    assert refusing and granted_none, (
+        f"refusing {sorted(refusing)}, granted none {sorted(granted_none)}: an extractor is broken"
+    )
+
+    assert refusing == granted_none, (
+        f"refuse every argument but are granted more than none: {sorted(refusing - granted_none)}; "
+        f"granted none but accept an argument: {sorted(granted_none - refusing)}"
+    )
 
 
 @pytest.mark.parametrize(
