@@ -11,9 +11,14 @@
 #   - milo.local not found     + hostname=milo-client → configure_server (reboot, revert)
 #   - no ethernet IP available                         → no-op (cannot probe)
 #
-# Skips entirely once setup_completed is true in settings.json. That flag is
-# written by the server wizard, or here by configure_client as it converts the
-# card into a satellite (step 10), before any audio card is picked.
+# Once setup_completed is true in settings.json none of the above runs, with
+# one exception: a WiFi adoption marker (pending_client_role.json, written with
+# the flag by POST /api/setup/become-client) makes configure_client_with_hardware
+# convert the card. The flag is written by the server wizard, by that endpoint,
+# or here by step 10 of _apply_client_filesystem — the conversion
+# configure_client, resume_client_conversion and configure_client_with_hardware
+# all run — so a converted card stays a satellite before its audio card is set.
+# A reset-setup marker deletes settings.json first, so detection runs again.
 #
 # Must be run as root (systemd service).
 
