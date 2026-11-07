@@ -1709,6 +1709,47 @@ async def test_an_access_point_unread_past_the_quick_tries_is_read_at_the_slow_p
 
 @pytest.mark.parametrize("failure", ["timeout", "refused"])
 @pytest.mark.asyncio
+async def test_an_access_point_read_slowly_logs_its_outage_once(service, caplog, failure):
+    """The slow re-reads run for as long as NM stays unreachable, so a warning
+    per read — and, on a timeout, `_run_nmcli`'s error, which every UI shows as
+    a banner — grew without bound: one banner a minute for hours. The outage is
+    announced once, by the error at the end of the quick tries; the count of
+    lines at warning and above must not depend on how many slow reads follow."""
+    nm = FakeNetworkManager(ethernet=True, profiles={HOTSPOT_NAME: "ap"}, active={HOTSPOT_NAME})
+    slow_reads = 20
+    left = [1 + ADOPTION_READ_TRIES + slow_reads]
+
+    async def stall():
+        raise asyncio.TimeoutError
+
+    def router(args):
+        if args == READ_DEVICES and left[0]:
+            left[0] -= 1
+            return stall() if failure == "timeout" else NM_NOT_RUNNING
+        return nm.route(args)
+
+    fake, patcher = with_nmcli(router)
+    caplog.set_level(logging.DEBUG, logger="backend.core.network.service")
+    with patcher, patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.ADOPTION_READ_RETRY_S", 0), \
+         patch("backend.core.network.service.ADOPTION_READ_SLOW_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await settle_until(lambda: HOTSPOT_NAME not in nm.active)
+        await service.cleanup()
+
+    assert left[0] == 0
+    loud = [
+        r for r in caplog.records
+        if r.levelno >= logging.WARNING and "D-Bus unavailable" not in r.getMessage()
+    ]
+    per_read = 2 if failure == "timeout" else 1
+    assert len(loud) == (1 + ADOPTION_READ_TRIES) * per_read + 1
+    assert any("read at last" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "refused"])
+@pytest.mark.asyncio
 async def test_a_station_retry_whose_teardown_nm_did_not_carry_out_tries_again(service, failure):
     """A try that asked for the station anyway did it under an AP NM still
     carried, and with ownership gone the loop ended there: a WiFi-only unit

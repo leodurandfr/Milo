@@ -1132,7 +1132,7 @@ class NetworkService:
             )
             if not self._hotspot_unread:
                 return
-            left_up = await self._hotspot_left_up()
+            left_up = await self._hotspot_left_up(quiet=tries > ADOPTION_READ_TRIES)
             if left_up is not None:
                 break
             if tries == ADOPTION_READ_TRIES:
@@ -1141,16 +1141,20 @@ class NetworkService:
                     " — its clients stay refused by the recovery gate; read again every %d s",
                     HOTSPOT_NAME, tries, ADOPTION_READ_SLOW_RETRY_S,
                 )
+        if tries > ADOPTION_READ_TRIES:
+            self.logger.info("Access point '%s' read at last, after %d tries", HOTSPOT_NAME, tries)
         self._hotspot_unread = False
         if left_up:
             self._adopt_hotspot()
             self._arm_station_retry()
             await self.evaluate_reachability()
 
-    async def _hotspot_left_up(self) -> Optional[bool]:
+    async def _hotspot_left_up(self, quiet: bool = False) -> Optional[bool]:
         """Whether wlan0 carries this unit's own AP, up or still activating —
         NM finishes an activation whether or not its caller is still there.
-        None when nmcli could not say: unknown is not "no AP".
+        None when nmcli could not say: unknown is not "no AP". `quiet` logs no
+        failed read, for the slow re-reads an error already announced once: a
+        line per tick put a banner on every UI each minute.
 
         The name alone is not proof: a station profile can carry it too (one
         made by hand to join a speaker's `Milō`), and adopting that would read
@@ -1158,10 +1162,11 @@ class NetworkService:
         """
         try:
             rc, stdout, _ = await self._run_nmcli(
-                "-t", "-f", "TYPE,STATE,CONNECTION", "device", "status"
+                "-t", "-f", "TYPE,STATE,CONNECTION", "device", "status", log_timeout=not quiet
             )
             if rc != 0:
-                self.logger.warning("nmcli device status failed (rc=%s) — an access point left up is unknown", rc)
+                if not quiet:
+                    self.logger.warning("nmcli device status failed (rc=%s) — an access point left up is unknown", rc)
                 return None
             if not any(
                 fields[2] == HOTSPOT_NAME and (fields[1] == "connected" or fields[1].startswith("connecting"))
@@ -1170,13 +1175,16 @@ class NetworkService:
             ):
                 return False
             rc, stdout, _ = await self._run_nmcli(
-                "-t", "-f", "802-11-wireless.mode", "connection", "show", HOTSPOT_NAME
+                "-t", "-f", "802-11-wireless.mode", "connection", "show", HOTSPOT_NAME,
+                log_timeout=not quiet,
             )
         except (asyncio.TimeoutError, OSError) as e:
-            self.logger.warning("Could not read back an access point left up: %r", e)
+            if not quiet:
+                self.logger.warning("Could not read back an access point left up: %r", e)
             return None
         if rc != 0:
-            self.logger.warning("nmcli connection show failed (rc=%s) — an access point left up is unknown", rc)
+            if not quiet:
+                self.logger.warning("nmcli connection show failed (rc=%s) — an access point left up is unknown", rc)
             return None
         return _parse_nmcli_line(stdout)[-1] == "ap"
 
@@ -1815,11 +1823,14 @@ class NetworkService:
     # Private helpers
     # =========================================================================
 
-    async def _run_nmcli(self, *args: str, timeout: float = 10.0) -> Tuple[int, str, str]:
+    async def _run_nmcli(
+        self, *args: str, timeout: float = 10.0, log_timeout: bool = True
+    ) -> Tuple[int, str, str]:
         """Run an nmcli command asynchronously with timeout.
 
         Returns (returncode, stdout, stderr).
-        Raises asyncio.TimeoutError if the command exceeds the timeout.
+        Raises asyncio.TimeoutError if the command exceeds the timeout, logged
+        at error unless the caller reports the outage itself (`log_timeout`).
         """
         proc = None
         try:
@@ -1833,7 +1844,8 @@ class NetworkService:
         except asyncio.TimeoutError:
             if proc:
                 proc.kill()
-            self.logger.error("nmcli timed out: nmcli %s", _redact_nmcli_args(args))
+            if log_timeout:
+                self.logger.error("nmcli timed out: nmcli %s", _redact_nmcli_args(args))
             raise
 
 
