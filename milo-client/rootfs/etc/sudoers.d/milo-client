@@ -7,12 +7,16 @@
 # and `is-enabled` are deliberately absent: they need no root, and every call
 # site runs them plain.
 #
-# The first rule is what makes the rest of the file mean anything. Raspberry Pi
-# OS ships /etc/sudoers.d/010_pi-nopasswd — a conffile of raspberrypi-sys-mods —
-# and userconf-pi rewrites the username inside it on first boot, so on a unit
-# whose appliance account is also the image's first user it reads
-# `milo-client ALL=(ALL) NOPASSWD: ALL` and every scoping below is decorative.
-# Measured on a satellite: `sudo -n true` succeeded there. sudoers applies the
+# The first rule is what makes the rest of the file mean anything. A Raspberry
+# Pi OS base may ship /etc/sudoers.d/010_pi-nopasswd — a conffile of
+# raspberrypi-sys-mods — whose username userconf-pi rewrites on first boot, so
+# on a unit that has it and whose appliance account is also the image's first
+# user it reads `milo-client ALL=(ALL) NOPASSWD: ALL` and every scoping below is
+# decorative. Measured on a satellite: `sudo -n true` succeeded there, and a
+# satellite whose account is the first user (Canapé) still lists
+# `(ALL) NOPASSWD: ALL` for milo-client (`sudo -l`, 2026-11-07). The current base ships no such file
+# (raspberrypi-sys-mods 1:20260612), and on a satellite converted from the image
+# the first user is `milo`, not this account (milo-account). sudoers applies the
 # *last* matching rule and reads /etc/sudoers.d in lexical order, so this file
 # (m…) is read after that one (0…) and takes the passwordless part back. It
 # grants nothing new — the account is in the `sudo` group, which already permits

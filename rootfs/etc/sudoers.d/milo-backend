@@ -22,14 +22,19 @@ Defaults:milo !syslog, !pam_session
 # ProtectHome (kiosk, snapserver, snapclient, camilladsp, navidrome) can still
 # write the checkout the backend and milo-navidrome-config (root) run.
 
-# Take back the image's blanket grant. Raspberry Pi OS ships
-# /etc/sudoers.d/010_pi-nopasswd (a conffile of raspberrypi-sys-mods) and
-# userconf-pi rewrites the username inside it on first boot, so on a flashed
-# unit — pi-gen/config sets FIRST_USER_NAME="milo" — it reads
-# `milo ALL=(ALL) NOPASSWD: ALL` and the grants below are decorative. sudoers
-# applies the *last* matching rule and reads /etc/sudoers.d in lexical order, so
-# this file (m…) is read after that one (0…). Same rule, same reasoning, in
-# milo-client/rootfs/etc/sudoers.d/milo-client, where it was measured.
+# Take back the image's blanket grant, where the image has one. A Raspberry Pi
+# OS base may ship /etc/sudoers.d/010_pi-nopasswd (a conffile of
+# raspberrypi-sys-mods) whose username userconf-pi rewrites on first boot; on a
+# unit flashed from such a base — pi-gen/config sets FIRST_USER_NAME="milo" — it
+# reads `milo ALL=(ALL) NOPASSWD: ALL` and the grants below are decorative. The
+# current base ships none: re-read 2026-11-07, this server (raspberrypi-sys-mods
+# 1:20260612) has no such file, and a satellite reflashed the day before asks
+# `milo` for a password. The rule stays, since nothing here pins the base and a
+# conffile can come back. sudoers applies the *last* matching rule and reads
+# /etc/sudoers.d in lexical order, so this file (m…) is read after that one
+# (0…). Same rule, same reasoning, in milo-client/rootfs/etc/sudoers.d/milo-client,
+# where it was measured, and in milo-account, which carries it for `milo` on a
+# satellite once the conversion has removed this file.
 #
 # Order is load-bearing: it must stay above the grants, or it becomes the last
 # match for those too and the backend loses every privileged command it has.
