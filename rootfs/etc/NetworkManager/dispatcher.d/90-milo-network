@@ -32,6 +32,8 @@ ACTION=$2
 AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
 AVAHI_STATE_FILE="/var/lib/milo/avahi-interface"
 ETH0_ACTIVATION_CAP_S=45
+ETH0_SETTLE_S=5
+ETH0_CARRIER_FILE="/sys/class/net/eth0/carrier"
 
 # Setup hotspot SSID (shared across all Milō devices)
 is_hotspot_connection() {
@@ -81,9 +83,13 @@ set_avahi_interface() {
 # carrier at 22.1 s and its lease at 42.4 s, wlan0 its lease at 26.0 s, and
 # milo.local published on wlan0 in between sent a satellite to that address.
 # 90-milo-ethernet-ipv4.conf keeps eth0 activating until it has IPv4 (or 30 s
-# of trying), so NetworkManager decides how long; a cable that is absent, or a
-# profile that never activates, waits nothing. The cap only guards against a
-# state that never settles: NetworkManager's DHCP transaction lasts 45 s.
+# of trying), so NetworkManager decides how long; a cable that is absent waits
+# nothing. A cable that is in while eth0 still reads unavailable (20) or
+# disconnected (30) is one NetworkManager has not started on yet — the carrier
+# lands before the device moves to prepare (40) — so a single such read is not an
+# answer: it gets ETH0_SETTLE_S to start, which also bounds a profile that never
+# activates. The cap only guards against a state that never settles:
+# NetworkManager's DHCP transaction lasts 45 s.
 # Timed on /proc/uptime: the Pi has no RTC and timesyncd steps the wall clock
 # mid-boot, which would cut a wall-clock wait short.
 # A cable that drops while eth0 activates (NetworkManager then calls the device
@@ -97,18 +103,28 @@ eth0_state() {
     [[ "$state" =~ ^[0-9]+$ ]] && echo "$state" || echo 0
 }
 
+eth0_has_carrier() {
+    [[ "$(cat "$ETH0_CARRIER_FILE" 2>/dev/null)" == 1 ]]
+}
+
 wait_for_eth0_lease() {
-    local up _ deadline state activated=false
+    local up _ start deadline state activated=false
     read -r up _ < /proc/uptime
-    deadline=$(( ${up%.*} + ETH0_ACTIVATION_CAP_S ))
+    start=${up%.*}
+    deadline=$(( start + ETH0_ACTIVATION_CAP_S ))
     while ! has_ip eth0; do
         state=$(eth0_state)
+        read -r up _ < /proc/uptime
         if (( state >= 40 && state < 100 )); then
             activated=true
-        elif ! { $activated && (( state == 20 )); }; then
+        elif $activated && (( state == 20 )); then
+            :
+        elif ! $activated && (( state == 20 || state == 30 )) && eth0_has_carrier \
+                && (( ${up%.*} < start + ETH0_SETTLE_S )); then
+            :
+        else
             return 0
         fi
-        read -r up _ < /proc/uptime
         (( ${up%.*} < deadline )) || return 0
         sleep 0.5
     done

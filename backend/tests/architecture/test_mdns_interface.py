@@ -71,8 +71,9 @@ def test_the_wait_runs_on_the_monotonic_clock():
 
 
 # Each stub appends its name and argv to $STUB_LOG. `ip` answers an address only
-# for the interfaces in $STUB_LEASED; eth0 reads "unavailable" to NetworkManager,
-# so the WiFi fallback's wait ends at once.
+# for the interfaces in $STUB_LEASED; eth0 reads "unavailable" to NetworkManager
+# with no carrier (the copy's carrier file holds 0), so the WiFi fallback's wait
+# ends at once.
 _STUBS = {
     "ip": 'case " $STUB_LEASED " in *" $4 "*) echo "    inet 192.168.1.10/24 scope global $4" ;; esac',
     "nmcli": (
@@ -95,6 +96,10 @@ def _run_dispatcher(dispatcher: Path, tmp_path: Path, conf: str, state: str, lea
     script = re.sub(r'^AVAHI_CONF=.*$', f'AVAHI_CONF="{conf_file}"', dispatcher.read_text(), count=1, flags=re.M)
     script = re.sub(r'^AVAHI_STATE_FILE=.*$', f'AVAHI_STATE_FILE="{state_file}"', script, count=1, flags=re.M)
     assert str(conf_file) in script and str(state_file) in script, "the dispatcher's paths were not rewritten"
+    # The server's wait reads eth0's carrier; never this host's.
+    carrier = tmp_path / "carrier"
+    carrier.write_text("0\n")
+    script = re.sub(r'^ETH0_CARRIER_FILE=.*$', f'ETH0_CARRIER_FILE="{carrier}"', script, count=1, flags=re.M)
     copy = tmp_path / "90-milo-network"
     copy.write_text(script)
 
@@ -179,3 +184,92 @@ def test_the_satellite_dispatcher_checks_the_state_too(tmp_path, conf, state, ex
         return
     assert state_file.read_text().strip() == expected
     assert restarts == ["systemctl restart --no-block avahi-daemon.service"], restarts
+
+
+# The wait itself, run for real. NetworkManager answers eth0's state from a
+# sequence, one entry per read ($STUB_STATES, the last one repeated), and eth0
+# gets its lease at the read numbered $STUB_LEASE_AT (0: never). wlan0 holds its
+# lease from the start: this is the boot where WiFi leases first.
+_WAIT_STUBS = {
+    "ip": (
+        'case "$4" in\n'
+        '  wlan0) echo "    inet 192.168.1.39/24 scope global wlan0" ;;\n'
+        '  eth0) [ -e "$STUB_DIR/eth0_leased" ] && echo "    inet 192.168.1.55/24 scope global eth0" ;;\n'
+        "esac"
+    ),
+    "nmcli": (
+        'case "$*" in\n'
+        "  *GENERAL.STATE*)\n"
+        '    n=$(( $(cat "$STUB_DIR/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_DIR/reads"\n'
+        '    set -- $STUB_STATES; i=1; state=$1\n'
+        '    for s in "$@"; do [ "$i" -le "$n" ] && state=$s; i=$((i + 1)); done\n'
+        '    [ "$STUB_LEASE_AT" -gt 0 ] && [ "$n" -ge "$STUB_LEASE_AT" ] && : > "$STUB_DIR/eth0_leased"\n'
+        '    echo "$state (state)" ;;\n'
+        '  *connection*) echo "Home:wlan0" ;;\n'
+        "esac"
+    ),
+    "systemctl": "exit 0",
+}
+
+
+def _run_wait(tmp_path: Path, carrier: int, states: str, lease_at: int, settle_s: int = 5):
+    """Run the server's dispatcher on wlan0's lease while eth0 moves through `states`.
+    Returns the interface it put milo.local on and how many times it read eth0's state."""
+    conf_file = tmp_path / "avahi-daemon.conf"
+    conf_file.write_text("[server]\nallow-interfaces=eth0\n")
+    state_file = tmp_path / "avahi-interface"
+    state_file.write_text("none\n")
+    carrier_file = tmp_path / "carrier"
+    carrier_file.write_text(f"{carrier}\n")
+    script = DISPATCHER.read_text()
+    for name, value in (
+        ("AVAHI_CONF", conf_file), ("AVAHI_STATE_FILE", state_file),
+        ("ETH0_CARRIER_FILE", carrier_file), ("ETH0_SETTLE_S", settle_s),
+    ):
+        script, count = re.subn(rf'^{name}=.*$', f'{name}="{value}"', script, count=1, flags=re.M)
+        assert count == 1, f"the dispatcher no longer declares {name}; the rewrite is broken"
+    copy = tmp_path / "90-milo-network"
+    copy.write_text(script)
+
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    for name, body in _WAIT_STUBS.items():
+        stub = stubs / name
+        stub.write_text(f'#!/bin/sh\n{body}\n')
+        stub.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(copy), "wlan0", "dhcp4-change"],
+        env={"PATH": f"{stubs}:/usr/bin:/bin", "STUB_DIR": str(tmp_path),
+             "STUB_STATES": states, "STUB_LEASE_AT": str(lease_at)},
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    reads_file = tmp_path / "reads"
+    reads = int(reads_file.read_text()) if reads_file.exists() else 0
+    assert reads >= 1, f"the dispatcher never read eth0's state; stderr: {result.stderr!r}"
+    return state_file.read_text().strip(), reads
+
+
+def test_a_cable_networkmanager_has_not_started_on_still_wins_milo_local(tmp_path):
+    """The carrier lands before eth0 leaves disconnected (30) for prepare (40).
+
+    A single read of 30 in that gap ended the wait, so wlan0's earlier lease
+    published milo.local on WiFi, and a satellite resolving it then kept that
+    address for its whole session.
+    """
+    published, reads = _run_wait(tmp_path, carrier=1, states="30 30 50 70", lease_at=4)
+    assert published == "eth0", f"milo.local went to {published} after {reads} reads of eth0's state"
+
+
+def test_an_absent_cable_waits_nothing(tmp_path):
+    """A WiFi-only unit runs this on every wlan0 event; it must not wait for a cable that is not there."""
+    published, reads = _run_wait(tmp_path, carrier=0, states="20", lease_at=0)
+    assert published == "wlan0"
+    assert reads == 1, f"no carrier, yet eth0's state was read {reads} times"
+
+
+def test_a_cable_whose_profile_never_starts_waits_only_the_settle_bound(tmp_path):
+    """Carrier but no activation (no autoconnect profile): the wait must still end, on its own bound."""
+    published, reads = _run_wait(tmp_path, carrier=1, states="30", lease_at=0, settle_s=1)
+    assert published == "wlan0"
+    assert reads > 1, "a cable with carrier was given no time to start"
