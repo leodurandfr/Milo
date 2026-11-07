@@ -90,11 +90,11 @@ def test_a_wireless_interface_reports_its_negotiated_rate(client):
     assert body["unavailable"] == []
 
 
-def test_the_link_is_read_from_the_row_nmcli_does_not_translate():
+def test_the_signal_is_read_from_the_access_point_nmcli_marks_in_use():
     """`ACTIVE` is localized -- a unit in French answers `oui`. Keying on it
     would report no signal on a perfectly associated radio, and only on units
     whose locale someone changed. The access point is the one IN-USE marks
-    `*`, which nmcli never translates -- not the first listed, a neighbour at
+    `*`, which nmcli never translates -- not the first listed, a neighbor at
     87 here.
 
     The rate is not on that row: it is the device's CAPABILITIES.SPEED, read
