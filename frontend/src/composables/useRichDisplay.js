@@ -46,7 +46,9 @@ export function richSourceFor(state) {
   // 2026-09-25), and the card hid all of it (D14). The Lock Screen follows the
   // same clause, in the push (`payloads.shown_track`) and in the apps
   // (`MiloAudioState.shown`): backend/tests/contracts/connected_naming_cases.json
-  // holds the three equal. The 300 px AirPlay gate below is this screen's alone.
+  // holds this clause and the push's to the same answers, and the apps' text is
+  // pinned by the backend's contract test. The 300 px AirPlay gate below is
+  // this screen's alone.
   if (session?.phase === 'connected'
       && !(session.title && session.artist && session.artwork)) return null;
 

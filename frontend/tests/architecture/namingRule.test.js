@@ -4,11 +4,13 @@
  *
  * The screen decides it in `richSourceFor`, the push in the backend's
  * `payloads.shown_track`, and Milo-iOS / Milo-Mac in `MiloAudioState.shown`.
- * One table, `backend/tests/contracts/connected_naming_cases.json`, holds all
- * three to the same answers (the backend's test_naming_rule.py reads it for the
- * push). When it fails here, the screen and the Lock Screen disagree about a
- * sender Milō cannot call playing or paused: the kiosk says "Connected to X"
- * while the phone names a track, or the reverse.
+ * One table, `backend/tests/contracts/connected_naming_cases.json`, holds the
+ * screen and the push to the same answers (the backend's test_naming_rule.py
+ * reads it for the push); the apps' rule is pinned word for word by the
+ * backend's test_milo_ios_contract.py, since no Swift runs here. When it fails
+ * here, the screen and the Lock Screen disagree about a sender Milō cannot call
+ * playing or paused: the kiosk says "Connected to X" while the phone names a
+ * track, or the reverse.
  *
  * The table's `_domain` says what it leaves out — the 300 px AirPlay gate, the
  * browser sources, an availability reason — and each case is checked to sit

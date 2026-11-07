@@ -8,11 +8,13 @@ when the push and Milō's screen disagree, the Lock Screen names a track while t
 kiosk says "Connected to X", and when the push and the app disagree, the Lock
 Screen flips between the two at every round trip.
 
-`connected_naming_cases.json` is the one table the three implementations are
-held to: this file holds the push to it, frontend/tests/architecture/
-namingRule.test.js the screen, and test_milo_ios_contract.py::
-test_the_apps_name_a_connected_session_as_milo_does the vendored app rule. Its
-`_domain` says what it covers and what it leaves out on purpose.
+`connected_naming_cases.json` is the table the push and the screen are held
+to: this file holds the push to it, frontend/tests/architecture/
+namingRule.test.js the screen. No Swift runs in Milō's suite, so the apps'
+rule is not played against these rows: test_milo_ios_contract.py::
+test_the_apps_name_a_connected_session_as_milo_does pins its text word for
+word, and the apps' own MiloAudioStateTests run it. The table's `_domain` says
+what it covers and what it leaves out on purpose.
 """
 import json
 from pathlib import Path

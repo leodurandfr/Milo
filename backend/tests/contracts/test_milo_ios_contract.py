@@ -809,21 +809,46 @@ def _swift_code(source: str, signature: str) -> str:
     return code
 
 
+# The app rule, word for word (whitespace collapsed). No Swift runs here, so
+# the table's rows cannot be played against the decoder; what can be held is
+# its text. Any edit to either expression, a refactor included, turns this red
+# and has to be read against connected_naming_cases.json before the pin moves.
+_APP_SESSION_GUARD = (
+    "session.phase != .connected || Self.namesItsTrack(session),"
+    " let title = Self.nonEmpty(session.title) ?? untitled"
+)
+_APP_NAMES_ITS_TRACK = (
+    "nonEmpty(session.title) != nil && nonEmpty(session.artist) != nil"
+    " && nonEmpty(session.artwork) != nil"
+)
+
+
 def test_the_apps_name_a_connected_session_as_milo_does():
     """Milo-iOS' Lock Screen card and Milo-Mac's now-playing row name a
     CONNECTED session's track only when it carries a title, an artist and a
-    cover, as Milō's screen and its push do (connected_naming_cases.json,
-    test_naming_rule.py). Without it the app read a title the push had
-    replaced with the source card, and the Lock Screen flipped between the
-    two at every round trip. The rule lives in the shared decoder, not in the
-    bridge's `buildAttributes` (which must not test the phase: the test
+    cover, and any other session's with a title, as Milō's screen and its
+    push do (connected_naming_cases.json, test_naming_rule.py). Without it
+    the app read a title the push had replaced with the source card, and the
+    Lock Screen flipped between the two at every round trip.
+
+    The two expressions are pinned exactly, not by the tokens they use: an
+    inverted guard (`== .connected ||`) or an `||` in `namesItsTrack` uses
+    the same tokens and names the wrong sessions. The apps' own
+    MiloAudioStateTests run the rule; this pin is what a snapshot refresh
+    cannot pass by accident. The rule lives in the shared decoder, not in
+    the bridge's `buildAttributes` (which must not test the phase: the test
     above), so the Mac file — byte-identical, test_the_two_apps_decode_the_
     state_with_one_file — carries it too."""
     decoder = (VENDOR_DIR / "MiloAudioState.swift").read_text()
-    shown = _swift_code(decoder, "func shown(untitledTrack:")
-    assert ".connected" in shown and "namesItsTrack(session)" in shown, (
-        "MiloAudioState.shown no longer holds a connected session to namesItsTrack"
+    shown = " ".join(_swift_code(decoder, "func shown(untitledTrack:").split())
+    guard = re.search(r"if let session, (.*?) \{", shown)
+    assert guard, "MiloAudioState.shown no longer opens on the session"
+    assert guard.group(1) == _APP_SESSION_GUARD, (
+        f"MiloAudioState.shown's session guard moved: {guard.group(1)!r}"
     )
-    names = _swift_code(decoder, "static func namesItsTrack(")
-    for field in ("session.title", "session.artist", "session.artwork"):
-        assert field in names, f"namesItsTrack no longer requires {field}"
+    names = " ".join(_swift_code(decoder, "static func namesItsTrack(").split())
+    body = re.search(r"-> Bool \{ (.*?) \}", names)
+    assert body, "namesItsTrack's body was not isolated"
+    assert body.group(1) == _APP_NAMES_ITS_TRACK, (
+        f"namesItsTrack's predicate moved: {body.group(1)!r}"
+    )

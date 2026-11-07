@@ -90,8 +90,10 @@ def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     its track only with a title, an artist and a cover, as Milō's own screen
     draws it (D14, `richSourceFor`); otherwise the card is the source's. The
     screen's 300 px gate on an AirPlay sender's cover is left out on purpose:
-    it is the kiosk's image-quality call, not the Lock Screen's. The three
-    implementations are held equal by `tests/contracts/connected_naming_cases.json`."""
+    it is the kiosk's image-quality call, not the Lock Screen's. This rule and
+    the screen's are held to `tests/contracts/connected_naming_cases.json`; the
+    apps' is pinned word for word by test_milo_ios_contract.py and run by their
+    own MiloAudioStateTests."""
     details = state.get("details") or {}
     number = details.get("current_track") if details.get("kind") == "cd" else None
     for key in ("session", "resume"):
