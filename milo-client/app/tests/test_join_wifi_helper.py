@@ -21,6 +21,8 @@ HELPER = (
     Path(__file__).resolve().parents[2] / "rootfs" / "usr" / "local" / "bin" / "milo-client-join-wifi"
 )
 IFACE_LINE = 'IFACE="wlan0"\n'
+SET_COUNTRY_LINE = 'SET_COUNTRY="/usr/local/bin/milo-set-wifi-country"\n'
+CMDLINE_LINE = '    cmdline="/boot/firmware/cmdline.txt"\n'
 SSID = "Freebox-CA3555"
 PSK = "correct-horse"
 
@@ -85,19 +87,34 @@ def world(tmp_path):
     """A copy of the helper on an interface every host has, and the nmcli stub.
 
     The helper refuses a unit with no wlan0, which CI has not; nmcli is the stub,
-    so the interface name reaches nothing real.
+    so the interface name reaches nothing real. The regulatory-domain step is
+    pointed at an empty cmdline.txt of its own and a country setter that only
+    logs, so a country on stdin rewrites nothing on the host.
     """
     text = HELPER.read_text(encoding="utf-8")
-    assert text.count(IFACE_LINE) == 1, f"{IFACE_LINE.strip()!r} not found exactly once"
+    country_log = tmp_path / "country.log"
+    set_country = tmp_path / "milo-set-wifi-country"
+    set_country.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> {country_log}\n')
+    set_country.chmod(0o755)
+    cmdline = tmp_path / "cmdline.txt"
+    cmdline.write_text("")
+    for line, replacement in [
+        (IFACE_LINE, 'IFACE="lo"\n'),
+        (SET_COUNTRY_LINE, f'SET_COUNTRY="{set_country}"\n'),
+        (CMDLINE_LINE, f'    cmdline="{cmdline}"\n'),
+    ]:
+        assert text.count(line) == 1, f"{line.strip()!r} not found exactly once"
+        text = text.replace(line, replacement)
     helper = tmp_path / "milo-client-join-wifi"
-    helper.write_text(text.replace(IFACE_LINE, 'IFACE="lo"\n'), encoding="utf-8")
+    helper.write_text(text, encoding="utf-8")
 
     stubs = tmp_path / "bin"
     stubs.mkdir()
     nmcli = stubs / "nmcli"
     nmcli.write_text(f"#!{sys.executable}\n{NMCLI_STUB}")
     nmcli.chmod(0o755)
-    return {"helper": helper, "stubs": stubs, "state": tmp_path / "nm.json", "log": tmp_path / "nm.log"}
+    return {"helper": helper, "stubs": stubs, "state": tmp_path / "nm.json", "log": tmp_path / "nm.log",
+            "country_log": country_log}
 
 
 def _run(world, profiles, psk, active="", scan=()):
@@ -180,16 +197,18 @@ def test_an_empty_key_is_saved_open_unless_the_network_was_seen_secured_only(wor
 
 
 @pytest.mark.parametrize("args", [(SSID,), ("--help",), ("",)])
-def test_an_argument_is_refused_before_networkmanager_is_asked(world, args):
+def test_an_argument_is_refused_before_anything_runs_as_root(world, args):
     """sudo grants the helper with none (`""`); one given here is a caller that bypassed the route.
 
-    The control is the same push without the argument, which reaches nmcli and
-    saves the profile — so the refusal is the argument's doing, not a world
+    The push carries a country, so a refusal placed after the regulatory-domain
+    step would let the argv rewrite cmdline.txt as root first. The control is
+    the same push without the argument, which sets the country, reaches nmcli
+    and saves the profile — so the refusal is the argument's doing, not a world
     that cannot run the helper.
     """
     world["state"].write_text(json.dumps({"profiles": {}, "active": "", "added": [], "scan": []}))
     run = functools.partial(
-        subprocess.run, input=f"\n{SSID}\n{PSK}\n",
+        subprocess.run, input=f"FR\n{SSID}\n{PSK}\n",
         env={"PATH": f"{world['stubs']}:/usr/bin:/bin",
              "NM_STATE": str(world["state"]), "NM_LOG": str(world["log"])},
         capture_output=True, text=True, timeout=30,
@@ -198,7 +217,9 @@ def test_an_argument_is_refused_before_networkmanager_is_asked(world, args):
     refused = run(["bash", str(world["helper"]), *args])
     assert refused.returncode == 1, (refused.stdout, refused.stderr)
     assert refused.stderr.startswith("ERROR:")
+    assert not world["country_log"].exists()
     assert not world["log"].exists()
 
     control = run(["bash", str(world["helper"])])
     assert (control.returncode, control.stdout.strip()) == (0, "saved"), control.stderr
+    assert world["country_log"].read_text() == "FR\n"
