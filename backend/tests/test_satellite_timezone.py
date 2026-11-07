@@ -9,6 +9,7 @@ the log at every admission, or one that refuses or is gone breaks the admission
 or the settings screen that pushed to it.
 """
 import asyncio
+import json
 import logging
 from unittest.mock import Mock, patch
 
@@ -25,6 +26,8 @@ class _Response:
         self._payload = payload
 
     async def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
         return self._payload
 
     async def text(self):
@@ -188,6 +191,30 @@ async def test_a_satellite_that_refuses_or_is_gone_raises_nothing(localtime, cap
             await _service().push("192.168.1.60")
 
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+@pytest.mark.parametrize("payload", [
+    {},
+    {"status": "success", "data": None},
+    ["not", "an", "object"],
+    json.JSONDecodeError("Expecting value", "<html>", 0),
+], ids=["empty", "no-data", "a-list", "not-json"])
+async def test_a_200_that_is_not_the_satellites_answer_raises_nothing(localtime, caplog, payload):
+    """Something else on port 8001, or a satellite whose answer drifted.
+
+    The body is read past the status, so a key it lacks is a KeyError and a body
+    that is not JSON a ValueError — neither is aiohttp's. Raised, the admission
+    task dies at ERROR in `BackgroundTaskSet` (the red banner, at every
+    admission) and the push after a change dies as an ASGI traceback.
+    """
+    localtime("Europe/Paris")
+    satellite = _Satellite(payload=payload)
+
+    with _session(satellite), caplog.at_level(logging.WARNING, logger="backend.core.multiroom.satellite_timezone"):
+        await _service().push("192.168.1.60")
+
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert "192.168.1.60" in caplog.records[0].getMessage()
 
 
 async def test_a_push_that_read_the_old_zone_never_lands_after_the_new_one(localtime):

@@ -69,9 +69,20 @@ class SatelliteTimezoneService:
                     json={"timezone": zone},
                 ) as resp:
                     if resp.status == 200:
-                        body = await resp.json()
+                        # Read past the status: a body that is not the
+                        # satellite's answer (another service on the port, a
+                        # drifted shape) raises outside aiohttp's errors, and
+                        # raised here it would be an ERROR at every admission.
+                        try:
+                            changed = (await resp.json())["data"]["changed"]
+                        except (ValueError, KeyError, TypeError) as exc:
+                            logger.warning(
+                                "Satellite %s answered timezone %s with an unreadable body: %r",
+                                client_ip, zone, exc,
+                            )
+                            return
                         self._lacking_route.discard(client_ip)
-                        if body["data"]["changed"]:
+                        if changed:
                             logger.info("Satellite %s now runs on %s, the server's timezone", client_ip, zone)
                         return
                     detail = await resp.text()
