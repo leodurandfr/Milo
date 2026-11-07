@@ -1593,7 +1593,14 @@ class SpotifySource(BaseAudioSource):
         measured): GET /player/queue's current entry, described at 0. The
         order is read again only when a `queue` said it moved. None when
         nothing names a new one (a stock go-librespot, metadata not cached, a
-        read that failed): the track on screen stands, nothing cleared."""
+        read that failed): the track on screen stands, nothing cleared.
+
+        A track relinked to a market alternative, on its first load, is named
+        here by the uri its context lists and by the alternative's once /status
+        names it, so
+        `track_uri` moves once inside the same track: the relink is decided
+        when the stream loads, after this read. Same title and anchor; the
+        cost is one more state and one more history read on the Recent tab."""
         if not status.buffering:
             return None
         if self._order_stale:
