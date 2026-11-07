@@ -406,18 +406,20 @@ EOF
     # whatever the image baked, which nothing refreshes — milo-deploy-update
     # walks the server tree only. Measured on a unit flashed 2026-06-20: the
     # on-disk milo-client policy was June's, carrying no `PASSWD: ALL` rule at
-    # all, so the blanket NOPASSWD Raspberry Pi OS grants the image's first user
-    # was never taken back and every argument-scoped grant below it was
-    # decorative — the exact state 88c3c870 exists to prevent.
+    # all. That rule takes back the blanket NOPASSWD: ALL a base image may give
+    # its first user (010_pi-nopasswd); where that user is milo-client (a
+    # script-installed unit), the June policy left every argument-scoped grant
+    # decorative — the exact state 88c3c870 exists to prevent. On a card this
+    # function converts, the first user is `milo` and milo-client, created at
+    # step 2, is named by no blanket; what a blanket there would expose is
+    # `milo`, whose own takeback lives in milo-backend, removed at step 8a.
     #
     # Validated before it can take effect: sudo skips a policy with a syntax
     # error rather than refusing to run, so a malformed one is ignored whole —
-    # its grants and its first rule alike. That rule only takes back the blanket
-    # NOPASSWD: ALL the image gives its first user; on a card this function
-    # converts that user is `milo`, and milo-client, created at step 2, is named
-    # by no blanket, so a skipped policy leaves the satellite every grant short
-    # and asking for a password it has no way to type. Same order as
-    # configure_server's restore path.
+    # its grants and its first rule alike. Since no blanket names milo-client
+    # here, a skipped policy leaves the satellite every grant short and asking
+    # for a password it has no way to type. Same order as configure_server's
+    # restore path.
     local client_policy="$MILO_APP_DIR/milo-client/rootfs/etc/sudoers.d/milo-client"
     if [[ -f "$client_policy" ]]; then
         cp "$client_policy" /etc/sudoers.d/milo-client
