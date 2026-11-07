@@ -49,20 +49,31 @@ follows:
 - A killed daemon says nothing; its session ends when its process does (the
   base's pidfd watch).
 
-A daemon whose connections went dead. go-librespot reaches Spotify's services
-(spclient: track metadata, connect-state, the library) through one Go
+A daemon whose connections went dead. A link change leaves go-librespot's
+connections bound to an address the unit no longer has: nothing answers on
+them, and nothing resets them until the address comes back. Its services
+(spclient: track metadata, connect-state, the library) go through one Go
 http.Client, which keeps its HTTP/2 connections and never checks them (no
 ReadIdleTimeout; a request that times out leaves its connection in the pool).
-Measured 2026-11-05 on 0.10.5: the server's eth0 was cut mid-play while wlan0
-kept the internet. The accesspoint and the dealer reconnected on their own
-pings within two minutes; every spclient request kept timing out ("context
-deadline exceeded", 13 in 5 min) on the connections bound to eth0's vanished
-address, the next track failed to load, and the session sat LOADING for
-good. A load (a track's, or a context's before it) that times out on a
-spclient connection the daemon held is therefore answered by a restart of
-that run, unless the link is down — where a new process would not do
-better, and the session is only asked to end. The session ends STREAM_LOST
-and the banner says so until music plays again.
+The accesspoint, which carries the audio keys, sends no ping of its own: it
+answers Spotify's, and checks every 120 s whether its pong-ack deadline (the
+last ack, or 120 s past a reconnection) is over 120 s behind — so it gives up
+120 to 240 s after the last ack. The dealer pings every 30 s and gives up past
+40 s without a pong, within 60 s of the loss (0.10.5's code). Measured
+2026-11-05 on 0.10.5: the server's eth0 was cut mid-play while wlan0 kept the
+internet; every spclient request kept timing out ("context deadline
+exceeded", 13 in 5 min), the next track failed to load, and the session sat
+LOADING for good. Measured 2026-11-07, the same cut (a build whose
+accesspoint is 0.10.5's): three loads in a row failed on their audio key
+("failed retrieving audio key: context deadline exceeded"), a banner per
+load, and the session sat LOADING 130 s, until the first load after the
+accesspoint gave up (~150 s after the cut); a new one authenticated over
+wlan0 70 ms after the old one closed. A load (a track's, or a context's
+before it) that times out on a connection the daemon held is therefore
+answered by a restart of that run, unless the link is down —
+where a new process would not do better, and the session is only asked to
+end. The session ends STREAM_LOST and the banner says so until music plays
+again.
 
 Another device. go-librespot is told by Spotify what every device of the
 account does, and its /status names the active one when it is not this one
@@ -272,19 +283,29 @@ def login_failure(line: str) -> Optional[str]:
 
 
 def timed_out_unanswered(line: str) -> bool:
-    """Whether a go-librespot error chain is a spclient request nobody
-    answered in time: the context's deadline, or http.Client's own timeout.
+    """Whether a go-librespot error chain is a request nobody answered in
+    time on a connection the daemon held: a spclient request (the context's
+    deadline, or http.Client's own timeout), or an audio key waited for on
+    the accesspoint (15 s).
 
     What a connection held from before a link change says: it does not fail,
-    it goes unanswered. Only the spclient's pooled connections outlive a link
-    change (module docstring): an audio key waiting on the accesspoint (15 s)
-    or a slow CDN chunk times out too, and a new process would do no better
-    for either. Read after login_failure, which claims the chains that name a
-    cause (a connection that could not open, `dial tcp …`; a login5 outage
+    it goes unanswered, for minutes (module docstring). A key request written
+    just before the accesspoint replaced its connection on its own times out
+    the same way on a live accesspoint, and is answered by a restart too:
+    never measured, and its load fails either way. A slow CDN chunk is not
+    read as one: go-librespot retries its download (three times, 1 s apart),
+    and it was never measured dead; nor is a key wait its caller cancelled (a
+    newer load). Read after login_failure, which claims the chains that name
+    a cause (a connection that could not open, `dial tcp …`; a login5 outage
     that ran out of retries). Wording is go-librespot 0.10.5's (spclient.go
-    wraps every transport error as "spclient request failed: %w"; Go 1.25's
-    net/http) — re-read it on every bump.
+    wraps every transport error as "spclient request failed: %w"; player.go
+    wraps the key's as "failed retrieving audio key: %w" over
+    KeyProvider.Request's bare context error, which a build that retries the
+    key first wraps once more; Go 1.25's net/http) — re-read it on every bump.
     """
+    _, key, key_error = line.partition("failed retrieving audio key: ")
+    if key and "context deadline exceeded" in key_error:
+        return True
     return "spclient request failed" in line and (
         "context deadline exceeded" in line or "Client.Timeout exceeded" in line
     )
@@ -2223,8 +2244,9 @@ class SpotifySource(BaseAudioSource):
     async def _recover_unanswered(self, line: str, invocation: Optional[str]) -> None:
         """A load of the run `invocation` (a track, or the context before it)
         went unanswered: nothing plays, and go-librespot does not try it
-        again. Its pooled connections are what died (module docstring), and
-        only a new process drops them — go-librespot has no route to.
+        again. The connections it held are what died (module docstring):
+        spclient's pool it never drops, the accesspoint it drops minutes
+        later; a new process opens new ones at once.
 
         Not while music plays: go-librespot drops the stream before the load
         that fails, so a PLAYING session means a later load went through and

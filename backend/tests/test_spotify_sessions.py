@@ -576,6 +576,23 @@ UNANSWERED_PUT = (
     'time="2026-11-05T17:32:02+01:00" level=error msg="failed put state because '
     'PLAYER_STATE_CHANGED" error="context deadline exceeded"'
 )
+# The same cut on 2026-11-07, the accesspoint's turn: the first of three loads
+# in a row, logged by the loader, then by its caller.
+KEY_UNANSWERED = (
+    'time="2026-11-07T12:17:52+01:00" level=warning msg="failed load '
+    'spotify:track:77lPC0YqxUODd674qz9LmV" error="failed creating stream for '
+    'spotify:track:77lPC0YqxUODd674qz9LmV: failed retrieving audio key: context deadline exceeded"',
+    'time="2026-11-07T12:17:52+01:00" level=warning msg="failed skipping to next track" '
+    'error="failed loading current track (advance to spotify:track:77lPC0YqxUODd674qz9LmV): '
+    'failed creating stream for spotify:track:77lPC0YqxUODd674qz9LmV: failed retrieving audio '
+    'key: context deadline exceeded"',
+)
+# Not measured: the same load on a build that retries the key on a new
+# connection before giving up wraps the deadline once more.
+KEY_UNANSWERED_RETRIED = tuple(
+    line.replace("audio key: context", "audio key: aes key request timed out: context")
+    for line in KEY_UNANSWERED
+)
 AP_SIGNED_IN = 'level=info msg="authenticated AP" username="p6*********************xy"'
 SIGNED_IN = 'level=info msg="authenticated Login5" username="p6*********************xy"'
 
@@ -630,23 +647,52 @@ async def test_a_context_nobody_answered_restarts_the_daemon(world, line):
     assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
 
 
-async def test_an_audio_key_nobody_answered_restarts_nothing(world):
-    """The audio key waits 15 s on the accesspoint, which reconnects on its
-    own pings: a new process would cut a Connect session a press on the
-    phone resumes once it is back. Only spclient's pool outlives a link."""
+@pytest.mark.parametrize("lines", [KEY_UNANSWERED, KEY_UNANSWERED_RETRIED], ids=["0.10.5", "retried"])
+async def test_an_audio_key_nobody_answered_restarts_the_daemon_once(world, lines):
+    """Measured 2026-11-07: the accesspoint stayed bound to eth0's vanished
+    address for minutes, three loads in a row failed on their audio key and
+    the session sat LOADING 130 s, a banner per load; a new accesspoint
+    authenticated over wlan0 70 ms after the old one closed. Each load is
+    logged twice, by the loader and by its caller: read twice, the second
+    line would restart the run that replaced the dead one."""
     await world.phone_plays(PARAPLUIE)
     await the_next_load_hangs(world)
 
-    await world.journal_says(
-        'level=error msg="failed advancing to next track" error="failed loading current track '
-        '(advance to spotify:track:x): failed creating stream for spotify:track:x: failed '
-        'retrieving audio key: context deadline exceeded"'
-    )
+    for line in lines:
+        await world.journal_says(line)
+    await world.idle()
+
+    assert len(world.restarts) == 1
+    assert not world.active()
+    assert world.session_ends()[-1] == "stream_lost"
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+@pytest.mark.parametrize("line", [
+    # A load a newer press replaced: its key wait ends on the caller's context
+    'level=warning msg="failed skipping to next track" error="failed loading current track '
+    '(skip next): failed creating stream for spotify:track:x: failed retrieving audio key: '
+    'context canceled"',
+    # A CDN chunk: go-librespot retries its download, and it was never measured dead
+    'level=error msg="failed advancing to next track" error="failed loading current track '
+    '(advance to spotify:track:x): failed creating stream for spotify:track:x: failed creating '
+    'chunked reader: failed creating chunked reader for any cdn url: failed downloading chunk 0: '
+    'Get \\"https://audio-ak.spotifycdn.com/audio/x\\": context deadline exceeded '
+    '(Client.Timeout exceeded while awaiting headers)"',
+], ids=["key_canceled", "cdn_chunk"])
+async def test_a_load_that_failed_otherwise_restarts_nothing(world, line):
+    """Only a connection the daemon held and nobody answers is worth a new
+    process: a restart ends the Connect session, and for these the next
+    press plays."""
+    await world.phone_plays(PARAPLUIE)
+    await the_next_load_hangs(world)
+
+    await world.journal_says(line)
     await world.idle()
 
     assert world.restarts == []
     assert world.active()
-    assert world.errors() == [SourceErrorReason.TRACK_LOAD_FAILED]
+    assert SourceErrorReason.STREAM_DISCONNECTED not in world.errors()
 
 
 async def test_state_pushes_nobody_answered_restart_nothing(world):
@@ -751,7 +797,8 @@ async def test_a_late_line_restarts_nothing_when_systemd_cannot_name_the_run(wor
     assert len(world.restarts) == 1
 
 
-async def test_a_load_unanswered_on_a_link_down_ends_the_session_and_keeps_the_daemon(world):
+@pytest.mark.parametrize("lines", [(UNANSWERED_ADVANCE,), KEY_UNANSWERED], ids=["spclient", "audio_key"])
+async def test_a_load_unanswered_on_a_link_down_ends_the_session_and_keeps_the_daemon(world, lines):
     """With no internet a new process would time out the same way, and its
     sign-in would fail at every Restart=. But go-librespot does not try the
     load again, so the session sat LOADING with nothing to bring it back:
@@ -763,7 +810,8 @@ async def test_a_load_unanswered_on_a_link_down_ends_the_session_and_keeps_the_d
     await the_next_load_hangs(world)
     world.machine.connectivity_service = SimpleNamespace(level=ConnectivityLevel.LIMITED)
 
-    await world.journal_says(UNANSWERED_ADVANCE)
+    for line in lines:
+        await world.journal_says(line)
     await world.idle()
 
     assert world.restarts == []
