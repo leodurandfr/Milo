@@ -1,5 +1,5 @@
 {
-  "_domain": "Whether an audio state names a track, as three readers decide it: Milō's screen (`richSourceFor`, frontend/src/composables/useRichDisplay.js — a full view rather than the source card), its Lock Screen push (`payloads.shown_track`, backend/core/push/payloads.py — a track rather than the source card) and Milo-iOS / Milo-Mac (`MiloAudioState.shown`). Only the first two are run against these rows: no Swift runs in Milō's suite, so the apps' rule is pinned word for word by test_milo_ios_contract.py::test_the_apps_name_a_connected_session_as_milo_does and run by their own MiloAudioStateTests. The rule they share: a CONNECTED session — a sender Milō cannot call playing or paused — names its track only with a title, an artist and a cover (D14); any other session names it with a title. Read by backend/tests/contracts/test_naming_rule.py and frontend/tests/architecture/namingRule.test.js. Covered: sources without a browser (AirPlay, Bluetooth, Mac), with `service` running, `switching` false and no availability reason, and AirPlay covers wider than 300 px. Left out on purpose, because the readers differ there by design: the 300 px gate on an AirPlay sender's cover (the kiosk's own image-quality call, never the Lock Screen's), the browser sources (their view is drawn whatever the session names), and an availability reason or a source change (both draw the card on Milō's screen whatever the push shows). Every state is a whole wire state (`AudioState`), validated as such.",
+  "_domain": "Whether an audio state names a track, as three readers decide it: Milō's screen (`richSourceFor`, frontend/src/composables/useRichDisplay.js — a full view rather than the source card), its Lock Screen push (`payloads.shown_track`, backend/core/push/payloads.py — a track rather than the source card) and Milo-iOS / Milo-Mac (`MiloAudioState.shown`). Only the first two are run against these rows: no Swift runs in Milō's suite, so the apps' rule is pinned word for word by test_milo_ios_contract.py::test_the_apps_name_a_connected_session_as_milo_does and run by their own MiloAudioStateTests. The rule they share: a CONNECTED session — a sender Milō cannot call playing or paused — names its track only with a title, an artist and a cover (D14); any other session names it with a title. Read by backend/tests/contracts/test_naming_rule.py and frontend/tests/architecture/namingRule.test.js. Covered: sources without a browser (AirPlay, Bluetooth, Mac), with `service` running, `switching` false and no availability reason, and AirPlay covers wider than 300 px. Left out on purpose, because the readers differ there by design: the 300 px gate on an AirPlay sender's cover (the kiosk's own image-quality call, never the Lock Screen's), the browser sources (their view is drawn whatever the session names), and an availability reason or a source change (both draw the card on Milō's screen whatever the push shows). The phases other than `connected` (playing, paused, loading) sit beside it so that a rule widened past D14 — the full name required of every phase but playing, say — fails a row instead of only a paused track on the Lock Screen. A Mac session never carries a title (roc-recv names its senders and nothing else), so it appears only unnamed. Every state is a whole wire state (`AudioState`), validated as such.",
   "cases": [
     {
       "id": "bluetooth connected, a title alone",
@@ -123,6 +123,54 @@
                     "position": {"ms": 1000, "at": 1790270000.25, "rate": 1.0}},
         "controls": ["pause", "next", "prev", "disconnect"], "resume": null,
         "details": {"kind": "bluetooth", "artwork_pending": false},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "bluetooth paused, a title alone",
+      "shown": true,
+      "state": {
+        "source": "bluetooth", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "b1a0c3d5e7f90b1a2c3d4e5f6071829a", "phase": "paused",
+                    "title": "Says", "artist": null, "album": null, "artwork": null,
+                    "senders": ["iPhone de Léo"], "duration_ms": 528000,
+                    "position": {"ms": 61000, "at": 1790270060.25, "rate": 1.0}},
+        "controls": ["resume", "next", "prev", "disconnect"], "resume": null,
+        "details": {"kind": "bluetooth", "artwork_pending": false},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "bluetooth loading, a title alone",
+      "shown": true,
+      "state": {
+        "source": "bluetooth", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "b1a0c3d5e7f90b1a2c3d4e5f6071829b", "phase": "loading",
+                    "title": "Says", "artist": null, "album": null, "artwork": null,
+                    "senders": ["iPhone de Léo"], "duration_ms": 528000, "position": null},
+        "controls": ["pause", "next", "prev", "disconnect"], "resume": null,
+        "details": {"kind": "bluetooth", "artwork_pending": false},
+        "multiroom_enabled": false, "equalizer_effects_enabled": true
+      }
+    },
+    {
+      "id": "airplay paused, a title and a 600 px cover, no artist",
+      "shown": true,
+      "state": {
+        "source": "airplay", "switching": false, "service": "running", "service_error": null,
+        "availability": {"radio": null, "podcast": null, "music_library": null, "cd": null, "spotify": null,
+                         "tidal": null, "qobuz": null, "airplay": null, "bluetooth": null, "mac": null},
+        "session": {"id": "a1a0c3d5e7f90b1a2c3d4e5f6071829c", "phase": "paused",
+                    "title": "Hyperballad", "artist": null, "album": null,
+                    "artwork": "/api/airplay/artwork?v=4",
+                    "senders": ["iPhone de Léo"], "duration_ms": 321000,
+                    "position": {"ms": 42000, "at": 1790270042.5, "rate": 1.0}},
+        "controls": [], "resume": null,
+        "details": {"kind": "airplay", "artwork_width": 600, "shuffle": false, "repeat": "off"},
         "multiroom_enabled": false, "equalizer_effects_enabled": true
       }
     }
