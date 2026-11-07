@@ -293,7 +293,9 @@ class CdSource(MpvAudioSource):
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
         """Keep the track and second to resume (SOURCE_SWITCH), release the
-        drive and mpv."""
+        drive and mpv. A disc inserted under CD and not played yet is, on
+        the next open, a disc already in the slot: preloaded paused."""
+        self._play_on_ready = False
         await self._end_with_position(EndReason.SOURCE_SWITCH)
         await self._cleanup()
         return await self._stop_service()

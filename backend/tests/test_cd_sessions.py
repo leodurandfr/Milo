@@ -728,6 +728,23 @@ async def test_a_disc_named_within_the_grace_is_never_shown_unnamed(world):
     assert w.disc()["album"] == "Eight"
 
 
+async def test_a_disc_inserted_under_cd_then_left_is_restored_paused_on_reopen(world):
+    """A disc inserted while CD was open plays by itself; the user leaving CD
+    before it could ends that wish. Reopened, it is a disc already in the
+    slot, parked paused (owner decision, 2026-09-23), even when its name
+    is still on the way."""
+    w = await world(disc=None)
+    await w.select()
+    w.lookup_gate = asyncio.Event()
+    await w.insert()
+    await w.leave()
+    await w.advance(IDENTIFY_GRACE_S + 0.1)
+    await w.select()
+    await w.advance(IDENTIFY_GRACE_S + 0.1)
+    assert w.phase() == "paused"
+    assert w.track() == 1
+
+
 async def test_an_eject_the_drive_does_not_carry_out_still_ends_in_a_playable_disc(world):
     """E35 inside the grace: the grace expires while the disc is "ejecting",
     and the disc the drive kept goes back to waiting for its name. It must
