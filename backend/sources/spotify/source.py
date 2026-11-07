@@ -1597,10 +1597,13 @@ class SpotifySource(BaseAudioSource):
 
         A track relinked to a market alternative, on its first load, is named
         here by the uri its context lists and by the alternative's once /status
-        names it, so
-        `track_uri` moves once inside the same track: the relink is decided
-        when the stream loads, after this read. Same title and anchor; the
-        cost is one more state and one more history read on the Recent tab."""
+        names it, so `track_uri` moves once inside the same track: the relink
+        is decided when the stream loads, after this read. Same title and
+        anchor; the cost is one more state, one more GET /player/queue (the
+        order read during the load holds only the listed uri), one more
+        history read on the Recent tab, and a listing's playing row that is lit
+        during the load and dark from the flip on — it matches the listed uri,
+        which /status never names for a relinked track."""
         if not status.buffering:
             return None
         if self._order_stale:
