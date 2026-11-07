@@ -425,7 +425,7 @@ def test_a_no_argument_grant_permits_the_bare_command_only():
 
 
 # How a helper refuses any argument: its input comes on stdin, so an argv is a
-# caller that bypassed the route (milo-client-set-timezone, milo-set-password).
+# caller that bypassed the route.
 ARGV_REFUSAL = re.compile(r"^\s*if \(\(\s*\$#\s*!=\s*0\s*\)\)", re.MULTILINE)
 
 
@@ -454,8 +454,14 @@ def test_a_helper_that_refuses_every_argument_is_granted_none():
     )
 
     assert refusing == granted_none, (
-        f"refuse every argument but are granted more than none: {sorted(refusing - granted_none)}; "
+        f"refuse every argument but are not granted with none: {sorted(refusing - granted_none)}; "
         f"granted none but accept an argument: {sorted(granted_none - refusing)}"
+    )
+    # sudo matches each line on its own, so a second, bare line for the same
+    # helper is the one that matches every argv the `""` line refuses.
+    granted_more = {command for command, args in grants if args != NO_ARGUMENTS}
+    assert not refusing & granted_more, (
+        f"refuse every argument but hold a grant besides `\"\"`: {sorted(refusing & granted_more)}"
     )
 
 
