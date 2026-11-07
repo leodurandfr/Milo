@@ -8,6 +8,8 @@ Tests cover:
 - BaseAudioSource lifecycle
 """
 import asyncio
+import errno
+import functools
 from backend.core.models.ws_events import SourceErrorReason
 import logging
 
@@ -20,6 +22,8 @@ from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.session import EndReason, Phase, PhaseEvent, Session
 from backend.core.state import AudioStateMachine
+from backend.shared.clock_step import WallClockStepWatch
+from backend.tests.test_clock_step import FakeLoop, FakeTimerfdOs
 
 
 class _ValueParams(BaseModel):
@@ -547,6 +551,43 @@ class TestThePlayheadReachesBothSinks:
         anchor = positions[-1]
         read = anchor["ms"] + (clock[0] + clock[1] - anchor["at"]) * 1000 * anchor["rate"]
         assert abs(read - 10000) <= 1000
+
+    @pytest.mark.asyncio
+    async def test_the_watch_the_machine_starts_re_dates_the_active_source(self, wired, clock, monkeypatch):
+        """The kernel's notice reaches the source only through the watch the
+        machine starts at boot and the callback it hands that watch: called by
+        hand, `clock_stepped` proves the source half and nothing of the wiring,
+        so a watch built on a callback that does nothing logged the step and
+        left the bar at the end of the track. The kernel and the loop's reader
+        table are the fakes; the watch, the machine and the source are real."""
+        source, state_machine = wired
+        fake_os, loop = FakeTimerfdOs(), FakeLoop()
+        monkeypatch.setattr(
+            "backend.core.state.WallClockStepWatch",
+            functools.partial(WallClockStepWatch, os_module=fake_os, loop=loop),
+        )
+        state_machine.start_clock_step_watch()
+        assert list(loop.readers) == [42], "the machine started no watch"
+        await source.command("test_command", {})
+
+        clock[0] += 10.0
+        clock[1] += 2750.0
+        fake_os.read_raises = OSError(errno.ECANCELED, "clock was set")
+        loop.readers[42]()
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        positions = [
+            e["data"]["position"] for e in self._envelopes(state_machine)
+            if (e["category"], e["type"]) == ("source", "position")
+        ]
+        assert positions, "the kernel's notice never re-dated the active source"
+        anchor = positions[-1]
+        read = anchor["ms"] + (clock[0] + clock[1] - anchor["at"]) * 1000 * anchor["rate"]
+        assert abs(read - 10000) <= 1000
+
+        state_machine.cleanup()
+        assert loop.readers == {} and fake_os.closed == [42], "the watch outlived the machine"
 
     @pytest.mark.asyncio
     async def test_an_anchor_taken_after_a_step_is_not_re_dated_again(self, wired, clock):
