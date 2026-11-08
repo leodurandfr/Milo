@@ -94,13 +94,14 @@ def keep_the_suite_out_of_the_live_store_folders(tmp_path_factory):
     """
     from backend.core.volume.state import VolumeStateStore
     from backend.sources.radio.data import ImageManager
-    from backend.sources.radio.logos import StationLogos
+    from backend.sources.radio.logos import StationLogos, TrackCovers
 
     tmp = tmp_path_factory.mktemp("stores")
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(VolumeStateStore, "STORAGE_PATH", tmp / "last_volume.json")
         mp.setattr(ImageManager, "IMAGES_DIR", tmp / "radio_images")
         mp.setattr(StationLogos, "LOGOS_DIR", tmp / "radio_logos")
+        mp.setattr(TrackCovers, "LOGOS_DIR", tmp / "radio_covers")
         yield
 
 

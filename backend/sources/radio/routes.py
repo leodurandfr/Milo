@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, Response
 
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.radio.genres import VALID_GENRES
+from backend.sources.radio import radiofrance
 from backend.sources.radio.source import RadioSource
 from backend.sources.radio.models import (
     PlayStationRequest,
@@ -542,4 +543,37 @@ async def get_favicon_proxy(
         content=content,
         media_type=media_type,
         headers={"Cache-Control": "public, max-age=86400", **_FAVICON_HEADERS},
+    )
+
+
+
+@router.get(
+    "/covers/{cover}", response_class=Response,
+    responses={
+        **image_responses("image/webp", "image/jpeg"),
+        404: {"description": "Not a cover id, or no usable image behind it."},
+    },
+)
+async def get_track_cover(
+    request: Request,
+    cover: str,
+    source: RadioSource = Depends(get_source),
+) -> Response:
+    """
+    A Radio France song's cover, from Milō's cache (see `radiofrance.COVER_ROUTE`).
+
+    WebP to a caller that names it, JPEG to the rest: the iPhone's Lock Screen
+    draws no WebP, and Radio France serves nothing else. The URL fetched is
+    built from the id, never taken from the caller.
+    """
+    url = radiofrance.cover_source(cover)
+    image = await source.covers.get(url, request.headers.get("accept", "")) if url else None
+    if image is None:
+        return Response(status_code=404, headers=_FAVICON_HEADERS)
+    content, media_type = image
+    return Response(
+        content=content,
+        media_type=media_type,
+        # A cover id names one image for good.
+        headers={"Cache-Control": "public, max-age=2592000", **_FAVICON_HEADERS},
     )

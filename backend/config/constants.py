@@ -65,6 +65,9 @@ ARTIST_IMAGES_DIR = MILO_DATA_DIR / "artist_images"
 # squared and kept (see sources/radio/logos.py). A disposable derived cache: no
 # schema_version, safe to delete, refills on demand one logo at a time.
 RADIO_LOGOS_DIR = MILO_DATA_DIR / "radio_logos"
+# Radio France song covers, fetched through /api/radio/covers/{id} the same way
+# and kept apart: one per song, they would otherwise evict the station logos.
+RADIO_COVERS_DIR = MILO_DATA_DIR / "radio_covers"
 NAVIDROME_DATA_DIR = MILO_DATA_DIR / "navidrome"   # Navidrome DataFolder (DB, cache)
 # Service-account credentials, provisioned once on first boot by
 # milo-navidrome-provision (milo-owned, 0600). Never in settings.json or WS.

@@ -27,6 +27,19 @@ logger = logging.getLogger("source.radio.radiofrance")
 
 API_URL = "https://api.radiofrance.fr/livemeta/live/{station}/fip_extended"
 COVER_URL = "https://www.radiofrance.fr/pikapi/images/{cover}/1000x1000"
+# Where a song's cover is served to every client: Milō's own copy of COVER_URL.
+#
+# Radio France answers WebP whatever `Accept` says (measured 2026-11-08,
+# `image/webp` under `Accept: image/jpeg`), and the iPhone's Lock Screen does
+# not draw WebP. Its extension converts one, but only when its process lives
+# long enough to download and decode it, which is rare: the system wakes it for
+# a few milliseconds per push, and every FIP song stayed without its cover
+# while Shazam's JPEGs had shown. Through Milō it is a JPEG on the LAN, fetched
+# the moment the feed announces the song (`RadioSource._warm_covers`), ~37 s
+# before it is heard. Browsers still get WebP (`StationLogos.get`).
+COVER_ROUTE = "/api/radio/covers/{cover}"
+# A cover id as Radio France spells them (a UUID): path-safe, nothing to escape.
+_COVER_ID = re.compile(r"^[0-9A-Za-z][0-9A-Za-z-]{0,63}$")
 USER_AGENT = "Milo/1.0"
 TIMEOUT_S = 5.0
 
@@ -272,8 +285,32 @@ def _song(entry: Any) -> Optional[Song]:
         artist=artist.strip() if isinstance(artist, str) else "",
         start=start,
         end=end,
-        artwork=COVER_URL.format(cover=cover) if isinstance(cover, str) and cover else None,
+        artwork=cover_artwork(cover) if isinstance(cover, str) and cover else None,
     )
+
+
+def cover_artwork(cover: str) -> str:
+    """The URL a client fetches a song's cover from: Milō's copy, or Radio
+    France's own for an id that would not make a path."""
+    if _COVER_ID.match(cover):
+        return COVER_ROUTE.format(cover=cover)
+    return COVER_URL.format(cover=cover)
+
+
+def cover_source(cover: str) -> Optional[str]:
+    """Radio France's URL for a cover id, or None if it is not one. What
+    /api/radio/covers fetches: built here, never taken from the caller, so
+    the route fetches Radio France covers and nothing else."""
+    return COVER_URL.format(cover=cover) if _COVER_ID.match(cover) else None
+
+
+def cover_of(artwork: Optional[str]) -> Optional[str]:
+    """The cover id inside a URL `cover_artwork` made, or None."""
+    prefix = COVER_ROUTE.format(cover="")
+    if not artwork or not artwork.startswith(prefix):
+        return None
+    cover = artwork[len(prefix):]
+    return cover if _COVER_ID.match(cover) else None
 
 
 def _refresh_s(payload: Dict[str, Any]) -> float:

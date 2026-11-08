@@ -25,7 +25,9 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 from backend.sources.radio import logos as logos_module
-from backend.sources.radio.logos import DARK_BACKDROP, LIGHT_BACKDROP, StationLogos, repair_url
+from backend.sources.radio.logos import (
+    DARK_BACKDROP, LIGHT_BACKDROP, StationLogos, TrackCovers, repair_url,
+)
 from backend.sources.radio.routes import setup_radio_routes
 
 BROWSER = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
@@ -689,3 +691,106 @@ class TestTheRoute:
         any page could read would hand a foreign site what the proxy fetched."""
         assert "access-control-allow-origin" not in response.headers
         assert "access-control-allow-methods" not in response.headers
+
+
+COVER_ID = "87dd1ba6-2f17-43ca-a9fb-5862cf4b9910"
+
+
+class TestTheCoverRoute:
+    """`GET /api/radio/covers/{id}`: Radio France song covers, which it serves
+    in WebP only, as a JPEG the iPhone's Lock Screen can draw."""
+
+    @pytest.fixture(autouse=True)
+    def covers_dir(self, tmp_path, monkeypatch):
+        path = tmp_path / "radio_covers"
+        monkeypatch.setattr(TrackCovers, "LOGOS_DIR", path)
+        return path
+
+    @pytest.fixture
+    def radio_france(self, dns):
+        dns({"www.radiofrance.fr": "93.184.216.36"})
+
+    @pytest.fixture
+    def source(self):
+        source = Mock()
+        source.covers = TrackCovers()
+        return source
+
+    @pytest.fixture
+    def client(self, source):
+        app = FastAPI()
+        app.include_router(setup_radio_routes(lambda: source), prefix="/api")
+        return TestClient(app)
+
+    @staticmethod
+    def _webp(width=300, height=300):
+        buffer = io.BytesIO()
+        Image.new("RGB", (width, height), (200, 40, 40)).save(buffer, format="WEBP")
+        return buffer.getvalue()
+
+    def test_ios_gets_a_jpeg_of_the_radio_france_cover(self, client, fetches, radio_france):
+        session = fetches(_Resp(200, self._webp()))
+
+        response = client.get(f"/api/radio/covers/{COVER_ID}", headers={"Accept": "image/jpeg"})
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+        assert response.content[:3] == b"\xff\xd8\xff"
+        assert session.fetched == [f"https://www.radiofrance.fr/pikapi/images/{COVER_ID}/1000x1000"]
+
+    def test_a_browser_keeps_the_webp(self, client, fetches, radio_france):
+        fetches(_Resp(200, self._webp()))
+
+        response = client.get(f"/api/radio/covers/{COVER_ID}", headers={"Accept": BROWSER})
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/webp"
+        assert response.headers["vary"] == "Accept"
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize("cover", ["..", "a%2Fb", "x" * 65, "-leading-dash"])
+    def test_what_is_not_a_cover_id_is_never_fetched(self, client, monkeypatch, cover):
+        """The URL is built from the id: nothing a caller sends can point the
+        fetch anywhere but Radio France's covers."""
+        def _never(*args, **kwargs):
+            raise AssertionError("fetched")
+        monkeypatch.setattr(logos_module.aiohttp, "ClientSession", _never)
+
+        response = client.get(f"/api/radio/covers/{cover}")
+
+        assert response.status_code == 404
+
+    def test_no_usable_image_is_404(self, client, fetches, radio_france):
+        fetches(_Resp(404))
+
+        response = client.get(f"/api/radio/covers/{COVER_ID}")
+
+        assert response.status_code == 404
+
+    async def test_a_warmed_cover_is_served_without_a_second_fetch(self, source, fetches, radio_france):
+        """Warmed when the feed announces the song, ~37 s before it is heard:
+        the Lock Screen's request then reads the disk."""
+        session = fetches(_Resp(200, self._webp()))
+        url = f"https://www.radiofrance.fr/pikapi/images/{COVER_ID}/1000x1000"
+
+        source.covers.warm(url)
+        for _ in range(100):
+            if any(p.suffix == ".webp" for p in TrackCovers.LOGOS_DIR.glob("*")):
+                break
+            await asyncio.sleep(0.01)
+        image = await source.covers.get(url, "image/jpeg")
+        await source.covers.cleanup()
+
+        assert image is not None and image[1] == "image/jpeg"
+        assert len(session.fetched) == 1
+
+    def test_a_cover_is_kept_apart_from_the_station_logos(
+        self, client, fetches, radio_france, covers_dir, logos_dir
+    ):
+        """One per song: in the logos' cache they would evict the stations."""
+        fetches(_Resp(200, self._webp()))
+
+        client.get(f"/api/radio/covers/{COVER_ID}", headers={"Accept": "image/jpeg"})
+
+        assert any(path.suffix == ".webp" for path in covers_dir.iterdir())
+        assert not logos_dir.exists() or not any(logos_dir.iterdir())

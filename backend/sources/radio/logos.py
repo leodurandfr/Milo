@@ -52,7 +52,7 @@ import aiofiles
 import aiohttp
 from PIL import Image, ImageChops, ImageStat
 
-from backend.config.constants import RADIO_LOGOS_DIR
+from backend.config.constants import RADIO_COVERS_DIR, RADIO_LOGOS_DIR
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.shared.persistence import write_bytes_atomically
@@ -477,14 +477,26 @@ class StationLogos:
         `accept` is the caller's own Accept header: a browser names WebP,
         iOS's URLSession sends `*/*` and cannot draw it.
         """
-        repaired = repair_url(url)
-        key = hashlib.sha256(repaired.encode()).hexdigest()
+        repaired, key = self._keyed(url)
         data = await self._entry(key, repaired)
         if data is None:
             return None
         if "image/webp" in accept:
             return data, "image/webp"
         return await self._jpeg(key, data), "image/jpeg"
+
+    @staticmethod
+    def _keyed(url: str) -> Tuple[str, str]:
+        repaired = repair_url(url)
+        return repaired, hashlib.sha256(repaired.encode()).hexdigest()
+
+    def warm(self, url: str) -> None:
+        """Fetch `url` into the cache now, for a caller that will ask soon.
+        Free when it is there already or on its way."""
+        repaired, key = self._keyed(url)
+        if key in self._inflight or self._fresh(self.LOGOS_DIR / f"{key}.webp", LOGO_TTL_S):
+            return
+        self._bg.spawn(self._entry(key, repaired), label="warm")
 
     async def _entry(self, key: str, url: str) -> Optional[bytes]:
         path = self.LOGOS_DIR / f"{key}.webp"
@@ -549,3 +561,11 @@ class StationLogos:
         except OSError as e:
             logger.warning("Could not keep JPEG rendition %s: %s", path.name, e)
         return jpeg
+
+
+class TrackCovers(StationLogos):
+    """The disk cache behind `GET /api/radio/covers/{id}`: Radio France song
+    covers, kept like logos — checked, stored WebP, a JPEG for iOS — in their
+    own directory, so a day of songs does not evict the stations' logos."""
+
+    LOGOS_DIR: Path = RADIO_COVERS_DIR

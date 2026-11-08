@@ -602,3 +602,27 @@ class TestTheFeedDiesWithTheSession:
         await radio.advance(60 + HOLD_S)
         assert radio.track_title() is None
         assert radio.session()["title"] == "FIP"
+
+
+
+class TestCoverURLs:
+    """A song's cover is served by Milō (`/api/radio/covers/{id}`): Radio
+    France answers WebP only, which the iPhone's Lock Screen cannot draw."""
+
+    COVER = "87dd1ba6-2f17-43ca-a9fb-5862cf4b9910"
+
+    def test_a_cover_id_becomes_milos_route(self):
+        assert radiofrance.cover_artwork(self.COVER) == f"/api/radio/covers/{self.COVER}"
+
+    def test_the_route_fetches_radio_france_and_nothing_else(self):
+        assert radiofrance.cover_source(self.COVER) == radiofrance.COVER_URL.format(cover=self.COVER)
+        for not_an_id in ("", "..", "a/b", "a b", "-x", "x?y=1"):
+            assert radiofrance.cover_source(not_an_id) is None
+
+    def test_an_id_that_would_not_make_a_path_keeps_radio_frances_url(self):
+        assert radiofrance.cover_artwork("a b") == radiofrance.COVER_URL.format(cover="a b")
+
+    def test_the_id_is_read_back_from_the_route_only(self):
+        assert radiofrance.cover_of(radiofrance.cover_artwork(self.COVER)) == self.COVER
+        assert radiofrance.cover_of(radiofrance.COVER_URL.format(cover=self.COVER)) is None
+        assert radiofrance.cover_of(None) is None

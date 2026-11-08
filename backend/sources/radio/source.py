@@ -33,7 +33,7 @@ from backend.core.models.session import (
 from backend.sources.radio.models import PlayStationParams
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
-from backend.sources.radio.logos import StationLogos
+from backend.sources.radio.logos import StationLogos, TrackCovers
 from backend.sources.radio import radiofrance
 from backend.sources.radio.playlist import is_playlist_url, resolve_stream_url
 from backend.sources.radio.shazam import RecognitionQuota, ShazamRecognitionService
@@ -248,6 +248,8 @@ class RadioSource(MpvAudioSource):
 
         # External station logos, served by /api/radio/favicon whatever plays.
         self._logos = StationLogos()
+        # Radio France song covers, served by /api/radio/covers/{id}.
+        self._covers = TrackCovers()
 
         self._shazam: Optional[ShazamRecognitionService] = None
         # Shazam's request budget and backoff outlive every recognition service
@@ -268,6 +270,7 @@ class RadioSource(MpvAudioSource):
         """Initialize station data (call at startup for API access)."""
         await self._station_data.initialize()
         await self._logos.initialize()
+        await self._covers.initialize()
         self._logger.info("Radio station data initialized")
         return await super().initialize()
 
@@ -903,6 +906,7 @@ class RadioSource(MpvAudioSource):
         session.radiofrance_songs = radiofrance.merge(
             session.radiofrance_songs, answer.songs, now, lead,
         )
+        self._warm_covers(answer.songs)
         log.debug(
             f"Radio France station {session.radiofrance_station}: {len(answer.songs)} song(s) "
             f"announced, next read in {answer.refresh_s:.0f} s"
@@ -913,6 +917,19 @@ class RadioSource(MpvAudioSource):
             if self._shazam and self._shazam.is_running:
                 await self._shazam.stop()
         return answer.refresh_s
+
+    def _warm_covers(self, songs) -> None:
+        """Fetch the covers of the songs just announced, before they are heard.
+
+        The feed names a song ~37 s before it is on air: that is the time to
+        fetch and convert its cover, not the moment the Lock Screen asks for
+        it, which an extension woken for a few milliseconds rarely outlives.
+        """
+        for song in songs:
+            cover = radiofrance.cover_of(song.artwork)
+            url = radiofrance.cover_source(cover) if cover else None
+            if url:
+                self._covers.warm(url)
 
     def _radiofrance_failed(self, session: RadioSession, error: Exception, now: float) -> None:
         """A read that failed changes nothing: what is known keeps its
@@ -992,8 +1009,14 @@ class RadioSource(MpvAudioSource):
             self._shazam = None
         await self._radiofrance.close()
         await self._logos.cleanup()
+        await self._covers.cleanup()
 
     @property
     def logos(self) -> StationLogos:
         """The cache behind /api/radio/favicon."""
         return self._logos
+
+    @property
+    def covers(self) -> TrackCovers:
+        """The Radio France song covers behind /api/radio/covers/{id}."""
+        return self._covers
