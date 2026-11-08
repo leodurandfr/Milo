@@ -30,7 +30,8 @@ undo. Three rules keep it bounded:
     at the first detent and one at the end of the window, carrying the level
     it stopped on. A `source/state` also waits a full window from its own
     arrival, which is what absorbs the intermediate states of a source change
-    that settles within it: see `_loop`.
+    that settles within it: see `_loop`. A state already settled on another
+    track of the same source ends that wait: see `_settles_on_a_new_track`.
   * The widget push is rarer still, and is NOT on that one-second cap. It
     fires only when what a widget actually displays changes, which is one
     thing — whether Milō can be driven at all, drawn as the logo's opacity.
@@ -57,11 +58,15 @@ from backend.core.push.payloads import (
     NowPlayingDevice,
     build_attributes,
     now_playing_payload,
+    shown_track,
     widget_payload,
 )
 from backend.shared.background import BackgroundTaskSet
 
 logger = logging.getLogger("core.push.service")
+
+# A track as the card names it: its source, `currentTrack.id`, artist, album.
+Track = Tuple[str, str, Optional[str], Optional[str]]
 
 # One push per second at most. Chosen against the burst that actually happens
 # here — a rotary turn emits a volume_changed per detent — not against a limit
@@ -168,12 +173,27 @@ class PushService:
         self._state_machine = None
 
         self._dirty = asyncio.Event()
-        # What the next cycle's window counts from — the end of the last cycle,
-        # whether it sent anything or not, or the last Now Playing push, from
-        # either seam — and when the `source/state` waiting for the next cycle
-        # has been settled for a window (None while none waits). See `_loop`.
+        # What the next cycle's window counts from — the last Now Playing push,
+        # from either seam; a cycle that sends nothing restarts nothing — and
+        # when the `source/state` waiting for the next cycle has been settled
+        # for a window (None while none waits). See `_loop`.
         self._quiet_since = float("-inf")
         self._settle_until: Optional[float] = None
+        # Set when a state lifts the wait early, so the loop does not sleep out
+        # a deadline that no longer holds. See `_settles_on_a_new_track`.
+        self._hurry = asyncio.Event()
+        # The track the card shows, and whether it shows it playing: read off
+        # the last Now Playing push Apple took (`_deliver`), never off a cycle
+        # that sent nothing or was refused. See `_settles_on_a_new_track`.
+        self._card_track: Optional[Track] = None
+        self._card_playing = False
+        # The track a skip is loading, shown playing until it plays. See
+        # `_through_a_skip`.
+        self._skip_loading: Optional[Track] = None
+        # The last `update` Apple took while playing, so a cycle that changes
+        # nothing on the card spends no push. Any other Now Playing push
+        # replaces what the card shows, and clears it. See `_update_session`.
+        self._playing_card: Optional[tuple] = None
         # Serializes the two seams. The coalescer used to be the only thing that
         # touched the session, and a loop is single file; the device's report is
         # a second caller on the same loop, and both decide on `_session_id`
@@ -226,11 +246,104 @@ class PushService:
         that is best-effort.
         """
         if isinstance(event, TRIGGERS):
-            # Only the first state change of a cycle sets the deadline, so a
-            # stream of them cannot hold the push back for ever.
-            if isinstance(event, AudioStateChanged) and self._settle_until is None:
-                self._settle_until = time.monotonic() + MIN_PUSH_INTERVAL_S
+            if isinstance(event, AudioStateChanged):
+                if self._settles_on_a_new_track(event):
+                    # Nothing transitional left to absorb: leave as soon as
+                    # the one-per-window cap allows.
+                    self._settle_until = None
+                    self._hurry.set()
+                elif self._settle_until is None:
+                    # Only the first state change of a cycle sets the
+                    # deadline, so a stream of them cannot hold the push back
+                    # for ever.
+                    self._settle_until = time.monotonic() + MIN_PUSH_INTERVAL_S
             self._dirty.set()
+
+    def _settles_on_a_new_track(self, event: AudioStateChanged) -> bool:
+        """Does this state show another track of the card's source, settled?
+
+        The window a `source/state` waits exists for the beats of a change:
+        a source change, a station change, a track loading. None is left once
+        the source plays (or holds paused) a track other than the card's.
+        Waiting it out anyway held the lock screen a full second behind every
+        next/previous press: ~2 s from the press to the new title and cover,
+        1.0 s of it this wait (Milo-iOS on Spotify, 2026-11-08).
+
+        Loading counts too while the card plays: go-librespot names the next
+        track, cover included, ~5 ms after the press, and then loads it for 0.1
+        to 1.6 s (measured 2026-11-08). The card shows it playing meanwhile, as
+        `_through_a_skip` decides. A card shown paused waits for the source to
+        settle, since loading would read as paused there too.
+
+        Read on the state itself, never on the first event of the change: a
+        skip's first state still names the previous track, loading, and that
+        beat is what sets the deadline. A source change is not lifted early:
+        another source is not another track, and its beats are the ones the
+        window was made for.
+        """
+        card = self._card_track
+        state = event.model_dump(mode="json")
+        track = self._track_on(state)
+        if card is None or track is None or track == card or track[0] != card[0]:
+            return False
+        phase = (state.get("session") or {}).get("phase")
+        return phase in ("playing", "paused") or (phase == "loading" and self._card_playing)
+
+    def _through_a_skip(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """The state to show: a skip's loading shown as playing, else as is.
+
+        A loading session is not playing (`build_attributes`): shown playing,
+        iOS would extrapolate a playhead that does not move. A skip is the
+        exception. The card played the track before, it plays the next one a
+        moment later, and flipping the glyph to play and back for that moment
+        is the glitch. What it costs is the length of the load, at most, on
+        the playhead, which the push that follows it re-anchors.
+
+        Only a skip: another track of the card's source, loading, while the
+        card plays. A session that opens loading, or a track that rebuffers,
+        keeps its loading phase.
+        """
+        session = state.get("session") or {}
+        track = self._track_on(state)
+        if session.get("phase") != "loading" or track is None:
+            self._skip_loading = None
+            return state
+        card = self._card_track
+        if track != self._skip_loading:
+            new = card is not None and track != card and track[0] == card[0]
+            self._skip_loading = track if new and self._card_playing else None
+        if self._skip_loading is None:
+            return state
+        return {**state, "session": {**session, "phase": "playing"}}
+
+    @staticmethod
+    def _track_on(state: Dict[str, Any]) -> Optional[Track]:
+        """The track a state's session names, as the card spells it, or None.
+
+        Spelled as `build_attributes` spells `currentTrack.id` — an untitled CD
+        track by its number — so a state and the card it became compare equal.
+        """
+        if state.get("switching") or not state.get("session"):
+            return None
+        shown = shown_track(state)
+        if shown is not state.get("session") and shown is not None and shown.get("title"):
+            return None    # the card would show the resume point, not this session
+        shown = shown or {}
+        title, number = shown.get("title"), shown.get("track_number")
+        if not title and number is None:
+            return None
+        source = str(state.get("source") or "none")
+        ident = f"{source}:#{number}" if number is not None else f"{source}:{title}"
+        return (source, ident, shown.get("artist"), shown.get("album"))
+
+    @staticmethod
+    def _track_of(attributes: Dict[str, Any]) -> Optional[Track]:
+        """The track a pushed card names, spelled as `_track_on` spells it."""
+        track = attributes.get("currentTrack") or {}
+        ident = track.get("id")
+        if not ident or (not track.get("title") and track.get("trackNumber") is None):
+            return None
+        return (ident.split(":", 1)[0], ident, track.get("artist"), track.get("album"))
 
     def session_token_registered(self) -> None:
         """A device registered a session token: act on it now.
@@ -357,19 +470,24 @@ class PushService:
                 # lock screen's bar 1 s after its own command and ignores
                 # whatever lands meanwhile (measured 2026-09-27).
                 while (wait := self._leaves_at() - time.monotonic()) > 0:
-                    await asyncio.sleep(wait)
+                    # Woken early when a state lifts the deadline, then the
+                    # wait is read again: the cap still holds.
+                    self._hurry.clear()
+                    try:
+                        await asyncio.wait_for(self._hurry.wait(), wait)
+                    except asyncio.TimeoutError:
+                        pass
                 # Cleared after the sleep, not before it: what arrived during
                 # the sleep rides on this push, which is what makes it
                 # last-state-wins. Cleared before, it woke a second cycle a
                 # window later that pushed the same state again.
                 self._dirty.clear()
                 self._settle_until = None
-                try:
-                    await self._publish()
-                finally:
-                    # When the cycle ENDS: two pushes are then never closer
-                    # than the window, however long the first took to send.
-                    self._quiet_since = time.monotonic()
+                # The window restarts when a push has left (`_deliver`), not
+                # when a cycle ends: one that sent nothing — an update that
+                # changed nothing on the card, a satellite flapping in the
+                # multiroom — held the next press back for nothing.
+                await self._publish()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -384,7 +502,7 @@ class PushService:
         if not self._apns.available or self._state_machine is None:
             return
 
-        state = self._state_machine.get_current_state()
+        state = self._through_a_skip(self._state_machine.get_current_state())
         await self._publish_now_playing(state)
         await self._publish_widget()
 
@@ -789,11 +907,26 @@ class PushService:
             # the one it already knows.
             await self._knock(state)
             return
-        payload = now_playing_payload(
-            "update", self._session_id,
-            await self._build_attributes(self._session_id, state),
+        attributes = await self._build_attributes(self._session_id, state)
+        # Nothing on the card moved: no push. A satellite dropping and
+        # rejoining the multiroom every two seconds (Sofa, 2026-11-08, 17:18 to
+        # 17:22) emits a `volume_changed` each time with the level unchanged,
+        # and each one was an update identical to the last: ~30 pushes a
+        # minute of the budget the module docstring is about, and a next press
+        # landing after one waited out the window. The timestamp counts only
+        # with an anchor; without one it is the moment of building. The
+        # targets count too: a device that just registered gets its first one.
+        anchored = bool((state.get("session") or {}).get("position"))
+        card = (
+            self._session_id,
+            tuple(sorted(t.token for t in targets)),
+            attributes if anchored else {k: v for k, v in attributes.items() if k != "timestamp"},
         )
-        await self._send_all(targets, payload, "nowplaying")
+        if card == self._playing_card:
+            return
+        payload = now_playing_payload("update", self._session_id, attributes)
+        if await self._send_all(targets, payload, "nowplaying"):
+            self._playing_card = card
 
     async def _knock(self, state: Dict[str, Any]) -> None:
         """No token yet for the session held: let it go if the phone that held
@@ -1176,6 +1309,9 @@ class PushService:
                     target.token, invalidated_at=result.invalidated_at
                 )
 
+        if push_type == "nowplaying" and delivered:
+            self._shown(payload)
+
         # Stamped only for the ones Apple accepted. `last_push_at` is the only
         # way an operator reading push_tokens.json can tell a token that is
         # idle from one that is broken, and stamping a refused send would make
@@ -1183,6 +1319,23 @@ class PushService:
         if delivered:
             await self._registry.mark_pushed(delivered)
         return delivered, dead
+
+    def _shown(self, payload: Dict[str, Any]) -> None:
+        """Apple took this Now Playing push: it is what the card shows now.
+
+        Read here and only here, so a cycle that was refused, knocked or sent
+        nothing never makes this side believe the phone moved on. And it clears
+        the update dedupe: a paused card or a `start` sent since is what an
+        identical update must now be compared with, not the last update.
+        """
+        aps = payload.get("aps") or {}
+        self._playing_card = None
+        if aps.get("event") == "end":
+            self._card_track, self._card_playing = None, False
+            return
+        attributes = aps.get("attributes") or {}
+        self._card_track = self._track_of(attributes)
+        self._card_playing = bool(attributes.get("isPlaying"))
 
     @staticmethod
     def _has_active_source(state: Dict[str, Any]) -> bool:

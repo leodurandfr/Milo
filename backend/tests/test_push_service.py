@@ -24,6 +24,7 @@ from backend.core.models.ws_events import (
 )
 from backend.core.push import token_registry as token_registry_module
 from backend.core.push.apns_client import ApnsResult
+from backend.core.push.payloads import build_attributes
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
 from backend.core.push.token_registry import PushTokenRegistry
 from backend.core.state import AudioStateMachine
@@ -2345,6 +2346,243 @@ class TestCoalescing:
         await service.cleanup()
 
         assert self._titles(apns) == ["T9"]
+
+    def _announce(self, service, source, session):
+        """A `source/state` that carries `session` under `source`, over a state
+        that says the same: what a source publishes, and what the cycle reads."""
+        state = state_of(source, session)
+        service.machine.get_current_state.return_value = state
+        wire = AudioStateMachine().state().model_dump()
+        wire.update(source=source, session=session, switching=False)
+        service.on_event(AudioStateChanged(**wire))
+
+    @staticmethod
+    def _skip_beat():
+        """What go-librespot reports first on a skip: buffering, no track yet."""
+        return session_of(None, phase="loading")
+
+    async def test_a_new_track_of_the_same_source_does_not_wait_out_the_window(
+        self, service, registry, apns, monkeypatch
+    ):
+        """A next/previous press: the skip's buffering beat sets the deadline,
+        and the state that names the next track, playing, lifts it. Waiting
+        the window out held the new title and cover a full second behind the
+        press (Milo-iOS on Spotify, 2026-11-08). The window here is far longer
+        than `_settled` waits: only a push sent at once is seen."""
+        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+
+        self._announce(service, "spotify", self._skip_beat())
+        await asyncio.sleep(0.05)                  # the loop is asleep on the deadline
+        self._announce(service, "spotify", session_of("U", artist="B"))
+        await _settled(apns)
+        await service.cleanup()
+
+        assert self._titles(apns) == ["U"]
+
+    async def test_a_skip_while_paused_does_not_wait_either(
+        self, service, registry, apns, monkeypatch
+    ):
+        """A track held paused is as settled as one playing."""
+        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+
+        self._announce(service, "spotify", session_of("U", artist="B", phase="paused"))
+        await _settled(apns)
+        await service.cleanup()
+
+        assert self._titles(apns) == ["U"]
+
+    @pytest.mark.parametrize("source, session", [
+        pytest.param("radio", session_of("U", artist="B"), id="another-source"),
+        pytest.param("spotify", session_of("T", artist="A", phase="paused"), id="the-same-track"),
+        pytest.param("spotify", session_of(None), id="no-track"),
+    ])
+    async def test_what_is_not_a_settled_new_track_still_waits_out_the_window(
+        self, service, registry, apns, monkeypatch, source, session
+    ):
+        """A track still loading, a source change, a phase change of the
+        card's own track, a session with nothing named: each is a beat the
+        window absorbs. Nothing may be seen before it ends."""
+        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+
+        self._announce(service, source, session)
+        await _settled(apns, deadline=0.3)
+        await service.cleanup()
+
+        assert sent_types(apns) == []
+
+    async def test_a_skip_still_loading_leaves_at_once_shown_playing(
+        self, service, registry, apns, monkeypatch
+    ):
+        """go-librespot names the next track, cover included, ~5 ms after the
+        press and loads it for 0.1 to 1.6 s (2026-11-08). The card plays, so
+        the push leaves on the loading state, and shows it playing: flipping
+        the glyph to play for the length of the load is the glitch."""
+        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+
+        self._announce(service, "spotify", session_of("T", artist="A", phase="loading"))
+        self._announce(service, "spotify", session_of("U", artist="B", phase="loading"))
+        await _settled(apns)
+        await service.cleanup()
+
+        attributes = [c.args[1]["aps"]["attributes"] for c in apns.send.await_args_list
+                      if c.args[2] == "nowplaying"]
+        assert [(a["currentTrack"]["title"], a["isPlaying"]) for a in attributes] == [("U", True)]
+
+    async def test_a_skip_from_a_paused_card_waits_for_the_source_to_settle(
+        self, service, registry, apns, monkeypatch
+    ):
+        """Shown paused, the card has nothing to keep playing through: loading
+        reads as paused, and the window absorbs it as before."""
+        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+        service._card_playing = False
+
+        self._announce(service, "spotify", session_of("U", artist="B", phase="loading"))
+        await _settled(apns, deadline=0.3)
+        await service.cleanup()
+
+        assert sent_types(apns) == []
+
+    def test_a_rebuffer_keeps_its_loading_phase(self, service):
+        """Only a skip is shown playing through its load. The card's own
+        track loading again is a stall, and shown playing iOS would
+        extrapolate a playhead that does not move."""
+        service._card_track = ("spotify", "spotify:T", "A", None)
+        service._card_playing = True
+
+        shown = service._through_a_skip(state_of("spotify", session_of("T", artist="A", phase="loading")))
+
+        assert shown["session"]["phase"] == "loading"
+
+    def test_a_skip_stays_shown_playing_until_it_plays(self, service):
+        """A load longer than the window spans two cycles: the second reads
+        the next track as the card's own, and must not flip the glyph then."""
+        service._card_track = ("spotify", "spotify:T", "A", None)
+        service._card_playing = True
+        loading = state_of("spotify", session_of("U", artist="B", phase="loading"))
+
+        first = service._through_a_skip(loading)
+        service._card_track = service._track_on(first)
+        second = service._through_a_skip(loading)
+        settled = service._through_a_skip(state_of("spotify", session_of("U", artist="B")))
+        rebuffer = service._through_a_skip(loading)
+
+        assert [first["session"]["phase"], second["session"]["phase"]] == ["playing", "playing"]
+        assert settled["session"]["phase"] == "playing"
+        assert rebuffer["session"]["phase"] == "loading"
+
+    async def test_an_update_that_changes_nothing_on_the_card_is_not_sent(
+        self, service, registry, apns, monkeypatch
+    ):
+        """Sofa dropping and rejoining the multiroom every two seconds emitted a
+        `volume_changed` each time, level unchanged: one identical update per
+        event (2026-11-08). A device that registers gets its first one all the
+        same."""
+        window = 0.02
+        await self._session_open(service, registry, apns, monkeypatch, window=window)
+
+        for _ in range(3):
+            self._nudge(service, "T")
+            await _settled(apns, settle=3 * window)
+        registry.held["ipad"] = tok(
+            PushTokenKind.SESSION, "ipad", session_id=service._session_id, device_id="ipad")
+        self._nudge(service, "T")
+        await _settled(apns, count=2, settle=3 * window)
+        await service.cleanup()
+
+        assert sent_types(apns) == ["nowplaying"] + ["nowplaying"] * 2
+
+    async def test_the_card_back_from_a_pause_is_pushed_again(
+        self, service, registry, apns, monkeypatch
+    ):
+        """A paused card sent since the last update is what the phone shows:
+        the same playing card, back, is a change. Compared with the last update
+        instead, a stream that dropped and came back on the same song left the
+        Lock Screen paused while the music played."""
+        window = 0.02
+        await self._session_open(service, registry, apns, monkeypatch, window=window)
+
+        self._nudge(service, "T")
+        await _settled(apns, settle=3 * window)
+        service.machine.get_current_state.return_value = dict(READY)
+        service.on_event(VolumeChanged(show_bar=True, multiroom_enabled=True, state={}))
+        await _settled(apns, count=2, settle=3 * window)
+        self._nudge(service, "T")
+        await _settled(apns, count=3, settle=3 * window)
+        await service.cleanup()
+
+        playing = [c.args[1]["aps"]["attributes"]["isPlaying"] for c in apns.send.await_args_list
+                   if c.args[2] == "nowplaying"]
+        assert playing == [True, False, True]
+
+    async def test_a_cycle_that_sends_nothing_does_not_restart_the_window(
+        self, service, registry, apns, monkeypatch
+    ):
+        """A satellite flapping in the multiroom wakes a cycle that changes
+        nothing on the card. Restarting the window there held a next press
+        landing after it back for what was left of the window."""
+        window = 0.5
+        await self._session_open(service, registry, apns, monkeypatch, window=window)
+
+        self._nudge(service, "T")
+        await _settled(apns)
+        await asyncio.sleep(window + 0.1)
+        self._nudge(service, "T")                  # nothing moved: no push
+        await asyncio.sleep(0.05)
+        self._announce(service, "spotify", session_of("U", artist="B"))
+        await _settled(apns, count=2, deadline=0.3)
+        await service.cleanup()
+
+        assert self._titles(apns) == ["T", "U"]
+
+    async def test_a_refused_push_does_not_move_the_card(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The card is what Apple took, not what a cycle read: a skip refused
+        on its way leaves the card on the track the phone still shows, so the
+        retry is still a new track and leaves at once."""
+        await self._session_open(service, registry, apns, monkeypatch, window=30.0)
+        apns.send.side_effect = lambda *a, **kw: ApnsResult(ok=False, status=429)
+
+        self._announce(service, "spotify", session_of("U", artist="B"))
+        await _settled(apns)
+        await service.cleanup()
+
+        assert sent_types(apns) == ["nowplaying"]
+        assert service._card_track == ("spotify", "spotify:T", "A", None)
+
+    @pytest.mark.parametrize("state", [
+        pytest.param(PLAYING, id="titled"),
+        pytest.param({**state_of("cd", session_of(None)), "details": {"kind": "cd", "current_track": 4}},
+                     id="untitled-cd-track"),
+    ])
+    def test_a_state_and_the_card_it_became_name_the_same_track(self, service, state):
+        """Read on the state before a push and on the push Apple took after
+        it, the track must compare equal, or every cycle would look like a
+        skip. An untitled CD track is named by its number, as on the card."""
+        track = service._track_on(state)
+
+        assert track is not None
+        assert track == service._track_of(build_attributes("sess", state, []))
+
+    async def test_a_new_track_right_after_a_push_still_waits_for_the_cap(
+        self, service, registry, apns, monkeypatch
+    ):
+        """Lifting the state's wait does not lift the one-push-per-window cap:
+        two presses in quick succession are two pushes a window apart, and the
+        second carries the track the presses ended on."""
+        window = 0.5
+        await self._session_open(service, registry, apns, monkeypatch, window=window)
+        sent_at = _clocked(apns)
+
+        self._announce(service, "spotify", session_of("U", artist="B"))
+        await _settled(apns)
+        self._announce(service, "spotify", self._skip_beat())
+        self._announce(service, "spotify", session_of("V", artist="C"))
+        await _settled(apns, count=2, settle=1.5 * window)
+        await service.cleanup()
+
+        assert self._titles(apns) == ["U", "V"]
+        assert sent_at[1] - sent_at[0] >= window - CLOCK_SLACK_S
 
     async def test_the_loop_survives_a_failing_cycle(self, service, registry, apns, monkeypatch):
         """A background loop that dies on one bad cycle stops pushing for the
