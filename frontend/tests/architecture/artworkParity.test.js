@@ -72,7 +72,7 @@ describe('artwork parity between the full player and the playing bar', () => {
   });
 
   it('runs the held-cover transition, announced wait included', () => {
-    // CD veils its placeholder while the jacket is fetched; a player left
+    // CD holds what it shows while the jacket is fetched; a player left
     // without the signal shows the bare placeholder and swaps it a moment later.
     // The playing bar draws the same slot (radio announces its in-band
     // covers), so it runs the same transition on the same signal.
@@ -82,8 +82,15 @@ describe('artwork parity between the full player and the playing bar', () => {
     expect(metadataCode).toMatch(/nowPlayingArtworkPending\(/);
 
     // And it may not re-roll its own wait: the bounded timeout is the only
-    // thing that lifts a veil when a cover never arrives.
+    // thing that ends a hold when a cover never arrives.
     expect(playerCode).not.toMatch(/setTimeout/);
+
+    // Nothing is laid over a cover while it waits: the outgoing one stays as it
+    // is. A spinner over the slot held a correct cover hostage for seconds on
+    // every station change, and neither shell draws one anywhere else.
+    for (const view of VIEWS) {
+      expect(view).not.toMatch(/LoadingSpinner/);
+    }
   });
 
   it('leaves to the composable what counts as a cover', () => {

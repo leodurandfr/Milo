@@ -22,26 +22,20 @@
              behind the track artwork, which rides on top) — needs a real box since two of
              the three branches below are void <img> elements and can't host a child.
              The cover is the way into the full player.
-             The cover is held and veiled exactly as on the full player (the same
-             composable, the same announcement): a new cover replaces the old one
-             once decoded, and a cover the backend announced (radio's in-band
-             titles) keeps the slot veiled rather than flashing the station logo
-             first. -->
+             The cover is held exactly as on the full player (the same
+             composable, the same announcement): the old one stays as it is until
+             the new one has decoded, and a cover the backend announced (radio's
+             in-band titles) is waited for, a few seconds at most, rather than
+             flashing the station logo first. -->
           <div class="player-artwork-frame" :class="{ 'has-badge': !!$slots['artwork-badge'] }"
             role="button" :tabindex="isMobile ? undefined : 0" :aria-label="t('common.expandPlayer')"
             @click="onArtworkClick" @keydown.enter.space.prevent="onArtworkClick">
             <img v-if="shownArtwork" :src="shownArtwork" :alt="title" class="player-artwork"
-              :class="{ loaded: artworkLoaded, pending: artworkPending }" @load="artworkLoaded = true" />
+              :class="{ loaded: artworkLoaded }" @load="artworkLoaded = true" />
             <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork"
-              :class="{ pending: artworkPending }" :aria-label="title" />
-            <img v-else-if="fallbackImage" :src="fallbackImage" :alt="title" class="player-artwork placeholder"
-              :class="{ pending: artworkPending }" />
+              :aria-label="title" />
+            <img v-else-if="fallbackImage" :src="fallbackImage" :alt="title" class="player-artwork placeholder" />
             <slot name="artwork-badge"></slot>
-            <Transition name="artwork-veil">
-              <div v-if="artworkPending" class="player-artwork-veil">
-                <LoadingSpinner size="small" />
-              </div>
-            </Transition>
             <!-- Decodes the incoming cover off-screen; the composable decides
                  whether it is one. -->
             <img v-if="preloadArtwork" :src="preloadArtwork" alt="" class="player-artwork-preload"
@@ -89,7 +83,6 @@ import { swipeable, swipeMove, swipeTarget } from '@/utils/playerControls'
 import { useI18n } from '@/services/i18n'
 import PlayerBody from './PlayerBody.vue'
 import PlayerInfoText from './PlayerInfoText.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 
 const { isMobile } = useIsMobile()
 const { t } = useI18n()
@@ -147,7 +140,7 @@ function onArtworkClick() {
 // The cover on screen, held until the next one has decoded — and what counts as
 // a cover (a 1×1 tracking pixel does not) — decided by the composable the full
 // player runs too.
-const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
+const { shownArtwork, preloadArtwork, settleFromLoad, settleFromError } =
   useArtworkTransition(artwork, trackKey, artworkAnnounced)
 // Fade a cover in when one appears over the neutral box; one cover replacing
 // another swaps at once, the new one already decoded.
@@ -550,7 +543,7 @@ function onTouchEnd(e) {
    visible). */
 img.player-artwork:not(.placeholder) {
   opacity: 0;
-  transition: opacity 0.25s ease-out, filter var(--transition-medium);
+  transition: opacity 0.25s ease-out;
 }
 
 img.player-artwork.loaded {
@@ -570,40 +563,6 @@ img.player-artwork.loaded {
 
 .player-artwork.placeholder {
   object-fit: cover;
-}
-
-/* What the full player does to a cover being replaced, at the card's scale. */
-.player-artwork {
-  transition: filter var(--transition-medium);
-}
-
-.player-artwork.pending {
-  filter: blur(var(--blur-01));
-}
-
-.player-artwork-veil {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-04);
-  background: var(--color-image-veil);
-  /* Over a darkened cover, not the card: the contrast token, as on the full
-     player. */
-  color: var(--color-text-on-contrast);
-  pointer-events: none;
-}
-
-.artwork-veil-enter-active,
-.artwork-veil-leave-active {
-  transition: opacity var(--transition-medium);
-}
-
-.artwork-veil-enter-from,
-.artwork-veil-leave-to {
-  opacity: 0;
 }
 
 /* Decodes the incoming cover out of sight. Not `display: none`, which lets a
@@ -689,16 +648,6 @@ img.player-artwork.loaded {
     height: 48px;
     min-width: 48px;
     border-radius: var(--radius-03);
-  }
-
-  .audio-player .player-artwork-veil {
-    width: 48px;
-    border-radius: var(--radius-03);
-  }
-
-  /* Over the track artwork, which rides offset right of the station icon. */
-  .audio-player .player-artwork-frame.has-badge .player-artwork-veil {
-    left: 24px;
   }
 
   /* Swipe carousel: the clipped viewport the body's info block hosts; the strip

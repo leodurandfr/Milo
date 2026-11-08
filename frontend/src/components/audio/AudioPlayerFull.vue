@@ -44,7 +44,7 @@
                Where there is a navigation behind the player, the cover is the
                way back to it. -->
           <div class="artwork"
-            :class="{ 'artwork-pending': artworkPending, 'is-link': !!navigation }"
+            :class="{ 'is-link': !!navigation }"
             :role="navigation ? 'button' : undefined" :tabindex="navigation ? 0 : undefined"
             :aria-label="navigation ? t('common.back') : undefined"
             @click="navigation?.back()" @keydown.enter.space.prevent="navigation?.back()">
@@ -56,20 +56,11 @@
             <div v-else class="artwork-fallback">
               <AppIcon :name="source" :size="112" />
             </div>
-
-            <!-- Held over the outgoing cover until the incoming one is decoded,
-                 so a track change never flashes the fallback glyph between two
-                 covers. -->
-            <Transition name="artwork-veil">
-              <div v-if="artworkPending" class="artwork-veil">
-                <LoadingSpinner :size="48" />
-              </div>
-            </Transition>
           </div>
 
-          <!-- Decodes the incoming cover off-screen; @load is what promotes it —
-               or rejects it, the size rule living in the composable rather than
-               in this view. -->
+          <!-- Decodes the incoming cover off-screen while the outgoing one stays
+               on screen as it is; @load is what promotes it — or rejects it, the
+               size rule living in the composable rather than in this view. -->
           <img v-if="preloadArtwork" :src="preloadArtwork" alt="" class="artwork-preload"
             @load="settleFromLoad" @error="settleFromError" />
         </div>
@@ -127,7 +118,6 @@ import { usePlayerState } from '@/composables/usePlayerState';
 import PlayerTopRow from './PlayerTopRow.vue';
 import PlayerBody from './PlayerBody.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const props = defineProps({
   source: {
@@ -206,8 +196,8 @@ const haloUrl = computed(() => {
   return null;
 });
 
-// Holding the outgoing cover under a veil while the next one decodes.
-const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError } =
+// The outgoing cover stays as it is until the next one has decoded.
+const { shownArtwork, preloadArtwork, settleFromLoad, settleFromError } =
   useArtworkTransition(artwork, trackKey, artworkAnnounced);
 </script>
 
@@ -478,50 +468,6 @@ const { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFrom
    fallback gets, or the blurred backdrop shows through it. */
 .artwork-placeholder {
   background: var(--color-fill-faint);
-}
-
-/* Held cover while the next one decodes. The scale is not decoration: a blur
-   samples past the element's edge, and without it the rounded corners show a
-   translucent halo against the player background. */
-.artwork > img,
-.artwork > .artwork-avatar,
-.artwork > .artwork-fallback {
-  transition:
-    filter var(--transition-medium),
-    transform var(--transition-medium);
-}
-
-.artwork-pending > img,
-.artwork-pending > .artwork-avatar,
-.artwork-pending > .artwork-fallback {
-  filter: blur(var(--blur-02));
-  transform: scale(1.06);
-}
-
-.artwork-veil {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-image-veil);
-  /* The spinner's SVG paints with currentColor, and it sits on a darkened cover
-     — not on the player background — so it takes the contrast token rather than
-     inheriting the page text colour. Full contrast, not -50: the blades already
-     animate down to 0.16 opacity, and halving that again loses them over a
-     bright cover. */
-  color: var(--color-text-on-contrast);
-}
-
-.artwork-veil-enter-active,
-.artwork-veil-leave-active {
-  transition: opacity var(--transition-medium);
-}
-
-.artwork-veil-enter-from,
-.artwork-veil-leave-to {
-  opacity: 0;
 }
 
 /* Decodes the incoming cover out of sight. Deliberately not `display: none`,

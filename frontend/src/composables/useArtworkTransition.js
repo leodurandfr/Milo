@@ -1,39 +1,45 @@
 // frontend/src/composables/useArtworkTransition.js
-// Holds the outgoing cover in place, under a veil, until the incoming one has
-// decoded — so a track change never flashes the fallback (a source glyph, a
-// placeholder, a generated station avatar) between two covers.
+// Keeps the outgoing cover on screen, untouched, until the incoming one has
+// decoded, and swaps them the moment it has — so a track or station change
+// never flashes the fallback (a source glyph, a placeholder, a generated
+// station avatar) between two covers, and never draws a spinner over one.
+// Nothing is laid over a cover while it waits: the old one simply stays.
 //
-// Two different waits hide behind one veil, and both are real:
-//   - waiting for a cover the backend announced — CD publishes the disc first
-//     and fetches its jacket after, Bluetooth and radio's in-band titles look
-//     theirs up from the track text, each flagging `artwork_pending` meanwhile.
-//     A source may publish a stand-in until then (radio: the station logo),
-//     which is held off like any fallback: the announcement says it is not
-//     the answer yet;
-//   - waiting for the bytes — every source still has to decode the bitmap.
+// Two waits, both bounded by ARTWORK_WAIT_MS:
+//   - waiting for the bytes — a known URL decoding off-screen. It is painted
+//     on its `load`, or once the bound runs out, since an image that will not
+//     decode fires no event at all;
+//   - waiting for a cover the backend announced (`artwork_pending`) — CD
+//     publishes the disc first and fetches its jacket after, Bluetooth and
+//     radio's in-band titles look theirs up from the track text. A source may
+//     publish a stand-in meanwhile (radio: the station logo), which is not
+//     headed for: the announcement says it is not the answer yet. The outgoing
+//     cover is held instead, but only for the bound — a lookup can last over a
+//     minute, and a cover that belongs to the previous track must not sit
+//     beside the new title that long. Past it, the slot shows what the record
+//     carries now (the stand-in, or the fallback), and the cover the backend
+//     answers later replaces that as usual. With no cover on screen there is
+//     nothing to hold, and the stand-in is shown at once.
 // Nothing else is waited for: a source whose cover comes later says so, so a
 // track that arrives with no cover and no announcement has none, and the
 // fallback is drawn at once as the answer.
-import { computed, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 
-// How long a cover URL may take to decode before it is painted anyway: an
-// image that will not decode fires no `load` at all. Bounded so the veil over
-// the bytes always lifts.
+// How long the outgoing cover may stay on screen once the track has changed:
+// while the next one decodes, or while the backend looks it up.
 export const ARTWORK_WAIT_MS = 4000;
 
 /**
  * @param {import('vue').Ref<string>} target - the cover we are heading to ('' when unknown yet)
  * @param {import('vue').Ref<string>} trackKey - changes when the track does, cover or not
  * @param {import('vue').Ref<boolean>} [announced] - the backend says a cover is on
- *   its way. Not bounded by ARTWORK_WAIT_MS: the backend lifts it itself, found
- *   or not, so the veil lasts exactly as long as the fetch. While it is up, what
- *   is shown stays shown and `target` is only a stand-in.
+ *   its way. While it is up, `target` is only a stand-in, and what is shown is
+ *   held for ARTWORK_WAIT_MS at most.
  * @returns {{
  *   shownArtwork: import('vue').Ref<string>,
  *   preloadArtwork: import('vue').Ref<string>,
- *   artworkPending: import('vue').Ref<boolean>,
  *   settleFromLoad: (event: Event) => void,
  *   settleFromError: () => void
  * }}
@@ -46,17 +52,18 @@ export function useArtworkTransition(target, trackKey, announced = ref(false)) {
 
   const shownArtwork = ref('');
   const preloadArtwork = ref('');
-  const waiting = ref(false);
-  // Announced: the backend lifts it with the answer, and the decode wait below
-  // takes over from there, so a cover is never veiled past its own load.
-  const artworkPending = computed(() => waiting.value || announced.value);
   let wait = null;
+  let holding = false;
+
+  function disarm() {
+    if (wait) { timer.clear(wait); wait = null; }
+    holding = false;
+  }
 
   function settleArtwork(url) {
-    if (wait) { timer.clear(wait); wait = null; }
+    disarm();
     shownArtwork.value = url;
     preloadArtwork.value = '';
-    waiting.value = false;
   }
 
   // What counts as a cover. A tracking pixel or a broken favicon decodes
@@ -74,28 +81,45 @@ export function useArtworkTransition(target, trackKey, announced = ref(false)) {
     settleArtwork('');
   }
 
-  function waitFor(fallbackUrl) {
-    waiting.value = true;
-    if (wait) timer.clear(wait);
-    wait = timer.setTimeout(() => settleArtwork(fallbackUrl), ARTWORK_WAIT_MS);
-  }
-
   function headFor(url) {
     // Already on screen: the next track of the same album resolves to the cover
-    // it is showing. Nothing will load, so the wait armed by the track change
-    // has to be settled here or it would blank a correct cover at T+4 s.
+    // it is showing. Nothing will load, so a wait armed by the track change has
+    // to be settled here or it would replace a correct cover at T+4 s.
     if (url === shownArtwork.value) { settleArtwork(url); return; }
-    if (url === preloadArtwork.value && waiting.value) return; // already on its way
+    if (url === preloadArtwork.value) return; // already on its way
+    disarm();
     preloadArtwork.value = url;
-    waitFor(url); // decode too slow, or no load event at all → paint it anyway
+    // Decode too slow, or no load event at all → paint it anyway.
+    wait = timer.setTimeout(() => settleArtwork(url), ARTWORK_WAIT_MS);
+  }
+
+  // What the record carries now, while its cover is still announced: the
+  // stand-in when there is one, else the fallback.
+  function showCurrent() {
+    if (target.value) headFor(target.value);
+    else settleArtwork('');
+  }
+
+  // A cover is announced for a new track: keep the outgoing one, for the bound.
+  // A cover the previous track was still decoding is dropped — it belongs to
+  // that track, not to the title now beside it. A hold already running is not
+  // extended: two quick skips keep the first track's cover 4 s, not 8.
+  function holdForAnnounced() {
+    if (!shownArtwork.value) { showCurrent(); return; }
+    if (holding) return;
+    disarm();
+    preloadArtwork.value = '';
+    holding = true;
+    wait = timer.setTimeout(() => { wait = null; holding = false; showCurrent(); }, ARTWORK_WAIT_MS);
   }
 
   // A new track with no cover. Announced: hold what is shown until the backend
-  // answers, with no bound of its own. Not announced: none is coming, so the
-  // fallback is the answer now — holding the previous cover would show it,
-  // veiled, beside a title it does not belong to.
+  // answers or the bound runs out. Not announced: none is coming, so the
+  // fallback is the answer now — holding the previous cover would show it
+  // beside a title it does not belong to.
   watch(trackKey, () => {
-    if (target.value || announced.value) return;
+    if (announced.value) { holdForAnnounced(); return; }
+    if (target.value) return; // the target watch heads for it
     settleArtwork('');
   });
 
@@ -103,9 +127,8 @@ export function useArtworkTransition(target, trackKey, announced = ref(false)) {
   // is its answer, now — not when a wait armed by the track change runs out;
   // with one (the cover, or the stand-in a miss leaves), that is where to go.
   watch(announced, (on) => {
-    if (on) return;
-    if (target.value) headFor(target.value);
-    else settleArtwork('');
+    if (on) holdForAnnounced();
+    else showCurrent();
   });
 
   // A cover to head for — arriving with the track, or resolved later. Not a
@@ -113,7 +136,12 @@ export function useArtworkTransition(target, trackKey, announced = ref(false)) {
   watch(target, (url) => {
     if (!url || announced.value) return;
     headFor(url);
-  }, { immediate: true });
+  });
 
-  return { shownArtwork, preloadArtwork, artworkPending, settleFromLoad, settleFromError };
+  // Mounted on a track: head for its cover, or — announced — show the stand-in,
+  // there being nothing on screen yet to hold.
+  if (announced.value) showCurrent();
+  else if (target.value) headFor(target.value);
+
+  return { shownArtwork, preloadArtwork, settleFromLoad, settleFromError };
 }

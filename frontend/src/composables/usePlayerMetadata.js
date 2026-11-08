@@ -198,7 +198,7 @@ export function usePlayerMetadata(source) {
     const name = metadata.value.avatarName || metadata.value.title;
     return name ? generateStationAvatarSvg(name) : '';
   });
-  // Live, not from the held copy: a lifted flag must lift the veil at once.
+  // Live, not from the held copy: a lifted flag must end the hold at once.
   const artworkAnnounced = computed(
     () => isSelected.value && nowPlayingArtworkPending(unifiedStore.systemState)
   );

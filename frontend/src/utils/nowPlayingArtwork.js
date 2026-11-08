@@ -23,9 +23,9 @@ export function nowPlayingArtwork(record) {
  * `artwork_pending`, until the answer is in, found or not: the CD while the
  * Cover Art Archive answers (seconds, over a minute when it retries),
  * Bluetooth and radio's in-band titles while iTunes is asked from the track
- * text. The slot veils what it shows rather than drawing the fallback a moment
- * before the cover. One rule for every kind: a source that starts announcing
- * needs no entry here.
+ * text. The slot holds what it shows, a few seconds at most, rather than
+ * drawing the fallback a moment before the cover. One rule for every kind: a
+ * source that starts announcing needs no entry here.
  *
  * @param {object|null} state - unifiedAudioStore.systemState
  * @returns {boolean}

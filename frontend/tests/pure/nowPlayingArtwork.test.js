@@ -56,7 +56,7 @@ describe('nowPlayingArtworkPending', () => {
 
   it('is false for every source that announces nothing', () => {
     // Only the announcer ever lifts it, so reading anything else as pending
-    // would veil a placeholder forever.
+    // would hold a cover past its track on every change.
     expect(nowPlayingArtworkPending(makeAudioState({ source: 'spotify', session: makeSession() }))).toBe(false);
     expect(nowPlayingArtworkPending(makeAudioState({
       source: 'airplay', details: { kind: 'airplay', artwork_width: null },

@@ -1,7 +1,7 @@
 // frontend/tests/composables/useDelayedFlag.test.js
 /**
- * useDelayedFlag is what keeps the transport spinner, the artwork veil and the
- * progress bar's dimmed look off a track change: every skip passes through
+ * useDelayedFlag is what keeps the transport spinner and the progress bar's
+ * dimmed look off a track change: every skip passes through
  * `loading` for a few hundred milliseconds, and an indicator bound straight to
  * it flashed on each one. If this fails, the flash is back on every player.
  *
