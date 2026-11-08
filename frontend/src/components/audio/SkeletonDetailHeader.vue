@@ -21,7 +21,6 @@
       </div>
 
       <div class="skeleton-detail-header__actions">
-        <div v-if="shuffle" class="skeleton-detail-header__shuffle shimmer shimmer--on-contrast"></div>
         <div class="shimmer shimmer--on-contrast" :class="`skeleton-detail-header__${action}`"></div>
       </div>
     </div>
@@ -37,17 +36,12 @@ defineProps({
     type: Boolean,
     default: false,
   },
-  // The header's shuffle button, beside its main action.
-  shuffle: {
-    type: Boolean,
-    default: false,
-  },
-  // The main action's shape: the labelled Play, a medium IconButton (an
-  // episode's play), or a small labelled Button (a show's Subscribe).
+  // The main action's shape: the play/pause, a medium IconButton, or a small
+  // labelled Button (a show's Subscribe).
   action: {
     type: String,
-    default: 'play',
-    validator: (value) => ['play', 'icon', 'small'].includes(value),
+    default: 'icon',
+    validator: (value) => ['icon', 'small'].includes(value),
   },
 });
 
@@ -118,28 +112,17 @@ const { isMobile } = useIsMobile();
   flex-shrink: 0;
 }
 
-/* A medium IconButton, a labelled medium Button (an IconButton on the phone),
-   a labelled small Button. */
-.skeleton-detail-header__shuffle,
-.skeleton-detail-header__icon,
-.skeleton-detail-header__play {
-  height: 48px;
-  border-radius: var(--radius-04);
-}
-
-.skeleton-detail-header__shuffle,
+/* A medium IconButton, a labelled small Button. */
 .skeleton-detail-header__icon {
   width: 48px;
+  height: 48px;
+  border-radius: var(--radius-04);
 }
 
 .skeleton-detail-header__small {
   width: 96px;
   height: 36px;
   border-radius: var(--radius-03);
-}
-
-.skeleton-detail-header__play {
-  width: 104px;
 }
 
 @media (max-aspect-ratio: 4/3) {
@@ -161,27 +144,14 @@ const { isMobile } = useIsMobile();
     height: 14px;
   }
 
-  .skeleton-detail-header__shuffle,
-  .skeleton-detail-header__icon,
-  .skeleton-detail-header__play {
+  .skeleton-detail-header__icon {
+    width: 38px;
     height: 38px;
     border-radius: var(--radius-03);
   }
 
-  .skeleton-detail-header__icon {
-    width: 38px;
-  }
-
   .skeleton-detail-header__small {
     height: 34px;
-  }
-
-  .skeleton-detail-header__shuffle {
-    width: 38px;
-  }
-
-  .skeleton-detail-header__play {
-    width: 38px;
   }
 }
 </style>

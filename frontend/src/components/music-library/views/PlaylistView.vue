@@ -2,7 +2,7 @@
   <div class="playlist-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <SkeletonDetailPage v-if="loading && !playlist" key="loading" cover artist shuffle />
+        <SkeletonDetailPage v-if="loading && !playlist" key="loading" cover artist />
         <MessageContent v-else-if="!playlist" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
 
         <div v-else key="loaded" class="content-stack">
@@ -11,8 +11,10 @@
             :fallback="musicPlaceholder"
             :title="playlist.name"
             :subtitle-meta="subtitle"
-            @play="playFrom(0)"
-            @shuffle="shufflePlay"
+            :playing="header.playing.value"
+            :play-loading="header.loading.value"
+            @play="header.play"
+            @pause="header.pause"
           >
             <template #actions>
               <IconButton
@@ -98,6 +100,7 @@ import TrackList from '@/components/audio/TrackList.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useRenderWindow } from '@/composables/useRenderWindow';
+import { useDetailPlayback } from '@/composables/useDetailPlayback';
 
 const props = defineProps({
   playlistId: {
@@ -136,15 +139,15 @@ const subtitle = computed(() => {
   return parts.join(' · ');
 });
 
+const contextId = computed(() => `playlist:${props.playlistId}`);
+
 function playFrom(index) {
-  store.playContext(tracks.value, index, false);
+  return store.playContext(tracks.value, index, false, contextId.value);
 }
 
-function shufflePlay() {
-  if (!tracks.value.length) return;
-  const start = Math.floor(Math.random() * tracks.value.length);
-  store.playContext(tracks.value, start, true);
-}
+const header = useDetailPlayback(
+  'music_library', () => store.currentContextId === contextId.value, () => playFrom(0),
+);
 
 function toggleEdit() {
   editing.value = !editing.value;

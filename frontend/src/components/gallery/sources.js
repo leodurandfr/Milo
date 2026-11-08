@@ -1396,7 +1396,8 @@ export const SOURCE_PAGES = [
             repeat: 'context',
             track_id: 's-2',
             album_id: 'al-2',
-            artist_id: 'ar-3'
+            artist_id: 'ar-3',
+            context_id: 'album:al-2'
           }
         },
         ...mlSetup({ storages: ML_STORAGE_MIXED, albums: ML_ALBUMS, activeLibraryId: 2 }),

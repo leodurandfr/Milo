@@ -294,6 +294,7 @@ SCENARIOS: List[Scenario] = [
         "details": {
             "kind": "music_library", "queue": ALBUM, "queue_index": 0, "shuffle": False,
             "repeat": "off", "track_id": FIRST["id"], "album_id": FIRST["albumId"], "artist_id": FIRST["artistId"],
+            "context_id": None,
         },
     }),
     Scenario("library last track", lambda mp, t: _library(mp, t, start=len(ALBUM) - 1),

@@ -959,29 +959,20 @@ class SpotifySource(BaseAudioSource):
     async def _play_context(self, params: PlayContextParams) -> Dict[str, Any]:
         """Play a context on the account the daemon is signed in as.
 
-        go-librespot keeps shuffle from the last context, but a play on a
-        signed-in daemon with no session starts from a fresh state, shuffle off
-        (measured 2026-10-04). So shuffle off is set before the play, and
-        shuffle on after it — the one order that holds from both states. Where
-        a shuffled play starts is `skip_to_uri`, which the browser picks at
-        random from the listing on screen, as Music Library's does."""
+        go-librespot keeps shuffle from the last context, so shuffle off is set
+        before the play: a context opens in its own order, and the player's
+        `set_shuffle` shuffles it once it plays. (A play on a signed-in daemon
+        with no session starts from a fresh state, shuffle off — measured
+        2026-10-04 — so turning it on before the play would not hold.)"""
         if self._account is None:
             return self.error_response("Spotify is not signed in")
         payload = {"uri": params.uri}
         if params.skip_to_uri:
             payload["skip_to_uri"] = params.skip_to_uri
-        if not params.shuffle:
-            result = await self._send_api_command("shuffle_context", {"shuffle_context": False})
-            if not result.get("success"):
-                return result
-        result = await self._send_api_command("play", payload)
-        if params.shuffle and result.get("success"):
-            # The context plays either way: a shuffle that did not take shows
-            # as off in the player, and is no failure of the play.
-            shuffled = await self._send_api_command("shuffle_context", {"shuffle_context": True})
-            if not shuffled.get("success"):
-                self._logger.warning(f"Shuffle not applied after play: {shuffled.get('error')}")
-        return result
+        result = await self._send_api_command("shuffle_context", {"shuffle_context": False})
+        if not result.get("success"):
+            return result
+        return await self._send_api_command("play", payload)
 
     async def _seek_to(self, position_ms: int) -> Dict[str, Any]:
         """Seek, and move the anchor as soon as go-librespot took it: its own

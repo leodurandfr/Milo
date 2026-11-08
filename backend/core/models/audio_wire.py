@@ -158,6 +158,9 @@ class MusicLibraryDetails(BaseModel):
     track_id: Optional[str]
     album_id: Optional[str]
     artist_id: Optional[str]
+    # The page the queue was played from (play_context's `context_id`), so
+    # that page's play button can tell its own queue from another one.
+    context_id: Optional[str]
 
 
 class CdTrack(BaseModel):

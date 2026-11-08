@@ -448,8 +448,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
   // =========================================================================
   const send = (command, data) => unifiedStore.sendCommand('spotify', command, data);
 
-  function playContext(uri, { skipToUri = null, shuffle: shuffled = false } = {}) {
-    const data = { uri, shuffle: shuffled };
+  function playContext(uri, { skipToUri = null } = {}) {
+    const data = { uri };
     if (skipToUri) data.skip_to_uri = skipToUri;
     return send('play_context', data);
   }

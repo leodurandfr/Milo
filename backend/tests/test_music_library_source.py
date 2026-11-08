@@ -1330,6 +1330,24 @@ class TestResume:
         assert session_ends(rig)[-1] == "storage_gone"
         assert details(rig) is None
 
+    async def test_the_page_a_queue_came_from_outlives_a_detour(self, rig):
+        """The context a queue was played from is on the wire while it plays,
+        once it waits as the resume point, and after it is reopened. Breaks:
+        the album page's play button, which shows pause only while its own
+        queue plays, reads a queue back from a source switch as someone
+        else's, and a press restarts the album instead of resuming it."""
+        await rig.select()
+        await play(rig, context_id="album:al1")
+        await rig.tick()
+        assert details(rig)["context_id"] == "album:al1"
+
+        await rig.leave()
+        await rig.select()
+
+        assert details(rig)["context_id"] == "album:al1"
+        await play(rig)
+        assert details(rig)["context_id"] is None
+
     async def test_a_storage_gone_end_leaves_nothing_to_resume(self, rig):
         """The storage-gone end must not save the queue it just condemned.
         Breaks: replugging the key and reopening the library restores a

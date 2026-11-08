@@ -244,6 +244,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const queue = computed(() => details.value?.queue ?? []);
   const queueIndex = computed(() => details.value?.queue_index ?? -1);
   const currentTrackId = computed(() => details.value?.track_id ?? null);
+  // The page the queue was played from (playContext's `contextId`).
+  const currentContextId = computed(() => details.value?.context_id ?? null);
   const phase = computed(() => session.value?.phase ?? null);
   const isPlaying = computed(() => phase.value === 'playing');
 
@@ -350,13 +352,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     unifiedStore.sendCommand('music_library', command, data);
 
   // Build a gapless queue from an ordered list of Subsonic song dicts, starting
-  // at startIndex. shuffle is honoured at play time by the backend.
-  function playContext(tracks, startIndex = 0, shuffleOn = false) {
+  // at startIndex. shuffle is honoured at play time by the backend. contextId
+  // names the page the tracks are listed on (`album:<id>`, `playlist:<id>`,
+  // `artist:<id>`, `liked`), which its header's play button recognizes its
+  // own queue by; null from a list that is no page of its own.
+  function playContext(tracks, startIndex = 0, shuffleOn = false, contextId = null) {
     if (!tracks?.length) return Promise.resolve(false);
     return send('play_context', {
       tracks,
       start_index: startIndex,
       shuffle: shuffleOn,
+      context_id: contextId,
       // The storage space these tracks came from. Subsonic song dicts carry no
       // library of their own, so this is the only thing that lets the backend
       // stop playback when this queue's USB key is pulled out.
@@ -1117,7 +1123,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     nowPlaying,
     queue,
     queueIndex,
-    currentTrackId,
+    currentTrackId, currentContextId,
     phase,
     isPlaying,
 

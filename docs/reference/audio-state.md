@@ -55,6 +55,7 @@ The whole state is **contracted**. **Contracted** marks what Milo-Mac or Milo-iO
 | `track_id` | string \| null |
 | `album_id` | string \| null |
 | `artist_id` | string \| null |
+| `context_id` | string \| null |
 
 ### CdDetails
 

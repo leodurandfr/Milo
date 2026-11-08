@@ -261,12 +261,20 @@ class PlayContextParams(StrictModel):
     would go on reading a path that no longer exists. Omitted when nothing scopes
     the browse (storage spaces merged into one view), in which case no unplug can
     be attributed to the queue and playback is left alone.
+
+    ``context_id`` names the page the queue was played from (``album:<id>``,
+    ``playlist:<id>``, ``artist:<id>``, ``liked``), opaque to the backend and
+    echoed back in the state's details: the song dicts alone cannot say which
+    page's play button now stands for this queue (a playlist and the album it
+    copies hold the same songs). Omitted by a caller with no such page (a
+    search result, Milo-Mac).
     """
 
     tracks: List[Dict[str, Any]] = Field(min_length=1)
     start_index: int = Field(default=0, ge=0)
     shuffle: bool = False
     library_id: Optional[int] = None
+    context_id: Optional[str] = Field(default=None, min_length=1, max_length=256)
 
     @field_validator("tracks")
     @classmethod

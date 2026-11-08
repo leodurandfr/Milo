@@ -893,12 +893,12 @@ export const REGISTRY = {
 
   SkeletonDetailHeader: {
     component: SkeletonDetailHeader,
-    args: { shuffle: true, class: 'canvas-column' }
+    args: { class: 'canvas-column' }
   },
 
   SkeletonDetailPage: {
     component: SkeletonDetailPage,
-    args: { rows: 4, cover: true, artist: true, shuffle: true, class: 'canvas-column' }
+    args: { rows: 4, cover: true, artist: true, class: 'canvas-column' }
   },
 
   DetailHeader: {

@@ -43,7 +43,7 @@
                 @play-episode="playEpisode" @select-episode="openEpisodeDetails" @unavailable="onPodcastUnavailable" />
 
               <EpisodeDetails v-else-if="entry.view === 'episode-details'" :uuid="entry.params.episodeUuid"
-                @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
+                @select-podcast="openPodcastDetails" />
             </component>
           </KeepAlive>
         </template>

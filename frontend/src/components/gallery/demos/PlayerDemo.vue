@@ -61,17 +61,19 @@
   </GalleryItem>
 
   <GalleryItem id="DetailHeader">
-    <GalleryVariant label="cover + three lines + the built-in shuffle / play" stacked>
+    <GalleryVariant label="cover + three lines + the built-in play" stacked>
       <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm"
         subtitle-meta="2013 · 17 tracks · 1 h 21" />
     </GalleryVariant>
-    <GalleryVariant label="liked — the Liked Songs cover instead of cover art" stacked>
-      <DetailHeader liked title="Liked Songs" subtitle-meta="128 tracks"
-        :show-shuffle="false" />
+    <GalleryVariant label=":playing — the page's own context plays: pause; :play-loading — after a press" stacked>
+      <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm" playing />
+      <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm" play-loading />
     </GalleryVariant>
-    <GalleryVariant label="actions slot — renders before the built-in buttons" stacked>
-      <DetailHeader :image-src="musicPlaceholder" title="Morning playlist" subtitle="42 tracks"
-        :show-shuffle="false">
+    <GalleryVariant label="liked — the Liked Songs cover instead of cover art" stacked>
+      <DetailHeader liked title="Liked Songs" subtitle-meta="128 tracks" />
+    </GalleryVariant>
+    <GalleryVariant label="actions slot — renders before the built-in button" stacked>
+      <DetailHeader :image-src="musicPlaceholder" title="Morning playlist" subtitle="42 tracks">
         <template #actions>
           <IconButton icon="threeDots" variant="on-contrast" size="medium" />
         </template>
@@ -79,14 +81,14 @@
     </GalleryVariant>
     <GalleryVariant label=":subtitle-clickable — the artist line becomes a link" stacked>
       <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm"
-        subtitle-clickable :show-play="false" :show-shuffle="false"
+        subtitle-clickable :show-play="false"
         @select-artist="artistHits++" />
       <span class="text-mono-small">select-artist: {{ artistHits }}</span>
     </GalleryVariant>
     <GalleryVariant label=":subtitle-artists — several names, one link each (Spotify's album)" stacked>
       <DetailHeader :image-src="musicPlaceholder" title="Trance Frendz" subtitle="Ólafur Arnalds, Nils Frahm"
         :subtitle-artists="[{ name: 'Ólafur Arnalds', link: true }, { name: 'Nils Frahm', link: true }]"
-        :show-play="false" :show-shuffle="false" @select-artist="artistPicked = $event" />
+        :show-play="false" @select-artist="artistPicked = $event" />
       <span class="text-mono-small">select-artist: {{ artistPicked ?? '—' }}</span>
     </GalleryVariant>
   </GalleryItem>

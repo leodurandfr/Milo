@@ -196,16 +196,6 @@ describe('spotifyStore', () => {
     expect(store.contextErrors[PLAYLIST]).toBeUndefined();
   });
 
-  it('plays a context from a track, shuffled or not, as one command', async () => {
-    await store.playContext(PLAYLIST, { skipToUri: TRACK });
-    await store.playContext(PLAYLIST, { shuffle: true });
-
-    expect(commandsSent()).toEqual([
-      { command: 'play_context', data: { uri: PLAYLIST, shuffle: false, skip_to_uri: TRACK } },
-      { command: 'play_context', data: { uri: PLAYLIST, shuffle: true } },
-    ]);
-  });
-
   it('lists the queue from the track playing: it, then what follows, never what came before', () => {
     const entry = (name) => ({ uri: `spotify:track:${name}`, title: name, artist: null, thumbnail: null, duration_ms: null });
     publish({
@@ -259,8 +249,8 @@ describe('spotifyStore', () => {
     await store.playFromHistory({ uri: TRACK, context_uri: null });
 
     expect(commandsSent()).toEqual([
-      { command: 'play_context', data: { uri: PLAYLIST, shuffle: false, skip_to_uri: TRACK } },
-      { command: 'play_context', data: { uri: TRACK, shuffle: false } },
+      { command: 'play_context', data: { uri: PLAYLIST, skip_to_uri: TRACK } },
+      { command: 'play_context', data: { uri: TRACK } },
     ]);
   });
 });

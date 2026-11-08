@@ -341,7 +341,7 @@ export const ENTRIES = [
     id: 'DetailHeader',
     group: 'player',
     file: 'components/audio/DetailHeader.vue',
-    summary: 'The album / playlist / episode header: cover art, or the Liked Songs cover (LikedCover) when liked. Up to three text lines — the subtitle a link to the artist where the page knows its page (`subtitleClickable`: the whole line, one link; `subtitleArtists`: drawn name by name by ArtistNames, each name with a page its own link, in place of `subtitle`) — and an actions slot that renders before the built-in shuffle / play buttons. On the phone it is a compact row: a thumbnail cover, the title on one line, Play an icon.',
+    summary: 'The album / playlist / episode header: cover art, or the Liked Songs cover (LikedCover) when liked. Up to three text lines — the subtitle a link to the artist where the page knows its page (`subtitleClickable`: the whole line, one link; `subtitleArtists`: drawn name by name by ArtistNames, each name with a page its own link, in place of `subtitle`) — and an actions slot that renders before the built-in play button — an icon, pause while the page\'s own context plays (`playing`) and spinning from a press on it until it does (`playLoading`), both kept by useDetailPlayback. On the phone it is a compact row: a thumbnail cover, the title on one line.',
   },
 
   {
@@ -354,7 +354,7 @@ export const ENTRIES = [
     id: 'SkeletonDetailHeader',
     group: 'player',
     file: 'components/audio/SkeletonDetailHeader.vue',
-    summary: 'DetailHeader\'s placeholder: the same contrast card, cover and lines (the subtitle only with `subtitle`, as most headers draw none), then the Play pill and, with `shuffle`, the shuffle square — so the page below does not move when the header arrives. The Spotify artist page and the Library artist page lay it over their own shelves or grid.',
+    summary: 'DetailHeader\'s placeholder: the same contrast card, cover and lines (the subtitle only with `subtitle`, as most headers draw none), then its play square (or, `action="small"`, a show\'s Subscribe) — so the page below does not move when the header arrives. The Spotify artist page and the Library artist page lay it over their own shelves or grid.',
   },
   {
     id: 'SkeletonDetailPage',

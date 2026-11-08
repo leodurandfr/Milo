@@ -12,7 +12,6 @@
             :subtitle="podcast.publisher || podcast.author"
             :subtitle-meta="t('podcasts.episodesCount', { count: podcast.total_episodes })"
             :show-play="false"
-            :show-shuffle="false"
           >
             <template #actions>
               <Button v-if="!podcast.is_subscribed" variant="brand" @click="handleSubscribe">

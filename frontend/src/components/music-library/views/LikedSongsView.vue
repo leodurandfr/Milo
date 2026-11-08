@@ -2,7 +2,7 @@
   <div class="liked-songs-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <SkeletonDetailPage v-if="store.likedSongsLoading && !store.likedSongs.length" key="loading" cover artist shuffle />
+        <SkeletonDetailPage v-if="store.likedSongsLoading && !store.likedSongs.length" key="loading" cover artist />
         <MessageContent v-else-if="!store.likedSongs.length" key="empty" icon="musicNote" :title="t('musicLibrary.noTracks')" />
 
         <div v-else key="loaded" class="content-stack">
@@ -10,8 +10,10 @@
             liked
             :title="t('musicLibrary.playlists.likedSongs')"
             :subtitle-meta="subtitle"
-            @play="playFrom(0)"
-            @shuffle="shufflePlay"
+            :playing="header.playing.value"
+            :play-loading="header.loading.value"
+            @play="header.play"
+            @pause="header.pause"
           />
 
           <TrackList>
@@ -47,6 +49,7 @@ import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import { useRenderWindow } from '@/composables/useRenderWindow';
+import { useDetailPlayback } from '@/composables/useDetailPlayback';
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
@@ -56,14 +59,12 @@ const { visible: visibleSongs, hasMore, sentinelRef } = useRenderWindow(() => st
 const subtitle = computed(() => t('musicLibrary.tracksCount', { count: store.likedSongsCount }));
 
 function playFrom(index) {
-  store.playContext(store.likedSongs, index, false);
+  return store.playContext(store.likedSongs, index, false, 'liked');
 }
 
-function shufflePlay() {
-  if (!store.likedSongs.length) return;
-  const start = Math.floor(Math.random() * store.likedSongs.length);
-  store.playContext(store.likedSongs, start, true);
-}
+const header = useDetailPlayback(
+  'music_library', () => store.currentContextId === 'liked', () => playFrom(0),
+);
 
 // Started in setup, not onMounted: the loading flag is then up before the first
 // render, so the empty state never flashes ahead of the spinner.

@@ -32,7 +32,7 @@ When:
 | `skip` | session | `seconds`: number | contracted |
 | `next` | session | `uri`: string \| null (optional) | contracted |
 | `prev` | session | `allow_seeking`: boolean (optional) | contracted |
-| `play_context` | content | `uri`: string<br>`skip_to_uri`: string \| null (optional)<br>`shuffle`: boolean (optional) | contracted |
+| `play_context` | content | `uri`: string<br>`skip_to_uri`: string \| null (optional) | contracted |
 | `set_shuffle` | session | `shuffle`: boolean | internal |
 | `set_repeat` | session | `mode`: [RepeatMode](#repeatmode) | internal |
 | `take_over` | content | — | internal |
@@ -114,7 +114,7 @@ No commands: the sender controls playback.
 
 | Command | When | Parameters | Stability |
 |---|---|---|---|
-| `play_context` | content | `tracks`: object[]<br>`start_index`: integer (optional)<br>`shuffle`: boolean (optional)<br>`library_id`: integer \| null (optional) | contracted |
+| `play_context` | content | `tracks`: object[]<br>`start_index`: integer (optional)<br>`shuffle`: boolean (optional)<br>`library_id`: integer \| null (optional)<br>`context_id`: string \| null (optional) | contracted |
 | `play_index` | resume | `index`: integer | internal |
 | `pause` | session | — | contracted |
 | `resume` | resume | — | contracted |

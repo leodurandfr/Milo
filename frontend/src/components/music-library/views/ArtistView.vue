@@ -16,9 +16,10 @@
             :title="artist.name"
             :subtitle-meta="subtitleMeta"
             :show-play="albums.length > 0"
-            :show-shuffle="false"
-            :play-loading="playLoading"
-            @play="playAll"
+            :playing="header.playing.value"
+            :play-loading="header.loading.value"
+            @play="header.play"
+            @pause="header.pause"
           />
 
           <div class="albums-grid">
@@ -40,6 +41,7 @@ import SkeletonDetailHeader from '@/components/audio/SkeletonDetailHeader.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
 import SkeletonAlbumCard from '../cards/SkeletonAlbumCard.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
+import { useDetailPlayback } from '@/composables/useDetailPlayback';
 
 const props = defineProps({
   artistId: {
@@ -55,7 +57,6 @@ const store = useMusicLibraryStore();
 
 const artist = ref(null);
 const loading = ref(false);
-const playLoading = ref(false);
 
 const albums = computed(() => artist.value?.album || []);
 
@@ -101,18 +102,21 @@ const subtitleMeta = computed(() => {
 // tracks at all (getArtist answers albums only), so the queue is assembled here
 // with one album fetch per release — merged multi-disc ids included, which
 // fetchAlbum expands into their concatenated tracks.
+// The header's spinner covers these fetches too: it turns from the press.
 async function playAll() {
-  if (playLoading.value || !albums.value.length) return;
+  if (!albums.value.length) return false;
   const requested = props.artistId;
-  playLoading.value = true;
   const fetched = await Promise.all(albums.value.map((album) => store.fetchAlbum(album.id)));
-  playLoading.value = false;
   // Navigated to another artist while the fetches were in flight: playing now
   // would start a queue the user has left behind.
-  if (props.artistId !== requested) return;
+  if (props.artistId !== requested) return false;
   const songs = fetched.flatMap((album) => album?.song || []);
-  if (songs.length) store.playContext(songs, 0, false);
+  return songs.length ? store.playContext(songs, 0, false, `artist:${requested}`) : false;
 }
+
+const header = useDetailPlayback(
+  'music_library', () => store.currentContextId === `artist:${props.artistId}`, playAll,
+);
 
 watch(() => props.artistId, async (id) => {
   loading.value = true;

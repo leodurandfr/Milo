@@ -27,14 +27,9 @@
       <div v-if="hasActions" class="detail-header-actions">
         <!-- Extra actions (e.g. the playlist Edit/Done toggle, or podcast Subscribe/Unsubscribe). -->
         <slot name="actions"></slot>
-        <IconButton v-if="showShuffle" icon="shuffle" variant="on-contrast" size="medium"
-          :aria-label="t('musicLibrary.shuffle')" @click="$emit('shuffle')" />
-        <template v-if="showPlay">
-          <IconButton v-if="isMobile" icon="play" variant="brand" size="medium" :loading="playLoading"
-            :aria-label="t('musicLibrary.play')" @click="$emit('play')" />
-          <Button v-else variant="brand" size="medium" left-icon="play" :loading="playLoading"
-            @click="$emit('play')">{{ t('musicLibrary.play') }}</Button>
-        </template>
+        <IconButton v-if="showPlay" :icon="playing ? 'pause' : 'play'" variant="brand" size="medium"
+          :loading="playLoading" :aria-label="playing ? t('player.pause') : t('player.play')"
+          @click="$emit(playing ? 'pause' : 'play')" />
       </div>
     </div>
   </div>
@@ -46,7 +41,6 @@ import { useI18n } from '@/services/i18n';
 import { useIsMobile } from '@/composables/useIsMobile';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import IconButton from '@/components/ui/IconButton.vue';
-import Button from '@/components/ui/Button.vue';
 import ArtistNames from '@/components/audio/ArtistNames.vue';
 import LikedCover from '@/components/audio/LikedCover.vue';
 
@@ -92,19 +86,19 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
-  // Spinner on the play button, for a header whose queue is only assembled on
-  // the press (the artist page fetches one album per release).
+  // What the page lists is what plays: the button is pause (useDetailPlayback).
+  playing: {
+    type: Boolean,
+    default: false,
+  },
+  // Spinner on the button, from a press on it until the page plays.
   playLoading: {
     type: Boolean,
     default: false,
   },
-  showShuffle: {
-    type: Boolean,
-    default: true,
-  },
 });
 
-defineEmits(['play', 'shuffle', 'select-artist']);
+defineEmits(['play', 'pause', 'select-artist']);
 
 const { t } = useI18n();
 const { isMobile } = useIsMobile();
@@ -113,7 +107,7 @@ const slots = useSlots();
 const artistLinks = computed(() => props.subtitleArtists.some((artist) => artist.link));
 
 const hasActions = computed(
-  () => props.showPlay || props.showShuffle || !!slots.actions
+  () => props.showPlay || !!slots.actions
 );
 </script>
 

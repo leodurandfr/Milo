@@ -5,7 +5,7 @@
         <!-- Until the page and the first tracks are in: drawn one after the
              other, the tracks would push the sections down as they arrive. -->
         <div v-if="(!page && !pageError) || tracksPending" key="loading" class="sections swap-skeleton" aria-hidden="true">
-          <SkeletonDetailHeader shuffle />
+          <SkeletonDetailHeader />
           <section class="section">
             <span class="skeleton-title-line heading-2">
               <span class="skeleton-text-line shimmer skeleton-title"></span>&#8203;
@@ -34,9 +34,10 @@
             :title="headerTitle"
             :subtitle-meta="listeners"
             :show-play="tracks.length > 0"
-            :show-shuffle="tracks.length > 0"
-            @play="play()"
-            @shuffle="shufflePlay"
+            :playing="header.playing.value"
+            :play-loading="header.loading.value"
+            @play="header.play"
+            @pause="header.pause"
           />
 
           <section v-if="popular.length" class="section">
@@ -156,7 +157,7 @@ const pageError = computed(() => store.artistErrors[props.uri] ?? null);
 const listing = computed(() => store.contexts[props.uri] ?? null);
 const trackError = computed(() => store.contextErrors[props.uri] ?? null);
 const tracks = computed(() => listing.value?.tracks ?? []);
-const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
+const { rowSong, isCurrent, play, header } = useSpotifyListingPlayback(() => props.uri);
 
 // Until the first ones are described: the listing answers within a second.
 const tracksPending = computed(() => !tracks.value.length && !listing.value?.complete && !trackError.value);

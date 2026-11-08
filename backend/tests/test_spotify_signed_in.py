@@ -62,27 +62,6 @@ async def test_play_context_starts_one_session_on_the_signed_in_account(stored):
     assert details(stored)["shuffle"] is False
 
 
-@pytest.mark.parametrize("skip_to", [TRACK, None])
-async def test_a_shuffled_play_turns_shuffle_on_after_the_play(stored, skip_to):
-    """A play on a signed-in daemon with no session starts from a fresh state,
-    shuffle off (measured): set before the play, shuffle was lost. So it is
-    turned on once the session exists, and the play starts where the browser
-    said (its random pick) or at the first track."""
-    data = {"uri": PLAYLIST, "shuffle": True}
-    if skip_to:
-        data["skip_to_uri"] = skip_to
-
-    result = await stored.command("play_context", data)
-
-    assert result["success"] is True
-    expected_play = {"uri": PLAYLIST, **({"skip_to_uri": skip_to} if skip_to else {})}
-    assert stored.daemon.posted == [
-        ("play", expected_play),
-        ("shuffle_context", {"shuffle_context": True}),
-    ]
-    assert details(stored)["shuffle"] is True
-
-
 async def test_play_context_with_nobody_signed_in_sends_nothing(nobody):
     """A daemon nobody is signed in to answers every command with a 204: the
     press must be refused here, with nothing posted, rather than read as sent."""

@@ -2,7 +2,7 @@
   <!-- EpisodeDetails in its own geometry: the header, then the description's
        card — its title, then a paragraph in body-medium lines. -->
   <div class="skeleton-episode-details">
-    <SkeletonDetailHeader subtitle action="icon" />
+    <SkeletonDetailHeader subtitle />
 
     <div class="skeleton-description-block">
       <span class="skeleton-line text-mono-medium">

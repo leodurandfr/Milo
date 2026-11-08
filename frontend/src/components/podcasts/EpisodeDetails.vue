@@ -12,15 +12,12 @@
             :subtitle="episode.podcast?.name"
             :subtitle-clickable="!!episode.podcast"
             :subtitle-meta="subtitleMeta"
-            :show-play="false"
-            :show-shuffle="false"
+            :playing="header.playing.value"
+            :play-loading="header.loading.value"
+            @play="header.play"
+            @pause="header.pause"
             @select-artist="handleSelectPodcast"
-          >
-            <template #actions>
-              <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="brand" size="medium"
-                :loading="isCurrentEpisodeBuffering" @click="handlePlayClick" />
-            </template>
-          </DetailHeader>
+          />
 
           <div class="description-block">
             <h3 class="text-mono-medium description-title">{{ t('podcasts.description') }}</h3>
@@ -39,8 +36,9 @@ import { useEpisodePlaybackStatus } from '@/composables/useEpisodePlaybackStatus
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
+import { useDetailPlayback } from '@/composables/useDetailPlayback'
+import { logger } from '@/services/logger'
 import DetailHeader from '@/components/audio/DetailHeader.vue'
-import IconButton from '@/components/ui/IconButton.vue'
 import SkeletonEpisodeDetails from './SkeletonEpisodeDetails.vue'
 import { podcastPlaceholder } from '@/constants/placeholders'
 
@@ -53,18 +51,21 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['play-episode', 'select-podcast'])
+const emit = defineEmits(['select-podcast'])
 
 const podcastStore = usePodcastStore()
 const episode = ref(null)
 
-const {
-  isCurrentlyPlaying,
-  isCurrentEpisodeBuffering,
-  formattedDate,
-  statusLabel,
-  pause,
-} = useEpisodePlaybackStatus(episode)
+const { formattedDate, statusLabel } = useEpisodePlaybackStatus(episode)
+
+const header = useDetailPlayback(
+  'podcast',
+  () => podcastStore.currentEpisode?.uuid === props.uuid,
+  () => podcastStore.play(props.uuid).then(() => true, (error) => {
+    logger.error('podcast', 'Error playing episode', error)
+    return false
+  }),
+)
 
 const subtitleMeta = computed(() => {
   const parts = [statusLabel.value];
@@ -81,14 +82,6 @@ const { loading, execute: loadEpisode } = useAsyncData(async () => {
   episode.value = result.data
   podcastStore.enrichEpisodesWithProgress([episode.value])
 }, { logTag: 'podcast' })
-
-async function handlePlayClick() {
-  if (isCurrentlyPlaying.value) {
-    await pause()
-  } else {
-    emit('play-episode', episode.value)
-  }
-}
 
 function handleSelectPodcast() {
   if (episode.value?.podcast) emit('select-podcast', episode.value.podcast)

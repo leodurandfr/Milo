@@ -13,8 +13,10 @@
             :subtitle="subtitleArtist"
             :subtitle-meta="subtitleMeta"
             :subtitle-clickable="!isVariousArtists"
-            :show-shuffle="false"
-            @play="playFrom(0)"
+            :playing="header.playing.value"
+            :play-loading="header.loading.value"
+            @play="header.play"
+            @pause="header.pause"
             @select-artist="selectArtist"
           />
 
@@ -56,6 +58,7 @@ import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
+import { useDetailPlayback } from '@/composables/useDetailPlayback';
 
 const props = defineProps({
   albumId: {
@@ -166,9 +169,15 @@ const subtitleMeta = computed(() => {
   return parts.join(' · ');
 });
 
+const contextId = computed(() => `album:${props.albumId}`);
+
 function playFrom(index) {
-  store.playContext(songs.value, index, false);
+  return store.playContext(songs.value, index, false, contextId.value);
 }
+
+const header = useDetailPlayback(
+  'music_library', () => store.currentContextId === contextId.value, () => playFrom(0),
+);
 
 function selectArtist() {
   if (albumArtistId.value) emit('select-artist', { id: albumArtistId.value, name: album.value.artist });

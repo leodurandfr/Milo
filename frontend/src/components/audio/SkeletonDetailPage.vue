@@ -5,7 +5,7 @@
 -->
 <template>
   <div class="skeleton-detail-page swap-skeleton" aria-hidden="true">
-    <SkeletonDetailHeader :subtitle="subtitle" :shuffle="shuffle" />
+    <SkeletonDetailHeader :subtitle="subtitle" />
     <TrackList>
       <SkeletonTrackRow v-for="i in rows" :key="i" :cover="cover" :artist="artist" />
     </TrackList>
@@ -32,13 +32,8 @@ defineProps({
     type: Boolean,
     default: false,
   },
-  // As the header it stands in for: SkeletonDetailHeader's `subtitle` and
-  // `shuffle`.
+  // As the header it stands in for: SkeletonDetailHeader's `subtitle`.
   subtitle: {
-    type: Boolean,
-    default: false,
-  },
-  shuffle: {
     type: Boolean,
     default: false,
   },

@@ -101,6 +101,7 @@ class LibrarySession(MpvSession):
     unshuffled: List[Dict[str, Any]] = field(default_factory=list)
     index: int = 0
     library_id: Optional[int] = None
+    context_id: Optional[str] = None
     shuffle: bool = False
     # The mode mpv's two loop options hold (see _handle_set_repeat).
     repeat: RepeatMode = "off"
@@ -682,6 +683,7 @@ class MusicLibrarySource(MpvAudioSource):
             # Without it the restored queue is attributed to no space, and a
             # key leaving would not end it.
             "queue_library_id": session.library_id,
+            "queue_context_id": session.context_id,
             "shuffle": session.shuffle,
             # Kept like shuffle: both are how this queue was being listened
             # to, and a looped album that comes back unlooped is a change
@@ -835,8 +837,8 @@ class MusicLibrarySource(MpvAudioSource):
         await self.end_session(EndReason.USER_STOP)
         self._set_resume_point(None)
         if not await self._open_queue(
-            tracks, original_order, start_index, params.library_id, params.shuffle, "off",
-            start_s=0, playing=True,
+            tracks, original_order, start_index, params.library_id, params.context_id,
+            params.shuffle, "off", start_s=0, playing=True,
         ):
             return self.error_response("Failed to load playlist")
         return self.success_response(f"Playing {len(tracks)} track(s)")
@@ -1095,13 +1097,14 @@ class MusicLibrarySource(MpvAudioSource):
         self._logger.info("Reopening the saved queue at track %s, %ss", at + 1, start_s)
         return await self._open_queue(
             tracks, content["queue_unshuffled"] or list(tracks), at,
-            content["queue_library_id"], content["shuffle"], content["repeat"],
-            start_s=start_s, playing=playing,
+            content["queue_library_id"], content["queue_context_id"],
+            content["shuffle"], content["repeat"], start_s=start_s, playing=playing,
         )
 
     async def _open_queue(
         self, tracks: List[Dict[str, Any]], unshuffled: List[Dict[str, Any]], index: int,
-        library_id: Optional[int], shuffle: bool, repeat: RepeatMode, *, start_s: int, playing: bool,
+        library_id: Optional[int], context_id: Optional[str], shuffle: bool, repeat: RepeatMode,
+        *, start_s: int, playing: bool,
     ) -> bool:
         """Open a session on `tracks` and hand them to mpv: every track appended
         (nothing plays), the one at `index` starting at `start_s`, then that
@@ -1115,7 +1118,7 @@ class MusicLibrarySource(MpvAudioSource):
             return False
         session = LibrarySession(
             phase=Phase.LOADING if playing else Phase.PAUSED, queue=tracks, unshuffled=unshuffled, index=index,
-            library_id=library_id, shuffle=shuffle, repeat=repeat, position=start_s,
+            library_id=library_id, context_id=context_id, shuffle=shuffle, repeat=repeat, position=start_s,
             duration=int(tracks[index].get("duration") or 0),
         )
         self.open_session(session)
@@ -1410,6 +1413,7 @@ class MusicLibrarySource(MpvAudioSource):
         if isinstance(session, LibrarySession):
             tracks, index = session.queue, session.index
             shuffle, repeat = session.shuffle, session.repeat
+            context_id = session.context_id
         else:
             saved = self._saved_queue()
             if saved is None:
@@ -1417,11 +1421,12 @@ class MusicLibrarySource(MpvAudioSource):
             tracks, index = saved
             content = self._resume_point.content
             shuffle, repeat = content["shuffle"], content["repeat"]
+            context_id = content["queue_context_id"]
         current = tracks[index]
         return MusicLibraryDetails(
             queue=tracks, queue_index=index, shuffle=shuffle, repeat=repeat,
             track_id=current.get("id"), album_id=current.get("albumId"),
-            artist_id=current.get("artistId"),
+            artist_id=current.get("artistId"), context_id=context_id,
         )
 
     def _controls(self) -> List[str]:

@@ -8,7 +8,7 @@
           :cta-label="t('spotify.retry')" cta-variant="control" :cta-click="load" />
 
         <SkeletonDetailPage v-else-if="!tracks.length && !listing?.complete" key="loading"
-          :cover="kind !== 'album'" :subtitle="kind === 'album' || owner === 'spotify'" artist shuffle />
+          :cover="kind !== 'album'" :subtitle="kind === 'album' || owner === 'spotify'" artist />
 
         <MessageContent v-else-if="!tracks.length" key="empty" icon="musicNote" :title="t('spotify.noTracks')" />
 
@@ -21,8 +21,10 @@
             :subtitle="headerSubtitle"
             :subtitle-artists="subtitleArtists"
             :subtitle-meta="t('spotify.tracksCount', { count: trackCount })"
-            @play="play()"
-            @shuffle="shufflePlay"
+            :playing="header.playing.value"
+            :play-loading="header.loading.value"
+            @play="header.play"
+            @pause="header.pause"
             @select-artist="selectHeaderArtist"
           />
 
@@ -103,7 +105,7 @@ const error = computed(() => store.contextErrors[props.uri] ?? null);
 const tracks = computed(() => listing.value?.tracks ?? []);
 // The rows mounted, out of the tracks described so far.
 const { visible: visibleTracks, hasMore, sentinelRef } = useRenderWindow(tracks);
-const { rowSong, isCurrent, play, shufflePlay } = useSpotifyListingPlayback(() => props.uri, tracks);
+const { rowSong, isCurrent, play, header } = useSpotifyListingPlayback(() => props.uri);
 // A list the account may edit offers to remove a row from it.
 const editable = computed(() => props.kind !== 'album' && store.canEdit(props.uri));
 // While the rest is described, the listing's own length.

@@ -32,12 +32,10 @@ class PrevParams(StrictModel):
 class PlayContextParams(StrictModel):
     """Params for `play_context`: play a context (playlist, album, artist, the
     account's Liked Songs collection) from its first track, or from
-    `skip_to_uri`. `shuffle` is the shuffle state the context plays in; the
-    browser starts a shuffled play on a track it picks at random, as
-    `skip_to_uri` (see SpotifySource._play_context)."""
+    `skip_to_uri`, shuffle off (see SpotifySource._play_context): a shuffled
+    listening is the player's `set_shuffle`, once it plays."""
     uri: str = Field(min_length=1)
     skip_to_uri: Optional[str] = None
-    shuffle: bool = False
 
 
 # === Browser route bodies ===
