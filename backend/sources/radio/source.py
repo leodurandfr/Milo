@@ -36,7 +36,7 @@ from backend.sources.radio.data import StationDataService
 from backend.sources.radio.logos import StationLogos
 from backend.sources.radio import radiofrance
 from backend.sources.radio.playlist import is_playlist_url, resolve_stream_url
-from backend.sources.radio.shazam import ShazamRecognitionService
+from backend.sources.radio.shazam import RecognitionQuota, ShazamRecognitionService
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.radio.browser_api import RadioBrowserAPI
 from backend.shared.network import describe_network_error
@@ -53,8 +53,8 @@ _SHAZAM_GRACE_TICKS = 8
 # Consecutive empty in-band polls (once in-band has been seen) after which a
 # stale pinned title is cleared. A brief gap between tracks keeps the last
 # title; sustained silence (ad/talk/dead air with an empty StreamTitle) clears
-# it — mirrors Shazam's STALE_CLEAR_ROUNDS so in-band can't pin a phantom
-# title either. 4 polls × ~4 s ≈ 16 s of continuous empty metadata.
+# it, so in-band can't pin a phantom title (Shazam's own expiry is
+# shazam.STALE_AFTER_S). 4 polls × ~4 s ≈ 16 s of continuous empty metadata.
 _INBAND_STALE_CLEAR_POLLS = 4
 
 # The session timers of Radio France's feed: the next read, and the next
@@ -250,6 +250,10 @@ class RadioSource(MpvAudioSource):
         self._logos = StationLogos()
 
         self._shazam: Optional[ShazamRecognitionService] = None
+        # Shazam's request budget and backoff outlive every recognition service
+        # (one per start): a station change or a source switch must not reset
+        # them, or zapping alone would get the unit throttled.
+        self._shazam_quota = RecognitionQuota()
 
         # Resolves cover art for in-band tracks (which carry no artwork) from
         # their artist/title via the iTunes Search API.
@@ -289,6 +293,7 @@ class RadioSource(MpvAudioSource):
 
             self._shazam = ShazamRecognitionService(
                 settings_service=self._settings_service,
+                quota=self._shazam_quota,
                 on_track_changed=self._on_shazam_track_changed
             )
 

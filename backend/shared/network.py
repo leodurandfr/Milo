@@ -1,5 +1,9 @@
 """Network error classification utilities."""
 import asyncio
+import email.utils
+import time
+from typing import Any, Optional
+
 import aiohttp
 
 
@@ -29,3 +33,22 @@ def describe_network_error(exc: Exception) -> str:
     """
     message = str(exc)
     return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
+def retry_after(headers: Any) -> Optional[float]:
+    """Seconds a Retry-After header asks to wait — delay-seconds or HTTP-date
+    (RFC 9110 §10.2.3) — or None when it is absent or unreadable.
+
+    Consumers: the lyrics lookup (`core/lyrics/service.py`), which asks LRCLIB
+    again after it, and Shazam's backoff (`sources/radio/shazam.py`), which
+    never asks before it.
+    """
+    value = (headers.get("Retry-After") or "").strip()
+    if not value:
+        return None
+    if value.isascii() and value.isdigit():
+        return float(value)
+    try:
+        return max(0.0, email.utils.parsedate_to_datetime(value).timestamp() - time.time())
+    except (TypeError, ValueError):
+        return None

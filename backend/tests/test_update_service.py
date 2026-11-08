@@ -1253,8 +1253,8 @@ class TestUpdateMiloApp:
 class TestMiloAppPythonDependencies:
     """The pip step of a Milo update — the only step that can brick the unit.
 
-    A release adding a direct dependency (aiohttp-retry did, imported by
-    sources/radio/shazam.py) leaves the backend importing a module absent from
+    A release adding a direct dependency (aiohttp-retry once did, imported by
+    sources/radio/shazam.py at the time) leaves the backend importing a module absent from
     the venv on the post-update reboot. Two things are asserted: pip is run
     against a requirements file this checkout really ships, and a pip that
     fails aborts into the rollback instead of rebooting on a half-built venv.

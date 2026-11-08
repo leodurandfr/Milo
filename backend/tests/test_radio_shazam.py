@@ -1,24 +1,59 @@
 # backend/tests/test_radio_shazam.py
-"""
-Unit tests for ShazamRecognitionService hardening (WI-2).
+"""`ShazamRecognitionService`'s decisions: what a Shazam answer means for the
+title on screen, and when Shazam is asked again.
 
-Covers the confidence gate (drop 0-match results) and result parsing, which
-are the correctness-critical, pure pieces. The recognition-loop stale-clear
-counter is time-driven and exercised via a compressed loop test.
+The rules moved on 2026-11-08, on purpose, from a week of journal (399 tries,
+see the module docstring of `sources/radio/shazam.py`): a no-match used to
+clear the title on the spot, a single different match replaced it, every miss
+was retried twice at once and every round came 20 s after the last. Under
+throttling that cleared good titles on a "no match" that was really a soft
+refusal, showed one-verdict wrong titles, and kept the unit throttled — 911 s
+before the first title in one session. Now two consecutive verdicts move the
+title, a refusal is no verdict, the cadence slows while the answer holds, and
+one budget is shared by every run. `STALE_CLEAR_ROUNDS` became `STALE_AFTER_S`,
+a time: rounds no longer have a fixed length.
+
+The pure pieces are tested as functions; the loop is driven through
+`tests/shazam_world.py` — shazamio, Shazam's HTTP answers, ffmpeg and the clock
+scripted — never by replacing the service's own methods. Consumer:
+`RadioSource` → the player's now-playing line and the lock screen.
 """
-import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import aiohttp
 import pytest
 
-from backend.sources.radio.shazam import ShazamRecognitionService
+import backend.sources.radio.shazam as shazam_mod
+from backend.sources.radio.shazam import (
+    BACKOFF_BASE_S, BACKOFF_CAP_S, BACKOFF_JITTER, CAPTURE_RETRIES, CAPTURE_RETRY_S,
+    CONFIRM_S, HOLD_STEPS_S, INITIAL_DELAY_SECONDS, MISS_STEPS_S, QUOTA_REQUESTS,
+    QUOTA_WINDOW_S, STALE_AFTER_S, DisplayedTitle, RecognitionQuota,
+    ShazamRecognitionService, Step, backoff_delay, next_delay,
+)
+from backend.tests.shazam_world import Hang, Reply, ShazamWorld, match, no_match
 
 
 @pytest.fixture
 def service():
     settings = Mock()
     settings.get_setting = AsyncMock(return_value={"shazam_enabled": True})
-    return ShazamRecognitionService(settings_service=settings)
+    return ShazamRecognitionService(settings_service=settings, quota=RecognitionQuota())
+
+
+@pytest.fixture
+def world(monkeypatch):
+    w = ShazamWorld(monkeypatch)
+    yield w
+    w.close()
+
+
+def _track(title, artist="Artist"):
+    return {"title": title, "artist": artist, "artwork": None}
+
+
+def _gaps(times):
+    return [round(b - a, 6) for a, b in zip(times, times[1:])]
 
 
 class TestConfidenceGate:
@@ -67,39 +102,423 @@ class TestRunningFlag:
         assert service.is_running is False
 
 
-class TestStaleClear:
-    """After STALE_CLEAR_ROUNDS unrecognized rounds, a pinned track clears."""
+class TestTwoVerdictRule:
+    """`DisplayedTitle`: the shown value moves only when two consecutive
+    verdicts agree on the new one. Measured: 5 of 22 title changes were single
+    wrong verdicts, 12 clears came from single no-matches."""
 
-    @pytest.mark.asyncio
-    async def test_stale_track_cleared_and_broadcast(self, monkeypatch):
-        import backend.sources.radio.shazam as shazam_mod
+    def hear_all(self, verdicts):
+        title = DisplayedTitle()
+        shown = []
+        for i, verdict in enumerate(verdicts):
+            _, changed = title.hear(verdict, float(i))
+            if changed:
+                shown.append(title.track["title"] if title.track else None)
+        return title, shown
 
-        monkeypatch.setattr(shazam_mod, "INITIAL_DELAY_SECONDS", 0)
-        monkeypatch.setattr(shazam_mod, "RECOGNITION_INTERVAL_SECONDS", 0)
-        monkeypatch.setattr(shazam_mod, "MAX_RETRIES", 0)
+    def test_the_first_title_needs_two_agreeing_matches(self):
+        title, shown = self.hear_all([_track("A")])
+        assert title.track is None
 
-        callback = AsyncMock()
-        settings = Mock()
-        settings.get_setting = AsyncMock(return_value={"shazam_enabled": True})
-        svc = ShazamRecognitionService(settings_service=settings, on_track_changed=callback)
+        title, shown = self.hear_all([_track("A"), _track("A")])
+        assert shown == ["A"]
 
-        # Pin a stale track, then make every recognition attempt fail.
-        svc._current_track = {"title": "Stale", "artist": "Old", "artwork": None}
-        svc._running = True
-        svc._stream_url = "http://x"
+    def test_a_single_no_match_never_clears(self):
+        title, shown = self.hear_all([_track("A"), _track("A"), None, _track("A")])
+        assert shown == ["A"]
+        assert title.track["title"] == "A"
 
-        calls = {"n": 0}
+    def test_two_no_matches_in_a_row_clear(self):
+        _, shown = self.hear_all([_track("A"), _track("A"), None, None])
+        assert shown == ["A", None]
 
-        async def failing_recognize():
-            calls["n"] += 1
-            # Stop the loop once the stale clear has had a chance to fire.
-            if calls["n"] >= shazam_mod.STALE_CLEAR_ROUNDS + 1:
-                svc._running = False
-            return False
+    def test_a_single_different_match_never_replaces(self):
+        title, shown = self.hear_all([_track("A"), _track("A"), _track("B"), _track("A")])
+        assert shown == ["A"]
 
-        svc._try_recognize = failing_recognize
+    def test_two_agreeing_different_matches_replace(self):
+        _, shown = self.hear_all([_track("A"), _track("A"), _track("B"), _track("B")])
+        assert shown == ["A", "B"]
 
-        await asyncio.wait_for(svc._recognition_loop(), timeout=2.0)
+    def test_a_verdict_equal_to_what_is_shown_breaks_a_candidate(self):
+        """B, A, B is not two Bs in a row: the A between them is a verdict."""
+        _, shown = self.hear_all(
+            [_track("A"), _track("A"), _track("B"), _track("A"), _track("B")]
+        )
+        assert shown == ["A"]
 
-        assert svc._current_track is None
-        callback.assert_awaited_with(None)
+    def test_tracks_compare_on_title_and_artist_whatever_the_case_and_spacing(self):
+        _, shown = self.hear_all([_track("So  What", "Miles Davis"), _track("so what", "MILES DAVIS ")])
+        assert shown == ["so what"]
+
+    def test_the_sequence_of_2026_11_08_displays_nothing(self):
+        """FIP Hip Hop, 12:49: one SPLPH, one Stevie Wonder, five no-matches,
+        one Stevie Wonder. Each title was shown before, and Stevie Wonder for
+        good after a single verdict."""
+        _, shown = self.hear_all(
+            [_track("SPLPH"), _track("Stevie Wonder")] + [None] * 5 + [_track("Stevie Wonder")]
+        )
+        assert shown == []
+
+    def test_steps(self):
+        title = DisplayedTitle()
+        assert title.hear(_track("A"), 0)[0] is Step.CANDIDATE
+        assert title.hear(_track("A"), 1)[0] is Step.HOLD
+        assert title.hear(_track("A"), 2)[0] is Step.HOLD
+        assert title.hear(None, 3)[0] is Step.CLEAR_CANDIDATE
+        assert title.hear(None, 4)[0] is Step.MISS
+        assert title.hear(None, 5)[0] is Step.MISS
+
+    def test_a_shown_title_goes_stale_from_its_last_verdict(self):
+        title = DisplayedTitle()
+        assert title.stale_at() is None
+        title.hear(_track("A"), 10)
+        title.hear(_track("A"), 30)
+        title.hear(None, 50)          # a verdict, even a contradicting one
+        assert title.stale_at() == 50 + STALE_AFTER_S
+
+
+class TestCadence:
+    """`next_delay` — the wait after a try, by what the try meant and how many
+    of its kind came in a row."""
+
+    def test_a_held_title_is_asked_about_less_and_less_up_to_a_cap(self):
+        delays = [next_delay(Step.HOLD, n) for n in range(1, len(HOLD_STEPS_S) + 3)]
+        assert delays == [*HOLD_STEPS_S, HOLD_STEPS_S[-1], HOLD_STEPS_S[-1]]
+        assert list(HOLD_STEPS_S) == sorted(HOLD_STEPS_S)
+
+    def test_no_matches_in_a_row_back_off_up_to_a_cap(self):
+        delays = [next_delay(Step.MISS, n) for n in range(1, len(MISS_STEPS_S) + 3)]
+        assert delays == [*MISS_STEPS_S, MISS_STEPS_S[-1], MISS_STEPS_S[-1]]
+        assert list(MISS_STEPS_S) == sorted(MISS_STEPS_S)
+
+    @pytest.mark.parametrize("step", [Step.CANDIDATE, Step.CLEAR_CANDIDATE])
+    def test_a_candidate_is_confirmed_sooner_than_anything_is_asked_again(self, step):
+        assert next_delay(step, 1) == CONFIRM_S
+        assert next_delay(step, 1) < min(HOLD_STEPS_S + MISS_STEPS_S)
+
+    def test_a_failed_capture_is_tried_again_soon_a_few_times_then_slows(self):
+        delays = [next_delay(Step.CAPTURE_FAILED, n) for n in range(1, CAPTURE_RETRIES + 3)]
+        assert delays == [CAPTURE_RETRY_S] * CAPTURE_RETRIES + list(MISS_STEPS_S[:2])
+        assert all(d > 0 for d in delays)
+
+
+class TestBackoff:
+    def test_it_doubles_from_the_base(self):
+        assert [backoff_delay(n, 1.0) for n in range(4)] == [
+            BACKOFF_BASE_S, 2 * BACKOFF_BASE_S, 4 * BACKOFF_BASE_S, 8 * BACKOFF_BASE_S,
+        ]
+
+    def test_it_never_exceeds_the_cap_even_jittered_up(self):
+        assert backoff_delay(50, 1 + BACKOFF_JITTER) == BACKOFF_CAP_S
+        assert backoff_delay(10_000, 1.0) == BACKOFF_CAP_S
+
+    def test_the_jitter_scales_it(self):
+        assert backoff_delay(0, 1 - BACKOFF_JITTER) == pytest.approx(BACKOFF_BASE_S * (1 - BACKOFF_JITTER))
+        assert backoff_delay(0, 1 + BACKOFF_JITTER) == pytest.approx(BACKOFF_BASE_S * (1 + BACKOFF_JITTER))
+
+
+class TestQuota:
+    """`RecognitionQuota` — the window, the deadline and the refusal count."""
+
+    @pytest.fixture
+    def clock(self, monkeypatch):
+        clock = SimpleNamespace(now=1000.0, draws=[])
+        monkeypatch.setattr(shazam_mod, "time", SimpleNamespace(monotonic=lambda: clock.now))
+
+        def uniform(low, high):
+            clock.draws.append((low, high))
+            return 1.0
+
+        monkeypatch.setattr(shazam_mod, "random", SimpleNamespace(uniform=uniform))
+        return clock
+
+    def test_the_window_lets_its_requests_through_then_waits_for_the_oldest(self, clock):
+        quota = RecognitionQuota()
+        for _ in range(QUOTA_REQUESTS):
+            assert quota.ready_at() <= clock.now
+            quota.spend()
+            clock.now += 1
+        assert quota.ready_at() == 1000.0 + QUOTA_WINDOW_S
+
+        clock.now = 1000.0 + QUOTA_WINDOW_S
+        assert quota.ready_at() <= clock.now
+
+    def test_a_later_deadline_stands(self, clock):
+        quota = RecognitionQuota()
+        quota.defer(600)
+        quota.defer(10)
+        assert quota.ready_at() == clock.now + 600
+
+    def test_the_backoff_grows_and_starts_over_on_an_answer(self, clock):
+        quota = RecognitionQuota()
+        assert not quota.backing_off
+        assert [quota.back_off() for _ in range(3)] == [backoff_delay(n, 1.0) for n in range(3)]
+        assert quota.backing_off
+        assert quota.ready_at() == clock.now + backoff_delay(2, 1.0)
+
+        quota.answered()
+        assert not quota.backing_off
+        assert quota.back_off() == backoff_delay(0, 1.0)
+
+    def test_a_retry_after_longer_than_the_backoff_wins(self, clock):
+        quota = RecognitionQuota()
+        assert quota.back_off(at_least=1234) == 1234
+        assert quota.ready_at() == clock.now + 1234
+
+    def test_the_jitter_is_drawn_within_its_bounds(self, clock):
+        RecognitionQuota().back_off()
+        assert clock.draws == [(1 - BACKOFF_JITTER, 1 + BACKOFF_JITTER)]
+
+
+class TestTheLoopShowsATitle:
+    async def test_the_first_title_appears_at_the_confirmation(self, world):
+        world.replies = [Reply(match("A")), Reply(match("A"))]
+        svc = world.service()
+
+        await world.run(svc, until=600)
+
+        assert world.requests[:2] == [INITIAL_DELAY_SECONDS, INITIAL_DELAY_SECONDS + CONFIRM_S]
+        assert world.shown[0] == (world.requests[1], {"title": "A", "artist": "Artist", "artwork": None})
+        assert ("INFO", world.requests[1], "Shazam: Artist – A") in world.lines
+
+    async def test_the_sequence_of_2026_11_08_displays_nothing(self, world):
+        world.replies = [Reply(b) for b in (
+            [match("SPLPH"), match("Stevie Wonder")] + [no_match()] * 5 + [match("Stevie Wonder")]
+        )]
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        assert len(world.requests) > 8            # every answer was heard
+        assert world.shown == []
+
+    async def test_a_held_title_is_asked_about_on_the_hold_cadence(self, world):
+        world.replies = [Reply(match("A"))] * 7
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        assert _gaps(world.requests[:7]) == [CONFIRM_S, *HOLD_STEPS_S, HOLD_STEPS_S[-1]]
+        assert world.titles() == ["A", None]      # published once, not per round; stop() clears
+
+    async def test_a_silent_stream_is_asked_about_less_and_less(self, world):
+        world.replies = [Reply(no_match())] * 6
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        assert _gaps(world.requests[:6]) == [*MISS_STEPS_S, MISS_STEPS_S[-1]]
+        assert world.shown == []
+
+    async def test_a_no_match_under_a_title_is_confirmed_before_it_clears(self, world):
+        world.replies = [Reply(b) for b in [match("A"), match("A"), no_match(), no_match(), no_match()]]
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        assert world.titles() == ["A", None]
+        assert world.shown[1][0] == world.requests[3]
+        gaps = _gaps(world.requests)
+        assert gaps[2] == CONFIRM_S           # the clear is a candidate: confirmed soon
+        assert gaps[3] == MISS_STEPS_S[1]     # then the second no-match in a row
+
+    async def test_the_window_holds_back_a_third_request_within_a_minute(self, world):
+        """Three new candidates in a row would ask every 20 s: three calls in a
+        minute is where the 429s began."""
+        world.replies = [Reply(match(t)) for t in "ABCD"]
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        assert len(world.requests) >= 3
+        for i in range(len(world.requests) - QUOTA_REQUESTS):
+            assert world.requests[i + QUOTA_REQUESTS] - world.requests[i] >= QUOTA_WINDOW_S
+
+
+class TestRefusals:
+    async def test_a_429_backs_off_doubling_without_an_immediate_retry(self, world):
+        world.replies = [Reply(status=429)] * 5
+        svc = world.service()
+
+        await world.run(svc, until=100_000)
+
+        assert _gaps(world.requests[:5]) == [backoff_delay(n, 1.0) for n in range(4)]
+
+    async def test_the_backoff_is_capped(self, world):
+        world.replies = [Reply(status=429)] * 12
+        svc = world.service()
+
+        await world.run(svc, until=100_000)
+
+        assert max(_gaps(world.requests)) == BACKOFF_CAP_S
+
+    async def test_the_jitter_moves_it_within_its_bounds(self, world):
+        world.jitter = 1 + BACKOFF_JITTER
+        world.replies = [Reply(status=429)] * 2
+        svc = world.service()
+
+        await world.run(svc, until=100_000)
+
+        assert _gaps(world.requests[:2]) == [pytest.approx(BACKOFF_BASE_S * (1 + BACKOFF_JITTER))]
+        assert set(world.jitter_bounds) == {(1 - BACKOFF_JITTER, 1 + BACKOFF_JITTER)}
+
+    async def test_a_retry_after_is_honored(self, world):
+        world.replies = [Reply(status=429, headers={"Retry-After": "700"}), Reply(match("A"))]
+        svc = world.service()
+
+        await world.run(svc, until=100_000)
+
+        assert _gaps(world.requests[:2]) == [700]
+
+    async def test_a_retryms_in_a_200_is_honored(self, world):
+        """A candidate is confirmed after CONFIRM_S — unless Shazam asked for
+        longer in the body of its answer."""
+        world.replies = [Reply(match("A", retryms=400_000)), Reply(match("A"))]
+        svc = world.service()
+
+        await world.run(svc, until=100_000)
+
+        assert _gaps(world.requests[:2]) == [400]
+
+    async def test_an_answer_starts_the_backoff_over(self, world):
+        world.replies = [Reply(status=429), Reply(status=429), Reply(no_match()), Reply(status=429), Reply(match("A"))]
+        svc = world.service()
+
+        await world.run(svc, until=100_000)
+
+        gaps = _gaps(world.requests)
+        assert gaps[0] == backoff_delay(0, 1.0)
+        assert gaps[1] == backoff_delay(1, 1.0)
+        assert gaps[3] == backoff_delay(0, 1.0)
+
+    @pytest.mark.parametrize("reply", [
+        Reply(status=429),
+        Reply({"matches": []}, status=403),
+        Reply({"matches": []}, status=500),
+        Reply("<html>captive portal</html>"),
+        Reply('{"matches": ['),
+    ], ids=["429", "403-json", "500-json", "200-html", "200-broken-json"])
+    async def test_a_refusal_is_no_verdict_and_never_an_error(self, world, reply):
+        """A non-200 JSON body used to reach the parser as an answer with no
+        track — a no-match — and clear the title. And a refusal logged at
+        error lands in errors.log and on the UI banner for a condition the
+        next try clears."""
+        world.replies = [Reply(match("A")), Reply(match("A")), reply, reply]
+        svc = world.service()
+
+        await world.run(svc, until=STALE_AFTER_S, stop=False)
+        assert world.replies == []                # both refusals were heard
+        assert svc.current_track["title"] == "A"  # and held through, before stop() clears
+        assert world.titles() == ["A"]
+        await svc.stop()
+
+        assert world.logged("ERROR") == []
+        refusals = [line for line in world.lines if "next try in" in line[2] and line[0] != "DEBUG"]
+        assert [level for level, _, _ in refusals] == ["INFO"]   # once per backoff
+
+    async def test_a_refusal_keeps_a_candidate_standing(self, world):
+        world.replies = [Reply(match("A")), Reply(status=429), Reply(match("A"))]
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        assert world.titles() == ["A", None]      # stop() clears
+
+    async def test_a_timeout_and_a_transport_error_back_off_too(self, world, monkeypatch):
+        monkeypatch.setattr(shazam_mod, "RECOGNITION_TIMEOUT_SECONDS", 0.05)
+        world.replies = [Hang(), aiohttp.ClientConnectionError("reset"), Reply(match("A"))]
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        assert _gaps(world.requests[:3]) == [backoff_delay(0, 1.0), backoff_delay(1, 1.0)]
+        messages = [m for level, _, m in world.lines if "next try in" in m]
+        assert "timed out" in messages[0] and "unreachable" in messages[1]
+        assert world.logged("ERROR") == []
+
+    async def test_a_title_with_no_verdict_for_too_long_is_cleared(self, world):
+        world.replies = [Reply(match("A")), Reply(match("A"))] + [Reply(status=429)] * 10
+        svc = world.service()
+
+        await world.run(svc, until=100_000)
+
+        assert world.titles() == ["A", None]
+        assert world.shown[1][0] == world.requests[1] + STALE_AFTER_S
+
+
+class TestOneBudget:
+    """The quota outlives a run: zapping and a source switch must not reset it.
+
+    Each scenario has its control: the same steps with a fresh quota send the
+    request at once, so it is the shared quota that holds it back."""
+
+    async def test_a_station_change_keeps_the_backoff(self, world):
+        svc = world.service()
+        world.replies = [Reply(status=429), Reply(match("A"))]
+        await world.run(svc, until=30, stop=False)
+        await world.run(svc, until=10_000, url="http://stream.example/nova.aac")
+
+        assert world.requests[:2] == [INITIAL_DELAY_SECONDS, INITIAL_DELAY_SECONDS + backoff_delay(0, 1.0)]
+
+    @pytest.mark.parametrize("shared", [True, False], ids=["shared-quota", "control"])
+    async def test_a_source_restart_keeps_the_backoff(self, world, shared):
+        quota = RecognitionQuota()
+        first = world.service(quota=quota)
+        world.replies = [Reply(status=429), Reply(match("A"))]
+        await world.run(first, until=30, stop=False)
+        await first.close()                      # RadioSource._cleanup
+
+        second = world.service(quota=quota if shared else RecognitionQuota())
+        await world.run(second, until=10_000)
+
+        backoff_ends = INITIAL_DELAY_SECONDS + backoff_delay(0, 1.0)
+        if shared:
+            assert world.requests[:2] == [INITIAL_DELAY_SECONDS, backoff_ends]
+        else:
+            assert world.requests[:2] == [INITIAL_DELAY_SECONDS, 30 + INITIAL_DELAY_SECONDS]
+
+
+class TestTheLoopSurvives:
+    async def test_an_unexpected_error_is_reported_once_and_the_loop_goes_on(self, world):
+        world.replies = [RuntimeError("boom"), RuntimeError("boom again"), Reply(match("A")), Reply(match("A"))]
+        svc = world.service()
+
+        await world.run(svc, until=100_000, stop=False)
+        assert svc.is_running
+        await svc.stop()
+
+        assert len(world.logged("ERROR")) == 1
+        assert world.titles() == ["A", None]      # shown, then cleared by stop()
+
+    async def test_capture_failures_are_tried_again_soon_and_send_nothing(self, world):
+        world.captures_failing = CAPTURE_RETRIES + 2
+        world.replies = [Reply(match("A"))]
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        expected = [next_delay(Step.CAPTURE_FAILED, n) for n in range(1, CAPTURE_RETRIES + 3)]
+        assert _gaps(world.captures[:CAPTURE_RETRIES + 3]) == expected
+        assert world.requests[0] == world.captures[CAPTURE_RETRIES + 2]
+
+    async def test_the_toggle_turned_off_mid_stream_clears_the_title_and_captures_nothing(self, world):
+        world.replies = [Reply(match("A")), Reply(match("A"))]
+        svc = world.service()
+        await svc.start("http://stream.example/fip.mp3")
+        await world.advance_to(INITIAL_DELAY_SECONDS + CONFIRM_S + 1)
+        assert world.titles() == ["A"]
+        captured = len(world.captures)
+
+        world.enabled = False
+        await world.advance_to(2_000)
+
+        # Cleared by the loop at its first turn after the switch, well before
+        # the title could go stale on its own and before stop() could clear it.
+        assert svc.current_track is None
+        assert world.titles() == ["A", None]
+        assert world.shown[1][0] == world.requests[1] + HOLD_STEPS_S[0]
+        assert world.shown[1][0] < world.requests[1] + STALE_AFTER_S
+        assert len(world.captures) == captured
+        await svc.stop()
+        assert len(world.shown) == 2

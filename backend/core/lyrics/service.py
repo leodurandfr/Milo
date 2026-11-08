@@ -38,7 +38,6 @@ protocol. A file not carrying the expected keys reads as a miss, so a shape
 change costs one refetch per track rather than a migration.
 """
 import asyncio
-import email.utils
 import hashlib
 import json
 import logging
@@ -52,6 +51,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiofiles
 import aiohttp
+
+from backend.shared.network import retry_after
 
 logger = logging.getLogger("core.lyrics")
 
@@ -144,20 +145,6 @@ def _is_well_formed(record: Any) -> bool:
         and isinstance(record["found"], bool)
         and isinstance(record["checked_at"], (int, float))
     )
-
-
-def _retry_after(headers: Any) -> Optional[float]:
-    """Seconds a Retry-After header asks to wait — delay-seconds or HTTP-date
-    (RFC 9110 §10.2.3) — or None when it is absent or unreadable."""
-    value = (headers.get("Retry-After") or "").strip()
-    if not value:
-        return None
-    if value.isascii() and value.isdigit():
-        return float(value)
-    try:
-        return max(0.0, email.utils.parsedate_to_datetime(value).timestamp() - time.time())
-    except (TypeError, ValueError):
-        return None
 
 
 def _clean(text: str) -> str:
@@ -353,7 +340,7 @@ class LyricsService:
                 if resp.status == 200:
                     return resp.status, await resp.json(content_type=None)
                 status = resp.status
-                wait = _retry_after(resp.headers) if status in _RETRYABLE else None
+                wait = retry_after(resp.headers) if status in _RETRYABLE else None
             if wait is None:
                 return status, None
             logger.info("LRCLIB /%s answered HTTP %s — retrying in %g s", path, status, wait)

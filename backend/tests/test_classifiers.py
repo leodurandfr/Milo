@@ -12,6 +12,8 @@ operands from the registry and the map, so adding an entry needs no test edit.
 What is asserted is the classification, not the data.
 """
 import asyncio
+import email.utils
+import time
 
 import aiohttp
 import pytest
@@ -19,7 +21,7 @@ import pytest
 from backend.config.constants import HOSTNAME_DISPLAY_NAMES, get_client_display_name
 from backend.hardware.registry import AUDIO_CARDS, is_dac_card
 from backend.sources.radio.genres import VALID_GENRES, canonical_genre
-from backend.shared.network import is_network_error
+from backend.shared.network import is_network_error, retry_after
 
 
 class TestIsNetworkError:
@@ -47,6 +49,31 @@ class TestIsNetworkError:
     ])
     def test_a_failure_that_is_not_the_network_is_not_one(self, exc):
         assert is_network_error(exc) is False
+
+
+class TestRetryAfter:
+    """`shared/network.py::retry_after` — the wait a refusal asks for.
+
+    Consumers: the lyrics lookup, which asks LRCLIB again once it has passed,
+    and Shazam's backoff, which never asks before it. A None read where a wait
+    was given makes the lyrics answer "unavailable" and lets Shazam ask into a
+    window it was told to leave alone.
+    """
+
+    @pytest.mark.parametrize("value, expected", [
+        ("1", 1.0), ("0", 0.0), (" 2 ", 2.0),
+        ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),  # a date already past
+        ("soon", None), ("-1", None), ("²", None), ("", None),
+    ])
+    def test_reads_delay_seconds_and_http_dates(self, value, expected):
+        assert retry_after({"Retry-After": value}) == expected
+
+    def test_a_future_http_date_is_the_time_until_it(self):
+        when = email.utils.formatdate(time.time() + 30, usegmt=True)
+        assert 28 <= retry_after({"Retry-After": when}) <= 30
+
+    def test_absent_is_none(self):
+        assert retry_after({}) is None
 
 
 class TestIsDacCard:

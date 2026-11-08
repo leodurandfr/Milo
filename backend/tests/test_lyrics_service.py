@@ -18,7 +18,6 @@ had all along (Moussa - Laguna, 62 synced lines):
   fuzzy search.
 """
 import asyncio
-import email.utils
 import json
 import logging
 import os
@@ -39,7 +38,6 @@ from backend.core.lyrics.service import (
     _is_fresh,
     _is_well_formed,
     _parse_lrc,
-    _retry_after,
 )
 
 
@@ -549,23 +547,6 @@ class TestRetry:
 
         assert await service._get(session, {}) is None
         assert len(session.requests) == 1
-
-
-class TestRetryAfter:
-    @pytest.mark.parametrize("value, expected", [
-        ("1", 1.0), ("0", 0.0), (" 2 ", 2.0),
-        ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),  # a date already past
-        ("soon", None), ("-1", None), ("²", None), ("", None),
-    ])
-    def test_reads_delay_seconds_and_http_dates(self, value, expected):
-        assert _retry_after({"Retry-After": value}) == expected
-
-    def test_a_future_http_date_is_the_time_until_it(self):
-        when = email.utils.formatdate(time.time() + 30, usegmt=True)
-        assert 28 <= _retry_after({"Retry-After": when}) <= 30
-
-    def test_absent_is_none(self):
-        assert _retry_after({}) is None
 
 
 class TestSearchSelection:

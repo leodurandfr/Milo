@@ -29,7 +29,8 @@ NOVA = {
 class FakeShazam:
     """The recognition service: nothing is heard unless a scenario says so."""
 
-    def __init__(self, settings_service=None, on_track_changed=None):
+    def __init__(self, settings_service=None, quota=None, on_track_changed=None):
+        self.quota = quota
         self.on_track_changed = on_track_changed
         self.current_track = None
         self.is_running = False

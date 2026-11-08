@@ -4,9 +4,10 @@ the ffmpeg capture that feeds it.
 
 Measured 2026-08-25: the module ran at 37,7 % of its lines. `start`, `stop` and
 `is_enabled` were never entered at all, and `_try_recognize` (37 lines) and
-`_capture_audio` (31) were at 0 %. `test_radio_shazam.py` covers the result
-parser and the stale-clear counter by driving `_recognition_loop` with a
-substituted `_try_recognize`, so everything below that substitution was dark.
+`_capture_audio` (31) were at 0 %. `test_radio_shazam.py` covers what an answer
+means and when the next try comes, through `tests/shazam_world.py`; this file
+covers the loop's lifecycle, the transport's reading of an HTTP answer, and the
+capture.
 
 The capture is the piece with a contract nothing else can restate: ffmpeg is
 asked for raw PCM, and Python's `wave` module writes the RIFF header around it
@@ -26,7 +27,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 import backend.sources.radio.shazam as shazam_mod
-from backend.sources.radio.shazam import ShazamRecognitionService
+from backend.sources.radio.shazam import (
+    CONFIRM_S, RecognitionQuota, ShazamRecognitionService, ShazamRefused,
+)
+from backend.tests.shazam_world import Reply, ShazamWorld, match
 
 
 class _FakeProcess:
@@ -85,7 +89,24 @@ def spawns(monkeypatch):
 def service():
     settings = Mock()
     settings.get_setting = AsyncMock(return_value={"shazam_enabled": True})
-    return ShazamRecognitionService(settings_service=settings)
+    return ShazamRecognitionService(settings_service=settings, quota=RecognitionQuota())
+
+
+@pytest.fixture
+def world(monkeypatch):
+    w = ShazamWorld(monkeypatch)
+    yield w
+    w.close()
+
+
+async def _showing(world, title="So What"):
+    """A service on a station with `title` on screen (two agreeing matches)."""
+    world.replies = [Reply(match(title)), Reply(match(title))]
+    svc = world.service()
+    await svc.start("http://stream.example/fip.mp3")
+    await world.advance_to(shazam_mod.INITIAL_DELAY_SECONDS + CONFIRM_S + 1)
+    assert svc.current_track is not None and svc.current_track["title"] == title
+    return svc
 
 
 class TestCaptureFormatContract:
@@ -326,7 +347,7 @@ class TestStartAndStop:
     @pytest.mark.asyncio
     async def test_a_new_url_replaces_the_loop_rather_than_adding_one(self, service):
         """Two live loops means two captures per interval against two stations,
-        both writing the same `_current_track`."""
+        both writing the same title."""
         await service.start("http://stream/one")
         first = service._loop_task
         try:
@@ -338,14 +359,14 @@ class TestStartAndStop:
             await service.stop()
 
     @pytest.mark.asyncio
-    async def test_a_new_url_drops_the_previous_stations_track(self, service):
-        await service.start("http://stream/one")
-        service._current_track = {"title": "Old", "artist": "A", "artwork": None}
+    async def test_a_new_url_drops_the_previous_stations_track(self, world):
+        svc = await _showing(world)
+        await svc.start("http://stream.example/nova.aac")
         try:
-            await service.start("http://stream/two")
-            assert service._current_track is None
+            assert svc.current_track is None
+            assert world.titles() == ["So What", None]
         finally:
-            await service.stop()
+            await svc.stop()
 
     @pytest.mark.asyncio
     async def test_stop_cancels_the_task_and_clears_the_url(self, service):
@@ -360,17 +381,14 @@ class TestStartAndStop:
         assert task.cancelled() or task.done()
 
     @pytest.mark.asyncio
-    async def test_stop_tells_the_source_the_title_is_gone(self, service):
+    async def test_stop_tells_the_source_the_title_is_gone(self, world):
         """The player keeps whatever it was last given. Without this the stopped
         station's track stays under the *next* station's name."""
-        callback = AsyncMock()
-        service._on_track_changed = callback
-        await service.start("http://stream/fip")
-        service._current_track = {"title": "So What", "artist": "Miles", "artwork": None}
+        svc = await _showing(world)
 
-        await service.stop()
+        await svc.stop()
 
-        callback.assert_awaited_once_with(None)
+        assert world.titles() == ["So What", None]
 
     @pytest.mark.asyncio
     async def test_stop_with_no_title_pinned_says_nothing(self, service):
@@ -385,19 +403,44 @@ class TestStartAndStop:
         callback.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_a_callback_that_raises_still_leaves_the_service_stopped(
-        self, service
-    ):
+    async def test_a_callback_that_raises_still_leaves_the_service_stopped(self, world):
         """`stop` is awaited on the play path. An exception here aborts the
         switch and leaves the old loop's state behind."""
-        service._on_track_changed = AsyncMock(side_effect=RuntimeError("ws gone"))
-        await service.start("http://stream/fip")
-        service._current_track = {"title": "T", "artist": "A", "artwork": None}
+        svc = await _showing(world)
+        svc._on_track_changed = AsyncMock(side_effect=RuntimeError("ws gone"))
 
-        await service.stop()
+        await svc.stop()
 
-        assert service.is_running is False
-        assert service._current_track is None
+        assert svc.is_running is False
+        assert svc.current_track is None
+
+    @pytest.mark.asyncio
+    async def test_stop_says_stopped_only_when_something_ran(self, service, caplog):
+        """`stop()` runs twice per end (the session's end, then `close()`), and
+        on a service that never started: 130 "stopped" lines for 32 starts."""
+        with caplog.at_level("INFO", logger="source.radio.shazam"):
+            await service.stop()
+            await service.start("http://stream/fip")
+            await service.stop()
+            await service.close()
+
+        stopped = [r for r in caplog.records if r.getMessage() == "Shazam recognition stopped"]
+        assert len(stopped) == 1
+
+    @pytest.mark.asyncio
+    async def test_stop_lands_while_a_request_is_in_flight(self, world):
+        """`stop()` cancels the loop while Shazam has not answered. A catch-all
+        widened to BaseException would swallow the cancellation and keep the
+        loop asking about the previous station after stop returned."""
+        world.replies = []                    # the first request never answers
+        svc = world.service()
+        await svc.start("http://stream.example/fip.mp3")
+        await world.advance_to(shazam_mod.INITIAL_DELAY_SECONDS + 1)
+        assert world.requests == [shazam_mod.INITIAL_DELAY_SECONDS]
+
+        await asyncio.wait_for(svc.stop(), timeout=2)
+
+        assert svc.is_running is False
 
     @pytest.mark.asyncio
     async def test_stop_on_a_service_that_never_started_is_harmless(self, service):
@@ -405,196 +448,80 @@ class TestStartAndStop:
         assert service.is_running is False
 
     @pytest.mark.asyncio
-    async def test_only_close_ends_the_http_session(self, monkeypatch):
-        """shazamio 0.9 pools one session per client and refuses every request
-        once it is closed. `stop()` runs on every station change of a service
-        that lives on, so closing there would fail each later round, on every
-        station, until the radio source restarts."""
-        closes = []
-
-        class _Client:
-            def __init__(self, retry_options=None):
-                pass
-
-            async def close(self):
-                closes.append(self)
-
-        monkeypatch.setattr(shazam_mod, "HTTPClient", _Client)
-        settings = Mock()
-        settings.get_setting = AsyncMock(return_value={"shazam_enabled": True})
-        svc = ShazamRecognitionService(settings_service=settings)
-
-        await svc.start("http://stream/one")
-        await svc.start("http://stream/two")
+    async def test_only_close_ends_the_http_session(self, world):
+        """One aiohttp session for the service's life. `stop()` runs on every
+        station change of a service that lives on, so closing there would
+        reopen a connection per station; not closing in `close()` leaks it."""
+        svc = await _showing(world)
+        await svc.start("http://stream.example/nova.aac")
         await svc.stop()
-        assert closes == []
+        assert len(world.sessions) == 1
+        assert world.sessions[0].closes == 0
 
         await svc.close()
-        assert len(closes) == 1
+        assert world.sessions[0].closes == 1
         assert svc.is_running is False
 
 
-class TestTryRecognize:
-    """One recognition round: settings re-check, capture, match, publish."""
+class TestTransport:
+    """`_ShazamTransport` — how one HTTP answer reaches the loop. Every status
+    but 200, and every 200 that is not JSON, is a refusal: shazamio's own
+    client returned a 403's or a JSON 5xx's body as an answer, which read as
+    "no match" and cleared the title."""
 
     @pytest.fixture
-    def armed(self, service, spawns):
-        service._stream_url = "http://stream/fip"
-        service._shazam = Mock()
-        service._shazam.recognize = AsyncMock(return_value={
-            "track": {"title": "So What", "subtitle": "Miles Davis"},
-            "matches": [{"id": "1"}],
-        })
-        service._on_track_changed = AsyncMock()
-        return service
+    def transport(self, world):
+        return shazam_mod._ShazamTransport()
 
     @pytest.mark.asyncio
-    async def test_a_match_is_cached_and_published(self, armed):
-        assert await armed._try_recognize() is True
+    async def test_a_200_is_its_json(self, world, transport):
+        world.replies = [Reply(match("So What"))]
 
-        assert armed.current_track == {
-            "title": "So What", "artist": "Miles Davis", "artwork": None
-        }
-        armed._on_track_changed.assert_awaited_once_with(armed.current_track)
+        answer = await transport.request("POST", "https://amp.shazam.com/x", json={})
 
-    @pytest.mark.asyncio
-    async def test_the_same_track_twice_is_published_once(self, armed):
-        """Recognition runs every 20 s on a track that lasts minutes. Publishing
-        each round is a full state broadcast per 20 s per unit."""
-        await armed._try_recognize()
-        await armed._try_recognize()
-
-        assert armed._on_track_changed.await_count == 1
+        assert answer["track"]["title"] == "So What"
 
     @pytest.mark.asyncio
-    async def test_a_no_match_verdict_clears_the_title_on_the_spot(self, armed):
-        """"No match" is a positive answer — an ad, talk, or a track Shazam does
-        not hold. Holding the previous title through it is the phantom the
-        service exists to avoid, so this does NOT go through
-        `STALE_CLEAR_ROUNDS`."""
-        await armed._try_recognize()
-        armed._on_track_changed.reset_mock()
-        armed._shazam.recognize = AsyncMock(return_value={"matches": []})
+    async def test_a_429_is_refused_with_its_retry_after_and_never_retried(self, world, transport):
+        """shazamio's client retried a 429 itself, 0.2 s later: every refusal
+        cost two calls to a limiter that counts them."""
+        world.replies = [Reply(status=429, headers={"Retry-After": "120"}), Reply(match("So What"))]
 
-        assert await armed._try_recognize() is False
-        assert armed.current_track is None
-        armed._on_track_changed.assert_awaited_once_with(None)
+        with pytest.raises(ShazamRefused) as refused:
+            await transport.request("POST", "https://amp.shazam.com/x", json={})
+
+        assert (refused.value.status, refused.value.retry_after_s) == (429, 120.0)
+        assert len(world.requests) == 1
+
+    @pytest.mark.parametrize("status", [400, 403, 500, 503])
+    @pytest.mark.asyncio
+    async def test_any_other_status_is_refused_even_with_a_json_body(self, world, transport, status):
+        world.replies = [Reply({"matches": []}, status=status)]
+
+        with pytest.raises(ShazamRefused) as refused:
+            await transport.request("POST", "https://amp.shazam.com/x", json={})
+
+        assert refused.value.status == status
+        assert len(world.requests) == 1
+
+    @pytest.mark.parametrize("body", ["<html>portal</html>", '{"matches": [', ""])
+    @pytest.mark.asyncio
+    async def test_a_200_that_is_not_json_is_refused(self, world, transport, body):
+        world.replies = [Reply(body)]
+
+        with pytest.raises(ShazamRefused) as refused:
+            await transport.request("POST", "https://amp.shazam.com/x", json={})
+
+        assert refused.value.status == 200
 
     @pytest.mark.asyncio
-    async def test_a_failed_capture_leaves_the_pinned_track_alone(self, armed, spawns):
-        """The other half of the same decision, and the one `STALE_CLEAR_ROUNDS`
-        actually guards: nothing was learned about what is playing, so dropping
-        the title would blank the player on a transient network blip. Only the
-        loop's counter may clear it, two rounds later.
+    async def test_the_session_is_reopened_only_once_closed(self, world, transport):
+        world.replies = [Reply(match("A")), Reply(match("B")), Reply(match("C"))]
 
-        Both halves are asserted here because the two look identical from
-        `_try_recognize`'s return value alone — it answers False either way."""
-        await armed._try_recognize()
-        pinned = armed.current_track
-        armed._on_track_changed.reset_mock()
-        spawns.process = _FakeProcess(stdout=b"", returncode=1)
+        await transport.request("POST", "https://amp.shazam.com/x")
+        await transport.request("POST", "https://amp.shazam.com/x")
+        assert len(world.sessions) == 1
 
-        assert await armed._try_recognize() is False
-        assert armed.current_track == pinned
-        armed._on_track_changed.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_the_toggle_turned_off_mid_stream_clears_the_title(self, armed):
-        """The loop keeps running until the next station change, so this is the
-        only thing that takes a title off the screen when the user switches
-        recognition off while a station is playing."""
-        await armed._try_recognize()
-        armed._on_track_changed.reset_mock()
-        armed._settings_service.get_setting = AsyncMock(
-            return_value={"shazam_enabled": False}
-        )
-
-        assert await armed._try_recognize() is False
-        assert armed.current_track is None
-        armed._on_track_changed.assert_awaited_once_with(None)
-
-    @pytest.mark.asyncio
-    async def test_the_toggle_turned_off_captures_nothing(self, armed, spawns):
-        armed._settings_service.get_setting = AsyncMock(
-            return_value={"shazam_enabled": False}
-        )
-
-        await armed._try_recognize()
-
-        assert spawns == []
-        armed._shazam.recognize.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_a_capture_that_returns_nothing_never_reaches_shazam(
-        self, armed, spawns
-    ):
-        """Posting an empty buffer burns an API round-trip per round on a
-        station whose stream is down."""
-        spawns.process = _FakeProcess(stdout=b"", returncode=1)
-
-        assert await armed._try_recognize() is False
-        armed._shazam.recognize.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_a_shazam_timeout_is_a_miss_not_a_crash(self, armed, monkeypatch):
-        monkeypatch.setattr(shazam_mod, "RECOGNITION_TIMEOUT_SECONDS", 0.05)
-
-        # Two traps, both measured. The side_effect must be a coroutine
-        # *function*: a lambda that merely returns a coroutine is handed back
-        # un-awaited, `wait_for` returns at once and the timeout never fires.
-        # And the slow answer must be a HIT — with a miss, `False` comes out of
-        # the no-track arm just as happily, so deleting `wait_for` altogether
-        # left the test green.
-        async def _answers_too_late(_audio):
-            await asyncio.sleep(5)
-            return {"matches": [{}], "track": {"title": "Ne me quitte pas",
-                                               "subtitle": "Jacques Brel"}}
-
-        armed._shazam.recognize = AsyncMock(side_effect=_answers_too_late)
-
-        assert await armed._try_recognize() is False
-
-    @pytest.mark.asyncio
-    async def test_a_transport_error_is_a_miss_not_a_crash(self, armed):
-        armed._shazam.recognize = AsyncMock(side_effect=ValueError("bad json"))
-
-        assert await armed._try_recognize() is False
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("exc", [shazam_mod.RateLimited, shazam_mod.FailedDecodeJson])
-    async def test_a_throttled_or_garbled_answer_is_a_miss_not_an_error(
-        self, armed, caplog, exc
-    ):
-        """Measured 2026-10-27: Shazam answers 429 after three requests in a few
-        seconds, which shazamio 0.9 raises as `RateLimited`. Logged at error it
-        lands in `errors.log` (and every triage) for a condition the next round
-        clears."""
-        armed._shazam.recognize = AsyncMock(side_effect=exc("429"))
-
-        with caplog.at_level("INFO", logger="source.radio.shazam"):
-            assert await armed._try_recognize() is False
-
-        assert not [r for r in caplog.records if r.levelname == "ERROR"]
-
-    @pytest.mark.asyncio
-    async def test_cancellation_is_re_raised_so_stop_can_land(self, armed):
-        """`stop()` cancels the loop task while a round may be in flight.
-        Swallowing CancelledError here leaves the loop running after stop
-        returned, on the previous station's URL.
-
-        Measured: deleting the explicit `except asyncio.CancelledError: raise`
-        alone changes nothing — CancelledError is a BaseException, so the two
-        catch-alls below cannot reach it either way. What this catches is the
-        combination, i.e. a catch-all widened to BaseException, which is the
-        regression that would actually happen."""
-        armed._shazam.recognize = AsyncMock(side_effect=asyncio.CancelledError)
-
-        with pytest.raises(asyncio.CancelledError):
-            await armed._try_recognize()
-
-    @pytest.mark.asyncio
-    async def test_a_round_with_no_url_captures_nothing(self, armed, spawns):
-        armed._stream_url = None
-
-        assert await armed._try_recognize() is False
-        assert spawns == []
+        await transport.close()
+        await transport.request("POST", "https://amp.shazam.com/x")
+        assert len(world.sessions) == 2

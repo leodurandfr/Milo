@@ -303,6 +303,18 @@ class TestStopPlayback:
         assert getattr(shazam, "closed", False)
         assert not shazam.is_running
 
+    async def test_every_recognition_service_spends_from_one_budget(self, radio):
+        """Shazam throttles a unit, not a service: a budget rebuilt with each
+        service (one per source start) would let a source switch or a
+        multiroom toggle send a refused unit straight back to Shazam."""
+        await radio.select()
+        await radio.leave()
+        await radio.select()
+
+        first, second = radio.shazams
+        assert first.quota is not None
+        assert second.quota is first.quota
+
     async def test_stop_keeps_the_station_so_resume_can_retune_it(self, radio):
         """A live stream has no unpause: the play button after a stop
         re-tunes, and it has to know which station."""
