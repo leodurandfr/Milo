@@ -175,7 +175,7 @@ What "play" would bring back while no session runs.
 
 ### RadioTrack
 
-The song recognized in the stream (in-band) or by Shazam.
+The song playing: named in the stream (in-band), by Radio France for its own stations, or by Shazam.
 
 | Field | Type |
 |---|---|

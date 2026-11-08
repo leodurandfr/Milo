@@ -90,7 +90,7 @@ export const useRadioStore = defineStore('radio', () => {
     };
   });
 
-  // The recognized song (in-band or Shazam). A stopped radio carries none.
+  // The recognized song (in-band, Radio France or Shazam). A stopped radio carries none.
   const trackInfo = computed(() => {
     const track = radioDetails.value?.track;
     if (!track?.title) return null;

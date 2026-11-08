@@ -127,7 +127,7 @@ class RadioStation(BaseModel):
 
 
 class RadioTrack(BaseModel):
-    """The song recognized in the stream (in-band) or by Shazam."""
+    """The song playing: named in the stream (in-band), by Radio France for its own stations, or by Shazam."""
     title: Optional[str]
     artist: Optional[str]
     artwork: Optional[str]

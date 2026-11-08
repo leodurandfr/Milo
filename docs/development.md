@@ -491,6 +491,7 @@ The Radio source (`backend/sources/radio/`) is a complete, production-ready refe
 - `browser_api.py` - Radio Browser API client (the country list is cached 24 h)
 - `data.py` - Favorites, custom stations, data persistence
 - `genres.py` - Genre definitions and mapping
+- `radiofrance.py` - Radio France's own now-playing for its stations (URL → station, the feed, when a song is heard)
 - `shazam.py` - Song recognition integration
 - `models.py` - Pydantic models
 

@@ -1,0 +1,151 @@
+{
+  "_recorded": "GET https://api.radiofrance.fr/livemeta/live/{id}/fip_extended, 2026-11-08, verbatim",
+  "fip_7_song_with_next": {
+    "prev": [
+      {
+        "title": "Le direct",
+        "interpreters": null,
+        "album": null,
+        "label": null,
+        "cover": null,
+        "musicalKind": null,
+        "startTime": null,
+        "endTime": null
+      }
+    ],
+    "now": {
+      "title": "Ya bismillah",
+      "interpreters": "Mamman Sani",
+      "album": "Taaritt (1985 - 1988)",
+      "label": "SAHEL SOUNDS",
+      "cover": "59510725-a6cb-4482-a1db-85244e4d1f93",
+      "musicalKind": "Musique du monde ",
+      "startTime": 1794139194,
+      "endTime": 1794139452
+    },
+    "next": [
+      {
+        "title": "Naada",
+        "interpreters": "Sulaf",
+        "album": "Aba",
+        "label": "REAL WORLD",
+        "cover": "93bd9161-baa9-484a-b1ec-af242c6f277a",
+        "musicalKind": "Musique du monde ",
+        "startTime": 1794139452,
+        "endTime": 1794139689
+      }
+    ],
+    "delayToRefresh": 260000
+  },
+  "inter_1_talk": {
+    "prev": [
+      {
+        "title": "Le direct",
+        "interpreters": null,
+        "album": null,
+        "label": null,
+        "cover": null,
+        "musicalKind": null,
+        "startTime": null,
+        "endTime": null
+      }
+    ],
+    "now": {
+      "title": "Le direct",
+      "interpreters": null,
+      "album": null,
+      "label": null,
+      "cover": null,
+      "musicalKind": null,
+      "startTime": null,
+      "endTime": null
+    },
+    "next": [
+      {
+        "title": "Le direct",
+        "interpreters": null,
+        "album": null,
+        "label": null,
+        "cover": null,
+        "musicalKind": null,
+        "startTime": null,
+        "endTime": null
+      }
+    ],
+    "delayToRefresh": 10000
+  },
+  "easyclassique_401_no_interpreters": {
+    "prev": [
+      {
+        "title": "Le direct",
+        "interpreters": null,
+        "album": null,
+        "label": null,
+        "cover": null,
+        "musicalKind": null,
+        "startTime": null,
+        "endTime": null
+      }
+    ],
+    "now": {
+      "title": "Danse slave en sol min op 46 n°8 B 83 n°8 - pour orchestre",
+      "interpreters": null,
+      "album": "The art of Carmen Dragon / CD 1",
+      "label": "SCRIBENDUM",
+      "cover": "19df3f67-484c-427c-9c01-5c5a9fe0f352",
+      "musicalKind": "Musique symphonique",
+      "startTime": 1794134634,
+      "endTime": 1794134874
+    },
+    "next": [
+      {
+        "title": "Les deux guitares - arrangement pour orchestre",
+        "interpreters": null,
+        "album": "The art of Carmen Dragon / CD 1",
+        "label": "SCRIBENDUM",
+        "cover": "19df3f67-484c-427c-9c01-5c5a9fe0f352",
+        "musicalKind": "Musique symphonique",
+        "startTime": 1794134873,
+        "endTime": 1794135115
+      }
+    ],
+    "delayToRefresh": 120000
+  },
+  "fipelectro_74_next_is_le_direct": {
+    "prev": [
+      {
+        "title": "Le direct",
+        "interpreters": null,
+        "album": null,
+        "label": null,
+        "cover": null,
+        "musicalKind": null,
+        "startTime": null,
+        "endTime": null
+      }
+    ],
+    "now": {
+      "title": "Polite rudboi",
+      "interpreters": "Simo Cell",
+      "album": "Cupside des Sirènes",
+      "label": "TEMET",
+      "cover": "7c514bec-c5e6-4f9c-a6da-8bee80de0e84",
+      "musicalKind": "Musique électronique ",
+      "startTime": 1794139055,
+      "endTime": 1794139303
+    },
+    "next": [
+      {
+        "title": "Le direct",
+        "interpreters": null,
+        "album": null,
+        "label": null,
+        "cover": null,
+        "musicalKind": null,
+        "startTime": null,
+        "endTime": null
+      }
+    ],
+    "delayToRefresh": 150000
+  }
+}

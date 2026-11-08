@@ -154,7 +154,7 @@ watch(trackKey, () => lyricsStore.loadLyrics());
 // Empty-state message, most specific case first:
 // - no active source at all → "nothing playing"
 // - a source with no plausible track metadata (bluetooth/mac/podcast) → "not compatible"
-// - radio playing but no track recognized yet (neither Shazam nor in-band) → "no song detected"
+// - radio playing but no track recognized yet (in-band, Radio France or Shazam) → "no song detected"
 // - a compatible source with no track loaded → "nothing playing"
 // - a track identity is known but LRCLIB refused to answer → "service unavailable",
 //   which is the one of these the reader should respond to by reopening the view

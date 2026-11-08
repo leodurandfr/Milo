@@ -23,6 +23,7 @@ from urllib.parse import quote, urlparse
 
 from pydantic import BaseModel
 
+from backend.core import audio_source
 from backend.core.audio_source import DeviceToken, Result
 from backend.core.models.audio_state import NetworkRequirement
 from backend.core.models.audio_wire import RadioDetails, RadioStation, RadioTrack, ResumeView
@@ -33,15 +34,19 @@ from backend.sources.radio.models import PlayStationParams
 from backend.shared.artwork_resolver import ArtworkResolver
 from backend.sources.radio.data import StationDataService
 from backend.sources.radio.logos import StationLogos
+from backend.sources.radio import radiofrance
 from backend.sources.radio.playlist import is_playlist_url, resolve_stream_url
 from backend.sources.radio.shazam import ShazamRecognitionService
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.radio.browser_api import RadioBrowserAPI
+from backend.shared.network import describe_network_error
 
 # In-band metadata polling (primary now-playing source). The monitor ticks
 # ~1 s; read mpv metadata every _INBAND_POLL_TICKS ticks. If in-band stays
 # empty for _SHAZAM_GRACE_TICKS ticks after playback starts, Shazam kicks in
-# as the fallback (covers metadata-less streams like Radio France).
+# as the fallback (metadata-less streams). On a Radio France station the
+# grace also waits for Radio France's own feed to answer, and Shazam never
+# starts once that feed has named a song.
 _INBAND_POLL_TICKS = 4
 _SHAZAM_GRACE_TICKS = 8
 
@@ -51,6 +56,16 @@ _SHAZAM_GRACE_TICKS = 8
 # it — mirrors Shazam's STALE_CLEAR_ROUNDS so in-band can't pin a phantom
 # title either. 4 polls × ~4 s ≈ 16 s of continuous empty metadata.
 _INBAND_STALE_CLEAR_POLLS = 4
+
+# The session timers of Radio France's feed: the next read, and the next
+# moment the song heard can change (radiofrance.schedule).
+_RF_POLL_TIMER = "radiofrance_poll"
+_RF_SHOW_TIMER = "radiofrance_show"
+
+# How long Radio France's feed may go unanswered before it is reported, once.
+# A failed read is retried at the normal cadence, so this is two or three
+# misses: one is a blip (one TLS timeout in ~4 170 reads, measured).
+_RF_OUTAGE_S = 60.0
 
 # Trailing station-promo suffix some broadcasters append to the ICY title,
 # e.g. "Artist - Title - WALM Radio on walmradio.com". Stripped before parsing.
@@ -131,8 +146,9 @@ def _parse_inband_track(metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
 class RadioSession(MpvSession):
     """One station tuned: from the tune to a named end.
 
-    The in-band title, the Shazam arbitration and the cover being resolved
-    all belong to it, so ending the session is what clears them.
+    The in-band title, Radio France's feed, the Shazam arbitration and the
+    cover being resolved all belong to it, so ending the session is what
+    clears them.
     """
     station: Dict[str, Any] = field(default_factory=dict)
     # What mpv was handed: an edit of the station while it plays changes the
@@ -147,6 +163,17 @@ class RadioSession(MpvSession):
     inband_empty_streak: int = 0        # consecutive empty polls once in-band was seen
     shazam_candidate: bool = False      # the station qualifies for the Shazam fallback
     recognition_enabled: bool = True    # the per-station now-playing gate
+    # Radio France's own now-playing (radiofrance.py): the station's livemeta
+    # id (None: not a Radio France stream, or the gate is off), the songs it
+    # announced, and the one the listener hears now.
+    radiofrance_station: Optional[int] = None
+    radiofrance_songs: List[radiofrance.Song] = field(default_factory=list)
+    radiofrance_track: Optional[Dict[str, Any]] = None
+    radiofrance_named: bool = False     # it named a song → no Shazam
+    radiofrance_answered: bool = False  # it answered or failed at least once
+    radiofrance_failing_since: Optional[float] = None
+    radiofrance_outage_reported: bool = False
+    radiofrance_malformed_reported: bool = False
 
 
 class RadioSource(MpvAudioSource):
@@ -229,6 +256,9 @@ class RadioSource(MpvAudioSource):
         self._artwork = ArtworkResolver(self._settings_service)
 
         self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
+
+        # Radio France's own now-playing, read for the Radio France stations.
+        self._radiofrance = radiofrance.RadioFranceClient()
 
     async def initialize(self) -> bool:
         """Initialize station data (call at startup for API access)."""
@@ -364,6 +394,10 @@ class RadioSource(MpvAudioSource):
                 return self.error_response(f"Unable to load stream: {station_name}")
             session.stream_url = stream
 
+        # Read now, alongside the load: an answer naming a song keeps the
+        # Shazam fallback from starting at all.
+        self._start_radiofrance(session)
+
         async def load():
             if await self._mpv_ready() and await self._set_mpv_pause(False):
                 return await self._mpv.loadfile(session.stream_url, mode="replace")
@@ -377,8 +411,9 @@ class RadioSource(MpvAudioSource):
         session.link = self._mpv.link
 
         # In-band metadata (polled while sound plays) is the primary title
-        # source. Shazam is a fallback started only if in-band stays empty past
-        # the grace period, and needs the global toggle too.
+        # source, then Radio France's feed. Shazam is a fallback started only
+        # if both stay silent past the grace period, and needs the global
+        # toggle too.
         session.shazam_candidate = bool(
             self._shazam
             and session.recognition_enabled
@@ -537,12 +572,15 @@ class RadioSource(MpvAudioSource):
         return skip
 
     def _resolve_track(self) -> Optional[Dict[str, Any]]:
-        """Current now-playing track: in-band metadata is primary, Shazam fallback."""
+        """Current now-playing track: in-band metadata first, then Radio
+        France's feed, then Shazam."""
         session = self._session
         if not isinstance(session, RadioSession):
             return None
         if session.inband_track:
             return session.inband_track
+        if session.radiofrance_track:
+            return session.radiofrance_track
         return self._shazam.current_track if self._shazam else None
 
     @staticmethod
@@ -640,7 +678,7 @@ class RadioSource(MpvAudioSource):
                 station_id = session.station.get('id')
                 stream_url = session.stream_url
                 if stream_url and self._station_data.is_station_shazam_enabled(station_id):
-                    if session.inband_seen or session.inband_track:
+                    if session.inband_seen or session.inband_track or session.radiofrance_named:
                         session.shazam_candidate = False
                     else:
                         session.shazam_candidate = True
@@ -665,6 +703,7 @@ class RadioSource(MpvAudioSource):
         if self._shazam:
             await self._shazam.close()
             self._shazam = None
+        await self._radiofrance.close()
         await self._detach_mpv()
 
     # === While sound plays ===
@@ -678,8 +717,9 @@ class RadioSource(MpvAudioSource):
         In-band metadata (ICY StreamTitle / HLS tags) is instant and exact when
         present, so it overrides Shazam: the first in-band title shuts any
         running Shazam loop down. When in-band stays empty past a short grace
-        period, Shazam starts as the fallback (metadata-less streams like
-        Radio France). Polled every _INBAND_POLL_TICKS ticks of sound.
+        period, Shazam starts as the fallback (metadata-less streams; on a
+        Radio France station only once its feed has answered without naming
+        a song). Polled every _INBAND_POLL_TICKS ticks of sound.
 
         Skipped entirely when the station is opted out of now-playing — the
         per-station gate must suppress in-band titles too, not just Shazam.
@@ -730,12 +770,15 @@ class RadioSource(MpvAudioSource):
 
         # Never seen in-band for this station → count toward the Shazam grace,
         # then start the fallback once (candidacy is consumed to avoid re-arming).
+        # A Radio France station also waits for its feed's first answer: a
+        # song named there is the title, and Shazam would only contradict it.
         session.empty_inband_polls += 1
         if (
             session.shazam_candidate
             and self._shazam
             and not self._shazam.is_running
             and session.empty_inband_polls * _INBAND_POLL_TICKS >= _SHAZAM_GRACE_TICKS
+            and self._radiofrance_silent(session)
         ):
             stream_url = session.stream_url
             if stream_url:
@@ -775,16 +818,152 @@ class RadioSource(MpvAudioSource):
         self._post_result(apply, token=session)
 
     async def _start_shazam_fallback(self, session: RadioSession, stream_url: str) -> None:
-        """Detect preroll and start Shazam, unless in-band appeared meanwhile."""
+        """Detect preroll and start Shazam, unless in-band or Radio France
+        named a song meanwhile."""
         if not self._shazam:
             return
         preroll = await self._detect_preroll(stream_url)
 
         async def apply() -> None:
-            if self._shazam and session.phase is Phase.PLAYING and not session.inband_seen:
+            if (
+                self._shazam and session.phase is Phase.PLAYING and not session.inband_seen
+                and not session.radiofrance_named
+            ):
                 await self._shazam.start(stream_url, preroll_skip=preroll)
 
         self._post_result(apply, token=session)
+
+    # === Radio France's now-playing (radiofrance.py) ===
+
+    def _start_radiofrance(self, session: RadioSession) -> None:
+        """Read the feed of a Radio France stream at once, unless the station
+        is opted out of now-playing (the per-station gate suppresses it like
+        in-band; the global toggle is Shazam's alone)."""
+        station = radiofrance.station_for(session.stream_url)
+        if station is None or not session.recognition_enabled:
+            return
+        session.radiofrance_station = station
+        self._read_radiofrance(session)
+
+    def _read_radiofrance(self, session: RadioSession) -> None:
+        self._session_bg.spawn(self._fetch_radiofrance(session), label="radiofrance_read")
+
+    def _radiofrance_silent(self, session: RadioSession) -> bool:
+        """Whether the Shazam fallback may start as far as the feed goes: no
+        feed, or one that answered (or failed) without naming a song."""
+        if session.radiofrance_station is None:
+            return True
+        return session.radiofrance_answered and not session.radiofrance_named
+
+    async def _fetch_radiofrance(self, session: RadioSession) -> None:
+        """One read of the feed, off the actor; applied in it."""
+        try:
+            payload, error = await self._radiofrance.fetch(session.radiofrance_station), None
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            payload, error = None, e
+
+        async def apply() -> None:
+            now = audio_source.wall_time()
+            session.radiofrance_answered = True
+            if error is not None:
+                self._radiofrance_failed(session, error, now)
+                refresh = radiofrance.DEFAULT_REFRESH_S
+            else:
+                refresh = await self._radiofrance_answered(session, payload, now)
+            self._arm_timer(_RF_POLL_TIMER, refresh, session)
+            self._show_radiofrance(session)
+
+        self._post_result(apply, token=session)
+
+    async def _radiofrance_answered(self, session: RadioSession, payload: Any, now: float) -> float:
+        """Merge an answer into what the session knows; returns when to read
+        again. The first song named stops Shazam, as the first in-band title
+        does."""
+        log = radiofrance.logger
+        if session.radiofrance_outage_reported:
+            log.info("Radio France now-playing answers again")
+        session.radiofrance_failing_since = None
+        session.radiofrance_outage_reported = False
+
+        answer = radiofrance.parse(payload)
+        if answer.malformed and not session.radiofrance_malformed_reported:
+            session.radiofrance_malformed_reported = True
+            log.warning(
+                f"Radio France now-playing for station {session.radiofrance_station} "
+                f"answered {answer.malformed}: read as no song"
+            )
+        lead = radiofrance.lead_for(session.stream_url)
+        session.radiofrance_songs = radiofrance.merge(
+            session.radiofrance_songs, answer.songs, now, lead,
+        )
+        log.debug(
+            f"Radio France station {session.radiofrance_station}: {len(answer.songs)} song(s) "
+            f"announced, next read in {answer.refresh_s:.0f} s"
+        )
+        if not session.radiofrance_named and radiofrance.names_a_song(session.radiofrance_songs, now, lead):
+            session.radiofrance_named = True
+            session.shazam_candidate = False
+            if self._shazam and self._shazam.is_running:
+                await self._shazam.stop()
+        return answer.refresh_s
+
+    def _radiofrance_failed(self, session: RadioSession, error: Exception, now: float) -> None:
+        """A read that failed changes nothing: what is known keeps its
+        schedule. An outage is reported once, never at error (the banner)."""
+        log = radiofrance.logger
+        reason = describe_network_error(error)
+        if session.radiofrance_failing_since is None:
+            session.radiofrance_failing_since = now
+        unanswered = now - session.radiofrance_failing_since
+        if not session.radiofrance_outage_reported and unanswered >= _RF_OUTAGE_S:
+            session.radiofrance_outage_reported = True
+            log.warning(
+                f"Radio France now-playing unreachable for {unanswered:.0f} s ({reason}), titles held"
+            )
+        else:
+            log.debug(f"Radio France now-playing not answered: {reason}")
+
+    def _show_radiofrance(self, session: RadioSession) -> None:
+        """Show the song the listener hears now, and look again when that
+        can change.
+
+        Published whatever the phase, like the stream's own title: at the
+        tune the first answer usually lands before mpv's first sound, and the
+        song it names as heard is the one that sound starts in (the lead is
+        measured from the connect), so the card names it while loading; in a
+        stall the title stays, as an in-band one does."""
+        now = audio_source.wall_time()
+        song, look_at = radiofrance.schedule(
+            session.radiofrance_songs, now, radiofrance.lead_for(session.stream_url),
+        )
+        if look_at is None:
+            self._disarm_timer(_RF_SHOW_TIMER)
+        else:
+            self._arm_timer(_RF_SHOW_TIMER, max(0.0, look_at - now), session)
+        track = song.track() if song else None
+        if track == session.radiofrance_track:
+            return
+        had_track = session.radiofrance_track is not None
+        session.radiofrance_track = track
+        if track:
+            named = " – ".join(part for part in (track["artist"], track["title"]) if part)
+            radiofrance.logger.info(f"Radio France: {named}")
+        elif had_track:
+            radiofrance.logger.info("Radio France: no song")
+        self._publish()
+
+    async def _on_timer(self, name: str, token: object) -> None:
+        session = self._session
+        if name == _RF_POLL_TIMER:
+            if isinstance(session, RadioSession) and session is token:
+                self._read_radiofrance(session)
+        elif name == _RF_SHOW_TIMER:
+            if isinstance(session, RadioSession) and session is token:
+                self._show_radiofrance(session)
+        else:
+            await super()._on_timer(name, token)
 
     # === Public API ===
 
@@ -806,6 +985,7 @@ class RadioSource(MpvAudioSource):
         if self._shazam:
             await self._shazam.close()
             self._shazam = None
+        await self._radiofrance.close()
         await self._logos.cleanup()
 
     @property

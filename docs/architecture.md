@@ -333,24 +333,49 @@ Spotify app, and guests join the way the app offers.
 - Backend manages favorites, custom stations, and metadata caching
 - Image upload support for custom station branding
 
-**Now playing — three tiers, arbitrated:**
+**Now playing — three tiers, arbitrated** (in-band, then Radio France, then
+Shazam; `RadioSource._resolve_track` is the one place that orders them):
 - **In-band ICY metadata is the primary source.** mpv's `icy-title`, polled
   every ~4 s and parsed for two conventions (`Artist - Title` and
   `Title by Artist`), minus station-promo suffixes and `(Vinyl)/(Mono)` noise.
   `icy-name` is deliberately never used as a track title — that would show the
   station as the song. Instant and exact, but text only: no artwork
+- **Radio France names its own stations.** Its streams carry no in-band title,
+  but Radio France publishes what it plays
+  ([sources/radio/radiofrance.py](https://github.com/leodurandfr/Milo/blob/main/backend/sources/radio/radiofrance.py):
+  `livemeta/live/{id}/fip_extended`, unauthenticated). The station is
+  recognized from the stream URL alone (icecast, HLS and the `direct.*`
+  aliases, against a table of its 78 stations), read at the tune and then as
+  the answer's `delayToRefresh` says, bounded to 10-60 s. The API announces a
+  song's *playout* start, and the listener hears it later — ~37 s on icecast
+  (its 33 s burst on connect, plus the ~6 s from the announced start to the
+  audible change), ~24 s on HLS — so a song is shown at `start + lead`, never
+  when the answer lands, held `HOLD_S` (30 s) past its end when nothing is
+  known to follow, and only that schedule clears it: "Le direct" is also the
+  feed's placeholder between two songs. Planned times are corrected by 6-14 s
+  in later answers; a correction moves a song not yet heard, never one
+  already on screen back off it. The cover comes with the song (no
+  lookup, no `artwork_pending`). The first song it names stops Shazam, as the
+  first in-band title does; on a Radio France station the Shazam grace also
+  waits for the feed's first answer and Shazam never starts once a song was
+  named, so talk stations (Inter, Culture, franceinfo, ICI), which only answer
+  "Le direct", keep the Shazam fallback. A failed read changes nothing and is
+  retried at the normal cadence; an outage past 60 s is one warning, its end
+  one info line
 - **Shazam is the fallback, not the default.** `ShazamRecognitionService` starts
-  only once in-band has stayed empty past a grace period (metadata-less streams
-  like Radio France), fingerprinting a 12 s ffmpeg capture of the stream every
-  20 s. The first in-band title shuts it back down. It *does* return an artwork
-  URL
+  only once in-band has stayed empty past a grace period (metadata-less
+  streams) and Radio France named nothing, fingerprinting a 12 s ffmpeg capture
+  of the stream every 20 s. The first in-band or Radio France title shuts it
+  back down. It *does* return an artwork URL
 - **Cover art for in-band tracks** is resolved from the artist/title by
   [shared/artwork_resolver.py](https://github.com/leodurandfr/Milo/blob/main/backend/shared/artwork_resolver.py) (iTunes
   Search) and patched into the same `track_artwork` field Shazam fills, so both
   paths look identical on screen. The same resolver serves Bluetooth
-- Both tiers expire a stale title after sustained empty metadata (~16 s in-band,
-  2 rounds for Shazam) so a phantom track cannot stay pinned over ads or talk,
-  and a per-station toggle suppresses **both**, not just Shazam
+- In-band and Shazam expire a stale title after sustained empty metadata
+  (~16 s in-band, 2 rounds for Shazam) so a phantom track cannot stay pinned
+  over ads or talk, and a per-station toggle suppresses **all three** tiers,
+  not just Shazam (no request reaches Radio France for a station opted out).
+  The global toggle ("…using Shazam") gates Shazam alone
 
 **Features:**
 - Search by station name, country, or genre
@@ -671,7 +696,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   Bluetooth has one but no playhead worth syncing to: AVRCP position updates are
   a notification the sender may send coarsely or not at all. The key is the
   session's `artist` and `title`, which for Radio name the recognized song
-  (in-band or Shazam) and otherwise the station with no artist, so a bare
+  (in-band, Radio France or Shazam) and otherwise the station with no artist, so a bare
   station never reads as a track
 - One route, `GET /api/lyrics?artist=&title=&duration=`; the frontend
   fetches on modal open (and on track change while open), never over WebSocket

@@ -3,7 +3,7 @@
 // opens (and refetched when the track changes while it's open). Keys off the
 // unified store's session, so it works for any rich-metadata source. Radio
 // included: its session names the station with no artist until a track is
-// recognized (Shazam or in-band), so a bare station never reads as a track.
+// recognized (in-band, Radio France or Shazam), so a bare station never reads as a track.
 import { defineStore } from 'pinia';
 import { computed, ref, watch } from 'vue';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
