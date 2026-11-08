@@ -16,7 +16,23 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
         didSet {
             guard isConnected != oldValue else { return }
             scheduleConnectivityCheck()
+            setNeedsStatusBarAppearanceUpdate()
         }
+    }
+
+    /// Le contenu qui passe sous la status bar est-il sombre ? Mesuré sur le
+    /// rendu de la page, pas déduit de son thème : une vue Paroles, une tuile
+    /// sombre ou le thème sombre comptent tous.
+    private var contentUnderStatusBarIsDark = false {
+        didSet {
+            guard contentUnderStatusBarIsDark != oldValue else { return }
+            setNeedsStatusBarAppearanceUpdate()
+        }
+    }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        // Hors page (erreur, logo de reconnexion), le fond est clair.
+        isConnected && contentUnderStatusBarIsDark ? .lightContent : .darkContent
     }
 
     /// Vrai dès qu'une première navigation a abouti ou échoué. Sert à reconnaître
@@ -39,6 +55,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     private let reloadAfterBackgroundInterval: TimeInterval = 30
 
     override func loadView() {
+        _ = UIScrollView.hideTopEdgeEffectInWebViews
         let containerView = UIView()
         containerView.backgroundColor = UIColor(red: 0.97, green: 0.97, blue: 0.97, alpha: 1.0)
         self.view = containerView
@@ -52,6 +69,11 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
         // d'autre que du web, et toujours dans le navigateur.
         let configuration = WKWebViewConfiguration()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        configuration.userContentController.add(WeakScriptMessageHandler(self), name: Self.statusBarMessage)
+        for source in [Self.statusBarBlurScript, Self.statusBarWatcherScript] {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -60,7 +82,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
         webView.scrollView.backgroundColor = UIColor(red: 0.97, green: 0.97, blue: 0.97, alpha: 1.0) // ← Changé
         webView.alpha = 0.0
         containerView.addSubview(webView)
-        
+
         setupErrorView()
         setupReconnectingOverlay()
     }
@@ -374,6 +396,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
 
         // Ajouter classe CSS
         webView.evaluateJavaScript("document.body.classList.add('ios-app');", completionHandler: nil)
+        sampleContentUnderStatusBar()
 
         // Synchroniser les settings volume (step + limites) depuis Milo
         Task { await MiloAPIClient.syncVolumeSettings() }
@@ -436,10 +459,188 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         webView.frame = view.bounds
+        if view.safeAreaInsets.top != sampledStatusBarHeight {
+            sampledStatusBarHeight = view.safeAreaInsets.top
+            sampleContentUnderStatusBar()
+        }
+    }
+
+    // MARK: - Contenu sous la status bar
+
+    private var sampledStatusBarHeight: CGFloat = 0
+
+    /// Flou progressif sous la status bar, à la manière de l'App Store, dessiné
+    /// par la page elle-même. Le fondu d'iOS 26 ne s'y prête pas : WebKit ne
+    /// le déclenche que sur certaines vues, et sa couleur ne suit pas le
+    /// contenu (masqué, voir `hideTopEdgeEffectInWebViews`). Un flou UIKit non
+    /// plus : il ajoute toujours une teinte, visible au repos sur un fond uni
+    /// et sur les modales. `backdrop-filter`, lui, n'en ajoute aucune — un fond
+    /// uni flouté reste identique, et l'effet n'apparaît que sous du contenu.
+    ///
+    /// Trois couches de rayon croissant, chacune masquée plus près du haut :
+    /// le flou s'épaissit vers le haut de l'écran et s'éteint au bas de la
+    /// status bar, sans rien toucher en dessous — barre de volume, bandeaux.
+    /// Au-dessus de tout (la modale est à 5000), sauf le fantôme du
+    /// changement de thème, et transparent aux touchers.
+    private static let statusBarBlurScript = """
+    (() => {
+      const style = document.createElement('style');
+      style.textContent = `
+        #ios-status-bar-blur {
+          position: fixed; top: 0; left: 0; right: 0;
+          height: env(safe-area-inset-top, 0px);
+          pointer-events: none; z-index: 2147483646;
+        }
+        #ios-status-bar-blur > div { position: absolute; inset: 0; }
+        #ios-status-bar-blur > div:nth-child(1) {
+          -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+          -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent 100%);
+          mask-image: linear-gradient(to bottom, #000 40%, transparent 100%);
+        }
+        #ios-status-bar-blur > div:nth-child(2) {
+          -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+          -webkit-mask-image: linear-gradient(to bottom, #000 20%, transparent 70%);
+          mask-image: linear-gradient(to bottom, #000 20%, transparent 70%);
+        }
+        #ios-status-bar-blur > div:nth-child(3) {
+          -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+          -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 45%);
+          mask-image: linear-gradient(to bottom, #000 0%, transparent 45%);
+        }`;
+      document.head.appendChild(style);
+      const blur = document.createElement('div');
+      blur.id = 'ios-status-bar-blur';
+      blur.setAttribute('aria-hidden', 'true');
+      for (let i = 0; i < 3; i++) blur.appendChild(document.createElement('div'));
+      document.body.appendChild(blur);
+    })();
+    """
+
+    private static let statusBarMessage = "contentUnderStatusBar"
+
+    /// Prévient l'app quand ce qui passe sous la status bar a pu changer :
+    /// défilement de n'importe quel élément (capture, `scroll` ne remonte pas),
+    /// vue qui s'ouvre, fin de transition. Au plus un message toutes les
+    /// 150 ms. Les changements de `style` ni de texte ne comptent pas : la
+    /// progression de lecture en écrit plusieurs par seconde.
+    private static let statusBarWatcherScript = """
+    (() => {
+      let pending = false;
+      const ping = () => {
+        if (pending) return;
+        pending = true;
+        setTimeout(() => {
+          pending = false;
+          window.webkit.messageHandlers.\(statusBarMessage).postMessage(0);
+        }, 150);
+      };
+      document.addEventListener('scroll', ping, { capture: true, passive: true });
+      document.addEventListener('transitionend', ping, true);
+      document.addEventListener('animationend', ping, true);
+      // Un texte remplacé (le temps écoulé, chaque seconde) n'ouvre aucune
+      // vue : seuls comptent les éléments ajoutés ou retirés.
+      const isElement = (node) => node.nodeType === Node.ELEMENT_NODE;
+      new MutationObserver((records) => {
+        if (records.some((r) => r.type === 'attributes'
+            || [...r.addedNodes].some(isElement) || [...r.removedNodes].some(isElement))) ping();
+      }).observe(document.documentElement,
+        { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+    })();
+    """
+
+    /// Mesure la luminance du rendu de la page sous la status bar, sur une
+    /// vignette de quelques pixels. L'écart entre les deux seuils évite que
+    /// la status bar clignote sur un contenu de luminance moyenne.
+    fileprivate func sampleContentUnderStatusBar() {
+        let height = view.safeAreaInsets.top
+        guard isConnected, height > 0 else { return }
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = CGRect(x: 0, y: 0, width: webView.bounds.width, height: height)
+        configuration.snapshotWidth = 16
+        webView.takeSnapshot(with: configuration) { [weak self] image, _ in
+            guard let self, let luminance = image.flatMap(Self.averageLuminance) else { return }
+            if self.contentUnderStatusBarIsDark {
+                if luminance > 0.55 { self.contentUnderStatusBarIsDark = false }
+            } else if luminance < 0.4 {
+                self.contentUnderStatusBarIsDark = true
+            }
+        }
+    }
+
+    private static func averageLuminance(of image: UIImage) -> CGFloat? {
+        guard let cgImage = image.cgImage else { return nil }
+        let width = 8, height = 2
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+            context.interpolationQuality = .medium
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        var sum: CGFloat = 0
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            sum += 0.2126 * CGFloat(pixels[i]) + 0.7152 * CGFloat(pixels[i + 1]) + 0.0722 * CGFloat(pixels[i + 2])
+        }
+        return sum / CGFloat(width * height) / 255
     }
     
     deinit {
         connectivityTimer?.invalidate()
         initialErrorTimer?.invalidate()
+    }
+}
+
+/// `WKUserContentController` retient son gestionnaire : passer le contrôleur
+/// lui-même le garderait en vie avec sa webview.
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    private weak var target: ViewController?
+
+    init(_ target: ViewController) { self.target = target }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        target?.sampleContentUnderStatusBar()
+    }
+}
+
+extension UIScrollView {
+    /// WebKit donne à chaque élément `overflow: auto` de la page sa propre
+    /// UIScrollView, distincte de `webView.scrollView` et créée au fil des
+    /// navigations de la SPA. Celle-ci garde le fondu d’iOS 26 sous la status
+    /// bar : sur l’écran Radio, c’est `.audio-source-layout` qui défile (le
+    /// `html` est en `overflow: hidden`), et ses tuiles s’y floutaient au lieu
+    /// de passer dessous. Aucune API publique ne les atteint ; on les prend au
+    /// moment où elles entrent dans la fenêtre.
+    static let hideTopEdgeEffectInWebViews: Void = {
+        let original = #selector(UIView.didMoveToWindow)
+        let replacement = #selector(UIScrollView.milo_didMoveToWindow)
+        guard let originalMethod = class_getInstanceMethod(UIScrollView.self, original),
+              let replacementMethod = class_getInstanceMethod(UIScrollView.self, replacement) else { return }
+        // UIScrollView peut hériter `didMoveToWindow` de UIView : l’ajouter
+        // d’abord à UIScrollView évite d’échanger celle de toutes les vues.
+        if class_addMethod(UIScrollView.self, original,
+                           method_getImplementation(replacementMethod), method_getTypeEncoding(replacementMethod)) {
+            class_replaceMethod(UIScrollView.self, replacement,
+                                method_getImplementation(originalMethod), method_getTypeEncoding(originalMethod))
+        } else {
+            method_exchangeImplementations(originalMethod, replacementMethod)
+        }
+    }()
+
+    @objc private func milo_didMoveToWindow() {
+        milo_didMoveToWindow()
+        guard window != nil else { return }
+        var ancestor = superview
+        while let view = ancestor {
+            if view is WKWebView {
+                topEdgeEffect.isHidden = true
+                return
+            }
+            ancestor = view.superview
+        }
     }
 }

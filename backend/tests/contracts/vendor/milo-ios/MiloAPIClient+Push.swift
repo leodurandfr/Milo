@@ -67,15 +67,43 @@ extension MiloAPIClient {
     /// pas d'APNs de production : on n'enregistre alors rien du tout. Milō
     /// refuse un enregistrement sans environnement (422), et il a raison — une
     /// valeur inventée coûterait plus cher qu'une absence.
+    ///
+    /// **Un bundle disparu n'est pas un build distribué.** Réinstaller l'app
+    /// supprime l'ancien dossier du bundle, mais un processus d'extension lancé
+    /// avant peut continuer à servir la session — le système le garde (voir
+    /// `miloBinaryStamp`). S'il évalue cette valeur pour la première fois
+    /// après coup, aucun profil n'est plus lisible, ni le sien ni celui de
+    /// l'app, et il en concluait « production ». Mesuré le 08/11/2026 : de
+    /// 12:43:40 à 12:44:29, juste après une réinstallation, quatre tokens de
+    /// session déclarés `production`, refusés `BadDeviceToken` et purgés par
+    /// Milō. La carte ne recevait plus d'`update`, et ça n'est jamais arrivé
+    /// ailleurs depuis le 02/11. L'extension évalue donc cette valeur dès son
+    /// démarrage (voir `MiloNowPlayingExtension.init`), et un bundle introuvable
+    /// donne `nil` : le token reste en attente, et c'est l'app qui le dépose.
     static let apsEnvironment: String? = {
-        guard let data = embeddedMobileProvision() else {
-            #if targetEnvironment(simulator)
-            return nil
-            #else
+        #if targetEnvironment(simulator)
+        guard let data = embeddedMobileProvision() else { return nil }
+        return apsEnvironment(profile: data, profilePresent: true, bundlePresent: true)
+        #else
+        return apsEnvironment(
+            profile: embeddedMobileProvision(),
+            profilePresent: hasEmbeddedMobileProvision(),
+            bundlePresent: FileManager.default.fileExists(atPath: Bundle.main.bundlePath))
+        #endif
+    }()
+
+    /// La déduction de `apsEnvironment`, sans le système de fichiers.
+    ///
+    /// - `profile` : les octets du profil embarqué, s'il a pu être lu.
+    /// - `profilePresent` : un profil existe-t-il, même illisible ?
+    /// - `bundlePresent` : le dossier du bundle qui exécute ce code existe-t-il
+    ///   encore ?
+    static func apsEnvironment(profile: Data?, profilePresent: Bool, bundlePresent: Bool) -> String? {
+        guard let data = profile else {
             // Absent, et non illisible : un profil présent qu'on n'arrive pas
-            // à lire peut être de développement.
-            return hasEmbeddedMobileProvision() ? nil : "production"
-            #endif
+            // à lire peut être de développement. Et un profil n'est absent
+            // *par signature* que si le bundle, lui, est bien là.
+            return bundlePresent && !profilePresent ? "production" : nil
         }
 
         // Le fichier est un conteneur CMS signé ; le plist est en clair à
@@ -103,7 +131,7 @@ extension MiloAPIClient {
         case "production": return "production"
         default: return nil
         }
-    }()
+    }
 
     /// Le profil du bundle courant, puis celui de l'app conteneur en repli.
     ///

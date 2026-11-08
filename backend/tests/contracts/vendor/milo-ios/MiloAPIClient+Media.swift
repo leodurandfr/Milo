@@ -1537,9 +1537,15 @@ extension MiloAPIClient {
     /// n'affichent rien, quand tout ce qui s'affiche — pochettes Shazam,
     /// in-band, Spotify, bibliothèque musicale — est du JPEG sans exception.
     ///
-    /// La conversion vit dans l'app, et c'est tout l'intérêt : l'extension, elle,
-    /// est tuée quelques millisecondes après avoir été lue, et ne peut pas se
-    /// permettre de décoder quoi que ce soit. L'app tourne, elle a le temps.
+    /// L'extension s'en sert aussi, en dernier recours, pour un WebP qu'aucun
+    /// en-tête `Accept` ne lui rend en JPEG. Ce n'est qu'un filet : télécharger
+    /// puis décoder dépasse le plus souvent la vie d'un réveil de l'extension.
+    /// Mesuré le 08/11/2026 sur les pochettes de Radio France (du WebP quoi
+    /// qu'on demande) : deux conversions abouties en 106 et 135 ms, contre une
+    /// demi-douzaine de demandes jamais terminées, la session reconstruite
+    /// avant. Ce qui les affiche, c'est Milō, qui les sert en JPEG depuis son
+    /// cache, préchargé (`/api/radio/covers/{id}`) : l'extension n'a plus qu'à
+    /// lire quelques dizaines de kilo-octets sur le réseau local.
     ///
     /// Les dimensions sont conservées telles quelles, délibérément : le format
     /// et la taille étaient confondus dans les observations (le WebP en 1024, le
@@ -1548,7 +1554,7 @@ extension MiloAPIClient {
     ///
     /// Un JPEG est rendu sans être touché — le ré-encoder ne ferait que perdre
     /// de la qualité pour rien.
-    private static func jpegNormalized(_ data: Data) -> Data? {
+    static func jpegNormalized(_ data: Data) -> Data? {
         if isJPEG(data) { return data }
 
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),

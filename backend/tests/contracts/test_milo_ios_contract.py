@@ -622,7 +622,7 @@ def test_command_data_keys_are_taken_by_every_source(entry):
 def test_body_values_are_every_value_the_app_sends():
     """`body_values` lists every value the app can put in each pinned field,
     not a subset that happens to be spelled somewhere: `kind` is PushTokenKind's
-    raw values, `environment` what `apsEnvironment` returns. A kind the app adds
+    raw values, `environment` what `apsEnvironment(profile:…)` returns. A kind the app adds
     and the backend's enum lacks is a 422, and the token is never sent again."""
     pinned = {
         (e["method"], e["path"], key): sorted(values)
@@ -630,7 +630,11 @@ def test_body_values_are_every_value_the_app_sends():
         for key, values in e.get("body_values", {}).items()
     }
     enum = re.search(r"enum PushTokenKind: String \{(.*?)\}", _VENDORED_SWIFT, re.S)
-    environment = re.search(r"static let apsEnvironment: String\? = \{(.*?)\}\(\)", _VENDORED_SWIFT, re.S)
+    # The values are spelled in the pure deduction since 5ee92e4 — the
+    # `static let` only gathers what it reads off the file system.
+    environment = re.search(
+        r"static func apsEnvironment\(profile:(.*?)\n    \}\n", _VENDORED_SWIFT, re.S
+    )
     assert enum and environment, "PushTokenKind or apsEnvironment not found in the vendored Swift"
     kinds = [raw or name for name, raw in re.findall(r'\bcase (\w+)(?:\s*=\s*"(\w+)")?', enum.group(1))]
     environments = re.findall(r'return "(\w+)"', environment.group(1))
