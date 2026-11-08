@@ -206,7 +206,7 @@ watch(() => props.loading, (isLoading) => {
   color: var(--color-text-on-contrast-secondary);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .message-content {
     min-height: 364px;
   }

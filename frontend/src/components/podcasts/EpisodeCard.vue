@@ -161,7 +161,7 @@ async function handlePlayClick() {
   opacity: 0.5;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .content-info {
     gap: 0;
   }

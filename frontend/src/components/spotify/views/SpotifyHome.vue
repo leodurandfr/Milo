@@ -150,7 +150,7 @@ watch(() => (store.signingIn ? null : store.account), (signedIn) => {
   border-radius: var(--radius-02);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .shortcut-skeleton {
     height: 48px;
   }

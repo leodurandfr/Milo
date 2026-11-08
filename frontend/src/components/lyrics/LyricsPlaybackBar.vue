@@ -334,7 +334,7 @@ function onHintClick(event) {
 
 /* Portrait/mobile: the transport + track-info + progress bar don't fit in one
    row at phone widths — stack each section on its own row instead. */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .lyrics-bar {
     flex-wrap: wrap;
     gap: var(--space-03) var(--space-04);

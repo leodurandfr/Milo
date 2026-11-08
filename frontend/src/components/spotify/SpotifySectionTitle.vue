@@ -75,7 +75,7 @@ const lastWord = computed(() => props.title.trimEnd().slice(split.value));
   background: var(--color-surface-glass);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .section-avatar {
     width: 40px;
     height: 40px;

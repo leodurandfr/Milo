@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => ({
         // The /components gallery's iframe. A second document rather than a
         // route, so it renders one primitive without booting the app — and so it
         // owns a real viewport, which is the only way the app's
-        // `@media (max-aspect-ratio: 4/3)` rules can be reached from a desktop
+        // mobile `@media` rules (`constants/layout.js::MOBILE_QUERY`) can be reached from a desktop
         // browser. nginx serves it directly: `try_files $uri` finds the file
         // before the SPA fallback.
         canvas: path.resolve(__dirname, 'canvas.html'),

@@ -189,7 +189,7 @@ input:disabled + .slider {
 }
 
 /* Responsive: one size on a phone, the compact one */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .toggle--default {
     width: 63px;
     height: 28px;

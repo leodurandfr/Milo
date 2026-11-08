@@ -227,7 +227,7 @@ const svgContent = computed(() => {
   display: block;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .app-icon.size-large {
     width: 64px !important;
     height: 64px !important;

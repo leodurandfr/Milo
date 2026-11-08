@@ -228,7 +228,7 @@ function selectOption(value) {
 }
 
 /* Mobile: one size, a 38px track, small included */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .button-group__track {
     padding: 3px;
   }

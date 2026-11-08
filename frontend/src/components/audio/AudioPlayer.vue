@@ -593,7 +593,7 @@ function onTouchEnd(e) {
 }
 
 /* Mobile: Horizontal bottom panel layout */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .audio-player {
     position: fixed;
     /* bottom: calc(max(var(--space-06), env(safe-area-inset-bottom, 0px)) + var(--space-05)); */
@@ -756,7 +756,7 @@ function onTouchEnd(e) {
 }
 
 /* Vue Transition: Desktop - slide from right with fade */
-@media (min-aspect-ratio: 4/3) {
+@media not ((max-aspect-ratio: 4/3) and (max-width: 1023px)) {
 
   .audio-player-enter-active,
   .audio-player-leave-active {
@@ -803,7 +803,7 @@ function onTouchEnd(e) {
 }
 
 /* Vue Transition: Mobile */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
 
   .audio-player-enter-active,
   .audio-player-leave-active {

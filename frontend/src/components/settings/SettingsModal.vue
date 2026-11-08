@@ -836,7 +836,7 @@ onMounted(async () => {
 }
 
 /* Responsive */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .settings-nav-grid {
     grid-template-columns: 1fr;
   }

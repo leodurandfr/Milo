@@ -113,7 +113,7 @@ function request(enabled) {
   white-space: nowrap;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .ssh-intro {
     flex-direction: column;
     align-items: flex-start;

@@ -782,7 +782,7 @@ onMounted(() => {
 }
 
 /* Mobile adjustments */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .speaker-types {
     grid-template-columns: 1fr;
   }

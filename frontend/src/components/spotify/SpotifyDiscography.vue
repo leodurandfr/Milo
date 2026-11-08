@@ -56,7 +56,7 @@ const { current, options, cards } = useSpotifyDiscography(() => props.groups, ()
 }
 
 /* The phone has no room beside the title: the lists go under it, sideways. */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .discography-header {
     flex-direction: column;
     align-items: stretch;

@@ -284,7 +284,7 @@ const { sentinelRef: scrollSentinel } = useInfiniteScroll({
 }
 
 /* Mobile */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .filters-bar {
     flex-wrap: nowrap;
     overflow-x: auto;

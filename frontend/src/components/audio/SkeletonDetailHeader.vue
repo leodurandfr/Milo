@@ -125,7 +125,7 @@ const { isMobile } = useIsMobile();
   border-radius: var(--radius-03);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .skeleton-detail-header__cover {
     width: 64px;
     height: 64px;

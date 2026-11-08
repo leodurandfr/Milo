@@ -324,7 +324,7 @@ onUnmounted(() => {
   gap: var(--space-03);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .app-list {
     display: flex;
     flex-direction: column;

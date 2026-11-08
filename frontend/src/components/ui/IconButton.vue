@@ -122,7 +122,7 @@ function handleClick(event) {
 }
 
 /* === SIZES (Mobile) === */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .icon-button--small {
     padding: 6px;
     border-radius: var(--radius-03);

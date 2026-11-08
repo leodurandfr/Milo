@@ -275,7 +275,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
    overlay padding-top (76px + safe-area term) plus its own wrapper offset
    (-space-03 - 52px), collapsed into one top value since this view has no
    overlay of its own to carry that padding. */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .lyrics-view-close {
     top: calc(76px + env(safe-area-inset-top, 0px) - min(env(safe-area-inset-top, 0px), var(--space-03)) - var(--space-03) - 52px);
     left: 50%;
@@ -317,7 +317,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   text-wrap: balance;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .lyrics-view-state :deep(.message-content),
   .lyrics-view-loader :deep(.message-content) {
     width: auto;

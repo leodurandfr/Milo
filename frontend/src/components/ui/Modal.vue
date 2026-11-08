@@ -467,7 +467,7 @@ onUnmounted(() => {
 }
 
 /* Responsive */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   ::-webkit-scrollbar {
     display: none;
   }

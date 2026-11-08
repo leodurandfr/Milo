@@ -292,7 +292,7 @@ function unpinWidth(el) {
   opacity: 0;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .navigation-header {
     min-height: 64px;
     padding: var(--space-03);

@@ -140,7 +140,7 @@ const volumeFillStyle = computed(() => ({
   color-scheme: light;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   /* Lands exactly on AudioSourceLayout's navigation header: same side inset,
      same top, and the same 64px height. */
   .volume-bar {

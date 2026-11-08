@@ -421,7 +421,7 @@ onUnmounted(() => {
 }
 
 /* Mobile adjustments */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .audio-list,
   .speaker-types {
     grid-template-columns: 1fr;

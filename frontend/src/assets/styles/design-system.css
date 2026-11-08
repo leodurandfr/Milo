@@ -542,7 +542,7 @@
 
 
 /* === RESPONSIVE - MOBILE === */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
     :root {
         --card-grid-columns: 3;
 
@@ -1048,7 +1048,7 @@
 
 /* Portrait: a percentage of a tall viewport is a lot of confiscated scroll, so
    the band gets shorter — and wider to stay easy to hit with a thumb. */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
     .swipe-reveal-band {
         width: 66vw;
         height: 6%;

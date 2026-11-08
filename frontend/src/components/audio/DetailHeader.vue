@@ -182,7 +182,7 @@ const hasActions = computed(
 }
 
 /* A compact row: the cover a thumbnail, the title on one line. */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .detail-header-cover {
     width: 64px;
     height: 64px;

@@ -275,7 +275,7 @@ const svgContent = computed(() => {
   height: var(--svg-size, 32px);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .icon--size-small :deep(.svg-responsive) {
     width: var(--svg-size, 20px);
     height: var(--svg-size, 20px);

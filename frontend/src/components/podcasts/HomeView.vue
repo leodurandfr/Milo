@@ -248,7 +248,7 @@ onPageReturn(() => podcastStore.loadSubscriptions())
 }
 
 /* Mobile: Responsive adaptations */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .genres-grid {
     grid-template-columns: repeat(2, 1fr);
   }

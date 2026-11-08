@@ -477,7 +477,7 @@ onBeforeUnmount(() => {
 }
 
 /* Mobile: Button's heights, so a field and the button beside it line up. */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .dropdown-trigger {
     height: 38px;
     border-radius: var(--radius-03);

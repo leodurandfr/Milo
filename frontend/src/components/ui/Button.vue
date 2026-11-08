@@ -195,7 +195,7 @@ function handleClick(event) {
 }
 
 /* === RESPONSIVE (Mobile) === */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
     .btn--medium {
         min-height: 38px;
         height: 38px;

@@ -1,7 +1,6 @@
 // Shared mobile detection composable (module-level singleton)
 import { ref, onUnmounted, readonly } from 'vue';
-
-const MOBILE_QUERY = '(max-aspect-ratio: 4/3)';
+import { MOBILE_QUERY } from '@/constants/layout';
 
 // Module-level shared state (single listener for entire app)
 // Initialize eagerly to avoid first-render flash on mobile

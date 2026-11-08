@@ -246,7 +246,7 @@ async function handleDelete() {
 }
 
 /* Mobile adjustments */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .clients-list {
     grid-template-columns: 1fr;
   }

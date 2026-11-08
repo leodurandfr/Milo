@@ -275,7 +275,7 @@ function handleClick(event) {
 }
 
 /* Responsive - Mobile */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .list-item-button {
     border-radius: var(--radius-04);
   }

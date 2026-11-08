@@ -194,7 +194,7 @@ watch(() => store.account, (now, before) => {
   cursor: pointer;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .profile-button {
     --avatar-size: 38px;
   }

@@ -139,7 +139,7 @@ ${blades.join('\n')}
 }
 
 /* Size variants matching SvgIcon dimensions - Mobile */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .loading-spinner--small {
     width: var(--spinner-size, 20px);
     height: var(--spinner-size, 20px);

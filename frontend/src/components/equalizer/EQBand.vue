@@ -156,7 +156,7 @@ function handleDragEnd() {
 }
 
 /* Mobile adjustments */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .eq-band:not(.horizontal) {
     min-width: 48px;
   }

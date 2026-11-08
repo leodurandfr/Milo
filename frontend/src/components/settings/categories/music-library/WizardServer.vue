@@ -118,7 +118,7 @@ onMounted(() => {
 }
 
 /* Mobile rows are a touch shorter (58px) — keep the loading block at 2 rows. */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .wiz-actions {
     grid-template-columns: 1fr;
   }

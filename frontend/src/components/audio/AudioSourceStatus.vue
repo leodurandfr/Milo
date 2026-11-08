@@ -391,7 +391,7 @@ const actionButton = computed(() => {
 }
 
 /* Responsive */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .source-status {
     width: 100%;
     max-width: 348px;

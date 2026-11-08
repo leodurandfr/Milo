@@ -55,7 +55,7 @@ const { isMobile } = useIsMobile();
   background: var(--color-surface-glass);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .tile-cover {
     width: 48px;
     height: 48px;

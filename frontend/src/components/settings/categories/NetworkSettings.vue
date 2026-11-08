@@ -535,7 +535,7 @@ onUnmounted(() => {
 }
 
 /* Mobile adjustments */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .connection-section {
     border-radius: var(--radius-05);
   }

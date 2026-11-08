@@ -383,7 +383,7 @@ onMounted(async () => {
   color: var(--color-error);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .info-grid {
     grid-template-columns: 1fr;
   }

@@ -18,6 +18,7 @@
  * Mounts nothing: it reads the sources the browser reads.
  */
 import { describe, it, expect } from 'vitest';
+import { MOBILE_QUERY } from '../../src/constants/layout.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -102,7 +103,7 @@ describe('rail height', () => {
     expect(declared).toHaveLength(2);
     declared.forEach((value) => expect(value).toMatch(/^\d+px$/));
 
-    const mobile = css.indexOf('@media (max-aspect-ratio: 4/3)');
+    const mobile = css.indexOf(`@media ${MOBILE_QUERY}`);
     expect(mobile).toBeGreaterThan(-1);
     expect(css.indexOf('--rail-height')).toBeLessThan(mobile);
     expect(css.indexOf('--rail-height', mobile)).toBeGreaterThan(mobile);

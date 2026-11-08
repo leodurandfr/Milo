@@ -55,7 +55,7 @@ defineProps({
   min-width: 0;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .setting-item--inline {
     flex-direction: column;
     align-items: stretch;

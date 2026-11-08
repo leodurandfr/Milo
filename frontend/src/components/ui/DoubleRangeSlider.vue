@@ -393,7 +393,7 @@ onMounted(() => updateValues(props.modelValue.min, props.modelValue.max, 'min'))
 }
 
 /* Responsive */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .double-range-slider {
     --knob-width: 40px;
     --knob-height: 24px;

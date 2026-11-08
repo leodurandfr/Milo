@@ -3,7 +3,7 @@
   Hosts the canvas iframe and the viewport switcher.
 
   The iframe is what makes the switcher mean anything. Milō's breakpoints are
-  `@media (max-aspect-ratio: 4/3)`, so the mobile branch depends on the ratio of
+  `@media (max-aspect-ratio: 4/3) and (max-width: 1023px)`, so the mobile branch depends on the ratio of
   a real viewport — a plain sized <div> would change the width and change
   nothing else, which looks like it works and does not. Resizing the iframe
   resizes an actual viewport, so the phone preset renders what a phone renders.
@@ -106,9 +106,9 @@ const emit = defineEmits(['event', 'args']);
 
 /**
  * `fill` stretches to the pane, which is the honest default on a desktop
- * browser. The other two are the two ratios the app actually ships against: the
- * kiosk panel sits above 4:3 and takes the wide branch, a phone sits below it
- * and takes the narrow one.
+ * browser. The other two are the two viewports the app actually ships against:
+ * the kiosk panel sits above 4:3 and takes the wide branch, a phone sits below
+ * it and under 1024 px (`MOBILE_QUERY`) and takes the narrow one.
  */
 /**
  * The canvas forces the virtual keyboard on.

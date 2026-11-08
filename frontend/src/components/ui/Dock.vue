@@ -800,7 +800,7 @@ onUnmounted(() => {
   display: flex;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .additional-app-content,
   .volume-btn,
   .dock-separator,
@@ -825,7 +825,7 @@ onUnmounted(() => {
   }
 }
 
-@media not (max-aspect-ratio: 4/3) {
+@media not ((max-aspect-ratio: 4/3) and (max-width: 1023px)) {
   .mobile-only {
     display: none;
   }

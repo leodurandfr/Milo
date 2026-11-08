@@ -283,7 +283,7 @@ onMounted(() => {
   z-index: 10;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .analysis-grid {
     grid-template-columns: 1fr;
   }

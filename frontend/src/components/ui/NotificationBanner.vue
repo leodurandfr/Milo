@@ -111,7 +111,7 @@ defineEmits(['dismiss']);
 }
 
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .notification-banner {
     top: calc(var(--space-05) + env(safe-area-inset-top, 0px));
     left: var(--space-05);

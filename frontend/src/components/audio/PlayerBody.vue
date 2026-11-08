@@ -432,7 +432,7 @@ defineExpose({ swipe });
   display: block;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .player-body--full .player-body-bottom {
     margin-bottom: calc(env(safe-area-inset-bottom, 0px));
   }

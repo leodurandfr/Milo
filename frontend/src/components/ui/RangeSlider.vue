@@ -650,7 +650,7 @@ function handleChange(event) {
   grid-area: value;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .slider-container {
     --knob-width: 40px;
     --knob-height: 24px;

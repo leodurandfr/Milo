@@ -159,7 +159,7 @@ onMounted(loadTimezone);
   gap: var(--space-01);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .language-grid {
     grid-template-columns: 1fr;
   }

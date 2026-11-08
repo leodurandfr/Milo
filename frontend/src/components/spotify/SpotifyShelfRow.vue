@@ -119,7 +119,7 @@ const withByline = computed(() => lines.value.some((line) => line.byline));
    receded level reads as solid down to it. With no player the layout sets no
    stop and the solid span is the whole row. The phone has no side space to
    speak of: the player is a bar under the rows there. */
-@media not (max-aspect-ratio: 4/3) {
+@media not ((max-aspect-ratio: 4/3) and (max-width: 1023px)) {
   .shelf-row {
     --shelf-peek: 0.5;
     --shelf-receded: color-mix(in srgb, black 16%, transparent);

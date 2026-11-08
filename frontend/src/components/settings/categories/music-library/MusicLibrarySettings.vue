@@ -258,7 +258,7 @@ onMounted(() => {
   background: var(--color-text-tertiary);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .ml-list {
     grid-template-columns: 1fr;
   }

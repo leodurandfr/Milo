@@ -373,7 +373,7 @@ onUnmounted(() => {
   width: 100%;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .setup-wizard {
     padding: 0;
     background: var(--color-surface-solid);
@@ -426,7 +426,7 @@ onUnmounted(() => {
 }
 
 /* PWA standalone: button flush to bottom (white body fills safe area) */
-@media (max-aspect-ratio: 4/3) and (display-mode: standalone) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) and (display-mode: standalone) {
   .setup-card__footer {
     bottom: 0;
   }

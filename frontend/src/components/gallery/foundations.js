@@ -30,6 +30,7 @@
  * guardrail reads this file under Node. `FoundationsPage.vue` draws it.
  */
 import css from '@/assets/styles/design-system.css?raw';
+import { MOBILE_QUERY } from '@/constants/layout';
 
 /** Prefix that tells a foundation page apart from a catalogue entry in `?c=`. */
 export const FOUNDATION_PAGE_PREFIX = 'foundation:';
@@ -137,7 +138,7 @@ export function paint(name) {
 }
 
 /**
- * The `max-aspect-ratio: 4/3` overrides, flattened to name -> value.
+ * The mobile overrides (`MOBILE_QUERY`), flattened to name -> value.
  *
  * Shown beside the base value rather than instead of it: this page is read on a
  * desktop browser, which resolves the wide branch, so a reader who is told
@@ -145,7 +146,7 @@ export function paint(name) {
  * the unit's portrait sibling.
  */
 export const MOBILE = Object.fromEntries(
-  parseSections(rootBody(css.indexOf('@media (max-aspect-ratio: 4/3)')))
+  parseSections(rootBody(css.indexOf(`@media ${MOBILE_QUERY}`)))
     .flatMap(section => section.tokens)
     .map(token => [token.name, token.value])
 );

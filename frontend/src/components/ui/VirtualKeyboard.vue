@@ -694,7 +694,7 @@ onUnmounted(() => {
 }
 
 /* ===== MOBILE ADJUSTMENTS ===== */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .virtual-keyboard {
     max-width: 100%;
     border-radius: var(--radius-07) var(--radius-07) 0 0;

@@ -203,7 +203,7 @@ const message = computed(() => (confirming.value ? t('spotify.forgetQuestion') :
   gap: var(--space-02);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .profile-row {
     padding-right: var(--space-04);
     column-gap: var(--space-03);

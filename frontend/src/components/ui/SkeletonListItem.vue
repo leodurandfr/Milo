@@ -87,7 +87,7 @@ defineProps({
   width: 35%;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .skeleton-list-item {
     border-radius: var(--radius-04);
   }

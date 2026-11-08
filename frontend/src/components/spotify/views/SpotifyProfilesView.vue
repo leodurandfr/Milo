@@ -108,7 +108,7 @@ async function forget(profile) {
   gap: var(--space-02);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .profiles-list {
     grid-template-columns: minmax(0, 1fr);
   }

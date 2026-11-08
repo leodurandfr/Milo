@@ -60,7 +60,7 @@
   width: 35%;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .skeleton-card-image {
     width: 96px;
     height: 96px;

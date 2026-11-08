@@ -867,7 +867,7 @@ html.screen-color {
 }
 
 /* Only show the sleep shield on the Raspberry Pi screen (landscape) */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .sleep-shield {
     display: none !important;
   }

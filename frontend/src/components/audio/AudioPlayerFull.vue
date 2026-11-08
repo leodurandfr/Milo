@@ -521,7 +521,7 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
   cursor: pointer;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .now-playing {
     /* The body's own top padding, and half the bar's row. */
     --source-line: calc(var(--space-06) + 12px);

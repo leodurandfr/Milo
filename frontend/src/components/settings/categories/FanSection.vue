@@ -219,7 +219,7 @@ onMounted(() => {
   transition: width var(--transition-normal);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .fan-grid {
     grid-template-columns: 1fr;
   }

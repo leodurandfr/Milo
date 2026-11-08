@@ -384,7 +384,7 @@ async function press(control) {
   flex-shrink: 0;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   /* The phone's glyphs are a rung smaller: the targets shrink with them,
      still above a finger, so the trio keeps the kiosk's proportions. */
   .player-transport--plate {

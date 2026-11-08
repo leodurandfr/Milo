@@ -526,7 +526,7 @@ async function handleAddSubmit() {
 }
 
 /* Mobile: stack all paired rows vertically for readability */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .form-row,
   .station-header-row {
     grid-template-columns: 1fr;

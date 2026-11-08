@@ -115,7 +115,7 @@ load();
   border-radius: var(--radius-05);
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .skeleton-groups {
     height: 38px;
     border-radius: var(--radius-04);

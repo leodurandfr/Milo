@@ -474,7 +474,7 @@ onMounted(async () => {
   z-index: 10;
 }
 
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .encoder-pins {
     grid-template-columns: 1fr;
   }

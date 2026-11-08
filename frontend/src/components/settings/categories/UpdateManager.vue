@@ -750,7 +750,7 @@ onMounted(async () => {
 }
 
 /* Responsive */
-@media (max-aspect-ratio: 4/3) {
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   /* The actions stay on the info line, as icons. */
   .program-item {
     column-gap: var(--space-02);
