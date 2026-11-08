@@ -12,7 +12,7 @@ import asyncio
 import json
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
@@ -458,6 +458,80 @@ class TestTheCommonFloor:
         assert radio.details()["artwork_pending"] is False
         assert radio.session()["artwork"] == "https://art.example/so-what.jpg"
 
+    # The dash does not say which side is the artist: the Generations streams
+    # send "Title - Artist". iTunes knows a cover only under the true pair, so
+    # the order a cover is found in is the station's.
+
+    @staticmethod
+    def catalogue(radio, pairs):
+        """iTunes, knowing a cover for each true (artist, title) pair only."""
+        async def resolve(artist, title, album=""):
+            return pairs.get((artist, title))
+
+        radio.artwork.resolve = AsyncMock(side_effect=resolve)
+
+    async def test_a_station_sending_title_first_is_turned_round_and_remembered(self, radio):
+        self.catalogue(radio, {
+            ("The Temptations", "Papa Was A Rolling Stone"): "https://art.example/papa.jpg",
+            ("Luther Vandross", "Never Too Much"): "https://art.example/never.jpg",
+        })
+        radio.stream_title("Papa Was A Rolling Stone - The Temptations")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+
+        session = radio.session()
+        assert (session["artist"], session["title"]) == ("The Temptations", "Papa Was A Rolling Stone")
+        assert session["artwork"] == "https://art.example/papa.jpg"
+
+        # The station's next song is read its way at once: one lookup, the right one.
+        radio.artwork.resolve.reset_mock()
+        radio.stream_title("Never Too Much - Luther Vandross")
+        await radio.tick(4)
+
+        assert (radio.session()["artist"], radio.track_title()) == ("Luther Vandross", "Never Too Much")
+        radio.artwork.resolve.assert_awaited_once_with("Luther Vandross", "Never Too Much")
+
+    async def test_a_station_order_outlives_its_session(self, radio):
+        """A re-tune opens a new session; the station kept its order."""
+        self.catalogue(radio, {("The Temptations", "Papa Was A Rolling Stone"): "https://art.example/papa.jpg"})
+        radio.stream_title("Papa Was A Rolling Stone - The Temptations")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+        await radio.tune(NOVA)
+        radio.stream_title("Ain't Too Proud to Beg - The Temptations")
+        await radio.tune(FIP)
+        await radio.tick(4)
+
+        assert radio.session()["artist"] == "The Temptations"
+
+    async def test_a_song_found_in_neither_order_is_left_as_sent(self, radio):
+        """No cover is no proof: the default reading stands, and nothing is learned."""
+        self.catalogue(radio, {})
+        radio.stream_title("Rhucle - Scape")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+
+        assert (radio.session()["artist"], radio.track_title()) == ("Rhucle", "Scape")
+
+        radio.artwork.resolve.reset_mock()
+        radio.stream_title("Loneward - Noctilucent")
+        await radio.tick(4)
+        assert radio.artwork.resolve.await_args_list[0] == call("Loneward", "Noctilucent")
+
+    async def test_a_by_title_is_never_turned(self, radio):
+        """"Title by Artist" names its sides: a miss there is just a miss."""
+        self.catalogue(radio, {("So What", "Miles Davis"): "https://art.example/wrong.jpg"})
+        radio.stream_title("So What by Miles Davis")
+        await radio.select()
+        await radio.tune(FIP)
+        await radio.tick(4)
+
+        assert (radio.session()["artist"], radio.track_title()) == ("Miles Davis", "So What")
+        radio.artwork.resolve.assert_awaited_once_with("Miles Davis", "So What")
+
     async def test_a_track_shazam_recognized_announces_no_lookup(self, radio):
         """Shazam's answer carries its own cover: nothing is on its way."""
         await radio.select()
@@ -533,12 +607,30 @@ class TestInbandTrackParsing:
             "title": "Empire State of Mind",
             "artist": "Jay-Z",
             "artwork": None,
+            "title_first": False,
         }
+
+    def test_a_station_known_to_send_title_first_is_read_that_way(self):
+        """The Generations streams send "Title - Artist"; read the default way
+        the title is the artist, and every lookup keyed on them misses."""
+        from backend.sources.radio.source import _parse_inband_track
+        track = _parse_inband_track(
+            {"icy-title": "Papa Was A Rolling Stone - The Temptations"}, title_first=True
+        )
+        assert (track["artist"], track["title"]) == ("The Temptations", "Papa Was A Rolling Stone")
+        assert track["title_first"] is True
+
+    def test_an_order_that_is_not_in_question_is_none(self):
+        """Only a dash split can be the wrong way round: "by" names its sides,
+        and a bare title has none, so the cover lookup must not turn them."""
+        from backend.sources.radio.source import _parse_inband_track
+        assert _parse_inband_track({"icy-title": "So What by Miles Davis"}, title_first=True)["title_first"] is None
+        assert _parse_inband_track({"icy-title": "Morning News"}, title_first=True)["title_first"] is None
 
     def test_title_only_when_no_separator(self):
         from backend.sources.radio.source import _parse_inband_track
         track = _parse_inband_track({"streamtitle": "Morning News"})
-        assert track == {"title": "Morning News", "artist": "", "artwork": None}
+        assert track == {"title": "Morning News", "artist": "", "artwork": None, "title_first": None}
 
     def test_strips_station_promo_suffix(self):
         from backend.sources.radio.source import _parse_inband_track

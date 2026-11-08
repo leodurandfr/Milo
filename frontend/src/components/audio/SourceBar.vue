@@ -62,11 +62,12 @@ defineProps({
   flex-shrink: 0;
 }
 
-/* The AppIcon's own size and corner, so the two read as one slot. */
+/* The AppIcon's own size, so the two read as one slot, but a tighter corner: a
+   station's logo is a picture, not an app's tile. */
 .source-bar-image {
   width: 24px;
   height: 24px;
-  border-radius: var(--radius-02);
+  border-radius: var(--radius-01);
   overflow: hidden;
 }
 

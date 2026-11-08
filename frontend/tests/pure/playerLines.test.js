@@ -59,10 +59,26 @@ describe('the source bar on the playing bar’s card', () => {
     expect(linesOf(details).barOnCard).toBe(false);
   });
 
-  it('does not name the station beside its own logo on the full player either', () => {
+  it('names the station of a song with no cover, but not beside a second copy of its logo', () => {
     const lines = linesOf({ kind: 'radio', station: STATION, track: { ...SONG, artwork: null } });
-    expect(lines.barLabel).toBeNull();
+    expect(lines.barLabel).toBe(STATION.name);
     expect(lines.barImage).toBeNull();
+  });
+
+  it('names the station of a bare title the stream sends, which took the station’s place', () => {
+    const lines = linesOf({ kind: 'radio', station: STATION, track: { title: 'BBC World Service Online', artist: '', artwork: null } });
+    expect(lines.barLabel).toBe(STATION.name);
+    expect(lines.barImage).toBeNull();
+  });
+
+  it('does not repeat a station whose stream sends its own name as the title', () => {
+    const lines = linesOf({ kind: 'radio', station: STATION, track: { title: 'radio nova ', artist: '', artwork: null } });
+    expect(lines.barLabel).toBeNull();
+  });
+
+  it('leaves the station to the title when no track is named', () => {
+    const lines = linesOf({ kind: 'radio', station: STATION, track: null });
+    expect(lines.barLabel).toBeNull();
   });
 });
 

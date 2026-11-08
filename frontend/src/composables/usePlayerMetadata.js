@@ -35,13 +35,19 @@ export function jamOf(jam) {
   return { names, others: members.length - names.length };
 }
 
+/** Whether two names are one, case and surrounding spaces aside. */
+function sameName(a, b) {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 /**
  * What surrounds the title, by what the details say the record is.
  *
  * `barLabel` names what the music comes from when the details know something
- * more specific than the source, with `barImage` as its picture: the station a
- * detected song plays on (its logo through the favicon proxy, '' when it has
- * none — the label's generated avatar), or the show an episode belongs to when
+ * more specific than the source, with `barImage` as its picture: the station
+ * whenever the stream names a track (its logo through the favicon proxy, '' when it has
+ * none — the label's generated avatar — but only beside a song's own cover,
+ * null otherwise), or the show an episode belongs to when
  * the cover is the episode's own picture rather than the show's
  * (utils/podcastArtwork: a show's cover already says which show it is), with
  * the show's image when it has one. `barAccount` is the Spotify account, named
@@ -69,13 +75,18 @@ export function linesOf(current) {
   if (kind === 'radio') {
     const station = current.station;
     const track = current.track;
-    // A song counts once it has a title, an artist and a cover of its own:
-    // without that cover the cover slot holds the station's logo already, and
-    // the bar would draw it a second time.
-    const detected = !!track?.title && !!track?.artist && !!track?.artwork && !!station?.name;
+    // Whatever the stream names takes the title's place, and the station then
+    // has no other place to be named: the bar says it as soon as there is a
+    // track. Its logo is another matter — it waits for a song with a title, an
+    // artist and a cover of its own: without that cover the cover slot holds
+    // the logo already, and the bar would draw it a second time.
+    // A stream that sends the station's own name as its title already names
+    // the station in the title's place.
+    const named = !!track?.title && !!station?.name && !sameName(track.title, station.name);
+    const detected = named && !!track?.artist && !!track?.artwork;
     return {
       ...none,
-      barLabel: detected ? station.name : null,
+      barLabel: named ? station.name : null,
       barImage: detected ? getFaviconUrl(station.favicon) : null,
       avatarName: station?.name || '',
       barOnCard: detected,

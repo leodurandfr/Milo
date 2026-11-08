@@ -99,8 +99,11 @@ def _resolved_favicon(favicon: Optional[str]) -> Optional[str]:
     return f"/api/radio/favicon?url={quote(favicon, safe='')}"
 
 
-def _parse_inband_track(metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
-    """Extract a {title, artist, artwork} track from mpv in-band metadata.
+def _parse_inband_track(
+    metadata: Dict[str, str], title_first: bool = False
+) -> Optional[Dict[str, Any]]:
+    """Extract a {title, artist, artwork, title_first} track from mpv in-band
+    metadata.
 
     Reads the ICY StreamTitle (mpv key `icy-title`), strips a trailing
     station-promo suffix, and best-effort splits the artist from the title.
@@ -110,6 +113,14 @@ def _parse_inband_track(metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
     deliberately NOT used as a track title — that would show the station as
     the song. `artwork` is always None here; it is resolved asynchronously
     from the artist/title (see RadioSource._resolve_inband_artwork).
+
+    The dash says nothing of which side is the artist, and both orders are on
+    the air: the Generations streams send "Title - Artist" on every song
+    (measured 2026-11-08 on seven of them). `title_first` reads it that way —
+    what the source learned of the station, never a guess from the text. The
+    track's own `title_first` is None when its order is not in question (no
+    dash split), else the order it was read in, which is what the cover lookup
+    may correct (RadioSource._resolve_inband_artwork).
     """
     raw = (metadata.get("icy-title") or metadata.get("streamtitle") or "").strip()
     if not raw:
@@ -120,10 +131,14 @@ def _parse_inband_track(metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
         return None
 
     artist, title = "", cleaned
+    order: Optional[bool] = None
     if " - " in cleaned:
         left, _, right = cleaned.partition(" - ")
         if left.strip() and right.strip():
             artist, title = left.strip(), right.strip()
+            if title_first:
+                artist, title = title, artist
+            order = title_first
     elif " by " in cleaned:
         # "<Title> by <Artist>" (walmradio jazz/vinyl: titles and artists are
         # usually multi-word). " by " is ambiguous with song titles that contain
@@ -135,11 +150,14 @@ def _parse_inband_track(metadata: Dict[str, str]) -> Optional[Dict[str, Any]]:
         if left and right and (len(left.split()) > 1 or len(right.split()) > 1):
             title, artist = left, right
 
+    # Both sides, so a track the cover lookup turns round reads exactly as the
+    # station's next title will once its order is known.
     title = _INBAND_TITLE_NOISE_RE.sub("", title).strip()
+    artist = _INBAND_TITLE_NOISE_RE.sub("", artist).strip()
     if not title:
         return None
 
-    return {"title": title, "artist": artist, "artwork": None}
+    return {"title": title, "artist": artist, "artwork": None, "title_first": order}
 
 
 @dataclass(eq=False)
@@ -260,6 +278,13 @@ class RadioSource(MpvAudioSource):
         # Resolves cover art for in-band tracks (which carry no artwork) from
         # their artist/title via the iTunes Search API.
         self._artwork = ArtworkResolver(self._settings_service)
+        # Station id → whether its in-band titles read "Title - Artist", as the
+        # cover lookup last proved it (see _resolve_inband_artwork). Kept across
+        # sessions: a station keeps its order, so only its first song after a
+        # backend start is read the default way. A station proved
+        # "Artist - Title" is kept too, so a song the station's own order finds
+        # nothing for is still read that way.
+        self._inband_title_first: Dict[str, bool] = {}
 
         self._preroll_cache: Dict[str, int] = {}  # hostname → preroll skip seconds (for Shazam)
 
@@ -741,7 +766,9 @@ class RadioSource(MpvAudioSource):
         session.inband_poll_ticks = 0
 
         metadata = await self._mpv.get_metadata()
-        track = _parse_inband_track(metadata)
+        track = _parse_inband_track(
+            metadata, title_first=self._inband_title_first.get(self._station_key(session), False)
+        )
 
         if track:
             session.empty_inband_polls = 0
@@ -797,15 +824,33 @@ class RadioSource(MpvAudioSource):
                     label="shazam_fallback_start",
                 )
 
+    @staticmethod
+    def _station_key(session: RadioSession) -> str:
+        """What a station's in-band order is remembered under."""
+        return session.station.get("id") or session.stream_url
+
     async def _resolve_inband_artwork(self, session: RadioSession, track: Dict[str, Any]) -> None:
         """Resolve cover art for an in-band track, applied if still current.
 
+        A dash-split track whose cover is not found as read is looked up the
+        other way round, and a cover found that way is the proof the station
+        sends the other order: the track is turned round and the station
+        remembered. Measured 2026-11-08 over 28 real titles from both orders,
+        through this resolver: 25 found a cover in their true order only, 3 in
+        neither, none in both or in the wrong one alone — the resolver accepts
+        an artist only on an identical name, then the title only inside that
+        artist's own catalogue, so a title read as an artist finds nothing. A
+        track found in neither order proves nothing and changes nothing.
+
         A miss is posted too: it lifts the announcement, and the station logo
         is then the answer."""
+        artist, title = track.get("artist", ""), track.get("title", "")
+        turned = False
         try:
-            artwork = await self._artwork.resolve(
-                track.get("artist", ""), track.get("title", "")
-            )
+            artwork = await self._artwork.resolve(artist, title)
+            if not artwork and track.get("title_first") is not None:
+                artwork = await self._artwork.resolve(title, artist)
+                turned = bool(artwork)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -819,6 +864,18 @@ class RadioSource(MpvAudioSource):
             if session.inband_track is not track:
                 # A newer song is on screen; its own lookup is still announced.
                 return
+            if artwork and track.get("title_first") is not None:
+                title_first = track["title_first"] != turned
+                key = self._station_key(session)
+                if self._inband_title_first.get(key, False) != title_first:
+                    self._logger.info(
+                        "In-band titles of %r read %s", session.station.get("name"),
+                        "Title - Artist" if title_first else "Artist - Title",
+                    )
+                self._inband_title_first[key] = title_first
+                if turned:
+                    track["artist"], track["title"] = title, artist
+                    track["title_first"] = title_first
             if artwork and session.phase is Phase.PLAYING:
                 track["artwork"] = artwork
             self._publish()
