@@ -82,8 +82,10 @@
                      still add is transcribed: radio's badge and favorite. -->
                 <AudioPlayer :source="page.source" v-bind="bar">
                   <!-- Radio, mobile, track recognised: the station icon rides behind
-                       the track cover. Only ever rendered in the docked mini-bar. -->
-                  <template v-if="page.source === 'radio' && isMobile && player.track?.artwork" #artwork-badge>
+                       the track cover. Only ever rendered in the docked mini-bar, and
+                       not during the station's intro, as in RadioSource. -->
+                  <template v-if="page.source === 'radio' && isMobile && player.track?.artwork && !stationIntro"
+                    #artwork-badge>
                     <LazyImage
                       class="player-artwork-badge"
                       :src="player.station.artwork"
@@ -133,6 +135,7 @@ import IconButton from '@/components/ui/IconButton.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { usePlayerExpansion } from '@/composables/usePlayerExpansion';
+import { inStationIntro } from '@/composables/usePlayerMetadata';
 import { swapIn, swapOut } from '@/utils/sourceMotion';
 
 const props = defineProps({
@@ -174,6 +177,7 @@ const picks = ref(0);
 const { t } = useI18n();
 const { isMobile } = useIsMobile();
 const unifiedStore = useUnifiedAudioStore();
+const stationIntro = computed(() => inStationIntro(unifiedStore));
 const stores = {
   radio: useRadioStore(),
   musicLibrary: useMusicLibraryStore(),

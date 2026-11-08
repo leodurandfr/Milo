@@ -8,9 +8,11 @@
         @click="onBarClick" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
         <!-- Background image - heavily zoomed and blurred -->
         <div class="player-art-background">
-          <img v-if="shownArtwork" :src="shownArtwork" alt="" class="background-image" />
-          <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="background-image" />
-          <img v-else-if="fallbackImage" :src="fallbackImage" alt="" class="background-image" />
+          <Transition name="cover-fade" :css="fades">
+            <img v-if="shownArtwork" :key="shownArtwork" :src="shownArtwork" alt="" class="background-image" />
+            <div v-else-if="stationAvatarSvg" :key="stationAvatarSvg" v-html="stationAvatarSvg" class="background-image" />
+            <img v-else-if="fallbackImage" :key="fallbackImage" :src="fallbackImage" alt="" class="background-image" />
+          </Transition>
         </div>
 
         <div class="player-content">
@@ -26,15 +28,21 @@
              composable, the same announcement): the old one stays as it is until
              the new one has decoded, and a cover the backend announced (radio's
              in-band titles) is waited for, a few seconds at most, rather than
-             flashing the station logo first. -->
+             flashing the station logo first; the new one then fades in over
+             it. The stack is the cover's slot: the box the two overlap in, and
+             the one the mini-bar's badge reveal slides, once. -->
           <div class="player-artwork-frame" :class="{ 'has-badge': !!$slots['artwork-badge'] }"
             role="button" :tabindex="isMobile ? undefined : 0" :aria-label="t('common.expandPlayer')"
             @click="onArtworkClick" @keydown.enter.space.prevent="onArtworkClick">
-            <img v-if="shownArtwork" :src="shownArtwork" :alt="title" class="player-artwork"
-              :class="{ loaded: artworkLoaded }" @load="artworkLoaded = true" />
-            <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork"
-              :aria-label="title" />
-            <img v-else-if="fallbackImage" :src="fallbackImage" :alt="title" class="player-artwork placeholder" />
+            <div class="player-artwork-stack">
+              <Transition name="cover-fade" :css="fades">
+                <img v-if="shownArtwork" :key="shownArtwork" :src="shownArtwork" :alt="title" class="player-artwork" />
+                <div v-else-if="stationAvatarSvg" :key="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork"
+                  :aria-label="title" />
+                <img v-else-if="fallbackImage" :key="fallbackImage" :src="fallbackImage" :alt="title"
+                  class="player-artwork placeholder" />
+              </Transition>
+            </div>
             <slot name="artwork-badge"></slot>
             <!-- Decodes the incoming cover off-screen; the composable decides
                  whether it is one. -->
@@ -140,12 +148,8 @@ function onArtworkClick() {
 // The cover on screen, held until the next one has decoded — and what counts as
 // a cover (a 1×1 tracking pixel does not) — decided by the composable the full
 // player runs too.
-const { shownArtwork, preloadArtwork, settleFromLoad, settleFromError } =
+const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
   useArtworkTransition(artwork, trackKey, artworkAnnounced)
-// Fade a cover in when one appears over the neutral box; one cover replacing
-// another swaps at once, the new one already decoded.
-const artworkLoaded = ref(false)
-watch(shownArtwork, (url) => { if (!url) artworkLoaded.value = false })
 // What fills the slot with no usable artwork, straight from the shared helper.
 const fallbackImage = computed(() => fallback.value.kind === 'image' ? fallback.value.src : '')
 
@@ -538,16 +542,25 @@ function onTouchEnd(e) {
   display: block;
 }
 
-/* Fade the real artwork <img> in on load (the SVG-avatar div and the static
-   placeholder img are excluded — they have no load event and must stay
-   visible). */
-img.player-artwork:not(.placeholder) {
-  opacity: 0;
-  transition: opacity 0.25s ease-out;
+/* The cover's slot, the frame's square: the outgoing cover is taken out of
+   the flow so the two share it while they fade, and the incoming one, inserted
+   after it, paints over it. */
+.player-artwork-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
-img.player-artwork.loaded {
-  opacity: 1;
+.player-artwork-stack > .cover-fade-leave-active {
+  position: absolute;
+  inset: 0;
+}
+
+/* The outgoing background, sharing the box with the incoming one, which
+   paints over it, while they fade. */
+.player-art-background > .cover-fade-leave-active {
+  position: absolute;
+  inset: 0;
 }
 
 /* Inline-SVG fallback: let the SVG sit in normal flow with width:100% and
@@ -643,6 +656,7 @@ img.player-artwork.loaded {
     transition: width var(--transition-medium);
   }
 
+  .audio-player .player-artwork-stack,
   .audio-player .player-artwork {
     width: 48px;
     height: 48px;
@@ -717,23 +731,22 @@ img.player-artwork.loaded {
 
   /* Track artwork: on top of the station, offset right so the pair overlaps by
      half. left:24px (not right:0) keeps its anchor stable while the frame
-     animates its width. The reveal slide is driven by the animation below, not
-     by .loaded: it must play once when the two-thumbnail state first appears and
-     stay decoupled from the image's network load — a cached bitmap still slides
-     in from the station's position (translateX(-24px)→0) instead of popping at
-     rest. Opacity stays tied to .loaded (base img.player-artwork rule) so the
-     bitmap fades in as it decodes. */
-  .audio-player .player-artwork-frame.has-badge .player-artwork {
+     animates its width. The slide moves the stack, not the image: it must play
+     once when the two-thumbnail state first appears, and the cover fade puts a
+     new image in it at every change of cover — a cached bitmap still slides in
+     from the station's position (translateX(-24px)→0) instead of popping at
+     rest. */
+  .audio-player .player-artwork-frame.has-badge .player-artwork-stack {
     position: absolute;
     top: 0;
     left: 24px;
     width: 48px;
     height: 48px;
     z-index: 1;
-    /* Runs on class-apply (state appears), not on src change — a song change
-       keeps the element and the .has-badge class, so it doesn't re-slide; the
-       new cover just fades in place. Synced with the frame widening 48→72 and
-       the text shifting right (same 300ms easeOutCubic). */
+    /* Runs on class-apply (state appears), not on a change of cover — a song
+       change keeps the stack and the .has-badge class, so it doesn't re-slide;
+       the new cover just fades in place. Synced with the frame widening 48→72
+       and the text shifting right (same 300ms easeOutCubic). */
     animation: musicImgReveal 0.3s var(--easeOutCubic);
   }
 }
@@ -774,7 +787,7 @@ img.player-artwork.loaded {
 
 /* Mobile radio: the track thumbnail slides out from the station's position
    (fully overlapping) to its half-overlap resting spot. Transform only —
-   opacity is handled separately by the .loaded fade. */
+   opacity is the cover fade's. */
 @keyframes musicImgReveal {
   from {
     transform: translateX(-24px);

@@ -37,8 +37,9 @@
                  rides on top offset to the right and reveals in from the station's position
                  (AudioPlayer widens the frame and does the overlap/animation when this slot
                  is populated). Gated on the track cover: a recognized track without an
-                 image stays single-image (station) + title/artist text, no overlap. -->
-            <template v-if="isMobile && track?.artwork" #artwork-badge>
+                 image stays single-image (station) + title/artist text, no overlap —
+                 and on the station's intro, while the player shows the station alone. -->
+            <template v-if="isMobile && track?.artwork && !stationIntro" #artwork-badge>
               <LazyImage class="player-artwork-badge" :src="stationArtwork" :fallback-name="station?.name" alt="" />
             </template>
 
@@ -81,6 +82,7 @@ import LazyImage from '@/components/ui/LazyImage.vue'
 import FavoritesView from './FavoritesView.vue'
 import SearchView from './SearchView.vue'
 import { getFaviconUrl } from '@/utils/faviconUrl'
+import { inStationIntro } from '@/composables/usePlayerMetadata'
 import { isCustomStation } from '@/utils/radioStation'
 
 const radioStore = useRadioStore()
@@ -103,6 +105,7 @@ const { t, getCurrentLanguage } = useI18n()
 // Both below are plain reads of the store, not snapshots of it — the names are
 // for the template, which mentions them twenty times over.
 const track = computed(() => radioStore.trackInfo)
+const stationIntro = computed(() => inStationIntro(unifiedStore))
 
 const playback = useSourcePlaybackVisibility('radio', {
   content: () => radioStore.currentStation

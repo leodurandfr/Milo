@@ -442,6 +442,12 @@
        being thrown rather than as one text becoming the other. */
     --transition-crossfade: 800ms linear;
 
+    /* One cover handing over to the next in the same box (the `cover-fade`
+       transition below): the incoming one rises early, the outgoing one goes
+       late, so the box never dips to its ground halfway. */
+    --transition-cover: 500ms var(--easeOutCubic);
+    --transition-cover-leave: 500ms var(--easeInCubic);
+
     /* Springs, each headed by its overshoot: a share of the travel, so the
        longer the travel, the softer the spring it wants. A spring moves
        geometry only; an opacity beside one takes --transition-normal, since a
@@ -1131,6 +1137,34 @@
 .reveal-enter-from,
 .reveal-leave-to {
     opacity: 0;
+}
+
+/* Cover fade: a cover, or a backdrop drawn from it, replaced by the next one
+   in the same box — the players' (AudioPlayer, AudioPlayerFull), on every
+   change of cover but the first after a mount (useArtworkTransition's `fades`).
+   The two overlap: each player takes the leaving one out of the flow, since
+   only it knows the box, and the entering one, which Vue inserts after it,
+   paints over it. Opacity alone, the one property the kiosk composites without
+   repainting. The element it moves must carry no opacity of its own, or its
+   scoped rule outranks these. */
+.cover-fade-enter-active {
+    transition: opacity var(--transition-cover);
+}
+
+.cover-fade-leave-active {
+    transition: opacity var(--transition-cover-leave);
+}
+
+.cover-fade-enter-from,
+.cover-fade-leave-to {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cover-fade-enter-active,
+    .cover-fade-leave-active {
+        transition: none;
+    }
 }
 
 /* Loading fade (for card loading overlays) */

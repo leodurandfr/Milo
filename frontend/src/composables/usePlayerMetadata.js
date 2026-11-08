@@ -108,6 +108,35 @@ export function linesOf(current) {
   return { ...none, secondary: true };
 }
 
+/**
+ * Whether the session on the wire is in its intro — a radio one opened live,
+ * younger than the store's STATION_INTRO_MS (see usePlayerMetadata). Read by
+ * whatever else draws the song beside the players (the phone's station badge).
+ *
+ * @param {ReturnType<typeof useUnifiedAudioStore>} unifiedStore
+ */
+export function inStationIntro(unifiedStore) {
+  const session = unifiedStore.systemState.session;
+  return !!session && unifiedStore.introSessionId === session.id;
+}
+
+/**
+ * The station alone, as a radio record with no song names it: what a radio
+ * player shows for a session's first moments (see the intro below). Null
+ * without a station to name.
+ *
+ * @param {object|null} current - the radio's `details`
+ * @returns {{record: object, details: object}|null}
+ */
+function stationIntroOf(current) {
+  const station = current?.station;
+  if (!station?.name) return null;
+  return {
+    record: { title: station.name, artist: null, artwork: getFaviconUrl(station.favicon) },
+    details: { ...current, track: null }
+  };
+}
+
 export function usePlayerMetadata(source) {
   const unifiedStore = useUnifiedAudioStore();
   const spotifyStore = useSpotifyStore();
@@ -116,6 +145,30 @@ export function usePlayerMetadata(source) {
   const isSelected = computed(() => unifiedStore.systemState.source === source);
   const session = computed(() => (isSelected.value ? unifiedStore.systemState.session : null));
   const details = computed(() => (isSelected.value ? unifiedStore.systemState.details : null));
+
+  // A station just tuned is shown alone for its first moments — its logo and
+  // its name — before the song it plays: Radio France names the song before
+  // the first sound, and the station would otherwise never be seen at all.
+  // The clock is the store's (introSessionId), which runs for radio sessions
+  // only, so every player ends it on the same tick. The intro is the screen's
+  // alone: the wire, the Lock Screen and the widget name the song at once.
+  const intro = computed(() => (inStationIntro(unifiedStore) ? stationIntroOf(details.value) : null));
+
+  // The song's cover is fetched while the intro runs, so it is in the cache
+  // when the intro ends and the swap does not wait on the network. Held until
+  // then: an image nothing references may be dropped mid-fetch.
+  let introPreload = null;
+  watch(
+    () => (intro.value ? nowPlayingArtwork(nowPlayingOf(unifiedStore.systemState, source)) : ''),
+    (url) => {
+      introPreload = null;
+      if (url) {
+        introPreload = new Image();
+        introPreload.src = url;
+      }
+    },
+    { immediate: true }
+  );
 
   // The last record worth naming, so the title and cover do not blank out while
   // the player leaves (a source switch clears the record under it) — see the
@@ -129,7 +182,11 @@ export function usePlayerMetadata(source) {
 
   watch(
     // The language too: an untitled CD track is named in it.
-    () => [nowPlayingOf(unifiedStore.systemState, source), details.value, currentLanguage.value],
+    () => [
+      intro.value?.record ?? nowPlayingOf(unifiedStore.systemState, source),
+      intro.value?.details ?? details.value,
+      currentLanguage.value
+    ],
     ([record, current]) => {
       const number = untitledTrackOf(current);
       const untitled = number === null ? '' : t('audioSources.cdSource.trackN', { n: number });
@@ -198,9 +255,11 @@ export function usePlayerMetadata(source) {
     const name = metadata.value.avatarName || metadata.value.title;
     return name ? generateStationAvatarSvg(name) : '';
   });
-  // Live, not from the held copy: a lifted flag must end the hold at once.
+  // Live, not from the held copy: a lifted flag must end the hold at once. Not
+  // during the intro: the cover announced is the song's, and holding for it
+  // would keep the previous station's logo in place of this one's.
   const artworkAnnounced = computed(
-    () => isSelected.value && nowPlayingArtworkPending(unifiedStore.systemState)
+    () => isSelected.value && !intro.value && nowPlayingArtworkPending(unifiedStore.systemState)
   );
   const trackKey = computed(() => `${metadata.value.title}|${metadata.value.artist}`);
 

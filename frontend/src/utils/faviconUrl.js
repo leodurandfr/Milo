@@ -14,9 +14,18 @@
  * the backend writes is a custom station's `/api/radio/images/…` upload); what
  * it buys is that any locally served image resolves through the same path a
  * custom upload does, which is how the gallery shows that branch.
+ *
+ * Spelled exactly as the backend spells a session's logo
+ * (sources/radio/source.py::_resolved_favicon, `quote(url, safe='')`), which
+ * escapes the `!'()*` encodeURIComponent leaves alone: the radio player names
+ * one logo by both spellings — its intro builds it here, the record after it
+ * comes from the wire — and two spellings are two cache entries, fetched twice
+ * and faded into each other.
  */
 export function getFaviconUrl(faviconUrl) {
   if (!faviconUrl) return '';
   if (faviconUrl.startsWith('/')) return faviconUrl;
-  return `/api/radio/favicon?url=${encodeURIComponent(faviconUrl)}`;
+  const encoded = encodeURIComponent(faviconUrl)
+    .replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `/api/radio/favicon?url=${encoded}`;
 }

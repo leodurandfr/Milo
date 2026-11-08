@@ -37,25 +37,29 @@
             </div>
           </div>
         </Transition>
-        <!-- The title and its line, centred in what the source bar leaves. -->
-        <div class="body-lines">
-          <template v-if="surface === 'full'">
-            <h1 v-press="albumLink" class="body-title heading-1" :class="{ 'is-link': albumLink }"
-              @click="onTitleClick">{{ title }}</h1>
-            <p v-if="secondaryLine" v-press="lineLink" class="body-secondary heading-2" :class="{ 'is-link': lineLink }"
-              @click="onSecondaryClick">
-              <ArtistNames v-if="nameLinks" :artists="artists" @open="openArtist" />
-              <template v-else>{{ secondaryLine }}</template>
-            </p>
-          </template>
-          <PlayerInfoText v-else class="card-lines"
-            :class="{ 'has-album-link': albumLink, 'has-artist-link': lineLink }" :title="title"
-            :secondary="secondaryLine || null" @click="onCardLinesClick">
-            <template v-if="nameLinks" #secondary>
-              <ArtistNames :artists="artists" @open="openArtist" />
+        <!-- The title and its line, centred in what the source bar leaves. A
+             new track fades the old lines out and its own in, as one change
+             (keyed on the track, not on each string). -->
+        <Transition name="lines-fade" mode="out-in">
+          <div :key="trackKey" class="body-lines">
+            <template v-if="surface === 'full'">
+              <h1 v-press="albumLink" class="body-title heading-1" :class="{ 'is-link': albumLink }"
+                @click="onTitleClick">{{ title }}</h1>
+              <p v-if="secondaryLine" v-press="lineLink" class="body-secondary heading-2" :class="{ 'is-link': lineLink }"
+                @click="onSecondaryClick">
+                <ArtistNames v-if="nameLinks" :artists="artists" @open="openArtist" />
+                <template v-else>{{ secondaryLine }}</template>
+              </p>
             </template>
-          </PlayerInfoText>
-        </div>
+            <PlayerInfoText v-else class="card-lines"
+              :class="{ 'has-album-link': albumLink, 'has-artist-link': lineLink }" :title="title"
+              :secondary="secondaryLine || null" @click="onCardLinesClick">
+              <template v-if="nameLinks" #secondary>
+                <ArtistNames :artists="artists" @open="openArtist" />
+              </template>
+            </PlayerInfoText>
+          </div>
+        </Transition>
         <!-- The phone's mini-bar: one line each, as the swipe carousel's cells. -->
         <PlayerInfoText v-if="surface === 'card'" variant="line" class="body-mini-lines" :title="title"
           :secondary="secondaryLine || null" />
@@ -116,7 +120,7 @@ const emit = defineEmits(['title-click', 'secondary-click']);
 const { isMobile } = useIsMobile();
 // The player's one reading of its state, made by the shell drawing this body.
 const { metadata, controls: sourceControls } = usePlayerState(props.source);
-const { title, secondaryLine, sourceLabel, sourceImage, sourceOnCard } = metadata;
+const { title, secondaryLine, sourceLabel, sourceImage, sourceOnCard, trackKey } = metadata;
 const { controls, phase, liveControls, shownControls, sendSourceCommand } = sourceControls;
 const {
   currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized, setTrackWidth
@@ -229,6 +233,28 @@ defineExpose({ swipe });
 
 .player-body--full .body-lines {
   gap: var(--space-02);
+}
+
+/* Short out, a little longer in: the old lines are gone before the new ones
+   are read. */
+.lines-fade-leave-active {
+  transition: opacity var(--transition-fast-leave);
+}
+
+.lines-fade-enter-active {
+  transition: opacity var(--transition-in-out);
+}
+
+.lines-fade-enter-from,
+.lines-fade-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lines-fade-enter-active,
+  .lines-fade-leave-active {
+    transition: none;
+  }
 }
 
 .player-body--full .player-body-bottom {

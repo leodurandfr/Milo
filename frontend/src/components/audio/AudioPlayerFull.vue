@@ -16,8 +16,16 @@
          dimmed under a veil. Drawn only in that theme, so the light one does
          not pay for a full-screen blur it would not show. -->
     <div v-if="isDark" class="player-backdrop" aria-hidden="true">
-      <img v-if="shownArtwork" :src="shownArtwork" alt="" class="player-backdrop-image" />
-      <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="player-backdrop-image" />
+      <!-- Each picture in a layer of its own, which the cover fade moves: the
+           image keeps its own faint opacity. -->
+      <Transition name="cover-fade" :css="fades">
+        <div v-if="shownArtwork" :key="shownArtwork" class="player-backdrop-layer">
+          <img :src="shownArtwork" alt="" class="player-backdrop-image" />
+        </div>
+        <div v-else-if="stationAvatarSvg" :key="stationAvatarSvg" class="player-backdrop-layer">
+          <div v-html="stationAvatarSvg" class="player-backdrop-image" />
+        </div>
+      </Transition>
     </div>
 
     <!-- source-motion: what the source swap rises, leaving .connect-player (the
@@ -26,10 +34,13 @@
       <!-- Left side: Cover image with CSS staggering -->
       <div class="artwork-section stagger-1" :class="{ 'art-collapsed': hideContent }">
         <div class="artwork-container">
-          <!-- Background blur -->
-          <div class="artwork-blur"
-            :style="{ backgroundImage: haloUrl ? `url(${haloUrl})` : 'none' }">
-          </div>
+          <!-- Background blur, in a layer the cover fade moves (the halo keeps
+               its own opacity). -->
+          <Transition name="cover-fade" :css="fades">
+            <div :key="haloUrl || ''" class="artwork-halo">
+              <div class="artwork-blur" :style="{ backgroundImage: haloUrl ? `url(${haloUrl})` : 'none' }"></div>
+            </div>
+          </Transition>
 
           <!-- Main cover art. The fallback is not decoration: Bluetooth can
                never carry a cover over the link (AVRCP puts images behind an
@@ -48,14 +59,17 @@
             :role="navigation ? 'button' : undefined" :tabindex="navigation ? 0 : undefined"
             :aria-label="navigation ? t('common.back') : undefined"
             @click="navigation?.back()" @keydown.enter.space.prevent="navigation?.back()">
-            <img v-if="shownArtwork" :src="shownArtwork"
-              alt="" />
-            <div v-else-if="stationAvatarSvg" v-html="stationAvatarSvg" class="artwork-avatar" />
-            <img v-else-if="fallback.kind === 'image'" :src="fallback.src"
-              alt="" class="artwork-placeholder" />
-            <div v-else class="artwork-fallback">
-              <AppIcon :name="source" :size="112" />
-            </div>
+            <!-- One cover fading into the next, whichever kind each is. -->
+            <Transition name="cover-fade" :css="fades">
+              <img v-if="shownArtwork" :key="shownArtwork" :src="shownArtwork"
+                alt="" />
+              <div v-else-if="stationAvatarSvg" :key="stationAvatarSvg" v-html="stationAvatarSvg" class="artwork-avatar" />
+              <img v-else-if="fallback.kind === 'image'" :key="fallback.src" :src="fallback.src"
+                alt="" class="artwork-placeholder" />
+              <div v-else key="glyph" class="artwork-fallback">
+                <AppIcon :name="source" :size="112" />
+              </div>
+            </Transition>
           </div>
 
           <!-- Decodes the incoming cover off-screen while the outgoing one stays
@@ -197,7 +211,7 @@ const haloUrl = computed(() => {
 });
 
 // The outgoing cover stays as it is until the next one has decoded.
-const { shownArtwork, preloadArtwork, settleFromLoad, settleFromError } =
+const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
   useArtworkTransition(artwork, trackKey, artworkAnnounced);
 </script>
 
@@ -278,11 +292,17 @@ const { shownArtwork, preloadArtwork, settleFromLoad, settleFromError } =
   position: absolute;
   inset: 0;
   z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Two of them overlap while one cover fades into the next. */
+.player-backdrop-layer {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
-  pointer-events: none;
 }
 
 .player-backdrop-image {
@@ -405,6 +425,13 @@ const { shownArtwork, preloadArtwork, settleFromLoad, settleFromError } =
   height: 100%;
 }
 
+/* The halo's layer: two of them overlap while one cover fades into the next. */
+.artwork-halo {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
 /* Background cover art with blur */
 .artwork-blur {
   position: absolute;
@@ -434,6 +461,13 @@ const { shownArtwork, preloadArtwork, settleFromLoad, settleFromError } =
   overflow: hidden;
   box-shadow: var(--shadow-artwork);
   pointer-events: none;
+}
+
+/* The outgoing cover, out of the flow so the two share the box while they
+   fade. The incoming one, inserted after it, paints over it. */
+.artwork > .cover-fade-leave-active {
+  position: absolute;
+  inset: 0;
 }
 
 /* Block, or the line box adds a descender under it and the cover runs 4px

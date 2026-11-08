@@ -8,6 +8,10 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { AudioStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
 import { DEFAULT_VOLUME_DB, MAX_ADJUST_DB } from '@/constants/volume';
 
+// How long a radio player shows a station just tuned alone, before the song it
+// plays (usePlayerMetadata).
+export const STATION_INTRO_MS = 2500;
+
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === THE AUDIO STATE ===
   // The backend's AudioState, whole (docs: "Développeurs : le fil"): the
@@ -34,6 +38,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // track change passes through.
   const sessionOpening = ref(false);
   let settledSessionId = null;
+
+  // The radio session a live `source/state` opened on another station, for
+  // its first STATION_INTRO_MS; null otherwise. One clock for every player, so
+  // they all end the intro on the same tick. A session first seen in a
+  // snapshot (initial_state, resync) opened before this page looked, and gets
+  // none.
+  const introSessionId = ref(null);
+  let seenSessionId = null;
+  let seenStationId = null;
+  let introTimer = null;
 
   // === VOLUME STATE (unified structure) ===
   const volumeState = ref({
@@ -181,7 +195,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // stays — never half-applied with defaults. The first refusal of the page is
   // reported to /api/errors (errors.log): the kiosk's console reaches no log.
   let refusalReported = false;
-  function updateSystemState(newState, origin = 'unknown') {
+  function updateSystemState(newState, origin = 'unknown', live = false) {
     const result = validateSchema(AudioStateSchema, newState, `AudioState from ${origin}`);
     if (!result.success) {
       logger.warn('store', `Audio state from ${origin} refused: it does not match the wire`,
@@ -196,7 +210,21 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     const session = result.data.session;
     if (session && session.phase !== 'loading') settledSessionId = session.id;
     sessionOpening.value = session?.phase === 'loading' && session.id !== settledSessionId;
+    // Keyed on the station, not the session alone: a multiroom toggle re-tunes
+    // the same station under a new session id, and the song must stay put.
+    const station = session && result.data.source === 'radio' ? result.data.details?.station : null;
+    if (session && session.id !== seenSessionId) {
+      seenSessionId = session.id;
+      if (live && station?.name && station.id !== seenStationId) startIntro(session.id);
+    }
+    if (station) seenStationId = station.id;
     return true;
+  }
+
+  function startIntro(sessionId) {
+    clearTimeout(introTimer);
+    introSessionId.value = sessionId;
+    introTimer = setTimeout(() => { introSessionId.value = null; }, STATION_INTRO_MS);
   }
 
   // Counted so resync() can tell a snapshot read before a delta it just
@@ -208,7 +236,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   /** `source/state` (its data IS the state) and `system/initial_state` (key `state`). */
   function updateState(event) {
     const state = event.type === 'initial_state' ? event.data?.state : event.data;
-    if (state && updateSystemState(state, event.type || 'websocket')) audioDeltas++;
+    const live = event.type !== 'initial_state';
+    if (state && updateSystemState(state, event.type || 'websocket', live)) audioDeltas++;
   }
 
   function applyPosition(payload) {
@@ -463,6 +492,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     systemState,
     multiroomTarget,
     sessionOpening,
+    introSessionId,
     volumeState,
     showVolumeBar,
     commandError,

@@ -91,6 +91,15 @@ describe('artwork parity between the full player and the playing bar', () => {
     for (const view of VIEWS) {
       expect(view).not.toMatch(/LoadingSpinner/);
     }
+
+    // Every cover fade waits for the composable's word: unbound, the first
+    // cover after a mount fades out the fallback drawn while it decoded, and
+    // the avatar or the placeholder shows half a second on every open.
+    for (const view of VIEWS) {
+      const fades = view.match(/<Transition name="cover-fade"[^>]*>/g) ?? [];
+      expect(fades.length).toBeGreaterThan(0);
+      for (const tag of fades) expect(tag).toMatch(/:css="fades"/);
+    }
   });
 
   it('leaves to the composable what counts as a cover', () => {

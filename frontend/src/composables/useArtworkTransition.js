@@ -23,7 +23,12 @@
 // Nothing else is waited for: a source whose cover comes later says so, so a
 // track that arrives with no cover and no announcement has none, and the
 // fallback is drawn at once as the answer.
-import { ref, watch } from 'vue';
+//
+// The players fade one cover into the next (`fades`), except at the first
+// settle after a mount: what it replaces is the fallback drawn while the cover
+// decodes, often before the first paint, and fading that out would show it for
+// half a second on every open.
+import { nextTick, ref, watch } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';
 
@@ -40,20 +45,31 @@ export const ARTWORK_WAIT_MS = 4000;
  * @returns {{
  *   shownArtwork: import('vue').Ref<string>,
  *   preloadArtwork: import('vue').Ref<string>,
+ *   fades: import('vue').Ref<boolean>,
  *   settleFromLoad: (event: Event) => void,
  *   settleFromError: () => void
  * }}
  *   The consumer renders `preloadArtwork` in an off-screen <img> and wires these
  *   two straight to its load/error. It does not get to decide what counts as a
- *   cover — see the size rule below.
+ *   cover — see the size rule below. `fades` says whether a change of
+ *   `shownArtwork` fades (the shells' `cover-fade` transitions take it as `css`).
  */
 export function useArtworkTransition(target, trackKey, announced = ref(false)) {
   const timer = useTimer();
 
   const shownArtwork = ref('');
   const preloadArtwork = ref('');
+  const fades = ref(false);
   let wait = null;
   let holding = false;
+  let arming = false;
+
+  // A tick late, so the render that paints the first settle still sees false.
+  function armFades() {
+    if (arming) return;
+    arming = true;
+    nextTick(() => { fades.value = true; });
+  }
 
   function disarm() {
     if (wait) { timer.clear(wait); wait = null; }
@@ -64,6 +80,7 @@ export function useArtworkTransition(target, trackKey, announced = ref(false)) {
     disarm();
     shownArtwork.value = url;
     preloadArtwork.value = '';
+    armFades();
   }
 
   // What counts as a cover. A tracking pixel or a broken favicon decodes
@@ -139,9 +156,12 @@ export function useArtworkTransition(target, trackKey, announced = ref(false)) {
   });
 
   // Mounted on a track: head for its cover, or — announced — show the stand-in,
-  // there being nothing on screen yet to hold.
+  // there being nothing on screen yet to hold. With no cover at all the
+  // fallback is the answer already, and a cover arriving later is a change on
+  // screen, which fades.
   if (announced.value) showCurrent();
   else if (target.value) headFor(target.value);
+  else armFades();
 
-  return { shownArtwork, preloadArtwork, settleFromLoad, settleFromError };
+  return { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError };
 }

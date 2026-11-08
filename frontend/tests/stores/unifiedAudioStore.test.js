@@ -12,7 +12,7 @@
  * fixture of its API.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useUnifiedAudioStore, STATION_INTRO_MS } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { apiCall } from '@/services/apiCall';
 import { reportError } from '@/services/errorReporter';
@@ -177,6 +177,95 @@ describe('unifiedAudioStore', () => {
 
       expect(store.systemState.session.title).toBe('Next Song');
       expect(store.systemState.session.position).toBeNull();
+    });
+  });
+
+  describe('introSessionId — a station just tuned', () => {
+    // The clock usePlayerMetadata holds a radio's first moments to the station
+    // by, one for every player. Wrong, a tune shows the song at once again, or
+    // a page opened on a station playing for an hour shows it for 2.5 s.
+    const tuned = (id, station = { id: 'fip', name: 'FIP', favicon: null }) => makeAudioState({
+      source: 'radio',
+      service: 'running',
+      session: makeSession({ id, title: 'Snibor', artist: 'Gil Evans', album: station.name }),
+      details: { kind: 'radio', station, track: null, artwork_pending: false },
+    });
+    const JAZZ = { id: 'fip-jazz', name: 'FIP Jazz', favicon: null };
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('starts with a session first seen in a live source/state, for STATION_INTRO_MS', () => {
+      store.updateState(stateEvent(tuned('tune-1')));
+      expect(store.introSessionId).toBe('tune-1');
+
+      vi.advanceTimersByTime(STATION_INTRO_MS - 1);
+      expect(store.introSessionId).toBe('tune-1');
+      vi.advanceTimersByTime(1);
+      expect(store.introSessionId).toBeNull();
+    });
+
+    it('a second live state for the same session does not restart it', () => {
+      store.updateState(stateEvent(tuned('tune-1')));
+      vi.advanceTimersByTime(2000);
+      store.updateState(stateEvent({ ...tuned('tune-1'), controls: ['stop'] }));
+
+      vi.advanceTimersByTime(STATION_INTRO_MS - 2000);
+      expect(store.introSessionId).toBeNull();
+    });
+
+    it('a new station is a new session, and starts its own', () => {
+      store.updateState(stateEvent(tuned('tune-1')));
+      vi.advanceTimersByTime(2000);
+      store.updateState(stateEvent(tuned('tune-2', JAZZ)));
+
+      vi.advanceTimersByTime(STATION_INTRO_MS - 1);
+      expect(store.introSessionId).toBe('tune-2');
+    });
+
+    it('the same station re-tuned under a new session (a multiroom toggle) gets none', () => {
+      store.updateState(stateEvent(tuned('tune-1')));
+      vi.advanceTimersByTime(STATION_INTRO_MS);
+      store.updateState(stateEvent(tuned('tune-2')));
+
+      expect(store.introSessionId).toBeNull();
+    });
+
+    it('a station first seen in a snapshot and re-tuned live gets none', () => {
+      store.updateState({ category: 'system', type: 'initial_state', data: { state: tuned('tune-1') } });
+      store.updateState(stateEvent(tuned('tune-2')));
+
+      expect(store.introSessionId).toBeNull();
+    });
+
+    it('a station with no name to show gets none', () => {
+      store.updateState(stateEvent(tuned('tune-1', { id: 'x', name: null, favicon: null })));
+
+      expect(store.introSessionId).toBeNull();
+    });
+
+    it('a session first seen in initial_state gets none, nor its later live states', () => {
+      store.updateState({ category: 'system', type: 'initial_state', data: { state: tuned('tune-1') } });
+      store.updateState(stateEvent(tuned('tune-1')));
+
+      expect(store.introSessionId).toBeNull();
+    });
+
+    it('a session first seen in a resync gets none', async () => {
+      apiCall.get.mockImplementation(async (url) => (url === '/api/audio/state'
+        ? ok(tuned('tune-1'))
+        : ok({ status: 'error' })));
+      await store.resync();
+      store.updateState(stateEvent(tuned('tune-1')));
+
+      expect(store.systemState.session.id).toBe('tune-1');
+      expect(store.introSessionId).toBeNull();
+    });
+
+    it('only a radio session has one', () => {
+      store.updateState(stateEvent(VALID_STATE));
+
+      expect(store.introSessionId).toBeNull();
     });
   });
 

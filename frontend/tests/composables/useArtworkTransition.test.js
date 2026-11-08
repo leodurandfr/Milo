@@ -377,4 +377,28 @@ describe('useArtworkTransition', () => {
 
     expect(shownArtwork.value).toBe('/api/cover/album');
   });
+
+  it('paints the first cover after a mount without a fade, and fades every one after it', async () => {
+    // What the first cover replaces is the fallback drawn while it decoded:
+    // faded, it would show for half a second on every open of a player.
+    const target = ref('/api/cover/first');
+    const { fades, settleFromLoad } = mountTransition(target, ref('first|artist'));
+    expect(fades.value).toBe(false);
+
+    // Still false through the render that paints it.
+    settleFromLoad(decodedAt(600, 600));
+    expect(fades.value).toBe(false);
+
+    await nextTick();
+    expect(fades.value).toBe(true);
+  });
+
+  it('fades the first cover of a player mounted with none to head for', async () => {
+    // The fallback was the answer from the first paint; a cover arriving
+    // later replaces it on screen.
+    const { fades } = mountTransition(ref(''), ref('track|artist'));
+
+    await nextTick();
+    expect(fades.value).toBe(true);
+  });
 });
