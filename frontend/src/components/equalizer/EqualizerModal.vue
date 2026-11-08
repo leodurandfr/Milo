@@ -106,6 +106,7 @@ import { ref, computed, inject, watch, onMounted, onUnmounted } from 'vue';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useI18n } from '@/services/i18n';
 import { useViewTransition } from '@/composables/useViewTransition';
+import { useIsMobile } from '@/composables/useIsMobile';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Button from '@/components/ui/Button.vue';
@@ -128,7 +129,7 @@ const modalContentRef = inject('modalContentRef', null);
 const modalSetNavHeight = inject('modalSetNavHeight', null);
 const modalContentInnerRef = inject('modalContentInnerRef', null);
 
-const isMobile = ref(false);
+const { isMobile } = useIsMobile();
 const zoneTabsRef = ref(null);
 // Persistent header — faded (not popped) when a scroll-reset state change crosses its height.
 const navHeaderRef = ref(null);
@@ -213,12 +214,6 @@ const presetDisplayOverride = computed(() => {
   return null;
 });
 
-// === MOBILE DETECTION ===
-function updateMobileStatus() {
-  const aspectRatio = window.innerWidth / window.innerHeight;
-  isMobile.value = aspectRatio <= 4 / 3;
-}
-
 // === FILTER UPDATES ===
 function handleFilterUpdate({ id, field, value }) {
   equalizerStore.updateFilter(id, field, value);
@@ -263,9 +258,6 @@ async function handleMonoToggle(enabled) {
 
 // === LIFECYCLE ===
 onMounted(async () => {
-  updateMobileStatus();
-  window.addEventListener('resize', updateMobileStatus);
-
   equalizerStore.initializeFilters();
 
   // Targets first: every EQ read is addressed to the selected target, which
@@ -279,8 +271,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateMobileStatus);
-
   // An edit is a live preview until "Save" turns it into the custom preset, so
   // closing drops it. Addressed before cleanup() forgets which preset it was
   // diverging from, and not awaited: the request outlives the component, and

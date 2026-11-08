@@ -2,11 +2,12 @@
 <!--
   Hosts the canvas iframe and the viewport switcher.
 
-  The iframe is what makes the switcher mean anything. Milō's breakpoints are
-  `@media (max-aspect-ratio: 4/3) and (max-width: 1023px)`, so the mobile branch depends on the ratio of
-  a real viewport — a plain sized <div> would change the width and change
-  nothing else, which looks like it works and does not. Resizing the iframe
-  resizes an actual viewport, so the phone preset renders what a phone renders.
+  The iframe is what makes the switcher mean anything. Milō's mobile breakpoint
+  (`constants/layout.js::MOBILE_QUERY`) is a media query, which reads the
+  viewport and nothing else — a plain sized <div> would change the box and leave
+  every mobile rule where it was, which looks like it works and does not.
+  Resizing the iframe resizes an actual viewport, so the phone preset renders
+  what a phone renders.
 -->
 <template>
   <div class="canvas-host">

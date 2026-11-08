@@ -83,10 +83,10 @@ describe('settingsStore — the screen sleep snapshot', () => {
 
 /**
  * The delta itself: `screen_sleep_changed` reaches every browser, and the shield
- * (App.vue `.sleep-shield`, fixed and transparent over the whole page) is hidden
- * off the kiosk only by a portrait media query. If the store took the delta on a
- * remote browser, a Mac or a landscape phone would swallow its first click after
- * every sleep of the Pi's panel.
+ * (App.vue `.sleep-shield`, fixed and transparent over the whole page) is drawn
+ * whenever the store says the screen sleeps — this gate is the only thing
+ * keeping it off a remote browser. If the store took the delta there, a Mac or
+ * a phone would swallow its first click after every sleep of the Pi's panel.
  */
 describe('settingsStore — the screen sleep delta', () => {
   let store;
