@@ -368,19 +368,19 @@ Shazam; `RadioSource._resolve_track` is the one place that orders them):
   of the stream. The first in-band or Radio France title shuts it back down. It
   *does* return an artwork URL. Shazam refuses (429) from about 3 calls in a
   rolling minute, and under throttling its "no match" answers alternate with
-  429s (a week of journal, 2026-11), so the loop asks only when the answer can
-  have changed:
-  - **two consecutive verdicts move the title** — a single no-match never clears
-    it, a single different match never replaces it, and the first title needs
-    two matches (~40-60 s after the tune). A refusal, a timeout or a transport
-    error is no verdict at all, and a non-200 answer is never read as "no
-    match" (Milō's own shazamio HTTP client, no retry layer);
-  - **the cadence follows the answer** — a candidate is confirmed after 20 s, a
-    title that holds is asked about after 60, 90, 120 then every 180 s, no-matches
-    in a row after 30, 60, 120 then every 240 s, a failed capture after 10 s
-    (three times); a refusal backs off 60 s × 2ⁿ (±20 %, at most 900 s), never
-    before a `Retry-After` or the `retryms` of a 200, and nothing is retried at
-    once;
+  429s (a week of journal, 2026-11), so the loop sends one call per try and
+  keeps under the limit by its budget, not by asking less:
+  - **a match is shown at once, a clear takes two no-matches in a row** — a
+    refusal, a timeout or a transport error is no verdict at all, nor is a
+    no-match answered right after a refusal (that is how throttling ends), and
+    a non-200 answer is never read as "no match" (Milō's own shazamio HTTP
+    client, no retry layer);
+  - **one steady cadence** — the next try 20 s after every answer, a title
+    that holds included, since a station changes song whenever it likes
+    (asking less while a title held, tried on 2026-11-08, left the screen a
+    song or two behind); a failed capture after 10 s (three times, then every
+    60 s); a refusal backs off 60 s × 2ⁿ (±20 %, at most 900 s), never before a
+    `Retry-After` or the `retryms` of a 200, and nothing is retried at once;
   - **one budget for the unit** — at most 2 requests in any 60 s, and the
     backoff deadline, in a `RecognitionQuota` the radio source keeps for its
     whole life and hands to every service it builds, so neither a station
@@ -391,7 +391,7 @@ Shazam; `RadioSource._resolve_track` is the one place that orders them):
   paths look identical on screen. The same resolver serves Bluetooth
 - In-band and Shazam expire a stale title so a phantom track cannot stay
   pinned over ads or talk — in-band after ~16 s of empty metadata, Shazam after
-  two agreeing no-matches or 300 s with no verdict at all (only refusals and
+  two no-matches in a row or 120 s with no verdict at all (only refusals and
   failures) — and a per-station toggle suppresses **all three** tiers, not
   just Shazam (no request reaches Radio France for a station opted out). The
   global toggle ("…using Shazam") gates Shazam alone

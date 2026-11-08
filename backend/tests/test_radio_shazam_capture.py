@@ -28,7 +28,7 @@ import pytest
 
 import backend.sources.radio.shazam as shazam_mod
 from backend.sources.radio.shazam import (
-    CONFIRM_S, RecognitionQuota, ShazamRecognitionService, ShazamRefused,
+    RecognitionQuota, ShazamRecognitionService, ShazamRefused,
 )
 from backend.tests.shazam_world import Reply, ShazamWorld, match
 
@@ -100,11 +100,11 @@ def world(monkeypatch):
 
 
 async def _showing(world, title="So What"):
-    """A service on a station with `title` on screen (two agreeing matches)."""
-    world.replies = [Reply(match(title)), Reply(match(title))]
+    """A service on a station with `title` on screen."""
+    world.replies = [Reply(match(title))]
     svc = world.service()
     await svc.start("http://stream.example/fip.mp3")
-    await world.advance_to(shazam_mod.INITIAL_DELAY_SECONDS + CONFIRM_S + 1)
+    await world.advance_to(shazam_mod.INITIAL_DELAY_SECONDS + 1)
     assert svc.current_track is not None and svc.current_track["title"] == title
     return svc
 

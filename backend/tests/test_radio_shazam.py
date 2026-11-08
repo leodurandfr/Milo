@@ -2,16 +2,16 @@
 """`ShazamRecognitionService`'s decisions: what a Shazam answer means for the
 title on screen, and when Shazam is asked again.
 
-The rules moved on 2026-11-08, on purpose, from a week of journal (399 tries,
-see the module docstring of `sources/radio/shazam.py`): a no-match used to
-clear the title on the spot, a single different match replaced it, every miss
-was retried twice at once and every round came 20 s after the last. Under
-throttling that cleared good titles on a "no match" that was really a soft
-refusal, showed one-verdict wrong titles, and kept the unit throttled — 911 s
-before the first title in one session. Now two consecutive verdicts move the
-title, a refusal is no verdict, the cadence slows while the answer holds, and
-one budget is shared by every run. `STALE_CLEAR_ROUNDS` became `STALE_AFTER_S`,
-a time: rounds no longer have a fixed length.
+The rules moved twice on 2026-11-08, from a week of journal (399 tries, see the
+module docstring of `sources/radio/shazam.py`). Every miss used to be retried
+twice at once and a non-200 read as a no-match, which kept the unit throttled
+(911 s before the first title in one session) and cleared good titles on soft
+refusals. The first fix also asked less while a title held and wanted two
+agreeing matches per title, which left the screen a song or two behind, minutes
+after the change. Now: one call per try, a refusal is no verdict and backs off,
+a no-match right after a refusal is none either, a match is shown at once, a
+clear takes two no-matches, every answer is followed by the same
+`RECOGNITION_INTERVAL_S`, and one budget is shared by every run.
 
 The pure pieces are tested as functions; the loop is driven through
 `tests/shazam_world.py` — shazamio, Shazam's HTTP answers, ffmpeg and the clock
@@ -26,10 +26,10 @@ import pytest
 
 import backend.sources.radio.shazam as shazam_mod
 from backend.sources.radio.shazam import (
-    BACKOFF_BASE_S, BACKOFF_CAP_S, BACKOFF_JITTER, CAPTURE_RETRIES, CAPTURE_RETRY_S,
-    CONFIRM_S, HOLD_STEPS_S, INITIAL_DELAY_SECONDS, MISS_STEPS_S, QUOTA_REQUESTS,
-    QUOTA_WINDOW_S, STALE_AFTER_S, DisplayedTitle, RecognitionQuota,
-    ShazamRecognitionService, Step, backoff_delay, next_delay,
+    BACKOFF_BASE_S, BACKOFF_CAP_S, BACKOFF_JITTER, CAPTURE_GIVE_UP_S, CAPTURE_RETRIES,
+    CAPTURE_RETRY_S, INITIAL_DELAY_SECONDS, QUOTA_REQUESTS, QUOTA_WINDOW_S,
+    RECOGNITION_INTERVAL_S, STALE_AFTER_S, DisplayedTitle, RecognitionQuota,
+    ShazamRecognitionService, backoff_delay, next_delay,
 )
 from backend.tests.shazam_world import Hang, Reply, ShazamWorld, match, no_match
 
@@ -102,72 +102,49 @@ class TestRunningFlag:
         assert service.is_running is False
 
 
-class TestTwoVerdictRule:
-    """`DisplayedTitle`: the shown value moves only when two consecutive
-    verdicts agree on the new one. Measured: 5 of 22 title changes were single
-    wrong verdicts, 12 clears came from single no-matches."""
+class TestDisplayedTitle:
+    """`DisplayedTitle`: a song change is shown at the first match naming it;
+    a clear waits for a second no-match, so one noisy capture does not drop a
+    song still playing."""
 
     def hear_all(self, verdicts):
         title = DisplayedTitle()
         shown = []
         for i, verdict in enumerate(verdicts):
-            _, changed = title.hear(verdict, float(i))
-            if changed:
+            if title.hear(verdict, float(i)):
                 shown.append(title.track["title"] if title.track else None)
         return title, shown
 
-    def test_the_first_title_needs_two_agreeing_matches(self):
+    def test_a_first_match_is_shown_at_once(self):
         title, shown = self.hear_all([_track("A")])
-        assert title.track is None
-
-        title, shown = self.hear_all([_track("A"), _track("A")])
         assert shown == ["A"]
 
+    def test_a_different_match_replaces_at_once(self):
+        _, shown = self.hear_all([_track("A"), _track("A"), _track("B")])
+        assert shown == ["A", "B"]
+
     def test_a_single_no_match_never_clears(self):
-        title, shown = self.hear_all([_track("A"), _track("A"), None, _track("A")])
+        title, shown = self.hear_all([_track("A"), None, _track("A")])
         assert shown == ["A"]
         assert title.track["title"] == "A"
 
     def test_two_no_matches_in_a_row_clear(self):
-        _, shown = self.hear_all([_track("A"), _track("A"), None, None])
+        _, shown = self.hear_all([_track("A"), None, None])
         assert shown == ["A", None]
 
-    def test_a_single_different_match_never_replaces(self):
-        title, shown = self.hear_all([_track("A"), _track("A"), _track("B"), _track("A")])
+    def test_a_match_between_two_no_matches_breaks_the_clear(self):
+        _, shown = self.hear_all([_track("A"), None, _track("A"), None])
         assert shown == ["A"]
 
-    def test_two_agreeing_different_matches_replace(self):
-        _, shown = self.hear_all([_track("A"), _track("A"), _track("B"), _track("B")])
+    def test_a_new_song_after_a_no_match_is_shown(self):
+        """The gap between two songs reads as a no-match; the next song must
+        not wait for it to be confirmed."""
+        _, shown = self.hear_all([_track("A"), None, _track("B")])
         assert shown == ["A", "B"]
-
-    def test_a_verdict_equal_to_what_is_shown_breaks_a_candidate(self):
-        """B, A, B is not two Bs in a row: the A between them is a verdict."""
-        _, shown = self.hear_all(
-            [_track("A"), _track("A"), _track("B"), _track("A"), _track("B")]
-        )
-        assert shown == ["A"]
 
     def test_tracks_compare_on_title_and_artist_whatever_the_case_and_spacing(self):
         _, shown = self.hear_all([_track("So  What", "Miles Davis"), _track("so what", "MILES DAVIS ")])
-        assert shown == ["so what"]
-
-    def test_the_sequence_of_2026_11_08_displays_nothing(self):
-        """FIP Hip Hop, 12:49: one SPLPH, one Stevie Wonder, five no-matches,
-        one Stevie Wonder. Each title was shown before, and Stevie Wonder for
-        good after a single verdict."""
-        _, shown = self.hear_all(
-            [_track("SPLPH"), _track("Stevie Wonder")] + [None] * 5 + [_track("Stevie Wonder")]
-        )
-        assert shown == []
-
-    def test_steps(self):
-        title = DisplayedTitle()
-        assert title.hear(_track("A"), 0)[0] is Step.CANDIDATE
-        assert title.hear(_track("A"), 1)[0] is Step.HOLD
-        assert title.hear(_track("A"), 2)[0] is Step.HOLD
-        assert title.hear(None, 3)[0] is Step.CLEAR_CANDIDATE
-        assert title.hear(None, 4)[0] is Step.MISS
-        assert title.hear(None, 5)[0] is Step.MISS
+        assert shown == ["So  What"]
 
     def test_a_shown_title_goes_stale_from_its_last_verdict(self):
         title = DisplayedTitle()
@@ -179,28 +156,14 @@ class TestTwoVerdictRule:
 
 
 class TestCadence:
-    """`next_delay` — the wait after a try, by what the try meant and how many
-    of its kind came in a row."""
+    """`next_delay` — the wait after a try."""
 
-    def test_a_held_title_is_asked_about_less_and_less_up_to_a_cap(self):
-        delays = [next_delay(Step.HOLD, n) for n in range(1, len(HOLD_STEPS_S) + 3)]
-        assert delays == [*HOLD_STEPS_S, HOLD_STEPS_S[-1], HOLD_STEPS_S[-1]]
-        assert list(HOLD_STEPS_S) == sorted(HOLD_STEPS_S)
-
-    def test_no_matches_in_a_row_back_off_up_to_a_cap(self):
-        delays = [next_delay(Step.MISS, n) for n in range(1, len(MISS_STEPS_S) + 3)]
-        assert delays == [*MISS_STEPS_S, MISS_STEPS_S[-1], MISS_STEPS_S[-1]]
-        assert list(MISS_STEPS_S) == sorted(MISS_STEPS_S)
-
-    @pytest.mark.parametrize("step", [Step.CANDIDATE, Step.CLEAR_CANDIDATE])
-    def test_a_candidate_is_confirmed_sooner_than_anything_is_asked_again(self, step):
-        assert next_delay(step, 1) == CONFIRM_S
-        assert next_delay(step, 1) < min(HOLD_STEPS_S + MISS_STEPS_S)
+    def test_every_answer_is_followed_by_the_same_wait(self):
+        assert next_delay() == RECOGNITION_INTERVAL_S
 
     def test_a_failed_capture_is_tried_again_soon_a_few_times_then_slows(self):
-        delays = [next_delay(Step.CAPTURE_FAILED, n) for n in range(1, CAPTURE_RETRIES + 3)]
-        assert delays == [CAPTURE_RETRY_S] * CAPTURE_RETRIES + list(MISS_STEPS_S[:2])
-        assert all(d > 0 for d in delays)
+        delays = [next_delay(n) for n in range(1, CAPTURE_RETRIES + 3)]
+        assert delays == [CAPTURE_RETRY_S] * CAPTURE_RETRIES + [CAPTURE_GIVE_UP_S] * 2
 
 
 class TestBackoff:
@@ -272,60 +235,55 @@ class TestQuota:
 
 
 class TestTheLoopShowsATitle:
-    async def test_the_first_title_appears_at_the_confirmation(self, world):
-        world.replies = [Reply(match("A")), Reply(match("A"))]
+    async def test_the_first_title_appears_at_the_first_match(self, world):
+        world.replies = [Reply(match("A"))]
         svc = world.service()
 
         await world.run(svc, until=600)
 
-        assert world.requests[:2] == [INITIAL_DELAY_SECONDS, INITIAL_DELAY_SECONDS + CONFIRM_S]
-        assert world.shown[0] == (world.requests[1], {"title": "A", "artist": "Artist", "artwork": None})
-        assert ("INFO", world.requests[1], "Shazam: Artist – A") in world.lines
+        assert world.requests[0] == INITIAL_DELAY_SECONDS
+        assert world.shown[0] == (world.requests[0], {"title": "A", "artist": "Artist", "artwork": None})
+        assert ("INFO", world.requests[0], "Shazam: Artist – A") in world.lines
 
-    async def test_the_sequence_of_2026_11_08_displays_nothing(self, world):
-        world.replies = [Reply(b) for b in (
-            [match("SPLPH"), match("Stevie Wonder")] + [no_match()] * 5 + [match("Stevie Wonder")]
-        )]
+    async def test_a_song_change_is_shown_at_the_next_try(self, world):
+        """A held title is asked about as often as anything: the radio moves
+        on to the next song whenever it likes."""
+        world.replies = [Reply(match("A"))] * 5 + [Reply(match("B"))]
         svc = world.service()
 
         await world.run(svc, until=10_000)
 
-        assert len(world.requests) > 8            # every answer was heard
-        assert world.shown == []
-
-    async def test_a_held_title_is_asked_about_on_the_hold_cadence(self, world):
-        world.replies = [Reply(match("A"))] * 7
-        svc = world.service()
-
-        await world.run(svc, until=10_000)
-
-        assert _gaps(world.requests[:7]) == [CONFIRM_S, *HOLD_STEPS_S, HOLD_STEPS_S[-1]]
-        assert world.titles() == ["A", None]      # published once, not per round; stop() clears
-
-    async def test_a_silent_stream_is_asked_about_less_and_less(self, world):
-        world.replies = [Reply(no_match())] * 6
-        svc = world.service()
-
-        await world.run(svc, until=10_000)
-
-        assert _gaps(world.requests[:6]) == [*MISS_STEPS_S, MISS_STEPS_S[-1]]
-        assert world.shown == []
+        assert set(_gaps(world.requests[:6])) == {RECOGNITION_INTERVAL_S, QUOTA_WINDOW_S - RECOGNITION_INTERVAL_S}
+        assert world.titles() == ["A", "B", None]  # published once each, not per round; stop() clears
+        assert world.shown[1][0] == world.requests[5]
 
     async def test_a_no_match_under_a_title_is_confirmed_before_it_clears(self, world):
-        world.replies = [Reply(b) for b in [match("A"), match("A"), no_match(), no_match(), no_match()]]
+        world.replies = [Reply(b) for b in [match("A"), no_match(), no_match(), no_match()]]
         svc = world.service()
 
         await world.run(svc, until=10_000)
 
         assert world.titles() == ["A", None]
-        assert world.shown[1][0] == world.requests[3]
-        gaps = _gaps(world.requests)
-        assert gaps[2] == CONFIRM_S           # the clear is a candidate: confirmed soon
-        assert gaps[3] == MISS_STEPS_S[1]     # then the second no-match in a row
+        assert world.shown[1][0] == world.requests[2]
+
+    async def test_a_no_match_right_after_a_refusal_is_no_verdict(self, world, monkeypatch):
+        """Throttling ends on a "no match" that says nothing of the audio. (The
+        backoff carries this run past STALE_AFTER_S, which is not what it is
+        about: that expiry has its own test below.)"""
+        monkeypatch.setattr(shazam_mod, "STALE_AFTER_S", 10_000)
+        world.replies = [Reply(b) for b in [match("A"), no_match()]] + [Reply(status=429)] + [
+            Reply(no_match()), Reply(match("A"))
+        ]
+        svc = world.service()
+
+        await world.run(svc, until=10_000)
+
+        assert world.replies == []                # every answer was heard
+        assert world.titles() == ["A", None]      # never cleared: stop() did
 
     async def test_the_window_holds_back_a_third_request_within_a_minute(self, world):
-        """Three new candidates in a row would ask every 20 s: three calls in a
-        minute is where the 429s began."""
+        """Tries every 20 s would make three calls in a minute, which is where
+        the 429s began."""
         world.replies = [Reply(match(t)) for t in "ABCD"]
         svc = world.service()
 
@@ -372,8 +330,8 @@ class TestRefusals:
         assert _gaps(world.requests[:2]) == [700]
 
     async def test_a_retryms_in_a_200_is_honored(self, world):
-        """A candidate is confirmed after CONFIRM_S — unless Shazam asked for
-        longer in the body of its answer."""
+        """The next try comes RECOGNITION_INTERVAL_S later — unless Shazam
+        asked for longer in the body of its answer."""
         world.replies = [Reply(match("A", retryms=400_000)), Reply(match("A"))]
         svc = world.service()
 
@@ -404,7 +362,7 @@ class TestRefusals:
         track — a no-match — and clear the title. And a refusal logged at
         error lands in errors.log and on the UI banner for a condition the
         next try clears."""
-        world.replies = [Reply(match("A")), Reply(match("A")), reply, reply]
+        world.replies = [Reply(match("A")), reply, reply]
         svc = world.service()
 
         await world.run(svc, until=STALE_AFTER_S, stop=False)
@@ -417,13 +375,21 @@ class TestRefusals:
         refusals = [line for line in world.lines if "next try in" in line[2] and line[0] != "DEBUG"]
         assert [level for level, _, _ in refusals] == ["INFO"]   # once per backoff
 
-    async def test_a_refusal_keeps_a_candidate_standing(self, world):
-        world.replies = [Reply(match("A")), Reply(status=429), Reply(match("A"))]
+    async def test_a_refusal_keeps_a_pending_clear_standing(self, world, monkeypatch):
+        """A refusal is no verdict: the no-match heard before it and the next
+        real one are still two in a row (the soft no-match between them counts
+        for neither). STALE_AFTER_S is moved out of the way: the backoff would
+        otherwise carry the run to it, and that expiry has its own test."""
+        monkeypatch.setattr(shazam_mod, "STALE_AFTER_S", 10_000)
+        world.replies = [Reply(b) for b in [match("A"), no_match()]] + [
+            Reply(status=429), Reply(no_match()), Reply(no_match())
+        ]
         svc = world.service()
 
-        await world.run(svc, until=10_000)
+        await world.run(svc, until=100_000)
 
-        assert world.titles() == ["A", None]      # stop() clears
+        assert world.titles() == ["A", None]
+        assert world.shown[1][0] == world.requests[4]
 
     async def test_a_timeout_and_a_transport_error_back_off_too(self, world, monkeypatch):
         monkeypatch.setattr(shazam_mod, "RECOGNITION_TIMEOUT_SECONDS", 0.05)
@@ -438,13 +404,13 @@ class TestRefusals:
         assert world.logged("ERROR") == []
 
     async def test_a_title_with_no_verdict_for_too_long_is_cleared(self, world):
-        world.replies = [Reply(match("A")), Reply(match("A"))] + [Reply(status=429)] * 10
+        world.replies = [Reply(match("A"))] + [Reply(status=429)] * 10
         svc = world.service()
 
         await world.run(svc, until=100_000)
 
         assert world.titles() == ["A", None]
-        assert world.shown[1][0] == world.requests[1] + STALE_AFTER_S
+        assert world.shown[1][0] == world.requests[0] + STALE_AFTER_S
 
 
 class TestOneBudget:
@@ -481,7 +447,7 @@ class TestOneBudget:
 
 class TestTheLoopSurvives:
     async def test_an_unexpected_error_is_reported_once_and_the_loop_goes_on(self, world):
-        world.replies = [RuntimeError("boom"), RuntimeError("boom again"), Reply(match("A")), Reply(match("A"))]
+        world.replies = [RuntimeError("boom"), RuntimeError("boom again"), Reply(match("A"))]
         svc = world.service()
 
         await world.run(svc, until=100_000, stop=False)
@@ -498,15 +464,15 @@ class TestTheLoopSurvives:
 
         await world.run(svc, until=10_000)
 
-        expected = [next_delay(Step.CAPTURE_FAILED, n) for n in range(1, CAPTURE_RETRIES + 3)]
+        expected = [next_delay(n) for n in range(1, CAPTURE_RETRIES + 3)]
         assert _gaps(world.captures[:CAPTURE_RETRIES + 3]) == expected
         assert world.requests[0] == world.captures[CAPTURE_RETRIES + 2]
 
     async def test_the_toggle_turned_off_mid_stream_clears_the_title_and_captures_nothing(self, world):
-        world.replies = [Reply(match("A")), Reply(match("A"))]
+        world.replies = [Reply(match("A"))]
         svc = world.service()
         await svc.start("http://stream.example/fip.mp3")
-        await world.advance_to(INITIAL_DELAY_SECONDS + CONFIRM_S + 1)
+        await world.advance_to(INITIAL_DELAY_SECONDS + 1)
         assert world.titles() == ["A"]
         captured = len(world.captures)
 
@@ -517,8 +483,8 @@ class TestTheLoopSurvives:
         # the title could go stale on its own and before stop() could clear it.
         assert svc.current_track is None
         assert world.titles() == ["A", None]
-        assert world.shown[1][0] == world.requests[1] + HOLD_STEPS_S[0]
-        assert world.shown[1][0] < world.requests[1] + STALE_AFTER_S
+        assert world.shown[1][0] == world.requests[0] + RECOGNITION_INTERVAL_S
+        assert world.shown[1][0] < world.requests[0] + STALE_AFTER_S
         assert len(world.captures) == captured
         await svc.stop()
         assert len(world.shown) == 2

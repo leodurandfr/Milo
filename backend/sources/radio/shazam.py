@@ -12,26 +12,30 @@ Measured on the unit over 399 tries (journal of 2026-11-02..08):
 - An immediate retry is wasted: after a no-match it was a no-match again 60
   times out of 75, after a 429 a 429 89 out of 94. First tries matched 142
   times out of 229, retries 9 out of 169.
-- One verdict is not an answer: while throttled, "no match" alternates with
-  429s, and 5 of 22 title changes and 12 clears came from a single verdict.
+- While throttled, "no match" alternates with 429s: a no-match heard right
+  after a refusal is a soft refusal, not a verdict about the audio.
 
 Hence the four rules below:
 - **One HTTP call per try, no retry anywhere.** `_ShazamTransport` replaces
   shazamio's client (and its aiohttp-retry layer), and any answer that is not
   a decodable 200 is a refusal — a 403 or a JSON 5xx used to read as "no
   match" and clear the title.
-- **Two agreeing verdicts move the title** (`DisplayedTitle`): a single no-match
-  never clears it, a single different match never replaces it, and the first
-  title needs two. A refusal or a failure is no verdict at all; a shown title
-  that gets none for `STALE_AFTER_S` is cleared.
-- **Ask only when the answer can have changed** (`next_delay`): a held title is
-  asked about less and less often, a candidate is confirmed quickly, and a
-  refusal backs off (`backoff_delay`) — never before the Retry-After or the
-  `retryms` Shazam gave.
+- **A match is shown at once, a clear takes two no-matches in a row**
+  (`DisplayedTitle`). A refusal or a failure is no verdict at all, nor is a
+  no-match answered while backing off; a shown title that gets no verdict for
+  `STALE_AFTER_S` is cleared, and the station is named again.
+- **One steady cadence** (`RECOGNITION_INTERVAL_S` after every answer, as the
+  loop always had): a song change on the radio can come at any moment, so a
+  title that holds is asked about as often as anything. Asking less while a
+  title held (60 → 180 s, tried 2026-11-08) left the screen one or two songs
+  behind, minutes after the change. A refusal backs off (`backoff_delay`) —
+  never before the Retry-After or the `retryms` Shazam gave.
 - **One budget for the whole radio source** (`RecognitionQuota`): at most
   `QUOTA_REQUESTS` per `QUOTA_WINDOW_S`, and the backoff deadline, both kept
   by `RadioSource` for its whole life, so neither a station change nor a
-  source switch starts them over.
+  source switch starts them over. It is what keeps the cadence under the
+  rate limit: the retries the loop used to send at once are gone, and the
+  window holds back what would still be a third call in a minute.
 """
 import asyncio
 import contextlib
@@ -63,15 +67,14 @@ RECOGNITION_TIMEOUT_SECONDS = 25
 # ffmpeg capture timeout (capture duration + buffer for connection/codec init)
 FFMPEG_TIMEOUT_SECONDS = SEGMENT_DURATION_SECONDS + 15
 
-# When to ask next (`next_delay`). A capture that failed sent nothing, so it is
-# tried again soon, a few times; a candidate is confirmed soon; a title that
-# holds, and a stream that keeps answering "no match", are asked about less and
-# less often — the answer is not going to change every 20 s.
+# When to ask next (`next_delay`): RECOGNITION_INTERVAL_S after every answer.
+# A try lasts the capture plus the call (~15 s), so this is one request every
+# ~35 s, under the quota. A capture that failed sent nothing, so it is tried
+# again soon, a few times, then once a minute.
+RECOGNITION_INTERVAL_S = 20
 CAPTURE_RETRY_S = 10
 CAPTURE_RETRIES = 3
-CONFIRM_S = 20
-HOLD_STEPS_S = (60, 90, 120, 180)
-MISS_STEPS_S = (30, 60, 120, 240)
+CAPTURE_GIVE_UP_S = 60
 
 # A refusal, a timeout or a transport error: 60 s × 2^n, ±20 %, at most 900 s.
 BACKOFF_BASE_S = 60
@@ -79,8 +82,9 @@ BACKOFF_CAP_S = 900
 BACKOFF_JITTER = 0.2
 
 # A shown title that no verdict has confirmed or contradicted for this long
-# (only refusals and failures since) is cleared: nothing is known any more.
-STALE_AFTER_S = 300
+# (only refusals and failures since) is cleared: nothing is known any more, and
+# a song is shorter than the backoff gets long.
+STALE_AFTER_S = 120
 
 # At most this many requests in any window: under the ~3 per minute at which
 # Shazam starts refusing.
@@ -156,16 +160,6 @@ class Attempt:
     reason: str = ""
 
 
-class Step(enum.Enum):
-    """What a try means for the next one (`next_delay`)."""
-
-    CAPTURE_FAILED = "capture failed"    # nothing was sent
-    CANDIDATE = "candidate"              # a match naming something new
-    HOLD = "hold"                        # a match naming what is shown
-    MISS = "miss"                        # no match, nothing shown to clear
-    CLEAR_CANDIDATE = "clear candidate"  # no match while a title is shown
-
-
 def _norm(text: Optional[str]) -> str:
     return " ".join((text or "").split()).casefold()
 
@@ -176,39 +170,38 @@ def _key(track: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str]]:
     return _norm(track.get("title")), _norm(track.get("artist"))
 
 
-_NOTHING = object()   # a pending verdict of "no match": it would clear the title
-
-
 class DisplayedTitle:
-    """The title the player shows, moved only by two consecutive verdicts that
-    agree on the new value (a track, or nothing).
+    """The title the player shows.
 
-    Tracks compare on title and artist, case and spacing aside. A verdict equal
-    to what is shown drops any pending candidate; only refusals and failures —
-    which never reach `hear` — leave one standing.
+    A match naming something new is shown at once: a song change is the news,
+    and a wrong match is rare (it needs a fingerprint, `matches`). A no-match
+    clears the title only when the next verdict is a no-match too, so one
+    noisy capture — a voice over the intro, a jingle — does not drop a song
+    that is still playing. Tracks compare on title and artist, case and
+    spacing aside.
     """
 
     def __init__(self) -> None:
         self.track: Optional[Dict[str, Any]] = None
-        self._pending: Any = None            # None, _NOTHING or a track
+        self._clearing = False               # one no-match heard under the title
         self._heard_at: Optional[float] = None
 
-    def hear(self, track: Optional[Dict[str, Any]], now: float) -> Tuple[Step, bool]:
-        """Take one verdict (None = no match); answer its step and whether the
-        shown title changed."""
+    def hear(self, track: Optional[Dict[str, Any]], now: float) -> bool:
+        """Take one verdict (None = no match); answer whether the shown title
+        changed."""
         self._heard_at = now
-        key = _key(track)
-        if key == _key(self.track):
-            self._pending = None
-            return (Step.HOLD if track else Step.MISS), False
-        if self._pending is not None:
-            pending = None if self._pending is _NOTHING else self._pending
-            if _key(pending) == key:
-                self.track = track
-                self._pending = None
-                return (Step.HOLD if track else Step.MISS), True
-        self._pending = track if track is not None else _NOTHING
-        return (Step.CANDIDATE if track else Step.CLEAR_CANDIDATE), False
+        if _key(track) == _key(self.track):
+            self._clearing = False
+            return False
+        if track is not None:
+            self.track = track
+            self._clearing = False
+            return True
+        if not self._clearing:
+            self._clearing = True
+            return False
+        self.clear()
+        return True
 
     def stale_at(self) -> Optional[float]:
         """When the shown title expires for want of a verdict, if one is shown."""
@@ -218,25 +211,17 @@ class DisplayedTitle:
 
     def clear(self) -> None:
         self.track = None
-        self._pending = None
+        self._clearing = False
 
 
-def next_delay(step: Step, streak: int) -> float:
-    """Seconds to the next try after one that took `step`, the `streak`-th in a
-    row of its kind (1 for the first): consecutive capture failures, matches
-    holding the shown title, or no-matches."""
-    def stepped(steps: Tuple[int, ...], n: int) -> float:
-        return float(steps[min(max(n, 1), len(steps)) - 1])
-
-    if step is Step.CAPTURE_FAILED:
-        if streak <= CAPTURE_RETRIES:
-            return float(CAPTURE_RETRY_S)
-        return stepped(MISS_STEPS_S, streak - CAPTURE_RETRIES)
-    if step in (Step.CANDIDATE, Step.CLEAR_CANDIDATE):
-        return float(CONFIRM_S)
-    if step is Step.HOLD:
-        return stepped(HOLD_STEPS_S, streak)
-    return stepped(MISS_STEPS_S, streak)
+def next_delay(capture_failures: int = 0) -> float:
+    """Seconds to the next try, after `capture_failures` failed captures in a
+    row (0: the try reached Shazam and was answered)."""
+    if capture_failures == 0:
+        return float(RECOGNITION_INTERVAL_S)
+    if capture_failures <= CAPTURE_RETRIES:
+        return float(CAPTURE_RETRY_S)
+    return float(CAPTURE_GIVE_UP_S)
 
 
 def backoff_delay(refusals: int, jitter: float) -> float:
@@ -353,8 +338,6 @@ class ShazamRecognitionService:
         self._running = False
         self._preroll_skip: int = 0
         self._capture_failures = 0
-        self._holds = 0
-        self._misses = 0
         self._error_reported = False
 
     @property
@@ -391,7 +374,7 @@ class ShazamRecognitionService:
         self._stream_url = stream_url
         self._preroll_skip = preroll_skip
         self._display = DisplayedTitle()
-        self._capture_failures = self._holds = self._misses = 0
+        self._capture_failures = 0
         self._error_reported = False
         self._running = True
 
@@ -477,7 +460,7 @@ class ShazamRecognitionService:
                 self._display.clear()
                 logger.info("Shazam: title cleared (recognition turned off)")
                 await self._notify(None)
-            return time.monotonic() + MISS_STEPS_S[0]
+            return time.monotonic() + RECOGNITION_INTERVAL_S
 
         attempt = await self._attempt()
         now = time.monotonic()
@@ -485,7 +468,7 @@ class ShazamRecognitionService:
         if not attempt.sent:
             self._capture_failures += 1
             logger.debug(f"Shazam: no audio captured ({self._capture_failures} in a row)")
-            return now + next_delay(Step.CAPTURE_FAILED, self._capture_failures)
+            return now + next_delay(self._capture_failures)
         self._capture_failures = 0
 
         if attempt.verdict in (Verdict.REFUSED, Verdict.FAILED):
@@ -495,22 +478,20 @@ class ShazamRecognitionService:
             say(f"Shazam {attempt.reason}, next try in {delay:.0f} s")
             return now + delay
 
+        # A no-match answered while Shazam was refusing is how its throttling
+        # ends (measured: the two alternate), not a verdict about the audio.
+        soft_refusal = attempt.verdict is Verdict.NO_MATCH and self._quota.backing_off
         self._quota.answered()
         if attempt.wait_s is not None:
             self._quota.defer(attempt.wait_s)
 
-        step, changed = self._display.hear(attempt.track, now)
-        if attempt.verdict is Verdict.MATCH:
-            self._misses = 0
-            self._holds = self._holds + 1 if step is Step.HOLD else 0
-        else:
-            self._holds = 0
-            self._misses += 1
-        delay = next_delay(step, self._holds if step is Step.HOLD else self._misses)
+        changed = False if soft_refusal else self._display.hear(attempt.track, now)
+        delay = next_delay()
         if attempt.wait_s is not None:
             delay = max(delay, attempt.wait_s)
         logger.debug(
-            f"Shazam heard {_named(attempt.track)} ({step.value}), next try in {delay:.0f} s"
+            f"Shazam heard {_named(attempt.track)}"
+            f"{' (right after a refusal: no verdict)' if soft_refusal else ''}, next try in {delay:.0f} s"
         )
 
         if changed:
