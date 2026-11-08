@@ -21,6 +21,9 @@ PAYLOAD = b"\xff\xd8\xff\xe0" + b"J" * 4096
 def service(tmp_path, monkeypatch):
     svc = CdDataService()
     svc._covers_dir = str(tmp_path)
+    # Never the unit's own cache: a lookup now saves what it finds itself,
+    # whether or not the test still waits on it.
+    svc._data_file = str(tmp_path / "cd_data.json")
     monkeypatch.setattr(
         musicbrainzngs, "get_image_front", lambda mbid, size="500": PAYLOAD
     )
@@ -489,6 +492,57 @@ class TestLookupMetadata:
 
         assert info.album == "Spaces"
         assert calls == ["d1"], "the retry started a second lookup"
+
+    async def test_an_answer_after_its_caller_gave_up_is_cached_and_handed_on(
+            self, service, tmp_path, monkeypatch):
+        """Measured on the unit 2026-11-08: the answer only an awaiter used to
+        keep was dropped when it came after the caller's timeout, and the disc
+        stayed unnamed until the next retry. The lookup keeps it itself."""
+        import threading
+        service._data_file = str(tmp_path / "cd_data.json")
+        release = threading.Event()
+        calls = self._stalled_musicbrainz(monkeypatch, release)
+        late = []
+        try:
+            first = await asyncio.wait_for(
+                service.lookup_metadata("d1", "toc", self.TOC, on_late=late.append), 2.0)
+            assert first.album is None
+            release.set()
+            for _ in range(200):
+                if late:
+                    break
+                await asyncio.sleep(0.01)
+        finally:
+            release.set()
+
+        assert [info.album for info in late] == ["Spaces"]
+        assert "d1" in service._cache
+        again = await service.lookup_metadata("d1", "toc", self.TOC)
+        assert again.album == "Spaces"
+        assert calls == ["d1"], "the retry asked MusicBrainz again"
+
+    async def test_a_late_answer_that_names_nothing_hands_nothing_on(self, service, monkeypatch):
+        """Only a name is handed on: a late lookup that found nothing leaves
+        the disc to the retry its caller already armed."""
+        import threading
+        release = threading.Event()
+        import backend.sources.cd.data as data_module
+        monkeypatch.setattr(data_module, "LOOKUP_TIMEOUT_S", 0.05)
+        monkeypatch.setattr(
+            musicbrainzngs, "get_releases_by_discid",
+            lambda *a, **k: (release.wait(5), {"disc": {"release-list": []}})[1])
+        late = []
+        try:
+            await service.lookup_metadata("d1", "toc", self.TOC, on_late=late.append)
+            release.set()
+            for _ in range(50):
+                if service._lookup_inflight is None:
+                    break
+                await asyncio.sleep(0.01)
+        finally:
+            release.set()
+        assert service._lookup_inflight is None
+        assert late == []
 
     async def test_a_found_disc_is_cached_and_persisted_for_the_next_insertion(
             self, service, tmp_path, monkeypatch):

@@ -90,7 +90,7 @@ class FakeCdData:
             return None
         return DISC_ID, TOC_STRING, [dict(t) for t in TOC], DISC_END_LBA
 
-    async def lookup_metadata(self, disc_id, toc_string, tracks) -> DiscInfo:
+    async def lookup_metadata(self, disc_id, toc_string, tracks, on_late=None) -> DiscInfo:
         named = self.known.get(disc_id)
         titles = named["titles"] if named else [None] * len(tracks)
         info = [

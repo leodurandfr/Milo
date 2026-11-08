@@ -484,10 +484,15 @@ class CdSource(MpvAudioSource):
             return
         self._lookup_for = generation
 
+        def adopt(info: DiscInfo) -> None:
+            self._post_result(lambda: self._adopt_disc(generation, info), token=generation)
+
         async def lookup() -> None:
             try:
+                # `on_late`: an answer MusicBrainz gives after this call was
+                # answered unnamed names the disc as soon as it lands.
                 info = await self._data_service.lookup_metadata(
-                    toc.disc_id, toc.toc_string, toc.tracks
+                    toc.disc_id, toc.toc_string, toc.tracks, on_late=adopt,
                 )
             except Exception as e:
                 self._logger.error(f"Disc lookup failed: {e}")
@@ -502,6 +507,10 @@ class CdSource(MpvAudioSource):
         self._disarm_timer("identify_grace")
         self._lookup_for = None
         first = self._disc_state is DiscState.IDENTIFYING
+        if not first and self._disc is not None and self._disc.identified:
+            # Named already: a late answer and the retry that joined the same
+            # lookup each bring the same name.
+            return
         if not first and not info.identified:
             # Still unknown (the network is not back): ask again later.
             if self._is_active_source:

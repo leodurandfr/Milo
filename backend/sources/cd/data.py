@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiofiles
 
@@ -34,10 +34,10 @@ logger = logging.getLogger("source.cd.data")
 # for as long as the source stays open.
 COVER_FETCH_TIMEOUT_S = 150.0
 
-# How long an in-flight lookup is awaited before it is given up and the
-# source's retry takes over; the source already plays the disc unnamed after
-# IDENTIFY_GRACE_S. Past the ~100 s its retries last in an outage, for the
-# same missing socket timeout. Only one
+# How long an in-flight lookup is awaited before its caller is answered
+# unnamed (the lookup goes on and names the disc when it ends); the source
+# already plays the disc unnamed after IDENTIFY_GRACE_S. Past the ~100 s its
+# retries last in an outage, for the same missing socket timeout. Only one
 # lookup is ever in flight: musicbrainzngs holds its rate-limit lock for the
 # whole request, so a second thread would only queue behind a stalled one.
 LOOKUP_TIMEOUT_S = 120.0
@@ -133,7 +133,8 @@ class CdDataService:
     # =========================================================================
 
     async def lookup_metadata(
-        self, disc_id: str, toc_string: str, tracks: List[Dict[str, Any]]
+        self, disc_id: str, toc_string: str, tracks: List[Dict[str, Any]],
+        on_late: Optional[Callable[[DiscInfo], None]] = None,
     ) -> DiscInfo:
         """
         Lookup disc metadata from cache or MusicBrainz.
@@ -145,8 +146,12 @@ class CdDataService:
         known disc (and its auto-play) for 97 s. The jacket is `fetch_cover`'s job.
 
         Answers within LOOKUP_TIMEOUT_S, and at once while another disc's
-        lookup is still in flight: past that, the disc comes back unnamed and
-        the source's retry asks again.
+        lookup is still in flight: past that, the disc comes back unnamed. The
+        lookup itself goes on, and what it finds is cached whoever still
+        waits; `on_late` is handed it when it names a disc this call had
+        already answered unnamed. Measured on the unit 2026-11-08: an answer
+        landing after its caller gave up was dropped, and the disc stayed
+        unnamed until the next retry, up to a minute later.
         """
         cached = self._cache.get(disc_id)
         if cached:
@@ -161,55 +166,73 @@ class CdDataService:
             )
             return self._build_fallback_disc_info(disc_id, tracks)
         if inflight is None:
-            lookup = asyncio.get_running_loop().run_in_executor(
-                None, self._lookup_musicbrainz_sync, disc_id, toc_string)
+            lookup = asyncio.get_running_loop().create_task(
+                self._ask_musicbrainz(disc_id, toc_string, tracks))
             self._lookup_inflight = (disc_id, lookup)
             lookup.add_done_callback(self._forget_lookup)
         else:
             lookup = inflight[1]
 
         try:
-            # Shielded like fetch_cover: a retry joins the same thread.
-            result = await asyncio.wait_for(asyncio.shield(lookup), LOOKUP_TIMEOUT_S)
+            # Shielded like fetch_cover: a retry joins the same lookup.
+            info = await asyncio.wait_for(asyncio.shield(lookup), LOOKUP_TIMEOUT_S)
         except TimeoutError:
             logger.warning(
                 f"MusicBrainz did not answer for disc {disc_id} within "
-                f"{LOOKUP_TIMEOUT_S:.0f} s, a retry will name it"
+                f"{LOOKUP_TIMEOUT_S:.0f} s, its answer will name it when it comes"
             )
-            result = None
+            if on_late is not None:
+                lookup.add_done_callback(lambda done: self._hand_late(done, on_late))
+            info = None
+        return info or self._build_fallback_disc_info(disc_id, tracks)
+
+    async def _ask_musicbrainz(
+        self, disc_id: str, toc_string: str, tracks: List[Dict[str, Any]]
+    ) -> Optional[DiscInfo]:
+        """One MusicBrainz lookup, cached when it names the disc — None when
+        it does not. Runs to its end whether or not anyone still waits."""
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, self._lookup_musicbrainz_sync, disc_id, toc_string)
         except Exception as e:
             logger.warning(f"MusicBrainz lookup failed: {e}")
-            result = None
+            return None
+        if not result:
+            return None
+        album, artist, year, release_mbid, release_group_mbid, mb_tracks = result
 
-        if result:
-            album, artist, year, release_mbid, release_group_mbid, mb_tracks = result
+        # Merge MusicBrainz track titles with TOC durations
+        merged_tracks = self._merge_tracks(mb_tracks, tracks)
 
-            # Merge MusicBrainz track titles with TOC durations
-            merged_tracks = self._merge_tracks(mb_tracks, tracks)
+        cache_entry = {
+            "album": album,
+            "artist": artist,
+            "year": year,
+            "release_mbid": release_mbid,
+            "release_group_mbid": release_group_mbid,
+            "cover_missing": False,
+            "tracks": [{"number": t["number"], "title": t["title"], "duration": t["duration"]} for t in merged_tracks],
+            "cached_at": int(time.time()),
+        }
+        self._cache[disc_id] = cache_entry
+        await self._save_data()
+        return self._disc_info_from_cache(disc_id, cache_entry)
 
-            cache_entry = {
-                "album": album,
-                "artist": artist,
-                "year": year,
-                "release_mbid": release_mbid,
-                "release_group_mbid": release_group_mbid,
-                "cover_missing": False,
-                "tracks": [{"number": t["number"], "title": t["title"], "duration": t["duration"]} for t in merged_tracks],
-                "cached_at": int(time.time()),
-            }
-            self._cache[disc_id] = cache_entry
-            await self._save_data()
-
-            return self._disc_info_from_cache(disc_id, cache_entry)
-
-        # Fallback: untitled tracks with TOC durations
-        return self._build_fallback_disc_info(disc_id, tracks)
+    @staticmethod
+    def _hand_late(done: asyncio.Future, on_late: Callable[[DiscInfo], None]) -> None:
+        if done.cancelled() or done.exception() is not None:
+            return
+        info = done.result()
+        if info is not None:
+            on_late(info)
 
     def _forget_lookup(self, done: asyncio.Future) -> None:
         if self._lookup_inflight is not None and self._lookup_inflight[1] is done:
             self._lookup_inflight = None
-        if not done.cancelled():
-            done.exception()  # retrieved here: its caller may be gone
+        if not done.cancelled() and done.exception() is not None:
+            # Retrieved here, since its caller may be gone; said, since then
+            # nobody else would.
+            logger.error(f"MusicBrainz lookup could not be completed: {done.exception()}")
 
     def _lookup_musicbrainz_sync(
         self, disc_id: str, toc_string: str
@@ -396,8 +419,10 @@ class CdDataService:
     def _forget_download(self, disc_id: str, done: asyncio.Future) -> None:
         if self._cover_downloads.get(disc_id) is done:
             del self._cover_downloads[disc_id]
-        if not done.cancelled():
-            done.exception()  # retrieved here: its caller may be gone
+        if not done.cancelled() and done.exception() is not None:
+            # Retrieved here, since its caller may be gone; said, since then
+            # nobody else would.
+            logger.error(f"MusicBrainz lookup could not be completed: {done.exception()}")
 
     def cover_fetchable(self, disc_id: str) -> bool:
         """Whether fetch_cover could still bring a jacket for this disc.

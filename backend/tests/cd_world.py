@@ -80,6 +80,8 @@ class CdWorld(WireReader):
         self.toc_failures = 0        # TOC reads that fail before one works
         self.lookups = 0             # MusicBrainz lookups started
         self.lookup_gate: Optional[asyncio.Event] = None
+        self.lookup_gives_up = False  # the caller is answered unnamed, the lookup goes on
+        self.late_answers: List[Any] = []   # the `on_late` of each caller answered so far
         self.lookup_raises = False
         # The Cover Art Archive: does it know the disc, what does it answer
         # (a URL, None for a miss, an exception), and when (a gate).
@@ -151,22 +153,17 @@ class CdWorld(WireReader):
                     for i, (d, o) in enumerate(zip(DURATIONS, OFFSETS))
                 ], LENGTH
 
-            async def lookup_metadata(self, disc_id, toc_string, tracks) -> DiscInfo:
+            async def lookup_metadata(self, disc_id, toc_string, tracks, on_late=None) -> DiscInfo:
                 world.lookups += 1
+                if world.lookup_gives_up:
+                    # Past LOOKUP_TIMEOUT_S: answered unnamed, the lookup goes on.
+                    world.late_answers.append(on_late)
+                    return world.disc_info(disc_id, tracks, named=False)
                 if world.lookup_gate is not None:
                     await world.lookup_gate.wait()
                 if world.lookup_raises:
                     raise OSError("the cache file could not be written")
-                titles = TITLES if world.named else [None] * len(tracks)
-                info = [TrackInfo(number=t["number"], title=title, duration=t["duration"])
-                        for t, title in zip(tracks, titles)]
-                return DiscInfo(
-                    disc_id=disc_id,
-                    album="Eight" if world.named else None,
-                    artist="The Octet" if world.named else None,
-                    track_count=len(info), total_duration=sum(t.duration for t in info),
-                    tracks=info, identified=world.named,
-                )
+                return world.disc_info(disc_id, tracks, named=world.named)
 
             def cover_fetchable(self, disc_id: str) -> bool:
                 return world.cover_known
@@ -265,6 +262,29 @@ class CdWorld(WireReader):
         event = DriveEvent.from_udev(action, {} if props is None else props)
         for listener in list(self.listeners):
             listener(event)
+
+    @staticmethod
+    def disc_info(disc_id: str, tracks: List[Dict[str, Any]], named: bool) -> DiscInfo:
+        titles = TITLES if named else [None] * len(tracks)
+        info = [TrackInfo(number=t["number"], title=title, duration=t["duration"])
+                for t, title in zip(tracks, titles)]
+        return DiscInfo(
+            disc_id=disc_id,
+            album="Eight" if named else None,
+            artist="The Octet" if named else None,
+            track_count=len(info), total_duration=sum(t.duration for t in info),
+            tracks=info, identified=named,
+        )
+
+    def musicbrainz_answers_late(self) -> None:
+        """The lookup whose callers were all answered unnamed names the disc:
+        each of them is handed the answer, as CdDataService does."""
+        tracks = [{"number": i + 1, "duration": d} for i, d in enumerate(DURATIONS)]
+        info = self.disc_info(DISC_ID, tracks, named=True)
+        for on_late in self.late_answers:
+            if on_late is not None:
+                on_late(info)
+        self.late_answers.clear()
 
     async def boot(self) -> None:
         await self.source.initialize()

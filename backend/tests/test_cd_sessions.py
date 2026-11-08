@@ -711,6 +711,31 @@ async def test_a_late_answer_that_names_nothing_leaves_the_retry_to_name_it(worl
     assert w.disc()["album"] == "Eight"
 
 
+async def test_an_answer_that_outlives_its_caller_names_the_disc_when_it_lands(world):
+    """Measured on the unit 2026-11-08: past LOOKUP_TIMEOUT_S the caller is
+    answered unnamed and the lookup goes on; its answer, landing before the
+    next retry, was dropped, and the disc stayed unnamed up to a minute more.
+    It names the disc in place as soon as it lands, with no second lookup."""
+    w = await world(disc=None)
+    await w.select()
+    w.lookup_gives_up = True
+    await w.insert()
+    w.playhead(1)
+    await w.advance(IDENTIFY_GRACE_S + 0.1)
+    assert w.playing()
+    assert w.disc()["album"] is None
+    loads, lookups = w.log.count("mpv.loadfile"), w.lookups
+    session_id = w.session()["id"]
+
+    w.musicbrainz_answers_late()
+    await w.advance(1.1)
+    assert w.disc()["album"] == "Eight"
+    assert w.session()["title"] == "One"
+    assert w.session()["id"] == session_id
+    assert w.log.count("mpv.loadfile") == loads
+    assert w.lookups == lookups
+
+
 async def test_no_second_lookup_starts_while_the_first_still_runs(world):
     """The lookup in flight when the disc plays unnamed stands for the retry:
     a second one would queue behind the stalled thread musicbrainzngs keeps
