@@ -454,6 +454,16 @@ async def test_a_session_whose_death_is_heard_late_ends_at_the_next_roc_recv(wor
     assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
 
 
+async def test_a_restart_asked_from_outside_heard_late_ends_without_a_banner(world):
+    """Its first line is the first news of the old roc-recv's end; a restart
+    someone asked for is told from a death by systemd's restart count."""
+    world.watch_is_late = True
+    await world.select()
+    await world.mac_streams(MINI_IP)
+    await world.restarted_from_outside()
+    assert world.errors() == []
+
+
 # === Who the link analysis measures ===
 
 async def test_a_mac_still_being_named_is_streaming_for_the_link_analysis(world):

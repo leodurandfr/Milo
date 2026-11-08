@@ -591,14 +591,14 @@ class BluetoothSource(BaseAudioSource):
         await self._apply_exposure()
         return banners
 
-    async def _daemon_gone(self, session: Session) -> None:
+    async def _daemon_gone(self, session: Session, gone_pid: Optional[int] = None) -> None:
         """BlueALSA's process ended under the session (its watch, or the
         monitor's `ServiceStopped`, whichever is heard first): no sink until it
         is back, so nothing is offered meanwhile — not even after a backend
         restart, which stops BlueALSA and leaves bluetooth.service running.
         Without a session `_bluealsa_moved` closes the exposure itself."""
         self._bluealsa_up = False
-        await super()._daemon_gone(session)
+        await super()._daemon_gone(session, gone_pid)
 
     async def _bluez_moved(self, up: bool) -> list:
         """bluetoothd left the bus or a new one's adapter is up.

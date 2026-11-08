@@ -396,6 +396,12 @@ class MacWorld(WireReader):
         self.pid_unreadable = False
         systemd.main_pid = AsyncMock(side_effect=lambda *_: None if self.pid_unreadable else self.pid or 0)
         systemd.unit_state = AsyncMock(side_effect=lambda *_: self.unit_state)
+        # NRestarts counts what Restart= did and is flushed by a restart that
+        # was asked for (measured 2026-11-08, systemd 257).
+        self.n_restarts = 0
+        systemd.main_pid_and_restarts = AsyncMock(
+            side_effect=lambda *_: (self.pid or 0, self.n_restarts)
+        )
         systemd.main_start_usec = AsyncMock(side_effect=lambda *_: self.started_usec)
         systemd.main_start_monotonic_usec = AsyncMock(side_effect=lambda *_: self.started_mono_usec)
         self.systemd = systemd
@@ -458,6 +464,7 @@ class MacWorld(WireReader):
         return True
 
     async def _unit_restart(self, *_: Any) -> bool:
+        self.n_restarts = 0
         self._die()
         self._spawn()
         return True
@@ -528,6 +535,15 @@ class MacWorld(WireReader):
         await settle()
 
     async def systemd_restarts_it(self) -> None:
+        self.n_restarts += 1
+        self._spawn()
+        await settle()
+
+    async def restarted_from_outside(self) -> None:
+        """`systemctl restart milo-mac` from a shell: up again under a new pid
+        before the old one's exit is heard."""
+        self.n_restarts = 0
+        self._die()
         self._spawn()
         await settle()
 

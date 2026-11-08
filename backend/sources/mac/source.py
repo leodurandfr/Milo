@@ -249,7 +249,7 @@ class MacSource(BaseAudioSource):
             # What the previous process announced went with it.
             self._naming.clear()
             if self._session is not None:
-                await self._daemon_gone(self._session)
+                await self._daemon_gone(self._session, previous)
         return True
 
     def _sender_arrived(self, address: Tuple[str, Optional[int]]) -> None:

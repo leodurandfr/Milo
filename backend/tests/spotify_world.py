@@ -732,6 +732,12 @@ class SpotifyWorld(WireReader):
         # crash (auto-restart), `inactive`/`success` after a stop.
         self.unit_state = ("inactive", "success")
         systemd.unit_state = AsyncMock(side_effect=lambda *_: self.unit_state)
+        # NRestarts counts what Restart= did and is flushed by a restart that
+        # was asked for (measured 2026-11-08, systemd 257).
+        self.n_restarts = 0
+        systemd.main_pid_and_restarts = AsyncMock(
+            side_effect=lambda *_: (self.pid or 0, self.n_restarts)
+        )
         systemd.invocation_id = AsyncMock(side_effect=lambda *_: self.invocation)
         self.systemd = systemd
 
@@ -802,9 +808,45 @@ class SpotifyWorld(WireReader):
 
     async def _unit_restart(self, *_: Any) -> bool:
         self.restarts.append(self.clock.now)
+        self.n_restarts = 0
         self._die()
         self._spawn()
         return True
+
+    async def restarted_from_outside(self) -> None:
+        """`systemctl restart` from a shell or an update: the unit is up again
+        under a new pid before the source hears the old one exit (measured
+        2026-11-08: `active`/`success` 9 ms after the pidfd fired)."""
+        self.n_restarts = 0
+        self._die()
+        self._spawn()
+        await settle()
+
+    async def crash_heard_late(self) -> None:
+        """SIGKILL, and the exit is read only once Restart= has brought the
+        successor up: `active`/`success` too, but counted in NRestarts."""
+        self.n_restarts += 1
+        self._die()
+        self._spawn()
+        await settle()
+
+    async def exits_by_itself(self) -> None:
+        """A clean exit 0 under Restart=always, heard at once: `activating`
+        (auto-restart), Result `success`, MainPID 0, count 0 (measured)."""
+        self.unit_state = ("activating", "success")
+        self._die()
+        await settle()
+
+    async def crash_heard_before_systemd(self) -> None:
+        """SIGKILL, and the exit is read before systemd has reaped it: the unit
+        still says `active`/`success` and names the dead pid as its MainPID."""
+        dead = self.pid
+        self.daemon.dies()
+        for watched, on_exit in list(self.watches):
+            if watched == dead:
+                on_exit()
+        await settle()
+        self.pid = None
 
     async def kill_daemon(self) -> None:
         """SIGKILL: /events closes, nothing else is said."""
@@ -821,6 +863,7 @@ class SpotifyWorld(WireReader):
 
     async def systemd_restarts_it(self) -> None:
         """Restart= brings a new process up; the /events client reconnects."""
+        self.n_restarts += 1
         self._spawn()
         await self.advance(2.1)
 

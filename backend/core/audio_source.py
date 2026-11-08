@@ -1266,7 +1266,7 @@ class BaseAudioSource(ABC):
             return
         self._close_daemon_watch()
         self._daemon_watch = ProcessWatch(
-            pid, lambda: self._post_result(lambda: self._daemon_gone(session), token=session)
+            pid, lambda: self._post_result(lambda: self._daemon_gone(session, pid), token=session)
         )
 
     def _close_daemon_watch(self) -> None:
@@ -1274,16 +1274,17 @@ class BaseAudioSource(ABC):
         if watch is not None:
             watch.close()
 
-    async def _daemon_gone(self, session: Session) -> None:
+    async def _daemon_gone(self, session: Session, gone_pid: Optional[int] = None) -> None:
         """The daemon holding `session` exited. Unasked, that is DAEMON_DIED,
         reported once; a restart Milō ordered to end the session is the end
-        it asked for, and so is a stop systemd was asked for — a backend
-        restart stops the source units first (BindsTo + After=), while the
-        backend still runs."""
+        it asked for, and so is a stop or a restart systemd was asked for — a
+        backend restart stops the source units first (BindsTo + After=), while
+        the backend still runs; an update restarts the daemon it replaced.
+        `gone_pid` is the process that exited, when it is known."""
         reason = session.end_requested
         if reason is None:
-            if await self._unit_stopped_on_purpose():
-                self._logger.info(f"{self.service_name} was stopped under the session — ending it")
+            if await self._unit_stopped_on_purpose(gone_pid):
+                self._logger.info(f"{self.service_name} was stopped or restarted under the session — ending it")
                 reason = EndReason.USER_STOP
             else:
                 reason = EndReason.DAEMON_DIED
@@ -1297,21 +1298,44 @@ class BaseAudioSource(ABC):
         if reason is EndReason.DAEMON_DIED:
             self.broadcast_error(SourceErrorReason.STREAM_DISCONNECTED)
 
-    async def _unit_stopped_on_purpose(self) -> bool:
-        """Whether the unit is going down because someone asked, as opposed
-        to failing or coming back.
+    async def _unit_stopped_on_purpose(self, gone_pid: Optional[int] = None) -> bool:
+        """Whether the unit went down because someone asked — a stop, or a
+        restart when `gone_pid`, the process that exited, is known — as
+        opposed to failing.
 
         Measured 2026-09-24, read when the pidfd fired: a stop leaves the unit
         `inactive` with Result `success`, a crash `activating` (auto-restart)
         with `signal`; systemd also stops a unit that failed (an OOM stop),
-        `deactivating` with a Result that is not `success`. False when systemd
-        cannot be asked: the watch alone then says what it has always said.
+        `deactivating` with a Result that is not `success`.
+
+        A restart that was asked for (`systemctl restart`, an update) is over
+        before the question arrives: 9 ms after the pidfd fired the unit was
+        `active`, Result `success`, under a new MainPID (measured 2026-11-08).
+        Restart= after a crash reads the same once its delay has run, but
+        systemd counts that restart in NRestarts, and a stop or a restart that
+        was asked for flushes the count (measured 2026-11-08, systemd 257; a
+        `start` inside RestartSec does not). So a successor
+        running with a count of 0 was started by a request. Read before systemd
+        has reaped the exit, MainPID is still `gone_pid`: not a successor.
+
+        False when systemd cannot be asked: the watch alone then says what it
+        has always said.
         """
         state = await self._unit_state()
         if not state:
             return False
         active, result = state
-        return active in ("inactive", "deactivating") and result == "success"
+        if result != "success":
+            return False
+        if active in ("inactive", "deactivating"):
+            return True
+        if gone_pid is None or active not in ("active", "activating"):
+            return False
+        successor = await self._unit_successor()
+        if successor is None:
+            return False
+        main_pid, n_restarts = successor
+        return main_pid not in (0, gone_pid) and n_restarts == 0
 
     async def _unit_state(self, unit: Optional[str] = None) -> Optional[Tuple[str, str]]:
         """(ActiveState, Result) of `unit` (the source's own by default), or
@@ -1323,6 +1347,17 @@ class BaseAudioSource(ABC):
             return await self._service_manager.unit_state(unit)
         except Exception as e:
             self._logger.warning(f"Could not read the state of {unit}: {e}")
+            return None
+
+    async def _unit_successor(self) -> Optional[Tuple[int, int]]:
+        """(MainPID, NRestarts) of the source's unit, or None when systemd
+        cannot be asked."""
+        if self._service_manager is None or not self.service_name:
+            return None
+        try:
+            return await self._service_manager.main_pid_and_restarts(self.service_name)
+        except Exception as e:
+            self._logger.warning(f"Could not read the main process of {self.service_name}: {e}")
             return None
 
     async def _request_idle_end(self) -> None:

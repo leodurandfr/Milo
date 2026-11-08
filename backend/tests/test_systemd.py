@@ -709,6 +709,24 @@ class TestUnitState:
         assert calls[2] == ("Get", ["org.freedesktop.systemd1.Service", "Result"])
         assert calls[-1][0] == "disconnect"
 
+    async def test_the_unit_is_asked_its_main_process_and_its_restart_count(self, manager, monkeypatch):
+        """What tells a restart someone asked for from Restart= after a crash:
+        reading another property answers every restart as a death, or none."""
+        from dbus_next import Variant
+        calls = self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/milo_2dspotify_2eservice"]),
+            self._Reply([Variant("u", 4242)]),
+            self._Reply([Variant("u", 0)]),
+        )
+        assert await manager.main_pid_and_restarts("milo-spotify.service") == (4242, 0)
+        assert calls[1] == ("Get", ["org.freedesktop.systemd1.Service", "MainPID"])
+        assert calls[2] == ("Get", ["org.freedesktop.systemd1.Service", "NRestarts"])
+
+    async def test_a_unit_that_is_not_loaded_has_no_successor(self, manager, monkeypatch):
+        self._bus(monkeypatch, self._Reply(error="org.freedesktop.systemd1.NoSuchUnit"))
+        assert await manager.main_pid_and_restarts("milo-spotify.service") is None
+
     async def test_a_unit_that_is_not_loaded_was_stopped(self, manager, monkeypatch):
         self._bus(monkeypatch, self._Reply(error="org.freedesktop.systemd1.NoSuchUnit"))
         assert await manager.unit_state("milo-spotify.service") == ("inactive", "success")

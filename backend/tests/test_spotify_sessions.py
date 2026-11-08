@@ -472,6 +472,44 @@ async def test_a_daemon_killed_mid_play_ends_the_session_at_once(world):
     assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
 
 
+async def test_a_restart_asked_from_outside_ends_the_session_without_a_banner(world):
+    """Measured on the unit 2026-11-08: `systemctl restart milo-spotify` under a
+    session showed "Spotify stream interrupted" and logged an ERROR, because
+    the unit was already `active` again when the exit was heard. A restart
+    someone asked for (a shell, an update) is not a death."""
+    await world.phone_plays(PARAPLUIE)
+    await world.restarted_from_outside()
+    assert not world.active()
+    assert world.errors() == []
+
+
+async def test_a_crash_heard_after_restart_brought_the_successor_up_is_a_death(world):
+    """The successor of a crash reads `active`/`success` as well; NRestarts is
+    what tells it from a requested restart."""
+    await world.phone_plays(PARAPLUIE)
+    await world.crash_heard_late()
+    assert not world.active()
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+async def test_a_daemon_that_exits_by_itself_is_a_death(world):
+    """Exit 0 reads Result `success` with no restart counted yet; only the
+    MainPID of 0 says no successor runs."""
+    await world.phone_plays(PARAPLUIE)
+    await world.exits_by_itself()
+    assert not world.active()
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
+async def test_a_crash_heard_before_systemd_reaped_it_is_a_death(world):
+    """Read before the reap, the unit still names the dead process as its
+    MainPID with a count of 0: that is no successor."""
+    await world.phone_plays(PARAPLUIE)
+    await world.crash_heard_before_systemd()
+    assert not world.active()
+    assert world.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+
+
 async def test_an_unreadable_status_on_reconnect_keeps_the_session(world):
     """E10: when /events came back and /status could not be read, the source
     published "no session" over music still playing. A failed read learns nothing: the

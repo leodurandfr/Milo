@@ -260,6 +260,24 @@ class SystemdServiceManager:
             return "inactive", "success"
         return None if values is None else (values[0], values[1])
 
+    async def main_pid_and_restarts(self, service: str) -> Optional[Tuple[int, int]]:
+        """The unit's (MainPID, NRestarts), or None when they cannot be read or
+        the unit is not loaded.
+
+        What a source asks when its daemon's process is gone and the unit is
+        already up again: NRestarts counts the restarts Restart= made and is
+        flushed by a stop or a restart that was asked for (measured
+        2026-11-08), so a new
+        MainPID with a count of 0 is a restart someone requested. Read over
+        D-Bus like `unit_state`, for the same reason.
+        """
+        values = await self._unit_properties(
+            service, (("Service", "MainPID"), ("Service", "NRestarts")), "the main process",
+        )
+        if values is None or values is _NOT_LOADED:
+            return None
+        return int(values[0]), int(values[1])
+
     async def main_start_usec(self, service: str) -> Optional[int]:
         """When the unit's main process started, in microseconds since the
         epoch, or None when none ever did (not loaded, never started) or it
