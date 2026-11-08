@@ -40,7 +40,7 @@
           <span class="foundations__bar" :style="{ width: `var(${token.name})` }" />
           <span class="foundations__name text-mono-small">{{ token.name }}</span>
           <span class="foundations__value text-mono-small">
-            {{ token.value }}<em v-if="token.mobile" class="foundations__mobile"> · 4:3 {{ token.mobile }}</em>
+            {{ token.value }}<em v-if="token.mobile" class="foundations__mobile"> · mobile {{ token.mobile }}</em>
           </span>
         </li>
       </ul>
@@ -86,7 +86,7 @@
             {{ style.size?.value }}/{{ style.lineHeight?.value }} ·
             {{ style.letterSpacing?.value }}
             <em v-if="style.size?.mobile" class="foundations__mobile">
-              · 4:3 {{ style.size.mobile }}/{{ style.lineHeight?.mobile }}
+              · mobile {{ style.size.mobile }}/{{ style.lineHeight?.mobile }}
             </em>
           </p>
         </li>
@@ -101,7 +101,7 @@
         <li v-for="token in block.tokens" :key="token.name" class="foundations__row foundations__row--plain">
           <span class="foundations__name text-mono-small">{{ token.name }}</span>
           <span class="foundations__value text-mono-small">
-            {{ token.value }}<em v-if="token.mobile" class="foundations__mobile"> · 4:3 {{ token.mobile }}</em>
+            {{ token.value }}<em v-if="token.mobile" class="foundations__mobile"> · mobile {{ token.mobile }}</em>
           </span>
         </li>
       </ul>

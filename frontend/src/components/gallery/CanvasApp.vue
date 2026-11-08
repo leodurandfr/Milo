@@ -382,8 +382,8 @@ onUnmounted(() => {
 
    Named by its own class rather than handed one through the args: its root is a
    Teleport, so an inherited `class` has no element to land on and Vue says so.
-   That the selector is scoped under `.canvas` is the useful half — below 4:3 the
-   player teleports to body, out of this subtree, so the mobile mini-bar keeps
+   That the selector is scoped under `.canvas` is the useful half — in the mobile
+   layout the player teleports to body, out of this subtree, so the mobile mini-bar keeps
    its own full-width geometry and only the docked form is constrained. */
 .canvas :deep(.audio-player) {
   width: 380px;

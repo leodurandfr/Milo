@@ -125,7 +125,7 @@ const CANVAS_SRC = '/canvas.html?virtualKeyboard=true';
 const VIEWPORTS = [
   { value: 'fill', name: 'Fill', label: 'fills the pane', width: null, height: null },
   { value: 'kiosk', name: 'Kiosk', label: '1280 × 800 — the unit', width: 1280, height: 800 },
-  { value: 'phone', name: 'Phone', label: '390 × 844 — below 4:3', width: 390, height: 844 }
+  { value: 'phone', name: 'Phone', label: '390 × 844 — mobile layout', width: 390, height: 844 }
 ];
 
 /**

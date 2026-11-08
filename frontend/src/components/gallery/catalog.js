@@ -140,7 +140,7 @@ export const ENTRIES = [
     id: 'ButtonGroup',
     group: 'actions',
     file: 'components/ui/ButtonGroup.vue',
-    summary: 'Segmented control over options: one track, a thumb gliding under the selected one. mobileLayout picks the reflow below 4:3.',
+    summary: 'Segmented control over options: one track, a thumb gliding under the selected one. mobileLayout picks the reflow in the mobile layout.',
   },
   {
     id: 'ListItemButton',
@@ -369,7 +369,7 @@ export const ENTRIES = [
     group: 'layout',
     file: 'components/audio/AudioPlayer.vue',
     coupling: 'store',
-    summary: 'The playing bar of the sources that have a browser, beside their navigation: one shell around PlayerBody, the body it shares with the full player, ranged left on its dark card. It reads what it draws from the state, so the now-playing state sits in the State section; what the source still adds is radio\'s favorite after the transport (transport-end) and its station behind a track on the phone (artwork-badge). Its cover on the kiosk\'s card (on the phone, a tap anywhere on the bar) emits expand, and the source answers by drawing AudioPlayerFull in place of its navigation; the title (the album) and the artist are emitted where the navigation says there is one to open. Its second form is only reachable through the Phone viewport: below 4:3 the docked card becomes a mini-bar teleported to body, with a swipe that steps or skips, over a carousel when the source has a queue.',
+    summary: 'The playing bar of the sources that have a browser, beside their navigation: one shell around PlayerBody, the body it shares with the full player, ranged left on its dark card. It reads what it draws from the state, so the now-playing state sits in the State section; what the source still adds is radio\'s favorite after the transport (transport-end) and its station behind a track on the phone (artwork-badge). Its cover on the kiosk\'s card (on the phone, a tap anywhere on the bar) emits expand, and the source answers by drawing AudioPlayerFull in place of its navigation; the title (the album) and the artist are emitted where the navigation says there is one to open. Its second form is only reachable through the Phone viewport: in the mobile layout the docked card becomes a mini-bar teleported to body, with a swipe that steps or skips, over a carousel when the source has a queue.',
   },
   {
     id: 'PlayerTopRow',
@@ -516,7 +516,7 @@ export const ENTRIES = [
     id: 'SectionHeader',
     group: 'settings',
     file: 'components/ui/SectionHeader.vue',
-    summary: 'Title and optional subtitle on the left, an actions slot on the right, stacking to a column below 4:3. Distinct from SectionCard.title: this is a header placed inside a card, not the card heading.',
+    summary: 'Title and optional subtitle on the left, an actions slot on the right, stacking to a column in the mobile layout. Distinct from SectionCard.title: this is a header placed inside a card, not the card heading.',
   },
 ];
 

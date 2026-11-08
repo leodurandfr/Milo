@@ -86,7 +86,7 @@
     <GalleryVariant label=":title + :subtitle" stacked>
       <SectionHeader title="Stations" subtitle="24 saved" />
     </GalleryVariant>
-    <GalleryVariant label="actions slot — right-aligned, and it stacks below 4:3" stacked>
+    <GalleryVariant label="actions slot — right-aligned, and it stacks in the mobile layout" stacked>
       <SectionHeader title="Stations" subtitle="24 saved">
         <template #actions>
           <Button size="small" variant="tinted">Add</Button>

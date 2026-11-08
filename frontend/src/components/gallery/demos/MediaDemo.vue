@@ -66,7 +66,7 @@
         </div>
       </div>
     </GalleryVariant>
-    <GalleryVariant label="size — 32 (small) / 64 (medium) / 72 (large), clamped to 64 below 4:3">
+    <GalleryVariant label="size — 32 (small) / 64 (medium) / 72 (large), clamped to 64 in the mobile layout">
       <AppIcon name="spotify" size="tile-sm" />
       <AppIcon name="spotify" size="tile-md" />
       <AppIcon name="spotify" size="tile-lg" />

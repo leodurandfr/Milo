@@ -103,8 +103,8 @@
                              one that was pressed: it keeps its own label and colour
                              rather than being joined by a second, still-clickable
                              one the backend would refuse. -->
-                        <!-- Each action comes twice: a labelled button, and below
-                             4:3 an icon on the row's own line. -->
+                        <!-- Each action comes twice: a labelled button, and in the
+                             mobile layout an icon on the row's own line. -->
                         <template v-if="isLocalUpdating(key) || debugForceUpdating">
                           <Button size="small" :variant="isFromMenu(key) ? 'control' : 'brand'"
                             class="program-button action-wide" loading disabled>
@@ -670,7 +670,7 @@ onMounted(async () => {
 
 /* IconButton's small plate is 40px against Button's 36px: side by side, the
    icon stood taller than the text button beside it. 24px icon + 6px padding
-   matches `btn--small`, and it is IconButton's own small size below 4:3. */
+   matches `btn--small`, and it is IconButton's own small size in the mobile layout. */
 .row-icon-button {
   padding: 6px;
   border-radius: var(--radius-03);

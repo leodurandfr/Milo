@@ -241,7 +241,7 @@ const NOTES = {
   CONTRAST: 'Dark in both themes, so what is drawn on it — the glint, the fill, the white text — is the same in both.',
   'ON IMAGE': 'Drawn over artwork, which does not change with the theme, so neither do these. The backdrop pair is what AudioPlayerFull draws under its blurred cover, in the dark theme only.',
   'SOURCE GRADIENTS': 'The tint AudioSourceLayout washes behind a browsing source. Three one-off brand colours, which is why they are gradients here and not tokens in a ramp.',
-  SPACING: 'A step that shrinks below 4:3 shows its portrait value beside the base one — and --space-05-fixed is the one that deliberately does not.',
+  SPACING: 'A step that shrinks in the mobile layout shows its mobile value beside the base one — and --space-05-fixed is the one that deliberately does not.',
   'CARD GRIDS': 'A count, not a measurement: the square-artwork grids take their column count from the viewport, because the player pane narrows their container without narrowing the screen. The steps above 1600px are in design-system.css beside the token.',
   CONTROLS: 'The thickness of a slider\'s rail, and of every box drawn in its place — a multiroom row\'s skeleton, its offline and external-volume labels — so a row keeps its shape whatever it shows.',
   'TEXT STYLES': 'The raw operands. What a component applies is the utility class below, never these directly.',
@@ -284,7 +284,7 @@ const PAGES = [
       {
         title: 'UTILITY CLASSES',
         kind: 'specimen',
-        note: 'Rendered at the size this browser resolves. The mobile column is what the same class draws below 4:3.',
+        note: 'Rendered at the size this browser resolves. The mobile column is what the same class draws in the mobile layout.',
         styles: TYPE_STYLES
       }
     ]

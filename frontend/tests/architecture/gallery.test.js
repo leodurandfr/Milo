@@ -1627,7 +1627,7 @@ describe('component gallery source pages', () => {
     // The stage pads itself, which is right for a primitive sitting on it and
     // wrong for a whole screen: the presets are labelled "1280 × 800 — the
     // unit", and an inset stage hands the view 1232 × 752 instead — a different
-    // aspect ratio (which is what every mobile branch in the app switches on), a
+    // aspect ratio (which every mobile branch in the app reads, with the width), a
     // different column count in every grid, and a different share of the row for
     // the 380 px player pane. So the padding is zeroed for those selections.
     // Both halves are asserted because either alone is silently a no-op: the
@@ -1794,7 +1794,7 @@ describe('component gallery foundations', () => {
     expect(problems).toEqual([]);
   });
 
-  it('overrides only tokens that exist below 4:3', () => {
+  it('overrides only tokens that exist in the mobile layout', () => {
     const base = new Set(TOKENS.map(token => token.name));
     const orphans = Object.keys(MOBILE).filter(name => !base.has(name));
 
