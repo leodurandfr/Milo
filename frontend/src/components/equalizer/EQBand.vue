@@ -2,15 +2,17 @@
 <!-- Individual EQ band control: band label and gain slider -->
 <!-- The class names .gain-slider and .gain-value are read as anchors by
      tests/architecture/equalizerTargetScope.test.js, which pins that neither
-     renders a figure before the store has loaded one. Renaming either is fine;
+     renders a figure before the store has loaded one: the zeroed placeholder
+     never shows, and the slider draws only a gain a record carried — the
+     previous target's, held for at most HOLD_MS. Renaming either is fine;
      update PRINTED_GAIN_CLASS / GAIN_SLIDER_CLASS there in the same commit. -->
 <template>
   <div class="eq-band" :class="{ 'horizontal': orientation === 'horizontal', 'compact': compact }">
     <div class="band-label text-mono-small">{{ displayName }}</div>
 
-    <div class="gain-slider" :class="{ 'pending': !loaded }">
+    <div class="gain-slider" :class="{ 'pending': !loaded && !holding }">
       <RangeSlider
-        :model-value="gainValue"
+        :model-value="shownGain"
         :min="-15"
         :max="15"
         :step="0.5"
@@ -35,6 +37,7 @@
 import { ref, computed, watch } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import { useI18n } from '@/services/i18n';
+import { useTimer } from '@/composables/useTimer';
 
 const props = defineProps({
   gain: { type: Number, default: 0 },
@@ -52,12 +55,39 @@ const emit = defineEmits(['update:gain', 'change']);
 
 const isDragging = ref(false);
 
-// A preset glides; a record arriving is placed. The gains and `loaded` land in
+// A preset glides; a first record arriving is placed. The gains and `loaded` land in
 // one tick, and a transition reads the style it lands in, so the glide comes
 // back only once a frame has drawn the gains — else every open of the modal
 // would raise all ten bands from the zeroed placeholder.
 const placed = ref(false);
+
+// A target switch reloads a band that already drew a curve. It holds that
+// curve, disabled and unfigured, until the next record lands and the band glides
+// to it — never the zeroed placeholder. A record slower than HOLD_MS is a target
+// not answering, and the band hides as on a first load rather than keep showing
+// the previous target's curve under the new tab.
+const HOLD_MS = 1000;
+const timer = useTimer();
+const holding = ref(false);
+let holdTimer = null;
+
+const shownGain = ref(props.gain);
+watch(() => props.gain, (gain) => {
+  if (props.loaded) shownGain.value = gain;
+});
+
 watch(() => props.loaded, (loaded) => {
+  timer.clear(holdTimer);
+  if (loaded) shownGain.value = props.gain;
+  if (!loaded && placed.value) {
+    holding.value = true;
+    holdTimer = timer.setTimeout(() => { holding.value = false; placed.value = false; }, HOLD_MS);
+    return;
+  }
+  if (loaded && holding.value) {
+    holding.value = false;
+    return;
+  }
   placed.value = false;
   if (loaded) requestAnimationFrame(() => requestAnimationFrame(() => { placed.value = props.loaded; }));
 }, { immediate: true });
