@@ -59,8 +59,8 @@
             :role="navigation ? 'button' : undefined" :tabindex="navigation ? 0 : undefined"
             :aria-label="navigation ? t('common.back') : undefined"
             @click="navigation?.back()" @keydown.enter.space.prevent="navigation?.back()">
-            <!-- One cover fading into the next, whichever kind each is. -->
-            <Transition name="cover-fade" :css="fades">
+            <!-- One cover revealed over the next, whichever kind each is. -->
+            <Transition name="cover-reveal" :css="fades">
               <img v-if="shownArtwork" :key="shownArtwork" :src="shownArtwork"
                 alt="" />
               <div v-else-if="stationAvatarSvg" :key="stationAvatarSvg" v-html="stationAvatarSvg" class="artwork-avatar" />
@@ -465,7 +465,7 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
 
 /* The outgoing cover, out of the flow so the two share the box while they
    fade. The incoming one, inserted after it, paints over it. */
-.artwork > .cover-fade-leave-active {
+.artwork > .cover-reveal-leave-active {
   position: absolute;
   inset: 0;
 }

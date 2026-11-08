@@ -35,7 +35,7 @@
             role="button" :tabindex="isMobile ? undefined : 0" :aria-label="t('common.expandPlayer')"
             @click="onArtworkClick" @keydown.enter.space.prevent="onArtworkClick">
             <div class="player-artwork-stack">
-              <Transition name="cover-fade" :css="fades">
+              <Transition name="cover-reveal" :css="fades">
                 <img v-if="shownArtwork" :key="shownArtwork" :src="shownArtwork" :alt="title" class="player-artwork" />
                 <div v-else-if="stationAvatarSvg" :key="stationAvatarSvg" v-html="stationAvatarSvg" class="player-artwork"
                   :aria-label="title" />
@@ -549,9 +549,13 @@ function onTouchEnd(e) {
   position: relative;
   width: 100%;
   height: 100%;
+  /* Clips the cover coming in zoomed and blurred (cover-reveal) to the cover's
+     own corners, over the badge and the title beside it on the phone. */
+  border-radius: var(--radius-04);
+  overflow: hidden;
 }
 
-.player-artwork-stack > .cover-fade-leave-active {
+.player-artwork-stack > .cover-reveal-leave-active {
   position: absolute;
   inset: 0;
 }

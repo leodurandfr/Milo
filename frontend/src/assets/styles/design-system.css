@@ -1160,9 +1160,37 @@
     opacity: 0;
 }
 
+/* Cover reveal: the cover itself — not a backdrop drawn from it — comes in
+   out of a blur and a slight zoom, as a held cover used to clear, over the
+   outgoing one, which fades as in `cover-fade`. The zoom is not decoration: a
+   blur pulls the transparent edge in, and the zoom keeps it outside the box.
+   The blur repaints, but on one cover-sized layer for half a second. */
+.cover-reveal-enter-active {
+    transition:
+        opacity var(--transition-cover),
+        filter var(--transition-cover),
+        transform var(--transition-cover);
+}
+
+.cover-reveal-leave-active {
+    transition: opacity var(--transition-cover-leave);
+}
+
+.cover-reveal-enter-from {
+    opacity: 0;
+    filter: blur(var(--blur-02));
+    transform: scale(1.06);
+}
+
+.cover-reveal-leave-to {
+    opacity: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .cover-fade-enter-active,
-    .cover-fade-leave-active {
+    .cover-fade-leave-active,
+    .cover-reveal-enter-active,
+    .cover-reveal-leave-active {
         transition: none;
     }
 }

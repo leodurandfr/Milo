@@ -96,7 +96,7 @@ describe('artwork parity between the full player and the playing bar', () => {
     // cover after a mount fades out the fallback drawn while it decoded, and
     // the avatar or the placeholder shows half a second on every open.
     for (const view of VIEWS) {
-      const fades = view.match(/<Transition name="cover-fade"[^>]*>/g) ?? [];
+      const fades = view.match(/<Transition name="cover-(?:fade|reveal)"[^>]*>/g) ?? [];
       expect(fades.length).toBeGreaterThan(0);
       for (const tag of fades) expect(tag).toMatch(/:css="fades"/);
     }
