@@ -940,10 +940,14 @@ class VolumeService:
         SSOT: the state store is the single source of truth for the local volume;
         we apply store -> CamillaDSP here and never read CamillaDSP back into it.
         """
-        # Wait for CamillaDSP connection
+        # The rendezvous answers False at once when the first connect failed —
+        # every backend restart, measured 2026-11-08: CamillaDSP restarts with
+        # it (PartOf) and is not up yet. Nothing is lost: the store already
+        # holds this level (restored, or seeded at startup_volume_db), and the
+        # reconnect callback applies it (`reapply_current_volume`).
         if self._camilladsp_service:
             if not await self._camilladsp_service.wait_for_connection(timeout=10.0):
-                self.logger.warning("CamillaDSP not connected after 10s, startup volume not applied")
+                self.logger.info("CamillaDSP is not reachable yet: the volume is applied when it connects")
                 return
 
         local_mac_id = self._state_store.local_mac_id

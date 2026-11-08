@@ -576,21 +576,21 @@ class TestDacMode:
 class TestStartupVolumeEdges:
     """`_apply_startup_volume` when the daemon or the store is not there yet."""
 
-    async def test_a_dsp_that_never_connects_applies_nothing(
+    async def test_a_dsp_that_is_not_up_yet_applies_nothing_and_raises_no_warning(
         self, service, camilladsp, caplog
     ):
-        """Ten seconds of waiting, then give up — the boot must not stall.
-
-        Pushing anyway would send the level into a service with no client and
-        report it applied; the reconnect callback is what actually covers this.
-        """
+        """Every backend restart, measured 2026-11-08: CamillaDSP restarts with
+        it, the first connect fails, and the rendezvous answers at once. The
+        boot must not stall, nor push into a daemon that is not there; the
+        reconnect callback applies the level. That used to be a WARNING
+        claiming ten seconds had passed, 14 ms in, at every restart."""
         camilladsp.wait_for_connection = AsyncMock(return_value=False)
 
         with caplog.at_level(logging.WARNING):
             await service._apply_startup_volume()
 
         camilladsp.set_volume.assert_not_awaited()
-        assert "CamillaDSP not connected after 10s" in caplog.text
+        assert caplog.records == []
 
     async def test_a_fresh_boot_falls_back_to_the_configured_startup_volume(
         self, service, camilladsp

@@ -297,7 +297,7 @@ class TestConnectionLoop:
 
         This is the whole reason `_apply_startup_volume` finishes on a unit whose
         CamillaDSP is down: the waiter is released with `_connected` still False,
-        so it logs "not connected after 10s" and moves on instead of the boot
+        so it leaves the level to the reconnect and moves on instead of the boot
         stalling. Losing it costs ten seconds of every degraded boot.
         """
         attempt, _ = self._stop_after(service, 1)
