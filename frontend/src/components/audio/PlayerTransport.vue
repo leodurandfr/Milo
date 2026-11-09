@@ -393,6 +393,12 @@ async function press(control) {
     --primary-target: 64px;
   }
 
+  /* Across the phone's whole column it read as a banner rather than a
+     button: it keeps a button's width, centred like the trio it stands for. */
+  .player-transport--plate .player-button--labelled {
+    max-width: 280px;
+  }
+
   /* On the phone's mini-bar a labelled button hugs its label, centred in its
      box: the row is shared with the lines beside it. */
   .player-transport--card .player-transport-labelled {

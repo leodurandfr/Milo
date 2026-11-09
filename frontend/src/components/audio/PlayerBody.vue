@@ -337,8 +337,12 @@ defineExpose({ swipe });
 }
 
 /* === CARD (AudioPlayer): lines ranged left on the dark card === */
+/* Never shorter than what it holds: in a window too short for the card, the
+   card scrolls (AudioPlayer's .player-content) and its bottom padding follows
+   the transport. Shrunk below it, the body would overflow its own box and
+   that padding would sit behind the transport instead. */
 .player-body--card {
-  flex: 1;
+  flex: 1 0 auto;
 }
 
 .player-body--card .player-body-info {
@@ -446,6 +450,7 @@ defineExpose({ swipe });
      stays unpositioned so the progress strip below sits on the bar itself
      (its nearest positioned ancestor) and spans it edge to edge. */
   .player-body--card {
+    flex: 1;
     flex-direction: row;
     align-items: center;
     gap: var(--space-03);
