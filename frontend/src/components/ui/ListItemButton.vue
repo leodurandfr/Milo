@@ -2,7 +2,7 @@
 <template>
   <component :is="interactive ? 'button' : 'div'" v-bind="interactive ? { type: 'button', disabled } : {}"
     v-press="interactive && action !== 'toggle' && action !== 'radio'"
-    :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed, 'list-item-button--static': !interactive, 'list-item-button--radio': action === 'radio' }]"
+    :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed, 'list-item-button--static': !interactive, [`list-item-button--action-${action}`]: action !== 'none' }]"
     @click="handleClick" @pointerdown="handlePointerDown">
     <div v-if="$slots.icon" class="list-item-button__icon" :class="`list-item-button__icon--${iconVariant}`">
       <slot name="icon"></slot>
@@ -136,7 +136,10 @@ function handleClick(event) {
   display: flex;
   align-items: center;
   gap: var(--space-03);
-  padding: var(--space-02);
+  --row-pad-y: var(--space-02);
+  /* The content's height: the icon's, and the text's min-height */
+  --row-content: 40px;
+  padding: var(--row-pad-y) var(--space-02);
   border-radius: var(--radius-05);
   transition: background-color var(--transition-fast), box-shadow var(--transition-fast), var(--transition-press);
   width: 100%;
@@ -146,7 +149,29 @@ function handleClick(event) {
 
 /* More left padding when no icon */
 .list-item-button:not(:has(.list-item-button__icon)) {
-  padding: var(--space-03) var(--space-03) var(--space-03) var(--space-05);
+  --row-pad-y: var(--space-03);
+  padding: var(--row-pad-y) var(--space-03) var(--row-pad-y) var(--space-05);
+}
+
+/* The right element sits as far from the right edge as from the top and
+   bottom ones. Its size is the Toggle's compact one, the Radio's, the caret's. */
+.list-item-button--action-caret {
+  --action-size: 24px;
+}
+
+.list-item-button--action-toggle {
+  --action-size: 28px;
+}
+
+.list-item-button--action-radio {
+  --action-size: 32px;
+}
+
+/* Qualified to outrank the no-icon padding above */
+.list-item-button.list-item-button--action-caret,
+.list-item-button.list-item-button--action-toggle,
+.list-item-button.list-item-button--action-radio {
+  padding-right: calc(var(--row-pad-y) + (var(--row-content) - var(--action-size)) / 2);
 }
 
 .list-item-button:disabled {
@@ -155,11 +180,6 @@ function handleClick(event) {
 
 .list-item-button--static {
   cursor: default;
-}
-
-/* Extra right padding so the 32px radio sits as far from the right edge as it does top/bottom. */
-.list-item-button--radio {
-  padding-right: calc(var(--space-02) + var(--space-01));
 }
 
 .list-item-button:disabled .list-item-button__text {
@@ -277,7 +297,12 @@ function handleClick(event) {
 /* Responsive - Mobile */
 @media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
   .list-item-button {
+    --row-content: 36px;
     border-radius: var(--radius-04);
+  }
+
+  .list-item-button:not(:has(.list-item-button__icon)) {
+    --row-content: 32px;
   }
 
   .list-item-button__text {
@@ -288,10 +313,6 @@ function handleClick(event) {
     width: 36px;
     height: 36px;
     border-radius: var(--radius-02);
-  }
-
-  .list-item-button--radio {
-    padding-right: calc(var(--space-02) + var(--space-01) / 2);
   }
 
   .list-item-button__icon--full :deep(img),
