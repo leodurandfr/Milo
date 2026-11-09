@@ -369,6 +369,12 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       library_id: activeLibraryId.value,
     });
   }
+  // A shuffled play starts on a random track: the backend keeps the start
+  // track first and shuffles the rest behind it.
+  function playShuffled(tracks, contextId = null) {
+    if (!tracks?.length) return Promise.resolve(false);
+    return playContext(tracks, Math.floor(Math.random() * tracks.length), true, contextId);
+  }
   const playIndex = (index) => send('play_index', { index });
 
   // =========================================================================
@@ -1137,6 +1143,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
     // Transport
     playContext,
+    playShuffled,
     playIndex,
 
     // Albums

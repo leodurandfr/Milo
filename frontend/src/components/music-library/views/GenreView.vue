@@ -99,9 +99,7 @@ function playFrom(index) {
 }
 
 function shufflePlay() {
-  if (!songs.value.length) return;
-  const start = Math.floor(Math.random() * songs.value.length);
-  store.playContext(songs.value, start, true);
+  store.playShuffled(songs.value);
 }
 
 watch(() => props.genre, async (genre) => {

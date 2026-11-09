@@ -692,7 +692,7 @@
     "searchPrompt": "Search your library",
     "noResultsFor": "No results for “{query}”",
     "play": "Play",
-    "shuffle": "Shuffle",
+    "shuffle": "Play shuffled",
     "notFound": "Not found",
     "noTracks": "No tracks",
     "noArtists": "No artists yet",

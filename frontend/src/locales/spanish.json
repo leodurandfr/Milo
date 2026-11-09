@@ -692,7 +692,7 @@
     "searchPrompt": "Buscar en su biblioteca",
     "noResultsFor": "Sin resultados para «{query}»",
     "play": "Reproducir",
-    "shuffle": "Aleatorio",
+    "shuffle": "Reproducir en aleatorio",
     "notFound": "No encontrado",
     "noTracks": "Sin pistas",
     "noArtists": "Aún no hay artistas",
