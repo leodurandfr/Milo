@@ -289,6 +289,26 @@ def artist_portrait(metadata: Dict[str, Any]) -> Optional[str]:
     return f"https://i.scdn.co/image/{small['file_id']}" if small and small.get("file_id") else None
 
 
+def track_names(metadata: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """A track as Spotify's metadata service describes it (metadata/4/track):
+    its title and album, every artist, joined as go-librespot joins them, and
+    the album's large (640 px) cover, else its first."""
+    artists = [
+        artist["name"] for artist in metadata.get("artist") or ()
+        if isinstance(artist, dict) and isinstance(artist.get("name"), str) and artist["name"]
+    ]
+    album = metadata.get("album") if isinstance(metadata.get("album"), dict) else {}
+    group = album.get("cover_group") if isinstance(album.get("cover_group"), dict) else {}
+    images = [image for image in group.get("image") or () if isinstance(image, dict)]
+    cover = next((image for image in images if image.get("size") == "LARGE"), images[0] if images else None)
+    return {
+        "title": metadata.get("name") or None,
+        "artist": ", ".join(artists) or None,
+        "album": album.get("name") or None,
+        "artwork": f"https://i.scdn.co/image/{cover['file_id']}" if cover and cover.get("file_id") else None,
+    }
+
+
 def artist_shelf_seeds(shelves: List[Dict[str, Any]]) -> Dict[str, str]:
     """For each shelf that may be about an artist, the id of the artist whose
     station or This Is it holds first. A named-cover shelf is a row of them

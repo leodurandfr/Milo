@@ -1,0 +1,148 @@
+{
+  "gid": "0684702c60b24634bf2ccd352444814f",
+  "name": "Geneva",
+  "album": {
+    "gid": "8ad0def2510f4dc8996795c8677fd4db",
+    "name": "MIEL",
+    "artist": [
+      {
+        "gid": "483a4578f7e845fdb260a1585ecb4182",
+        "name": "Shades"
+      }
+    ],
+    "type": "ALBUM",
+    "label": "HLT Records",
+    "date": {
+      "year": 2023,
+      "month": 12,
+      "day": 25
+    },
+    "cover_group": {
+      "image": [
+        {
+          "file_id": "ab67616d00001e02e8b655703b9f11a8d11b20f8",
+          "size": "DEFAULT",
+          "width": 300,
+          "height": 300
+        },
+        {
+          "file_id": "ab67616d00004851e8b655703b9f11a8d11b20f8",
+          "size": "SMALL",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "file_id": "ab67616d0000b273e8b655703b9f11a8d11b20f8",
+          "size": "LARGE",
+          "width": 640,
+          "height": 640
+        }
+      ]
+    },
+    "licensor": {
+      "uuid": "8337a6aeaca744a7b32050f0c66e138f"
+    },
+    "prerelease_config": {
+      "earliest_reveal_date": {
+        "year": 2023,
+        "month": 12,
+        "day": 24,
+        "hour": 11
+      },
+      "earliest_coverart_reveal_date": {
+        "year": 2023,
+        "month": 12,
+        "day": 24,
+        "hour": 11
+      }
+    }
+  },
+  "artist": [
+    {
+      "gid": "483a4578f7e845fdb260a1585ecb4182",
+      "name": "Shades"
+    },
+    {
+      "gid": "5c22dc68bd584eb9951114477eb9a09a",
+      "name": "MadeInParis"
+    },
+    {
+      "gid": "db2afeda2f604121a8c9e23cd1955da9",
+      "name": "Smeels"
+    }
+  ],
+  "number": 3,
+  "disc_number": 1,
+  "duration": 168161,
+  "popularity": 38,
+  "explicit": true,
+  "external_id": [
+    {
+      "type": "isrc",
+      "id": "FR9W12362175"
+    }
+  ],
+  "earliest_live_timestamp": 1703415600,
+  "has_lyrics": true,
+  "licensor": {
+    "uuid": "8337a6aeaca744a7b32050f0c66e138f"
+  },
+  "language_of_performance": [
+    "fr"
+  ],
+  "original_audio": {
+    "uuid": "2e01431a63964cac930111d5848af7e4",
+    "format": "AUDIO_FORMAT_STEREO"
+  },
+  "original_title": "Geneva",
+  "artist_with_role": [
+    {
+      "artist_gid": "483a4578f7e845fdb260a1585ecb4182",
+      "artist_name": "Shades",
+      "role": "ARTIST_ROLE_MAIN_ARTIST"
+    },
+    {
+      "artist_gid": "5c22dc68bd584eb9951114477eb9a09a",
+      "artist_name": "MadeInParis",
+      "role": "ARTIST_ROLE_MAIN_ARTIST"
+    },
+    {
+      "artist_gid": "db2afeda2f604121a8c9e23cd1955da9",
+      "artist_name": "Smeels",
+      "role": "ARTIST_ROLE_MAIN_ARTIST"
+    }
+  ],
+  "canonical_uri": "spotify:track:0citESSErhNFzopH0ISTxB",
+  "prerelease_config": {
+    "earliest_reveal_date": {
+      "year": 2023,
+      "month": 12,
+      "day": 24,
+      "hour": 11
+    }
+  },
+  "content_authorization_attributes": "0a3a18032a0a0a024b5212040813100152280a2438333337613661652d616361372d343461372d623332302d35306630633636653133386610036001",
+  "track_content_rating": [
+    {
+      "tag": "CONTENT_RATING_TAG_EXPLICIT",
+      "markets": [
+        "FR"
+      ]
+    }
+  ],
+  "audio_formats": [
+    {
+      "original_audio": {
+        "uuid": "2e01431a63964cac930111d5848af7e4",
+        "format": "AUDIO_FORMAT_STEREO"
+      }
+    }
+  ],
+  "media_type": "AUDIO",
+  "implementation_details": {
+    "catalog_insertion_date": {
+      "seconds": 1703173882,
+      "nanos": 238000000
+    }
+  }
+}

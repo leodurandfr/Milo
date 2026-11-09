@@ -15,7 +15,9 @@ from backend.tests.golden.harness import EPOCH, settle
 from backend.core import audio_source
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.spotify import routes
-from backend.tests.spotify_world import ACCOUNT, LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld, track
+from backend.tests.spotify_world import (
+    ACCOUNT, DEVICE_ID, LE_CHEMIN, PARAPLUIE, TROIS_NEUF_TROIS, SpotifyWorld, cover_named_for, gid_of, track,
+)
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
 GUEST = "31guestaccountxxxxxxxxxxxxx"
@@ -228,10 +230,51 @@ async def test_a_loading_track_is_named_once_its_metadata_is_cached(world):
     assert world.session()["title"] == "Trois Neuf Trois"
 
 
+async def test_a_load_taken_over_mid_track_is_anchored_where_it_was_transferred(world):
+    """The play order describes the loading track at its load's start, standing
+    still (go-librespot #421): for a playback transferred here, the position it
+    was transferred at. Anchored at 0 instead, the bar ran from the top of a
+    track that lands 81 s in, and jumped there once /status named it."""
+    d = world.daemon
+    await world.phone_plays(PARAPLUIE)
+    await world.advance(30)
+    d.track, d.paused, d.buffering = None, True, True
+    d.loading = {**TROIS_NEUF_TROIS, "position": 81_264}
+    await world._says({"type": "active"}, {"type": "will_play", "uri": TROIS_NEUF_TROIS["uri"]})
+
+    assert world.buffering()
+    assert world.session()["title"] == "Trois Neuf Trois"
+    assert world.position_ms() == 81_264
+    await world.advance(1)
+    assert world.position_ms() == 81_264
+
+    d.track, d.buffering, d.loading = {**TROIS_NEUF_TROIS, "position": 81_264}, False, None
+    await world._says(d.metadata(), {"type": "paused"})
+    assert world.position_ms() == 81_264
+
+
+async def test_a_skip_after_a_transfer_is_anchored_at_the_top_of_its_track(world):
+    """A skip loads its track from the start, and the play order describes it
+    there, at 0 — never at the playhead of the track it leaves, which a session
+    transferred mid-track holds minutes in."""
+    d = world.daemon
+    d.next_tracks = [_listed(TROIS_NEUF_TROIS)]
+    await world.phone_transfers(PARAPLUIE, at_ms=81_264)
+    await world.advance(30)
+    d.track, d.buffering, d.loading = None, True, TROIS_NEUF_TROIS
+    d.prev_tracks, d.next_tracks = [_listed(PARAPLUIE)], []
+    await world._says({"type": "will_play", "uri": TROIS_NEUF_TROIS["uri"]})
+
+    assert world.buffering()
+    assert world.session()["title"] == "Trois Neuf Trois"
+    assert world.position_ms() == 0
+
+
 async def test_a_load_of_the_track_on_screen_leaves_its_playhead(world):
-    """The play order describes the loading track at 0. When the load is the
-    track already on screen (it re-buffers), that 0 is no playhead: the bar
-    stays where the track stood rather than snapping back to its start."""
+    """The play order describes the loading track at its load's start, here
+    the top of the track. When the load is the track already on screen (it
+    re-buffers), that start is no playhead: the bar stays where the track stood
+    rather than snapping back to it."""
     d = world.daemon
     await world.phone_plays(PARAPLUIE)
     await world.advance(30)
@@ -309,7 +352,7 @@ async def test_the_play_order_around_the_track_is_published(world):
         # Not an album cover (the fixtures'): passed on as it is.
         row(PARAPLUIE, "Parapluie", PARAPLUIE["album_cover_url"]),
         row(TROIS_NEUF_TROIS, "Trois Neuf Trois", TROIS_NEUF_TROIS["album_cover_url"]),
-        {"uri": "spotify:track:pas-encore-lu", "title": None, "artist": None, "thumbnail": None, "duration_ms": None},
+        {"uri": "spotify:track:pasencorelu", "title": None, "artist": None, "thumbnail": None, "duration_ms": None},
     ]
     assert details["queue_index"] == 1
 
@@ -1175,127 +1218,81 @@ def title_shown(world):
     return shown and shown["title"]
 
 
+def lookups(world, song):
+    """How often Milō asked Spotify's metadata service about `song`."""
+    return world.daemon.track_metadata_asked.count(gid_of(song))
+
+
 async def test_another_device_playing_is_shown_without_a_session(signed_in):
     """What plays on the phone is drawn by the Spotify bar, never as a session:
-    nothing plays here, and the widget and the Mac read `session` as Milō's."""
+    nothing plays here, and the widget and the Mac read `session` as Milō's.
+    The cluster names the title and the album only: the artist and the cover
+    are what Spotify's metadata service answers, asked once."""
     await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000)
 
     assert not signed_in.active()
-    assert remote(signed_in)["device_name"] == "iPhone"
-    assert remote(signed_in)["device_type"] == "smartphone"
-    assert remote(signed_in)["title"] == "Parapluie"
-    assert remote(signed_in)["position"]["ms"] == 12_000
+    shown = remote(signed_in)
+    assert shown["device_name"] == "iPhone"
+    assert shown["device_type"] == "smartphone"
+    assert shown["title"] == "Parapluie"
+    assert shown["album"] == "Réel"
+    assert shown["artist"] == "Kery James"
+    assert shown["artwork"] == cover_named_for(PARAPLUIE)
+    assert shown["position"]["ms"] == 12_000
     assert signed_in.state()["controls"] == ["take_over"]
+    assert lookups(signed_in, PARAPLUIE) == 1
 
 
 async def test_a_remote_track_not_yet_named_is_not_shown(signed_in):
-    """go-librespot names the remote track once its metadata is resolved: a
-    bar with no title has nothing to draw, and nothing to take over yet."""
-    await signed_in.plays_elsewhere(None)
+    """Until Spotify has named the track, a bar would draw a title alone and
+    then redraw with the artist and the cover: nothing is shown, and there is
+    nothing to take over yet."""
+    signed_in.daemon.naming_delay = 0.2
+    await signed_in.plays_elsewhere(PARAPLUIE)
 
     assert remote(signed_in) is None
     assert signed_in.state()["controls"] == []
 
+    await signed_in.advance(0.2)
+
+    assert remote(signed_in)["artist"] == "Kery James"
+    assert signed_in.state()["controls"] == ["take_over"]
+
 
 async def test_the_bar_stays_up_while_the_next_track_elsewhere_is_named(signed_in):
-    """A track change on the Mac, its next track not cached: go-librespot says
-    `remote` with no track, then ~20 ms later with it. Published as such, the
-    bar (useSourcePlaybackVisibility) leaves at once and comes back through
-    its entrance animation on every track. The remote shown is kept until the
+    """A track change on the Mac: published while its artist is looked up,
+    the bar (useSourcePlaybackVisibility) would leave and come back through
+    its entrance animation on every track. The track shown stands until the
     next one is named."""
-    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000, device="Mac mini")
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000, device="Mac mini", kind="computer")
+    signed_in.daemon.naming_delay = 0.2
     sent = len(signed_in.published())
 
     await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS)
+    assert title_shown(signed_in) == "Parapluie"
+    await signed_in.advance(0.2)
 
     shown = [s["details"]["remote"] for s in signed_in.published()[sent:]]
     assert None not in shown
     assert remote(signed_in)["title"] == "Trois Neuf Trois"
+    assert remote(signed_in)["artist"] == "Kery James"
     assert remote(signed_in)["device_name"] == "Mac mini"
 
 
-async def test_a_next_track_elsewhere_that_is_never_named_takes_the_bar_down(signed_in):
-    """go-librespot gives up resolving a track after 30 s and says nothing
-    more: past the hold, the wire follows /status, and a remote with no track
-    shows nothing and offers nothing to take over."""
-    await signed_in.plays_elsewhere(PARAPLUIE)
-    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=None)
-
-    await signed_in.advance(signed_in.source.NEXT_TRACK_HOLD + 1)
-
-    assert remote(signed_in) is None
-    assert signed_in.state()["controls"] == []
-
-
-async def test_events_while_the_next_track_is_named_do_not_extend_the_hold(signed_in):
-    """Only the track being named releases the hold, and nothing else extends
-    it: a pause on the Mac while the track resolves raises another `remote`
-    with no track, which must not keep a stale track on the bar past the
-    deadline the first one set."""
-    await signed_in.plays_elsewhere(PARAPLUIE)
-    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=None)
-    assert title_shown(signed_in) == "Parapluie"
-    hold = signed_in.source.NEXT_TRACK_HOLD
-
-    await signed_in.advance(hold - 1)
-    await signed_in.plays_elsewhere(None, paused=True)
-    assert title_shown(signed_in) == "Parapluie"
-    await signed_in.advance(1.5)
-
-    assert remote(signed_in) is None
-
-
-async def test_a_next_track_at_the_end_of_another_hold_is_held_in_full(signed_in):
-    """A hold already running when the track changes elsewhere — here a
-    take-over Spotify accepted and never delivered, ms from its end — is no
-    hold for the next track: it runs out under the resolution, and the bar
-    leaves and comes back."""
-    await signed_in.plays_elsewhere(PARAPLUIE, device="Mac mini")
-    signed_in.daemon.session = True   # the transfer is "in flight": nothing lands
-    await signed_in.command("take_over")
-    signed_in.daemon.session = False
-    await signed_in.advance(signed_in.source.TAKE_OVER_HOLD - 0.01)
-    sent = len(signed_in.published())
-
-    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=0.05)
-
-    shown = [s["details"]["remote"] for s in signed_in.published()[sent:]]
-    assert None not in shown
-    assert title_shown(signed_in) == "Trois Neuf Trois"
-
-
-async def test_a_hold_that_ran_out_unread_still_holds_the_next_track(signed_in):
-    """A hold whose end could not be read leaves its deadline behind, past;
-    that is not a hold running, and the next track elsewhere is held too."""
-    await signed_in.plays_elsewhere(PARAPLUIE, device="Mac mini")
-    signed_in.daemon.session = True
-    await signed_in.command("take_over")
-    signed_in.daemon.session = False
-    signed_in.daemon.status_answers = False
-    await signed_in.advance(signed_in.source.TAKE_OVER_HOLD + signed_in.source.STATUS_RETRY_DELAY + 1)
-    signed_in.daemon.status_answers = True
-    await signed_in.advance(30)
-    assert title_shown(signed_in) == "Parapluie"
-    sent = len(signed_in.published())
-
-    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=0.05)
-
-    shown = [s["details"]["remote"] for s in signed_in.published()[sent:]]
-    assert None not in shown
-    assert title_shown(signed_in) == "Trois Neuf Trois"
-
-
 async def test_a_hold_whose_expiry_read_fails_is_read_again(signed_in):
-    """The hold's end is the one moment Milō re-reads /status on its own, and
-    go-librespot says nothing more after a resolution it gave up on: a read
-    failing then must be retried, or the old track stays on the bar for as
-    long as the daemon stays quiet, though /status answers again."""
-    await signed_in.plays_elsewhere(PARAPLUIE, device="Mac mini")
-    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS, resolves_after=None)
-    signed_in.daemon.status_answers = False
+    """The hold's end is the one moment Milō reads on its own, and
+    go-librespot says nothing more once the cluster settled: a read failing
+    then must be retried, or the old track stays on the bar for as long as the
+    daemon stays quiet, though it answers again."""
+    await signed_in.plays_elsewhere(PARAPLUIE, device="Mac mini", kind="computer")
+    signed_in.daemon.transfer_never_lands = True
+    await signed_in.command("take_over")
+    await signed_in.nothing_plays_elsewhere()
+    signed_in.daemon.devices_answers = False
 
-    await signed_in.advance(signed_in.source.NEXT_TRACK_HOLD + 0.5)
-    signed_in.daemon.status_answers = True
+    await signed_in.advance(signed_in.source.TAKE_OVER_HOLD + 0.5)
+    assert title_shown(signed_in) == "Parapluie"
+    signed_in.daemon.devices_answers = True
     await signed_in.advance(signed_in.source.STATUS_RETRY_DELAY + 1)
 
     assert remote(signed_in) is None
@@ -1303,25 +1300,61 @@ async def test_a_hold_whose_expiry_read_fails_is_read_again(signed_in):
 
 
 async def test_take_over_asks_once_and_the_session_arrives_like_a_transfer(signed_in):
-    """take_over is one POST /player/transfer; the session is the daemon's,
-    reconciled from what it says, at the position the phone was at."""
+    """take_over is one POST /connect/transfer naming this device; the session
+    is the daemon's, reconciled from what it says, at the position the phone
+    was at. It landed playing, so nothing else is asked."""
     await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264)
 
     result = await signed_in.command("take_over")
     await signed_in.transfer_lands()
 
     assert result["success"] is True
-    assert signed_in.transfers_sent() == 1
+    transfers = [(c, body) for c, body in signed_in.daemon.posted if c.startswith("connect/")]
+    assert transfers == [("connect/transfer", {"device_id": DEVICE_ID})]
+    assert signed_in.resumes_sent() == 0
     assert signed_in.playing()
     assert signed_in.session()["title"] == "Parapluie"
     assert signed_in.position_ms() == 81_264
     assert remote(signed_in) is None
 
 
+async def test_take_over_of_a_paused_remote_resumes_once_where_it_paused(signed_in):
+    """go-librespot asks Spotify to restore the playback as it stood, so a
+    paused phone's session lands paused: Milō resumes it, once, after the
+    track loaded — a resume sent on `active` is answered 200 and lost — and it
+    plays from where the phone paused, not from there plus the time it sat."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264, paused=True)
+    await signed_in.advance(5)
+
+    await signed_in.command("take_over")
+    await signed_in.transfer_lands()
+
+    asked = [c for c, _ in signed_in.daemon.posted if c in ("connect/transfer", "resume")]
+    assert asked == ["connect/transfer", "resume"]
+    assert signed_in.daemon.resumes_lost == 0
+    assert signed_in.playing()
+    assert abs(signed_in.position_ms() - 81_264) <= 100
+    await signed_in.advance(30)
+    assert signed_in.resumes_sent() == 1
+
+
+async def test_a_paused_cast_from_the_phone_is_not_resumed(signed_in):
+    """Only the session take_over asked for is resumed: a phone handing its
+    paused session over (the iOS picker does) keeps it paused."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264, paused=True)
+
+    signed_in.daemon._transfer_starts()
+    await signed_in.transfer_lands()
+    await signed_in.advance(5)
+
+    assert signed_in.phase() == "paused"
+    assert signed_in.resumes_sent() == 0
+
+
 async def test_the_bar_stays_up_while_the_session_it_takes_over_arrives(signed_in):
     """Between the transfer and its session the daemon is active with no track
-    and names no remote: published as such, the bar would leave and come back.
-    The remote is held until the session takes its place."""
+    and the cluster names it: published as such, the bar would leave and come
+    back. The remote is held until the session takes its place."""
     await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264)
     sent = len(signed_in.published())
 
@@ -1333,10 +1366,36 @@ async def test_the_bar_stays_up_while_the_session_it_takes_over_arrives(signed_i
     assert shown[-1] == (True, False)
 
 
-async def test_the_bar_moves_to_the_phone_that_takes_the_session_back(signed_in):
+@pytest.mark.parametrize("arrival", ["asked here", "picked on the phone"])
+async def test_take_over_while_the_session_arrives_asks_nothing_more(signed_in, arrival):
+    """go-librespot does not refuse a transfer to the device already active:
+    Spotify sends that session back and it loads again. A press while the
+    session is on its way here asks nothing."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264)
+    if arrival == "asked here":
+        await signed_in.command("take_over")
+    else:
+        signed_in.daemon._transfer_starts()
+        await settle()
+    asked = signed_in.transfers_sent()
+
+    again = await signed_in.command("take_over")
+    await signed_in.transfer_lands()
+
+    assert again["success"] is True
+    assert signed_in.transfers_sent() == asked
+    assert signed_in.daemon.self_transfers == 0
+    assert signed_in.playing()
+
+
+@pytest.mark.parametrize("daemon", ["master", "the fork's queue route"])
+async def test_the_bar_moves_to_the_phone_that_takes_the_session_back(signed_in, daemon):
     """go-librespot hands a session taken by a phone back to Spotify and signs
     in again, answering 204 meanwhile: the bar goes straight to the phone, on
-    what the daemon announced, rather than leaving and coming back."""
+    the cluster the daemon announced while the session still played here — a
+    frame of its own, ahead of the `inactive` that ends it — rather than
+    leaving and coming back."""
+    signed_in.daemon.has_queue_route = daemon != "master"
     await signed_in.phone_plays(PARAPLUIE)
     sent = len(signed_in.published())
 
@@ -1349,24 +1408,66 @@ async def test_the_bar_moves_to_the_phone_that_takes_the_session_back(signed_in)
 
 
 async def test_an_announced_phone_that_never_shows_up_is_dropped(signed_in):
-    """The announcement only bridges until /status names the phone: if it
-    never does, the bar follows /status once the announcement has aged."""
+    """The announcement only bridges until /connect/devices answers again: if
+    the daemon is still signing in past the hold, and then names nobody, the
+    bar follows it."""
     await signed_in.phone_plays(PARAPLUIE)
-    d = signed_in.daemon
-    d.session, d.track, d.signed_in = False, None, True
-    await signed_in._says({"type": "inactive"}, {"type": "remote", "data": {
-        "device_id": "x", "device_name": "iPhone", "device_type": "SMARTPHONE", "paused": False,
-        "track": dict(PARAPLUIE)}})
-    assert remote(signed_in)["device_name"] == "iPhone"
+    sent = len(signed_in.published())
 
-    await signed_in.advance(signed_in.source.HANDOVER_HOLD + 1)
+    await signed_in.phone_takes_it_back(back_after=signed_in.source.HANDOVER_HOLD + 1, names_phone=False)
 
+    shown = [s["details"]["remote"] for s in signed_in.published()[sent:]]
+    assert any(r and r["device_name"] == "iPhone" for r in shown)
     assert remote(signed_in) is None
 
 
+async def test_a_phone_taking_back_another_track_is_shown_at_once(signed_in):
+    """The phone takes the session back on a track Milō never played, so
+    Spotify has not named it yet, and the daemon, signing in again, has no
+    token to ask with: the bar goes to the phone at once with what the cluster
+    names, and the artist and the cover follow once the daemon answers. Only
+    for a sender whose cluster names its track: the iPhone's names none."""
+    signed_in.daemon.cluster_names_track = True
+    await signed_in.phone_plays(PARAPLUIE)
+    sent = len(signed_in.published())
+
+    await signed_in.phone_takes_it_back(song=TROIS_NEUF_TROIS)
+    await signed_in.advance(0.1)
+
+    shown = [(s["session"] is not None, s["details"]["remote"] is not None) for s in signed_in.published()[sent:]]
+    assert (False, False) not in shown
+    assert remote(signed_in)["title"] == "Trois Neuf Trois"
+    assert remote(signed_in)["artist"] == "Kery James"
+    assert remote(signed_in)["artwork"] == cover_named_for(TROIS_NEUF_TROIS)
+    assert lookups(signed_in, TROIS_NEUF_TROIS) == 1
+
+
+async def test_the_phone_stays_shown_while_the_daemon_has_no_cluster_yet(signed_in):
+    """Signed in again, go-librespot answers /connect/devices 404 until its
+    first push is answered, and a state request (Milo-iOS polls) can read in
+    that window: the announced phone stands, and a 404 is no failure to read
+    again."""
+    d = signed_in.daemon
+    await signed_in.phone_plays(PARAPLUIE)
+    sent = len(signed_in.published())
+    await signed_in.phone_takes_it_back(first_push=False)
+
+    await signed_in.get_state()
+    assert remote(signed_in)["device_name"] == "iPhone"
+    reads = d.devices_reads
+    await signed_in.advance(signed_in.source.STATUS_RETRY_DELAY + 0.5)
+    assert d.devices_reads == reads
+    await signed_in.first_push_answers()
+
+    shown = [(s["session"] is not None, s["details"]["remote"] is not None) for s in signed_in.published()[sent:]]
+    assert (False, False) not in shown
+    assert remote(signed_in)["device_name"] == "iPhone"
+
+
 async def test_an_old_announcement_does_not_come_back_on_a_later_end(signed_in):
-    """Only an announcement newer than /status's last answer stands in for
-    it: a phone announced long ago is not shown when Milō's own session ends."""
+    """Only a cluster heard while the session that ends played stands in for
+    the read: a phone announced before it is not shown when Milō's own
+    session ends."""
     await signed_in.plays_elsewhere(PARAPLUIE)
     await signed_in.command("take_over")
     await signed_in.transfer_lands()
@@ -1392,31 +1493,83 @@ async def test_the_bar_stays_up_when_the_phone_picks_milo(signed_in):
     assert remote(signed_in) is None
 
 
+async def test_a_second_take_over_before_the_daemon_moves_asks_nothing(signed_in):
+    """POST /connect/transfer answers before the daemon says `active`: a
+    second press in between is the same take-over, and asks nothing."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264)
+    signed_in.daemon.transfer_start_delay = 0.2
+
+    await signed_in.command("take_over")
+    again = await signed_in.command("take_over")
+    await signed_in.advance(0.2)
+    await signed_in.transfer_lands()
+
+    assert again["success"] is True
+    assert signed_in.transfers_sent() == 1
+    assert signed_in.playing()
+
+
+async def test_a_take_over_resumes_once_the_track_has_loaded(signed_in):
+    """/status may name the transferred track while it still buffers: a resume
+    then would land in the load, so Milō waits for the track to be ready, and
+    resumes it once."""
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=81_264, paused=True)
+
+    await signed_in.command("take_over")
+    await signed_in.transfer_lands(buffers_for=0.2)
+
+    assert signed_in.resumes_sent() == 1
+    assert signed_in.playing()
+
+
 async def test_a_take_over_that_never_lands_lets_the_bar_follow_status(signed_in):
     """A transfer Spotify accepted and never delivered: past the hold, the
-    wire says what /status says — here, nothing plays anywhere."""
+    wire says what the cluster says — here, nothing plays anywhere. A session
+    a phone casts paused after it is the phone's, and is not resumed."""
     await signed_in.plays_elsewhere(PARAPLUIE)
+    signed_in.daemon.transfer_never_lands = True
     await signed_in.command("take_over")
-    signed_in.daemon.session = False
+    await signed_in.nothing_plays_elsewhere()
+    assert title_shown(signed_in) == "Parapluie"
 
     await signed_in.advance(signed_in.source.TAKE_OVER_HOLD + 1)
 
     assert remote(signed_in) is None
     assert signed_in.state()["controls"] == []
+    await signed_in.phone_transfers(PARAPLUIE)
+    assert signed_in.resumes_sent() == 0
 
 
 async def test_the_phone_moving_on_during_a_take_over_is_shown(signed_in):
-    """A hold keeps the bar up while /status names nothing; what /status does
-    name is taken at once — here the phone skipped while Milō waited for a
-    transfer that never came, and the bar shows the new track, not a frozen copy."""
+    """A hold keeps the bar up while nothing names the phone; what the cluster
+    does name is taken at once — here the phone skipped while Milō waited for
+    a transfer that never came, and the bar shows the new track, not a frozen
+    copy."""
     await signed_in.plays_elsewhere(PARAPLUIE)
-    signed_in.daemon.session = True   # the transfer is "in flight": nothing lands
+    signed_in.daemon.transfer_never_lands = True
     await signed_in.command("take_over")
-    signed_in.daemon.session = False
 
-    await signed_in.plays_elsewhere(TROIS_NEUF_TROIS)
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS)
 
     assert remote(signed_in)["title"] == "Trois Neuf Trois"
+
+
+async def test_a_take_over_that_never_landed_resumes_no_later_session(signed_in):
+    """What the phone does after a take-over that never came (here a skip,
+    which ends the hold before its time) is the phone's: the paused session it
+    hands over much later is not the one take_over asked for."""
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    signed_in.daemon.transfer_never_lands = True
+    await signed_in.command("take_over")
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS)
+    await signed_in.pauses_elsewhere()
+
+    await signed_in.advance(signed_in.source.TAKE_OVER_HOLD + 1)
+    signed_in.daemon._transfer_starts()
+    await signed_in.transfer_lands()
+
+    assert signed_in.phase() == "paused"
+    assert signed_in.resumes_sent() == 0
 
 
 async def test_an_arrival_that_never_loads_does_not_hold_the_bar_for_ever(signed_in):
@@ -1433,8 +1586,9 @@ async def test_an_arrival_that_never_loads_does_not_hold_the_bar_for_ever(signed
 
 
 async def test_a_refused_take_over_does_not_hold_the_bar(signed_in):
-    """Spotify refused the transfer: nothing is coming, so nothing is held —
-    the next read that names no phone takes the bar down at once."""
+    """Spotify refused the transfer (go-librespot's 502): nothing is coming,
+    so nothing is held — the next read that names no phone takes the bar down
+    at once."""
     await signed_in.plays_elsewhere(PARAPLUIE)
     signed_in.daemon.transfer_refused = True
 
@@ -1447,19 +1601,71 @@ async def test_a_refused_take_over_does_not_hold_the_bar(signed_in):
 
 async def test_what_played_elsewhere_does_not_outlive_the_daemon_run(monkeypatch, tmp_path):
     """Leaving Spotify stops go-librespot: coming back, the bar shows nothing
-    of a phone until the new daemon names one — no stale take_over to press."""
+    of a phone until the new daemon names one — no stale take_over to press —
+    and what Spotify named belonged to the run: the new one asks again."""
     w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
     await w.select()
     await w.plays_elsewhere(PARAPLUIE)
     await w.leave()
-    w.daemon.remote = None
+    w.daemon.active_device_id = ""
     sent = len(w.published())
 
     await w.select()
 
     assert all(s["details"] is None or s["details"].get("remote") is None for s in w.published()[sent:])
     assert all("take_over" not in s["controls"] for s in w.published()[sent:])
+    await w.plays_elsewhere(PARAPLUIE)
+    assert lookups(w, PARAPLUIE) == 2
+    assert remote(w)["artist"] == "Kery James"
     await w.source.shutdown()
+
+
+async def test_a_lookup_cut_by_a_stop_is_asked_again_by_the_next_run(monkeypatch, tmp_path):
+    """A lookup still in flight when Spotify is left belongs to that run: its
+    answer is not shown in the next, which asks again and shows its own."""
+    w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    await w.select()
+    w.daemon.naming_delay = 1.0
+    await w.plays_elsewhere(PARAPLUIE)
+    await w.leave()
+    await w.advance(0.5)
+    await w.select()
+
+    await w.advance(0.6)
+    assert remote(w) is None
+    await w.advance(0.5)
+
+    assert lookups(w, PARAPLUIE) == 2
+    assert remote(w)["artist"] == "Kery James"
+    await w.source.shutdown()
+
+
+async def test_a_lookup_spotify_never_answers_costs_the_artist_only(signed_in, caplog):
+    """Spotify's metadata service is given TRACK_NAMING_TIMEOUT: past it, the
+    track is shown without its artist and cover, said once (a sender whose
+    cluster names its track)."""
+    signed_in.daemon.cluster_names_track = True
+    signed_in.daemon.naming_delay = signed_in.source.TRACK_NAMING_TIMEOUT + 1
+    await signed_in.plays_elsewhere(PARAPLUIE)
+
+    await signed_in.advance(signed_in.source.TRACK_NAMING_TIMEOUT + 0.1)
+
+    shown = remote(signed_in)
+    assert shown["title"] == "Parapluie"
+    assert (shown["artist"], shown["artwork"]) == (None, None)
+    assert len([r for r in caplog.records if "did not name" in r.getMessage()]) == 1
+
+
+async def test_what_spotify_named_is_kept_for_so_many_tracks(signed_in, monkeypatch):
+    """The names are kept per track up to REMOTE_NAMES_KEPT: past it, the
+    oldest track is asked again when it comes back."""
+    monkeypatch.setattr(signed_in.source, "REMOTE_NAMES_KEPT", 1)
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS)
+    await signed_in.next_track_elsewhere(PARAPLUIE)
+
+    assert lookups(signed_in, PARAPLUIE) == 2
+    assert lookups(signed_in, TROIS_NEUF_TROIS) == 1
 
 
 async def test_take_over_with_nothing_elsewhere_asks_nothing(signed_in):
@@ -1469,25 +1675,41 @@ async def test_take_over_with_nothing_elsewhere_asks_nothing(signed_in):
     assert signed_in.transfers_sent() == 0
 
 
+async def test_take_over_without_a_device_id_asks_nothing(monkeypatch, tmp_path):
+    """The transfer names this device by the id /status gives: without it,
+    there is nothing to ask for, and nothing is posted."""
+    w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    w.daemon.device_id = None
+    await w.select()
+    await w.plays_elsewhere(PARAPLUIE)
+
+    result = await w.command("take_over")
+
+    assert result["success"] is False
+    assert w.transfers_sent() == 0
+    await w.source.shutdown()
+
+
 async def test_a_state_request_rereading_the_same_remote_publishes_nothing(signed_in):
     """Milo-iOS polls the state: a read of the same remote playback, its
-    playhead where the anchor says, must not re-stamp the anchor."""
+    playhead where the anchor says, must not re-stamp the anchor, nor ask
+    Spotify to name the track again."""
     await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000)
     sent = len(signed_in.published())
     await signed_in.advance(30)
-    signed_in.daemon.remote["track"]["position"] = 42_000
 
     await signed_in.get_state()
 
     assert len(signed_in.published()) == sent
+    assert lookups(signed_in, PARAPLUIE) == 1
 
 
 async def test_a_clock_step_re_reads_the_other_devices_playhead(signed_in, monkeypatch):
     """The remote card's anchor is stamped on the wall clock and nothing re-dated
     it across a step: the unit boots ~5 min behind and steps at the first NTP
     answer, and the bar sat at the end of the track until go-librespot next
-    said something. The kernel's notice of the step re-reads `GET /status`,
-    whose remote position is the daemon's own."""
+    said something. The kernel's notice of the step re-reads
+    `GET /connect/devices`, whose position is the daemon's own."""
     await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000)
     monkeypatch.setattr(audio_source, "wall_time", lambda: EPOCH + signed_in.clock.now + 600)
 
@@ -1514,6 +1736,262 @@ async def test_a_paused_remote_is_still_shown(signed_in):
 
     assert remote(signed_in)["paused"] is True
     assert signed_in.state()["controls"] == ["take_over"]
+
+
+async def test_a_track_spotify_cannot_name_is_shown_without_its_artist(signed_in, caplog):
+    """A refusal of Spotify's metadata service (a 429, an outage) costs the
+    artist and the cover, never the bar; it is said once, and kept for the
+    run: the cluster's later words about the same track ask nothing more.
+    For a sender whose cluster names its track: the iPhone's names none."""
+    signed_in.daemon.cluster_names_track = True
+    signed_in.daemon.unnamed.add(PARAPLUIE["uri"])
+
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    await signed_in.pauses_elsewhere()
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=60_000)
+
+    shown = remote(signed_in)
+    assert (shown["title"], shown["album"]) == ("Parapluie", "Réel")
+    assert (shown["artist"], shown["artwork"]) == (None, None)
+    assert lookups(signed_in, PARAPLUIE) == 1
+    assert len([r for r in caplog.records if "did not name" in r.getMessage()]) == 1
+
+
+async def test_one_lookup_per_track_whatever_the_cluster_says(signed_in):
+    """The cluster moves at every volume change and every pause: during one
+    lookup, each of its words asks nothing more, and the one that counts is
+    the last — the remote shows paused once it is named."""
+    d = signed_in.daemon
+    d.naming_delay = 0.5
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=1_000)
+    await signed_in._says(d.cluster_event())
+    await signed_in.pauses_elsewhere()
+    await signed_in._says(d.cluster_event())
+    assert remote(signed_in) is None
+
+    await signed_in.advance(0.5)
+
+    assert lookups(signed_in, PARAPLUIE) == 1
+    assert remote(signed_in)["paused"] is True
+
+
+async def test_a_stale_cluster_with_nobody_active_shows_nothing(signed_in):
+    """With nobody active, the cluster still holds the last playback —
+    `playing`, pinned at the track's end: it is no device's, and shows
+    nothing, nor asks anything of Spotify."""
+    await signed_in.plays_elsewhere(PARAPLUIE, announced=False)
+    await signed_in.advance(PARAPLUIE["duration"] / 1000 + 5)
+
+    await signed_in.nobody_active_stale()
+
+    stale = signed_in.daemon.cluster()["now_playing"]
+    assert stale["playing"] and stale["position"] == PARAPLUIE["duration"]
+    assert remote(signed_in) is None
+    assert signed_in.state()["controls"] == []
+    assert signed_in.daemon.track_metadata_asked == []
+
+
+async def test_a_track_spotify_could_not_name_yet_is_asked_again_later(signed_in):
+    """A failure that may pass (an outage, a 429, a sign-in) is not kept: the
+    iPhone's cluster names nothing but the uri, so a card kept unnamed would
+    stay away for the whole run. It is asked again TRACK_NAMING_RETRY later,
+    at the next read that names it, and never in between."""
+    d = signed_in.daemon
+    d.unnamed.add(PARAPLUIE["uri"])
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    assert remote(signed_in) is None
+
+    await signed_in.pauses_elsewhere()
+    assert lookups(signed_in, PARAPLUIE) == 1
+
+    d.unnamed.discard(PARAPLUIE["uri"])
+    await signed_in.advance(signed_in.source.TRACK_NAMING_RETRY + 1)
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=60_000)
+
+    assert lookups(signed_in, PARAPLUIE) == 2
+    assert remote(signed_in)["title"] == "Parapluie"
+
+
+async def test_a_track_spotify_refuses_is_not_asked_again(signed_in):
+    """A refusal (404) is an answer: kept for the run, never asked again."""
+    signed_in.daemon.refused.add(PARAPLUIE["uri"])
+    await signed_in.plays_elsewhere(PARAPLUIE)
+
+    await signed_in.advance(signed_in.source.TRACK_NAMING_RETRY + 1)
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=60_000)
+
+    assert lookups(signed_in, PARAPLUIE) == 1
+    assert remote(signed_in) is None
+
+
+async def test_the_clusters_artist_stands_in_when_spotify_names_none(signed_in):
+    """A sender that puts the artist in its cluster (go-librespot's
+    artist_name) keeps it on the card when Spotify's lookup fails."""
+    d = signed_in.daemon
+    d.cluster_names_track = True
+    d.unnamed.add(PARAPLUIE["uri"])
+    playing = d._now_playing
+    d._now_playing = lambda: {**playing(), "artist_name": "Kery James"} if playing() else None
+
+    await signed_in.plays_elsewhere(PARAPLUIE)
+
+    assert (remote(signed_in)["title"], remote(signed_in)["artist"]) == ("Parapluie", "Kery James")
+
+
+async def test_an_album_a_track_names_empty_is_published_as_null(signed_in):
+    """go-librespot names a track's album with an empty string when it has
+    none; a phone taking that track back shows it from what was played here,
+    and an empty string is never published."""
+    await signed_in.phone_plays({**PARAPLUIE, "album_name": ""})
+    await signed_in.phone_takes_it_back()
+
+    assert remote(signed_in)["title"] == "Parapluie"
+    assert remote(signed_in)["album"] is None
+
+
+async def test_a_cluster_naming_milo_active_holds_the_bar_until_the_session(signed_in):
+    """A transfer here can be named by the cluster before the daemon's own
+    events: the bar holds what played elsewhere (ARRIVAL_HOLD) instead of
+    going blank until `active` comes."""
+    d = signed_in.daemon
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    assert remote(signed_in) is not None
+
+    d.active_device_id = DEVICE_ID
+    await signed_in._says(d.cluster_event())
+
+    assert remote(signed_in)["title"] == "Parapluie"
+
+
+@pytest.mark.parametrize("case", ["loading here", "named active, no session"])
+async def test_milos_own_playback_in_the_cluster_is_never_a_remote(signed_in, case):
+    """The cluster's playback is this device's own when this device is the
+    active one — a session arriving here before its track is named, or a
+    cluster naming it active though no session plays here."""
+    d = signed_in.daemon
+    if case == "loading here":
+        d.session, d.account, d.track, d.paused, d.buffering = True, ACCOUNT, None, False, True
+        d.loading = PARAPLUIE
+        events = ({"type": "active"}, d.cluster_event())
+    else:
+        d.active_device_id = DEVICE_ID
+        signed_in._reports(PARAPLUIE, 0, False)
+        events = (d.cluster_event(),)
+    assert events[-1]["data"]["active_device_id"] == DEVICE_ID
+    assert events[-1]["data"]["now_playing"]["track_uri"] == PARAPLUIE["uri"]
+
+    await signed_in._says(*events)
+
+    assert remote(signed_in) is None
+    assert signed_in.daemon.track_metadata_asked == []
+
+
+async def test_a_playback_nothing_names_shows_nothing(signed_in):
+    """The iPhone's cluster names no title (measured 2026-11-09): a track
+    Spotify cannot name either has nothing to draw (an empty string is never
+    published), and is asked once."""
+    d = signed_in.daemon
+    d.unnamed.add(PARAPLUIE["uri"])
+    await signed_in.plays_elsewhere(PARAPLUIE)
+
+    assert d.cluster()["now_playing"]["track_name"] == ""
+    assert remote(signed_in) is None
+    assert signed_in.state()["controls"] == []
+    assert lookups(signed_in, PARAPLUIE) == 1
+
+
+async def test_an_active_device_missing_from_the_list_shows_nothing(signed_in):
+    """An active id the cluster does not list has no name to show."""
+    d = signed_in.daemon
+    d.active_device_id = "f00dfeedf00dfeedf00dfeedf00dfeedf00dfeed"
+    signed_in._reports(PARAPLUIE, 0, False)
+
+    await signed_in._says(d.cluster_event())
+
+    assert remote(signed_in) is None
+    assert d.track_metadata_asked == []
+
+
+async def test_a_cluster_burst_while_milo_plays_reads_nothing(signed_in):
+    """`cluster` comes at every re-send of Milō's own pushes and every volume
+    change: with a session here, a burst of them alone reads nothing and
+    publishes nothing."""
+    d = signed_in.daemon
+    await signed_in.phone_plays(PARAPLUIE)
+    reads = (d.status_reads, d.devices_reads)
+    sent = len(signed_in.published())
+
+    for _ in range(5):
+        await signed_in._says(d.cluster_event())
+
+    assert (d.status_reads, d.devices_reads) == reads
+    assert len(signed_in.published()) == sent
+
+
+async def test_the_first_cluster_of_a_session_is_read_without_its_event(monkeypatch, tmp_path):
+    """go-librespot keeps the first cluster of a session from the answer to
+    its first push and announces it with no `cluster`: a phone already playing
+    when Spotify is selected is shown from the read at connection."""
+    w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
+    await w.plays_elsewhere(PARAPLUIE, at_ms=5_000, announced=False)
+
+    await w.select()
+
+    assert remote(w)["title"] == "Parapluie"
+    assert remote(w)["artist"] == "Kery James"
+    await w.source.shutdown()
+
+
+async def test_a_devices_read_that_fails_changes_nothing(signed_in):
+    """A /connect/devices read that did not answer learned nothing (E10):
+    what is shown stands, and it is read again, since the daemon may say
+    nothing more."""
+    d = signed_in.daemon
+    await signed_in.plays_elsewhere(PARAPLUIE, at_ms=12_000)
+    d.devices_answers = False
+
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS)
+    assert title_shown(signed_in) == "Parapluie"
+    d.devices_answers = True
+    await signed_in.advance(signed_in.source.STATUS_RETRY_DELAY + 0.5)
+
+    assert title_shown(signed_in) == "Trois Neuf Trois"
+
+
+async def test_a_devices_read_is_retried_once_per_outage(signed_in):
+    """One retry per outage, not a poll: a daemon that keeps failing is read
+    once more, and an answer in between gives the next outage its own retry."""
+    d = signed_in.daemon
+    await signed_in.plays_elsewhere(PARAPLUIE)
+    d.devices_answers = False
+    await signed_in.next_track_elsewhere(TROIS_NEUF_TROIS)
+    reads = d.devices_reads
+
+    await signed_in.advance(signed_in.source.STATUS_RETRY_DELAY * 5)
+    assert d.devices_reads == reads + 1
+
+    d.devices_answers = True
+    await signed_in.pauses_elsewhere()
+    assert title_shown(signed_in) == "Trois Neuf Trois"
+    d.devices_answers = False
+    await signed_in.next_track_elsewhere(LE_CHEMIN)
+    d.devices_answers = True
+    await signed_in.advance(signed_in.source.STATUS_RETRY_DELAY + 0.5)
+
+    assert title_shown(signed_in) == "Le Chemin"
+
+
+async def test_an_episode_elsewhere_is_shown_without_a_lookup(signed_in):
+    """Spotify's track metadata names tracks: an episode is shown as the
+    cluster names it, with no artist and no cover, and nothing is asked."""
+    signed_in.daemon.cluster_names_track = True
+    episode = {**track("Le Code a changé", artists=()), "uri": "spotify:episode:4rOoJ6Egrf8K2IrywzwOMk"}
+
+    await signed_in.plays_elsewhere(episode)
+
+    assert remote(signed_in)["title"] == "Le Code a changé"
+    assert (remote(signed_in)["artist"], remote(signed_in)["artwork"]) == (None, None)
+    assert signed_in.daemon.track_metadata_asked == []
 
 
 # === The history: what this player started, as each Spotify app keeps its own ===

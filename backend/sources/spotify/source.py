@@ -9,8 +9,11 @@ the source follows it through `reconcile()` (docs: source architecture,
 "reconcile"). One thing decides where the session stands: go-librespot's own
 GET /status, read once after every burst of /events. An event is when to look,
 never what to believe — two writers (the event and /status) is how the screen
-said "playing" while the auto-stop counted down a pause (E11). The play order
-around the track is GET /player/queue, a second read: it is read again when the
+said "playing" while the auto-stop counted down a pause (E11). With no session
+here, GET /connect/devices is read after it (another device's playback, below);
+a burst of `cluster` events alone reads only that, and nothing at all while a
+session plays here. The play order
+around the track is GET /player/queue, a third read: it is read again when the
 daemon's `queue` event says it moved (raised whenever that answer changes), on
 a connection, after a read that failed, and whenever the order it holds does
 not surround the track /status names — it is never shown around another track.
@@ -75,23 +78,47 @@ where a new process would not do better, and the session is only asked to
 end. The session ends STREAM_LOST and the banner says so until music plays
 again.
 
-Another device. go-librespot is told by Spotify what every device of the
-account does, and its /status names the active one when it is not this one
-(`remote`, raised on change by a `remote` event). Measured 2026-10-05 (an
+Another device. go-librespot keeps the account's Connect cluster as Spotify
+sends it, and GET /connect/devices lists it: `active_device_id`, the `devices`
+(the one `is_self`, each with its name and type) and `now_playing`, the
+active device's playback. A `cluster` event carries the same answer at every
+change of the cluster — a device joining, a volume moved anywhere, the re-send
+of Milō's own pushes — and is, here too, when to look, never what to believe
+(E11). Read in go-librespot's code (master 9085364, #428), not measured yet:
+the first cluster of a session comes with no event, in the answer to the
+daemon's first push, before its `playback_ready`; the route answers 404 until
+then and 204 with no session (as a go-librespot without it answers: the two
+cannot be told apart). `now_playing` is built whoever is active, so it
+outlives the device that played it (with nobody active, the last state,
+playing and pinned at its end) and names Milō's own playback as well: only an
+active device that is not this one and is listed is shown. It carries no
+cover, and its `artist_name` is whatever the sending app put in the track's
+metadata, which the official apps leave out (measured 2026-10-05): the artist
+and the cover are named by Milō from Spotify's metadata service
+(metadata/4/track), once per track and daemon run. Measured 2026-10-05 (an
 iPhone and a Mac on the owner's account): an inactive daemon hears every play,
 pause, skip, seek and track end there within ~50 ms; the device name is the
 app's ("iPhone"); a phone gone to the background or offline leaves the cluster
-9-14 s after its last word, and with no active device nothing is shown even
-though Spotify still holds the paused session. `take_over` asks go-librespot
-for the transfer (POST /player/transfer): the session arrives ~0.25 s later at
-the same position, through `reconcile` like any phone's transfer.
+9-14 s after its last word. `take_over` asks for a transfer to this device
+(POST /connect/transfer): the session arrives through `reconcile` like any
+phone's transfer, at the same position. go-librespot asks Spotify to
+"restore" the playback as it stood, never to resume it, so a paused one lands
+paused, and Milō resumes it once, when /status names the track — never on
+`active`, which a resume does not survive (go-librespot answers it 200 and
+drops it while no stream is loaded). A phone taking the session back is
+announced by a `cluster` naming it active, in its own frame: go-librespot then
+stops the player, hands the session back and signs in again before it says
+`inactive`, and /connect/devices answers 204, then 404, until its first push
+is answered. The cluster announced while the session played here is what the
+bar shows across that window (HANDOVER_HOLD).
 
 The Jam. go-librespot plays a Spotify Jam but says nothing of it; who is in it
 is followed from Spotify itself (jam.py), for the signed-in account, and
 published while that Jam plays here. Milō neither starts nor ends one: the
 host does, from the Spotify app.
 
-Commands go through POST /player/<cmd>. routes.py is the browser's: the
+Commands go through POST /player/<cmd>, the take-over through POST
+/connect/transfer. routes.py is the browser's: the
 library (library.py), its shaping (catalog.py) and the kept profiles
 (profiles.py).
 """
@@ -104,9 +131,10 @@ import os
 import re
 import time
 import yaml
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import aiofiles
 import aiohttp
@@ -121,10 +149,10 @@ from backend.core.models.session import (
     Session,
 )
 from backend.core.models.commands import SetRepeatParams, SetShuffleParams, SkipParams, skip_target
-from backend.sources.spotify.catalog import artists_of, history_entry, queue_entry
+from backend.sources.spotify.catalog import artists_of, history_entry, queue_entry, track_names
 from backend.sources.spotify.history import SpotifyHistory
 from backend.sources.spotify.jam import JamSession, SpotifyJamFeed
-from backend.sources.spotify.library import SpotifyLibrary
+from backend.sources.spotify.library import SpotifyLibrary, SpotifyLibraryError, SpotifyUnavailable
 from backend.sources.spotify.models import (
     NextParams, PlayContextParams, PrevParams, SeekParams,
 )
@@ -146,7 +174,6 @@ class LibrespotStatus:
     context_name: Optional[str] = None
     shuffle: bool = False
     repeat: str = "off"
-    remote: Optional[Dict[str, Any]] = None
     device_id: Optional[str] = None
     # The Spotify app's slider, in go-librespot's steps (0..volume_steps).
     volume: Optional[int] = None
@@ -167,15 +194,73 @@ class AppVolumeSetting:
     allowed: bool
 
 
+class RemoteNames(NamedTuple):
+    """A track playing elsewhere, as Spotify's metadata service names it."""
+    title: Optional[str]
+    artist: Optional[str]
+    album: Optional[str]
+    artwork: Optional[str]
+
+
+NO_NAMES = RemoteNames(None, None, None, None)
+
+
 @dataclass
 class RemotePlayback:
     """What the account plays on the active device when it is another one."""
     device_name: str
     device_type: str
     track_uri: Optional[str]
-    track: Dict[str, Any]
+    title: str
+    artist: Optional[str]
+    album: Optional[str]
+    artwork: Optional[str]
+    duration_ms: Optional[int]
     paused: bool
     anchor: Anchor
+
+
+@dataclass(frozen=True)
+class ConnectDevices:
+    """What GET /connect/devices said: this device's id, the active one's (""
+    with nobody active), the active device's entry ({name, type}; None when
+    the list does not hold it) and the cluster's playback (None when it names
+    no track)."""
+    self_id: Optional[str]
+    active_id: str
+    active_device: Optional[Dict[str, str]]
+    now_playing: Optional[Dict[str, Any]]
+
+
+def connect_devices(data: Dict[str, Any]) -> ConnectDevices:
+    devices = [d for d in data.get("devices") or () if isinstance(d, dict)]
+    active = data.get("active_device_id") or ""
+    entry = next((d for d in devices if active and d.get("id") == active), None)
+    playing = data.get("now_playing")
+    return ConnectDevices(
+        self_id=next((d.get("id") for d in devices if d.get("is_self")), None),
+        active_id=active,
+        active_device={"name": entry.get("name") or "", "type": entry.get("type") or ""} if entry else None,
+        now_playing=playing if isinstance(playing, dict) else None,
+    )
+
+
+def remote_of(devices: ConnectDevices) -> Optional[Tuple[Dict[str, str], Dict[str, Any]]]:
+    """Another device's playback, when there is one: (its entry, its
+    now_playing). The active device must be another one, and listed, and its
+    playback must name a track; anything else names nothing — nobody active
+    over the last state, Milō's own playback, an active id the list lacks."""
+    if not devices.active_id or devices.active_id == devices.self_id or devices.active_device is None:
+        return None
+    playing = devices.now_playing
+    if not playing or not (playing.get("track_name") or playing.get("track_uri")):
+        return None
+    return devices.active_device, playing
+
+
+# The uris Spotify's metadata service names: a track's (an episode, a local
+# file are shown as the cluster names them).
+_NAMEABLE_URI = re.compile(r"^spotify:track:[0-9A-Za-z]+$")
 
 
 def _joined_at(member: Dict[str, Any]) -> int:
@@ -250,6 +335,14 @@ class _Unreadable:
 
 
 UNREADABLE = _Unreadable()
+
+
+class _NoCluster:
+    """GET /connect/devices answered 204 (no session) or 404 (no cluster yet,
+    or a go-librespot without the route: the same answer)."""
+
+
+NO_CLUSTER = _NoCluster()
 
 # The login5 statuses go-librespot retries: an outage or a rate limit.
 LOGIN5_UNAVAILABLE = re.compile(r"login5 returned HTTP (5\d\d|429)\b")
@@ -438,25 +531,31 @@ class SpotifySource(BaseAudioSource):
     # enough to clear a daemon restart's unreachable window.
     STATUS_RETRY_DELAY = 2.0
 
-    # How long the bar keeps what plays elsewhere while /status names nothing,
-    # by what started the hold (measured 2026-10-05, go-librespot 0.10.3):
-    # - a take-over asked here: the daemon goes active at once, names no
-    #   remote, and the session opens ~0.25 s later at its first track;
+    # How long the bar keeps what plays elsewhere while nothing names it, by
+    # what started the hold. The values were measured 2026-10-05 (go-librespot
+    # 0.10.3 with the remote fork) and are carried over until they are
+    # measured again on #428's API:
+    # - a take-over asked here: the daemon goes active at once, the cluster
+    #   names it, and the session opens ~0.25 s later at its first track;
     # - a session arriving, its track not loaded yet (~0.2 s of buffering);
     # - a phone taking the session over: 204 for ~0.3 s while the daemon signs
-    #   in again, then sometimes ~0.15 s naming nothing, then the phone;
-    # - the device shown moving on to a track not in the daemon's metadata
-    #   cache: /status names it with no track for 19-161 ms (measured
-    #   2026-11-02 on a Mac, 6 tracks of 7), then names the track.
-    # Past it the wire follows /status again.
+    #   in again, the `cluster` event that announced the phone the one record
+    #   of it meanwhile.
+    # Past it the wire follows /connect/devices again.
     TAKE_OVER_HOLD = 10.0
     ARRIVAL_HOLD = 5.0
     HANDOVER_HOLD = 3.0
-    NEXT_TRACK_HOLD = 3.0
+    # How long Spotify is given to name a track playing elsewhere (the
+    # internet session's own bound); past it, it is shown without its artist
+    # and cover. What it answered is kept for the daemon run, this many tracks.
+    TRACK_NAMING_TIMEOUT = 5.0
+    TRACK_NAMING_RETRY = 30.0
+    REMOTE_NAMES_KEPT = 64
 
-    # POST /player/transfer answers once Spotify accepted the transfer (~30 ms
-    # measured), longer than the 3 s every other call is given on a slow link.
-    TRANSFER_TIMEOUT = 10.0
+    # POST /connect/transfer answers once Spotify has, and go-librespot gives
+    # it 15 s: waited past that, the give-up is always the daemon's, and a
+    # transfer Milō stopped waiting for never lands unexpected.
+    TRANSFER_TIMEOUT = 16.0
 
     def __init__(
         self,
@@ -530,16 +629,27 @@ class SpotifySource(BaseAudioSource):
         self._shuffle = False
         self._repeat = "off"
         self._remote: Optional[RemotePlayback] = None
-        # Until when the remote is kept while /status names nothing (0: no
-        # hold since the last release) — see TAKE_OVER_HOLD.
+        # Until when the remote is kept while nothing names it (0: no hold
+        # since the last release) — see TAKE_OVER_HOLD.
         self._remote_held_until = 0.0
-        # The remote shown the NEXT_TRACK_HOLD was last armed for: once per
-        # remote, whatever deadline another hold left (running or run out).
-        self._next_track_held_for: Optional[RemotePlayback] = None
-        # What a `remote` event announced since the last /status read: what the
-        # daemon itself saw before it went to sign in again, the one record of
-        # the phone while /status cannot name it. Consumed by the next read.
-        self._announced_remote: Optional[Dict[str, Any]] = None
+        # The last /status said a session is arriving: buffering, no track.
+        self._arriving = False
+        # The one retry after a failed /connect/devices read is spent.
+        self._devices_retried = False
+        # What Spotify named of the tracks played elsewhere ((artist, artwork),
+        # a failure as (None, None)) and the lookups in flight. Both belong to
+        # the run: a stop cancels the lookups and voids their answers.
+        self._remote_names: "OrderedDict[str, RemoteNames]" = OrderedDict()
+        self._naming: Set[str] = set()
+        # Tracks Spotify could not name for a reason that may pass (a 429, an
+        # outage, a sign-in, a timeout): asked again from this time on.
+        self._naming_retry_at: Dict[str, float] = {}
+        # The last `cluster` heard while the session here plays, with that
+        # session: the `inactive` it causes comes in a later frame.
+        self._announced_here: Optional[Tuple[Session, Dict[str, Any]]] = None
+        # Until when a session landing here is the one take_over asked for
+        # (0: none asked): it is resumed once if it lands paused.
+        self._take_over_until = 0.0
         # The play order around the track, as GET /player/queue last listed it;
         # stale once the daemon said it moved or a read of it failed, until it
         # is read again. A daemon without the route (stock 0.10.3) is not asked.
@@ -948,13 +1058,7 @@ class SpotifySource(BaseAudioSource):
             return await self._play_context(params)
 
         if cmd == "take_over":
-            if self._remote is None:
-                return self.error_response("Nothing plays on another device")
-            self._hold_remote(self.TAKE_OVER_HOLD)
-            result = await self._send_api_command("transfer", timeout=self.TRANSFER_TIMEOUT)
-            if not result.get("success"):
-                self._release_remote_hold()
-            return result
+            return await self._take_over()
 
         if cmd == "set_shuffle":
             return await self._send_api_command("shuffle_context", {"shuffle_context": params.shuffle})
@@ -967,6 +1071,37 @@ class SpotifySource(BaseAudioSource):
             return result
 
         return self.error_response(f"Unhandled command: {cmd}")
+
+    # Why POST /connect/transfer did not bring the session here, by its answer.
+    TRANSFER_REFUSALS = {
+        204: "Spotify is not signed in",
+        404: "Spotify does not list this device",
+        502: "Spotify refused the transfer",
+    }
+
+    async def _take_over(self) -> Dict[str, Any]:
+        """Ask Spotify to move what plays on the other device here. The bar
+        keeps it up meanwhile (TAKE_OVER_HOLD); the session is the daemon's
+        when it lands, and resumed once if it lands paused (_resume_taken_over)."""
+        if self._remote is None:
+            return self.error_response("Nothing plays on another device")
+        if self._device_id is None:
+            return self.error_response("Spotify has not named this device yet")
+        if audio_source.wall_time() < self._take_over_until or self._arriving:
+            # The session is on its way here already. go-librespot does not
+            # refuse a transfer to the device that is active: Spotify would
+            # send this session back to it, and it would load again.
+            return self.success_response()
+        self._hold_remote(self.TAKE_OVER_HOLD)
+        status, error = await self._post_api(
+            "/connect/transfer", {"device_id": self._device_id}, timeout=self.TRANSFER_TIMEOUT,
+        )
+        if status != 200:
+            self._release_remote_hold()
+            self._logger.warning(f"Spotify take-over not sent: POST /connect/transfer answered {status or error or 'nothing'}")
+            return self.error_response(self.TRANSFER_REFUSALS.get(status, "Spotify did not answer the transfer"))
+        self._take_over_until = audio_source.wall_time() + self.TAKE_OVER_HOLD
+        return self.success_response()
 
     async def _play_context(self, params: PlayContextParams) -> Dict[str, Any]:
         """Play a context on the account the daemon is signed in as.
@@ -1431,6 +1566,11 @@ class SpotifySource(BaseAudioSource):
     async def _handle_daemon_events(self, events) -> bool:
         """True when the house followed a move of the phone's slider."""
         gone = False
+        # The cluster the last `cluster` of this burst carried: what the daemon
+        # saw before it went to sign in again, the one record of a phone taking
+        # the session over while /connect/devices cannot answer. One heard while
+        # a session plays here is kept for the end of that session alone.
+        announced = None
         for event in events:
             kind = event.get("type")
             if kind == "inactive":
@@ -1440,8 +1580,8 @@ class SpotifySource(BaseAudioSource):
             if kind in ("queue", "connected"):
                 # Said once: a failed /status read below must not lose it.
                 self._order_stale = True
-            if kind == "remote":
-                self._announced_remote = event.get("data")
+            if kind == "cluster":
+                announced = event.get("data")
             if kind == "metadata":
                 self._loaded_track = event.get("data") or {}
             elif kind == "playing" and self._loaded_track is not None:
@@ -1452,13 +1592,23 @@ class SpotifySource(BaseAudioSource):
             if kind == "connected" and self._unanswered:
                 # The daemon that did not answer at start does now.
                 self.broadcast_error_cleared()
+        if announced is not None and self._session is not None:
+            self._announced_here = (self._session, announced)
+        if all(event.get("type") == "cluster" for event in events):
+            # The cluster moves at every volume change and every re-send of
+            # Milō's own pushes, and says nothing a session here shows: alone,
+            # it only sends Milō to look elsewhere, when nothing plays here.
+            if self._session is None:
+                await self._follow_elsewhere(True, announced)
+                self._publish_changes()
+            return False
         status = None if gone else await self._read_status()
         if status is UNREADABLE:
             self._logger.warning("go-librespot status unavailable — keeping the session as it stands")
             if not self._timer_armed("status"):
                 self._arm_timer("status", self.STATUS_RETRY_DELAY)
             return False
-        followed = await self._apply_status(status)
+        followed = await self._apply_status(status, announced)
         self._publish_changes()
         return followed
 
@@ -1486,8 +1636,8 @@ class SpotifySource(BaseAudioSource):
             self._publish_changes()
             return
         if name == "remote_hold":
-            # Nothing came in its place: show what /status says plays elsewhere.
-            # The daemon may say nothing more, so a failed read is retried.
+            # Nothing came in its place: show what plays elsewhere now. The
+            # daemon may say nothing more, so a failed read is retried.
             if not await self.refresh_metadata():
                 self._logger.warning("go-librespot status unavailable as the remote hold ends — reading it again")
                 if not self._timer_armed("status"):
@@ -1505,25 +1655,50 @@ class SpotifySource(BaseAudioSource):
         await self._apply_status(status)
         self._publish_changes()
 
-    async def _apply_status(self, status: Optional[LibrespotStatus]) -> bool:
+    async def _apply_status(self, status: Optional[LibrespotStatus], announced: Optional[Dict[str, Any]] = None) -> bool:
         """Make the session and the account match what /status said (None: a
-        204, or the `inactive` that needs no read). The session first: ending
-        it disarms the timers, and the sign-in watch armed below must outlive
-        that end. True when the house followed the phone's slider."""
+        204, or the `inactive` that needs no read), then what plays elsewhere
+        (`announced`: the cluster the burst's last `cluster` carried). The
+        session first: ending it disarms the timers, and the sign-in watch
+        armed below must outlive that end. True when the house followed the
+        phone's slider."""
         followed = False
         if status is None:
             # The order belonged to the session that ended.
             self._order, self._order_stale = PlayOrder(), True
+            self._arriving = False
             await self.reconcile(None)
         else:
             self._device_id = status.device_id or self._device_id
+            self._arriving = bool(status.buffering and not (status.track and status.track.get("name")))
             await self._apply_session(status)
+            await self._resume_taken_over()
             followed = await self._follow_app_volume(status)
         await self._follow_account(status)
-        self._follow_remote(status)
+        await self._follow_elsewhere(status is not None, announced)
         self._list_started_tracks()
         await self._follow_jam()
         return followed
+
+    async def _resume_taken_over(self) -> None:
+        """The session take_over asked for, at its first state with a track:
+        go-librespot asked Spotify to restore it as it stood, so one paused
+        there lands paused here, and is resumed once. Now, because /status
+        names the track only once it has loaded, and a resume then plays from
+        where it paused. One that lands playing is left as it is, and so is a
+        cast nobody asked for here."""
+        session = self._session
+        if not self._take_over_until or not isinstance(session, SpotifySession):
+            return
+        if session.phase is Phase.LOADING:
+            return
+        asked, self._take_over_until = self._take_over_until, 0.0
+        if audio_source.wall_time() >= asked or session.phase is not Phase.PAUSED:
+            return
+        self._logger.info("Spotify session taken over paused — resuming")
+        result = await self._send_api_command("resume")
+        if not result.get("success"):
+            self._logger.warning(f"Spotify session taken over paused, and its resume was refused: {result.get('error')}")
 
     def _list_started_tracks(self) -> None:
         """List the tracks that started in the history, under the account this
@@ -1566,6 +1741,12 @@ class SpotifySource(BaseAudioSource):
             uri = track.get("uri")
             new_track = uri != session.uri
             session.track, session.uri = content, uri
+            if uri and content["title"]:
+                # A phone taking this session back plays it on: the bar names
+                # it at once, as played here, rather than wait on Spotify.
+                self._remember_names(uri, RemoteNames(
+                    title=content["title"], artist=content["artist"], album=content["album"], artwork=content["artwork"],
+                ))
             session.album_uri = track.get("album_uri") or None
             session.artists = artists_of(track)
             # Only with a track: a load nothing names keeps the order around
@@ -1596,8 +1777,11 @@ class SpotifySource(BaseAudioSource):
     async def _loading_track(self, session: SpotifySession, status: LibrespotStatus) -> Optional[Dict[str, Any]]:
         """The track a load points at, which /status names only once it has
         streamed (1-2 s after a daemon restart, a minute while spclient hung,
-        measured): GET /player/queue's current entry, described at 0. The
-        order is read again only when a `queue` said it moved. None when
+        measured): GET /player/queue's current entry, described at the load's
+        start and standing still there (go-librespot #421) — 0 for a skip,
+        the transferred position for a transfer — which is where a new track
+        is anchored. The order is read again only when a `queue` said it
+        moved. None when
         nothing names a new one (a stock go-librespot, metadata not cached, a
         read that failed): the track on screen stands, nothing cleared.
 
@@ -1619,48 +1803,79 @@ class SpotifySource(BaseAudioSource):
             return None
         return track
 
-    def _follow_remote(self, status: Optional[LibrespotStatus]) -> None:
+    async def _follow_elsewhere(self, answered: bool, announced: Optional[Dict[str, Any]]) -> None:
+        """Read what plays on another device and follow it, with no session
+        here. `answered`: /status answered 200 — a 204 is no session, and
+        /connect/devices would answer the same."""
+        devices: Union[ConnectDevices, _NoCluster, _Unreadable] = NO_CLUSTER
+        if self._session is None and answered:
+            devices = await self._read_devices()
+        self._follow_remote(devices, announced)
+
+    def _follow_remote(
+        self, devices: Union[ConnectDevices, _NoCluster, _Unreadable], announced: Optional[Dict[str, Any]],
+    ) -> None:
         """Follow what plays on another device, after the session and the
         account (ending a session disarms the source's timers, the hold's too).
 
         One rule keeps the bar up across a handover: the last remote stands
-        while /status names nothing, until a session opens here or the hold
-        started by what began the handover runs out (TAKE_OVER_HOLD). Whatever
-        /status names with its track is taken at once, held or not. A remote is
-        shown once its track is named (go-librespot resolves the artists after
-        the cluster names the track). A remote named with no track while one is
-        shown is its next track resolving: the one shown stands, held once per
-        remote shown whatever hold already runs, and only a named track
-        releases the hold, so another event before it (a pause, a seek) does
-        not extend it (NEXT_TRACK_HOLD).
+        while nothing names one, until a session opens here or the hold
+        started by what began the handover runs out (TAKE_OVER_HOLD). What
+        /connect/devices names is taken at once, held or not, once Spotify
+        has named its track (artist and cover, _name_remote): until then the
+        remote shown stands as it was, and none is shown if none was. A read
+        that failed changes nothing (E10).
         """
-        announced, self._announced_remote = self._announced_remote, None
+        kept, self._announced_here = self._announced_here, None
         if self._session is not None:
+            if kept is not None and kept[0] is self._session:
+                self._announced_here = kept
             self._remote = None
             self._release_remote_hold()
             return
-        arriving = bool(status and status.buffering and not (status.track and status.track.get("name")))
-        named = status.remote if status is not None else None
-        if named and (self._remote is None or (named.get("track") or {}).get("name")):
-            self._release_remote_hold()
-        elif named:
-            # The device shown moving on: its next track is being resolved.
-            if self._next_track_held_for is not self._remote:
-                self._next_track_held_for = self._remote
-                self._hold_remote(self.NEXT_TRACK_HOLD)
-        elif announced:
-            # A phone taking the session over: go-librespot announced it, then
-            # went to sign in again, so /status cannot name it yet.
-            named = announced
-            self._hold_remote(self.HANDOVER_HOLD)
-        elif arriving and self._remote is not None and not self._remote_held_until:
-            # A session arriving here (a phone that picked Milō): what played
-            # elsewhere is what is coming.
-            self._hold_remote(self.ARRIVAL_HOLD)
-        track = (named or {}).get("track")
-        if track and track.get("name"):
-            self._adopt_remote(named, track)
+        if announced is None and kept is not None:
+            announced = kept[1]
+        if devices is UNREADABLE:
+            # The daemon may say nothing more: read again, once.
+            if not self._devices_retried and not self._timer_armed("status"):
+                self._devices_retried = True
+                self._arm_timer("status", self.STATUS_RETRY_DELAY)
             return
+        named = remote_of(devices) if isinstance(devices, ConnectDevices) else None
+        handover = False
+        if named is None and devices is NO_CLUSTER and isinstance(announced, dict):
+            # A phone taking the session over: the daemon announced it, then
+            # went to sign in again, so /connect/devices cannot name it yet.
+            named = remote_of(connect_devices(announced))
+            handover = named is not None
+        if named is not None:
+            device, playing = named
+            names = self._names_of(playing.get("track_uri"))
+            if names is None and handover:
+                # Shown at once, by what the cluster names: the daemon is
+                # signing in again and has no token to ask Spotify with. The
+                # read that names the phone next asks.
+                names = NO_NAMES
+            elif names is None and audio_source.wall_time() < self._naming_retry_at.get(playing["track_uri"], 0.0):
+                names = NO_NAMES
+            elif names is None:
+                self._name_remote(playing["track_uri"])
+                return
+            if playing.get("track_name") or names.title:
+                if handover:
+                    self._hold_remote(self.HANDOVER_HOLD)
+                else:
+                    self._release_remote_hold()
+                self._adopt_remote(device, playing, names)
+                return
+        # A session arriving here (a phone that picked Milō): /status says so,
+        # or a cluster naming this device active ahead of the daemon's events.
+        arriving = self._arriving or (
+            isinstance(devices, ConnectDevices) and bool(devices.active_id) and devices.active_id == devices.self_id
+        )
+        if arriving and self._remote is not None and not self._remote_held_until:
+            # What played elsewhere is what is coming.
+            self._hold_remote(self.ARRIVAL_HOLD)
         now = audio_source.wall_time()
         if now < self._remote_held_until:
             if not self._timer_armed("remote_hold"):
@@ -1671,30 +1886,105 @@ class SpotifySource(BaseAudioSource):
             # A hold that ran out during one arrival is not restarted by it.
             self._remote_held_until = 0.0
 
-    def _adopt_remote(self, remote: Dict[str, Any], track: Dict[str, Any]) -> None:
+    def _adopt_remote(
+        self, device: Dict[str, str], playing: Dict[str, Any], names: RemoteNames,
+    ) -> None:
         """Take a named remote. A read of the same playback keeps the anchor
-        unless the playhead jumped, so a state request re-publishes nothing."""
-        content = self.transform_track_metadata(track)
-        position = content.pop("position") or 0
-        paused = bool(remote.get("paused"))
+        unless the playhead jumped, so a state request re-publishes nothing.
+        A buffering device counts as playing (go-librespot's `playing`
+        ignores it): the next cluster re-anchors it."""
+        uri = playing.get("track_uri") or None
+        duration = playing.get("duration") or None
+        position = int(playing.get("position") or 0)
+        paused = not playing.get("playing")
         now = audio_source.wall_time()
         anchor = Anchor(ms=position, at=now, moving=not paused)
         previous = self._remote
         if (
             previous is not None
-            and previous.track_uri == track.get("uri")
+            and previous.track_uri == uri
             and previous.paused == paused
-            and abs(previous.anchor.now(now, content["duration_ms"]) - position) <= POSITION_TOLERANCE_MS
+            and abs(previous.anchor.now(now, duration) - position) <= POSITION_TOLERANCE_MS
         ):
             anchor = previous.anchor
         self._remote = RemotePlayback(
-            device_name=remote.get("device_name") or "",
-            device_type=(remote.get("device_type") or "").lower(),
-            track_uri=track.get("uri"),
-            track=content,
+            device_name=device["name"],
+            device_type=device["type"],
+            track_uri=uri,
+            # The iPhone's and the Mac's clusters name only the uri (measured
+            # 2026-11-09): what Spotify answered for it names the rest.
+            title=playing.get("track_name") or names.title or "",
+            artist=names.artist or playing.get("artist_name") or None,
+            album=playing.get("album_name") or names.album,
+            artwork=names.artwork,
+            duration_ms=duration,
             paused=paused,
             anchor=anchor,
         )
+
+    def _names_of(self, uri: Optional[str]) -> Optional[RemoteNames]:
+        """(title, artist, album, artwork) of a track playing elsewhere, or None while
+        Spotify has not answered for it. A uri its metadata service does not
+        name (an episode, a local file) has neither, and is asked nothing."""
+        if uri in self._remote_names:
+            self._remote_names.move_to_end(uri)
+            return self._remote_names[uri]
+        if not uri or not _NAMEABLE_URI.match(uri):
+            return NO_NAMES
+        return None
+
+    def _remember_names(self, uri: str, names: RemoteNames) -> None:
+        self._remote_names[uri] = names
+        self._remote_names.move_to_end(uri)
+        while len(self._remote_names) > self.REMOTE_NAMES_KEPT:
+            self._remote_names.popitem(last=False)
+
+    def _name_remote(self, uri: str) -> None:
+        """Ask Spotify for the title, the artist and the cover of a track playing
+        elsewhere, once per track whatever the cluster says meanwhile, off the
+        mailbox; the answer comes back through it."""
+        if uri in self._naming:
+            return
+        self._naming.add(uri)
+        self._bg.spawn(self._look_up_remote(uri), label="spotify remote track")
+
+    async def _look_up_remote(self, uri: str) -> None:
+        """One lookup, bounded, always answered. A refusal (400, 404) is kept
+        like an answer and never asked again in the run; any other failure is
+        asked again TRACK_NAMING_RETRY later, at the next read that names it."""
+        names: Optional[RemoteNames] = None
+        try:
+            answer = await asyncio.wait_for(self._library.track_metadata(uri), self.TRACK_NAMING_TIMEOUT)
+            names = RemoteNames(**track_names(answer))
+        except (SpotifyLibraryError, SpotifyUnavailable, asyncio.TimeoutError) as e:
+            if isinstance(e, SpotifyLibraryError) and e.status in (400, 404):
+                names = NO_NAMES
+            if uri not in self._naming_retry_at:
+                self._logger.warning(
+                    f"Spotify did not name {uri}, playing elsewhere ({str(e) or type(e).__name__}): "
+                    "shown only as the cluster names it"
+                )
+        except Exception:
+            # Still answered, so the bar is not left waiting on it; the error
+            # itself is the task set's to log.
+            self._post_result(lambda: self._apply_remote_names(uri, names))
+            raise
+        self._post_result(lambda: self._apply_remote_names(uri, names))
+
+    async def _apply_remote_names(self, uri: str, names: Optional[RemoteNames]) -> None:
+        """Keep what Spotify answered (None: nothing yet, ask again later), and
+        read again what plays elsewhere: one more local read per track, which
+        also brings a fresh playhead."""
+        self._naming.discard(uri)
+        if names is None:
+            self._naming_retry_at[uri] = audio_source.wall_time() + self.TRACK_NAMING_RETRY
+        else:
+            self._naming_retry_at.pop(uri, None)
+            self._remember_names(uri, names)
+        if self._http is None:
+            return
+        await self._follow_elsewhere(True, None)
+        self._publish_changes()
 
     def _hold_remote(self, seconds: float) -> None:
         now = audio_source.wall_time()
@@ -1712,12 +2002,12 @@ class SpotifySource(BaseAudioSource):
         return SpotifyRemote(
             device_name=remote.device_name,
             device_type=remote.device_type,
-            title=remote.track["title"],
-            artist=remote.track["artist"],
-            album=remote.track["album"] or None,
-            artwork=remote.track["artwork"] or None,
+            title=remote.title,
+            artist=remote.artist or None,
+            album=remote.album or None,
+            artwork=remote.artwork or None,
             track_uri=remote.track_uri,
-            duration_ms=remote.track["duration_ms"],
+            duration_ms=remote.duration_ms,
             paused=remote.paused,
             position=PositionAnchor(ms=remote.anchor.ms, at=remote.anchor.at, rate=1.0),
         )
@@ -2030,11 +2320,27 @@ class SpotifySource(BaseAudioSource):
             context_name=data.get("context_name") or None,
             shuffle=bool(data.get("shuffle_context", False)),
             repeat=repeat_mode(bool(data.get("repeat_context")), bool(data.get("repeat_track"))),
-            remote=data.get("remote"),
             device_id=data.get("device_id") or None,
             volume=data.get("volume"),
             volume_steps=data.get("volume_steps") or None,
         )
+
+    async def _read_devices(self) -> Union[ConnectDevices, _NoCluster, _Unreadable]:
+        """GET /connect/devices: the account's Connect cluster, NO_CLUSTER, or
+        UNREADABLE (a transport failure, or an answer such as 503: no session
+        loop took the request in time)."""
+        answer = await self._read("/connect/devices", "Connect devices")
+        if answer is UNREADABLE:
+            return UNREADABLE
+        code, data = answer
+        if code in (204, 404):
+            self._devices_retried = False
+            return NO_CLUSTER
+        if code == 200 and isinstance(data, dict):
+            self._devices_retried = False
+            return connect_devices(data)
+        self._logger.warning(f"go-librespot connect devices read answered {code} — keeping what plays elsewhere as shown")
+        return UNREADABLE
 
     async def _read_order(self) -> None:
         """GET /player/queue: the play order around the track. A 204 (no
@@ -2064,8 +2370,9 @@ class SpotifySource(BaseAudioSource):
         self._order_retried = False
 
     async def refresh_metadata(self) -> bool:
-        """A state request (GET /api/audio/state): read /status, follow it, and
-        hand the state machine the current record, playhead included."""
+        """A state request (GET /api/audio/state): read /status — and, with no
+        session here, /connect/devices —, follow them, and hand the state
+        machine the current record, playhead included."""
         status = await self._read_status()
         if status is UNREADABLE:
             return False
@@ -2081,20 +2388,25 @@ class SpotifySource(BaseAudioSource):
     ) -> Dict[str, Any]:
         """Send command to go-librespot API. `timeout` overrides the session's
         3 s for a call go-librespot answers only once Spotify has."""
+        status, error = await self._post_api(f"/player/{command}", payload, timeout)
+        if status == 200:
+            return self.success_response()
+        return self.error_response(error or "Command failed")
+
+    async def _post_api(
+        self, path: str, payload: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None,
+    ) -> Tuple[Optional[int], Optional[str]]:
+        """POST one of go-librespot's routes: its HTTP status, or None and why
+        it could not be sent."""
         if not self._http or not self._api_url:
-            return self.error_response("Session not active")
+            return None, "Session not active"
 
         extra = {"timeout": aiohttp.ClientTimeout(total=timeout)} if timeout else {}
         try:
-            async with self._http.post(
-                f"{self._api_url}/player/{command}",
-                json=payload or {},
-                **extra,
-            ) as resp:
-                return self.success_response() if resp.status == 200 else self.error_response("Command failed")
-
+            async with self._http.post(f"{self._api_url}{path}", json=payload or {}, **extra) as resp:
+                return resp.status, None
         except Exception as e:
-            return self.error_response(str(e))
+            return None, str(e)
 
     # === Log Monitor ===
 
@@ -2362,9 +2674,16 @@ class SpotifySource(BaseAudioSource):
         self._disarm_timer("status")
         self._settle_signin()
         self._account = self._persisted = None
-        # What played elsewhere belongs to this daemon run: the next one reads
-        # its own before the bar shows anything.
-        self._remote = self._announced_remote = None
+        # What played elsewhere belongs to this daemon run, and so does what
+        # Spotify named of it: the next one reads and asks again before the bar
+        # shows anything.
+        self._remote = None
+        self._remote_names.clear()
+        self._naming.clear()
+        self._naming_retry_at.clear()
+        self._announced_here = None
+        self._take_over_until = 0.0
+        self._arriving = self._devices_retried = False
         self._order, self._order_stale, self._order_route = PlayOrder(), True, True
         self._order_retried = False
         self._loaded_track, self._pending_starts = None, []

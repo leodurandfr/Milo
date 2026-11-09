@@ -2,12 +2,17 @@
 
 The fixtures have the shapes measured on the owner's account: its library
 (2026-10-03), Spotify's home for it (spclient homeview, 2026-10-04) and an
-artist's page with its discography (spclient artistview, 2026-10-05).
+artist's page with its discography (spclient artistview, 2026-10-05) and a
+track's metadata (metadata/4/track, 2026-11-09).
 """
+import copy
+import json
+from pathlib import Path
+
 from backend.sources.spotify.catalog import (
     ARTIST_POPULAR_RELEASES_SECTION, ARTIST_TOP_TRACKS_SECTION, SHORTCUTS_SECTION, artist_page, artist_portrait,
     artist_shelf_seeds, described_tracks, head_artist_shelves, release_type, home_shelves, leading_covers, library_sections, monthly_listeners,
-    normalize_playlist, normalize_track, playlist_cover, spotify_gid, thumbnail_url,
+    normalize_playlist, normalize_track, playlist_cover, spotify_gid, thumbnail_url, track_names,
 )
 
 ACCOUNT = "owner"
@@ -260,6 +265,30 @@ def test_an_artists_metadata_is_addressed_by_its_hex_gid_and_read_for_its_small_
         {"file_id": "ab6761610000f1783f6b8973be0344896d8680ab", "size": "SMALL"},
     ]}}) == FKA_TWIGS_PHOTO
     assert artist_portrait({}) is None
+
+
+# What metadata/4/track answered for a three-artist track (2026-11-09).
+TRACK_METADATA = json.loads((Path(__file__).parent / "spotify_track_metadata.json").read_text())
+
+
+def test_track_names_reads_spotifys_track_metadata():
+    """The remote card's names (another device of the account playing): the
+    iPhone's cluster names only the uri, so the title, the album, every artist
+    and the album's 640 px cover are read off Spotify's metadata service."""
+    assert len(TRACK_METADATA["artist"]) >= 1
+    assert track_names(TRACK_METADATA) == {
+        "title": "Geneva",
+        "artist": "Shades, MadeInParis, Smeels",
+        "album": "MIEL",
+        "artwork": "https://i.scdn.co/image/ab67616d0000b273e8b655703b9f11a8d11b20f8",
+    }
+    coverless = copy.deepcopy(TRACK_METADATA)
+    del coverless["album"]["cover_group"]
+    assert track_names(coverless)["artwork"] is None
+    small = copy.deepcopy(TRACK_METADATA)
+    small["album"]["cover_group"]["image"] = [i for i in small["album"]["cover_group"]["image"] if i["size"] != "LARGE"]
+    first = small["album"]["cover_group"]["image"][0]["file_id"]
+    assert track_names(small)["artwork"] == f"https://i.scdn.co/image/{first}"
 
 
 def test_a_track_whose_metadata_is_not_cached_yet_is_left_out():

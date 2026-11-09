@@ -31,25 +31,42 @@ With stored credentials (0.10.3, `persist_credentials`; measured 2026-10-03):
   signed-in daemon and announced by an event carrying `value`.
 - With nobody signed in, every /player command answers 204.
 
-Another device of the account (go-librespot with `remote`, measured on the
-owner's iPhone 2026-10-05): /status names the active device when it is not this
-one, with its track once resolved and the playhead read when /status was; each
-change raises `remote`. POST /player/transfer answers 200 at once, and the
-session arrives as a phone's transfer does, at the same position. A track
-change on that device whose metadata go-librespot has not cached raises
-`remote` twice (measured on the owner's Mac 2026-11-02, 6 tracks of 7): first
-with no track, while it resolves in the background, then 19-161 ms later with
-the track named.
+Another device of the account, as go-librespot master 9085364 (#428) is
+written — read in its code, NOT measured on the unit yet: GET /connect/devices
+lists the Connect cluster (`active_device_id`, the `devices` sorted by id with
+the one `is_self`, and `now_playing`, the cluster's playback whoever is
+active: its position extrapolated to the answer while it plays and capped at
+its duration, `artist_name` "", no cover). It answers 404 until the session's
+first cluster — which comes in the answer to the daemon's first push, with no
+event — and 204 with no session. Every ClusterUpdate raises `cluster`
+carrying the same answer, and nothing else does: a transfer here leaves the
+previous cluster listed until the answer to its push lands (taken here at
+`will_play`). A ClusterUpdate naming another device active over a session
+here is said in its own frame; the daemon then stops the player, pushes, asks
+to sign out and only then says `inactive` (and the fork's `queue` after the
+`cluster`, never ahead of it). POST /connect/transfer {device_id} answers 400
+with no id before anything else, then 204 with no session, 404 for a device
+the cluster lacks, 502 when Spotify refuses, 200 — and for the device already
+active, the whole transfer again (`active`, `will_play`, `metadata`) — and asks
+Spotify to "restore": the session lands paused if it was paused there. Until the track starts loading
+(`will_play`) a resume is answered 200 and lost; during the load it is applied
+as the track lands; after it, the track plays from where it landed. From the
+2026-10-05 measurements (the owner's iPhone, the fork's route): the session
+arrives ~0.25 s after the transfer, at the same position. Spotify's metadata
+service (metadata/4/track/{gid}) answers in the shape of
+spotify_track_metadata.json, measured 2026-11-09.
 
 The play order (the fork's GET /player/queue, measured 2026-10-07 on the
 owner's iPhone): `provider` is "context", "queue" (the user's queue, listed
 first in next_tracks and kept across a new context) or "autoplay" (the station
 that replaces a context once it has run out, never listed after it); a
 playlist's entries carry a uid, an album's none, the user's queue numbers its
-own ("q1", "q2", the same track queued twice included). While a track loads,
-the current entry is the one loading, described at position 0 once its metadata
-is cached (read in the fork's player_queue.go, not measured): /status names no
-track until it has streamed.
+own ("q1", "q2", the same track queued twice included). The current entry
+carries the playing position; while a track loads it is the one loading, once
+its metadata is cached, described at its load's start and standing still there
+— 0 for a skip, the transferred position for a transfer (go-librespot #421,
+read in its player_queue.go, not measured): /status names no track until it
+has streamed.
 
 A track Spotify relinks to a market alternative (measured 2026-11-09, a Liked
 Songs entry): the entry keeps the uri its context lists, at the top level of
@@ -74,6 +91,7 @@ import asyncio
 import copy
 import itertools
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -89,6 +107,7 @@ from backend.sources.spotify import jam as jam_module
 from backend.sources.spotify import library as library_module
 from backend.sources.spotify import source as spotify_module
 from backend.sources.spotify import websocket as websocket_module
+from backend.sources.spotify.catalog import spotify_gid
 from backend.sources.spotify.source import SpotifySource
 from backend.tests.golden.harness import (
     AsyncioProxy, VirtualClock, WireReader, make_settings, make_state_machine, settle, use_virtual_wall,
@@ -97,6 +116,13 @@ from backend.tests.golden.harness import (
 ACCOUNT = "p6puyc6we1egphk4nt2l5vaxy"
 # go-librespot's device id on the unit, as /status names it.
 DEVICE_ID = "84929e0ca31026278abdcf27127aa71d1d5c166b"
+# The account's other devices, by the name their app gives them.
+OTHER_DEVICES = {
+    "iPhone": "1d0183bba7f631d45ffa2be4e1208f37682b5126",
+    "Mac mini": "c2f1a4a5ea4a3d0b8b6d4d1fd2a81e37ab2c9f10",
+}
+# What metadata/4/track answers (measured, see the module docstring).
+TRACK_METADATA = json.loads((Path(__file__).parent / "spotify_track_metadata.json").read_text())
 
 
 def jam_session(*members: Tuple[str, str, int], active: Optional[bool] = True,
@@ -124,7 +150,8 @@ FIRST_PID = 46508
 def track(name: str, duration: int = 182920, artists=("Kery James",), album: str = "Réel") -> Dict[str, Any]:
     slug = name.lower().replace(" ", "-")
     return {
-        "uri": f"spotify:track:{slug}",
+        # A Spotify id is base62: Milō reads it as the hex gid of its metadata.
+        "uri": f"spotify:track:{slug.replace('-', '')}",
         "name": name,
         "artist_names": list(artists),
         "album_name": album,
@@ -137,6 +164,29 @@ def track(name: str, duration: int = 182920, artists=("Kery James",), album: str
 PARAPLUIE = track("Parapluie")
 TROIS_NEUF_TROIS = track("Trois Neuf Trois", 199533)
 LE_CHEMIN = track("Le Chemin", 222022)
+
+
+def gid_of(song: Dict[str, Any]) -> str:
+    return spotify_gid(song["uri"].rsplit(":", 1)[1])
+
+
+def cover_named_for(song: Dict[str, Any]) -> str:
+    """The 640 px cover Spotify's metadata service names for `song`."""
+    return f"https://i.scdn.co/image/ab67616d0000b273{gid_of(song)[:24]}"
+
+
+def track_metadata_answer(song: Dict[str, Any]) -> Dict[str, Any]:
+    """What metadata/4/track answers for `song`: the fixture's answer, its
+    names and covers made the song's."""
+    answer = copy.deepcopy(TRACK_METADATA)
+    gid = gid_of(song)
+    answer["gid"], answer["name"], answer["duration"] = gid, song["name"], song["duration"]
+    answer["artist"] = [{"gid": f"{i:032x}", "name": name} for i, name in enumerate(song["artist_names"])]
+    answer["album"]["name"] = song["album_name"]
+    for image in answer["album"]["cover_group"]["image"]:
+        image["file_id"] = image["file_id"][:16] + gid[:24]
+    return answer
+
 
 _CLOSED = object()
 
@@ -153,11 +203,27 @@ class _Response:
         return copy.deepcopy(self._payload)
 
 
+class _Protobuf(_Response):
+    """Spotify's metadata service, asked without `Accept: application/json`:
+    its protobuf answer, which no JSON decoder reads."""
+
+    def __init__(self) -> None:
+        super().__init__(200, b"\x0a\x10")
+        self.content_type = "application/protobuf"
+
+    async def json(self, **_: Any) -> Any:
+        return json.loads(b"\x0a\x10")
+
+
 class _Exchange:
-    def __init__(self, response: Any = None, error: Optional[BaseException] = None) -> None:
+    def __init__(self, response: Any = None, error: Optional[BaseException] = None,
+                 delay: float = 0.0, clock: Optional["VirtualClock"] = None) -> None:
         self._response, self._error = response, error
+        self._delay, self._clock = delay, clock
 
     async def __aenter__(self) -> Any:
+        if self._delay:
+            await self._clock.sleep(self._delay)
         if self._error is not None:
             raise self._error
         return self._response
@@ -219,10 +285,11 @@ class Librespot:
         self.repeat_context = False
         self.repeat_track = False
         self.track: Optional[Dict[str, Any]] = None
-        # The track a load points at while /status names none (the fork's
-        # GET /player/queue lists it as the current entry, described at 0 once
-        # its metadata is cached; `loading_known` False: not cached, a null
-        # track).
+        # The track a load points at while /status names none, its `position`
+        # the load's start (0 for a skip, the transferred position for a
+        # transfer): the fork's GET /player/queue lists it as the current
+        # entry, described there, standing still, once its metadata is
+        # cached; `loading_known` False: not cached, a null track.
         self.loading: Optional[Dict[str, Any]] = None
         self.loading_known = True
         # The uri the context lists for the current entry, when Spotify
@@ -236,6 +303,7 @@ class Librespot:
         self.prev_tracks: List[Dict[str, Any]] = []
         self.next_tracks: List[Dict[str, Any]] = []
         self.has_queue_route = True     # False: a go-librespot without it (stock 0.10.3), 404
+        self.cluster_names_track = False   # True: the cluster names the title and album elsewhere
         self.queue_answers = True       # False: GET /player/queue answers 503
         self.queue_reads = 0
         self.queue_body: Any = None     # not None: GET /player/queue answers 200 with this instead
@@ -243,11 +311,42 @@ class Librespot:
         # says it later), as when the event lands in a burst after the track's.
         self.queue_event_late = False
         self.queue_listed: Optional[Dict[str, Any]] = None
-        # What the account plays on another device, as /status's `remote`.
-        self.remote: Optional[Dict[str, Any]] = None
+        # The account's Connect cluster: the other devices ({id: {name, type}}),
+        # the active one when it is not this one ("" with nobody active), and
+        # the last playback reported from elsewhere ({song, paused, position_ms,
+        # at}), which the cluster keeps after its device has left.
+        self.others: Dict[str, Dict[str, str]] = {}
+        self.active_device_id = ""
+        self.playback_elsewhere: Optional[Dict[str, Any]] = None
+        self.cluster_ready = True       # False: no cluster yet this session, a 404
+        self.devices_answers = True     # False: GET /connect/devices answers 503
+        self.devices_reads = 0
+        self.status_reads = 0
+        # A transfer here: the playback it brings, its stage ("resolving" the
+        # context until `will_play`, then "loading"), a resume asked during
+        # the load, and the resumes lost before it.
         self.taken_over: Optional[Dict[str, Any]] = None
         self.transfer_pending = False
-        self.transfer_refused = False   # Spotify refused the transfer (a 500 from go-librespot)
+        self.stage: Optional[str] = None
+        self.resume_at_load = False
+        self.resumes_lost = 0
+        self.transfer_refused = False   # Spotify refused the transfer (a 502 from go-librespot)
+        self.transfer_never_lands = False   # Spotify accepted it (200) and never delivered it
+        self.self_transfers = 0         # transfers asked to the device already active
+        self.transfer_start_delay = 0.0  # how long after its 200 a transfer here starts
+        # A ClusterUpdate named another device active, and the session here is
+        # not stopped yet: the cluster is that device's.
+        self.taken_back = False
+        # Spotify's track metadata (spclient metadata/4/track), per hex gid:
+        # filled for every song played elsewhere but the uris in `unnamed`
+        # (an unknown gid answers 503); how long it takes to answer, and the
+        # gids asked.
+        self.track_metadata: Dict[str, Dict[str, Any]] = {}
+        self.unnamed: set = set()
+        self.refused: set = set()          # uris the service answers 404 for
+
+        self.naming_delay = 0.0
+        self.track_metadata_asked: List[str] = []
         self.paused = True
         self.buffering = False
         # The app's slider, in steps (0.10.5: kept across sessions, set with no
@@ -346,9 +445,19 @@ class Librespot:
             self.artist_asked.append((url, k["params"]["locale"]))
             answer = self.releases_answer if url.endswith("/releases") else self.artist_answer
             return _Exchange(_Response(503) if answer is None else _Response(200, answer))
+        if "/metadata/4/" in url and (k.get("headers") or {}).get("Accept") != "application/json":
+            return _Exchange(_Protobuf())
         if "/metadata/4/artist/" in url:
             answer = self.artist_metadata.get(url.rsplit("/", 1)[1])
             return _Exchange(_Response(503) if answer is None else _Response(200, answer))
+        if "/metadata/4/track/" in url:
+            gid = url.rsplit("/", 1)[1]
+            self.track_metadata_asked.append(gid)
+            if any(gid_of({"uri": uri}) == gid for uri in self.refused):
+                return _Exchange(_Response(404))
+            answer = self.track_metadata.get(gid)
+            return _Exchange(_Response(503) if answer is None else _Response(200, answer),
+                             delay=self.naming_delay, clock=self.clock)
         if "inspiredby-mix" in url:
             self.radio_asked.append(url)
             answer = self.radio_answer
@@ -359,6 +468,7 @@ class Librespot:
         if not self.up:
             return _Exchange(error=_refused())
         if url.endswith("/status"):
+            self.status_reads += 1
             if not self.status_answers:
                 return _Exchange(_Response(503))
             if not self.session and not self.signed_in:
@@ -367,7 +477,7 @@ class Librespot:
                 return _Exchange(_Response(200, {
                     "username": self.stored, "stopped": False, "paused": False,
                     "buffering": False, "track": None, **self._player_flags(),
-                    "remote": copy.deepcopy(self.remote), "device_id": self.device_id,
+                    "device_id": self.device_id,
                     "volume": self.volume, "volume_steps": self.volume_steps,
                 }))
             context_uri, context_name = self.context or (None, None)
@@ -375,9 +485,18 @@ class Librespot:
                 "username": self.account, "stopped": False, "paused": self.paused,
                 "buffering": self.buffering, "track": copy.deepcopy(self.track),
                 "context_uri": context_uri, "context_name": context_name,
-                **self._player_flags(), "remote": None, "device_id": self.device_id,
+                **self._player_flags(), "device_id": self.device_id,
                 "volume": self.volume, "volume_steps": self.volume_steps,
             }))
+        if url.endswith("/connect/devices"):
+            self.devices_reads += 1
+            if not self.devices_answers:
+                return _Exchange(_Response(503))
+            if not self.session and not self.signed_in:
+                return _Exchange(_Response(204))
+            if not self.cluster_ready:
+                return _Exchange(_Response(404))
+            return _Exchange(_Response(200, self.cluster()))
         if url.endswith("/player/queue"):
             self.queue_reads += 1
             if not self.has_queue_route:
@@ -398,7 +517,7 @@ class Librespot:
             current = {"uri": self.listed or self.track["uri"], "uid": None, "provider": "context",
                        "track": copy.deepcopy(self.track)}
         elif self.session and self.loading:
-            described = {**copy.deepcopy(self.loading), "position": 0} if self.loading_known else None
+            described = copy.deepcopy(self.loading) if self.loading_known else None
             current = {"uri": self.listed or self.loading["uri"], "uid": None, "provider": "context",
                        "track": described}
         return {"prev_tracks": copy.deepcopy(self.prev_tracks), "track": current,
@@ -407,9 +526,21 @@ class Librespot:
     def post(self, url: str, json: Optional[Dict[str, Any]] = None, **k: Any) -> _Exchange:
         if not self.up:
             return _Exchange(error=_refused())
-        command = url.rsplit("/player/", 1)[1]
         body = json or {}
+        if "/connect/" in url:
+            command = "connect/" + url.rsplit("/connect/", 1)[1]
+            self.posted.append((command, body))
+            return _Exchange(self._connect(command, body))
+        command = url.rsplit("/player/", 1)[1]
         self.posted.append((command, body))
+        if command == "resume" and self.stage == "resolving":
+            # No stream loaded yet: go-librespot's play fails, and the route
+            # answers 200 all the same.
+            self.resumes_lost += 1
+            return _Exchange(_Response(200))
+        if command == "resume" and self.stage == "loading":
+            self.resume_at_load = True
+            return _Exchange(_Response(200))
         if command == "output":
             if body["device"] in self.refused_outputs:
                 return _Exchange(_Response(500))
@@ -431,14 +562,6 @@ class Librespot:
         if command == "play":
             self._plays(body)
             return _Exchange(_Response(200))
-        if command == "transfer":
-            if self.transfer_refused:
-                return _Exchange(_Response(500))
-            if self.session:
-                return _Exchange(_Response(200))
-            self.transfer_pending = True
-            asyncio.get_running_loop().call_soon(self._transfer_starts)
-            return _Exchange(_Response(200))
         if not self.session:
             return _Exchange(_Response(204))
         if command == "pause" or (command == "playpause" and not self.paused):
@@ -456,6 +579,40 @@ class Librespot:
         elif command == "stop":
             self._ends()
         return _Exchange(_Response(200))
+
+    def _connect(self, command: str, body: Dict[str, Any]) -> _Response:
+        """POST /connect/transfer, as master's handler and handleConnectControl answer it."""
+        if command != "connect/transfer":
+            return _Response(404)
+        target = body.get("device_id") or ""
+        if not target:
+            return _Response(400)
+        if not self.session and not self.signed_in:
+            return _Response(204)
+        if not self.cluster_ready or (target != DEVICE_ID and target not in self.others):
+            return _Response(404)
+        if self.transfer_refused:
+            return _Response(502)
+        if target != DEVICE_ID or self.transfer_never_lands:
+            return _Response(200)
+        if self.session:
+            # Spotify sends this device's own session back to it: it loads again.
+            self.self_transfers += 1
+            self._later({"type": "active"})
+            if self.track:
+                self._later({"type": "will_play", "uri": self.track["uri"]})
+                self._later(self.metadata())
+            return _Response(200)
+        self.transfer_pending = True
+        if self.transfer_start_delay:
+            asyncio.get_running_loop().create_task(self._transfer_starts_later())
+        else:
+            asyncio.get_running_loop().call_soon(self._transfer_starts)
+        return _Response(200)
+
+    async def _transfer_starts_later(self) -> None:
+        await self.clock.sleep(self.transfer_start_delay)
+        self._transfer_starts()
 
     def request(self, method: str, url: str, params: Optional[Dict[str, Any]] = None,
                 json: Optional[Dict[str, Any]] = None, **k: Any) -> _Exchange:
@@ -626,21 +783,95 @@ class Librespot:
         """The event a command produces, pushed after the command's answer."""
         asyncio.get_running_loop().call_soon(self.says, event)
 
+    # -- the Connect cluster (master's connect_output.go) ---------------------
+
+    def cluster(self) -> Dict[str, Any]:
+        """What GET /connect/devices answers, and a `cluster` event carries."""
+        active = DEVICE_ID if self._cluster_is_mine() else self.active_device_id
+        devices = [{"id": DEVICE_ID, "name": "Milō", "type": "speaker"},
+                   *({"id": device_id, **device} for device_id, device in self.others.items())]
+        answer: Dict[str, Any] = {"active_device_id": active, "devices": sorted((
+            {**device, "volume": 42000, "is_self": device["id"] == DEVICE_ID,
+             "is_active": device["id"] == active, "is_offline": False, "can_transfer": True}
+            for device in devices
+        ), key=lambda device: device["id"])}
+        playing = self._now_playing()
+        if playing is not None:
+            answer["now_playing"] = playing
+        return answer
+
+    def _cluster_is_mine(self) -> bool:
+        """The cluster names this device active: a session here, past the
+        answer to its first push (a transfer: `will_play`), and not taken."""
+        return self.session and self.stage != "resolving" and not self.taken_back
+
+    def cluster_event(self) -> Dict[str, Any]:
+        return {"type": "cluster", "data": self.cluster()}
+
+    def _now_playing(self) -> Optional[Dict[str, Any]]:
+        """The cluster's playback: this daemon's own while a session plays
+        here, else the last one reported elsewhere, whoever is active."""
+        if self._cluster_is_mine() and (self.track or self.loading):
+            song = self.track or self.loading
+            paused, position = self.paused, song.get("position", 0)
+        elif self.playback_elsewhere is not None:
+            song, paused = self.playback_elsewhere["song"], self.playback_elsewhere["paused"]
+            position = self.elsewhere_position()
+        else:
+            return None
+        # The iPhone's cluster names neither the title nor the album, only the
+        # uri (measured 2026-11-09); `cluster_names_track` is a sender that does.
+        named = self.cluster_names_track or self._cluster_is_mine()
+        return {"context_uri": "", "track_uri": song["uri"], "track_name": song["name"] if named else "",
+                "artist_name": "", "album_name": song["album_name"] if named else "", "paused": paused,
+                "playing": not paused, "position": position, "duration": song["duration"]}
+
+    def elsewhere_position(self) -> int:
+        """The playhead elsewhere now: extrapolated while it plays, capped at
+        the track's end."""
+        playback = self.playback_elsewhere
+        position = playback["position_ms"]
+        if not playback["paused"]:
+            position += int((self.clock.now - playback["at"]) * 1000)
+        return min(position, playback["song"]["duration"])
+
     def _transfer_starts(self) -> None:
-        """The transfer arrives: the daemon is active at once, with no track
-        yet, and /status names no remote any more (it is the active device)."""
-        self.taken_over, self.remote = self.remote, None
+        """A transfer here (asked here, or the phone picking Milō): the daemon
+        is active at once, with no track yet, and resolves the context before
+        it loads the track (`will_play`), 0.1 s later."""
+        playback = self.playback_elsewhere
+        self.taken_over = {**copy.deepcopy(playback), "position_ms": self.elsewhere_position()}
         self.session, self.account = True, self.stored
         self.track, self.paused, self.buffering = None, True, True
-        self.loading = self.taken_over["track"]
-        self.says({"type": "active"}, {"type": "will_play", "uri": self.taken_over["track"]["uri"]})
+        self.loading = {**copy.deepcopy(self.taken_over["song"]), "position": self.taken_over["position_ms"]}
+        self.stage = "resolving"
+        self.says({"type": "active"})
+        asyncio.get_running_loop().create_task(self._load_starts())
+
+    async def _load_starts(self) -> None:
+        await self.clock.sleep(0.1)
+        if self.stage == "resolving":
+            self.stage = "loading"
+            self.active_device_id = ""      # the push answered: this device is active
+            self.says({"type": "will_play", "uri": self.loading["uri"]})
+
+    def track_loads(self) -> None:
+        """The track a transfer brought is named, still buffering."""
+        taken = self.taken_over
+        self.track = {**copy.deepcopy(taken["song"]), "position": taken["position_ms"]}
+        self.buffering, self.loading = True, None
+        self.says(self.metadata())
 
     def transfer_lands(self) -> None:
-        """~0.25 s later: the track it brought, where it stood, playing."""
+        """~0.25 s later: the track it brought, where it stood — paused if it
+        was paused there, unless a resume came during the load."""
+        taken = self.taken_over
         self.transfer_pending = False
-        self.track, self.paused, self.buffering = copy.deepcopy(self.taken_over["track"]), False, False
-        self.loading = None
-        self.says(self.metadata(), self.playing())
+        paused = taken["paused"] and not self.resume_at_load
+        self.track = {**copy.deepcopy(taken["song"]), "position": taken["position_ms"]}
+        self.paused, self.buffering, self.loading = paused, False, None
+        self.stage, self.resume_at_load = None, False
+        self.says(self.metadata(), {"type": "paused"} if paused else self.playing())
 
     def _resumed(self) -> None:
         self.paused = False
@@ -648,7 +879,7 @@ class Librespot:
 
     def _ends(self) -> None:
         self.session, self.track, self.paused, self.buffering = False, None, True, False
-        self.loading = None
+        self.loading, self.stage = None, None
         self.context = None
         self._later({"type": "inactive"})
         self._later({"type": "stopped"})
@@ -672,6 +903,9 @@ class Librespot:
         self.up, self.session, self.track, self.paused, self.buffering = True, False, None, True, False
         self.output = "milo_spotify"
         self.context = None
+        self.stage = None
+        # The answer to the first push of the run, before /events connects.
+        self.cluster_ready = True
         self.signed_in = self.stored is not None and not self.signin_hangs
 
 
@@ -763,7 +997,26 @@ class SpotifyWorld(WireReader):
         monkeypatch.setattr(library_module, "aiohttp", _AiohttpProxy(self.daemon))
         monkeypatch.setattr(library_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(spotify_module, "follow_unit", self._follow_journal)
-        monkeypatch.setattr(spotify_module, "asyncio", AsyncioProxy(sleep))
+        async def wait_for(awaitable: Any, timeout: float) -> Any:
+            """asyncio.wait_for on the scenario's clock."""
+            task = asyncio.ensure_future(awaitable)
+            timer = asyncio.ensure_future(self.clock.sleep(timeout))
+            try:
+                await asyncio.wait((task, timer), return_when=asyncio.FIRST_COMPLETED)
+            except asyncio.CancelledError:
+                task.cancel()
+                raise
+            finally:
+                timer.cancel()
+            if task.done():
+                return task.result()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise asyncio.TimeoutError()
+
+        spotify_asyncio = AsyncioProxy(sleep)
+        spotify_asyncio.wait_for = wait_for
+        monkeypatch.setattr(spotify_module, "asyncio", spotify_asyncio)
         monkeypatch.setattr(websocket_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(jam_module, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
@@ -943,7 +1196,7 @@ class SpotifyWorld(WireReader):
         """A phone moves its playback here: it loads paused, then plays 1.6 s later."""
         d = self.daemon
         d.session, d.account, d.track, d.paused, d.buffering = True, ACCOUNT, None, True, True
-        d.loading, d.listed = song, None
+        d.loading, d.listed = {**copy.deepcopy(song), "position": at_ms}, None
         await self._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
         d.track, d.buffering, d.loading = {**copy.deepcopy(song), "position": at_ms}, False, None
         await self._says(d.metadata(), {"type": "paused"})
@@ -980,61 +1233,96 @@ class SpotifyWorld(WireReader):
         await self._says({"type": "seek", "position": position_ms,
                           "duration": self.daemon.track["duration"]})
 
-    async def plays_elsewhere(self, song: Optional[Dict[str, Any]] = PARAPLUIE, *, at_ms: int = 0,
-                              paused: bool = False, device: str = "iPhone") -> None:
-        """Another device of the account plays `song` (None: its track is not
-        resolved yet); go-librespot says `remote`."""
-        self.daemon.remote = {
-            "device_id": "1d0183bba7f631d45ffa2be4e1208f37682b5126", "device_name": device,
-            "device_type": "SMARTPHONE", "paused": paused,
-            "track": {**copy.deepcopy(song), "position": at_ms} if song else None,
-        }
-        await self._says({"type": "remote", "data": copy.deepcopy(self.daemon.remote)})
-
-    async def next_track_elsewhere(self, song: Dict[str, Any], *, at_ms: int = 0,
-                                   resolves_after: Optional[float] = 0.02) -> None:
-        """The same device moves on to `song`, not in go-librespot's metadata
-        cache: `remote` with no track, then, `resolves_after` seconds later,
-        with it (None: the resolution never lands, and nothing more is said)."""
+    def _reports(self, song: Dict[str, Any], at_ms: int, paused: bool) -> None:
+        """The active device reports its playback to the cluster; Spotify's
+        metadata service knows the track, unless the test said otherwise."""
         d = self.daemon
-        d.remote = {**d.remote, "track": None}
-        await self._says({"type": "remote", "data": copy.deepcopy(d.remote)})
-        if resolves_after is None:
-            return
-        await self.advance(resolves_after)
-        d.remote = {**d.remote, "track": {**copy.deepcopy(song), "position": at_ms}}
-        await self._says({"type": "remote", "data": copy.deepcopy(d.remote)})
+        d.playback_elsewhere = {"song": copy.deepcopy(song), "paused": paused,
+                                "position_ms": at_ms, "at": self.clock.now}
+        if song["uri"] not in d.unnamed:
+            d.track_metadata[gid_of(song)] = track_metadata_answer(song)
 
-    async def transfer_lands(self) -> None:
+    async def plays_elsewhere(self, song: Dict[str, Any] = PARAPLUIE, *, at_ms: int = 0,
+                              paused: bool = False, device: str = "iPhone", kind: str = "smartphone",
+                              announced: bool = True) -> None:
+        """Another device of the account plays `song`, and becomes the active
+        one; go-librespot says `cluster` (`announced` False: the cluster is
+        already so before /events connects)."""
+        d = self.daemon
+        device_id = OTHER_DEVICES[device]
+        d.others[device_id] = {"name": device, "type": kind}
+        d.active_device_id = device_id
+        self._reports(song, at_ms, paused)
+        if announced:
+            await self._says(d.cluster_event())
+
+    async def next_track_elsewhere(self, song: Dict[str, Any], *, at_ms: int = 0) -> None:
+        """The same device moves on to `song`."""
+        self._reports(song, at_ms, False)
+        await self._says(self.daemon.cluster_event())
+
+    async def pauses_elsewhere(self) -> None:
+        d = self.daemon
+        self._reports(d.playback_elsewhere["song"], d.elsewhere_position(), True)
+        await self._says(d.cluster_event())
+
+    async def transfer_lands(self, *, buffers_for: float = 0.0) -> None:
+        """`buffers_for`: the track is named that long before it is ready."""
         await self.advance(0.25)
+        if buffers_for:
+            self.daemon.track_loads()
+            await settle()
+            await self.advance(buffers_for)
         self.daemon.transfer_lands()
         await settle()
 
     async def nothing_plays_elsewhere(self) -> None:
-        """The other device left the cluster (gone to the background, offline)."""
-        self.daemon.remote = None
-        await self._says({"type": "remote", "data": None})
-
-    async def phone_takes_it_back(self, at_ms: int = 90_000) -> None:
-        """The phone takes the session over from Milō, as measured (2026-10-05):
-        go-librespot drops it (`inactive`), announces the phone (`remote`),
-        hands the session back and signs in again — 204 for ~0.3 s — then
-        names nothing for ~0.15 s (Spotify's cluster not back yet), and only
-        then does /status name the phone."""
+        """The other device left the cluster (gone to the background,
+        offline); the cluster keeps the playback it last reported."""
         d = self.daemon
-        remote = {
-            "device_id": "1d0183bba7f631d45ffa2be4e1208f37682b5126", "device_name": "iPhone",
-            "device_type": "SMARTPHONE", "paused": False,
-            "track": {**copy.deepcopy(d.track), "position": at_ms},
-        }
+        d.others.pop(d.active_device_id, None)
+        d.active_device_id = ""
+        await self._says(d.cluster_event())
+
+    async def nobody_active_stale(self) -> None:
+        """Nobody is active any more, though the device is still listed and
+        the cluster still holds its last state, playing (pinned at the end)."""
+        self.daemon.active_device_id = ""
+        await self._says(self.daemon.cluster_event())
+
+    async def phone_takes_it_back(self, at_ms: int = 90_000, *, song: Optional[Dict[str, Any]] = None,
+                                  back_after: float = 0.3, names_phone: bool = True,
+                                  first_push: bool = True) -> None:
+        """The phone takes the session over from Milō (playing `song`, else
+        the track here), as go-librespot's code says it goes (the 204 window
+        measured 2026-10-05): the cluster naming the phone active in a frame of
+        its own, then — once the player stopped — `inactive`; the daemon hands
+        the session back and signs in again — 204 for `back_after` s, then 404
+        until its first push answers with the cluster, with no event: only
+        `playback_ready` (`first_push` False: not yet, first_push_answers says
+        it). `names_phone` False: by then nobody is active."""
+        d = self.daemon
+        song = {**copy.deepcopy(song or d.track), "position": 0}
+        d.others[OTHER_DEVICES["iPhone"]] = {"name": "iPhone", "type": "smartphone"}
+        d.active_device_id = OTHER_DEVICES["iPhone"]
+        self._reports(song, at_ms, False)
+        d.taken_back = True
+        await self._says(d.cluster_event())
         d.session, d.track, d.paused, d.buffering, d.signed_in = False, None, True, False, False
-        await self._says({"type": "inactive"}, {"type": "stopped"}, {"type": "remote", "data": remote})
-        await self.advance(0.3)
+        d.taken_back, d.cluster_ready = False, False
+        await self._says({"type": "inactive"}, {"type": "stopped"})
+        await self.advance(back_after)
+        if not names_phone:
+            d.active_device_id = ""
         d.signed_in = True
+        if first_push:
+            await self.first_push_answers()
+
+    async def first_push_answers(self) -> None:
+        """The daemon signed in again: the answer to its first push brings the
+        cluster, and only `playback_ready` says so."""
+        self.daemon.cluster_ready = True
         await self._says({"type": "playback_ready"})
-        await self.advance(0.15)
-        d.remote = remote
-        await self._says({"type": "remote", "data": remote})
 
     # === Spotify's Jam (social-connect, on the internet) ===
 
@@ -1101,7 +1389,10 @@ class SpotifyWorld(WireReader):
     # === what the wire says ===
 
     def transfers_sent(self) -> int:
-        return sum(1 for command, _ in self.daemon.posted if command == "transfer")
+        return sum(1 for command, _ in self.daemon.posted if command == "connect/transfer")
+
+    def resumes_sent(self) -> int:
+        return sum(1 for command, _ in self.daemon.posted if command == "resume")
 
     def stops_sent(self) -> int:
         return sum(1 for command, _ in self.daemon.posted if command == "stop")

@@ -34,6 +34,9 @@ ARTIST_RELEASES_URL = "https://spclient.wg.spotify.com/artistview/v1/artist/{id}
 # An artist's name and pictures, by its hex gid (JSON when asked for it, else
 # protobuf): ~0.07 s where its artistview page takes ~0.34 s (measured 2026-10-09).
 ARTIST_METADATA_URL = "https://spclient.wg.spotify.com/metadata/4/artist/{gid}"
+# A track's name, artists and album with its covers, by its hex gid: the same
+# service as an artist's, ~0.04 s (measured 2026-11-09).
+TRACK_METADATA_URL = "https://spclient.wg.spotify.com/metadata/4/track/{gid}"
 # The playlist Spotify's apps open as a track's radio ("Go to song radio").
 TRACK_RADIO_URL = "https://spclient.wg.spotify.com/inspiredby-mix/v2/seed_to_playlist/{uri}"
 # The account's Spotify Jam, 404 with none (measured 2026-10-11; see jam.py).
@@ -260,7 +263,7 @@ class SpotifyLibrary:
                 if missing_ok and resp.status == 404:
                     return None
                 if resp.status != 200:
-                    raise SpotifyLibraryError(f"Spotify's {what} service answered {resp.status}")
+                    raise SpotifyLibraryError(f"Spotify's {what} service answered {resp.status}", resp.status)
                 return await resp.json(content_type=None)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             raise SpotifyLibraryError(f"Spotify's {what} service unreachable: {type(e).__name__}") from e
@@ -359,6 +362,16 @@ class SpotifyLibrary:
             if isinstance(answer, dict) and answer.get("name"):
                 summaries[artist_id] = {"name": answer["name"], "image": artist_portrait(answer)}
         return summaries
+
+    async def track_metadata(self, uri: str) -> Dict[str, Any]:
+        """What Spotify's metadata service says of one track (`spotify:track:<id>`)."""
+        answer = await self._spotify_service(
+            TRACK_METADATA_URL.format(gid=spotify_gid(uri.rsplit(":", 1)[1])), {}, "track metadata",
+            headers={"Accept": "application/json"},
+        )
+        if not isinstance(answer, dict):
+            raise SpotifyLibraryError("Spotify's track metadata service answered no track")
+        return answer
 
     async def track_radio(self, uri: str) -> Optional[str]:
         """The uri of the playlist Spotify makes as a track's radio, or None
