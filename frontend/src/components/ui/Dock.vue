@@ -115,6 +115,7 @@ const DOCK_ANIM_STAGGER = 0.015;        // Stagger between items in seconds
 
 // Actions with reactive titles
 const ALL_ADDITIONAL_ACTIONS = computed(() => [
+  { id: 'volume', icon: 'volume', title: t('settings.volume'), handler: () => emit('open-volume') },
   { id: 'equalizer', icon: 'equalizer', title: t('equalizer.title'), handler: () => emit('open-equalizer') },
   { id: 'multiroom', icon: 'multiroom', title: t('audioSources.multiroom'), handler: () => emit('open-multiroom') },
   { id: 'lyrics', icon: 'lyrics', title: t('lyrics.title'), handler: () => emit('open-lyrics') },
@@ -132,7 +133,11 @@ const enabledAudioSources = computed(() => {
 
 const enabledFeatures = computed(() => {
   return ALL_ADDITIONAL_ACTIONS.value
-    .filter(action => enabledApps.value.includes(action.id));
+    .filter(action => enabledApps.value.includes(action.id))
+    // No device to set a level on: the panel would move nothing. Nor on a phone,
+    // whose dock carries − / + of its own above the apps.
+    .filter(action => action.id !== 'volume'
+      || (unifiedStore.volumeState.any_volume_control && !isMobile.value));
 });
 
 // All enabled apps in order (for mobile)
@@ -154,7 +159,7 @@ const additionalDockApps = computed(() => {
 const unifiedStore = useUnifiedAudioStore();
 
 const volumeControlsWithSteps = computed(() => {
-  const step = settingsStore.volumeSteps.step_mobile_db;
+  const step = settingsStore.volumeSteps.step_interface_db;
   return [
     { icon: 'minus', delta: -step },
     { icon: 'plus', delta: step }
@@ -162,7 +167,7 @@ const volumeControlsWithSteps = computed(() => {
 });
 
 // === EMISSIONS ===
-const emit = defineEmits(['open-equalizer', 'open-multiroom', 'open-lyrics', 'open-settings']);
+const emit = defineEmits(['open-volume', 'open-equalizer', 'open-multiroom', 'open-lyrics', 'open-settings']);
 
 // === TEMPLATE REFS ===
 const dragZone = ref(null);

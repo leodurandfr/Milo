@@ -981,7 +981,7 @@ class TestVolumeService:
         """
         section = {
             "limit_min_db": -80.0, "limit_max_db": -20.0,
-            "step_mobile_db": 2.0, "step_rotary_db": 2.0,
+            "step_interface_db": 2.0, "step_rotary_db": 2.0,
             "step_bt_remote_db": 2.0, "step_ir_remote_db": 2.0,
             "startup_volume_db": -30.0, "restore_last_volume": False,
         }

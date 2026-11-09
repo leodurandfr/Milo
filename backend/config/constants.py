@@ -185,7 +185,9 @@ AUDIO_SOURCE_APPS = frozenset(
 )
 
 # Non-audio dock apps
-UTILITY_DOCK_APPS = frozenset({'equalizer', 'multiroom', 'lyrics', 'settings'})
+# Held equal to settingsStore.js::DOCK_UTILITY_APPS by tests/architecture/dockUtilities.test.js:
+# an id on one side only is refused on save (422) or never offered as a toggle.
+UTILITY_DOCK_APPS = frozenset({'volume', 'equalizer', 'multiroom', 'lyrics', 'settings'})
 
 # All valid dock apps
 VALID_DOCK_APPS = AUDIO_SOURCE_APPS | UTILITY_DOCK_APPS
@@ -221,7 +223,7 @@ MULTIROOM_STREAMS: Dict[AudioSource, MultiroomStream] = {
 }
 
 # Default dock apps (ordered for UI)
-DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "airplay", "music_library", "radio", "cd", "qobuz", "tidal", "podcast", "mac", "equalizer", "multiroom", "lyrics", "settings"]
+DEFAULT_DOCK_APPS = ["spotify", "bluetooth", "airplay", "music_library", "radio", "cd", "qobuz", "tidal", "podcast", "mac", "volume", "equalizer", "multiroom", "lyrics", "settings"]
 
 # Supported UI languages (single source of truth for validation)
 VALID_LANGUAGES = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']

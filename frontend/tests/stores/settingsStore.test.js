@@ -25,7 +25,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // The categories doLoadAllSettings dereferences; the rest may stay absent.
 const BULK = {
   language: 'english',
-  volume_steps: { step_mobile_db: 2 },
+  volume_steps: { step_interface_db: 2 },
   rotary_steps: { step_rotary_db: 2 },
   bt_remote_steps: { step_bt_remote_db: 2 },
   ir_remote_steps: { step_ir_remote_db: 2 },

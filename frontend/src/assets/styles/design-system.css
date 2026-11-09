@@ -327,6 +327,9 @@
     --font-size-body-small: 16px;
     --line-height-body-small: 20px;
 
+    --font-size-mono-display: 24px;
+    --line-height-mono-display: 28px;
+
     --font-size-mono-large: 18px;
     --line-height-mono-large: 22px;
 
@@ -583,6 +586,9 @@
         --font-size-body-small: 14px;
         --line-height-body-small: 18px;
 
+        --font-size-mono-display: 20px;
+        --line-height-mono-display: 24px;
+
         --font-size-mono-large: 16px;
         --line-height-mono-large: 20px;
 
@@ -706,6 +712,15 @@
     font-size: var(--font-size-body-small);
     line-height: var(--line-height-body-small);
     letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 400;
+}
+
+/* A level read across the room: the Volume panel's readout. */
+.text-mono-display {
+    font-family: 'Space Mono Regular', 'Noto Sans Devanagari', 'Noto Sans SC', monospace;
+    font-size: var(--font-size-mono-display);
+    line-height: var(--line-height-mono-display);
+    letter-spacing: var(--letter-spacing-mono);
     font-weight: 400;
 }
 

@@ -389,7 +389,7 @@ class VolumeService:
         settings.json and must be logged, not papered over. The operands that used
         to sit here were a third declaration of these defaults and had drifted from
         `SettingsService.defaults` — `limit_max_db` −21 against −20,
-        `step_mobile_db` 3 against 2, and `restore_last_volume` False against True,
+        `step_mobile_db` (now `step_interface_db`) 3 against 2, and `restore_last_volume` False against True,
         so a degraded read silently stopped restoring the volume at startup.
         """
         try:

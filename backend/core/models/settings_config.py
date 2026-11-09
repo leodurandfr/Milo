@@ -31,7 +31,7 @@ class VolumeStartupConfig(BaseModel):
 
 
 class VolumeStepsConfig(BaseModel):
-    step_mobile_db: float
+    step_interface_db: float
 
 
 class RotaryStepsConfig(BaseModel):

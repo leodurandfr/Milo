@@ -51,7 +51,7 @@ SETTINGS_ALLOWED = frozenset({
     "volume.limit_max_db",
     "volume.restore_last_volume",
     "volume.startup_volume_db",
-    "volume.step_mobile_db",
+    "volume.step_interface_db",
     "volume.step_rotary_db",
     "volume.step_bt_remote_db",
     "volume.step_ir_remote_db",

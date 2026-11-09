@@ -283,7 +283,7 @@ The volume the unit starts at changed.
 
 ### settings/volume_steps_changed
 
-The volume step of the buttons on a phone changed.
+The volume step of the on-screen − / + buttons changed.
 
 | Field | Type |
 |---|---|
@@ -809,7 +809,7 @@ An update of a satellite's CamillaDSP finished; `success` says whether it worked
 
 | Field | Type |
 |---|---|
-| `step_mobile_db` | number |
+| `step_interface_db` | number |
 
 ### RotaryStepsConfig
 

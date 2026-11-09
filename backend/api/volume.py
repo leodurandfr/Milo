@@ -60,8 +60,9 @@ def create_volume_router(
         """Adjusts volume by delta in dB.
 
         The relative half of `/global`, for a caller holding a gesture rather
-        than a level: the widget's − / + and the phone's volume buttons, one
-        `step_mobile_db` each. The delta applies to the level Milō holds when
+        than a level: the − / + of the web dock, of the Volume panel and of the
+        iOS widget, one `step_interface_db` each (the phone's physical buttons
+        send an absolute level to `/global`). The delta applies to the level Milō holds when
         the request lands, never to one the caller read earlier, so a press
         cannot undo what the rotary did a second before.
 

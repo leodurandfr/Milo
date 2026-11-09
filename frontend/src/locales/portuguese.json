@@ -286,12 +286,16 @@
     "unknownTitle": "Título desconhecido",
     "unknownArtist": "Artista desconhecido"
   },
+  "volumePanel": {
+    "decrease": "Baixar o volume",
+    "increase": "Aumentar o volume"
+  },
   "volumeSettings": {
     "volumeManagement": "Volume gerido pelo Milō",
     "volumeNotManaged": "O volume não é gerido pelo Milō",
     "controls": "Controles de volume",
     "rotaryStep": "Variação de volume por rotação",
-    "mobileStep": "Variação de volume no dispositivo móvel",
+    "buttonsStep": "Variação de volume dos botões − / +",
     "limits": "Limites de volume",
     "minMax": "Volume mínimo e máximo",
     "startup": "Volume de inicialização",

@@ -21,6 +21,7 @@
       <VolumeBar :variant="isDarkSurface ? 'on-contrast' : 'default'" />
       <Dock
         v-if="showChrome"
+        @open-volume="unifiedStore.openVolumePanel()"
         @open-equalizer="isEqualizerOpen = true"
         @open-multiroom="isMultiroomOpen = true"
         @open-lyrics="lyricsStore.open()"
@@ -38,6 +39,8 @@
       <Modal :is-open="isSettingsOpen" @close="closeSettings">
         <SettingsModal :initial-view="settingsInitialView" />
       </Modal>
+
+      <VolumeOverlay :variant="isDarkSurface ? 'on-contrast' : 'default'" />
     </template>
 
     <!-- Global Virtual Keyboard (available in wizard too) -->
@@ -82,6 +85,9 @@ const MultiroomModal = defineAsyncComponent(() =>
 );
 const SettingsModal = defineAsyncComponent(() =>
   import('@/components/settings/SettingsModal.vue')
+);
+const VolumeOverlay = defineAsyncComponent(() =>
+  import('@/components/volume/VolumeOverlay.vue')
 );
 const VirtualKeyboard = defineAsyncComponent(() =>
   import('@/components/ui/VirtualKeyboard.vue')

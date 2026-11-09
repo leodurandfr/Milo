@@ -51,6 +51,8 @@ export function useAutoPlayer() {
     // Lyrics are read without touching the screen; opening the player behind
     // them would change the view they close onto.
     if (lyricsStore.isOpen) return false;
+    // The Volume panel, for the same reason: it closes onto what was under it.
+    if (unifiedStore.volumePanelOpen) return false;
     return !expanded.value;
   });
 

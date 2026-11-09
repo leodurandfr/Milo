@@ -272,14 +272,14 @@ class TestSettingsRoutes:
     def test_set_volume_steps_valid(self, client):
         """Test PUT /volume-steps with valid value (in dB)"""
         response = client.put("/api/settings/volume-steps", json={
-            "step_mobile_db": 3.0
+            "step_interface_db": 3.0
         })
         assert response.status_code == 200
 
     def test_set_volume_steps_out_of_range(self, client):
         """Test PUT /volume-steps with out of range value - should return 422"""
         response = client.put("/api/settings/volume-steps", json={
-            "step_mobile_db": 10.0  # Max is 6 dB
+            "step_interface_db": 10.0  # Max is 6 dB
         })
         assert response.status_code == 422
 
@@ -1102,7 +1102,7 @@ class TestBulkSettings:
         ("volume_limits", "max_db"): ("volume", "limit_max_db"),
         ("volume_startup", "startup_volume_db"): ("volume", "startup_volume_db"),
         ("volume_startup", "restore_last_volume"): ("volume", "restore_last_volume"),
-        ("volume_steps", "step_mobile_db"): ("volume", "step_mobile_db"),
+        ("volume_steps", "step_interface_db"): ("volume", "step_interface_db"),
         ("rotary_steps", "step_rotary_db"): ("volume", "step_rotary_db"),
         ("bt_remote_steps", "step_bt_remote_db"): ("volume", "step_bt_remote_db"),
         ("ir_remote_steps", "step_ir_remote_db"): ("volume", "step_ir_remote_db"),

@@ -286,12 +286,16 @@
     "unknownTitle": "Unbekannter Titel",
     "unknownArtist": "Unbekannter Künstler"
   },
+  "volumePanel": {
+    "decrease": "Lautstärke verringern",
+    "increase": "Lautstärke erhöhen"
+  },
   "volumeSettings": {
     "volumeManagement": "Lautstärke von Milō gesteuert",
     "volumeNotManaged": "Die Lautstärke wird nicht von Milō gesteuert",
     "controls": "Lautstärkeregler",
     "rotaryStep": "Lautstärkeänderung pro Drehung",
-    "mobileStep": "Lautstärkeänderung auf dem Handy",
+    "buttonsStep": "Lautstärkeänderung der Tasten − / +",
     "limits": "Lautstärkegrenzen",
     "minMax": "Minimale und maximale Lautstärke",
     "startup": "Startlautstärke",

@@ -247,7 +247,7 @@ def create_settings_router(
                 "startup_volume_db": vol['startup_volume_db'],
                 "restore_last_volume": vol['restore_last_volume']
             },
-            "volume_steps": {"step_mobile_db": vol['step_mobile_db']},
+            "volume_steps": {"step_interface_db": vol['step_interface_db']},
             "rotary_steps": {"step_rotary_db": vol['step_rotary_db']},
             "bt_remote_steps": {"step_bt_remote_db": vol['step_bt_remote_db']},
             "ir_remote_steps": {"step_ir_remote_db": vol['step_ir_remote_db']},
@@ -350,10 +350,10 @@ def create_settings_router(
     @router.put("/volume-steps")
     async def set_volume_steps(payload: VolumeStepsRequest):
         return await _handle_setting_update(
-            setter=lambda: settings.set_setting('volume.step_mobile_db', payload.step_mobile_db),
+            setter=lambda: settings.set_setting('volume.step_interface_db', payload.step_interface_db),
             section='volume',
             build_event=lambda vol: VolumeStepsChanged(
-                config=VolumeStepsConfig(step_mobile_db=vol['step_mobile_db'])
+                config=VolumeStepsConfig(step_interface_db=vol['step_interface_db'])
             ),
         )
 

@@ -202,7 +202,8 @@ class RadioStationsResponse(BaseModel):
 class BulkSettingsResponse(BaseModel):
     """GET /api/settings/bulk — every settings category in one payload.
 
-    `volume_steps` carries `step_mobile_db`, which for a while was the only one
+    `volume_steps` carries `step_interface_db` (`step_mobile_db` until 2026-11),
+    which for a while was the only one
     of the four step settings readable over no HTTP route at all: `cf430ae6`
     deleted `GET /volume-steps` together with `GET /volume-limits` and
     `GET /dock-apps` on the premise that `/bulk` had replaced all three, and

@@ -84,7 +84,7 @@ class SettingsService:
                 "limit_max_db": -20.0,
                 "restore_last_volume": True,
                 "startup_volume_db": DEFAULT_VOLUME_DB,
-                "step_mobile_db": 2.0,
+                "step_interface_db": 2.0,
                 "step_rotary_db": 2.0,
                 "step_bt_remote_db": 2.0,
                 "step_ir_remote_db": 2.0
@@ -274,7 +274,7 @@ class SettingsService:
         vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', vol_d['restore_last_volume']))
         vol['startup_volume_db'] = max(vol['limit_min_db'], min(vol['limit_max_db'], float(vol_input.get('startup_volume_db', vol_d['startup_volume_db']))))
         # The four step sizes share one rule; only the input they read differs.
-        for step_key in ('step_mobile_db', 'step_rotary_db', 'step_bt_remote_db', 'step_ir_remote_db'):
+        for step_key in ('step_interface_db', 'step_rotary_db', 'step_bt_remote_db', 'step_ir_remote_db'):
             vol[step_key] = max(1.0, min(6.0, float(vol_input.get(step_key, vol_d[step_key]))))
         validated['volume'] = vol
 

@@ -423,7 +423,7 @@ class VolumeStartupChanged(SettingsEvent):
 
 
 class VolumeStepsChanged(SettingsEvent):
-    """The volume step of the buttons on a phone changed.
+    """The volume step of the on-screen − / + buttons changed.
 
     App.vue settings listener.
     """

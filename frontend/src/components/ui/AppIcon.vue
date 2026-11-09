@@ -27,6 +27,7 @@ const iconMapping = {
   'qobuz': 'qobuz',
   'tidal': 'tidal',
   'music_library': 'music-library',
+  'volume': 'volume',
   'multiroom': 'multiroom',
   'equalizer': 'equalizer',
   'lyrics': 'lyrics',

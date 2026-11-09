@@ -127,7 +127,7 @@ class TestSettingsSaveLoad:
         """Test that multiple settings can be set and persist."""
         # Set multiple values
         await settings_service.set_setting('language', 'italian')
-        await settings_service.set_setting('volume.step_mobile_db', 4.0)
+        await settings_service.set_setting('volume.step_interface_db', 4.0)
         await settings_service.set_setting('screen.timeout_seconds', 120)
 
         # Read file directly
@@ -135,7 +135,7 @@ class TestSettingsSaveLoad:
             data = json.load(f)
 
         assert data['language'] == 'italian'
-        assert data['volume']['step_mobile_db'] == 4.0
+        assert data['volume']['step_interface_db'] == 4.0
         assert data['screen']['timeout_seconds'] == 120
 
 
@@ -251,13 +251,13 @@ class TestNestedSettings:
     @pytest.mark.asyncio
     async def test_nested_setting_persistence(self, settings_service, temp_settings_file):
         """Test that nested settings persist to file correctly."""
-        await settings_service.set_setting('volume.step_mobile_db', 5.0)
+        await settings_service.set_setting('volume.step_interface_db', 5.0)
 
         # Read file directly
         with open(temp_settings_file) as f:
             data = json.load(f)
 
-        assert data['volume']['step_mobile_db'] == 5.0
+        assert data['volume']['step_interface_db'] == 5.0
 
     @pytest.mark.asyncio
     async def test_deep_nested_path_works(self, settings_service):
@@ -401,9 +401,9 @@ class TestValueValidation:
     async def test_volume_step_clamped_to_range(self, settings_service):
         """Test that volume step is clamped to 1.0-6.0 range."""
         # Try to set below minimum
-        await settings_service.set_setting('volume.step_mobile_db', 0.5)
+        await settings_service.set_setting('volume.step_interface_db', 0.5)
 
-        value = await settings_service.get_setting('volume.step_mobile_db')
+        value = await settings_service.get_setting('volume.step_interface_db')
 
         assert value >= 1.0
         assert value <= 6.0

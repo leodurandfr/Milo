@@ -286,12 +286,16 @@
     "unknownTitle": "未知标题",
     "unknownArtist": "未知艺术家"
   },
+  "volumePanel": {
+    "decrease": "降低音量",
+    "increase": "提高音量"
+  },
   "volumeSettings": {
     "volumeManagement": "音量由 Milō 管理",
     "volumeNotManaged": "音量未由 Milō 管理",
     "controls": "音量控制",
     "rotaryStep": "每次旋转的音量变化",
-    "mobileStep": "移动设备上的音量变化",
+    "buttonsStep": "− / + 按钮的音量变化",
     "limits": "音量限制",
     "minMax": "最小和最大音量",
     "startup": "启动音量",

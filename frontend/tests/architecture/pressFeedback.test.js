@@ -68,6 +68,8 @@ const NOT_A_PRESS_SURFACE = {
     'the swipe affordance for the lyrics bar — a gesture hint, and pressing it is a fallback',
   'components/ui/Modal.vue::modal-overlay':
     'the modal scrim, @click.self to dismiss',
+  'components/volume/VolumeOverlay.vue::modal-overlay':
+    'the Volume panel\'s scrim, a backdrop tap dismisses it — the same scrim as Modal.vue\'s',
   'components/ui/VolumeBar.vue::volume-bar':
     'the volume overlay: any tap dismisses it, there is nothing to acknowledge',
   'components/ui/Dock.vue::dock-indicator':

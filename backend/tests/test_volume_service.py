@@ -129,7 +129,7 @@ class TestVolumeService:
                 return volume_section(
                     startup_volume_db=-30.0,
                     restore_last_volume=False,
-                    step_mobile_db=3.0,
+                    step_interface_db=3.0,
                     step_rotary_db=4.0,
                 )
             elif key == "equalizer.linked_groups":
@@ -153,7 +153,7 @@ class TestVolumeService:
                 return volume_section(
                     startup_volume_db=-25.0,
                     restore_last_volume=True,
-                    step_mobile_db=3.0,
+                    step_interface_db=3.0,
                     step_rotary_db=2.0,
                 )
             elif key == "equalizer.linked_groups":

@@ -20,7 +20,7 @@ struct MiloAPIClient {
     static let reachableKey = "milo_reachable"
     static let canControlKey = "milo_can_control_volume"
     static let mutedKey = "milo_muted"
-    /// Repli si `step_mobile_db` n'a pas encore pu être lu (backend ancien, hors ligne)
+    /// Repli si `step_interface_db` n'a pas encore pu être lu (backend ancien, hors ligne)
     static let volumeStepFallbackDB = 3.0
 
     /// `UserDefaults.double(forKey:)` renvoie 0 quand la clé est absente, ce qui rend
@@ -516,8 +516,8 @@ struct MiloAPIClient {
 
         // Absent sur un backend plus ancien : on ne touche alors pas au cache.
         if let steps = json["volume_steps"] as? [String: Any],
-           let mobileStep = steps["step_mobile_db"] as? Double, mobileStep > 0 {
-            defaults?.set(mobileStep, forKey: volumeStepKey)
+           let interfaceStep = steps["step_interface_db"] as? Double, interfaceStep > 0 {
+            defaults?.set(interfaceStep, forKey: volumeStepKey)
         }
     }
 
@@ -548,7 +548,7 @@ struct MiloAPIClient {
         return lo < hi ? (min: lo, max: hi) : volumeLimitFallback
     }
 
-    /// Pas de volume du widget : `step_mobile_db` s'il a pu être synchronisé, sinon repli
+    /// Pas de volume du widget : `step_interface_db` s'il a pu être synchronisé, sinon repli
     static func volumeStep() -> Double {
         let step = sharedDouble(forKey: volumeStepKey, default: volumeStepFallbackDB)
         return step > 0 ? step : volumeStepFallbackDB

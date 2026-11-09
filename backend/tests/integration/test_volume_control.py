@@ -78,7 +78,7 @@ def mock_settings_service():
         limit_max_db=-21.0,
         startup_volume_db=-30.0,
         restore_last_volume=False,
-        step_mobile_db=3.0,
+        step_interface_db=3.0,
         step_rotary_db=2.0,
     )
 
@@ -652,7 +652,7 @@ class TestVolumePersistence:
                     limit_max_db=-21.0,
                     startup_volume_db=-30.0,
                     restore_last_volume=True,  # Enable persistence
-                    step_mobile_db=3.0,
+                    step_interface_db=3.0,
                     step_rotary_db=2.0,
                 )
             elif key == "volume.restore_last_volume":
@@ -740,7 +740,7 @@ class TestVolumePersistence:
                     limit_max_db=-21.0,
                     startup_volume_db=-30.0,
                     restore_last_volume=True,
-                    step_mobile_db=3.0,
+                    step_interface_db=3.0,
                     step_rotary_db=2.0,
                 )
             elif key == "volume.restore_last_volume":
@@ -788,7 +788,7 @@ class TestVolumePersistence:
                     limit_max_db=-21.0,
                     startup_volume_db=-30.0,
                     restore_last_volume=True,  # Enable persistence
-                    step_mobile_db=3.0,
+                    step_interface_db=3.0,
                     step_rotary_db=2.0,
                 )
             elif key == "volume.restore_last_volume":
@@ -1399,7 +1399,7 @@ class TestStartupVolumeIntegration:
             limit_max_db=-21.0,
             startup_volume_db=-60.0,  # Initial value
             restore_last_volume=True,  # active: auto-track current volume
-            step_mobile_db=3.0,
+            step_interface_db=3.0,
             step_rotary_db=2.0,
         )
 
@@ -1473,7 +1473,7 @@ class TestStartupVolumeIntegration:
             limit_max_db=-21.0,
             startup_volume_db=-60.0,
             restore_last_volume=False,  # NOT active
-            step_mobile_db=3.0,
+            step_interface_db=3.0,
             step_rotary_db=2.0,
         )
 
@@ -1550,7 +1550,7 @@ class TestStartupVolumeIntegration:
                     limit_max_db=-21.0,
                     startup_volume_db=startup_volume,
                     restore_last_volume=False,  # Use startup_volume_db
-                    step_mobile_db=3.0,
+                    step_interface_db=3.0,
                     step_rotary_db=2.0,
                 )
             elif key == "routing.multiroom_enabled":
@@ -1630,7 +1630,7 @@ class TestStartupVolumeIntegration:
                     limit_max_db=-21.0,
                     startup_volume_db=persisted_volume,  # synced this before shutdown
                     restore_last_volume=True,
-                    step_mobile_db=3.0,
+                    step_interface_db=3.0,
                     step_rotary_db=2.0,
                 )
             elif key == "routing.multiroom_enabled":
@@ -1811,7 +1811,7 @@ class TestVolumeApiEndpointsIntegration:
             limit_max_db=-21.0,
             startup_volume_db=-60.0,
             restore_last_volume=False,
-            step_mobile_db=3.0,
+            step_interface_db=3.0,
             step_rotary_db=2.0,
         )
 

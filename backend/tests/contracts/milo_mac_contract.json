@@ -113,7 +113,7 @@
         ],
         "fallback": "data.volume_db (Double or Int) when state is absent",
         "multiroom_note": "state.clients and state.zones are the ONLY real-time feed for the per-client and per-zone volumes in Milo-Mac's multiroom submenu — no other event carries them. Their contents are decoded by MultiroomVolume(state:) in the vendored MiloAPIService.swift, which falls back SILENTLY on a missing key (the floor, false, true), so a renamed key moves every slider to -80 dB with no error. Every key it reads is pinned here, resolved against the real VolumeState.to_dict() and held equal to the decoder's reads; `[mac]`/`[id]` = every entry of that map.",
-        "step_note": "step_mobile_db is NO LONGER consumed — Milo-Mac's keyboard step is a local setting (GlobalHotkeyManager.volumeDeltaDb). Do not re-couple to it."
+        "step_note": "step_interface_db (step_mobile_db until 2026-11-09) is NO LONGER consumed — Milo-Mac's keyboard step is a local setting (GlobalHotkeyManager.volumeDeltaDb). Do not re-couple to it."
       },
       "settings/volume_limits_changed": { "data_key": "limits", "subkeys": ["min_db", "max_db"] },
       "settings/dock_apps_changed": { "data_key": "config", "subkeys": ["enabled_apps"] },

@@ -7,7 +7,8 @@ import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import { isKiosk } from '@/utils/kiosk';
 
 // Non-source dock apps; the full dock roster is sources + utilities.
-const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'lyrics', 'settings'];
+// Held equal to the backend's UTILITY_DOCK_APPS by tests/architecture/dockUtilities.test.js.
+const DOCK_UTILITY_APPS = ['volume', 'equalizer', 'multiroom', 'lyrics', 'settings'];
 
 function buildDockAppsMap(enabledApps) {
   return Object.fromEntries(
@@ -38,7 +39,7 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   const volumeSteps = ref({
-    step_mobile_db: 2.0,
+    step_interface_db: 2.0,
     step_rotary_db: 2.0,
     step_bt_remote_db: 2.0,
     step_ir_remote_db: 2.0
@@ -217,7 +218,7 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(volumeStartup, d.volume_startup);
 
         // The four step sizes are separate categories on the wire and one ref here.
-        volumeSteps.value.step_mobile_db = d.volume_steps.step_mobile_db;
+        volumeSteps.value.step_interface_db = d.volume_steps.step_interface_db;
         volumeSteps.value.step_rotary_db = d.rotary_steps.step_rotary_db;
         volumeSteps.value.step_bt_remote_db = d.bt_remote_steps.step_bt_remote_db;
         volumeSteps.value.step_ir_remote_db = d.ir_remote_steps.step_ir_remote_db;

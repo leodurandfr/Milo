@@ -970,7 +970,7 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 {
   "schema_version": 4,
   "language": "english",
-  "volume": { "limit_min_db": -80.0, "limit_max_db": -20.0, "step_mobile_db": 2.0, ... },
+  "volume": { "limit_min_db": -80.0, "limit_max_db": -20.0, "step_interface_db": 2.0, ... },
   "screen": { "timeout_seconds": 120, ... },
   "routing": { "multiroom_enabled": false, "equalizer_effects_enabled": false },
   "dock": { "enabled_apps": [...] }

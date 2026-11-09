@@ -54,6 +54,19 @@
     <!-- Features -->
     <SectionCard :title="t('applications.features')">
       <div class="app-list">
+        <!-- Hidden with nothing to set a level on, as the tile is in the dock -->
+        <ListItemButton
+          v-if="unifiedStore.volumeState.any_volume_control"
+          :title="t('settings.volume')"
+          :model-value="config.volume"
+          action="toggle"
+          @update:model-value="(val) => handleToggle('volume', val)"
+        >
+          <template #icon>
+            <AppIcon name="volume" :size="40" />
+          </template>
+        </ListItemButton>
+
         <ListItemButton
           :title="t('equalizer.title')"
           :model-value="config.equalizer"
@@ -109,6 +122,7 @@ import { storeToRefs } from 'pinia';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -121,6 +135,7 @@ import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSou
 const { t } = useI18n();
 const { debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
+const unifiedStore = useUnifiedAudioStore();
 
 const { dockApps: config, sourceOrder } = storeToRefs(settingsStore);
 

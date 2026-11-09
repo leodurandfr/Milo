@@ -167,6 +167,18 @@ describe('useAutoPlayer', () => {
     expect(expansion.expanded.value).toBe(false);
   });
 
+  it('never arms while the Volume panel is open, and counts again once it closes', async () => {
+    store.openVolumePanel();
+    mountAutoPlayer();
+
+    await advance(DELAY_MS * 3);
+    expect(expansion.expanded.value).toBe(false);
+
+    store.closeVolumePanel();
+    await advance(DELAY_MS);
+    expect(expansion.expanded.value).toBe(true);
+  });
+
   it('stops counting when a condition falls, and starts over when it holds again', async () => {
     mountAutoPlayer();
     await advance(DELAY_MS - 1000);

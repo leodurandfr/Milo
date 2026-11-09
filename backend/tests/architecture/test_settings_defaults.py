@@ -182,9 +182,9 @@ def test_the_volume_dataclass_agrees_with_the_declared_section():
 
     config = asdict(VolumeConfig())
     section = SettingsService().defaults["volume"]
-    # The one key it does not carry: the dock's step, which only the screens
+    # The one key it does not carry: the on-screen buttons' step, which only the screens
     # read (through GET /api/settings/bulk) and nothing on the backend uses.
-    assert set(section) - set(config) == {"step_mobile_db"}
+    assert set(section) - set(config) == {"step_interface_db"}
     assert config == {key: section[key] for key in config}
 
 
@@ -394,7 +394,7 @@ def test_no_module_restates_a_default_as_a_fallback():
     `_validate_and_merge` guarantees every declared section and every key inside
     it, so a fallback here can only fire on a degraded read — and then it applies
     a value nobody declared. All three that existed had drifted: `limit_max_db`
-    −21 against −20, `step_mobile_db` 3 against 2, `restore_last_volume` False
+    −21 against −20, `step_mobile_db` (now `step_interface_db`) 3 against 2, `restore_last_volume` False
     against True, and a screen timeout of 10 s against 120. The day they fired,
     the appliance quietly stopped restoring the volume at startup.
 

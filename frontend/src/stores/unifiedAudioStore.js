@@ -173,6 +173,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   async function drainAdjust() {
     let ok = true;
     while (pendingDelta !== 0) {
+      // A level the Volume panel's slider still has queued was asked first; a
+      // step sent past it would be overwritten by it. Only this side waits, so
+      // the two queues can never wait on each other.
+      while (globalInFlight) await globalInFlight;
       // The route's own bound on one delta: a sum gathered behind a slow
       // request can exceed it, and leaves in several.
       const delta_db = Math.max(-MAX_ADJUST_DB, Math.min(MAX_ADJUST_DB, pendingDelta));
@@ -188,6 +192,62 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // it starts a new drain rather than joining one that has ended.
     adjustInFlight = null;
     return ok;
+  }
+
+  // An absolute level (0..1 over the limits the server runs on), for the Volume
+  // panel's slider. Same shape as /adjust above, latest value wins: a drag asks
+  // far faster than a satellite answers, and two levels in flight could land in
+  // either order, leaving the house at the older one — with nothing on screen
+  // to say so, since the echo of the newer one would already have passed.
+  let globalInFlight = null;
+  let pendingGlobal = null;
+
+  function setGlobalVolume(level) {
+    pendingGlobal = Math.max(0, Math.min(1, level));
+    if (!globalInFlight) globalInFlight = drainGlobal();
+    return globalInFlight;
+  }
+
+  /** Sends until nothing is pending; true iff the last request succeeded. */
+  async function drainGlobal() {
+    let ok = true;
+    while (pendingGlobal !== null) {
+      const volume = pendingGlobal;
+      pendingGlobal = null;
+      // show_bar stays on: the other screens show the bar as they do for any
+      // change, and the screen holding the panel hides its own (VolumeBar).
+      const result = await apiCall.patch('/api/volume/global', { volume }, {
+        category: 'store',
+        message: 'Set volume failed',
+        checkStatus: true,
+      });
+      ok = result.ok;
+    }
+    globalInFlight = null;
+    return ok;
+  }
+
+  // Open on this screen only — never on the wire. The bar (applyVolumeState) and
+  // the kiosk's auto-player read it: the panel already shows the level, and
+  // opening the full player behind it would change the view it closes onto.
+  const volumePanelOpen = ref(false);
+
+  function openVolumePanel() {
+    hideVolumeBar();
+    volumePanelOpen.value = true;
+  }
+
+  // Held while the panel's last requests drain after it closed: their echoes
+  // would otherwise bring the bar up over the screen the panel closed onto.
+  let barQuietAfterPanel = false;
+
+  function closeVolumePanel() {
+    volumePanelOpen.value = false;
+    hideVolumeBar();
+    const draining = [globalInFlight, adjustInFlight].filter(Boolean);
+    if (!draining.length) return;
+    barQuietAfterPanel = true;
+    Promise.allSettled(draining).then(() => { barQuietAfterPanel = false; });
   }
 
   // === STATE UPDATE ===
@@ -278,8 +338,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       }
     }
 
-    // Show volume bar and auto-hide after 3 seconds
-    if (show_bar !== false && state) {
+    // Show volume bar and auto-hide after 3 seconds — not on the screen holding
+    // the Volume panel, which shows the level itself, nor for the echoes of its
+    // last drag still arriving after it closed (other screens show them).
+    if (show_bar !== false && state && !volumePanelOpen.value && !globalInFlight && !barQuietAfterPanel) {
       if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
       showVolumeBar.value = true;
       volumeBarHideTimer = setTimeout(() => {
@@ -495,6 +557,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     introSessionId,
     volumeState,
     showVolumeBar,
+    volumePanelOpen,
     commandError,
     transientNotice,
 
@@ -507,8 +570,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     updateState,
     updatePosition,
     adjustVolume,
+    setGlobalVolume,
     handleVolumeEvent,
     hideVolumeBar,
+    openVolumePanel,
+    closeVolumePanel,
 
     // Per-client volume / mute
     getClientVolume,

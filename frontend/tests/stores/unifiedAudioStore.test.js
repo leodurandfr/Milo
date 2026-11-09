@@ -703,6 +703,103 @@ describe('unifiedAudioStore', () => {
     });
   });
 
+  describe('setGlobalVolume', () => {
+    it('keeps one level in flight and sends only the latest one after it', async () => {
+      // A drag asks faster than a satellite answers: two levels in flight can
+      // land in either order and leave the house at the older one.
+      let answer;
+      apiCall.patch.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+      apiCall.patch.mockResolvedValueOnce(ok({ status: 'success' }));
+
+      const drag = store.setGlobalVolume(0.2);
+      store.setGlobalVolume(0.3);
+      store.setGlobalVolume(0.45);
+      expect(apiCall.patch).toHaveBeenCalledTimes(1);
+
+      answer(ok({ status: 'success' }));
+      expect(await drag).toBe(true);
+
+      expect(apiCall.patch.mock.calls.map(([url, body]) => [url, body.volume]))
+        .toEqual([['/api/volume/global', 0.2], ['/api/volume/global', 0.45]]);
+    });
+
+    it('never sends a level outside the route\'s 0..1', async () => {
+      // The route refuses the whole request (422) past either end, so a drag
+      // carried beyond the slider would set nothing at all.
+      apiCall.patch.mockResolvedValue(ok({ status: 'success' }));
+
+      await store.setGlobalVolume(1.2);
+      await store.setGlobalVolume(-0.1);
+
+      expect(apiCall.patch.mock.calls.map(([, body]) => body.volume)).toEqual([1, 0]);
+    });
+  });
+
+  it('sends a step only after the level a drag still has queued', async () => {
+    // The panel's −/+ and its slider use two queues; a drag level sent after a
+    // step would overwrite the step, with nothing on screen to say so.
+    let answer;
+    apiCall.patch.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    const order = [];
+    apiCall.patch.mockImplementation(async (url, body) => { order.push(['level', body.volume]); return ok({ status: 'success' }); });
+    apiCall.post.mockImplementation(async (url, body) => { order.push(['step', body.delta_db]); return ok({ status: 'success' }); });
+
+    const drag = store.setGlobalVolume(0.4);
+    store.setGlobalVolume(0.7);
+    const press = store.adjustVolume(-2);
+    answer(ok({ status: 'success' }));
+    await Promise.all([drag, press]);
+
+    expect(order).toEqual([['level', 0.7], ['step', -2]]);
+  });
+
+  describe('Volume panel', () => {
+    it('hides the bar while open, and drops a bar armed behind it on close', () => {
+      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      expect(store.showVolumeBar).toBe(true);
+
+      store.openVolumePanel();
+      expect(store.showVolumeBar).toBe(false);
+
+      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      store.closeVolumePanel();
+      expect(store.showVolumeBar).toBe(false);
+    });
+
+    it('keeps the bar down for a step\'s echo arriving after the panel closed', async () => {
+      let answer;
+      apiCall.post.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+      store.openVolumePanel();
+      const press = store.adjustVolume(-2);
+      store.closeVolumePanel();
+
+      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      expect(store.showVolumeBar).toBe(false);
+
+      answer(ok({ status: 'success' }));
+      await press;
+      await Promise.resolve();
+      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      expect(store.showVolumeBar).toBe(true);
+    });
+
+    it('keeps the bar down for a drag\'s echo arriving after the panel closed', async () => {
+      let answer;
+      apiCall.patch.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+      store.openVolumePanel();
+      const drag = store.setGlobalVolume(0.5);
+      store.closeVolumePanel();
+
+      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      expect(store.showVolumeBar).toBe(false);
+
+      answer(ok({ status: 'success' }));
+      await drag;
+      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      expect(store.showVolumeBar).toBe(true);
+    });
+  });
+
   describe('client volume', () => {
     it('addresses the client by colon-free MAC', async () => {
       setMultiroom(true);

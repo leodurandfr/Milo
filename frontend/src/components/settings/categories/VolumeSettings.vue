@@ -10,8 +10,8 @@
       <RangeSlider v-if="rotaryEnabled" :label="t('volumeSettings.rotaryStep')" v-model="config.step_rotary_db" :min="1" :max="6" :step="1" ticks unit="dB"
         @change="updateSetting('rotary-steps', { step_rotary_db: $event })" />
 
-      <RangeSlider :label="t('volumeSettings.mobileStep')" v-model="config.step_mobile_db" :min="1" :max="6" :step="1" ticks unit="dB"
-        @change="updateSetting('volume-steps', { step_mobile_db: $event })" />
+      <RangeSlider :label="t('volumeSettings.buttonsStep')" v-model="config.step_interface_db" :min="1" :max="6" :step="1" ticks unit="dB"
+        @change="updateSetting('volume-steps', { step_interface_db: $event })" />
     </SectionCard>
 
     <!-- Volume limits -->
@@ -79,7 +79,7 @@ function handleStartupModeChange(restoreLast) {
 
 function fromStore() {
   return {
-    step_mobile_db: settingsStore.volumeSteps.step_mobile_db,
+    step_interface_db: settingsStore.volumeSteps.step_interface_db,
     step_rotary_db: settingsStore.volumeSteps.step_rotary_db,
     limits: { min: settingsStore.volumeLimits.min_db, max: settingsStore.volumeLimits.max_db },
     restore_last_volume: settingsStore.volumeStartup.restore_last_volume,

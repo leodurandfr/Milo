@@ -296,7 +296,7 @@ export const ENTRIES = [
     group: 'structure',
     file: 'components/ui/Dock.vue',
     coupling: 'store',
-    summary: 'The bottom source switcher: position: fixed, reads three stores (dock order from settings, lyrics availability, active source) and emits the four app-opening events. App furniture mounted once, not a primitive to reuse. The State section drives what it reads; Reveal taps its own drag pill, one of the three paths a user has.',
+    summary: 'The bottom source switcher: position: fixed, reads three stores (dock order from settings, lyrics availability, active source) and emits the five app-opening events. App furniture mounted once, not a primitive to reuse. The State section drives what it reads; Reveal taps its own drag pill, one of the three paths a user has.',
   },
   {
     id: 'VolumeBar',

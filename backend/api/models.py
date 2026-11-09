@@ -52,11 +52,12 @@ class VolumeSetRequest(BaseModel):
     """Absolute global volume request, on the slider's scale.
 
     0..1 over the operator's `volume_limits`, not decibels: this route has no
-    caller that thinks in dB. The web UI moves the volume with `/adjust`
-    deltas, and the rotary, the IR remote and the Pi screen reach VolumeService
-    without going through HTTP at all — the one consumer is a phone, which must
-    not hold a copy of limits the operator can change from the other end of the
-    house. Milō denormalizes here, with the limits it actually runs on.
+    caller that thinks in dB. Its two callers are a phone (Milo-iOS) and the
+    web UI's Volume panel, whose slider is drawn on the same 0..1 the server
+    publishes as `global_volume` (its − / + still go through `/adjust`); the
+    rotary and the IR remote reach VolumeService without HTTP at all. Neither
+    caller must hold a copy of limits the operator can change from the other
+    end of the house: Milō denormalizes here, with the limits it runs on.
     """
     volume: float = Field(..., ge=0, le=1, description="Target global volume, 0..1 over volume_limits")
     show_bar: bool = Field(default=True)
@@ -218,8 +219,8 @@ class VolumeControlRequest(BaseModel):
 
 
 class VolumeStepsRequest(StrictModel):
-    """Mobile volume steps request (in dB)"""
-    step_mobile_db: float = Field(..., ge=1, le=6, description="Mobile volume step in dB")
+    """On-screen volume buttons step request (in dB)"""
+    step_interface_db: float = Field(..., ge=1, le=6, description="Step of the on-screen − / + buttons in dB")
 
 
 class RotaryStepsRequest(StrictModel):
