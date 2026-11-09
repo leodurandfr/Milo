@@ -349,10 +349,18 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
   /* The source bar's center line, where the top row's buttons (a medium
      IconButton, 48px) are centered: --edge below the top, past the padding. */
   --source-line: calc(var(--edge) - var(--space-05) + 24px);
+  /* The panel's bottom padding, which the body's own bottom padding adds to. */
+  --bottom-edge: var(--space-05);
   display: flex;
   height: 100%;
-  padding: var(--space-05) var(--edge) var(--space-05) var(--space-05);
+  padding: var(--space-05) var(--edge) var(--bottom-edge) var(--space-05);
   gap: var(--edge);
+}
+
+/* The transport as far below the progress bar as it is above the screen's
+   bottom edge: the body's bottom padding plus the panel's. */
+.now-playing :deep(.player-body--full > .player-body-bottom) {
+  gap: calc(var(--space-04) + var(--bottom-edge));
 }
 
 /* The body's top padding puts the source bar (a 24px row) on that line. */
@@ -511,10 +519,11 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
   .now-playing {
     /* The body's own top padding, and half the bar's row. */
     --source-line: calc(var(--space-06) + 12px);
+    --bottom-edge: var(--space-06);
     padding-left: var(--space-05);
     padding-right: var(--space-05);
     padding-top: max(var(--space-05), env(safe-area-inset-top, 0px));
-    padding-bottom: max(var(--space-06), env(safe-area-inset-bottom, 0px));
+    padding-bottom: max(var(--bottom-edge), env(safe-area-inset-bottom, 0px));
 
     flex-direction: column;
     gap: 0;

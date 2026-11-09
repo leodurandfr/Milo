@@ -264,6 +264,13 @@ function onKeydown(event) {
   user-select: none;
 }
 
+/* Space Mono's digits stand on the baseline and reach the cap height, so the
+   box hugs them: centered in the row, they sit on the track's middle rather than
+   on the middle of a line box kept for descenders. */
+.time {
+  text-box: trim-both cap alphabetic;
+}
+
 /* Entrance when playback starts and the bar is v-if-mounted: spring rise +
    fade, matching the tracklist-content / player stagger. From-only keyframes
    and `backwards`: once risen the bar is back on its own styles, so an

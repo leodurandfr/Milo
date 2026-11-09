@@ -67,10 +67,10 @@
     </div>
 
     <div class="player-body-bottom">
-      <!-- With a transport the full player holds the bar's row, so the centred
-           lines do not shift when the bar mounts on play; a receiver without
-           one only takes it while it has a bar. The bar hides itself until the
-           source has a duration and a position. -->
+      <!-- With a transport the full player keeps the bar's slot, so the
+           transport does not move when the bar mounts on play; a receiver
+           without one only takes it while it has a bar. The bar hides itself
+           until the source has a duration and a position. -->
       <div v-if="surface === 'card' || hasTransport || hasProgress" class="body-progress" @click="onProgressRowClick">
         <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
           :isReady="isPositionInitialized" :interactive="seekable" :loading="phase === 'loading'"
@@ -231,8 +231,11 @@ defineExpose({ swipe });
   min-width: 0;
 }
 
+/* Room above and below the lines even when a short window leaves the column
+   none to spare, so they never touch the source bar or the progress bar. */
 .player-body--full .body-lines {
   gap: var(--space-02);
+  padding-block: var(--space-04);
 }
 
 /* Short out, a little longer in: the old lines are gone before the new ones
@@ -257,8 +260,9 @@ defineExpose({ swipe });
   }
 }
 
+/* Its gap is the panel's to set (AudioPlayerFull): the transport sits as far
+   below the bar as it is above the screen's bottom edge. */
 .player-body--full .player-body-bottom {
-  gap: var(--space-04);
   align-self: center;
   width: 100%;
   padding-bottom: var(--space-04);
@@ -294,14 +298,6 @@ defineExpose({ swipe });
   to {
     opacity: 1;
   }
-}
-
-/* Reserve the progress bar's row height even while it's hidden (idle CD) so the
-   centred lines do not shift when the bar mounts on play. Matches the bar's
-   flex-row height, which the .time line-height (--line-height-mono-medium)
-   dominates over the 8px track. */
-.player-body--full .body-progress {
-  min-height: var(--line-height-mono-medium);
 }
 
 .body-title {
