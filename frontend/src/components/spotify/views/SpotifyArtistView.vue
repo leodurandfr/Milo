@@ -56,7 +56,7 @@
                   show-artist
                   show-cover
                   :cover-url="track.thumbnail || ''"
-                  @play="play({ skipToUri: track.uri })"
+                  @play="play(track)"
                 >
                   <template #menu>
                     <SpotifyTrackMenu :track="track" kind="artist" :page-uri="uri"

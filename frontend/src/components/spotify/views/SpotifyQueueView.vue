@@ -84,8 +84,9 @@ const queueRows = computed(() => {
 });
 
 // The history lists a track as it starts: the one playing is the queue's.
-// /status names a relinked track by its own uri, the history by the one its
-// context lists, so both are compared.
+// Both name it by the uri its context lists; with no play order to read that
+// from, the state names the track's own uri, which the history keeps as
+// `track_uri`.
 const playingNow = (track) =>
   !!store.currentTrackUri && [track.uri, track.track_uri].includes(store.currentTrackUri);
 const historyRows = computed(() => store.history

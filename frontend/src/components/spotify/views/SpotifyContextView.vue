@@ -39,7 +39,7 @@
               show-artist
               :show-cover="kind !== 'album'"
               :cover-url="track.thumbnail || ''"
-              @play="play({ skipToUri: track.uri })"
+              @play="play(track)"
             >
               <template #menu>
                 <SpotifyTrackMenu :track="track" :kind="kind" :editable-uri="editable ? uri : null"

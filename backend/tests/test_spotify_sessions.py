@@ -127,6 +127,68 @@ async def test_a_skip_names_the_track_it_loads(world):
     assert world.session()["title"] == "Trois Neuf Trois"
 
 
+# "Like This" in the owner's Liked Songs: listed as one uri, played as another.
+LIKE_THIS = track("Like This", artists=("Brynn Elise", "Lauren Creviston"), album="Like This")
+LIKE_THIS_HERE = {**LIKE_THIS, "uri": "spotify:track:3h2XdwGrmlH3nkODOVm35Z"}
+
+
+@pytest.mark.parametrize("described_as", ["listed", "alternative"])
+async def test_a_relinked_track_is_named_by_the_uri_its_list_holds(world, described_as):
+    """A listing's row lights while `details.track_uri` names it, and a track
+    Spotify relinks to a market alternative is listed under one uri and plays
+    under another: /status names the alternative once the stream has loaded.
+    The playing row of Liked Songs went dark at that flip and never lit again
+    (measured 2026-11-09). The entry is named by the uri its context lists, the
+    one go-librespot keeps on it, during the load and after — on a first load,
+    when the entry is still described by the listed uri, and on a later one,
+    when it is described by the alternative's from the start."""
+    d = world.daemon
+    d.next_tracks = [_listed(LIKE_THIS)]
+    await world.phone_plays(PARAPLUIE)
+    sent = len(world.published())
+    d.track, d.buffering, d.listed = None, True, LIKE_THIS["uri"]
+    d.loading = LIKE_THIS if described_as == "listed" else LIKE_THIS_HERE
+    d.prev_tracks, d.next_tracks = [_listed(PARAPLUIE)], []
+    await world._says({"type": "will_play", "uri": LIKE_THIS["uri"]})
+    assert world.buffering() and world.session()["title"] == "Like This"
+
+    await world.advance(1.5)
+    d.track, d.buffering, d.loading = {**LIKE_THIS_HERE, "position": 3}, False, None
+    await world._says(d.metadata(), d.playing())
+    assert world.playing()
+
+    states = world.published()[sent:]
+    assert states
+    for state in states:
+        details = state["details"]
+        assert details["track_uri"] == LIKE_THIS["uri"]
+        assert details["queue"][details["queue_index"]]["uri"] == LIKE_THIS["uri"]
+    # The Recent tab plays it back from its list by the listed uri.
+    started = (await history(world))[0]
+    assert (started["uri"], started["track_uri"]) == (LIKE_THIS["uri"], LIKE_THIS_HERE["uri"])
+
+
+async def test_a_relinked_track_with_no_play_order_is_named_by_its_own_uri(world):
+    """With no play order to read (a go-librespot without GET /player/queue),
+    nothing names the uri a relinked entry's list holds: the state names the
+    track's own, the one a listing read after its first stream gives the row
+    as `uri` (useSpotifyListingPlayback.isCurrent compares both), never a
+    uri left from the track before it."""
+    d = world.daemon
+    d.has_queue_route = False
+    await world.phone_plays(PARAPLUIE)
+    d.track, d.buffering, d.listed, d.loading = None, True, LIKE_THIS["uri"], LIKE_THIS
+    await world._says({"type": "will_play", "uri": LIKE_THIS["uri"]})
+    await world.advance(1.5)
+    d.track, d.buffering, d.loading = {**LIKE_THIS_HERE, "position": 3}, False, None
+    await world._says(d.metadata(), d.playing())
+
+    assert world.playing() and world.session()["title"] == "Like This"
+    details = world.state()["details"]
+    assert details["track_uri"] == LIKE_THIS_HERE["uri"]
+    assert details["queue"] == [] and details["queue_index"] is None
+
+
 @pytest.mark.parametrize("unnamed", ["not cached", "no queue route", "queue read fails"])
 async def test_a_load_nothing_names_keeps_the_track_on_screen(world, unnamed):
     """When the loading track cannot be named (its metadata not cached, a stock

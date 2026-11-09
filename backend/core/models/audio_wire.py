@@ -266,6 +266,11 @@ class SpotifyDetails(BaseModel):
     # What plays now; all four null with no session.
     context_uri: Optional[str]
     context_name: Optional[str]
+    # The entry playing, by the uri its context lists — a listing row's
+    # `listed_uri`: a track Spotify relinks to a market alternative plays under
+    # the alternative's uri, the row's `uri` once it has streamed. The track's
+    # own uri when no play order names the entry (`remote.track_uri` is the
+    # remote track's own uri).
     track_uri: Optional[str]
     album_uri: Optional[str]
     # The names of the artist line, in its order: each one opens its page.
