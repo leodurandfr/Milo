@@ -37,12 +37,14 @@
           :style="section.drag.itemStyle(index)"
           @pointerdown="section.isReordering ? section.drag.onPointerDown($event, index) : null"
         >
+          <!-- Volume has no switch of its own: where it shows is chosen per screen, one level down -->
           <ListItemButton
             :title="section.titleOf(id)"
             :model-value="config[id]"
-            :action="section.isReordering ? 'none' : 'toggle'"
+            :action="section.isReordering ? 'none' : id === 'volume' ? 'caret' : 'toggle'"
             :disabled="!section.isReordering && !section.canDisable(id)"
             @update:model-value="(val) => handleToggle(id, val)"
+            @click="id === 'volume' && !section.isReordering && emit('open-volume')"
           >
             <template #icon>
               <AppIcon :name="id" :size="40" />
@@ -76,6 +78,8 @@ import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { DOCK_FEATURE_LABEL_KEYS } from '@/constants/dockFeatures';
+
+const emit = defineEmits(['open-volume']);
 
 const { t } = useI18n();
 const { debouncedUpdate } = useSettingsAPI();

@@ -328,14 +328,14 @@ class TestSettingsRoutes:
         switched off — a dock advertising something already gone, and the
         consumers never told.
         """
-        client._seed("dock.enabled_apps", ["spotify", "multiroom"])
+        client._seed("dock.enabled_apps", ["spotify", "multiroom", "volume"])
         # Disables run first: multiroom goes, then the equalizer enable fails.
         client._mock_multiroom_equalizer_service.set_local_equalizer_effects_enabled = AsyncMock(
             return_value=False
         )
 
         response = client.put("/api/settings/dock-apps", json={
-            "enabled_apps": ["spotify", "equalizer"]
+            "enabled_apps": ["spotify", "equalizer", "volume"]
         })
 
         assert response.status_code == 500
@@ -345,10 +345,10 @@ class TestSettingsRoutes:
             c.args[1] for c in client._mock_settings.set_setting.call_args_list
             if c.args[0] == "dock.enabled_apps"
         ]
-        assert dock_writes == [["spotify"]], "the applied disable was not persisted on its own"
+        assert dock_writes == [["spotify", "volume"]], "the applied disable was not persisted on its own"
 
         broadcasts = [c.args[0] for c in client._mock_state_machine.broadcast.call_args_list]
-        assert [b.config.enabled_apps for b in broadcasts] == [["spotify"]]
+        assert [b.config.enabled_apps for b in broadcasts] == [["spotify", "volume"]]
 
     def test_set_dock_apps_reports_a_failed_multiroom_transition(self, client, mock_routing_service):
         """A 200 on a transition that did not happen leaves the UI permanently wrong.
@@ -384,6 +384,23 @@ class TestSettingsRoutes:
         assert response.status_code == 500
         written = [c.args[0] for c in client._mock_settings.set_setting.call_args_list]
         assert "dock.enabled_apps" not in written
+
+    def test_set_dock_apps_without_volume_writes_the_list_once(self, client):
+        """A list without Volume is not a request to disable it: Volume has no
+        switch of its own, and the validator puts it back (before Settings).
+        Counted as a disable, the route would run the effects of one and write
+        twice; it writes the list once, and the dock it announces still holds Volume."""
+        client._seed("dock.enabled_apps", ["spotify", "radio", "volume"])
+
+        response = client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio", "spotify"]})
+
+        assert response.status_code == 200, response.text
+        dock_writes = [
+            c.args[1] for c in client._mock_settings.set_setting.call_args_list
+            if c.args[0] == "dock.enabled_apps"
+        ]
+        assert dock_writes == [["radio", "spotify"]]
+        assert response.json()["config"]["enabled_apps"] == ["radio", "spotify", "volume"]
 
     def test_set_dock_apps_invalid_app(self, client):
         """Test PUT /dock-apps with invalid app - should return 422"""
@@ -881,6 +898,28 @@ class TestSettingsRoutes:
         assert response.json()["reload_success"] is False
         mock_screen_controller.restart_kiosk.assert_not_awaited()
 
+    def test_set_dock_volume_keeps_the_dock_order_beside_it(self, client):
+        """The switches share the `dock` section with enabled_apps, which the
+        Dock settings write separately: storing them must leave the dock's
+        order as it was, and the event every open Dock redraws from carries the
+        switches alone."""
+        client._seed("dock.enabled_apps", ["radio", "volume", "settings"])
+
+        response = client.put("/api/settings/dock-volume", json={
+            "milo_screen": False, "desktop_browser": True,
+            "phone_browser": True, "ios_app": True,
+        })
+
+        assert response.status_code == 200, response.text
+        stored = asyncio.run(client._mock_settings.get_setting("dock"))
+        assert stored["enabled_apps"] == ["radio", "volume", "settings"]
+        broadcast = client._mock_state_machine.broadcast.call_args.args[0]
+        assert broadcast.TYPE == "dock_volume_changed"
+        assert broadcast.config.model_dump() == {
+            "milo_screen": False, "desktop_browser": True,
+            "phone_browser": True, "ios_app": True,
+        }
+
     def test_set_music_library_settings_writes_the_section(self, client):
         """Decides whether the library shows one tab per storage space or one
         merged catalog — a stored value the browse view reads on every open."""
@@ -1107,6 +1146,10 @@ class TestBulkSettings:
         ("bt_remote_steps", "step_bt_remote_db"): ("volume", "step_bt_remote_db"),
         ("ir_remote_steps", "step_ir_remote_db"): ("volume", "step_ir_remote_db"),
         ("dock_apps", "enabled_apps"): ("dock", "enabled_apps"),
+        ("dock_volume", "milo_screen"): ("dock", "volume", "milo_screen"),
+        ("dock_volume", "desktop_browser"): ("dock", "volume", "desktop_browser"),
+        ("dock_volume", "phone_browser"): ("dock", "volume", "phone_browser"),
+        ("dock_volume", "ios_app"): ("dock", "volume", "ios_app"),
         ("audio_stop", "auto_stop_delay"): ("audio", "auto_stop_delay"),
         ("screen_timeout", "screen_timeout_seconds"): ("screen", "timeout_seconds"),
         ("screen_brightness", "brightness_on"): ("screen", "brightness_on"),

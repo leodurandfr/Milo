@@ -277,6 +277,8 @@ def test_bulk_settings_full_key_set():
         "bt_remote_steps": {"step_bt_remote_db": 1.0},
         "ir_remote_steps": {"step_ir_remote_db": 3.0},
         "dock_apps": {"enabled_apps": ["spotify", "radio"]},
+        "dock_volume": {"milo_screen": True, "desktop_browser": True, "phone_browser": True,
+                        "ios_app": False},
         "audio_stop": {"auto_stop_delay": 120.0},
         "screen_timeout": {"screen_timeout_enabled": True, "screen_timeout_seconds": 30},
         "screen_brightness": {"brightness_on": 6},

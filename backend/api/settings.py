@@ -29,6 +29,7 @@ from backend.api.models import (
     BtRemoteStepsRequest,
     IrRemoteStepsRequest,
     DockAppsRequest,
+    DockVolumeRequest,
     AudioStopRequest,
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
@@ -50,6 +51,8 @@ from backend.core.models.ws_events import (
     BtRemoteStepsConfig,
     DockAppsChanged,
     DockAppsConfig,
+    DockVolumeChanged,
+    DockVolumeConfig,
     IrRemoteStepsChanged,
     IrRemoteStepsConfig,
     LanguageChanged,
@@ -252,6 +255,7 @@ def create_settings_router(
             "bt_remote_steps": {"step_bt_remote_db": vol['step_bt_remote_db']},
             "ir_remote_steps": {"step_ir_remote_db": vol['step_ir_remote_db']},
             "dock_apps": {"enabled_apps": all_settings['dock']['enabled_apps']},
+            "dock_volume": all_settings['dock']['volume'],
             "audio_stop": {"auto_stop_delay": all_settings['audio']['auto_stop_delay']},
             "screen_timeout": {
                 "screen_timeout_enabled": timeout_seconds != 0,
@@ -419,7 +423,9 @@ def create_settings_router(
                 old_settings = await settings.load_settings()
                 old_enabled_apps = old_settings["dock"]["enabled_apps"]
 
-                disabled_apps = set(old_enabled_apps) - set(enabled_apps)
+                # Volume is never switched off here: the validator keeps it
+                # placed, so a list without it is no request to remove it.
+                disabled_apps = set(old_enabled_apps) - set(enabled_apps) - {'volume'}
                 enabled_apps_new = set(enabled_apps) - set(old_enabled_apps)
 
                 if not disabled_apps and not enabled_apps_new:
@@ -586,6 +592,15 @@ def create_settings_router(
                             "operations_log": operations_log
                         }
                     )
+
+    # Where the dock offers the volume control
+    @router.put("/dock-volume")
+    async def set_dock_volume(payload: DockVolumeRequest):
+        return await _handle_setting_update(
+            setter=lambda: settings.set_setting('dock.volume', payload.model_dump()),
+            section='dock',
+            build_event=lambda dock: DockVolumeChanged(config=DockVolumeConfig(**dock['volume'])),
+        )
 
     # Global audio auto-stop (applies to every eligible source)
     @router.put("/audio-stop")

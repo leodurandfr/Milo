@@ -659,6 +659,7 @@ const SETTINGS_CONFIG_EVENTS = [
   ['bt_remote_steps_changed', settingsStore.updateVolumeSteps],
   ['ir_remote_steps_changed', settingsStore.updateVolumeSteps],
   ['audio_stop_changed', settingsStore.updateAudioPlayback],
+  ['dock_volume_changed', settingsStore.updateDockVolume],
   ['screen_timeout_changed', settingsStore.updateScreenTimeout],
   ['screen_brightness_changed', settingsStore.updateScreenBrightness],
   ['screen_auto_player_changed', settingsStore.updateScreenAutoPlayer],

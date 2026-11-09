@@ -107,7 +107,16 @@ class SettingsService:
                 "equalizer_effects_enabled": False
             },
             "dock": {
-                "enabled_apps": list(DEFAULT_DOCK_APPS)
+                "enabled_apps": list(DEFAULT_DOCK_APPS),
+                # Where the dock offers the volume control, per screen that
+                # shows it. Inside the iPhone app it is off: volume already
+                # lives on the iPhone's Lock Screen and in its widget there.
+                "volume": {
+                    "milo_screen": True,
+                    "desktop_browser": True,
+                    "phone_browser": True,
+                    "ios_app": False
+                }
             },
             "radio": {
                 "shazam_enabled": True
@@ -310,9 +319,23 @@ class SettingsService:
             # Force at least spotify if no audio source
             filtered_apps = ['spotify'] + [app for app in filtered_apps if app in UTILITY_DOCK_APPS]
 
+        # Volume is always placed: the list holds only its position, and
+        # dock.volume decides on which screens it shows. Missing, it goes where
+        # the default order puts it, just before Settings.
+        if 'volume' not in filtered_apps:
+            at = filtered_apps.index('settings') if 'settings' in filtered_apps else len(filtered_apps)
+            filtered_apps.insert(at, 'volume')
+
         # No empty-list fallback: the rule above seeds `filtered_apps` with
         # spotify whenever it holds no audio source, so it cannot be empty here.
-        validated['dock'] = {'enabled_apps': filtered_apps}
+        volume_input = dock_input.get('volume', {})
+        validated['dock'] = {
+            'enabled_apps': filtered_apps,
+            'volume': {
+                surface: bool(volume_input.get(surface, default))
+                for surface, default in d['dock']['volume'].items()
+            }
+        }
 
         # Routing (multiroom + equalizer effects)
         routing_input = settings.get('routing', {})

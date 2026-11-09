@@ -284,6 +284,19 @@ class TestSettingsService:
         })
         assert 'spotify' in result['dock']['enabled_apps']
 
+    def test_validate_and_merge_keeps_volume_placed(self, service):
+        """Volume has no switch in the dock list: dock.volume decides where it
+        shows. A list stored without it (an older dock, a client that never
+        knew it) would hide it on every screen, whatever those switches say,
+        and Milo-Mac reading /bulk would disagree with the web dock."""
+        result = service._validate_and_merge({
+            'dock': {'enabled_apps': ['radio', 'lyrics', 'settings']}
+        })
+        assert result['dock']['enabled_apps'] == ['radio', 'lyrics', 'volume', 'settings']
+
+        result = service._validate_and_merge({'dock': {'enabled_apps': ['radio']}})
+        assert result['dock']['enabled_apps'] == ['radio', 'volume']
+
     def test_validate_and_merge_routing(self, service):
         """Routing validation test"""
         result = service._validate_and_merge({

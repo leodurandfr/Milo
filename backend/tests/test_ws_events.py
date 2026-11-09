@@ -34,6 +34,8 @@ from backend.core.models.ws_events import (
     AudioStateChanged,
     DockAppsChanged,
     DockAppsConfig,
+    DockVolumeChanged,
+    DockVolumeConfig,
     EqualizerLevels,
     MultiroomPendingClientChanged,
     MultiroomZoneChanged,
@@ -119,6 +121,14 @@ CASES = [
         {"category": "settings", "type": "dock_apps_changed", "origin": "settings",
          "data": {"source": "settings",
                   "config": {"enabled_apps": ["spotify", "radio"]}}},
+    ),
+    (
+        DockVolumeChanged(config=DockVolumeConfig(
+            milo_screen=False, desktop_browser=True, phone_browser=True, ios_app=False)),
+        {"category": "settings", "type": "dock_volume_changed", "origin": "settings",
+         "data": {"source": "settings",
+                  "config": {"milo_screen": False, "desktop_browser": True,
+                             "phone_browser": True, "ios_app": False}}},
     ),
     (
         SatelliteUpdateProgress(mac_id="aa:bb:cc:dd:ee:ff"),

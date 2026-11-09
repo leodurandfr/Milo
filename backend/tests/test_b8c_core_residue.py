@@ -281,16 +281,16 @@ class TestTheSettingsFailOpenReads:
         """The dock handler writes and re-reads within one request; a stale cache
         there answers with the list it just replaced."""
         service._path.write_text(json.dumps(
-            {"schema_version": SettingsService.SCHEMA_VERSION, "dock": {"enabled_apps": ["radio"]}}
+            {"schema_version": SettingsService.SCHEMA_VERSION, "dock": {"enabled_apps": ["radio", "volume"]}}
         ))
         await service.load_settings()
 
         service._path.write_text(json.dumps(
-            {"schema_version": SettingsService.SCHEMA_VERSION, "dock": {"enabled_apps": ["spotify"]}}
+            {"schema_version": SettingsService.SCHEMA_VERSION, "dock": {"enabled_apps": ["spotify", "volume"]}}
         ))
         service.invalidate_cache()
 
-        assert (await service.get_all_settings())["dock"]["enabled_apps"] == ["spotify"]
+        assert (await service.get_all_settings())["dock"]["enabled_apps"] == ["spotify", "volume"]
 
     async def test_an_empty_strict_write_is_a_no_op(self, service):
         """`set_settings_strict` is called with whatever the caller collected;

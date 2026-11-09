@@ -145,21 +145,21 @@ class TestTheDockWithNothingToApply:
         """The dock is drag-reorderable. Running the enable/disable machinery for
         a set that did not change would disable and re-enable multiroom — a full
         ALSA reconfiguration and a source restart — because the tiles moved."""
-        _dock(settings, ["spotify", "multiroom", "equalizer"])
+        _dock(settings, ["spotify", "multiroom", "equalizer", "volume"])
 
         response = client.put(
             "/api/settings/dock-apps",
-            json={"enabled_apps": ["equalizer", "multiroom", "spotify"]},
+            json={"enabled_apps": ["equalizer", "multiroom", "spotify", "volume"]},
         )
 
         assert response.status_code == 200
         assert response.json()["config"]["enabled_apps"] == [
-            "equalizer", "multiroom", "spotify"
+            "equalizer", "multiroom", "spotify", "volume"
         ]
         routing.set_multiroom_enabled.assert_not_called()
         equalizer.set_local_equalizer_effects_enabled.assert_not_called()
         systemd.stop.assert_not_called()
-        assert _saved_dock_lists(settings) == [["equalizer", "multiroom", "spotify"]]
+        assert _saved_dock_lists(settings) == [["equalizer", "multiroom", "spotify", "volume"]]
         assert state_machine.broadcast.await_count == 1
         # The short-circuit's one visible mark: no operations log, because no
         # operation ran. Falling through would answer the batch shape for a
@@ -293,14 +293,14 @@ class TestTheDockEnables:
         """The intermediate commits carry membership; this is what keeps them
         from also reordering the dock behind the user's back while the batch
         runs."""
-        _dock(settings, ["multiroom", "spotify"])
+        _dock(settings, ["multiroom", "spotify", "volume"])
 
         client.put(
             "/api/settings/dock-apps",
-            json={"enabled_apps": ["equalizer", "multiroom", "spotify"]},
+            json={"enabled_apps": ["equalizer", "multiroom", "spotify", "volume"]},
         )
 
-        assert _saved_dock_lists(settings)[0] == ["equalizer", "multiroom", "spotify"]
+        assert _saved_dock_lists(settings)[0] == ["equalizer", "multiroom", "spotify", "volume"]
 
 
 class TestTheDockAndTheLibraryCatalog:

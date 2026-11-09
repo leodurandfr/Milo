@@ -51,6 +51,14 @@ export const useSettingsStore = defineStore('settings', () => {
     Object.fromEntries([...ALL_AUDIO_SOURCES, ...DOCK_UTILITY_APPS].map(app => [app, true]))
   );
 
+  // Where the dock offers the volume control, one switch per screen
+  const dockVolume = ref({
+    milo_screen: true,
+    desktop_browser: true,
+    phone_browser: true,
+    ios_app: false
+  });
+
   // Ordered lists of all audio sources and all features (enabled and disabled):
   // the server stores only the enabled ones, so a disabled app keeps its place here
   const sourceOrder = ref([...ALL_AUDIO_SOURCES]);
@@ -229,6 +237,7 @@ export const useSettingsStore = defineStore('settings', () => {
         const enabledApps = d.dock_apps.enabled_apps;
         setIfChanged(dockApps, buildDockAppsMap(enabledApps));
         syncDockOrders(enabledApps);
+        setIfChanged(dockVolume, d.dock_volume);
 
         setIfChanged(audioPlayback, d.audio_stop);
         setIfChanged(screenTimeout, d.screen_timeout);
@@ -290,6 +299,8 @@ export const useSettingsStore = defineStore('settings', () => {
     syncOrder(sourceOrder, enabledApps);
     syncOrder(featureOrder, enabledApps);
   }
+
+  const updateDockVolume = makeUpdater(dockVolume);
 
   function updateSourceOrder(newOrder) {
     sourceOrder.value = [...newOrder];
@@ -575,6 +586,7 @@ export const useSettingsStore = defineStore('settings', () => {
     dockApps,
     sourceOrder,
     featureOrder,
+    dockVolume,
     audioPlayback,
     radioSettings,
     musicLibrarySettings,
@@ -601,6 +613,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateVolumeStartup,
     updateVolumeSteps,
     updateDockApps,
+    updateDockVolume,
     updateSourceOrder,
     updateFeatureOrder,
     buildEnabledAppsArray,

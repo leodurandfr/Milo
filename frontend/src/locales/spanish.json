@@ -542,6 +542,12 @@
     "reorder": "Reordenar",
     "done": "Listo"
   },
+  "dockVolume": {
+    "miloScreen": "Pantalla de Milō",
+    "desktopBrowser": "Navegador en ordenador",
+    "phoneBrowser": "Navegador en teléfono",
+    "iosApp": "App Milō para iPhone"
+  },
   "clientDetails": {
     "hostname": "Nombre del host",
     "ipAddress": "Dirección IP"

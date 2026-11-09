@@ -50,6 +50,13 @@ class DockAppsConfig(BaseModel):
     enabled_apps: List[str]
 
 
+class DockVolumeConfig(BaseModel):
+    milo_screen: bool
+    desktop_browser: bool
+    phone_browser: bool
+    ios_app: bool
+
+
 class AudioStopConfig(BaseModel):
     auto_stop_delay: float
 

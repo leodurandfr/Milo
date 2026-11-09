@@ -479,13 +479,13 @@ export const ENTRIES = [
     id: 'SectionStack',
     group: 'settings',
     file: 'components/ui/SectionStack.vue',
-    summary: '14 lines and 27 consumers: a flex column that puts one gap between section cards, in the settings and in the modals that stack them alike. It carries nothing else, and that is the entry — the alternative was 27 copies of the same two declarations.',
+    summary: '14 lines and 28 consumers: a flex column that puts one gap between section cards, in the settings and in the modals that stack them alike. It carries nothing else, and that is the entry — the alternative was 28 copies of the same two declarations.',
   },
   {
     id: 'SectionCard',
     group: 'settings',
     file: 'components/ui/SectionCard.vue',
-    summary: 'The card of every settings screen and modal panel, and the most-imported component in the frontend (33). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
+    summary: 'The card of every settings screen and modal panel, and the most-imported component in the frontend (34). Either a title prop or a header slot that replaces it — the slot wins, so passing both shows only the slot. Everything else is default-slot content.',
   },
   {
     id: 'ToggleSection',

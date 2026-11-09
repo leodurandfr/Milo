@@ -30,8 +30,8 @@
     </div>
 
     <div ref="dock" class="dock glass-shell">
-      <!-- Volume Controls - Mobile only (hidden when no device manages volume) -->
-      <div v-if="unifiedStore.volumeState.any_volume_control" class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
+      <!-- Volume Controls - the Volume feature in the mobile layout -->
+      <div v-if="volumeShown" class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
         <button v-for="{ icon, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
           @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd" v-press
@@ -103,6 +103,9 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { DOCK_FEATURE_LABEL_KEYS } from '@/constants/dockFeatures';
 import { anyModalOpen } from '@/composables/useModalPresence';
+import { isMiloIosApp } from '@/utils/iosApp';
+import { isKiosk } from '@/utils/kiosk';
+import { isPhone } from '@/utils/phone';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
@@ -140,10 +143,8 @@ const enabledFeatures = computed(() => {
   return enabledApps.value
     .map(id => ALL_ADDITIONAL_ACTIONS.value.find(action => action.id === id))
     .filter(Boolean)
-    // No device to set a level on: the panel would move nothing. Nor on a phone,
-    // whose dock carries − / + of its own above the apps.
-    .filter(action => action.id !== 'volume'
-      || (unifiedStore.volumeState.any_volume_control && !isMobile.value));
+    // The Volume tile is the wide layout's; the mobile one has − / + above the apps.
+    .filter(action => action.id !== 'volume' || (volumeShown.value && !isMobile.value));
 });
 
 // All enabled apps in order (for mobile)
@@ -163,6 +164,19 @@ const additionalDockApps = computed(() => {
 
 // === STORE AND CONTROLS ===
 const unifiedStore = useUnifiedAudioStore();
+
+// One Volume feature, two forms: the tile in the wide layout, − / + above the
+// apps in the mobile one. Whether it shows is the Dock › Volume switch of the
+// screen this is (a rotary encoder makes it redundant on Milō's own, Milo-Mac
+// on a computer, the Lock Screen inside Milo-iOS), and never with no device to
+// set a level on. A browser is a phone's or a computer's by its device, never
+// its layout: the switch decides whether, the layout only which form.
+const SURFACE = isMiloIosApp() ? 'ios_app'
+  : isKiosk() ? 'milo_screen'
+  : isPhone() ? 'phone_browser'
+  : 'desktop_browser';
+const volumeShown = computed(() =>
+  unifiedStore.volumeState.any_volume_control && settingsStore.dockVolume[SURFACE]);
 
 const volumeControlsWithSteps = computed(() => {
   const step = settingsStore.volumeSteps.step_interface_db;
@@ -507,7 +521,7 @@ watch(() => unifiedStore.systemState.source, (newSource) => {
   }
 });
 
-watch([allEnabledApps, isMobile, () => unifiedStore.volumeState.any_volume_control],
+watch([allEnabledApps, isMobile, volumeShown],
   () => nextTick(updateDockMetrics));
 
 // Lyrics opening must never leave the dock lingering behind it — hideDock()

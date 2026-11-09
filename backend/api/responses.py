@@ -28,6 +28,7 @@ from backend.core.models.settings_config import (
     AudioStopConfig,
     BtRemoteStepsConfig,
     DockAppsConfig,
+    DockVolumeConfig,
     IrRemoteStepsConfig,
     MacRocConfig,
     MusicLibrarySettingsConfig,
@@ -221,6 +222,7 @@ class BulkSettingsResponse(BaseModel):
     bt_remote_steps: BtRemoteStepsConfig
     ir_remote_steps: IrRemoteStepsConfig
     dock_apps: DockAppsConfig
+    dock_volume: DockVolumeConfig
     audio_stop: AudioStopConfig
     screen_timeout: ScreenTimeoutConfig
     screen_brightness: ScreenBrightnessConfig

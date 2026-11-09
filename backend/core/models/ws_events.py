@@ -24,6 +24,7 @@ from backend.core.models.settings_config import (
     BtRemoteConfig,
     BtRemoteStepsConfig,
     DockAppsConfig,
+    DockVolumeConfig,
     IrRemoteStepsConfig,
     MacRocConfig,
     MusicLibrarySettingsConfig,
@@ -466,6 +467,16 @@ class DockAppsChanged(SettingsEvent):
     """
     TYPE = "dock_apps_changed"
     config: DockAppsConfig
+
+
+class DockVolumeChanged(SettingsEvent):
+    """Where the dock offers the volume control changed, screen by screen;
+    `config` is the `dock_volume` key of `GET /api/settings/bulk`.
+
+    App.vue settings listener → settingsStore.updateDockVolume, read by the Dock.
+    """
+    TYPE = "dock_volume_changed"
+    config: DockVolumeConfig
 
 
 class AudioStopChanged(SettingsEvent):

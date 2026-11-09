@@ -542,6 +542,12 @@
     "reorder": "पुनः क्रमित करें",
     "done": "पूर्ण"
   },
+  "dockVolume": {
+    "miloScreen": "Milō की स्क्रीन",
+    "desktopBrowser": "कंप्यूटर पर ब्राउज़र",
+    "phoneBrowser": "फ़ोन पर ब्राउज़र",
+    "iosApp": "iPhone के लिए Milō ऐप"
+  },
   "clientDetails": {
     "hostname": "होस्टनाम",
     "ipAddress": "आईपी ​​पता"

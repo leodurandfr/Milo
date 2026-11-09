@@ -542,6 +542,12 @@
     "reorder": "重新排序",
     "done": "完成"
   },
+  "dockVolume": {
+    "miloScreen": "Milō 屏幕",
+    "desktopBrowser": "电脑浏览器",
+    "phoneBrowser": "手机浏览器",
+    "iosApp": "Milō iPhone 应用"
+  },
   "clientDetails": {
     "hostname": "主机名",
     "ipAddress": "IP 地址"

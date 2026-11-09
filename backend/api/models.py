@@ -326,6 +326,14 @@ class DockAppsRequest(StrictModel):
         return v
 
 
+class DockVolumeRequest(StrictModel):
+    """Where the dock offers the volume control: one switch per screen."""
+    milo_screen: bool
+    desktop_browser: bool
+    phone_browser: bool
+    ios_app: bool
+
+
 # =============================================================================
 # SETTINGS - AUDIO AUTO-STOP
 # =============================================================================

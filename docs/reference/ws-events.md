@@ -5,7 +5,7 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-68 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+69 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
@@ -32,6 +32,7 @@ Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`.
 | [`settings/bt_remote_steps_changed`](#settingsbt_remote_steps_changed) | internal |
 | [`settings/ir_remote_steps_changed`](#settingsir_remote_steps_changed) | internal |
 | [`settings/dock_apps_changed`](#settingsdock_apps_changed) | contracted |
+| [`settings/dock_volume_changed`](#settingsdock_volume_changed) | internal |
 | [`settings/audio_stop_changed`](#settingsaudio_stop_changed) | internal |
 | [`settings/screen_timeout_changed`](#settingsscreen_timeout_changed) | internal |
 | [`settings/screen_brightness_changed`](#settingsscreen_brightness_changed) | internal |
@@ -327,6 +328,15 @@ The sources and features shown in the dock changed; `config` is the `dock_apps` 
 |---|---|
 | `source` | "settings" |
 | `config` | [DockAppsConfig](#dockappsconfig) |
+
+### settings/dock_volume_changed
+
+Where the dock offers the volume control changed, screen by screen; `config` is the `dock_volume` key of `GET /api/settings/bulk`.
+
+| Field | Type |
+|---|---|
+| `source` | "settings" |
+| `config` | [DockVolumeConfig](#dockvolumeconfig) |
 
 ### settings/audio_stop_changed
 
@@ -834,6 +844,15 @@ An update of a satellite's CamillaDSP finished; `success` says whether it worked
 | Field | Type |
 |---|---|
 | `enabled_apps` | string[] |
+
+### DockVolumeConfig
+
+| Field | Type |
+|---|---|
+| `milo_screen` | boolean |
+| `desktop_browser` | boolean |
+| `phone_browser` | boolean |
+| `ios_app` | boolean |
 
 ### AudioStopConfig
 
