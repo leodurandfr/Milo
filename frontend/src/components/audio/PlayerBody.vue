@@ -67,11 +67,13 @@
     </div>
 
     <div class="player-body-bottom">
-      <!-- With a transport the full player keeps the bar's slot, so the
-           transport does not move when the bar mounts on play; a receiver
-           without one only takes it while it has a bar. The bar hides itself
-           until the source has a duration and a position. -->
-      <div v-if="surface === 'card' || hasTransport || hasProgress" class="body-progress" @click="onProgressRowClick">
+      <!-- With a transport the full player holds the bar's row, so the centred
+           lines do not shift when the bar mounts (the bar hides itself until
+           the source has a duration and a position: an AirPlay track change, a
+           podcast's first load); a receiver without one only takes it while it
+           has a bar. The times' font, on the full player, sizes that row. -->
+      <div v-if="surface === 'card' || hasTransport || hasProgress" class="body-progress"
+        :class="{ 'text-mono-medium': surface === 'full' }" @click="onProgressRowClick">
         <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
           :isReady="isPositionInitialized" :interactive="seekable" :loading="phase === 'loading'"
           :variant="surface === 'card' ? 'on-contrast' : 'default'" :live="isLive" :onAir="phase === 'playing'"
@@ -298,6 +300,13 @@ defineExpose({ swipe });
   to {
     opacity: 1;
   }
+}
+
+/* The bar's row is as tall as its times, trimmed to their cap height
+   (ProgressBar), over the 8px track: one cap of the times' font, which this
+   slot carries for the unit's sake. */
+.player-body--full .body-progress {
+  min-height: 1cap;
 }
 
 .body-title {
