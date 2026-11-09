@@ -8,7 +8,7 @@
        artwork slot was resolved from the track text by
        shared/artwork_resolver.py and arrives in the same `artwork` field a
        source with real artwork fills — asynchronously, and a miss leaves the
-       slot on its source glyph. -->
+       slot on the disc placeholder. -->
   <AudioPlayerFull source="bluetooth">
     <!-- The disconnect CTA lives on the status card, which this player replaces
          the moment the sender publishes a track — i.e. exactly when a user

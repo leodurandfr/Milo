@@ -258,13 +258,13 @@ export function usePlayerMetadata(source) {
   // Which cover this source shows is decided in one place — see the util.
   const artwork = computed(() => nowPlayingArtwork(metadata.value));
   // What the slot shows with no cover at all.
-  const fallback = computed(() => artworkFallback(source));
+  const avatarName = computed(() => metadata.value.avatarName || metadata.value.title);
+  const fallback = computed(() => artworkFallback(source, avatarName.value));
   // The generated station avatar, and only where the helper says so (radio):
   // inline markup rather than an image, so it renders in the app's own font.
   const stationAvatarSvg = computed(() => {
     if (fallback.value.kind !== 'avatar') return '';
-    const name = metadata.value.avatarName || metadata.value.title;
-    return name ? generateStationAvatarSvg(name) : '';
+    return generateStationAvatarSvg(avatarName.value);
   });
   // Live, not from the held copy: a lifted flag must end the hold at once. Not
   // during the intro: the cover announced is the song's, and holding for it

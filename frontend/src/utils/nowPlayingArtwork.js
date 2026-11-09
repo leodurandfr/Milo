@@ -34,35 +34,27 @@ export function nowPlayingArtworkPending(state) {
   return state?.details?.artwork_pending === true;
 }
 
-// Sources shipping a static image for the no-cover case. Everything else shows
-// its own source glyph — the two are not interchangeable, which is why this is
-// a lookup and not a single default.
-const FALLBACK_IMAGES = {
-  cd: musicPlaceholder,
-  music_library: musicPlaceholder,
-  podcast: podcastPlaceholder,
-  // Drawn by AudioPlayer, which renders an image or an avatar, never a glyph.
-  spotify: musicPlaceholder,
-};
-
 /**
  * What fills the cover slot when there is no cover at all.
  *
- * Three kinds, and the caller renders whichever it is told:
+ * Two kinds, and the caller renders whichever it is told:
  *   - `avatar` — radio only, and only radio: a station without a favicon is
  *     drawn as the deterministic SVG avatar generated from its name
  *     (utils/stationAvatar), which is the station's identity rather than a
  *     stand-in. Every other source reaching for that avatar is the bug this
  *     function exists to make impossible — a receiver's track title drawn
- *     full-screen as a generated avatar.
- *   - `image` — the bundled placeholder for that source.
- *   - `glyph` — the source's own AppIcon.
+ *     full-screen as a generated avatar. A station with no name to draw has
+ *     no avatar either, and gets the disc rather than an empty slot.
+ *   - `image` — a bundled placeholder: the microphone for a podcast episode,
+ *     the disc for everything else, receivers included. The source's own icon
+ *     is not a cover: the source bar under the slot already names the source,
+ *     and a missing cover reads the same whichever source it is missing from.
  *
  * @param {string} source - active source id
- * @returns {{kind: 'avatar'} | {kind: 'image', src: string} | {kind: 'glyph'}}
+ * @param {string} [avatarName] - the name the station avatar would be drawn from
+ * @returns {{kind: 'avatar'} | {kind: 'image', src: string}}
  */
-export function artworkFallback(source) {
-  if (source === 'radio') return { kind: 'avatar' };
-  const src = FALLBACK_IMAGES[source];
-  return src ? { kind: 'image', src } : { kind: 'glyph' };
+export function artworkFallback(source, avatarName) {
+  if (source === 'radio' && avatarName) return { kind: 'avatar' };
+  return { kind: 'image', src: source === 'podcast' ? podcastPlaceholder : musicPlaceholder };
 }

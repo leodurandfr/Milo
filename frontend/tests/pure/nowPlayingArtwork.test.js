@@ -7,9 +7,9 @@
  * artwork URL and checking it comes back would assert the language, not the
  * rule. What matters is that the no-cover answer is *per source*: the generated
  * station avatar belongs to radio alone (a global answer draws a receiver's
- * track title as a generated avatar), the bundled disc and
- * microphone belong to the sources that ship them, and everyone else falls to
- * their own glyph.
+ * track title as a generated avatar), the microphone to podcasts, and the
+ * disc to everything else — never the source's own icon, which the source bar
+ * under the slot already draws.
  */
 import { describe, it, expect } from 'vitest';
 import { nowPlayingArtwork, nowPlayingArtworkPending, artworkFallback } from '@/utils/nowPlayingArtwork';
@@ -67,11 +67,17 @@ describe('nowPlayingArtworkPending', () => {
 
 describe('artworkFallback', () => {
   it('gives the generated station avatar to radio and to nothing else', () => {
-    expect(artworkFallback('radio')).toEqual({ kind: 'avatar' });
+    expect(artworkFallback('radio', 'FIP')).toEqual({ kind: 'avatar' });
 
     for (const source of ['qobuz', 'bluetooth', 'airplay', 'spotify', 'tidal', 'mac']) {
-      expect(artworkFallback(source).kind).not.toBe('avatar');
+      expect(artworkFallback(source, 'Says').kind).not.toBe('avatar');
     }
+  });
+
+  it('gives a station with no name the disc, never an empty slot', () => {
+    // An avatar is drawn from a name; without one there is nothing to draw,
+    // and an avatar kind with no markup left the full player's slot blank.
+    expect(artworkFallback('radio', '')).toEqual(artworkFallback('music_library'));
   });
 
   it('ships a disc for the musical sources and a microphone for podcasts', () => {
@@ -91,11 +97,14 @@ describe('artworkFallback', () => {
     expect(podcast.src).not.toBe(music.src);
   });
 
-  it('sends every remaining source to its own glyph', () => {
-    // The receivers and the connect players: their identity is the source, not
-    // a stand-in cover, and AudioPlayerFull already paints exactly that.
+  it('gives the receivers and the connect players the same disc', () => {
+    // A track with no cover is the same silence whichever source plays it.
+    // Bluetooth is the common case — AVRCP never carries a cover, so every
+    // lookup that misses lands here — and its source icon in the slot read as
+    // a status card drawn inside a player.
+    const music = artworkFallback('music_library');
     for (const source of ['tidal', 'bluetooth', 'airplay', 'qobuz', 'mac']) {
-      expect(artworkFallback(source)).toEqual({ kind: 'glyph' });
+      expect(artworkFallback(source)).toEqual(music);
     }
   });
 });

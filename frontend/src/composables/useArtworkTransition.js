@@ -1,8 +1,8 @@
 // frontend/src/composables/useArtworkTransition.js
 // Keeps the outgoing cover on screen, untouched, until the incoming one has
 // decoded, and swaps them the moment it has — so a track or station change
-// never flashes the fallback (a source glyph, a placeholder, a generated
-// station avatar) between two covers, and never draws a spinner over one.
+// never flashes the fallback (a placeholder, a generated station avatar)
+// between two covers, and never draws a spinner over one.
 // Nothing is laid over a cover while it waits: the old one simply stays.
 //
 // Two waits, both bounded by ARTWORK_WAIT_MS:

@@ -290,7 +290,7 @@ Spotify app, and guests join the way the app offers.
   [artwork_resolver.py](https://github.com/leodurandfr/Milo/blob/main/backend/shared/artwork_resolver.py) (iTunes Search),
   the same one radio uses — by **album** first, since one album has one cover
   while a track can sit on a dozen compilations. Best-effort and async; a miss
-  leaves `AudioPlayerFull` drawing the source glyph
+  leaves `AudioPlayerFull` drawing the disc placeholder
 - All of it is optional: an AVRCP target is not mandatory and senders publish
   empty tracks, so the source stays fully usable with no metadata — the UI falls
   back to the device-name status card

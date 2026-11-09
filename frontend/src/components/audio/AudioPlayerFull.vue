@@ -46,7 +46,7 @@
                never carry a cover over the link (AVRCP puts images behind an
                OBEX channel BlueZ gives no client for), so when the lookup that
                replaces it finds nothing, this is what the slot shows instead of
-               a blank square reading as a failed image. Which of the two it is
+               a blank square reading as a failed image. Which one it is
                comes from the shared helper, not from here — the playing bar
                resolves it the same way, and a fallback chosen per view is how
                two views came to disagree in the first place. A station with no
@@ -66,9 +66,6 @@
               <div v-else-if="stationAvatarSvg" :key="stationAvatarSvg" v-html="stationAvatarSvg" class="artwork-avatar" />
               <img v-else-if="fallback.kind === 'image'" :key="fallback.src" :src="fallback.src"
                 alt="" class="artwork-placeholder" />
-              <div v-else key="glyph" class="artwork-fallback">
-                <AppIcon :name="source" :size="112" />
-              </div>
             </Transition>
           </div>
 
@@ -131,7 +128,6 @@ import { usePlayerState } from '@/composables/usePlayerState';
 
 import PlayerTopRow from './PlayerTopRow.vue';
 import PlayerBody from './PlayerBody.vue';
-import AppIcon from '@/components/ui/AppIcon.vue';
 
 const props = defineProps({
   source: {
@@ -487,19 +483,9 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
   height: 100%;
 }
 
-.artwork-fallback {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-fill-faint);
-  color: var(--color-text-tertiary);
-}
-
 /* Bundled placeholder. It is transparent by design — the same file sits on
-   cards of two different colours elsewhere — so it needs the ground the glyph
-   fallback gets, or the blurred backdrop shows through it. */
+   cards of two different colours elsewhere — so it needs a ground of its own,
+   or the blurred backdrop shows through it. */
 .artwork-placeholder {
   background: var(--color-fill-faint);
 }

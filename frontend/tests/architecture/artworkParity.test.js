@@ -136,7 +136,7 @@ describe('artwork parity between the full player and the playing bar', () => {
     // everywhere, so matching the call alone stays green through the
     // regression. Measured — it did, on the first version of this assertion.
     expect(metadataCode).toMatch(/import \{[^}]*artworkFallback[^}]*\} from '@\/utils\/nowPlayingArtwork'/);
-    expect(metadataCode).toMatch(/artworkFallback\(source\)/);
+    expect(metadataCode).toMatch(/artworkFallback\(source[,)]/);
 
     // And the generated avatar is reachable from that verdict only. Matching the
     // import alone would stay green through exactly the regression this guards,
