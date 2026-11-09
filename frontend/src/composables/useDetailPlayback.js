@@ -13,8 +13,8 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
  * @param {string} source the audio source the page browses
  * @param {import('vue').MaybeRefOrGetter<boolean>} isCurrent whether the
  *   selected source's queue (live, or its resume point) is this page's context
- * @param {() => Promise<boolean>} start plays the page's context from the top;
- *   resolves false when nothing was started
+ * @param {(shuffle: boolean) => Promise<boolean>} start plays the page's
+ *   context from the top, or shuffled; resolves false when nothing was started
  */
 export function useDetailPlayback(source, isCurrent, start) {
   const unifiedStore = useUnifiedAudioStore();
@@ -42,12 +42,19 @@ export function useDetailPlayback(source, isCurrent, start) {
   function play() {
     if (pressed.value) return;
     const resumable = current.value && unifiedStore.systemState.controls.includes('resume');
-    settle(resumable ? () => unifiedStore.sendCommand(source, 'resume') : start);
+    settle(resumable ? () => unifiedStore.sendCommand(source, 'resume') : () => start(false));
+  }
+
+  // Always a fresh shuffled queue, even over the page's own: asking again is
+  // how a new order is drawn.
+  function shuffle() {
+    if (pressed.value) return;
+    settle(() => start(true));
   }
 
   function pause() {
     unifiedStore.sendCommand(source, 'pause');
   }
 
-  return { playing, loading: pressed, play, pause };
+  return { playing, loading: pressed, play, pause, shuffle };
 }
