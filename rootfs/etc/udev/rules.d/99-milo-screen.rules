@@ -28,3 +28,11 @@ SUBSYSTEM=="input", ACTION!="remove", KERNEL=="input*", DRIVERS=="Goodix-TS", TE
 # playback wakes the screen.
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="gpio_ir_recv", ENV{LIBINPUT_IGNORE_DEVICE}="1"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="vc4-hdmi-*", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+
+# The BT remote (ANTICATER VK-01, the backend's default name filter) is hidden the
+# same way, for the same two reasons: its HID descriptor declares a mouse, and
+# its knob must not wake the screen any more than the IR remote does. Measured
+# 2026-11-09: a remote dropping its link every 12 s re-created the device each
+# time, each re-creation reached Chromium as a mousemove, and the screen never
+# slept.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_BUS}=="bluetooth", ATTRS{name}=="ANTICATER*", ENV{LIBINPUT_IGNORE_DEVICE}="1"
