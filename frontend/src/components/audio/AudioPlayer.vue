@@ -17,8 +17,8 @@
 
         <div class="player-content">
           <!-- Artwork: with none valid, the shared helper says what the slot shows —
-             radio's font-aware inline avatar, or the bundled placeholder for the other
-             two. The player never picks that itself; AudioPlayerFull asks the same
+             radio's font-aware inline avatar, or the bundled placeholder for every
+             other source. The player never picks that itself; AudioPlayerFull asks the same
              helper, so the two cannot disagree on one silence.
              Frame hosts an optional #artwork-badge (mobile radio: station icon sitting
              behind the track artwork, which rides on top) — needs a real box since two of
