@@ -1201,6 +1201,16 @@ class TestPlaylist:
         assert await controller.remove_entry(2) is True
         assert fake.received == [["playlist-remove", 2]]
 
+    async def test_move_entry_sends_the_slot_mpv_counts_from(self, live_mpv):
+        """`playlist-move i1 i2` leaves an entry moved down at i2 - 1, so a
+        final position past the entry is sent one further. Breaks: every
+        drag down the queue lands one row too high on a unit — the simulator
+        takes the final position and never builds this argv."""
+        controller, fake = live_mpv
+        assert await controller.move_entry(1, 3) is True
+        assert await controller.move_entry(4, 1) is True
+        assert fake.received == [["playlist-move", 1, 4], ["playlist-move", 4, 1]]
+
     async def test_a_refused_jump_answers_false(self, live_mpv):
         controller, fake = live_mpv
         fake.fail_commands = {"playlist-play-index"}

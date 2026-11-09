@@ -493,12 +493,12 @@ class MpvController:
         is matched to the load that caused it. `start_s` rides on the load as a
         per-file option: one command lands at the right second (measured on mpv
         0.40), no wait-then-seek. mpv wants the index slot once options follow,
-        and ignores it for `replace` and `append`.
+        and reads it for `insert-at` alone.
 
         Returns:
             The entry id, or None when there is no mpv, no answer or a refusal.
         """
-        if not await self._prepare_load(url, quiet=mode == "append"):
+        if not await self._prepare_load(url, quiet=mode in ("append", "insert-next")):
             return None
         options = []
         if start_s is not None:
@@ -660,4 +660,15 @@ class MpvController:
     async def remove_entry(self, index: int) -> bool:
         """Remove playlist entry `index` (0-based) without touching the others."""
         response = await self._send_command("playlist-remove", index)
+        return response is not None and response.get('error') == 'success'
+
+    async def move_entry(self, index: int, to: int) -> bool:
+        """Move playlist entry `index` so that it ends at position `to` (0-based).
+
+        `playlist-move i1 i2` puts the entry in i2's place, before the entry
+        there, so moved down it lands at i2 - 1 (measured on mpv 0.40: 1 -> 4
+        leaves it at 3): a final position past `index` is sent as `to + 1`.
+        Every entry keeps its id, and moving the entry playing does not
+        interrupt it."""
+        response = await self._send_command("playlist-move", index, to + 1 if index < to else to)
         return response is not None and response.get('error') == 'success'

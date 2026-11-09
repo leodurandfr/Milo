@@ -34,12 +34,14 @@
                     :current="song.id === store.currentTrackId"
                     :playing="store.isPlaying"
                     show-artist
-                    show-menu
                     show-cover
                     :cover-url="store.thumbUrl(song.coverArt)"
                     @play="playFrom(idx)"
-                    @menu="store.requestAddToPlaylist([song.id])"
-                  />
+                  >
+                    <template #menu>
+                      <LibraryItemMenu :songs="() => [song]" add-to-playlist />
+                    </template>
+                  </TrackRow>
                   <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
                 </TrackList>
               </div>
@@ -73,6 +75,7 @@ import IconButton from '@/components/ui/IconButton.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
+import LibraryItemMenu from '../LibraryItemMenu.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
 import { useRenderWindow } from '@/composables/useRenderWindow';
 

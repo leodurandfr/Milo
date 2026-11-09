@@ -329,7 +329,7 @@ export const ENTRIES = [
     id: 'TrackRow',
     group: 'player',
     file: 'components/audio/TrackRow.vue',
-    summary: 'The tracklist row, shared by CD, six Music Library views and the Spotify browser. Its 6 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, and showArtist adds the second line, as text: a tap anywhere on the row plays, and a start that takes over a second blurs the cover under a spinner, or spins in place of the number without one. A `menu` slot replaces the button with the caller\'s own menu (Spotify\'s: artist, album, song radio).',
+    summary: 'The tracklist row, shared by CD, six Music Library views and the Spotify browser. Its 6 boolean props are a matrix, not a list: current + playing swaps the number for the equaliser bars, editing swaps duration + menu for remove + drag grip, showMenu arms that menu in the first place, showCover prepends the thumbnail, and showArtist adds the second line, as text: a tap anywhere on the row plays, and a start that takes over a second blurs the cover under a spinner, or spins in place of the number without one. A `menu` slot replaces the button with the caller\'s own menu (Spotify\'s: artist, album, song radio; the library\'s: play next, add to queue, add to playlist).',
   },
   {
     id: 'TrackList',

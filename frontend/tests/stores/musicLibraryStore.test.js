@@ -59,6 +59,19 @@ describe('musicLibraryStore — storage scoping', () => {
     expect(paramsOf('/genres').library_id).toBe(NAS.library_id);
   });
 
+  it('tags a queue addition with the storage space being browsed', async () => {
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS, USB] }));
+    await store.loadStorages();
+    await nextTick();
+
+    await store.addToQueue([{ id: 'tr-1' }], 'next');
+
+    const [url, body] = apiCall.post.mock.calls.at(-1);
+    expect(url).toBe('/api/audio/control/music_library');
+    expect(body.command).toBe('add_to_queue');
+    expect(body.data.library_id).toBe(NAS.library_id);
+  });
+
   it('drops the cached catalog on a switch and refetches what was loaded', async () => {
     apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS, USB] }));
     await store.loadStorages();

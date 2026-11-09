@@ -54,12 +54,14 @@
                 :current="song.id === store.currentTrackId"
                 :playing="store.isPlaying"
                 show-artist
-                show-menu
                 show-cover
                 :cover-url="store.thumbUrl(song.coverArt)"
                 @play="playSong(idx)"
-                @menu="store.requestAddToPlaylist([song.id])"
-              />
+              >
+                <template #menu>
+                  <LibraryItemMenu :songs="() => [song]" add-to-playlist />
+                </template>
+              </TrackRow>
             </TrackList>
           </section>
         </div>
@@ -87,6 +89,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 import MediaRow from '../cards/MediaRow.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
+import LibraryItemMenu from '../LibraryItemMenu.vue';
 
 defineEmits(['select-album', 'select-artist']);
 

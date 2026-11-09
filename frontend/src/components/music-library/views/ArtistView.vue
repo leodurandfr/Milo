@@ -20,7 +20,11 @@
             :play-loading="header.loading.value"
             @play="header.play"
             @pause="header.pause"
-          />
+          >
+            <template v-if="albums.length" #actions>
+              <LibraryItemMenu trigger="header" :songs="artistSongs" shuffle @shuffle="header.shuffle" />
+            </template>
+          </DetailHeader>
 
           <div class="albums-grid">
             <AlbumCard v-for="album in albums" :key="album.id" :album="album" @click="$emit('select-album', album)" />
@@ -39,6 +43,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import SkeletonDetailHeader from '@/components/audio/SkeletonDetailHeader.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
+import LibraryItemMenu from '../LibraryItemMenu.vue';
 import SkeletonAlbumCard from '../cards/SkeletonAlbumCard.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useDetailPlayback } from '@/composables/useDetailPlayback';
@@ -99,19 +104,25 @@ const subtitleMeta = computed(() => {
 });
 
 // Every album, in the order the page shows them. The artist payload holds no
-// tracks at all (getArtist answers albums only), so the queue is assembled here
+// tracks at all (getArtist answers albums only), so the list is assembled here
 // with one album fetch per release — merged multi-disc ids included, which
-// fetchAlbum expands into their concatenated tracks.
-// The header's spinner covers these fetches too: it turns from the press.
-async function playAll() {
-  if (!albums.value.length) return false;
+// fetchAlbum expands into their concatenated tracks. Null when the page moved
+// to another artist while the fetches were in flight: playing or queueing then
+// would act on an artist the user has left behind.
+async function artistSongs() {
+  if (!albums.value.length) return null;
   const requested = props.artistId;
   const fetched = await Promise.all(albums.value.map((album) => store.fetchAlbum(album.id)));
-  // Navigated to another artist while the fetches were in flight: playing now
-  // would start a queue the user has left behind.
-  if (props.artistId !== requested) return false;
-  const songs = fetched.flatMap((album) => album?.song || []);
-  return songs.length ? store.playContext(songs, 0, false, `artist:${requested}`) : false;
+  if (props.artistId !== requested) return null;
+  return fetched.flatMap((album) => album?.song || []);
+}
+
+// The header's spinner covers the fetches too: it turns from the press.
+async function playAll(shuffle) {
+  const contextId = `artist:${props.artistId}`;
+  const songs = await artistSongs();
+  if (!songs?.length) return false;
+  return shuffle ? store.playShuffled(songs, contextId) : store.playContext(songs, 0, false, contextId);
 }
 
 const header = useDetailPlayback(

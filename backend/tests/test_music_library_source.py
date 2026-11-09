@@ -1733,6 +1733,374 @@ async def test_a_reorder_mpv_cannot_read_back_ends_the_session(rig):
     assert [t["id"] for t in details(rig)["queue"]] == ["s1", "s2", "s3"]
 
 
+# === Editing the live queue ===
+
+EXTRA = [
+    {"id": "s4", "title": "Four", "artist": "DP", "album": "Live", "coverArt": "al2", "duration": 400},
+    {"id": "s5", "title": "Five", "artist": "DP", "album": "Live", "coverArt": "al2", "duration": 500},
+]
+
+
+def mpv_ids(rig):
+    """The songs mpv holds, in its playlist order."""
+    return [e.url.split("id=")[1].split("&")[0] for e in rig.mpv.playlist]
+
+
+def queue_ids(rig):
+    return [t["id"] for t in details(rig)["queue"]]
+
+
+async def add(rig, tracks, position, **extra):
+    return await rig.command("add_to_queue", {"tracks": tracks, "position": position, **extra})
+
+
+def ends_heard(rig):
+    """Every end-file mpv announces from now on."""
+    events = []
+    rig.mpv.subscribe(lambda event, link: events.append(event) if event["event"] == "end-file" else None)
+    return events
+
+
+class TestQueueEdits:
+    """The live queue edited while it plays: tracks added next or at the end,
+    taken out, cleared, moved. mpv's playlist is the queue: every edit is
+    checked against what mpv will play, not against what the source sent."""
+
+    async def test_adding_at_the_end_leaves_the_track_playing_alone(self, rig):
+        """Breaks: adding an album cuts or restarts the track playing, or the
+        tracks land out of order, or anywhere but after the last one."""
+        lengths(rig, EXTRA)
+        await rig.select()
+        await play(rig)
+        rig.mpv.playhead(42)
+        await rig.tick()
+        playing = rig.mpv.current
+        mark = len(rig.mpv.sent)
+
+        result = await add(rig, EXTRA, "end")
+
+        assert result["success"] is True
+        assert mpv_ids(rig) == ["s1", "s2", "s3", "s4", "s5"]
+        assert_follows_mpv(rig)
+        assert rig.mpv.current is playing
+        assert details(rig)["queue_index"] == 0
+        assert anchor_ms(rig) == 42_000
+        assert not [c for c in sent_since(rig, mark) if c[0] in ("stop", "play_index")]
+
+    async def test_play_next_puts_the_block_right_after_the_track_playing(self, rig):
+        """Several tracks played next keep their order, and the latest "play
+        next" plays first. Breaks: the album added plays backwards, or after
+        the rest of the queue, or the gapless advance skips it."""
+        lengths(rig, EXTRA)
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+
+        result = await add(rig, EXTRA, "next")
+        await add(rig, [TRACKS[2]], "next")
+
+        assert result["success"] is True
+        assert mpv_ids(rig) == ["s1", "s3", "s4", "s5", "s2", "s3"]
+        assert_follows_mpv(rig)
+        await rig.mpv.ends("eof")
+        await settle()
+        assert details(rig)["queue_index"] == 1
+        assert_follows_mpv(rig)
+
+    async def test_play_next_stays_next_when_shuffle_goes_off(self, rig):
+        """Shuffle off brings back the original order of what is to come,
+        with the tracks played next still ahead of it. Breaks: the tracks the
+        listener asked for next vanish, or go back behind the album."""
+        lengths(rig, EXTRA)
+        await rig.select()
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
+            await play(rig, shuffle=True)
+        await rig.tick()
+
+        await add(rig, EXTRA, "next")
+        assert mpv_ids(rig) == ["s1", "s4", "s5", "s3", "s2"]
+        result = await rig.command("set_shuffle", {"shuffle": False})
+
+        assert result["success"] is True
+        assert mpv_ids(rig) == ["s1", "s4", "s5", "s2", "s3"]
+        assert_follows_mpv(rig)
+
+    async def test_a_played_track_played_next_stays_next_when_shuffle_goes_off(self, rig):
+        """The copy played next of a track already heard sits ahead of the
+        original order's own copy, which the head then counts as the played
+        one. Breaks: the track asked for next goes back behind the rest."""
+        await rig.select()
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
+            await play(rig, shuffle=True)
+        await rig.tick()
+        await rig.mpv.ends("eof")
+        await settle()
+        assert details(rig)["track_id"] == "s3"
+
+        await add(rig, [TRACKS[2]], "next")
+        result = await rig.command("set_shuffle", {"shuffle": False})
+
+        assert result["success"] is True
+        assert mpv_ids(rig) == ["s1", "s3", "s3", "s2"]
+        assert_follows_mpv(rig)
+
+    async def test_adding_as_the_last_track_plays_out_keeps_the_music_going(self, rig):
+        """mpv playing out its last sound answers the add only once idle, and
+        an append starts nothing. Breaks: the session stays PLAYING over a
+        silent mpv — on screen, in the widget, on the lock screen — with the
+        added tracks never heard."""
+        lengths(rig, EXTRA)
+        rig.mpv.drain = True
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        real = rig.mpv.loadfile
+        calls = []
+
+        async def last_track_ends_first(stream, **kw):
+            calls.append(stream)
+            if len(calls) == 1:
+                await rig.mpv.ends("eof")    # s3 ends as the add reaches mpv
+            return await real(stream, **kw)
+
+        rig.mpv.loadfile = last_track_ends_first
+        result = await add(rig, EXTRA, "end")
+
+        assert result["success"] is True
+        assert_follows_mpv(rig)
+        assert details(rig)["track_id"] == "s4"
+        rig.mpv.drain = False
+        await finish(rig)
+        assert session(rig) is None
+        assert session_ends(rig) == ["eof"]
+
+    async def test_playing_next_as_the_last_track_plays_out_keeps_the_block_in_order(self, rig):
+        """A played-out mpv puts an `insert-next` at the end, so a block sent
+        in reverse lands reversed. Breaks: the album asked for next starts on
+        its last track and plays backwards."""
+        lengths(rig, EXTRA)
+        rig.mpv.drain = True
+        await rig.select()
+        await play(rig, start_index=2)
+        await rig.tick()
+        real = rig.mpv.loadfile
+        calls = []
+
+        async def last_track_ends_first(stream, **kw):
+            calls.append(stream)
+            if len(calls) == 1:
+                await rig.mpv.ends("eof")    # s3 ends as the add reaches mpv
+            return await real(stream, **kw)
+
+        rig.mpv.loadfile = last_track_ends_first
+        result = await add(rig, EXTRA, "next")
+
+        assert result["success"] is True
+        assert mpv_ids(rig) == ["s1", "s2", "s3", "s4", "s5"]
+        assert_follows_mpv(rig)
+        assert details(rig)["track_id"] == "s4"
+
+    async def test_tracks_added_from_another_storage_end_the_queue_when_it_leaves(self, rig):
+        """Breaks: unplugging the key the added tracks came from leaves mpv
+        skipping them in silence, and a return reopens them."""
+        rig.shares.entries.append(dict(rig.shares.entries[0], id="NAS", name="NAS", library_id=4))
+        lengths(rig, EXTRA)
+        await rig.select()
+        await play(rig, library_id=3)
+        await rig.tick()
+        await add(rig, EXTRA, "end", library_id=4)
+
+        rig.shares.entries[1]["mounted"] = False
+        await rig.shares.on_storages_changed()
+        await settle()
+
+        assert session(rig) is None
+        assert session_ends(rig) == ["storage_gone"]
+        assert details(rig) is None
+
+    async def test_removing_a_track_to_come_takes_it_out_for_good(self, rig):
+        """Out of mpv, out of the queue, and out of the original order shuffle
+        off brings back. Breaks: the track still plays, or comes back at the
+        next shuffle off."""
+        await rig.select()
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
+            await play(rig, shuffle=True)
+        await rig.tick()
+
+        result = await rig.command("remove_from_queue", {"index": 1, "track_id": "s3"})
+
+        assert result["success"] is True
+        assert mpv_ids(rig) == ["s1", "s2"]
+        assert_follows_mpv(rig)
+        await rig.command("set_shuffle", {"shuffle": False})
+        assert mpv_ids(rig) == ["s1", "s2"]
+        assert_follows_mpv(rig)
+
+    async def test_removing_a_played_track_leaves_the_one_playing_where_it_is(self, rig):
+        """The index steps back with the queue, nothing else moves. Breaks:
+        the bar jumps to 0 mid-track, or Navidrome is told the track started
+        again."""
+        await rig.select()
+        await play(rig)
+        await rig.command("next")
+        rig.mpv.playhead(42)
+        await rig.tick()
+        client = await navidrome(rig)
+        announced = list(client.scrobbles)
+        playing = rig.mpv.current
+
+        result = await rig.command("remove_from_queue", {"index": 0, "track_id": "s1"})
+
+        assert result["success"] is True
+        assert mpv_ids(rig) == ["s2", "s3"]
+        assert details(rig)["queue_index"] == 0
+        assert_follows_mpv(rig)
+        assert rig.mpv.current is playing
+        assert anchor_ms(rig) == 42_000
+        assert client.scrobbles == announced
+        await rig.mpv.ends("eof")
+        await settle()
+        assert details(rig)["track_id"] == "s3"
+
+    async def test_removing_the_track_playing_or_a_moved_one_is_refused(self, rig):
+        """Breaks: a stale screen takes out a track the listener never picked,
+        or the − on the current row cuts the music."""
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+        mark = len(rig.mpv.sent)
+
+        current = await rig.command("remove_from_queue", {"index": 0, "track_id": "s1"})
+        moved = await rig.command("remove_from_queue", {"index": 1, "track_id": "s3"})
+
+        assert current["success"] is False
+        assert moved["success"] is False
+        assert not [c for c in sent_since(rig, mark) if c[0] == "remove_entry"]
+        assert mpv_ids(rig) == ["s1", "s2", "s3"]
+        assert queue_ids(rig) == ["s1", "s2", "s3"]
+
+    async def test_a_return_reopens_the_queue_with_what_was_added(self, rig):
+        """The resume point holds the edited queue, original order included.
+        Breaks: a detour to the radio loses the tracks added, or shuffle off
+        after the return drops them."""
+        lengths(rig, EXTRA)
+        await rig.select()
+        with patch("backend.sources.music_library.source.random.shuffle", lambda seq: seq.reverse()):
+            await play(rig, shuffle=True)
+        await rig.tick()
+        await add(rig, EXTRA, "end")
+        await rig.leave()
+
+        await rig.select()
+
+        assert queue_ids(rig) == ["s1", "s3", "s2", "s4", "s5"]
+        assert mpv_ids(rig) == ["s1", "s3", "s2", "s4", "s5"]
+        await rig.command("set_shuffle", {"shuffle": False})
+        assert mpv_ids(rig) == ["s1", "s2", "s3", "s4", "s5"]
+        assert_follows_mpv(rig)
+
+    async def test_the_edits_are_offered_as_the_queue_allows_them(self, idle_rig):
+        """Breaks: the queue screen offers a − on a queue of one, a handle with
+        nothing to move it among — or any edit with nothing playing, which
+        every one of them refuses."""
+        rig = idle_rig
+        edits = ("add_to_queue", "remove_from_queue", "move_in_queue")
+
+        def offered():
+            return [c for c in rig.state()["controls"] if c in edits]
+
+        await rig.select()
+        await play(rig)
+        await rig.tick()
+        assert offered() == list(edits)
+        await rig.command("next")
+        assert offered() == ["add_to_queue", "remove_from_queue"]
+        await rig.command("next")
+        assert offered() == ["add_to_queue", "remove_from_queue"]
+        await play(rig, tracks=[TRACKS[0]])
+        assert offered() == ["add_to_queue"]
+
+        await rig.command("pause")                # the idle timeout ends the session
+        assert session(rig) is None
+        assert details(rig)["track_id"] == "s1"
+        assert offered() == []
+
+    async def test_a_move_lands_exactly_where_asked_without_a_cut(self, rig):
+        """Down, then up. Breaks: the track lands one place off, or the music
+        stops while the queue is reordered. (mpv's own count for a move down
+        is the controller's, pinned in test_mpv_controller.py.)"""
+        tracks = TRACKS + EXTRA
+        lengths(rig, EXTRA)
+        await rig.select()
+        await play(rig, tracks=tracks)
+        rig.mpv.playhead(42)
+        await rig.tick()
+        playing = rig.mpv.current
+        ended = ends_heard(rig)
+
+        down = await rig.command("move_in_queue", {"from_index": 1, "to_index": 3, "track_id": "s2"})
+        assert down["success"] is True
+        assert mpv_ids(rig) == ["s1", "s3", "s4", "s2", "s5"]
+        up = await rig.command("move_in_queue", {"from_index": 4, "to_index": 1, "track_id": "s5"})
+
+        assert up["success"] is True
+        assert mpv_ids(rig) == ["s1", "s5", "s3", "s4", "s2"]
+        assert_follows_mpv(rig)
+        assert rig.mpv.current is playing
+        assert ended == []
+        assert anchor_ms(rig) == 42_000
+
+    async def test_a_move_outside_the_tracks_to_come_is_refused(self, rig):
+        """Breaks: a played track or the one playing is dragged into what is to
+        come, a track is moved before the one playing, or a stale screen moves
+        the wrong track."""
+        tracks = TRACKS + EXTRA
+        lengths(rig, EXTRA)
+        await rig.select()
+        await play(rig, tracks=tracks)
+        await rig.command("next")
+        await rig.tick()
+        mark = len(rig.mpv.sent)
+
+        refused = [
+            await rig.command("move_in_queue", {"from_index": 0, "to_index": 3, "track_id": "s1"}),
+            await rig.command("move_in_queue", {"from_index": 1, "to_index": 3, "track_id": "s2"}),
+            await rig.command("move_in_queue", {"from_index": 3, "to_index": 1, "track_id": "s4"}),
+            await rig.command("move_in_queue", {"from_index": 3, "to_index": 0, "track_id": "s4"}),
+            await rig.command("move_in_queue", {"from_index": 3, "to_index": 4, "track_id": "s2"}),
+        ]
+
+        assert [r["success"] for r in refused] == [False] * 5
+        assert not [c for c in sent_since(rig, mark) if c[0] == "move_entry"]
+        assert mpv_ids(rig) == ["s1", "s2", "s3", "s4", "s5"]
+        assert queue_ids(rig) == ["s1", "s2", "s3", "s4", "s5"]
+
+    async def test_a_move_as_mpv_moves_on_follows_mpv(self, rig):
+        """mpv starting the next track just as it is moved further down: mpv
+        plays on from where it put it. Breaks: the screen names a track other
+        than the one playing, or shows the length of the finished one."""
+        tracks = TRACKS + EXTRA
+        lengths(rig, EXTRA)
+        await rig.select()
+        await play(rig, tracks=tracks)
+        await rig.tick()
+        real = rig.mpv.move_entry
+
+        async def advance_first(index, to):
+            await rig.mpv.ends("eof")        # s1 ends as the move reaches mpv: s2 plays
+            return await real(index, to)
+
+        rig.mpv.move_entry = advance_first
+        result = await rig.command("move_in_queue", {"from_index": 1, "to_index": 3, "track_id": "s2"})
+
+        assert result["success"] is True
+        assert mpv_ids(rig) == ["s1", "s3", "s4", "s2", "s5"]
+        assert details(rig)["track_id"] == "s2"
+        assert details(rig)["queue_index"] == 3
+        assert session(rig)["duration_ms"] == 200_000
+        assert_follows_mpv(rig)
+
+
 class _NoAdminCred:
     """Navidrome's admin cred file is not there either: the library reconcile
     stays off whatever Navidrome this host runs."""

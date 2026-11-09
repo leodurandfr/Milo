@@ -1106,6 +1106,9 @@ UNSTARTED_COMMANDS = {
         "resume": None, "next": None, "prev": None, "seek": {"position_ms": 1000},
         "skip": {"seconds": 30}, "set_shuffle": {"shuffle": True},
         "set_repeat": {"mode": "context"}, "stop": None,
+        "add_to_queue": {"tracks": ALBUM, "position": "next"},
+        "remove_from_queue": {"index": 1, "track_id": ALBUM[1]["id"]},
+        "move_in_queue": {"from_index": 1, "to_index": 2, "track_id": ALBUM[1]["id"]},
     },
     "cd": {
         "play_track": {"track_number": 2}, "pause": None, "resume": None, "next": None,

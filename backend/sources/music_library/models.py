@@ -11,7 +11,8 @@ Three groups:
   back unchanged in ``play_context`` — so nothing below the envelope is modelled.
 - Command params (P1-6): the typed contract for the playback commands dispatched
   through the generic ``/api/audio/control/music_library`` path and validated at
-  the source's ``command()`` boundary (play_context / play_index / seek).
+  the source's ``command()`` boundary (play_context / play_index / seek, and
+  the queue edits: add_to_queue / remove_from_queue / move_in_queue).
 """
 from typing import Any, Dict, List, Literal, Optional
 
@@ -279,10 +280,59 @@ class PlayContextParams(StrictModel):
     @field_validator("tracks")
     @classmethod
     def _tracks_need_ids(cls, tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        for i, track in enumerate(tracks):
-            if not track.get("id"):
-                raise ValueError(f"tracks[{i}] is missing an 'id'")
-        return tracks
+        return _require_ids(tracks)
+
+
+def _require_ids(tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    for i, track in enumerate(tracks):
+        if not track.get("id"):
+            raise ValueError(f"tracks[{i}] is missing an 'id'")
+    return tracks
+
+
+class AddToQueueParams(StrictModel):
+    """Params for ``add_to_queue``: songs into the live queue, right after the
+    track playing (``next``) or at its end (``end``).
+
+    ``tracks`` are Subsonic song dicts, as ``play_context`` takes them, and keep
+    their order. Of two ``next`` in a row, the later one plays first.
+    ``library_id`` is the storage space they were browsed from, as for
+    ``play_context``: a queue that holds tracks of several spaces ends when any
+    one of them leaves.
+    """
+
+    tracks: List[Dict[str, Any]] = Field(min_length=1)
+    position: Literal["next", "end"]
+    library_id: Optional[int] = None
+
+    @field_validator("tracks")
+    @classmethod
+    def _tracks_need_ids(cls, tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return _require_ids(tracks)
+
+
+class RemoveFromQueueParams(StrictModel):
+    """Params for ``remove_from_queue``: take entry ``index`` out of the live
+    queue, a track already played or one to come — never the one playing.
+
+    ``track_id`` is the song the caller saw at ``index``: a queue that moved
+    since (a gapless advance, another screen's edit) is refused rather than
+    losing a track nobody picked.
+    """
+
+    index: int = Field(ge=0)
+    track_id: str = Field(min_length=1)
+
+
+class MoveInQueueParams(StrictModel):
+    """Params for ``move_in_queue``: move entry ``from_index`` of the live queue
+    so that it ends at ``to_index``. Only the tracks to come move, among
+    themselves; ``track_id`` is checked as for ``remove_from_queue``.
+    """
+
+    from_index: int = Field(ge=0)
+    to_index: int = Field(ge=0)
+    track_id: str = Field(min_length=1)
 
 
 class PlayIndexParams(StrictModel):

@@ -18,12 +18,15 @@
           >
             <template #actions>
               <IconButton
+                v-if="editing"
                 icon="threeDots"
-                :variant="editing ? 'brand' : 'on-contrast'"
+                variant="brand"
                 size="medium"
-                :aria-label="editing ? t('musicLibrary.playlists.done') : t('musicLibrary.playlists.edit')"
+                :aria-label="t('musicLibrary.playlists.done')"
                 @click="toggleEdit"
               />
+              <LibraryItemMenu v-else trigger="header" :songs="() => tracks" :shuffle="tracks.length > 0" edit
+                @edit="toggleEdit" @shuffle="header.shuffle" />
             </template>
           </DetailHeader>
 
@@ -42,7 +45,7 @@
 
           <TrackList v-else :class="{ reordering: editing }">
             <div
-              v-for="(song, idx) in visibleTracks"
+              v-for="(song, idx) in dragRows"
               :key="song.id"
               class="drag-item"
               :class="{
@@ -57,15 +60,17 @@
                 :current="song.id === store.currentTrackId"
                 :playing="store.isPlaying"
                 show-artist
-                :show-menu="!editing"
                 :editing="editing"
                 show-cover
                 :cover-url="store.thumbUrl(song.coverArt)"
                 @play="playFrom(idx)"
-                @menu="store.requestAddToPlaylist([song.id])"
                 @remove="removeAt(idx)"
                 @grip-down="onGripDown($event, idx)"
-              />
+              >
+                <template #menu>
+                  <LibraryItemMenu :songs="() => [song]" add-to-playlist />
+                </template>
+              </TrackRow>
             </div>
             <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
           </TrackList>
@@ -86,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { totalMinutes } from '../format.js';
@@ -98,9 +103,11 @@ import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import PlaylistNameModal from '../PlaylistNameModal.vue';
+import LibraryItemMenu from '../LibraryItemMenu.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useRenderWindow } from '@/composables/useRenderWindow';
 import { useDetailPlayback } from '@/composables/useDetailPlayback';
+import { useDragReorder } from '@/composables/useDragReorder';
 
 const props = defineProps({
   playlistId: {
@@ -146,7 +153,8 @@ function playFrom(index) {
 }
 
 const header = useDetailPlayback(
-  'music_library', () => store.currentContextId === contextId.value, () => playFrom(0),
+  'music_library', () => store.currentContextId === contextId.value,
+  (shuffle) => (shuffle ? store.playShuffled(tracks.value, contextId.value) : playFrom(0)),
 );
 
 function toggleEdit() {
@@ -193,77 +201,15 @@ async function persistOrder(shown) {
   if (!ok) await reload();
 }
 
-// === Reorder (drag grip → swap, mirrors DockSettings) ===
-const dragState = ref({ index: -1, startY: 0, currentY: 0, itemHeight: 0 });
-let reordered = false;
-let shownBeforeDrag = [];
-
-function getDragItemStyle(index) {
-  if (dragState.value.index !== index) return {};
-  const offsetY = dragState.value.currentY - dragState.value.startY;
-  return {
-    transform: `translateY(${offsetY}px) scale(1.02)`,
-    zIndex: 10,
-    position: 'relative',
-    transition: 'none',
-  };
-}
-
-function onGripDown(event, index) {
-  const wrapper = event.target.closest('.drag-item');
-  dragState.value = {
-    index,
-    startY: event.clientY,
-    currentY: event.clientY,
-    itemHeight: wrapper ? wrapper.offsetHeight : 0,
-  };
-  reordered = false;
-  shownBeforeDrag = trackIds();
-  document.addEventListener('pointermove', onDragMove);
-  document.addEventListener('pointerup', onDragEnd);
-  document.addEventListener('pointercancel', onDragEnd);
-}
-
-function onDragMove(event) {
-  if (dragState.value.index === -1) return;
-  dragState.value.currentY = event.clientY;
-  const deltaY = event.clientY - dragState.value.startY;
-  const threshold = dragState.value.itemHeight * 0.5;
-  const dragged = dragState.value.index;
-
-  // Down to the last mounted row: a swap past it would hide the dragged row.
-  if (deltaY > threshold && dragged < visibleTracks.value.length - 1) {
-    swap(dragged, dragged + 1);
-    dragState.value.index = dragged + 1;
-    dragState.value.startY += dragState.value.itemHeight;
-    reordered = true;
-  } else if (deltaY < -threshold && dragged > 0) {
-    swap(dragged, dragged - 1);
-    dragState.value.index = dragged - 1;
-    dragState.value.startY -= dragState.value.itemHeight;
-    reordered = true;
-  }
-}
-
-function onDragEnd() {
-  dragState.value = { index: -1, startY: 0, currentY: 0, itemHeight: 0 };
-  removeDragListeners();
-  if (reordered) {
-    reordered = false;
-    persistOrder(shownBeforeDrag);
-  }
-}
-
-function swap(i, j) {
-  const arr = tracks.value;
-  [arr[i], arr[j]] = [arr[j], arr[i]];
-}
-
-function removeDragListeners() {
-  document.removeEventListener('pointermove', onDragMove);
-  document.removeEventListener('pointerup', onDragEnd);
-  document.removeEventListener('pointercancel', onDragEnd);
-}
+// === Reorder (drag grip; the dragged row moves among the mounted ones) ===
+const { rows: dragRows, dragState, getDragItemStyle, onGripDown } = useDragReorder(visibleTracks, {
+  onDrop(from, to) {
+    const shown = trackIds();
+    const [moved] = tracks.value.splice(from, 1);
+    tracks.value.splice(to, 0, moved);
+    persistOrder(shown);
+  },
+});
 
 // === Load ===
 async function reload() {
@@ -278,8 +224,6 @@ watch(() => props.playlistId, async () => {
   await reload();
   loading.value = false;
 }, { immediate: true });
-
-onUnmounted(removeDragListeners);
 </script>
 
 <style scoped>

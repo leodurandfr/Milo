@@ -18,7 +18,11 @@
             @play="header.play"
             @pause="header.pause"
             @select-artist="selectArtist"
-          />
+          >
+            <template #actions>
+              <LibraryItemMenu trigger="header" :songs="() => songs" shuffle @shuffle="header.shuffle" />
+            </template>
+          </DetailHeader>
 
           <TrackList>
             <template v-for="group in discGroups" :key="group.disc">
@@ -35,10 +39,12 @@
                 :playing="store.isPlaying"
                 :show-artist="isVariousArtists"
                 :feat="featuredBySong[item.song.id] || ''"
-                show-menu
                 @play="playFrom(item.index)"
-                @menu="store.requestAddToPlaylist([item.song.id])"
-              />
+              >
+                <template #menu>
+                  <LibraryItemMenu :songs="() => [item.song]" add-to-playlist />
+                </template>
+              </TrackRow>
             </template>
           </TrackList>
         </div>
@@ -57,6 +63,7 @@ import DetailHeader from '@/components/audio/DetailHeader.vue';
 import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
+import LibraryItemMenu from '../LibraryItemMenu.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useDetailPlayback } from '@/composables/useDetailPlayback';
 
@@ -176,7 +183,8 @@ function playFrom(index) {
 }
 
 const header = useDetailPlayback(
-  'music_library', () => store.currentContextId === contextId.value, () => playFrom(0),
+  'music_library', () => store.currentContextId === contextId.value,
+  (shuffle) => (shuffle ? store.playShuffled(songs.value, contextId.value) : playFrom(0)),
 );
 
 function selectArtist() {

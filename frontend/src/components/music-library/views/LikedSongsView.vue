@@ -14,7 +14,11 @@
             :play-loading="header.loading.value"
             @play="header.play"
             @pause="header.pause"
-          />
+          >
+            <template #actions>
+              <LibraryItemMenu trigger="header" :songs="() => store.likedSongs" shuffle @shuffle="header.shuffle" />
+            </template>
+          </DetailHeader>
 
           <TrackList>
             <TrackRow
@@ -25,12 +29,14 @@
               :current="song.id === store.currentTrackId"
               :playing="store.isPlaying"
               show-artist
-              show-menu
               show-cover
               :cover-url="store.thumbUrl(song.coverArt)"
               @play="playFrom(idx)"
-              @menu="store.requestAddToPlaylist([song.id])"
-            />
+            >
+              <template #menu>
+                <LibraryItemMenu :songs="() => [song]" add-to-playlist />
+              </template>
+            </TrackRow>
             <div v-if="hasMore" ref="sentinelRef" aria-hidden="true"></div>
           </TrackList>
         </div>
@@ -48,6 +54,7 @@ import DetailHeader from '@/components/audio/DetailHeader.vue';
 import SkeletonDetailPage from '@/components/audio/SkeletonDetailPage.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
+import LibraryItemMenu from '../LibraryItemMenu.vue';
 import { useRenderWindow } from '@/composables/useRenderWindow';
 import { useDetailPlayback } from '@/composables/useDetailPlayback';
 
@@ -63,7 +70,8 @@ function playFrom(index) {
 }
 
 const header = useDetailPlayback(
-  'music_library', () => store.currentContextId === 'liked', () => playFrom(0),
+  'music_library', () => store.currentContextId === 'liked',
+  (shuffle) => (shuffle ? store.playShuffled(store.likedSongs, 'liked') : playFrom(0)),
 );
 
 // Started in setup, not onMounted: the loading flag is then up before the first

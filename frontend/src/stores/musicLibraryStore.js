@@ -377,6 +377,27 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   }
   const playIndex = (index) => send('play_index', { index });
 
+  // Editing the live queue. Each is listed in `controls` only while it can
+  // apply, so nothing is offered with no session to apply it to.
+  const controls = computed(() => selected.value?.controls ?? []);
+  const canQueue = computed(() => controls.value.includes('add_to_queue'));
+  const canRemoveFromQueue = computed(() => controls.value.includes('remove_from_queue'));
+  const canMoveInQueue = computed(() => controls.value.includes('move_in_queue'));
+
+  // position: 'next' (right after the current track) or 'end'. The library
+  // travels for the same reason as playContext's: pulling its storage out must
+  // end a queue that now holds its tracks.
+  function addToQueue(tracks, position) {
+    if (!tracks?.length) return Promise.resolve(false);
+    return send('add_to_queue', { tracks, position, library_id: activeLibraryId.value });
+  }
+  // The id rides along so a queue that moved since the screen was drawn is
+  // refused rather than edited at the wrong row.
+  const removeFromQueue = (index, trackId) =>
+    send('remove_from_queue', { index, track_id: trackId });
+  const moveInQueue = (fromIndex, toIndex, trackId) =>
+    send('move_in_queue', { from_index: fromIndex, to_index: toIndex, track_id: trackId });
+
   // =========================================================================
   // CATALOG — Albums (home Albums tab; getAlbumList2 alphabetical, paged)
   // =========================================================================
@@ -1145,6 +1166,14 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     playContext,
     playShuffled,
     playIndex,
+
+    // Queue editing
+    canQueue,
+    canRemoveFromQueue,
+    canMoveInQueue,
+    addToQueue,
+    removeFromQueue,
+    moveInQueue,
 
     // Albums
     albums,

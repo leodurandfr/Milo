@@ -17,6 +17,13 @@ reshuffles the upcoming tracks without interrupting the current one), and so
 can repeat (``set_repeat``: the queue or the track, Spotify's three modes),
 which mpv carries out itself through its loop options.
 
+The queue is edited while it plays, one flat list as Sonos and MPD keep it:
+tracks played next (``insert-next``, after mpv's own current entry) or added
+at the end, a track taken out or moved among those to come. The track playing is never touched, each edit is read back from mpv's
+playlist, and shuffle off still brings back the original order, the tracks
+added included. A queue remembers every storage space its tracks came from:
+any one of them leaving ends it.
+
 Resume-on-return: a session ended by a source switch, the idle timeout, a
 multiroom toggle, a dead mpv or a failed load leaves its queue, track, second,
 shuffle and repeat as the resume point (RESUME_POLICY); the next activation
@@ -33,7 +40,7 @@ import asyncio
 import random
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from pydantic import BaseModel
 
@@ -54,8 +61,11 @@ from backend.sources.music_library.disc_merge import (
     parse_merged_id,
 )
 from backend.sources.music_library.models import (
+    AddToQueueParams,
+    MoveInQueueParams,
     PlayContextParams,
     PlayIndexParams,
+    RemoveFromQueueParams,
     SeekParams,
 )
 from backend.sources.music_library.artist_images import ArtistImageService
@@ -92,6 +102,24 @@ SCROBBLE_MIN_DURATION_S = 30
 SCROBBLE_MAX_THRESHOLD_S = 240
 
 
+def _consumed(head: List[Dict[str, Any]], pristine: List[Dict[str, Any]]) -> List[bool]:
+    """Which tracks of the original order the played/current head accounts for.
+
+    Consumed *positionally*, one copy per play: a queue can list the same
+    track id twice (an album with a reprise, a playlist built by hand), and
+    dropping it by set membership deletes every later copy the moment the
+    first one has played.
+    """
+    played = Counter(track.get("id") for track in head)
+    flags = []
+    for track in pristine:
+        used = played.get(track.get("id"), 0) > 0
+        if used:
+            played[track.get("id")] -= 1
+        flags.append(used)
+    return flags
+
+
 @dataclass(eq=False)
 class LibrarySession(MpvSession):
     """One queue playing, from the play to a named end. `entries` are mpv's
@@ -100,7 +128,9 @@ class LibrarySession(MpvSession):
     queue: List[Dict[str, Any]] = field(default_factory=list)
     unshuffled: List[Dict[str, Any]] = field(default_factory=list)
     index: int = 0
-    library_id: Optional[int] = None
+    # The storage spaces the queue's tracks were browsed from: any one of them
+    # leaving ends it. Empty for a queue built unscoped.
+    library_ids: FrozenSet[int] = frozenset()
     context_id: Optional[str] = None
     shuffle: bool = False
     # The mode mpv's two loop options hold (see _handle_set_repeat).
@@ -562,24 +592,27 @@ class MusicLibrarySource(MpvAudioSource):
 
         A queue built unscoped is attributed to no storage and left alone: an
         unasked-for stop is worse than a track that plays on out of page cache.
+        One that took tracks from several spaces ends when any of them leaves:
+        mpv would skip that space's tracks in silence.
 
         The availability they imply is decided here too, in the actor: no
         mounted storage carrying a library, else a catalog that does not answer.
         """
-        def gone(library_id: Optional[int]) -> bool:
-            return library_id is not None and not any(
-                entry["library_id"] == library_id and entry["mounted"] for entry in entries
-            )
+        mounted = {entry["library_id"] for entry in entries if entry["mounted"]}
+
+        def gone(library_ids) -> bool:
+            return any(library_id not in mounted for library_id in library_ids)
 
         session = self._session
-        if isinstance(session, LibrarySession) and gone(session.library_id):
+        if isinstance(session, LibrarySession) and gone(session.library_ids):
             self._logger.info(
-                "Storage space for library %s is gone — ending the session", session.library_id
+                "Storage space for libraries %s is gone — ending the session",
+                sorted(session.library_ids),
             )
             await self._end_playback(EndReason.STORAGE_GONE)
         else:
             point = self._resume_point
-            if point is not None and gone(point.content["queue_library_id"]):
+            if point is not None and gone(point.content["queue_library_ids"]):
                 self._logger.info("Storage space of the resume point is gone — forgetting it")
                 self._set_resume_point(None)
                 if self._session is None and self._published is not None:
@@ -680,9 +713,9 @@ class MusicLibrarySource(MpvAudioSource):
             "queue": list(session.queue),
             "queue_unshuffled": list(session.unshuffled),
             "queue_index": index,
-            # Without it the restored queue is attributed to no space, and a
-            # key leaving would not end it.
-            "queue_library_id": session.library_id,
+            # Without them the restored queue is attributed to no space, and
+            # a key leaving would not end it.
+            "queue_library_ids": sorted(session.library_ids),
             "queue_context_id": session.context_id,
             "shuffle": session.shuffle,
             # Kept like shuffle: both are how this queue was being listened
@@ -776,6 +809,9 @@ class MusicLibrarySource(MpvAudioSource):
         "set_shuffle": SetShuffleParams,
         "set_repeat": SetRepeatParams,
         "stop": None,
+        "add_to_queue": AddToQueueParams,
+        "remove_from_queue": RemoveFromQueueParams,
+        "move_in_queue": MoveInQueueParams,
     }
     COMMAND_SCOPES = {
         "play_context": CommandScope.CONTENT,
@@ -789,6 +825,9 @@ class MusicLibrarySource(MpvAudioSource):
         "set_shuffle": CommandScope.SESSION,
         "set_repeat": CommandScope.SESSION,
         "stop": CommandScope.RESUME,
+        "add_to_queue": CommandScope.SESSION,
+        "remove_from_queue": CommandScope.SESSION,
+        "move_in_queue": CommandScope.SESSION,
     }
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
@@ -814,6 +853,12 @@ class MusicLibrarySource(MpvAudioSource):
             return await self._handle_set_repeat(params)
         if cmd == "stop":
             return await self._handle_stop()
+        if cmd == "add_to_queue":
+            return await self._handle_add_to_queue(params)
+        if cmd == "remove_from_queue":
+            return await self._handle_remove_from_queue(params)
+        if cmd == "move_in_queue":
+            return await self._handle_move_in_queue(params)
         return self.error_response(f"Unhandled command: {cmd}")
 
     async def _handle_play_context(self, params: PlayContextParams) -> Dict[str, Any]:
@@ -836,8 +881,9 @@ class MusicLibrarySource(MpvAudioSource):
         # off is the default, as shuffle's is.
         await self.end_session(EndReason.USER_STOP)
         self._set_resume_point(None)
+        library_ids = frozenset() if params.library_id is None else frozenset({params.library_id})
         if not await self._open_queue(
-            tracks, original_order, start_index, params.library_id, params.context_id,
+            tracks, original_order, start_index, library_ids, params.context_id,
             params.shuffle, "off", start_s=0, playing=True,
         ):
             return self.error_response("Failed to load playlist")
@@ -941,14 +987,8 @@ class MusicLibrarySource(MpvAudioSource):
 
         ON shuffles the tracks after the current index; OFF restores their
         pristine order. The played/current head is left as-is either way, and
-        mpv's entries after the current one are replaced in place.
-
-        mpv moves on by itself while this runs (a gapless advance, announced
-        behind this command), and a command whose answer misses its deadline
-        may still have been carried out. So the session is never rewritten
-        from the commands sent: the queue is rebuilt from mpv's own playlist
-        once the commands are done, and handed to the session in one step — a
-        stop that cuts the reorder keeps the whole queue to come back to.
+        mpv's entries after the current one are replaced in place, the queue
+        then read back from mpv (_adopt_mpv_playlist).
         """
         session = self._session
         target = bool(params.shuffle)
@@ -960,36 +1000,17 @@ class MusicLibrarySource(MpvAudioSource):
             return self.error_response("Music library catalog not ready")
 
         by_entry = dict(zip(session.entries, session.queue))
-        keep = session.index
-        refused = False
-        for index in range(len(session.entries) - 1, keep, -1):
-            if index == keep + 1:
-                # The track mpv moved on to while the later entries went is
-                # part of the head now, not of the tail.
-                playing = await self._mpv.get_property("playlist-playing-pos")
-                if isinstance(playing, int) and playing > keep:
-                    keep = playing
-                    break
-            if not await self._mpv.remove_entry(index):
-                refused = True
-                break
+        keep, refused = await self._drop_upcoming(session)
 
         head = session.queue[: keep + 1]
         if target:
             tail = session.queue[keep + 1:]
             random.shuffle(tail)
         else:
-            # Pristine order minus the played/current head, consumed *positionally*:
-            # a queue can list the same track id twice (an album with a reprise, a
-            # playlist built by hand), and dropping it by set membership deletes
-            # every later copy the moment the first one has played.
-            played = Counter(track.get("id") for track in head)
-            tail = []
-            for track in session.unshuffled:
-                if played.get(track.get("id")):
-                    played[track.get("id")] -= 1
-                    continue
-                tail.append(track)
+            tail = [
+                track for track, played in zip(session.unshuffled, _consumed(head, session.unshuffled))
+                if not played
+            ]
 
         # An append whose answer is lost may be in mpv all the same; the URL
         # sent is the only thing that names it (each one carries a fresh salt).
@@ -1003,6 +1024,204 @@ class MusicLibrarySource(MpvAudioSource):
                     break
                 by_entry[entry] = track
 
+        if not await self._adopt_mpv_playlist(session, by_entry, lost):
+            return self.error_response("Failed to reorder queue")
+        if not await self._restart_if_idle(session, keep + 1):
+            return self.error_response("Failed to reorder queue")
+        if session.queue == head + tail:
+            session.shuffle = target
+        self._publish()
+        if session.shuffle != target:
+            self._logger.error("mpv did not take the whole reorder; the queue now ends where mpv's does")
+            return self.error_response("Failed to reorder queue")
+        return self.success_response("Shuffle on" if target else "Shuffle off")
+
+    async def _handle_add_to_queue(self, params: AddToQueueParams) -> Dict[str, Any]:
+        """Songs right after the track playing, or at the end of the queue.
+
+        `next` is mpv's `insert-next`, sent in reverse so the block keeps its
+        order: mpv places it after its own current entry, which is already
+        the next track in the last ~0.35 s of one (measured) — a position
+        computed from the session's index would land one track late there.
+        """
+        session = self._session
+        client = await self.get_navidrome_client()
+        if client is None:
+            return self.error_response("Music library catalog not ready")
+
+        by_entry = dict(zip(session.entries, session.queue))
+        known = set(session.entries)
+        head = session.queue[: session.index + 1]
+        tracks = list(params.tracks)
+        mode = "append" if params.position == "end" else "insert-next"
+        lost: Optional[Tuple[str, Dict[str, Any]]] = None
+        for track in tracks if params.position == "end" else reversed(tracks):
+            stream = client.stream_url(track["id"])
+            entry = await self._mpv.loadfile(stream, mode=mode)
+            if entry is None:
+                lost = (stream, track)
+                break
+            by_entry[entry] = track
+
+        if not await self._adopt_mpv_playlist(session, by_entry, lost):
+            return self.error_response("Failed to add to the queue")
+        added = [index for index, entry in enumerate(session.entries) if entry not in known]
+        if params.position == "next" and len(added) > 1 and await self._mpv.get_property("idle-active"):
+            if not await self._order_played_out_block(session, added):
+                return self.error_response("Failed to add to the queue")
+            added = [index for index, entry in enumerate(session.entries) if entry not in known]
+        if added and not await self._restart_if_idle(session, added[0]):
+            return self.error_response("Failed to add to the queue")
+
+        if not session.shuffle:
+            session.unshuffled = list(session.queue)
+        else:
+            new = [session.queue[index] for index in added]
+            if params.position == "end":
+                session.unshuffled = session.unshuffled + new
+            else:
+                # Ahead of the rest of the original order, so shuffle off
+                # still plays them next — and behind every copy already
+                # played, which the head would otherwise count against a
+                # copy just played next (one of the track playing, say).
+                consumed = _consumed(head, session.unshuffled)
+                session.unshuffled = (
+                    [track for track, used in zip(session.unshuffled, consumed) if used]
+                    + new
+                    + [track for track, used in zip(session.unshuffled, consumed) if not used]
+                )
+        if params.library_id is not None and added:
+            session.library_ids = session.library_ids | {params.library_id}
+        self._publish()
+        if len(added) != len(tracks):
+            self._logger.error("mpv took %s of %s track(s) added to the queue", len(added), len(tracks))
+            return self.error_response("Failed to add to the queue")
+        return self.success_response(f"Added {len(tracks)} track(s)")
+
+    async def _order_played_out_block(self, session: "LibrarySession", added: List[int]) -> bool:
+        """Put back in order a block played next into a played-out mpv.
+
+        With no current entry, mpv puts an `insert-next` at the end (measured
+        on 0.40), so the block sent in reverse sits reversed there. Entry ids
+        grow with each load, so the block's order is theirs, descending.
+        Nothing plays yet: the moves cut nothing. False, the session ended."""
+        by_entry = dict(zip(session.entries, session.queue))
+        entries = list(session.entries)
+        wanted = sorted((entries[index] for index in added), reverse=True)
+        for slot, entry in zip(added, wanted):
+            at = entries.index(entry)
+            if at == slot:
+                continue
+            if not await self._mpv.move_entry(at, slot):
+                break
+            entries.insert(slot, entries.pop(at))
+        return await self._adopt_mpv_playlist(session, by_entry, None)
+
+    async def _handle_remove_from_queue(self, params: RemoveFromQueueParams) -> Dict[str, Any]:
+        """Take a track out of the queue: one to come, or one already played."""
+        session = self._session
+        index = params.index
+        if index >= len(session.queue) or session.queue[index].get("id") != params.track_id:
+            return self.error_response("Queue moved: nothing removed")
+        if index == session.index:
+            return self.error_response("The track playing cannot be removed")
+
+        by_entry = dict(zip(session.entries, session.queue))
+        entry = session.entries[index]
+        consumed = _consumed(session.queue[: session.index + 1], session.unshuffled)
+        played = index < session.index
+        await self._mpv.remove_entry(index)
+        # Read back even when refused: an answer that missed its deadline may
+        # still have been carried out.
+        if not await self._adopt_mpv_playlist(session, by_entry, None):
+            return self.error_response("Failed to remove from the queue")
+        if entry in session.entries:
+            self._publish()
+            return self.mpv_refused(f"remove track {index + 1}")
+
+        if not session.shuffle:
+            session.unshuffled = list(session.queue)
+        else:
+            # The copy the original order holds for this track: among those
+            # already consumed by the head when it was played, else the
+            # first still to come — a queue can list one song twice.
+            at = next((
+                position for position, (track, used) in enumerate(zip(session.unshuffled, consumed))
+                if used == played and track.get("id") == params.track_id
+            ), None)
+            if at is not None:
+                session.unshuffled = session.unshuffled[:at] + session.unshuffled[at + 1:]
+        if session.failed_from is not None:
+            failed_index, seconds = session.failed_from
+            if failed_index == index:
+                session.failed_from = None
+            elif failed_index > index:
+                session.failed_from = (failed_index - 1, seconds)
+        self._publish()
+        return self.success_response(f"Removed track {index + 1}")
+
+    async def _handle_move_in_queue(self, params: MoveInQueueParams) -> Dict[str, Any]:
+        """Move a track to come to another place among the tracks to come.
+
+        Shuffled, this reorders the shuffled order alone: shuffle off still
+        brings back the original one."""
+        session = self._session
+        source, to = params.from_index, params.to_index
+        if source >= len(session.queue) or session.queue[source].get("id") != params.track_id:
+            return self.error_response("Queue moved: nothing moved")
+        if not (session.index < source and session.index < to < len(session.queue)):
+            return self.error_response("Only the tracks to come move, among themselves")
+        if source == to:
+            return self.success_response("Track unmoved")
+
+        by_entry = dict(zip(session.entries, session.queue))
+        entry = session.entries[source]
+        await self._mpv.move_entry(source, to)
+        if not await self._adopt_mpv_playlist(session, by_entry, None):
+            return self.error_response("Failed to move in the queue")
+        if not session.shuffle:
+            session.unshuffled = list(session.queue)
+        self._publish()
+        if session.entries.index(entry) != to:
+            return self.mpv_refused(f"move track {source + 1}")
+        return self.success_response(f"Moved track {source + 1} to {to + 1}")
+
+    async def _drop_upcoming(self, session: "LibrarySession") -> Tuple[int, bool]:
+        """Take every entry after the current one out of mpv, from the end.
+
+        Returns the last index kept — past the session's when mpv moved on
+        to the next entry while the later ones went, which is part of the
+        head then, not of the tail — and whether mpv refused a removal."""
+        keep = session.index
+        for index in range(len(session.entries) - 1, keep, -1):
+            if index == keep + 1:
+                playing = await self._mpv.get_property("playlist-playing-pos")
+                if isinstance(playing, int) and playing > keep:
+                    return playing, False
+            if not await self._mpv.remove_entry(index):
+                return keep, True
+        return keep, False
+
+    async def _adopt_mpv_playlist(
+        self, session: "LibrarySession", by_entry: Dict[Optional[int], Dict[str, Any]],
+        lost: Optional[Tuple[str, Dict[str, Any]]],
+    ) -> bool:
+        """Make the session's queue mpv's playlist, read back after an edit.
+
+        mpv moves on by itself while an edit runs (a gapless advance,
+        announced behind the command), and a command whose answer misses its
+        deadline may still have been carried out. So the queue is never
+        rewritten from the commands sent: it is rebuilt from mpv's own
+        playlist once they are done, and handed to the session in one step — a
+        stop that cuts the edit keeps the whole queue to come back to.
+
+        `by_entry` names the track of every entry id this may meet; `lost` is
+        a load whose answer never came, found by its URL. The track playing
+        keeps playing, so the index follows its entry without the reset of a
+        track change. False, the session ended: an entry nobody loaded, or the
+        current one gone, is a queue that is not mpv's, whose end would never
+        be recognized."""
+        current = session.entries[session.index]
         playlist = await self._mpv.get_property("playlist")
         entries, queue = [], []
         for item in playlist if isinstance(playlist, list) else []:
@@ -1011,34 +1230,33 @@ class MusicLibrarySource(MpvAudioSource):
                 track, lost = lost[1], None
             entries.append(item.get("id"))
             queue.append(track)
-        if None in queue or entries[: keep + 1] != session.entries[: keep + 1]:
-            # Unanswered, or not the queue this left: a queue that is not mpv's
-            # would never see its end recognized.
+        if None in queue or current not in entries:
             await self._end_playback(
-                EndReason.STREAM_LOST, detail="mpv's playlist unreadable after a reorder"
+                EndReason.STREAM_LOST, detail="mpv's playlist unreadable after a queue edit"
             )
-            return self.error_response("Failed to reorder queue")
+            return False
         session.entries, session.queue = entries, queue
+        session.index = entries.index(current)
+        return True
 
-        if len(queue) > keep + 1 and await self._mpv.get_property("idle-active"):
-            # mpv stopped with tracks left to play: the entry it had just
-            # reached was taken out with nothing after it, or its track ended
-            # before the tail was back — and an append starts nothing. One
-            # read is enough: mpv answers no command while it plays out its
-            # last sound (measured on 0.40), so it reads idle by then.
-            if not await self._mpv.play_index(keep + 1):
-                await self._end_playback(EndReason.STREAM_LOST, detail="mpv stopped by a reorder")
-                return self.error_response("Failed to reorder queue")
-            self._move_to_track(session, keep + 1)
-            session.opened = session.played_out = False
-            self._sync_phase(session, PhaseEvent.TRACK_CHANGE)
-        if queue == head + tail:
-            session.shuffle = target
-        self._publish()
-        if session.shuffle != target:
-            self._logger.error("mpv did not take the whole reorder; the queue now ends where mpv's does")
-            return self.error_response("Failed to reorder queue")
-        return self.success_response("Shuffle on" if target else "Shuffle off")
+    async def _restart_if_idle(self, session: "LibrarySession", first_new: int) -> bool:
+        """Start entry `first_new` if mpv stopped with it still to play.
+
+        The entry mpv had just reached was taken out with nothing after it,
+        or its track ended before the new entries were in — and neither an
+        append nor an insertion starts anything: the session would play on
+        over a silent mpv. One read is enough: mpv answers no command while
+        it plays out its last sound (measured on 0.40), so it reads idle by
+        then. False, the session ended."""
+        if len(session.queue) <= first_new or not await self._mpv.get_property("idle-active"):
+            return True
+        if not await self._mpv.play_index(first_new):
+            await self._end_playback(EndReason.STREAM_LOST, detail="mpv stopped by a queue edit")
+            return False
+        self._move_to_track(session, first_new)
+        session.opened = session.played_out = False
+        self._sync_phase(session, PhaseEvent.TRACK_CHANGE)
+        return True
 
     async def _handle_set_repeat(self, params: SetRepeatParams) -> Dict[str, Any]:
         """Repeat the queue (`context`), the track, or neither.
@@ -1097,13 +1315,13 @@ class MusicLibrarySource(MpvAudioSource):
         self._logger.info("Reopening the saved queue at track %s, %ss", at + 1, start_s)
         return await self._open_queue(
             tracks, content["queue_unshuffled"] or list(tracks), at,
-            content["queue_library_id"], content["queue_context_id"],
+            frozenset(content["queue_library_ids"]), content["queue_context_id"],
             content["shuffle"], content["repeat"], start_s=start_s, playing=playing,
         )
 
     async def _open_queue(
         self, tracks: List[Dict[str, Any]], unshuffled: List[Dict[str, Any]], index: int,
-        library_id: Optional[int], context_id: Optional[str], shuffle: bool, repeat: RepeatMode,
+        library_ids: FrozenSet[int], context_id: Optional[str], shuffle: bool, repeat: RepeatMode,
         *, start_s: int, playing: bool,
     ) -> bool:
         """Open a session on `tracks` and hand them to mpv: every track appended
@@ -1118,7 +1336,7 @@ class MusicLibrarySource(MpvAudioSource):
             return False
         session = LibrarySession(
             phase=Phase.LOADING if playing else Phase.PAUSED, queue=tracks, unshuffled=unshuffled, index=index,
-            library_id=library_id, context_id=context_id, shuffle=shuffle, repeat=repeat, position=start_s,
+            library_ids=library_ids, context_id=context_id, shuffle=shuffle, repeat=repeat, position=start_s,
             duration=int(tracks[index].get("duration") or 0),
         )
         self.open_session(session)
@@ -1439,7 +1657,14 @@ class MusicLibrarySource(MpvAudioSource):
         if session.phase is not Phase.LOADING:
             controls += ["seek", "skip"]
         controls += [c for c in ("next", "prev") if not (c == "next" and last)]
-        return controls + ["set_shuffle", "set_repeat", "play_index", "stop"]
+        controls += ["set_shuffle", "set_repeat", "play_index", "stop", "add_to_queue"]
+        # The track playing is never removed, and only the tracks to come move.
+        upcoming = len(session.queue) - 1 - session.index
+        if len(session.queue) > 1:
+            controls.append("remove_from_queue")
+        if upcoming > 1:
+            controls.append("move_in_queue")
+        return controls
 
     # =========================================================================
     # NETWORK SHARES (SMB/NFS)

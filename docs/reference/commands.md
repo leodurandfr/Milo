@@ -125,6 +125,9 @@ No commands: the sender controls playback.
 | `set_shuffle` | session | `shuffle`: boolean | internal |
 | `set_repeat` | session | `mode`: [RepeatMode](#repeatmode) | internal |
 | `stop` | resume | — | contracted |
+| `add_to_queue` | session | `tracks`: object[]<br>`position`: "next" \| "end"<br>`library_id`: integer \| null (optional) | internal |
+| `remove_from_queue` | session | `index`: integer<br>`track_id`: string | internal |
+| `move_in_queue` | session | `from_index`: integer<br>`to_index`: integer<br>`track_id`: string | internal |
 
 ## Enumerations
 

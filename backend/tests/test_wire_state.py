@@ -60,6 +60,9 @@ PARAMS = {
     "set_repeat": {"mode": "context"},
     "play_index": {"index": 0},
     "play_track": {"track_number": 1},
+    "add_to_queue": {"tracks": [ALBUM[0]], "position": "end"},
+    "remove_from_queue": {"index": 1, "track_id": ALBUM[1]["id"]},
+    "move_in_queue": {"from_index": 1, "to_index": 2, "track_id": ALBUM[1]["id"]},
 }
 
 
@@ -228,6 +231,9 @@ FIP_RESUME = {
 SHOW = EPISODE_A["podcast"]["name"]
 FIRST = ALBUM[0]
 LIBRARY_TAIL = ["set_shuffle", "set_repeat", "play_index", "stop"]
+# The queue edits a three-track queue offers on its first track, and on its last.
+LIBRARY_EDITS = ["add_to_queue", "remove_from_queue", "move_in_queue"]
+LIBRARY_LAST_EDITS = ["add_to_queue", "remove_from_queue"]
 CD_TAIL = ["set_shuffle", "set_repeat", "play_track", "eject"]
 
 
@@ -290,7 +296,7 @@ SCENARIOS: List[Scenario] = [
             "duration_ms": FIRST["duration"] * 1000,
             "position": {"ms": 0, "at": "<at>", "rate": 1.0},
         },
-        "controls": ["pause", "seek", "skip", "next", "prev", *LIBRARY_TAIL],
+        "controls": ["pause", "seek", "skip", "next", "prev", *LIBRARY_TAIL, *LIBRARY_EDITS],
         "details": {
             "kind": "music_library", "queue": ALBUM, "queue_index": 0, "shuffle": False,
             "repeat": "off", "track_id": FIRST["id"], "album_id": FIRST["albumId"], "artist_id": FIRST["artistId"],
@@ -298,13 +304,15 @@ SCENARIOS: List[Scenario] = [
         },
     }),
     Scenario("library last track", lambda mp, t: _library(mp, t, start=len(ALBUM) - 1),
-             expect={"controls": ["pause", "seek", "skip", "prev", *LIBRARY_TAIL]}),
+             expect={"controls": ["pause", "seek", "skip", "prev", *LIBRARY_TAIL, *LIBRARY_LAST_EDITS]}),
     # A repeating queue goes from its last track back to its first.
     Scenario("library last track, repeating",
              lambda mp, t: _library(mp, t, start=len(ALBUM) - 1, repeat="context"),
-             expect={"controls": ["pause", "seek", "skip", "next", "prev", *LIBRARY_TAIL]}),
+             expect={"controls": [
+                 "pause", "seek", "skip", "next", "prev", *LIBRARY_TAIL, *LIBRARY_LAST_EDITS,
+             ]}),
     Scenario("library paused", lambda mp, t: _library(mp, t, pause=True),
-             expect={"controls": ["resume", "seek", "skip", "next", "prev", *LIBRARY_TAIL]},
+             expect={"controls": ["resume", "seek", "skip", "next", "prev", *LIBRARY_TAIL, *LIBRARY_EDITS]},
              session_has={"phase": "paused"}),
     # E50: the resume view offers what the source takes — no seek, no next.
     Scenario("library resume", lambda mp, t: _library(mp, t, idle_end=True), expect={
@@ -450,6 +458,7 @@ def test_the_guardrail_meets_every_command_the_spec_lists():
     assert listed == {
         "stop", "next", "prev", "resume_playback", "pause", "resume", "seek", "skip",
         "set_shuffle", "set_repeat", "play_index", "play_track", "eject", "disconnect",
+        "add_to_queue", "remove_from_queue", "move_in_queue",
     }
 
 

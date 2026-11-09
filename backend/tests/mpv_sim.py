@@ -9,7 +9,14 @@ consistent truth. Every behaviour below was observed on the unit
 - `loadfile … append` plays nothing and answers the new entry's id;
   `replace` clears the playlist and starts the file; per-entry `start=` and
   `pause=yes` apply when that entry starts, and the pause is the entry's own
-  (the next entry starts unpaused).
+  (the next entry starts unpaused). `insert-next` puts the entry right after
+  the current one, or with none, first in a playlist that never played and
+  last after one played to its end (measured 2026-11-09, mpv 0.40). Any other
+  mode raises: a mode modelled as an append would pass a test with its
+  entries in the wrong place.
+- `playlist-move` moves an entry under its id, with no event; the entry
+  playing goes on playing (measured 2026-11-09). The sim takes the final
+  position, as MpvController.move_entry does.
 - An entry that starts sends `start-file`; opening it sends `file-loaded`, a
   `seek` when it starts past 0, and `playback-restart` — paused or not.
 - A jump (`playlist-play-index`) or a `stop` ends the current entry with
@@ -18,6 +25,10 @@ consistent truth. Every behaviour below was observed on the unit
   `idle`, then `idle-active` true (0.4 s after its `end-file`, once the sound
   it held has played — modelled only with `drain`, else at once); an entry
   started from idle sends `idle-active` false after its `start-file`.
+  mpv moves on to the next entry (`end-file eof`, then `start-file`) about
+  0.35 s before the end that is heard (measured 2026-11-09): a command sent in
+  that window finds the next entry current. Tests place that moment
+  themselves, with `ends()`.
 - `loop-playlist` (inf) starts the playlist over after its last entry:
   `end-file eof`, then `start-file` of the first entry, under the same ids.
   An entry that failed is tried again on the next pass; mpv gives up — goes
@@ -74,6 +85,9 @@ class MpvSim:
         # idle only at `drained()` — or at the next command, which finds it so.
         self.drain = False
         self._draining = False
+        # Where `insert-next` goes with no current entry (see loadfile).
+        self._ever_started = False
+        self._played_out = False
         self.accept = True                 # False: every command is refused
         self.broken: Dict[str, str] = {}   # url fragment -> file_error
         self.durations: Dict[str, float] = {}
@@ -255,6 +269,7 @@ class MpvSim:
         if self.current is not None:
             self._end_current("stop")
         self.playlist = []
+        self._ever_started = self._played_out = False
         self._go_idle()
         return True
 
@@ -266,6 +281,9 @@ class MpvSim:
         options = {}
         if start_s is not None:
             options["start"] = str(start_s)
+        if mode not in ("replace", "append", "insert-next"):
+            raise ValueError(f"loadfile mode {mode!r} is not modelled")
+        self._finish_drain()
         self._next_id += 1
         entry = Entry(self._next_id, url, options)
         if mode == "replace":
@@ -273,8 +291,16 @@ class MpvSim:
                 self._end_current("stop")
             self.playlist = [entry]
             self._start(entry)
-        else:
+        elif mode == "append":
             self.playlist.append(entry)
+        elif self.current in self.playlist:
+            self.playlist.insert(self.playlist.index(self.current) + 1, entry)
+        elif self._played_out:
+            self.playlist.append(entry)
+        elif not self._ever_started or not self.playlist:
+            self.playlist.insert(0, entry)
+        else:
+            raise ValueError("insert-next into a playlist that stopped short: not measured")
         return entry.id
 
     async def play_index(self, index: int) -> bool:
@@ -287,6 +313,7 @@ class MpvSim:
         self.sent.append(("remove_entry", index))
         if not self._ok() or not 0 <= index < len(self.playlist):
             return False
+        self._finish_drain()
         if self.playlist.pop(index) is self.current:
             self._end_current("stop")
             if index < len(self.playlist):
@@ -295,6 +322,14 @@ class MpvSim:
                 self._start(self.playlist[0])
             else:
                 self._go_idle()
+        return True
+
+    async def move_entry(self, index: int, to: int) -> bool:
+        self.sent.append(("move_entry", index, to))
+        if not self._ok() or not (0 <= index < len(self.playlist) and 0 <= to < len(self.playlist)):
+            return False
+        self._finish_drain()
+        self.playlist.insert(to, self.playlist.pop(index))
         return True
 
     # === The model ===
@@ -344,6 +379,7 @@ class MpvSim:
     def _start(self, entry: Entry) -> None:
         was_idle = self.current is None
         self.current, self.opened, self.stalled = entry, False, False
+        self._ever_started, self._played_out = True, False
         self.position = float(entry.options.get("start", 0) or 0)
         self._emit({"event": "start-file", "playlist_entry_id": entry.id})
         if was_idle:
@@ -398,8 +434,9 @@ class MpvSim:
         ):
             self._start(self.playlist[0])
         elif self.drain:
-            self._draining, self.opened = True, False
+            self._draining, self.opened, self._played_out = True, False, True
         else:
+            self._played_out = True
             self._go_idle()
 
     def _finish_drain(self) -> None:

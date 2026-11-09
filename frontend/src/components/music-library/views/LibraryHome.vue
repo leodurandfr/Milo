@@ -105,7 +105,11 @@
         <!-- PLAYLISTS -->
         <template v-else>
           <div class="playlists-actions">
-            <Button variant="control" size="small" left-icon="plus" @click="createOpen = true">
+            <span v-if="store.playlistsLoaded" class="playlists-count text-mono-medium">
+              {{ t('musicLibrary.playlists.playlistsCount', { count: store.playlists.length }) }}
+            </span>
+            <Button variant="control" size="small" left-icon="plus" class="playlists-new"
+              @click="createOpen = true">
               {{ t('musicLibrary.playlists.newPlaylist') }}
             </Button>
           </div>
@@ -442,7 +446,16 @@ onPageReturn(() => loadTab(store.activeTab));
 .playlists-actions {
   display: flex;
   flex-direction: row;
-  justify-content: flex-start;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+.playlists-count {
+  color: var(--color-text-secondary);
+}
+
+.playlists-new {
+  margin-left: auto;
 }
 
 .genre-row {
