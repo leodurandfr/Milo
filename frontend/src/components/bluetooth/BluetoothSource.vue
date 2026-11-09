@@ -16,7 +16,7 @@
          player's top row where CD's eject sits; without it the only way to end
          a session would be to leave the source entirely. -->
     <template v-if="canDisconnect" #top-end>
-      <IconButton icon="close" variant="control" size="medium" :aria-label="t('status.disconnect')"
+      <IconButton icon="signOut" variant="control" size="medium" :aria-label="t('status.disconnect')"
         :loading="unifiedStore.isDisconnecting('bluetooth')"
         @click="unifiedStore.disconnectSource('bluetooth')" />
     </template>
