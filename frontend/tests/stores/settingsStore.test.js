@@ -116,3 +116,33 @@ describe('settingsStore — the screen sleep delta', () => {
     expect(store.isScreenSleeping).toBe(false);
   });
 });
+
+/**
+ * The server stores only the enabled dock apps, in order; the store keeps every
+ * app's place so a disabled one comes back where it was. Broken, a feature
+ * reordered in Dock settings would snap back to the default order on the next
+ * save or resync, and the dock would draw it there.
+ */
+describe('settingsStore — the dock order', () => {
+  let store;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    store = useSettingsStore();
+  });
+
+  it('a disabled feature keeps its place while the enabled ones take the server order', () => {
+    const roster = [...store.featureOrder];
+    const [first, second, third, ...rest] = roster;
+    store.updateDockApps(['spotify', third, ...rest, first]);
+
+    expect(store.featureOrder).toEqual([third, second, ...rest, first]);
+    expect(store.buildEnabledAppsArray()).toEqual(['spotify', third, ...rest, first]);
+  });
+
+  it('features follow every source, whatever order the server sends them in', () => {
+    const [feature] = store.featureOrder;
+    store.updateDockApps([feature, 'radio', 'spotify']);
+    expect(store.buildEnabledAppsArray()).toEqual(['radio', 'spotify', feature]);
+  });
+});

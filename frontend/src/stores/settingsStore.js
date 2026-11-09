@@ -6,9 +6,10 @@ import { apiCall } from '@/services/apiCall';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import { isKiosk } from '@/utils/kiosk';
 
-// Non-source dock apps; the full dock roster is sources + utilities.
-// Held equal to the backend's UTILITY_DOCK_APPS by tests/architecture/dockUtilities.test.js.
-const DOCK_UTILITY_APPS = ['volume', 'equalizer', 'multiroom', 'lyrics', 'settings'];
+// Non-source dock apps, in their default dock order; the full dock roster is
+// sources + utilities. Held equal to the backend's UTILITY_DOCK_APPS by
+// tests/architecture/dockUtilities.test.js.
+const DOCK_UTILITY_APPS = ['equalizer', 'multiroom', 'lyrics', 'volume', 'settings'];
 
 function buildDockAppsMap(enabledApps) {
   return Object.fromEntries(
@@ -50,8 +51,10 @@ export const useSettingsStore = defineStore('settings', () => {
     Object.fromEntries([...ALL_AUDIO_SOURCES, ...DOCK_UTILITY_APPS].map(app => [app, true]))
   );
 
-  // Ordered list of all audio sources (both enabled and disabled)
+  // Ordered lists of all audio sources and all features (enabled and disabled):
+  // the server stores only the enabled ones, so a disabled app keeps its place here
   const sourceOrder = ref([...ALL_AUDIO_SOURCES]);
+  const featureOrder = ref([...DOCK_UTILITY_APPS]);
 
   // === AUDIO PLAYBACK ===
   // Global behavior applied to every eligible audio source:
@@ -225,7 +228,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
         const enabledApps = d.dock_apps.enabled_apps;
         setIfChanged(dockApps, buildDockAppsMap(enabledApps));
-        syncSourceOrder(enabledApps);
+        syncDockOrders(enabledApps);
 
         setIfChanged(audioPlayback, d.audio_stop);
         setIfChanged(screenTimeout, d.screen_timeout);
@@ -266,37 +269,44 @@ export const useSettingsStore = defineStore('settings', () => {
    */
   function updateDockApps(enabledApps) {
     dockApps.value = buildDockAppsMap(enabledApps);
-    syncSourceOrder(enabledApps);
+    syncDockOrders(enabledApps);
   }
 
   /**
-   * Extract audio source order from enabled_apps array.
-   * Preserves order of audio sources from the array, appends any missing sources at the end.
+   * Take the server's order of the enabled apps into one ordered roster: the
+   * enabled ones fill their own slots in the server's order, the disabled ones
+   * stay where they were.
    */
-  function syncSourceOrder(enabledApps) {
-    const audioFromServer = enabledApps.filter(a => ALL_AUDIO_SOURCES.includes(a));
-    const enabledSet = new Set(audioFromServer);
+  function syncOrder(order, enabledApps) {
+    const fromServer = enabledApps.filter(a => order.value.includes(a));
+    const enabledSet = new Set(fromServer);
     let i = 0;
     // setIfChanged: a same-content reassign would reset an in-progress dock
-    // reorder (DockSettings watches sourceOrder) on every resync
-    setIfChanged(sourceOrder, sourceOrder.value.map(s => enabledSet.has(s) ? audioFromServer[i++] : s));
+    // reorder (DockSettings watches both orders) on every resync
+    setIfChanged(order, order.value.map(a => enabledSet.has(a) ? fromServer[i++] : a));
   }
 
-  /**
-   * Update source display order
-   */
+  function syncDockOrders(enabledApps) {
+    syncOrder(sourceOrder, enabledApps);
+    syncOrder(featureOrder, enabledApps);
+  }
+
   function updateSourceOrder(newOrder) {
     sourceOrder.value = [...newOrder];
   }
 
+  function updateFeatureOrder(newOrder) {
+    featureOrder.value = [...newOrder];
+  }
+
   /**
-   * Build the full enabled_apps array preserving source order.
-   * Returns ordered enabled audio sources followed by enabled utility apps.
+   * Build the full enabled_apps array: the enabled audio sources in their
+   * order, then the enabled features in theirs.
    */
   function buildEnabledAppsArray() {
     const orderedAudio = sourceOrder.value.filter(s => dockApps.value[s]);
-    const utilities = DOCK_UTILITY_APPS.filter(u => dockApps.value[u]);
-    return [...orderedAudio, ...utilities];
+    const orderedFeatures = featureOrder.value.filter(f => dockApps.value[f]);
+    return [...orderedAudio, ...orderedFeatures];
   }
 
   const updateAudioPlayback = makeUpdater(audioPlayback);
@@ -564,6 +574,7 @@ export const useSettingsStore = defineStore('settings', () => {
     volumeSteps,
     dockApps,
     sourceOrder,
+    featureOrder,
     audioPlayback,
     radioSettings,
     musicLibrarySettings,
@@ -591,6 +602,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateVolumeSteps,
     updateDockApps,
     updateSourceOrder,
+    updateFeatureOrder,
     buildEnabledAppsArray,
     updateAudioPlayback,
     updateRadioSettings,

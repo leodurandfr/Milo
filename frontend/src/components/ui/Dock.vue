@@ -101,6 +101,7 @@ import { useDockAppHold } from '@/composables/useDockAppHold';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
+import { DOCK_FEATURE_LABEL_KEYS } from '@/constants/dockFeatures';
 import { anyModalOpen } from '@/composables/useModalPresence';
 
 const { t } = useI18n();
@@ -114,13 +115,16 @@ const DOCK_ANIM_STAGGER = 0.015;        // Stagger between items in seconds
 
 
 // Actions with reactive titles
-const ALL_ADDITIONAL_ACTIONS = computed(() => [
-  { id: 'volume', icon: 'volume', title: t('settings.volume'), handler: () => emit('open-volume') },
-  { id: 'equalizer', icon: 'equalizer', title: t('equalizer.title'), handler: () => emit('open-equalizer') },
-  { id: 'multiroom', icon: 'multiroom', title: t('audioSources.multiroom'), handler: () => emit('open-multiroom') },
-  { id: 'lyrics', icon: 'lyrics', title: t('lyrics.title'), handler: () => emit('open-lyrics') },
-  { id: 'settings', icon: 'settings', title: t('common.settings'), handler: () => emit('open-settings') }
-]);
+const FEATURE_HANDLERS = {
+  equalizer: () => emit('open-equalizer'),
+  multiroom: () => emit('open-multiroom'),
+  lyrics: () => emit('open-lyrics'),
+  volume: () => emit('open-volume'),
+  settings: () => emit('open-settings')
+};
+const ALL_ADDITIONAL_ACTIONS = computed(() => Object.entries(FEATURE_HANDLERS).map(([id, handler]) => (
+  { id, icon: id, title: t(DOCK_FEATURE_LABEL_KEYS[id]), handler }
+)));
 
 // === DYNAMIC CONFIGURATION ===
 const enabledApps = computed(() => settingsStore.buildEnabledAppsArray());
@@ -132,8 +136,10 @@ const enabledAudioSources = computed(() => {
 });
 
 const enabledFeatures = computed(() => {
-  return ALL_ADDITIONAL_ACTIONS.value
-    .filter(action => enabledApps.value.includes(action.id))
+  // In the user's order, which enabled_apps carries
+  return enabledApps.value
+    .map(id => ALL_ADDITIONAL_ACTIONS.value.find(action => action.id === id))
+    .filter(Boolean)
     // No device to set a level on: the panel would move nothing. Nor on a phone,
     // whose dock carries − / + of its own above the apps.
     .filter(action => action.id !== 'volume'

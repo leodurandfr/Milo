@@ -1,126 +1,70 @@
 <!-- frontend/src/components/settings/categories/DockSettings.vue -->
 <template>
   <SectionStack>
-    <!-- Audio sources -->
-    <SectionCard class="audio-sources-section">
+    <SectionCard
+      v-for="section in sections"
+      :key="section.id"
+      class="dock-section"
+    >
       <template #header>
-        <SectionHeader :title="t('audioSources.title')">
+        <SectionHeader :title="section.title">
           <template #actions>
             <Button
               size="small"
-              :variant="isReordering ? 'brand' : 'tinted'"
-              @click="toggleReorderMode"
+              :variant="section.isReordering ? 'brand' : 'tinted'"
+              @click="section.toggleReorder()"
             >
-              {{ isReordering ? t('applicationsSettings.done') : t('applicationsSettings.reorder') }}
+              {{ section.isReordering ? t('applicationsSettings.done') : t('applicationsSettings.reorder') }}
             </Button>
           </template>
         </SectionHeader>
       </template>
 
-      <div class="app-list" :class="{ 'app-list--reordering': isReordering }">
+      <div
+        :ref="el => { section.container = el; }"
+        class="app-list"
+        :class="{ 'app-list--dragging': section.drag.dragging }"
+      >
         <div
-          v-for="(source, index) in localOrder"
-          :key="source"
+          v-for="(id, index) in section.items"
+          :key="id"
           class="drag-item"
           :class="{
-            'drag-item--reordering': isReordering,
-            'drag-item--dragging': dragState.index === index,
-            'drag-item--transition': dragState.index !== -1 && dragState.index !== index,
-            'drag-item--inactive': isReordering && !config[source]
+            'drag-item--reordering': section.isReordering,
+            'drag-item--dragging': section.drag.draggedIndex === index,
+            'drag-item--inactive': section.isReordering && !config[id]
           }"
-          :style="getDragItemStyle(index)"
-          @pointerdown="isReordering ? onDragStart($event, index) : null"
+          :style="section.drag.itemStyle(index)"
+          @pointerdown="section.isReordering ? section.drag.onPointerDown($event, index) : null"
         >
           <ListItemButton
-            :title="getSourceTitle(source)"
-            :model-value="config[source]"
-            :action="isReordering ? 'none' : 'toggle'"
-            :disabled="!isReordering && !canDisableAudioSource(source)"
-            @update:model-value="(val) => handleToggle(source, val)"
+            :title="section.titleOf(id)"
+            :model-value="config[id]"
+            :action="section.isReordering ? 'none' : 'toggle'"
+            :disabled="!section.isReordering && !section.canDisable(id)"
+            @update:model-value="(val) => handleToggle(id, val)"
           >
             <template #icon>
-              <AppIcon :name="source" :size="40" />
+              <AppIcon :name="id" :size="40" />
             </template>
           </ListItemButton>
 
           <!-- Drag handle icon (reorder mode only) -->
-          <div v-if="isReordering" class="drag-handle">
+          <div v-if="section.isReordering" class="drag-handle">
             <SvgIcon name="dragHandle" :size="24" />
           </div>
         </div>
       </div>
     </SectionCard>
-
-    <!-- Features -->
-    <SectionCard :title="t('applications.features')">
-      <div class="app-list">
-        <!-- Hidden with nothing to set a level on, as the tile is in the dock -->
-        <ListItemButton
-          v-if="unifiedStore.volumeState.any_volume_control"
-          :title="t('settings.volume')"
-          :model-value="config.volume"
-          action="toggle"
-          @update:model-value="(val) => handleToggle('volume', val)"
-        >
-          <template #icon>
-            <AppIcon name="volume" :size="40" />
-          </template>
-        </ListItemButton>
-
-        <ListItemButton
-          :title="t('equalizer.title')"
-          :model-value="config.equalizer"
-          action="toggle"
-          @update:model-value="(val) => handleToggle('equalizer', val)"
-        >
-          <template #icon>
-            <AppIcon name="equalizer" :size="40" />
-          </template>
-        </ListItemButton>
-
-        <ListItemButton
-          :title="t('audioSources.multiroom')"
-          :model-value="config.multiroom"
-          action="toggle"
-          @update:model-value="(val) => handleToggle('multiroom', val)"
-        >
-          <template #icon>
-            <AppIcon name="multiroom" :size="40" />
-          </template>
-        </ListItemButton>
-
-        <ListItemButton
-          :title="t('lyrics.title')"
-          :model-value="config.lyrics"
-          action="toggle"
-          @update:model-value="(val) => handleToggle('lyrics', val)"
-        >
-          <template #icon>
-            <AppIcon name="lyrics" :size="40" />
-          </template>
-        </ListItemButton>
-
-        <ListItemButton
-          :title="t('common.settings')"
-          :model-value="config.settings"
-          action="toggle"
-          @update:model-value="(val) => handleToggle('settings', val)"
-        >
-          <template #icon>
-            <AppIcon name="settings" :size="40" />
-          </template>
-        </ListItemButton>
-      </div>
-    </SectionCard>
-
   </SectionStack>
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, reactive, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { useSlotReorder } from '@/composables/useSlotReorder';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -131,28 +75,19 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
+import { DOCK_FEATURE_LABEL_KEYS } from '@/constants/dockFeatures';
 
 const { t } = useI18n();
 const { debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 
-const { dockApps: config, sourceOrder } = storeToRefs(settingsStore);
-
-// === Source title mapping ===
-
-function getSourceTitle(source) {
-  const key = AUDIO_SOURCE_LABEL_KEYS[source];
-  return key ? t(key) : source;
-}
+const { dockApps: config, sourceOrder, featureOrder } = storeToRefs(settingsStore);
 
 // === Dock Apps ===
 
 function canDisableAudioSource(sourceId) {
-  const enabledAudioSources = ALL_AUDIO_SOURCES.filter(source =>
-    config.value[source] && source !== sourceId
-  );
-  return enabledAudioSources.length > 0;
+  return ALL_AUDIO_SOURCES.some(source => config.value[source] && source !== sourceId);
 }
 
 function saveDockApps() {
@@ -169,130 +104,99 @@ function handleToggle(appName, value) {
   saveDockApps();
 }
 
-// === Reorder Mode ===
+// === Reorderable sections ===
 
-const isReordering = ref(false);
-const reorderList = ref([]);
-const initialOrder = ref([]);
-const localOrder = computed(() => isReordering.value ? reorderList.value : sourceOrder.value);
+/**
+ * One reorderable list of the dock: its roster in the store's order, the ids
+ * shown (an app hidden here keeps its place in the roster), and a reorder mode
+ * that edits a local copy and saves it once, on Done.
+ */
+function useDockSection({ id, titleKey, labelKeys, order, isShown, canDisable, commit }) {
+  const container = ref(null);
+  const isReordering = ref(false);
+  const draft = ref([]);
+  const shown = computed(() => order.value.filter(isShown));
+  const items = computed(() => (isReordering.value ? draft.value : shown.value));
 
-function toggleReorderMode() {
-  if (isReordering.value) {
-    // Exiting reorder mode — save if order changed
+  const drag = useSlotReorder(container, {
+    onDrop: (from, to) => {
+      const next = [...draft.value];
+      next.splice(to, 0, ...next.splice(from, 1));
+      draft.value = next;
+    }
+  });
+
+  function toggleReorder() {
+    if (!isReordering.value) {
+      draft.value = [...shown.value];
+      isReordering.value = true;
+      return;
+    }
     isReordering.value = false;
-    const changed = reorderList.value.some((s, i) => s !== initialOrder.value[i]);
-    if (changed) {
-      settingsStore.updateSourceOrder(reorderList.value);
+    if (draft.value.some((app, i) => app !== shown.value[i])) {
+      // The hidden ids keep their slots; the shown ones fill the rest in the new order.
+      let i = 0;
+      commit(order.value.map(app => (isShown(app) ? draft.value[i++] : app)));
       saveDockApps();
     }
-  } else {
-    // Entering reorder mode
-    reorderList.value = [...sourceOrder.value];
-    initialOrder.value = [...sourceOrder.value];
-    isReordering.value = true;
   }
+
+  // What is shown changed under the draft (an order saved elsewhere, a feature
+  // hidden or back): it restarts, or Done would merge a draft of another length.
+  // Keyed on the content, since volumeState is replaced on every level change.
+  watch(() => shown.value.join(), () => {
+    if (isReordering.value) draft.value = [...shown.value];
+  });
+
+  return reactive({
+    id,
+    title: computed(() => t(titleKey)),
+    titleOf: app => t(labelKeys[app]),
+    canDisable,
+    container,
+    isReordering,
+    items,
+    drag,
+    toggleReorder
+  });
 }
 
-// === Drag and Drop ===
-
-const dragState = ref({ index: -1, startY: 0, currentY: 0, itemHeight: 0 });
-
-function getDragItemStyle(index) {
-  if (dragState.value.index === -1) return {};
-
-  if (index === dragState.value.index) {
-    const offsetY = dragState.value.currentY - dragState.value.startY;
-    return {
-      transform: `translateY(${offsetY}px) scale(1.02)`,
-      zIndex: 10,
-      position: 'relative',
-      transition: 'none'
-    };
-  }
-  return {};
-}
-
-function onDragStart(e, index) {
-  if (!isReordering.value) return;
-  e.preventDefault();
-
-  const target = e.currentTarget;
-  const itemHeight = target.offsetHeight;
-
-  dragState.value = {
-    index,
-    startY: e.clientY,
-    currentY: e.clientY,
-    itemHeight
-  };
-
-  document.addEventListener('pointermove', onDragMove);
-  document.addEventListener('pointerup', onDragEnd);
-  document.addEventListener('pointercancel', onDragEnd);
-}
-
-function onDragMove(e) {
-  if (dragState.value.index === -1) return;
-
-  dragState.value.currentY = e.clientY;
-  const deltaY = e.clientY - dragState.value.startY;
-  const threshold = dragState.value.itemHeight * 0.5;
-  const draggedIndex = dragState.value.index;
-
-  if (deltaY > threshold && draggedIndex < reorderList.value.length - 1) {
-    swap(draggedIndex, draggedIndex + 1);
-    dragState.value.index = draggedIndex + 1;
-    dragState.value.startY += dragState.value.itemHeight;
-  } else if (deltaY < -threshold && draggedIndex > 0) {
-    swap(draggedIndex, draggedIndex - 1);
-    dragState.value.index = draggedIndex - 1;
-    dragState.value.startY -= dragState.value.itemHeight;
-  }
-}
-
-function onDragEnd() {
-  dragState.value = { index: -1, startY: 0, currentY: 0, itemHeight: 0 };
-  document.removeEventListener('pointermove', onDragMove);
-  document.removeEventListener('pointerup', onDragEnd);
-  document.removeEventListener('pointercancel', onDragEnd);
-}
-
-function swap(i, j) {
-  const arr = reorderList.value;
-  [arr[i], arr[j]] = [arr[j], arr[i]];
-}
-
-// Sync reorder list when sourceOrder changes externally (e.g. WS dock_apps_changed)
-watch(sourceOrder, (newOrder) => {
-  if (isReordering.value) {
-    reorderList.value = [...newOrder];
-  }
-});
-
-onUnmounted(() => {
-  document.removeEventListener('pointermove', onDragMove);
-  document.removeEventListener('pointerup', onDragEnd);
-  document.removeEventListener('pointercancel', onDragEnd);
-});
+const sections = [
+  useDockSection({
+    id: 'sources',
+    titleKey: 'audioSources.title',
+    labelKeys: AUDIO_SOURCE_LABEL_KEYS,
+    order: sourceOrder,
+    isShown: () => true,
+    canDisable: canDisableAudioSource,
+    commit: settingsStore.updateSourceOrder
+  }),
+  useDockSection({
+    id: 'features',
+    titleKey: 'applications.features',
+    labelKeys: DOCK_FEATURE_LABEL_KEYS,
+    order: featureOrder,
+    // Hidden with nothing to set a level on, as the tile is in the dock
+    isShown: app => app !== 'volume' || unifiedStore.volumeState.any_volume_control,
+    canDisable: () => true,
+    commit: settingsStore.updateFeatureOrder
+  })
+];
 </script>
 
 <style scoped>
+/* The same layout in reorder mode: the items move between the slots it gives them */
 .app-list {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
-}
-
-.app-list--reordering {
-  display: flex;
-  flex-direction: column;
 }
 
 .drag-item {
   position: relative;
   display: flex;
   align-items: stretch;
-  transition: transform var(--transition-spring);
 }
 
 .drag-item--reordering {
@@ -300,16 +204,15 @@ onUnmounted(() => {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  transition: transform var(--transition-spring-soft);
 }
 
-.drag-item--dragging {
-  z-index: 10;
-  opacity: 0.92;
+.app-list--dragging .drag-item {
   cursor: grabbing;
 }
 
-.drag-item--transition {
-  transition: transform var(--transition-spring);
+.drag-item--dragging {
+  opacity: 0.92;
 }
 
 .drag-item :deep(.list-item-button) {
@@ -335,7 +238,7 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-:deep(.audio-sources-section.section-card) {
+:deep(.dock-section.section-card) {
   gap: var(--space-03);
 }
 
