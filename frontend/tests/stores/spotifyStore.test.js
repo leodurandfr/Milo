@@ -253,4 +253,123 @@ describe('spotifyStore', () => {
       { command: 'play_context', data: { uri: TRACK } },
     ]);
   });
+
+  // === Search ===
+
+  const results = (title) => ({
+    status: 'success', query: title,
+    tracks: [{ uri: TRACK, title }], artists: [], albums: [], playlists: [],
+  });
+
+  it('keeps the answer of the latest search, whatever order the answers come back in', async () => {
+    let first;
+    let second;
+    apiCall.get
+      .mockReturnValueOnce(new Promise((resolve) => { first = resolve; }))
+      .mockReturnValueOnce(new Promise((resolve) => { second = resolve; }));
+
+    store.searchTerm = 'daft';
+    const older = store.search();
+    store.searchTerm = ' daft punk ';
+    const newer = store.search();
+    second(ok(results('newer')));
+    await newer;
+    first(ok(results('older')));
+    await older;
+
+    expect(store.searchResults.tracks.map((t) => t.title)).toEqual(['newer']);
+    expect(store.lastSearchTerm).toBe('daft punk');
+    expect(store.searchLoading).toBe(false);
+    const asked = apiCall.get.mock.calls.filter(([url]) => url === '/api/spotify/search');
+    expect(asked.map(([, options]) => options.params.q)).toEqual(['daft', 'daft punk']);
+  });
+
+  it('tells a daemon that cannot search from Spotify refusing, and a rate limit from both', async () => {
+    store.searchTerm = 'daft punk';
+    const outcomes = [];
+    for (const status of [501, 429, 409, 503]) {
+      apiCall.get.mockResolvedValueOnce(fail('refused', status));
+      await store.search();
+      outcomes.push(store.searchError);
+    }
+    expect(outcomes).toEqual(['unavailable', 'rate_limited', 'not_signed_in', 'failed']);
+
+    apiCall.get.mockResolvedValueOnce(ok(results('back')));
+    await store.search();
+    expect(store.searchError).toBeNull();
+  });
+
+  it('offers the completions of the term, not the term itself, and none once it is cleared', async () => {
+    store.searchTerm = 'Daft Punk';
+    apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success', query: 'Daft Punk', completions: ['daft punk', 'daft punk tron'],
+    }));
+    await store.suggest();
+    expect(store.completions).toEqual(['daft punk tron']);
+
+    store.clearSearch();
+    expect(store.completions).toEqual([]);
+    expect(store.searchTerm).toBe('');
+  });
+
+  it('drops a completion still on its way once the term is searched', async () => {
+    let answer;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    store.searchTerm = 'daft p';
+    const asking = store.suggest();
+
+    store.dropCompletions();
+    answer(ok({ status: 'success', query: 'daft p', completions: ['daft punk'] }));
+    await asking;
+
+    expect(store.completions).toEqual([]);
+  });
+
+  it('asks a query once: not again while it is on its way, nor once answered, unless forced', async () => {
+    let answer;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    store.searchTerm = 'daft punk';
+    const first = store.search();
+    await store.search();
+    answer(ok(results('once')));
+    await first;
+    await store.search();
+    const asked = () => apiCall.get.mock.calls.filter(([url]) => url === '/api/spotify/search').length;
+    expect(asked()).toBe(1);
+
+    apiCall.get.mockResolvedValueOnce(ok(results('again')));
+    await store.search({ force: true });
+    expect(asked()).toBe(2);
+  });
+
+  it("clears a failure as soon as the next search leaves, not when it answers", async () => {
+    store.searchTerm = 'daft punk';
+    apiCall.get.mockResolvedValueOnce(fail('refused', 503));
+    await store.search();
+    expect(store.searchError).toBe('failed');
+
+    let answer;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    const retrying = store.search({ force: true });
+    expect(store.searchError).toBeNull();
+    answer(ok(results('back')));
+    await retrying;
+  });
+
+  it('offers a completion Spotify repeats once', async () => {
+    store.searchTerm = 'daft p';
+    apiCall.get.mockResolvedValueOnce(ok({ status: 'success', query: 'daft p', completions: ['daft punk', 'daft punk'] }));
+    await store.suggest();
+    expect(store.completions).toEqual(['daft punk']);
+  });
+
+  it('keeps a search across a change of account: the catalog is the same', async () => {
+    publish({ details: details() });
+    store.searchTerm = 'daft punk';
+    apiCall.get.mockResolvedValueOnce(ok(results('kept')));
+    await store.search();
+
+    publish({ details: details({ account: 'guest' }) });
+    expect(store.searchResults.tracks.map((t) => t.title)).toEqual(['kept']);
+  });
 });

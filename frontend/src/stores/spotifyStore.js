@@ -16,6 +16,11 @@ const MAX_IDLE_ROUNDS = 20;
 // (between a session end and the stored account signing back in, or with no
 // account at all): a state the browser draws, not a failure.
 const NOT_SIGNED_IN = 409;
+// The search's own answers: a go-librespot that cannot search (a build without
+// it), and Spotify rate-limiting it.
+const SEARCH_UNAVAILABLE = 501;
+const RATE_LIMITED = 429;
+const EMPTY_RESULTS = Object.freeze({ tracks: [], artists: [], albums: [], playlists: [] });
 
 /**
  * The Spotify browser: what the signed-in account's library holds, and the
@@ -416,6 +421,131 @@ export const useSpotifyStore = defineStore('spotify', () => {
     return result.ok;
   }
 
+  // =========================================================================
+  // SEARCH — Spotify's catalog, as the search page draws it
+  // =========================================================================
+  // Kept across the pages the results open, so going back finds them, and
+  // across a change of account: the catalog is the same for every account.
+  const searchTerm = ref('');
+  // { tracks, artists, albums, playlists }: tracks as a listing's rows, the
+  // rest as home cards.
+  const searchResults = ref(EMPTY_RESULTS);
+  const searchLoading = ref(false);
+  const hasSearched = ref(false);
+  const lastSearchTerm = ref('');
+  // 'not_signed_in' | 'unavailable' (the daemon cannot search) |
+  // 'rate_limited' | 'failed' | null
+  const searchError = ref(null);
+  // The queries Spotify completes the term into, as it is typed.
+  const completions = ref([]);
+  // Each keystroke past the debounce asks again, and two answers can come back
+  // in either order: only the latest request's answer is kept.
+  let searchAbort = null;
+  let suggestAbort = null;
+
+  function searchErrorOf(status) {
+    if (status === NOT_SIGNED_IN) return 'not_signed_in';
+    if (status === SEARCH_UNAVAILABLE) return 'unavailable';
+    if (status === RATE_LIMITED) return 'rate_limited';
+    return 'failed';
+  }
+
+  // The query asked last, while it is on its way.
+  let searchingFor = null;
+
+  /**
+   * Search the term. The same query already on its way, or already answered
+   * without error, is not asked again (an enter just after the pause): every
+   * search is four of Spotify's, and they are rate-limited. `force` asks
+   * anyway (a retry).
+   */
+  async function search({ force = false } = {}) {
+    const query = searchTerm.value.trim();
+    if (!query) {
+      clearSearch();
+      return;
+    }
+    if (!force && (query === searchingFor
+      || (!searchAbort && hasSearched.value && !searchError.value && query === lastSearchTerm.value))) return;
+    searchAbort?.abort();
+    const ctrl = new AbortController();
+    searchAbort = ctrl;
+    searchingFor = query;
+    searchLoading.value = true;
+    // A new search is under way: the last one's failure no longer stands.
+    searchError.value = null;
+    const result = await apiCall.get(`${BASE}/search`, {
+      params: { q: query },
+      category: 'spotify',
+      message: 'Error searching Spotify',
+      logLevel: 'warn',
+      signal: ctrl.signal,
+    });
+    if (searchAbort !== ctrl) return;
+    searchAbort = null;
+    searchingFor = null;
+    searchLoading.value = false;
+    if (!result.ok) {
+      searchError.value = searchErrorOf(result.error?.status);
+      return;
+    }
+    searchError.value = null;
+    const { tracks, artists: artistCards, albums, playlists } = result.data;
+    searchResults.value = { tracks, artists: artistCards, albums, playlists };
+    hasSearched.value = true;
+    lastSearchTerm.value = query;
+  }
+
+  async function suggest() {
+    const query = searchTerm.value.trim();
+    suggestAbort?.abort();
+    if (!query) {
+      completions.value = [];
+      return;
+    }
+    const ctrl = new AbortController();
+    suggestAbort = ctrl;
+    const result = await apiCall.get(`${BASE}/search/suggestions`, {
+      params: { q: query },
+      category: 'spotify',
+      message: 'Error completing a Spotify search',
+      logLevel: 'warn',
+      signal: ctrl.signal,
+    });
+    if (suggestAbort !== ctrl) return;
+    suggestAbort = null;
+    // A completion that is the term itself completes nothing; Spotify can
+    // offer one twice.
+    completions.value = result.ok
+      ? [...new Set(result.data.completions)].filter((text) => text.toLowerCase() !== query.toLowerCase())
+      : [];
+  }
+
+  // The term is searched: what it completes into is moot, and a completion
+  // still on its way is dropped with it.
+  function dropCompletions() {
+    suggestAbort?.abort();
+    suggestAbort = null;
+    completions.value = [];
+  }
+
+  function clearSearch() {
+    searchAbort?.abort();
+    suggestAbort?.abort();
+    searchAbort = suggestAbort = null;
+    searchingFor = null;
+    searchTerm.value = '';
+    lastSearchTerm.value = '';
+    searchResults.value = EMPTY_RESULTS;
+    hasSearched.value = false;
+    searchLoading.value = false;
+    searchError.value = null;
+    completions.value = [];
+  }
+
+  const searchEmpty = computed(() =>
+    Object.values(searchResults.value).every((items) => !items.length));
+
   // Another account's library: nothing loaded for the last one still holds.
   // Synchronous, so the home view asking for the next account's library always
   // finds it cleared, never cleared after it asked.
@@ -475,6 +605,9 @@ export const useSpotifyStore = defineStore('spotify', () => {
     contexts, contextErrors, loadContext,
     // artists
     artists, artistErrors, loadArtist,
+    // search
+    searchTerm, searchResults, searchLoading, hasSearched, lastSearchTerm, searchError, searchEmpty,
+    completions, search, suggest, dropCompletions, clearSearch,
     // track menu
     trackRadio, contextLength,
     // playlists

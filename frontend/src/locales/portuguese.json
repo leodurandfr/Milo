@@ -457,7 +457,18 @@
     "trackRadio": "Rádio de {title}",
     "tracksCount": "{count} faixa | {count} faixas",
     "untitledPlaylist": "Playlist sem título",
-    "yourPlaylists": "As suas playlists"
+    "yourPlaylists": "As suas playlists",
+    "search": "Pesquisar",
+    "searchPlaceholder": "Músicas, artistas, álbuns, playlists",
+    "searchPrompt": "Pesquisar no Spotify",
+    "noResultsFor": "Sem resultados para «{query}»",
+    "searchSongs": "Músicas",
+    "searchArtists": "Artistas",
+    "searchAlbums": "Álbuns",
+    "searchPlaylists": "Playlists",
+    "searchUnavailable": "A pesquisa não está disponível neste Milō",
+    "searchRateLimited": "O Spotify está a receber demasiadas pesquisas. Tente novamente dentro de momentos.",
+    "searchFailed": "Não foi possível concluir a pesquisa"
   },
   "multiroomSettings": {
     "globalBuffer": "Buffer global (ms)",

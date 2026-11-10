@@ -4,6 +4,19 @@
     <Transition name="keyboard">
       <div v-if="isKeyboardVisible && shouldShowKeyboard" ref="keyboardRef" class="virtual-keyboard glass-shell">
 
+        <!-- What the field suggests completing its value into, above its
+             display (the search's completions): a pick is the value, and is
+             submitted. The row grows the keyboard only while it has some. -->
+        <Transition name="keyboard-suggestions">
+          <div v-if="shownSuggestions.length" class="keyboard-suggestions">
+            <button v-for="text in shownSuggestions" :key="text" v-press type="button"
+              class="keyboard-suggestion text-body-medium" @pointerdown.prevent
+              @click="handleSuggestion(text)">
+              <span class="keyboard-suggestion-text">{{ text }}</span>
+            </button>
+          </div>
+        </Transition>
+
         <!-- Header: Input display + Backspace -->
         <div class="keyboard-header">
           <div class="keyboard-input-display">
@@ -149,6 +162,9 @@ const keyboardValue = computed({
 });
 const keyboardPlaceholder = computed(() => keyboardState.placeholder.value);
 const isSecret = computed(() => keyboardState.secret.value);
+// At most three, side by side, as a phone's keyboard shows them.
+const MAX_SUGGESTIONS = 3;
+const shownSuggestions = computed(() => (keyboardState.suggestions.value ?? []).slice(0, MAX_SUGGESTIONS));
 
 // Keyboard internal state
 const keyboardMode = ref('abc'); // 'abc', 'numbers', 'symbols'
@@ -240,6 +256,13 @@ function handleSubmit() {
 
 function handleClose() {
   keyboardState.close();
+  resetState();
+}
+
+// A suggestion submits the field, as the enter key does, and like it leaves
+// the next field a keyboard in its first mode.
+function handleSuggestion(text) {
+  keyboardState.pickSuggestion(text);
   resetState();
 }
 
@@ -464,6 +487,53 @@ onUnmounted(() => {
   touch-action: none;
 }
 
+/* The field's suggestions: three equal buttons on a faint fill, rounded as
+   the keys are. The row opens and closes by its height, so the keyboard
+   grows and shrinks instead of jumping. */
+.keyboard-suggestions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-01);
+  height: 44px;
+  overflow: hidden;
+}
+
+.keyboard-suggestions-enter-active,
+.keyboard-suggestions-leave-active {
+  transition:
+    height var(--transition-fast),
+    margin-bottom var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+/* Closed, the row takes no room at all: its height and the column's gap
+   under it. */
+.keyboard-suggestions-enter-from,
+.keyboard-suggestions-leave-to {
+  height: 0;
+  margin-bottom: calc(-1 * var(--space-01));
+  opacity: 0;
+}
+
+.keyboard-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 var(--space-03);
+  border: none;
+  border-radius: var(--radius-04);
+  background: var(--color-fill-faint);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.keyboard-suggestion-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Header: Input + Backspace — same 10-column grid as rows */
 .keyboard-header {
   display: grid;
@@ -686,17 +756,18 @@ onUnmounted(() => {
 }
 
 /* ===== TRANSITIONS ===== */
+/* A slide only, quick both ways: the keyboard stays opaque as it goes, as a
+   phone's does. */
 .keyboard-enter-active {
-  transition: transform var(--transition-normal);
+  transition: transform var(--transition-fast);
 }
 
 .keyboard-leave-active {
-  transition: transform var(--transition-normal-leave), opacity var(--transition-normal-leave);
+  transition: transform var(--transition-fast-leave);
 }
 
 .keyboard-enter-from,
 .keyboard-leave-to {
-  opacity: 0;
   transform: translateX(-50%) translateY(100%);
 }
 

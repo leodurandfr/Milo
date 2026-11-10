@@ -19,10 +19,10 @@ from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.spotify.catalog import (
-    artist_page, artist_shelf_seeds, head_artist_shelves, home_shelves, is_mine, library_sections,
-    liked_songs_uri, normalize_playlist,
+    SEARCH_TYPES, artist_page, artist_shelf_seeds, head_artist_shelves, home_shelves, is_mine,
+    library_sections, liked_songs_uri, normalize_playlist, search_results,
 )
-from backend.sources.spotify.library import SpotifyLibraryError, SpotifyUnavailable
+from backend.sources.spotify.library import SpotifyLibraryError, SpotifyNoSession, SpotifyUnavailable
 from backend.sources.spotify.models import ITEM_URI, ActiveProfileRequest, AddTracksRequest
 from backend.sources.spotify.source import SpotifySource
 
@@ -68,6 +68,25 @@ async def _write_errors(context: str):
                 raise
             logger.warning(f"{context}: {exc}")
             raise HTTPException(status_code=exc.status, detail=str(exc))
+
+
+@contextlib.asynccontextmanager
+async def _search_errors(context: str):
+    """A search the daemon cannot run (404: a go-librespot built without
+    search, or with it off) answers 501, which the browser reads as "search is
+    not available"; Spotify rate-limiting it answers 429. Any other refusal is
+    a failure, as for a read."""
+    async with _library_errors(context):
+        try:
+            yield
+        except SpotifyLibraryError as exc:
+            if exc.status == 404:
+                logger.warning(f"{context}: go-librespot does not search ({exc})")
+                raise HTTPException(status_code=501, detail="This go-librespot does not search")
+            if exc.status == 429:
+                logger.warning(f"{context}: Spotify rate-limited the search")
+                raise HTTPException(status_code=429, detail="Spotify rate-limited the search")
+            raise
 
 
 def _signed_in(source: SpotifySource, context: str) -> str:
@@ -133,6 +152,65 @@ async def get_home(
             "shelves": shelves,
             "playlists": library_sections(items, account),
         }
+
+
+# How many results of each kind the search page lists, and how many completed
+# queries it offers.
+SEARCH_LIMIT = 10
+SUGGESTIONS_LIMIT = 5
+# What is searched: 1 to 200 characters, not all blank (go-librespot's bounds).
+SearchQuery = Annotated[str, Query(min_length=1, max_length=200, pattern=r"\S",
+                                   description="What to search for")]
+
+
+@router.get("/search")
+async def search(q: SearchQuery, source: SpotifySource = Depends(get_source)):
+    """Spotify's catalog searched for `q`: the first tracks, artists, albums
+    and playlists, each kind asked at once. A kind Spotify failed to search
+    this time (a refusal, a rate limit on that one request, a request that did
+    not come back) is left empty, the others shown: it fails one operation in
+    well over a thousand (measured), so the page is not lost to it. No session
+    and a daemon that cannot search hold for every kind and are answered as
+    such; a search that failed for every kind is a rate limit if each was one,
+    else a failure — never "signing in" for someone who is signed in."""
+    _signed_in(source, "Spotify search")
+    query = q.strip()
+    async with _search_errors("Spotify search"):
+        # All awaited to the end: a failure of one must not leave the others
+        # running with nobody to collect them.
+        pages = await asyncio.gather(
+            *(source.library.search(kind, query, SEARCH_LIMIT) for kind in SEARCH_TYPES),
+            return_exceptions=True,
+        )
+        failures = [page for page in pages if isinstance(page, BaseException)]
+        for failure in failures:
+            # What holds for every kind is answered as such.
+            no_search = isinstance(failure, SpotifyLibraryError) and failure.status == 404
+            if no_search or isinstance(failure, SpotifyNoSession) or not isinstance(
+                    failure, (SpotifyLibraryError, SpotifyUnavailable)):
+                raise failure
+        if len(failures) == len(pages):
+            if all(isinstance(f, SpotifyLibraryError) and f.status == 429 for f in failures):
+                raise failures[0]
+            logger.error(f"Spotify search: every kind failed ({failures[0]})")
+            raise HTTPException(status_code=503, detail="Spotify failed the search")
+        found = {}
+        for kind, page in zip(SEARCH_TYPES, pages):
+            if isinstance(page, BaseException):
+                logger.warning(f"Spotify search: the {kind}s are left out this time ({page})")
+                page = {}
+            found[kind] = page
+        return {"status": "success", **search_results(query, found)}
+
+
+@router.get("/search/suggestions")
+async def search_suggestions(q: SearchQuery, source: SpotifySource = Depends(get_source)):
+    """The queries Spotify completes `q` into, as it is typed."""
+    _signed_in(source, "Spotify search suggestions")
+    async with _search_errors("Spotify search suggestions"):
+        answer = await source.library.suggestions(q.strip(), SUGGESTIONS_LIMIT)
+        return {"status": "success", "query": answer.get("query") or q.strip(),
+                "completions": answer.get("completions") or []}
 
 
 @router.get("/history")

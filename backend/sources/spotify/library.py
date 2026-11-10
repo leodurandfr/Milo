@@ -237,6 +237,23 @@ class SpotifyLibrary:
                 await asyncio.sleep(self.CONTEXT_POLL_S)
         return playlist_cover(covers)
 
+    # go-librespot gives a search 15 s, retries included, before it answers
+    # 502: waited for a little longer than that, so its answer is the one read.
+    SEARCH_TIMEOUT = aiohttp.ClientTimeout(total=16.0)
+
+    async def search(self, kind: str, query: str, limit: int) -> Dict[str, Any]:
+        """The first page of one kind of result for `query`: go-librespot's
+        /search/{type}, which asks Spotify's pathfinder. A daemon built without
+        it, or with search off, answers 404; Spotify rate-limiting it, 429."""
+        return await self._request("GET", f"/search/{kind}", params={"q": query, "limit": limit},
+                                   timeout=self.SEARCH_TIMEOUT) or {}
+
+    async def suggestions(self, query: str, limit: int) -> Dict[str, Any]:
+        """The queries Spotify completes `query` into, and the results that
+        match it as typed: go-librespot's /search/suggestions."""
+        return await self._request("GET", "/search/suggestions", params={"q": query, "limit": limit},
+                                   timeout=self.SEARCH_TIMEOUT) or {}
+
     async def token(self) -> str:
         """An access token for the account signed in now."""
         token = (await self._request("POST", "/token") or {}).get("token")

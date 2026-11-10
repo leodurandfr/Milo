@@ -13,9 +13,10 @@
           :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
           @header-back="back" @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
 
-          <!-- Home only: the play order, whose library this is, and the way to
-               the others. -->
+          <!-- Home only: the search, the play order, whose library this is, and
+               the way to the others. -->
           <template v-if="currentView === 'home'" #header-actions>
+            <IconButton icon="search" :aria-label="t('spotify.search')" @click="push('search')" />
             <IconButton icon="queue" :aria-label="t('spotify.queue')" @click="push('queue')" />
             <button v-if="activeProfile" v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
               @click="goTo('profiles')">
@@ -50,6 +51,10 @@
                   :items="entry.params.items" @select="openItem" />
 
                 <SpotifyQueueView v-else-if="entry.view === 'queue'" />
+
+                <SpotifySearchView v-else-if="entry.view === 'search'"
+                  @select="openItem" @show-section="openSection"
+                  @select-artist="openArtist" @select-album="openAlbum" @select-radio="openRadio" />
               </component>
             </KeepAlive>
           </template>
@@ -89,6 +94,7 @@ import SpotifyDiscographyView from './views/SpotifyDiscographyView.vue';
 import SpotifySectionView from './views/SpotifySectionView.vue';
 import SpotifyProfilesView from './views/SpotifyProfilesView.vue';
 import SpotifyQueueView from './views/SpotifyQueueView.vue';
+import SpotifySearchView from './views/SpotifySearchView.vue';
 
 const store = useSpotifyStore();
 const { t } = useI18n();
@@ -114,6 +120,7 @@ const activeProfile = computed(() => store.profiles.find((p) => p.active) ?? nul
 const currentTitle = computed(() => {
   if (currentView.value === 'profiles') return t('spotify.profiles');
   if (currentView.value === 'queue') return t('spotify.queue');
+  if (currentView.value === 'search') return t('spotify.search');
   if (currentView.value === 'artist') return t('spotify.artist');
   if (currentView.value === 'discography') return t('spotify.discography');
   if (currentView.value === 'section') return currentParams.value.title || t('audioSources.spotify');

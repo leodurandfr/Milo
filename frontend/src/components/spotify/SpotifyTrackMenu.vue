@@ -42,7 +42,7 @@ const props = defineProps({
     type: Object,
     required: true,
   },
-  // The page the row is on: 'playlist' | 'liked' | 'album' | 'artist'
+  // The page the row is on: 'playlist' | 'liked' | 'album' | 'artist' | 'search'
   kind: {
     type: String,
     required: true,

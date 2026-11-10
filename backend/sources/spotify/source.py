@@ -504,10 +504,14 @@ class SpotifySource(BaseAudioSource):
     # Liked Songs (measured 2026-10-03: 3000 cost 17 MB of RSS, `length`
     # never shows what was cut off).
     # external_volume: the samples stay at unity, whatever the app's slider.
+    # search: the browser's catalog search, /search/{type} and
+    # /search/suggestions over Spotify's pathfinder; a daemon built without it
+    # ignores the key and answers those paths 404.
     MANAGED_CONSTANT_CONFIG = {
         "external_volume": True,
         "credentials": {"type": "zeroconf", "zeroconf": {"persist_credentials": True}},
         "metadata": {"enabled": True, "max_tracks": 1500},
+        "search": {"enabled": True},
     }
     # go-librespot's own state, beside config.yml: the stored credentials.
     STATE_FILE = "state.json"
@@ -1177,8 +1181,8 @@ class SpotifySource(BaseAudioSource):
         go-librespot parses its config once, at process start, so this runs from
         _do_start() before the unit is launched: whatever the settings page
         stored in the meantime is live on the next start, and there is no reload
-        path to maintain. Only the four keys Milō owns are touched (crossfade from
-        settings, external_volume, credentials and metadata constant); a
+        path to maintain. Only the five keys Milō owns are touched (crossfade from
+        settings, external_volume, credentials, metadata and search constant); a
         start that would change nothing leaves the file alone, so the daemon
         never reads a file rewritten for nothing.
 

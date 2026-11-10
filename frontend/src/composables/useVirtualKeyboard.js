@@ -30,6 +30,9 @@ const onChangeCallback = ref(null);
 const originElement = ref(null);
 const maxLength = ref(null);
 const secret = ref(false);
+// What the field suggests completing its value into, drawn above it in the
+// keyboard while there are some: null for a field that suggests nothing.
+const suggestions = ref(null);
 
 // Counts code points, as the backend's max_length does, so a surrogate pair is
 // never split. Like a native maxlength, a value already past the bound when the
@@ -55,6 +58,8 @@ export function useVirtualKeyboard() {
    *   into its `<input>`
    * @param {boolean} [options.secret] - Mask what the keys type, as the field's
    *   own `type="password"` masks nothing on the keyboard's display
+   * @param {string[]|null} [options.suggestions] - What the field suggests
+   *   completing its value into; null for none (see setSuggestions)
    */
   function open(options = {}) {
     // If keyboard is already open for another field, notify the previous field
@@ -70,6 +75,7 @@ export function useVirtualKeyboard() {
     originElement.value = options.originElement || null;
     maxLength.value = options.maxlength ?? null;
     secret.value = !!options.secret;
+    suggestions.value = options.suggestions ?? null;
     isVisible.value = true;
   }
 
@@ -88,6 +94,7 @@ export function useVirtualKeyboard() {
     originElement.value = null;
     maxLength.value = null;
     secret.value = false;
+    suggestions.value = null;
   }
 
   /**
@@ -105,6 +112,24 @@ export function useVirtualKeyboard() {
     originElement.value = null;
     maxLength.value = null;
     secret.value = false;
+    suggestions.value = null;
+  }
+
+  /**
+   * Replace the suggestions of the field the keyboard is open for (they follow
+   * its value as it is typed). Ignored while it is closed.
+   */
+  function setSuggestions(list) {
+    if (isVisible.value) suggestions.value = list ?? null;
+  }
+
+  /**
+   * A suggestion is the value: it replaces what was typed and is submitted,
+   * as the enter key does.
+   */
+  function pickSuggestion(text) {
+    updateValue(text);
+    submit();
   }
 
   /**
@@ -125,11 +150,14 @@ export function useVirtualKeyboard() {
     placeholder,
     originElement,
     secret,
+    suggestions,
 
     // Methods
     open,
     close,
     submit,
-    updateValue
+    updateValue,
+    setSuggestions,
+    pickSuggestion
   };
 }

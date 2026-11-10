@@ -457,7 +457,18 @@
     "trackRadio": "{title} रेडियो",
     "tracksCount": "{count} ट्रैक",
     "untitledPlaylist": "बिना शीर्षक की प्लेलिस्ट",
-    "yourPlaylists": "आपकी प्लेलिस्ट"
+    "yourPlaylists": "आपकी प्लेलिस्ट",
+    "search": "खोजें",
+    "searchPlaceholder": "गाने, कलाकार, एल्बम, प्लेलिस्ट",
+    "searchPrompt": "Spotify पर खोजें",
+    "noResultsFor": "\"{query}\" के लिए कोई परिणाम नहीं",
+    "searchSongs": "गाने",
+    "searchArtists": "कलाकार",
+    "searchAlbums": "एल्बम",
+    "searchPlaylists": "प्लेलिस्ट",
+    "searchUnavailable": "इस Milō पर खोज उपलब्ध नहीं है",
+    "searchRateLimited": "Spotify को बहुत अधिक खोज अनुरोध मिल रहे हैं। कृपया कुछ देर बाद फिर से प्रयास करें।",
+    "searchFailed": "खोज पूरी नहीं हो सकी"
   },
   "multiroomSettings": {
     "globalBuffer": "ग्लोबल बफर (ms)",

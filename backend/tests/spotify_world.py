@@ -423,6 +423,20 @@ class Librespot:
         self.dealer_answers_pings = True
         self.token_reads = 0
         self.closed = False
+        # Catalog search (a go-librespot built with it, search.enabled): one
+        # /search/{type} page per kind, as the daemon answers it, and the
+        # suggestions. `search_answers` set to a status answers every search
+        # with it: 404 for a daemon without search, 429 when Spotify
+        # rate-limits it. Every search asked is kept, (path, params).
+        self.search_pages: Dict[str, Dict[str, Any]] = {}
+        self.suggestions: Dict[str, Any] = {"query": "", "completions": [], "items": []}
+        self.search_answers: Optional[int] = None
+        # A kind refused alone, with its status: Spotify failing that one
+        # operation this time (go-librespot answers 502).
+        self.search_refused: Dict[str, int] = {}
+        # Kinds whose request never comes back in time (a slow network).
+        self.search_times_out: set = set()
+        self.searches: List[Tuple[str, Dict[str, Any]]] = []
 
     # -- aiohttp.ClientSession surface --------------------------------------
 
@@ -649,6 +663,18 @@ class Librespot:
             return _Exchange(_Response(200, {"token": "access-token"}))
         if path.startswith("/library/"):
             return _Exchange(self._library(method, path, params, json or {}))
+        if path.startswith("/search/"):
+            self.searches.append((path, dict(params)))
+            if self.search_answers is not None:
+                return _Exchange(_Response(self.search_answers))
+            if path == "/search/suggestions":
+                return _Exchange(_Response(200, self.suggestions))
+            if path[len("/search/"):] in self.search_times_out:
+                return _Exchange(error=asyncio.TimeoutError())
+            if path[len("/search/"):] in self.search_refused:
+                return _Exchange(_Response(self.search_refused[path[len("/search/"):]]))
+            empty = {"total": 0, "offset": 0, "limit": params.get("limit", 20), "next_offset": None, "items": []}
+            return _Exchange(_Response(200, self.search_pages.get(path[len("/search/"):], empty)))
         return _Exchange(_Response(404))
 
     def _library(self, method: str, path: str, params: Dict[str, Any], body: Dict[str, Any]) -> _Response:

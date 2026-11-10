@@ -3,7 +3,7 @@
 
 # REST operations
 
-The 212 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
+The 214 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
 
 **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
@@ -309,6 +309,8 @@ The 212 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | Method | Path | Request | Response | Stability |
 |---|---|---|---|---|
 | `GET` | `/api/spotify/home` |  | untyped JSON | internal |
+| `GET` | `/api/spotify/search` |  | untyped JSON | internal |
+| `GET` | `/api/spotify/search/suggestions` |  | untyped JSON | internal |
 | `GET` | `/api/spotify/history` |  | untyped JSON | internal |
 | `GET` | `/api/spotify/contexts/{uri}` |  | untyped JSON | internal |
 | `GET` | `/api/spotify/artists/{uri}` |  | untyped JSON | internal |

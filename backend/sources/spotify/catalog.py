@@ -565,3 +565,97 @@ def artist_page(view: Dict[str, Any], releases: Optional[Dict[str, Any]],
         "popular_title": popular_title,
         "sections": sections,
     }
+
+
+# === Search ===
+
+# The kinds of result the browser searches, each with the page it opens: a
+# track plays, an artist, an album and a playlist open their page. go-librespot
+# searches five more (show, episode, user, genre, audiobook), none of which the
+# browser has a page for.
+SEARCH_TYPES = ("track", "artist", "album", "playlist")
+# The width a card's picture is drawn from: the smallest one at least this wide.
+CARD_IMAGE_WIDTH = 300
+_USER_URI = re.compile(r"^spotify:user:([^:]+)$")
+
+
+def search_image(images: List[Dict[str, Any]], width: Optional[int] = CARD_IMAGE_WIDTH) -> Optional[str]:
+    """The picture of a search result: the smallest at least `width` wide, else
+    the widest; with `width` None, the widest. A size Spotify does not give
+    (0) counts as the widest, as it is for an artist's single photo."""
+    sized = [(image.get("width") or 0, image["url"]) for image in images or [] if image.get("url")]
+    if not sized:
+        return None
+    sized.sort(key=lambda pair: pair[0] or float("inf"))
+    if width is not None:
+        for image_width, url in sized:
+            if image_width >= width:
+                return url
+    return sized[-1][1]
+
+
+def _names(refs: List[Dict[str, Any]]) -> str:
+    return ", ".join(ref["name"] for ref in refs if ref.get("name"))
+
+
+def search_track(entity: Dict[str, Any]) -> Dict[str, Any]:
+    """A track result as a listing describes its rows (see normalize_track): the
+    row, its album, its artists, a cover in two sizes."""
+    album = entity.get("album") or {}
+    artwork = search_image(entity.get("images") or [], width=None)
+    return {
+        "uri": entity["uri"],
+        "listed_uri": entity["uri"],
+        "title": entity.get("name") or None,
+        "artists": [{"name": a.get("name") or None, "uri": a.get("uri") or None} for a in entity.get("artists") or []],
+        "album": {"name": album.get("name") or None, "uri": album.get("uri") or None},
+        "artwork": artwork,
+        "thumbnail": thumbnail_url(artwork),
+        "duration_ms": entity.get("duration_ms") or None,
+        "explicit": bool(entity.get("explicit")),
+    }
+
+
+def search_card(entity: Dict[str, Any]) -> Dict[str, Any]:
+    """An artist, album or playlist result as a home card (see _home_card): an
+    album's byline is its artists, a playlist's its owner's name, an artist's
+    the card's own. A playlist carries its owner's username too, which its page
+    reads to tell Spotify's own playlists apart."""
+    kind = entity["type"]
+    owner = entity.get("owner") or {}
+    card = {
+        "uri": entity["uri"],
+        "kind": kind,
+        "name": entity.get("name") or None,
+        "subtitle": None,
+        "image": search_image(entity.get("images") or []),
+    }
+    if kind == "album":
+        card["subtitle"] = _names(entity.get("artists") or []) or None
+    elif kind == "playlist":
+        card["subtitle"] = owner.get("name") or None
+        match = _USER_URI.match(owner.get("uri") or "")
+        card["owner"] = match.group(1) if match else None
+    return card
+
+
+def search_results(query: str, pages: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """The browser's search page from one /search/{type} page per SEARCH_TYPES:
+    the tracks as rows, the rest as cards. A result Spotify repeats inside a
+    page is kept once."""
+    def unique(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen = set()
+        kept = []
+        for item in items:
+            if item.get("uri") and item["uri"] not in seen:
+                seen.add(item["uri"])
+                kept.append(item)
+        return kept
+
+    return {
+        "query": query,
+        "tracks": [search_track(e) for e in unique(pages["track"].get("items") or [])],
+        "artists": [search_card(e) for e in unique(pages["artist"].get("items") or [])],
+        "albums": [search_card(e) for e in unique(pages["album"].get("items") or [])],
+        "playlists": [search_card(e) for e in unique(pages["playlist"].get("items") or [])],
+    }

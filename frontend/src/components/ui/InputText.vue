@@ -11,7 +11,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue';
+import { ref, watch, onUnmounted } from 'vue';
 import { useVirtualKeyboard, useKeyboardAvailability } from '@/composables/useVirtualKeyboard';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
@@ -43,6 +43,13 @@ const props = defineProps({
   iconSize: {
     type: Number,
     default: 24
+  },
+  // What the value may be completed into, as it is typed (a search's
+  // completions): on the virtual keyboard they are drawn above its display,
+  // where picking one submits it. null: the field suggests nothing.
+  suggestions: {
+    type: Array,
+    default: null
   }
 });
 
@@ -70,13 +77,18 @@ function handleContainerClick() {
   }
 }
 
+// A tap on the field is a focus then a click, and each opens the keyboard:
+// the second would close it for this very field first (keyboard.open notifies
+// the field it held it), leaving the field believing it no longer holds it —
+// no active outline, no suggestions. The keyboard already this field's stays.
 function openKeyboard() {
-  isKeyboardActiveForThis.value = true;
+  if (isKeyboardActiveForThis.value && keyboard.isVisible.value) return;
   keyboard.open({
     value: props.modelValue,
     placeholder: props.placeholder,
     maxlength: props.maxlength,
     secret: props.type === 'password',
+    suggestions: props.suggestions,
     originElement: inputRef.value,
     onChange: (newValue) => {
       emit('update:modelValue', newValue);
@@ -92,7 +104,14 @@ function openKeyboard() {
       isKeyboardActiveForThis.value = false;
     }
   });
+  // After open(): handing the keyboard over notifies the field that held it.
+  isKeyboardActiveForThis.value = true;
 }
+
+// The suggestions follow the value: the open keyboard draws the latest.
+watch(() => props.suggestions, (list) => {
+  if (isKeyboardActiveForThis.value) keyboard.setSuggestions(list);
+});
 
 function handleFocus(event) {
   if (shouldShowKeyboard.value) {

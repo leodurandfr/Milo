@@ -457,7 +457,18 @@
     "trackRadio": "{title} 电台",
     "tracksCount": "{count} 首曲目",
     "untitledPlaylist": "未命名歌单",
-    "yourPlaylists": "您的歌单"
+    "yourPlaylists": "您的歌单",
+    "search": "搜索",
+    "searchPlaceholder": "歌曲、艺术家、专辑、播放列表",
+    "searchPrompt": "搜索 Spotify",
+    "noResultsFor": "没有找到「{query}」的结果",
+    "searchSongs": "歌曲",
+    "searchArtists": "艺术家",
+    "searchAlbums": "专辑",
+    "searchPlaylists": "播放列表",
+    "searchUnavailable": "此 Milō 不支持搜索",
+    "searchRateLimited": "Spotify 收到的搜索请求过多。请稍后再试。",
+    "searchFailed": "无法完成搜索"
   },
   "multiroomSettings": {
     "globalBuffer": "全局缓冲区 (ms)",

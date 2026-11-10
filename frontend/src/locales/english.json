@@ -457,7 +457,18 @@
     "trackRadio": "{title} Radio",
     "tracksCount": "{count} track | {count} tracks",
     "untitledPlaylist": "Untitled playlist",
-    "yourPlaylists": "Your playlists"
+    "yourPlaylists": "Your playlists",
+    "search": "Search",
+    "searchPlaceholder": "Songs, artists, albums, playlists",
+    "searchPrompt": "Search Spotify",
+    "noResultsFor": "No results for “{query}”",
+    "searchSongs": "Songs",
+    "searchArtists": "Artists",
+    "searchAlbums": "Albums",
+    "searchPlaylists": "Playlists",
+    "searchUnavailable": "Search is not available on this Milō",
+    "searchRateLimited": "Spotify is receiving too many searches. Try again in a moment.",
+    "searchFailed": "The search could not be completed"
   },
   "multiroomSettings": {
     "globalBuffer": "Global buffer (ms)",
