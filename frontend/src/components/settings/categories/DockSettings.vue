@@ -223,6 +223,15 @@ const sections = [
   flex: 1;
 }
 
+/* AppIcon draws its own rounded shape: the row's icon box must not clip it.
+   Inset to 36px, nearer the row's corner; the negative margin gives back the
+   inset on the text's side, so the icon-to-text gap stays the row's. */
+.drag-item :deep(.list-item-button__icon--full) {
+  border-radius: 0;
+  padding: 2px;
+  margin-right: -2px;
+}
+
 .drag-item--reordering :deep(.list-item-button) {
   pointer-events: none;
 }
@@ -250,6 +259,12 @@ const sections = [
   .app-list {
     display: flex;
     flex-direction: column;
+  }
+
+  /* Already 36px here */
+  .drag-item :deep(.list-item-button__icon--full) {
+    padding: 0;
+    margin-right: 0;
   }
 }
 </style>
