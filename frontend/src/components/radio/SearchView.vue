@@ -192,9 +192,15 @@ function search() {
   emit('search')
 }
 
+// What is already searched (or on its way) is not asked again, whether the
+// pause or the enter key asks; a failed search is.
+function alreadySearched() {
+  return searchKey() === searchedFor && !radioStore.hasError
+}
+
 const { debounced: debouncedSearch, cancel: cancelSearch } = useDebounce((query) => {
   if (query.length > 0) showMinCharMessage.value = false
-  search()
+  if (!alreadySearched()) search()
 })
 
 function onSearchInput() {
@@ -224,8 +230,7 @@ function onSearchSubmit() {
   // Valid search: at once, unless it is the one already searched (a failed
   // one is asked again)
   showMinCharMessage.value = false
-  if (searchKey() === searchedFor && !radioStore.hasError) return
-  search()
+  if (!alreadySearched()) search()
 }
 
 // Two-way binding for filters (v-model on store properties)
