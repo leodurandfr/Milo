@@ -366,7 +366,7 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
 /* The transport as far below the progress bar as it is above the screen's
    bottom edge: the body's bottom padding plus the panel's. */
 .now-playing :deep(.player-body--full > .player-body-bottom) {
-  gap: calc(var(--space-04) + var(--bottom-edge));
+  gap: var(--space-06);
 }
 
 /* The body's top padding puts the source bar (a 24px row) on that line. */
