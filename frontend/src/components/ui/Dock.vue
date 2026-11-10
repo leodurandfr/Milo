@@ -789,7 +789,6 @@ onUnmounted(() => {
   transform: translateX(-50%);
   width: 96px;
   height: var(--space-01);
-  background: var(--color-glass-strong);
   border-radius: var(--radius-full);
   z-index: 998;
   opacity: 0;
@@ -808,11 +807,17 @@ onUnmounted(() => {
   bottom: calc(var(--space-05) * -1 - var(--screen-inset));
 }
 
+/* No fill: the pill is what lies under it, blurred, under a veil of the
+   opposite tone — a partial invert pulls each channel toward its complement,
+   so a light backdrop darkens and a dark one lightens, and saturate gives back
+   the hue the invert drained. A backdrop at mid gray is the one tone the veil
+   cannot move off: the glass's lit rim outlines the pill there. */
 .dock-indicator.visible {
   opacity: 1;
   pointer-events: auto;
-  backdrop-filter: blur(calc(var(--blur-01) * 2));
-  -webkit-backdrop-filter: blur(calc(var(--blur-01) * 2));
+  backdrop-filter: blur(calc(var(--blur-01) * 2)) invert(0.4) saturate(4);
+  -webkit-backdrop-filter: blur(calc(var(--blur-01) * 2)) invert(0.4) saturate(4);
+  box-shadow: inset 0 0 0 0.5px var(--color-shell-rim);
 }
 
 .dock-indicator.hidden {
