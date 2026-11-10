@@ -353,7 +353,13 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
   --bottom-edge: var(--space-05);
   display: flex;
   height: 100%;
-  padding: var(--space-05) var(--edge) var(--bottom-edge) var(--space-05);
+  /* Measured from the glass the bezel leaves visible; the backdrop stays at the
+     panel's edge. */
+  padding:
+    calc(var(--space-05) + var(--screen-inset))
+    calc(var(--edge) + var(--screen-inset))
+    calc(var(--bottom-edge) + var(--screen-inset))
+    calc(var(--space-05) + var(--screen-inset));
   gap: var(--edge);
 }
 

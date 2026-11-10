@@ -115,12 +115,14 @@ function handleSettingsClick() {
   z-index: 1;
 }
 
+/* Anchored at the panel's corner and grown by the bezel inset, so the part a
+   finger can reach under the enclosure keeps its size. */
 .SettingsAccess {
   position: absolute;
   top: 0;
   right: 0;
-  width: 32px;
-  height: 64px;
+  width: calc(32px + var(--screen-inset));
+  height: calc(64px + var(--screen-inset));
   z-index: 9999;
 }
 </style>

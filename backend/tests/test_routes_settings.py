@@ -98,7 +98,8 @@ class TestSettingsRoutes:
         service.get_screen_info = Mock(return_value={
             "type": "official",
             "resolution": {"width": 800, "height": 480},
-            "color_correction": None
+            "color_correction": None,
+            "pixels_per_mm": None
         })
         service.get_full_config = Mock(return_value={
             "audio": {"id": "hifiberry_amp2"},
@@ -1158,6 +1159,7 @@ class TestBulkSettings:
         ("screen_auto_player", "auto_player_delay_seconds"): ("screen", "auto_player_delay_seconds"),
         ("screen_color_filter", "enabled"): ("screen", "color_filter_enabled"),
         ("screen_color_filter", "warmth"): ("screen", "color_filter_warmth"),
+        ("screen_edge_inset", "edge_inset_mm"): ("screen", "edge_inset_mm"),
         ("screen_theme", "theme"): ("screen", "theme"),
         ("radio_settings", "shazam_enabled"): ("radio", "shazam_enabled"),
         ("music_library_settings", "separate_storages"): ("music_library", "separate_storages"),

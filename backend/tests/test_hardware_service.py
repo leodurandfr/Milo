@@ -172,6 +172,7 @@ class TestTheScreenResolution:
             "type": "waveshare_7_usb",
             "resolution": {"width": 1024, "height": 600},
             "color_correction": None,
+            "pixels_per_mm": None,
         }
 
     def test_only_a_measured_screen_carries_a_correction(self, service):
@@ -183,6 +184,25 @@ class TestTheScreenResolution:
         for screen_type in ("waveshare_7_usb", "none", "retired_panel"):
             _write(service, {"screen": {"type": screen_type}})
             assert service.get_screen_info()["color_correction"] is None, screen_type
+
+    def test_only_a_panel_of_known_width_carries_a_pitch(self, service):
+        """The kiosk turns its bezel inset from millimeters into pixels with this
+        pitch, and takes no inset without one: the panel whose lit width the
+        registry declares gets it from its own resolution, an unknown panel and a
+        panel with no resolution on record get none, and the lookup never raises."""
+        pitches = []
+        for resolution in ("1280x800", "2560x1600"):
+            _write(service, {"screen": {"type": "waveshare_8_dsi", "resolution": resolution}})
+            pitches.append(service.get_screen_info()["pixels_per_mm"])
+        assert pitches[0] > 0
+        # The pixels on record, over the panel's width: twice the pixels on the
+        # same glass, twice the pitch.
+        assert pitches[1] == pytest.approx(2 * pitches[0])
+        for screen in ({"type": "waveshare_8_dsi"},
+                       {"type": "waveshare_7_usb", "resolution": "1024x600"},
+                       {"type": "retired_panel", "resolution": "1280x800"}):
+            _write(service, {"screen": screen})
+            assert service.get_screen_info()["pixels_per_mm"] is None, screen
 
     def test_every_registry_correction_only_attenuates_and_keeps_one_channel_whole(self):
         """The kiosk's color matrix can only darken: a gain above 1 is clipped at

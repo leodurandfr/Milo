@@ -36,6 +36,7 @@ from backend.api.models import (
     ScreenAutoPlayerRequest,
     ScreenUiScaleRequest,
     ScreenColorFilterRequest,
+    ScreenEdgeInsetRequest,
     ScreenThemeRequest,
     MacRocConfigRequest,
     RadioSettingsRequest,
@@ -72,6 +73,8 @@ from backend.core.models.ws_events import (
     ScreenBrightnessConfig,
     ScreenColorFilterChanged,
     ScreenColorFilterConfig,
+    ScreenEdgeInsetChanged,
+    ScreenEdgeInsetConfig,
     ScreenAutoPlayerChanged,
     ScreenAutoPlayerConfig,
     ScreenThemeChanged,
@@ -271,6 +274,7 @@ def create_settings_router(
                 "enabled": screen['color_filter_enabled'],
                 "warmth": screen['color_filter_warmth']
             },
+            "screen_edge_inset": {"edge_inset_mm": screen['edge_inset_mm']},
             "screen_theme": {"theme": screen['theme']},
             "radio_settings": {"shazam_enabled": all_settings['radio']['shazam_enabled']},
             "music_library_settings": {
@@ -724,6 +728,18 @@ def create_settings_router(
             )),
         )
 
+    # The strip of the panel the kiosk's enclosure hides: applied by the page
+    # live, so no kiosk restart
+    @router.put("/screen-edge-inset")
+    async def set_screen_edge_inset(payload: ScreenEdgeInsetRequest):
+        return await _handle_setting_update(
+            setter=lambda: settings.set_setting('screen.edge_inset_mm', payload.edge_inset_mm),
+            section='screen',
+            build_event=lambda screen: ScreenEdgeInsetChanged(
+                config=ScreenEdgeInsetConfig(edge_inset_mm=screen['edge_inset_mm'])
+            ),
+        )
+
     # Kiosk theme
     @router.put("/screen-theme")
     async def set_screen_theme(payload: ScreenThemeRequest):
@@ -764,7 +780,8 @@ def create_settings_router(
                 "hardware": {
                     "screen_type": screen_info["type"],
                     "screen_resolution": screen_info["resolution"],
-                    "screen_color_correction": screen_info["color_correction"]
+                    "screen_color_correction": screen_info["color_correction"],
+                    "screen_pixels_per_mm": screen_info["pixels_per_mm"]
                 }
             }
         except Exception as e:
@@ -775,7 +792,8 @@ def create_settings_router(
                 "hardware": {
                     "screen_type": "none",
                     "screen_resolution": {"width": None, "height": None},
-                    "screen_color_correction": None
+                    "screen_color_correction": None,
+                    "screen_pixels_per_mm": None
                 }
             }
 

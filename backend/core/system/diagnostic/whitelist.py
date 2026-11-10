@@ -62,6 +62,7 @@ SETTINGS_ALLOWED = frozenset({
     "screen.ui_scale",
     "screen.color_filter_enabled",
     "screen.color_filter_warmth",
+    "screen.edge_inset_mm",
     "screen.theme",
     "audio.auto_stop_delay",
     "routing.multiroom_enabled",

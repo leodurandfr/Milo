@@ -31,6 +31,7 @@ import { useTimer } from '@/composables/useTimer';
 import { useBackdropDismiss } from '@/composables/useBackdropDismiss';
 import { useI18n } from '@/services/i18n';
 import { useModalPresence } from '@/composables/useModalPresence';
+import { useScreenInset } from '@/composables/useScreenInset';
 
 const props = defineProps({
   isOpen: {
@@ -76,6 +77,14 @@ const { setTargetHeight, resetFirstResize, endFirstResize, requestHeightDelta, s
 
 const isVisible = ref(false);
 const isAnimating = ref(false);
+
+// The bezel inset moves the overlay's padding, which getMaxHeight reads, but
+// resizes no content: nothing else would clamp the shell again while the inset
+// is set from the Screen settings, inside this very modal.
+const { insetPx } = useScreenInset();
+watch(insetPx, () => {
+  if (isVisible.value) setTargetHeight();
+});
 
 // The scroller is the single scroll container + the scrollElRef for navigation.
 provide('modalContentRef', modalScroller);
@@ -397,7 +406,10 @@ onUnmounted(() => {
   align-items: flex-start;
   justify-content: center;
   z-index: 5000;
-  padding: var(--space-07) var(--space-04) var(--space-05) var(--space-04);
+  padding:
+    calc(var(--space-07) + var(--screen-inset))
+    calc(var(--space-04) + var(--screen-inset))
+    calc(var(--space-05) + var(--screen-inset));
   opacity: 0;
   /* Every glass inside (the shell, the close button, a glass row) would blur
      only this veil and paint it twice: in Chromium, light theme, the close

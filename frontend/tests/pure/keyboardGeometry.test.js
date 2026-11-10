@@ -61,6 +61,19 @@ describe('accentPopupPlacement', () => {
     expect(rightmost.left + width).toBeLessThanOrEqual(KB.width);
   });
 
+  it('keeps the popup off the strip the kiosk bezel hides', () => {
+    const width = accentPopupWidth(4);
+    const hidden = 9;
+    const leftmost = accentPopupPlacement(rect({ left: KB.left, width: 76, top: 420 }), KB, 4, hidden);
+    const rightmost = accentPopupPlacement(
+      rect({ left: KB.left + KB.width - 76, width: 76, top: 420 }), KB, 4, hidden
+    );
+    const bare = accentPopupPlacement(rect({ left: KB.left, width: 76, top: 420 }), KB, 4);
+    expect(leftmost.left).toBeGreaterThan(hidden);
+    expect(KB.width - (rightmost.left + width)).toBeGreaterThan(hidden);
+    expect(leftmost.left - bare.left).toBe(hidden);
+  });
+
   it('widens with the number of variants', () => {
     expect(accentPopupWidth(4)).toBeGreaterThan(accentPopupWidth(1));
   });

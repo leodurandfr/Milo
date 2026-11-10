@@ -81,12 +81,17 @@ class HardwareService:
 
     def get_screen_info(self) -> Dict:
         """Returns combined screen info: {"type": str, "resolution": dict|None,
-        "color_correction": (r, g, b)|None} — the last from the screen registry."""
+        "color_correction": (r, g, b)|None, "pixels_per_mm": float|None} — the
+        last two from the screen registry."""
         screen_type = self.get_screen_type()
+        screen = SCREENS.get(screen_type, {})
+        resolution = self.get_screen_resolution()
+        width_mm = screen.get("active_width_mm")
         return {
             "type": screen_type,
-            "resolution": self.get_screen_resolution(),
-            "color_correction": SCREENS.get(screen_type, {}).get("color_correction"),
+            "resolution": resolution,
+            "color_correction": screen.get("color_correction"),
+            "pixels_per_mm": resolution["width"] / width_mm if resolution and width_mm else None,
         }
 
     def get_audio_id(self) -> Optional[str]:

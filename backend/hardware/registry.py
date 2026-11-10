@@ -129,6 +129,9 @@ def is_dac_card(audio_id: str) -> bool:
 #   panel's white to D65. Only a panel measured with a colorimeter carries one:
 #   neither DSI nor Chromium-on-cage offers a native place for it (rp1-dsi has
 #   no gamma LUT, cage implements no color-management protocol).
+# - active_width_mm: optional width of the panel's lit area, which turns the
+#   kiosk's bezel inset (screen.edge_inset_mm) into panel pixels. A panel
+#   without one takes no inset.
 
 SCREENS = {
     "waveshare_7_usb": {
@@ -142,6 +145,8 @@ SCREENS = {
         # and green); corrected 6530 K, du'v' 0.0005 from D65, grays neutral
         # down to 25 %, 79 % of the native luminance kept.
         "color_correction": (1.0, 0.875, 0.768),
+        # Nominal, not measured: the width of an 8.0-inch 16:10 diagonal.
+        "active_width_mm": 172.3,
     },
     "none": {
         "label": "No screen",

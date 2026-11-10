@@ -174,7 +174,7 @@ onBeforeUnmount(() => {
   top: var(--rail-top, 0px);
   height: max(
     var(--space-09),
-    calc(100svh - var(--rail-top, 0px) - var(--space-07))
+    calc(100svh - var(--rail-top, 0px) - var(--space-07) - var(--screen-inset))
   );
   align-self: flex-start;
   flex-shrink: 0;

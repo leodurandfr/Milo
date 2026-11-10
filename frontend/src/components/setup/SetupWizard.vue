@@ -272,7 +272,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-07);
+  padding: calc(var(--space-07) + var(--screen-inset));
 }
 
 .setup-card {

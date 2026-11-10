@@ -259,8 +259,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 .lyrics-view-close {
   position: absolute;
-  top: var(--space-07);
-  right: var(--space-07);
+  top: calc(var(--space-07) + var(--screen-inset));
+  right: calc(var(--space-07) + var(--screen-inset));
   z-index: 3;
   transform: translateY(-24px);
   visibility: hidden;

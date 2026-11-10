@@ -1,6 +1,6 @@
 <!-- App.vue - Version with i18n WebSocket -->
 <template>
-  <div class="app-container" :style="kioskZoomStyle">
+  <div class="app-container">
     <!-- Notification banner for connection issues and errors (shown after boot) -->
     <NotificationBanner
       :title="notificationTitle"
@@ -117,6 +117,7 @@ import { useUpdatesStore } from '@/stores/updatesStore';
 import { i18n, useI18n } from '@/services/i18n';
 import { useDarkSurface } from '@/composables/useDarkSurface';
 import { mountTheme } from '@/composables/useTheme';
+import { mountScreenInset } from '@/composables/useScreenInset';
 import useWebSocket from '@/services/websocket';
 import { wsEventRegistry } from '@/schemas/ws';
 import { logger } from '@/services/logger';
@@ -146,6 +147,11 @@ const bootClasses = document.documentElement.classList;
 const hasBootLogo = !bootClasses.contains('fast-boot') && !bootClasses.contains('kiosk-boot');
 const LOGO_FADE_DELAY = hasBootLogo ? 400 : 0;
 const SCREEN_FADE_DELAY = hasBootLogo ? 500 : 100;
+// The kiosk keeps its boot screen until the settings and the panel's pitch have
+// answered, so the bezel inset is in place on the first frame instead of moving
+// it — for this long past the initial state at most, so a route that fails
+// cannot hold the screen.
+const BOOT_INSET_WAIT_MS = 1500;
 
 const { t } = useI18n();
 const route = useRoute();
@@ -183,6 +189,7 @@ watch(() => settingsStore.language, (lang) => i18n.handleLanguageChanged(lang));
 // === State ===
 const isReady = ref(false);
 const isBootComplete = ref(false);
+const isInsetWaitOver = ref(false);
 const currentError = ref(null);
 
 // Light/dark on <html>, from screen.theme (auto = the sun at the timezone's
@@ -463,8 +470,12 @@ watch(() => settingsStore.isScreenSleeping, (sleeping) => {
   revealDockFn?.();
 });
 
-// Watch isReady → trigger boot screen fade and dock auto-show
 watch(isReady, (ready) => {
+  if (ready) timer.setTimeout(() => { isInsetWaitOver.value = true; }, BOOT_INSET_WAIT_MS);
+});
+
+// Watch isReady → trigger boot screen fade and dock auto-show
+watch(() => isReady.value && (isInsetKnown.value || isInsetWaitOver.value), (ready) => {
   if (ready && bootScreenEl) {
     clearBootTimeout();
     hideBootMessage();
@@ -506,12 +517,9 @@ const colorLayerGains = computed(() => {
   return screenColorGains(correction, showChrome.value ? settingsStore.screenColorFilter : null);
 });
 
-// The kiosk's interface scale is Chromium's page zoom (milo-kiosk-zoom), so a
-// CSS px grows with it: a size that must keep its size on the panel divides by
-// this factor.
-const kioskZoomStyle = computed(() => (
-  isKiosk() ? { '--kiosk-zoom': settingsStore.screenUiScale?.ui_scale ?? 1 } : null
-));
+// The kiosk's zoom and bezel inset, on <html>. The gallery shows a component as
+// it is written, so it takes no inset, as it takes no warm filter.
+const { isKnown: isInsetKnown } = mountScreenInset({ enabled: showChrome });
 
 // The gains on the diagonal, applied to gamma-encoded values (sRGB
 // interpolation), as the multiply layer this replaced did: the same pixels,
@@ -664,6 +672,7 @@ const SETTINGS_CONFIG_EVENTS = [
   ['screen_brightness_changed', settingsStore.updateScreenBrightness],
   ['screen_auto_player_changed', settingsStore.updateScreenAutoPlayer],
   ['screen_color_filter_changed', settingsStore.updateScreenColorFilter],
+  ['screen_edge_inset_changed', settingsStore.updateScreenEdgeInset],
   ['screen_theme_changed', settingsStore.updateScreenTheme],
   ['radio_settings_changed', settingsStore.updateRadioSettings],
   ['music_library_settings_changed', settingsStore.updateMusicLibrarySettings],

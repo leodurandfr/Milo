@@ -5,7 +5,7 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-69 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+70 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
@@ -39,6 +39,7 @@ Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`.
 | [`settings/screen_auto_player_changed`](#settingsscreen_auto_player_changed) | internal |
 | [`settings/screen_ui_scale_changed`](#settingsscreen_ui_scale_changed) | internal |
 | [`settings/screen_color_filter_changed`](#settingsscreen_color_filter_changed) | internal |
+| [`settings/screen_edge_inset_changed`](#settingsscreen_edge_inset_changed) | internal |
 | [`settings/screen_theme_changed`](#settingsscreen_theme_changed) | internal |
 | [`settings/mac_roc_changed`](#settingsmac_roc_changed) | contracted |
 | [`settings/mac_calibration_progress`](#settingsmac_calibration_progress) | internal |
@@ -391,6 +392,15 @@ The screen's color filter changed.
 |---|---|
 | `source` | "settings" |
 | `config` | [ScreenColorFilterConfig](#screencolorfilterconfig) |
+
+### settings/screen_edge_inset_changed
+
+The strip of the panel the kiosk's enclosure hides changed.
+
+| Field | Type |
+|---|---|
+| `source` | "settings" |
+| `config` | [ScreenEdgeInsetConfig](#screenedgeinsetconfig) |
 
 ### settings/screen_theme_changed
 
@@ -892,6 +902,12 @@ An update of a satellite's CamillaDSP finished; `success` says whether it worked
 |---|---|
 | `enabled` | boolean |
 | `warmth` | integer |
+
+### ScreenEdgeInsetConfig
+
+| Field | Type |
+|---|---|
+| `edge_inset_mm` | number |
 
 ### ScreenThemeConfig
 

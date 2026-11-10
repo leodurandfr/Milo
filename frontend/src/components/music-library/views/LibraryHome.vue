@@ -412,8 +412,9 @@ onPageReturn(() => loadTab(store.activeTab));
      the very top of the screen under viewport-fit=cover, so the inset is added
      rather than max()'d: the letter clears the status bar and THEN gets its
      gap, where a max() would park it against the iPhone's clock. Zero on every
-     screen that has no inset, the panel included. */
-  scroll-margin-top: calc(var(--space-06) + env(safe-area-inset-top, 0px));
+     screen that has no inset. The kiosk's bezel hides a strip of its own,
+     added the same way. */
+  scroll-margin-top: calc(var(--space-06) + env(safe-area-inset-top, 0px) + var(--screen-inset));
 }
 
 .index-label {

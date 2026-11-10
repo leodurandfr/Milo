@@ -33,6 +33,7 @@ from backend.core.models.settings_config import (
     RotaryStepsConfig,
     ScreenBrightnessConfig,
     ScreenColorFilterConfig,
+    ScreenEdgeInsetConfig,
     ScreenThemeConfig,
     ScreenAutoPlayerConfig,
     ScreenTimeoutConfig,
@@ -531,6 +532,15 @@ class ScreenColorFilterChanged(SettingsEvent):
     """
     TYPE = "screen_color_filter_changed"
     config: ScreenColorFilterConfig
+
+
+class ScreenEdgeInsetChanged(SettingsEvent):
+    """The strip of the panel the kiosk's enclosure hides changed.
+
+    App.vue settings listener.
+    """
+    TYPE = "screen_edge_inset_changed"
+    config: ScreenEdgeInsetConfig
 
 
 class ScreenThemeChanged(SettingsEvent):

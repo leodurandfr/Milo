@@ -188,7 +188,11 @@ function onHintClick(event) {
   display: flex;
   align-items: center;
   gap: var(--space-06);
-  padding: var(--space-09) var(--space-07) max(var(--space-06), env(safe-area-inset-bottom, 0px)) var(--space-07);
+  /* The scrim is the bar's own background, so it still reaches the glass. */
+  padding:
+    var(--space-09)
+    calc(var(--space-07) + var(--screen-inset))
+    calc(max(var(--space-06), env(safe-area-inset-bottom, 0px)) + var(--screen-inset));
   transition: transform var(--transition-normal), opacity var(--transition-normal);
 }
 
@@ -269,11 +273,11 @@ function onHintClick(event) {
   position: absolute;
   left: 50%;
   top: 100%;
-  /* 24px between the glyph and the view's bottom edge, at every breakpoint: the
+  /* 24px between the glyph and the visible bottom edge, at every breakpoint: the
      tap padding is invisible, so it's subtracted here rather than shifting the
      arrow up by 8px. --space-05-fixed and --space-02 both hold their value on
      mobile (--space-06, used before, was 32px desktop / 24px mobile). */
-  transform: translate(-50%, calc(-100% - var(--space-05-fixed) + var(--space-02)));
+  transform: translate(-50%, calc(-100% - var(--space-05-fixed) + var(--space-02) - var(--screen-inset)));
   z-index: 1;
   display: flex;
   /* 24px glyph + this padding = a 40px tap target; the bare glyph is too small

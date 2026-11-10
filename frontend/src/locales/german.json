@@ -314,6 +314,8 @@
     "uiScaleLevel": "Skalierung der Oberfläche auf dem Touchscreen von Milō",
     "colorFilter": "Warmer Farbfilter",
     "colorFilterWarmth": "Intensität",
+    "edgeInset": "Bildschirmränder",
+    "edgeInsetWidth": "Vom Gehäuse verdeckter Rand an jeder Seite",
     "theme": "Design",
     "themeDescription": "Design von Milō, auf allen Bildschirmen — Auto wechselt von Sonnenuntergang bis Sonnenaufgang zu Dunkel",
     "themeLight": "Hell",

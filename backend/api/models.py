@@ -391,6 +391,11 @@ class ScreenColorFilterRequest(StrictModel):
     warmth: Optional[int] = Field(None, ge=0, le=100)
 
 
+class ScreenEdgeInsetRequest(StrictModel):
+    """The strip of the panel the kiosk's enclosure hides, in millimeters"""
+    edge_inset_mm: float = Field(..., ge=0.0, le=3.0)
+
+
 class ScreenThemeRequest(StrictModel):
     """Kiosk theme request"""
     theme: SCREEN_THEMES

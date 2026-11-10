@@ -364,6 +364,8 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   /* The player keeps its width on the kiosk whatever the interface scale:
      only the gap before it follows the zoom. */
   --audio-player-wrapper-width: calc((380px - var(--space-06)) / var(--kiosk-zoom, 1) + var(--space-06));
+  /* The frame's side padding, from the glass the bezel leaves visible. */
+  --layout-gutter: calc(var(--space-07) + var(--screen-inset));
   position: relative;
   isolation: isolate;
   display: flex;
@@ -371,7 +373,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   align-items: flex-start;
   width: 100%;
   height: 100%;
-  padding: 0 var(--space-07);
+  padding: 0 var(--layout-gutter);
   overflow-y: auto;
   /* A row bleeds to the screen's edge, and while the player opens its bleed
      is already the final one but the column is not yet narrowed: for that
@@ -422,7 +424,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
      no further: the frame's padding plus the column's own margin, 8% of the
      frame on each side. Read in a margin or a padding, a percentage resolves
      against the column's width, of which 8% of the frame is 8/84. */
-  --content-bleed-start: calc(var(--space-07) + 100% * 8 / 84);
+  --content-bleed-start: calc(var(--layout-gutter) + 100% * 8 / 84);
   --content-bleed-end: var(--content-bleed-start);
   position: relative;
   z-index: 1;
@@ -431,7 +433,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  padding: var(--space-07) 0 var(--space-09) 0;
+  padding: calc(var(--space-07) + var(--screen-inset)) 0 calc(var(--space-09) + var(--screen-inset)) 0;
   gap: var(--space-06);
   flex-shrink: 0;
   touch-action: pan-y;
@@ -450,8 +452,8 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 .content-container.has-player {
   /* The column starts at the frame's padding; a row runs on to the screen's
      edge, under the player, which paints over it. */
-  --content-bleed-start: var(--space-07);
-  --content-bleed-end: calc(var(--audio-player-wrapper-width) + var(--space-07));
+  --content-bleed-start: var(--layout-gutter);
+  --content-bleed-end: calc(var(--audio-player-wrapper-width) + var(--layout-gutter));
   /* Under the player a row recedes, from the column's edge, so a card there
      does not compete with it. Lengths, never a percentage: a mask would
      resolve one against the row's width. Toward the screen's edge, and with
@@ -478,8 +480,8 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   height: 100%;
   max-width: var(--audio-player-wrapper-width);
   padding-left: 0;
-  padding-top: var(--space-07);
-  padding-bottom: var(--space-07);
+  padding-top: calc(var(--space-07) + var(--screen-inset));
+  padding-bottom: calc(var(--space-07) + var(--screen-inset));
   opacity: 0;
   flex-shrink: 0;
   position: sticky;
@@ -513,7 +515,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
     top: 0;
     bottom: 0;
     left: 100%;
-    width: var(--space-07);
+    width: var(--layout-gutter);
   }
 }
 
@@ -534,7 +536,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
    so pill and content move together when the player opens or closes. */
 .scroll-top-anchor {
   position: fixed;
-  top: var(--space-07);
+  top: calc(var(--space-07) + var(--screen-inset));
   left: 50%;
   z-index: 3;
   transform: translateX(-50%);

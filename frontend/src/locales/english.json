@@ -314,6 +314,8 @@
     "uiScaleLevel": "Interface scale on Milō's touchscreen",
     "colorFilter": "Warm color filter",
     "colorFilterWarmth": "Warmth",
+    "edgeInset": "Screen edges",
+    "edgeInsetWidth": "Margin the enclosure covers on each edge",
     "theme": "Theme",
     "themeDescription": "Milō's theme, on every screen — Auto turns dark from sunset to sunrise",
     "themeLight": "Light",

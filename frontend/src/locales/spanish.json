@@ -314,6 +314,8 @@
     "uiScaleLevel": "Escala de la interfaz en la pantalla táctil de Milō",
     "colorFilter": "Filtro de color cálido",
     "colorFilterWarmth": "Intensidad",
+    "edgeInset": "Bordes de la pantalla",
+    "edgeInsetWidth": "Margen que oculta la carcasa en cada borde",
     "theme": "Tema",
     "themeDescription": "Tema de Milō, en todas las pantallas — Auto pasa a oscuro del atardecer al amanecer",
     "themeLight": "Claro",

@@ -30,6 +30,20 @@
       </SettingItem>
     </SectionCard>
 
+    <!-- The strip of the panel the enclosure hides: applied live, on the kiosk
+         only, and offered only for a panel whose pitch is known -->
+    <SectionCard v-if="hasPanelPitch" :title="t('screenSettings.edgeInset')">
+      <RangeSlider :label="t('screenSettings.edgeInsetWidth')"
+        v-model="config.edge_inset_mm"
+        :min="0"
+        :max="3"
+        :step="0.25"
+        unit="mm"
+        @input="previewEdgeInset"
+        @change="saveEdgeInset"
+      />
+    </SectionCard>
+
     <!-- Warm color filter (Night Shift-like) -->
     <ToggleSection
       :title="t('screenSettings.colorFilter')"
@@ -90,12 +104,16 @@ import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ThemePicker from '@/components/settings/categories/ThemePicker.vue';
+import { useHardwareConfig } from '@/composables/useHardwareConfig';
 
 const { t, formatDuration, formatUnit } = useI18n();
 const { updateSetting } = useSettingsAPI();
 const timer = useTimer();
 const settingsStore = useSettingsStore();
+const { hardwareInfo } = useHardwareConfig();
 const DEFAULT_DELAY = 30;
+
+const hasPanelPitch = computed(() => !!hardwareInfo.value?.screen_pixels_per_mm);
 
 // Local refs for instant responsiveness
 const config = ref({
@@ -106,7 +124,8 @@ const config = ref({
   auto_player_delay_seconds: DEFAULT_DELAY,
   ui_scale: 1.0,
   color_filter_enabled: false,
-  color_filter_warmth: 50
+  color_filter_warmth: 50,
+  edge_inset_mm: 0
 });
 
 // Remembers last non-zero timeout for restore on toggle ON
@@ -124,6 +143,8 @@ function syncFromStore() {
 
   config.value.color_filter_enabled = settingsStore.screenColorFilter.enabled;
   config.value.color_filter_warmth = settingsStore.screenColorFilter.warmth;
+
+  config.value.edge_inset_mm = settingsStore.screenEdgeInset.edge_inset_mm;
 
   if (config.value.timeout_seconds > 0) {
     lastNonZeroTimeout.value = config.value.timeout_seconds;
@@ -241,6 +262,17 @@ function saveColorFilterWarmth(value) {
   updateSetting('screen-color-filter', { warmth: value });
 }
 
+// The kiosk follows the store, so a drag moves its content as it goes.
+function previewEdgeInset(value) {
+  settingsStore.updateScreenEdgeInset({ edge_inset_mm: value });
+}
+
+function saveEdgeInset(value) {
+  config.value.edge_inset_mm = value;
+  settingsStore.updateScreenEdgeInset({ edge_inset_mm: value });
+  updateSetting('screen-edge-inset', { edge_inset_mm: value });
+}
+
 // Sync local config when store changes (e.g., WS event from another device)
 watch(
   [
@@ -248,7 +280,8 @@ watch(
     () => settingsStore.screenTimeout,
     () => settingsStore.screenAutoPlayer,
     () => settingsStore.screenUiScale,
-    () => settingsStore.screenColorFilter
+    () => settingsStore.screenColorFilter,
+    () => settingsStore.screenEdgeInset
   ],
   syncFromStore,
   { deep: true }

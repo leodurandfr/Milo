@@ -24,12 +24,16 @@ export function pressPopupPlacement(keyRect, kbRect) {
   };
 }
 
-/** Row of accent variants above the pressed key, clamped inside the keyboard. */
-export function accentPopupPlacement(keyRect, kbRect, variantCount) {
+/**
+ * Row of accent variants above the pressed key, clamped inside the keyboard and
+ * clear of the strip `hidden` px wide that the kiosk's bezel covers on each side.
+ */
+export function accentPopupPlacement(keyRect, kbRect, variantCount, hidden = 0) {
   const width = accentPopupWidth(variantCount);
   const centred = (keyRect.left - kbRect.left) + (keyRect.width / 2) - (width / 2);
+  const margin = 4 + hidden;
   return {
-    left: Math.max(4, Math.min(centred, kbRect.width - width - 4)),
+    left: Math.max(margin, Math.min(centred, kbRect.width - width - margin)),
     bottom: (kbRect.bottom - keyRect.top) + 6
   };
 }

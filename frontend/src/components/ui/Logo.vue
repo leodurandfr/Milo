@@ -63,7 +63,7 @@ defineProps({
 
 /* === Position TOP === */
 .logo-top {
-  top: calc(var(--space-06) + env(safe-area-inset-top, 0px));
+  top: calc(var(--space-06) + env(safe-area-inset-top, 0px) + var(--screen-inset));
   transform: translateX(-50%);
 }
 

@@ -24,6 +24,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // === LOADING STATE ===
   const isLoading = ref(false);
+  // Whether any bulk read has landed: until then every ref holds its default.
+  const isLoaded = ref(false);
 
   // === LANGUAGE ===
   const language = ref('english');
@@ -164,6 +166,11 @@ export const useSettingsStore = defineStore('settings', () => {
     warmth: 50
   });
 
+  // The strip of the panel the kiosk's enclosure hides (App.vue: --screen-inset).
+  const screenEdgeInset = ref({
+    edge_inset_mm: 0
+  });
+
   // light | dark | auto — the theme of every browser showing Milō (useTheme).
   const screenTheme = ref({
     theme: 'auto'
@@ -247,12 +254,14 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(screenUiScale, d.screen_ui_scale);
 
         setIfChanged(screenColorFilter, d.screen_color_filter);
+        setIfChanged(screenEdgeInset, d.screen_edge_inset);
         setIfChanged(screenTheme, d.screen_theme);
         setIfChanged(radioSettings, d.radio_settings);
         setIfChanged(musicLibrarySettings, d.music_library_settings);
         setIfChanged(qobuzSettings, d.qobuz_settings);
         setIfChanged(spotifySettings, d.spotify_settings);
         setIfChanged(macRocSettings, d.mac_roc);
+        isLoaded.value = true;
         logger.info('settings', 'All settings loaded successfully');
       }
       return d !== null;
@@ -515,6 +524,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const updateScreenBrightness = makeUpdater(screenBrightness);
   const updateScreenAutoPlayer = makeUpdater(screenAutoPlayer);
   const updateScreenColorFilter = makeUpdater(screenColorFilter);
+  const updateScreenEdgeInset = makeUpdater(screenEdgeInset);
   const updateScreenTheme = makeUpdater(screenTheme);
 
   // What `auto` reads its sunset from (useTheme). Kept current by
@@ -579,6 +589,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setupCompleted,
     hotspotActive,
     isLoading,
+    isLoaded,
     language,
     volumeLimits,
     volumeStartup,
@@ -601,6 +612,7 @@ export const useSettingsStore = defineStore('settings', () => {
     screenAutoPlayer,
     screenUiScale,
     screenColorFilter,
+    screenEdgeInset,
     screenTheme,
     daylightLocation,
 
@@ -640,6 +652,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateScreenTimeout,
     updateScreenBrightness,
     updateScreenColorFilter,
+    updateScreenEdgeInset,
     updateScreenTheme,
     loadDaylightLocation,
     handleTimezoneEvent,

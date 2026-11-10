@@ -1,6 +1,7 @@
 // frontend/src/composables/useHoldReorder.js
 import { onScopeDispose, ref, toValue, watch } from 'vue';
 import { useTimer } from '@/composables/useTimer';
+import { useScreenInset } from '@/composables/useScreenInset';
 
 const HOLD_MS = 400;
 // A finger that travels this far before the hold fires is scrolling.
@@ -92,6 +93,7 @@ function scrollParent(element) {
  */
 export function useHoldReorder({ list, canMove = () => true, minGap = 0, onDrop }) {
   const timer = useTimer();
+  const { insetPx } = useScreenInset();
   const lifted = ref(-1);
   const offset = ref(0);
   // Where the drop line sits within the list, null while there is none.
@@ -182,8 +184,11 @@ export function useHoldReorder({ list, canMove = () => true, minGap = 0, onDrop 
   }
 
   function autoScroll() {
-    const top = Math.max(scrollerBox.top, 0);
-    const bottom = Math.min(scrollerBox.bottom, window.innerHeight);
+    // The edge zones are measured from the glass a finger can reach: the
+    // kiosk's bezel hides a strip of the viewport (useScreenInset).
+    const hidden = insetPx.value;
+    const top = Math.max(scrollerBox.top, hidden);
+    const bottom = Math.min(scrollerBox.bottom, window.innerHeight - hidden);
     const speed = edgeSpeed(lastY, top, bottom);
     if (speed) {
       const before = scroller.scrollTop;

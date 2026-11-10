@@ -36,7 +36,7 @@ defineEmits(['dismiss']);
 <style scoped>
 .notification-banner {
   position: fixed;
-  top: calc(var(--space-06) + env(safe-area-inset-top, 0px));
+  top: calc(var(--space-06) + env(safe-area-inset-top, 0px) + var(--screen-inset));
   left: 50%;
   transform: translateX(-50%);
   max-width: 400px;

@@ -131,11 +131,13 @@ import { useTimer } from '@/composables/useTimer';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { keyLayout, accentVariants } from './keyboard/layouts';
 import { pressPopupPlacement, accentPopupPlacement, accentIndexAt } from './keyboard/geometry';
+import { useScreenInset } from '@/composables/useScreenInset';
 
 const { getCurrentLanguage } = useI18n();
 const timer = useTimer();
 const keyboardState = useVirtualKeyboard();
 const { shouldShowKeyboard } = useKeyboardAvailability();
+const { insetPx } = useScreenInset();
 
 const keyboardRef = ref(null);
 const displayInput = ref(null);
@@ -272,7 +274,8 @@ function showAccentPopup(event, key) {
   const { left, bottom } = accentPopupPlacement(
     event.target.getBoundingClientRect(),
     keyboardRef.value.getBoundingClientRect(),
-    mappedVariants.length
+    mappedVariants.length,
+    insetPx.value
   );
 
   accentPopup.variants = mappedVariants;
@@ -449,7 +452,11 @@ onUnmounted(() => {
   z-index: 6000;
   width: 100%;
   border-radius: var(--radius-07) var(--radius-07) 0 0;
-  padding: var(--space-05);
+  /* The glass reaches the panel's edges; the keys stay clear of the bezel. */
+  padding:
+    var(--space-05)
+    calc(var(--space-05) + var(--screen-inset))
+    calc(var(--space-05) + var(--screen-inset));
   display: flex;
   flex-direction: column;
   gap: var(--space-01);

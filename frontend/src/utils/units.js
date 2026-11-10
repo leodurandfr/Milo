@@ -18,6 +18,7 @@ const CLDR_UNITS = {
   ms: 'millisecond',
   s: 'second',
   min: 'minute',
+  mm: 'millimeter',
   h: 'hour',
   bit: 'bit',
   MB: 'megabyte',

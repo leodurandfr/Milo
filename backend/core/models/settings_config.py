@@ -84,6 +84,10 @@ class ScreenColorFilterConfig(BaseModel):
     warmth: int
 
 
+class ScreenEdgeInsetConfig(BaseModel):
+    edge_inset_mm: float
+
+
 class ScreenThemeConfig(BaseModel):
     theme: SCREEN_THEMES
 

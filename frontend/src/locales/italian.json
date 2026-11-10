@@ -314,6 +314,8 @@
     "uiScaleLevel": "Scala dell'interfaccia sul touchscreen di Milō",
     "colorFilter": "Filtro colore caldo",
     "colorFilterWarmth": "Intensità",
+    "edgeInset": "Bordi dello schermo",
+    "edgeInsetWidth": "Margine nascosto dalla scocca su ogni lato",
     "theme": "Tema",
     "themeDescription": "Tema di Milō, su tutti gli schermi — Auto passa allo scuro dal tramonto all'alba",
     "themeLight": "Chiaro",

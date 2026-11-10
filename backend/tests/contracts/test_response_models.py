@@ -285,6 +285,7 @@ def test_bulk_settings_full_key_set():
         "screen_ui_scale": {"ui_scale": 1.15},
         "screen_auto_player": {"auto_player_enabled": True, "auto_player_delay_seconds": 120},
         "screen_color_filter": {"enabled": True, "warmth": 72},
+        "screen_edge_inset": {"edge_inset_mm": 1.5},
         "screen_theme": {"theme": "dark"},
         "radio_settings": {"shazam_enabled": True},
         "music_library_settings": {"separate_storages": True},

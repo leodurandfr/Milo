@@ -97,6 +97,7 @@ class SettingsService:
                 "ui_scale": 1.0,
                 "color_filter_enabled": False,
                 "color_filter_warmth": 50,
+                "edge_inset_mm": 0.0,
                 "theme": "auto"
             },
             "audio": {
@@ -304,6 +305,7 @@ class SettingsService:
             'ui_scale': max(0.5, min(2.0, float(screen_input.get('ui_scale', screen_d['ui_scale'])))),
             'color_filter_enabled': bool(screen_input.get('color_filter_enabled', screen_d['color_filter_enabled'])),
             'color_filter_warmth': max(0, min(100, int(screen_input.get('color_filter_warmth', screen_d['color_filter_warmth'])))),
+            'edge_inset_mm': max(0.0, min(10.0, float(screen_input.get('edge_inset_mm', screen_d['edge_inset_mm'])))),
             'theme': theme_raw if theme_raw in ALLOWED_SCREEN_THEMES else screen_d['theme']
         }
 

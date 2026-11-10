@@ -314,6 +314,8 @@
     "uiScaleLevel": "Milō की टचस्क्रीन पर इंटरफ़ेस स्केल",
     "colorFilter": "गर्म रंग फ़िल्टर",
     "colorFilterWarmth": "तीव्रता",
+    "edgeInset": "स्क्रीन के किनारे",
+    "edgeInsetWidth": "हर किनारे पर केस से ढका हिस्सा",
     "theme": "थीम",
     "themeDescription": "सभी स्क्रीन पर Milō की थीम — ऑटो सूर्यास्त से सूर्योदय तक डार्क रहती है",
     "themeLight": "लाइट",

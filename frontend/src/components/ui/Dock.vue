@@ -640,7 +640,7 @@ onUnmounted(() => {
 .dock-container {
   /* How far the open dock rides above the bottom edge — shared with the
      overflow panel, whose max-height measures the room left over the dock. */
-  --dock-raise: calc(24px + env(safe-area-inset-bottom, 0px));
+  --dock-raise: calc(24px + env(safe-area-inset-bottom, 0px) + var(--screen-inset));
   position: fixed;
   bottom: 0;
   left: 50%;
@@ -784,7 +784,7 @@ onUnmounted(() => {
 
 .dock-indicator {
   position: fixed;
-  bottom: calc(var(--space-03) - 2px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--space-03) - 2px + env(safe-area-inset-bottom, 0px) + var(--screen-inset));
   left: 50%;
   transform: translateX(-50%);
   width: 96px;
@@ -799,11 +799,13 @@ onUnmounted(() => {
 }
 
 /* The bar is 4px tall: padding would grow the visible pill, so the touch
-   target is widened by an overlay that paints nothing. */
+   target is widened by an overlay that paints nothing. It reaches down to the
+   glass, under the bezel, whatever the inset that lifted the pill. */
 .dock-indicator::after {
   content: '';
   position: absolute;
   inset: calc(var(--space-05) * -1) calc(var(--space-04) * -1);
+  bottom: calc(var(--space-05) * -1 - var(--screen-inset));
 }
 
 .dock-indicator.visible {

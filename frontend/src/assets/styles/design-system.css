@@ -279,6 +279,12 @@
     --space-07: 48px;
     --space-08: 64px;
     --space-09: 96px;
+    /* The strip of the panel the kiosk's enclosure hides, the same on all four
+       edges: App.vue writes it on <html>, on the kiosk only. It is ADDED to the
+       margin of what holds content (never max()'d: a 24-48px margin would
+       absorb it); backgrounds never read it, and a hit zone anchored at the
+       glass grows by it instead of moving. Guarded by screenInset.test.js. */
+    --screen-inset: 0px;
 
 
     /* === CONTROLS === */
@@ -1057,7 +1063,8 @@
     transform: translateX(-50%);
     bottom: env(safe-area-inset-bottom, 0px);
     width: 20vw;
-    height: 8%;
+    /* Grows under the bezel: a swipe starts at the glass, hidden or not. */
+    height: calc(8% + var(--screen-inset));
     pointer-events: none;
 }
 

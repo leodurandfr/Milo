@@ -19,7 +19,7 @@
       <Transition name="dropdown-menu">
         <div v-if="isOpen" ref="menuRef" class="dropdown-menu glass-menu"
           :class="[`dropdown-menu--${size}`, { 'icons-start': iconPlacement === 'start', 'has-check': hasCheck, 'open-upward': openUpward, 'open-leftward': openLeftward }]"
-          :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }">
+          :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width, maxHeight: menuPosition.maxHeight }">
           <!-- The list scrolls inside the glass, never the glass itself: its rim
                is an absolutely placed layer that would scroll away with it. -->
           <div class="dropdown-list" @scroll.stop>
@@ -44,6 +44,7 @@
 <script setup>
 import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import { useScreenInset } from '@/composables/useScreenInset';
 
 const props = defineProps({
   modelValue: {
@@ -103,7 +104,8 @@ const menuRef = ref(null);
 const isOpen = ref(false);
 const openUpward = ref(false);
 const openLeftward = ref(false);
-const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
+const menuPosition = ref({ top: '0px', left: '0px', width: '0px', maxHeight: null });
+const { insetPx } = useScreenInset();
 
 // The check's column is kept only while one option holds it: a menu of
 // actions (no `modelValue`, or one none of its options carries) would
@@ -152,6 +154,9 @@ function calculateDropdownDirection() {
   if (!dropdownRef.value) return;
 
   const BOTTOM_MARGIN = 24; // Minimum margin in pixels
+  // The menu is teleported to <body> and placed in viewport px: the strip the
+  // kiosk's bezel hides is out of the viewport it may use.
+  const hidden = insetPx.value;
   const MENU_MAX_HEIGHT = 340; // Max height of dropdown menu (CSS max-height)
 
   const triggerRect = getTriggerRestRect();
@@ -159,14 +164,18 @@ function calculateDropdownDirection() {
 
   const GAP = 4; // 4px gap below the trigger
 
-  // Get actual menu height if available (after render), otherwise use max
-  const actualMenuHeight = menuRef.value?.offsetHeight || MENU_MAX_HEIGHT;
+  // The menu's own height once rendered (its content's, so a cap set by an
+  // earlier opening does not stick), otherwise the CSS max.
+  const menu = menuRef.value;
+  const actualMenuHeight = menu?.offsetHeight
+    ? Math.min(MENU_MAX_HEIGHT, menu.scrollHeight + menu.offsetHeight - menu.clientHeight)
+    : MENU_MAX_HEIGHT;
 
   // Horizontal: the preferred edge, unless the menu would leave the viewport.
   const MENU_MIN_WIDTH = 200; // CSS min-width of dropdown-menu
   const menuWidth = menuRef.value?.offsetWidth || Math.max(MENU_MIN_WIDTH, triggerRect.width);
-  const fitsRightward = window.innerWidth - triggerRect.left >= menuWidth;
-  const fitsLeftward = triggerRect.right >= menuWidth;
+  const fitsRightward = window.innerWidth - hidden - triggerRect.left >= menuWidth;
+  const fitsLeftward = triggerRect.right - hidden >= menuWidth;
   openLeftward.value = props.placement === 'top-end'
     ? fitsLeftward || !fitsRightward
     : !fitsRightward && fitsLeftward;
@@ -178,9 +187,13 @@ function calculateDropdownDirection() {
     if (overflowY === 'auto' || overflowY === 'scroll') break;
     scrollableParent = scrollableParent.parentElement;
   }
-  const bounds = scrollableParent
+  const parentRect = scrollableParent
     ? scrollableParent.getBoundingClientRect()
     : { top: 0, bottom: window.innerHeight };
+  const bounds = {
+    top: Math.max(parentRect.top, hidden),
+    bottom: Math.min(parentRect.bottom, window.innerHeight - hidden),
+  };
   const spaceBelow = bounds.bottom - triggerRect.bottom;
   const spaceAbove = triggerRect.top - bounds.top;
   const needed = actualMenuHeight + BOTTOM_MARGIN;
@@ -188,10 +201,18 @@ function calculateDropdownDirection() {
     ? spaceAbove >= needed || spaceAbove > spaceBelow
     : spaceBelow < needed && spaceAbove > spaceBelow;
 
+  // Upward with less room than the menu needs: it ends above the trigger
+  // anyway and scrolls inside, rather than covering the trigger or rising
+  // under the bezel.
+  const roomAbove = triggerRect.top - GAP - hidden;
+  const capped = openUpward.value && roomAbove < actualMenuHeight;
   menuPosition.value = {
-    top: `${openUpward.value ? triggerRect.top - actualMenuHeight - GAP : triggerRect.bottom + GAP}px`,
+    top: `${openUpward.value
+      ? (capped ? hidden : triggerRect.top - actualMenuHeight - GAP)
+      : triggerRect.bottom + GAP}px`,
     left: `${openLeftward.value ? triggerRect.right - menuWidth : triggerRect.left}px`,
-    width: `${triggerRect.width}px`
+    width: `${triggerRect.width}px`,
+    maxHeight: capped ? `${Math.max(0, roomAbove)}px` : null,
   };
 }
 
