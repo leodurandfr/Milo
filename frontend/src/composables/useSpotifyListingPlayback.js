@@ -1,5 +1,6 @@
 import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useDetailPlayback } from '@/composables/useDetailPlayback';
+import { trackRowSong } from '@/utils/spotifyTrackRow';
 
 /**
  * How a Spotify page plays its listing — a playlist's, an album's, an artist's
@@ -11,13 +12,7 @@ import { useDetailPlayback } from '@/composables/useDetailPlayback';
 export function useSpotifyListingPlayback(uri) {
   const store = useSpotifyStore();
 
-  function rowSong(track) {
-    return {
-      title: track.title,
-      artist: track.artists.map((a) => a.name).join(', '),
-      duration: (track.duration_ms || 0) / 1000,
-    };
-  }
+  const rowSong = trackRowSong;
 
   // A row is its entry as the list holds it (`listed_uri`): Spotify relinks a
   // track to a market alternative when it streams, and from then on

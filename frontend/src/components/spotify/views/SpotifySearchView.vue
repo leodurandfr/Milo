@@ -51,7 +51,7 @@
               <TrackRow
                 v-for="(track, idx) in results.tracks"
                 :key="track.uri"
-                :song="rowSong(track)"
+                :song="trackRowSong(track)"
                 :number="idx + 1"
                 :current="track.uri === store.currentTrackUri"
                 :playing="store.isPlaying"
@@ -93,6 +93,7 @@ import { useSpotifyStore } from '@/stores/spotifyStore';
 import { useDebounce } from '@/composables/useDebounce';
 import { useCardGridColumns } from '@/composables/useCardGridColumns';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
+import { trackRowSong } from '@/utils/spotifyTrackRow';
 import InputText from '@/components/ui/InputText.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -149,10 +150,15 @@ function onInput() {
   if (!store.searchTerm.trim()) {
     cancelSearch();
     cancelSuggest();
-    store.clearSearch();
+    // The term stays as typed (a space): the keyboard types on from it.
+    store.clearSearch({ keepTerm: true });
     return;
   }
-  if (HELD_BACK.includes(store.searchError)) return;
+  if (HELD_BACK.includes(store.searchError)) {
+    // What the last term completed into no longer completes this one.
+    store.dropCompletions();
+    return;
+  }
   typing.value = true;
   debouncedSuggest();
   debouncedSearch();
@@ -186,13 +192,6 @@ function complete(text) {
   searchNow();
 }
 
-function rowSong(track) {
-  return {
-    title: track.title,
-    artist: track.artists.map((a) => a.name).filter(Boolean).join(', '),
-    duration: (track.duration_ms || 0) / 1000,
-  };
-}
 </script>
 
 <style scoped>

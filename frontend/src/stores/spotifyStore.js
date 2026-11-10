@@ -436,6 +436,9 @@ export const useSpotifyStore = defineStore('spotify', () => {
   // 'not_signed_in' | 'unavailable' (the daemon cannot search) |
   // 'rate_limited' | 'failed' | null
   const searchError = ref(null);
+  // The answer left a kind out (Spotify failed it this time): the same query
+  // may be asked again.
+  let searchIncomplete = false;
   // The queries Spotify completes the term into, as it is typed.
   const completions = ref([]);
   // Each keystroke past the debounce asks again, and two answers can come back
@@ -465,8 +468,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
       clearSearch();
       return;
     }
-    if (!force && (query === searchingFor
-      || (!searchAbort && hasSearched.value && !searchError.value && query === lastSearchTerm.value))) return;
+    if (!force && (query === searchingFor || (!searchAbort && hasSearched.value && !searchError.value
+      && !searchIncomplete && query === lastSearchTerm.value))) return;
     searchAbort?.abort();
     const ctrl = new AbortController();
     searchAbort = ctrl;
@@ -490,7 +493,8 @@ export const useSpotifyStore = defineStore('spotify', () => {
       return;
     }
     searchError.value = null;
-    const { tracks, artists: artistCards, albums, playlists } = result.data;
+    const { tracks, artists: artistCards, albums, playlists, incomplete } = result.data;
+    searchIncomplete = incomplete.length > 0;
     searchResults.value = { tracks, artists: artistCards, albums, playlists };
     hasSearched.value = true;
     lastSearchTerm.value = query;
@@ -529,12 +533,14 @@ export const useSpotifyStore = defineStore('spotify', () => {
     completions.value = [];
   }
 
-  function clearSearch() {
+  // `keepTerm`: what was typed stays (a blank term, which searches nothing).
+  function clearSearch({ keepTerm = false } = {}) {
     searchAbort?.abort();
     suggestAbort?.abort();
     searchAbort = suggestAbort = null;
     searchingFor = null;
-    searchTerm.value = '';
+    searchIncomplete = false;
+    if (!keepTerm) searchTerm.value = '';
     lastSearchTerm.value = '';
     searchResults.value = EMPTY_RESULTS;
     hasSearched.value = false;

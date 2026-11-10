@@ -122,6 +122,7 @@ async def test_one_search_asks_each_kind_the_browser_opens_once(world):
         for kind in ("track", "artist", "album", "playlist")
     ), "trimmed, and no kind the browser has no page for"
     assert answer["status"] == "success"
+    assert answer["incomplete"] == []
     assert [t["title"] for t in answer["tracks"]] == ["Da Funk"]
     assert [(c["kind"], c["name"]) for c in answer["artists"] + answer["albums"] + answer["playlists"]] == [
         ("artist", "Daft Punk"), ("album", "Homework"), ("playlist", "This Is Daft Punk"),
@@ -137,6 +138,7 @@ async def test_a_kind_spotify_failed_this_time_costs_only_its_section(world):
     answer = await routes.search(q="daft punk", source=world.source)
 
     assert answer["artists"] == []
+    assert answer["incomplete"] == ["artist"], "the browser may ask the same search again"
     assert [t["title"] for t in answer["tracks"]] == ["Da Funk"]
     assert [a["name"] for a in answer["albums"] + answer["playlists"]] == ["Homework", "This Is Daft Punk"]
 
@@ -160,13 +162,24 @@ async def test_a_search_failed_for_every_kind_is_a_failure(world):
     assert raised.value.status_code == 503
 
 
-async def test_every_kind_timing_out_is_a_failure_not_signing_in(world):
-    """Read as "Spotify is not reachable", it answered 409, which the page
-    draws as "signing in" for an account that is signed in."""
+async def test_every_kind_unreachable_is_the_daemons_state(world):
+    """The daemon restarting under the search (a profile switch), or every
+    request lost: the page draws it as signing in, with its retry, as every
+    other Spotify page does."""
     world.daemon.search_times_out = {"track", "artist", "album", "playlist"}
     with pytest.raises(HTTPException) as raised:
         await routes.search(q="daft punk", source=world.source)
-    assert raised.value.status_code == 503
+    assert raised.value.status_code == 409
+
+
+async def test_an_answer_that_does_not_read_costs_only_its_section(world):
+    world.daemon.search_pages = {"track": page(DA_FUNK)}
+    world.daemon.search_garbled = {"album"}
+
+    answer = await routes.search(q="daft punk", source=world.source)
+
+    assert [t["title"] for t in answer["tracks"]] == ["Da Funk"]
+    assert answer["incomplete"] == ["album"]
 
 
 async def test_a_rate_limit_on_one_kind_costs_only_its_section(world):

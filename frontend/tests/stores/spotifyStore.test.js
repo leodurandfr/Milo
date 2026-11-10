@@ -256,9 +256,9 @@ describe('spotifyStore', () => {
 
   // === Search ===
 
-  const results = (title) => ({
+  const results = (title, incomplete = []) => ({
     status: 'success', query: title,
-    tracks: [{ uri: TRACK, title }], artists: [], albums: [], playlists: [],
+    tracks: [{ uri: TRACK, title }], artists: [], albums: [], playlists: [], incomplete,
   });
 
   it('keeps the answer of the latest search, whatever order the answers come back in', async () => {
@@ -340,6 +340,29 @@ describe('spotifyStore', () => {
     apiCall.get.mockResolvedValueOnce(ok(results('again')));
     await store.search({ force: true });
     expect(asked()).toBe(2);
+  });
+
+  it('asks again a query whose answer left a kind out', async () => {
+    store.searchTerm = 'daft punk';
+    apiCall.get.mockResolvedValueOnce(ok(results('partial', ['artist'])));
+    await store.search();
+    apiCall.get.mockResolvedValueOnce(ok(results('whole')));
+    await store.search();
+
+    expect(apiCall.get.mock.calls.filter(([url]) => url === '/api/spotify/search')).toHaveLength(2);
+    expect(store.searchResults.tracks.map((t) => t.title)).toEqual(['whole']);
+  });
+
+  it('keeps a blank term as typed when it clears the results', async () => {
+    store.searchTerm = 'daft punk';
+    apiCall.get.mockResolvedValueOnce(ok(results('gone')));
+    await store.search();
+
+    store.searchTerm = ' ';
+    store.clearSearch({ keepTerm: true });
+    expect(store.searchTerm).toBe(' ');
+    expect(store.hasSearched).toBe(false);
+    expect(store.searchResults.tracks).toEqual([]);
   });
 
   it("clears a failure as soon as the next search leaves, not when it answers", async () => {

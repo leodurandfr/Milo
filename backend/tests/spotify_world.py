@@ -434,8 +434,10 @@ class Librespot:
         # A kind refused alone, with its status: Spotify failing that one
         # operation this time (go-librespot answers 502).
         self.search_refused: Dict[str, int] = {}
-        # Kinds whose request never comes back in time (a slow network).
+        # Kinds whose request never comes back in time (a slow network), and
+        # kinds whose answer does not read (a body cut short).
         self.search_times_out: set = set()
+        self.search_garbled: set = set()
         self.searches: List[Tuple[str, Dict[str, Any]]] = []
 
     # -- aiohttp.ClientSession surface --------------------------------------
@@ -671,6 +673,8 @@ class Librespot:
                 return _Exchange(_Response(200, self.suggestions))
             if path[len("/search/"):] in self.search_times_out:
                 return _Exchange(error=asyncio.TimeoutError())
+            if path[len("/search/"):] in self.search_garbled:
+                return _Exchange(error=ValueError("Expecting value: line 1 column 1 (char 0)"))
             if path[len("/search/"):] in self.search_refused:
                 return _Exchange(_Response(self.search_refused[path[len("/search/"):]]))
             empty = {"total": 0, "offset": 0, "limit": params.get("limit", 20), "next_offset": None, "items": []}

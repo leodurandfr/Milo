@@ -166,13 +166,15 @@ SearchQuery = Annotated[str, Query(min_length=1, max_length=200, pattern=r"\S",
 @router.get("/search")
 async def search(q: SearchQuery, source: SpotifySource = Depends(get_source)):
     """Spotify's catalog searched for `q`: the first tracks, artists, albums
-    and playlists, each kind asked at once. A kind Spotify failed to search
-    this time (a refusal, a rate limit on that one request, a request that did
-    not come back) is left empty, the others shown: it fails one operation in
-    well over a thousand (measured), so the page is not lost to it. No session
-    and a daemon that cannot search hold for every kind and are answered as
-    such; a search that failed for every kind is a rate limit if each was one,
-    else a failure — never "signing in" for someone who is signed in."""
+    and playlists, each kind asked at once. A kind that failed this time (a
+    refusal, a rate limit on that one request, a request that did not come
+    back, an answer that did not read) is left empty and named in
+    `incomplete`, the others shown: Spotify fails one operation in well over
+    a thousand (measured), so the page is not lost to it. No session and a
+    daemon that cannot search hold for every kind and are answered as such.
+    Every kind failing the same way is answered as that way — a rate limit,
+    or the daemon unreachable (a restart: a profile switch), which the page
+    draws as signing in, with a retry; any other mix is a failure."""
     _signed_in(source, "Spotify search")
     query = q.strip()
     async with _search_errors("Spotify search"):
@@ -184,23 +186,26 @@ async def search(q: SearchQuery, source: SpotifySource = Depends(get_source)):
         )
         failures = [page for page in pages if isinstance(page, BaseException)]
         for failure in failures:
-            # What holds for every kind is answered as such.
+            # What holds for every kind is answered as such; a cancellation
+            # is not a failure of the search at all.
             no_search = isinstance(failure, SpotifyLibraryError) and failure.status == 404
-            if no_search or isinstance(failure, SpotifyNoSession) or not isinstance(
-                    failure, (SpotifyLibraryError, SpotifyUnavailable)):
+            if no_search or isinstance(failure, SpotifyNoSession) or not isinstance(failure, Exception):
                 raise failure
         if len(failures) == len(pages):
-            if all(isinstance(f, SpotifyLibraryError) and f.status == 429 for f in failures):
+            rate_limited = all(isinstance(f, SpotifyLibraryError) and f.status == 429 for f in failures)
+            if rate_limited or all(isinstance(f, SpotifyUnavailable) for f in failures):
                 raise failures[0]
-            logger.error(f"Spotify search: every kind failed ({failures[0]})")
+            logger.error(f"Spotify search: every kind failed ({failures[0]!r})")
             raise HTTPException(status_code=503, detail="Spotify failed the search")
         found = {}
+        incomplete = []
         for kind, page in zip(SEARCH_TYPES, pages):
             if isinstance(page, BaseException):
-                logger.warning(f"Spotify search: the {kind}s are left out this time ({page})")
+                logger.warning(f"Spotify search: the {kind}s are left out this time ({page!r})")
+                incomplete.append(kind)
                 page = {}
             found[kind] = page
-        return {"status": "success", **search_results(query, found)}
+        return {"status": "success", **search_results(query, found), "incomplete": incomplete}
 
 
 @router.get("/search/suggestions")

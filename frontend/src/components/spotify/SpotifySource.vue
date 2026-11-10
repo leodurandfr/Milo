@@ -13,11 +13,11 @@
           :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
           @header-back="back" @scroll-restored="onScrollRestored" @pages-settled="pagesSettled">
 
-          <!-- Home only: the search, the play order, whose library this is, and
+          <!-- Home only: the play order, the search, whose library this is, and
                the way to the others. -->
           <template v-if="currentView === 'home'" #header-actions>
-            <IconButton icon="search" :aria-label="t('spotify.search')" @click="push('search')" />
             <IconButton icon="queue" :aria-label="t('spotify.queue')" @click="push('queue')" />
+            <IconButton icon="search" :aria-label="t('spotify.search')" @click="push('search')" />
             <button v-if="activeProfile" v-press type="button" class="profile-button" :aria-label="t('spotify.profiles')"
               @click="goTo('profiles')">
               <ProfileAvatar :key="activeProfile.username" :profile="activeProfile" />
