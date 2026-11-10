@@ -11,6 +11,8 @@ const PHONES = {
   'Chrome, iPhone': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1',
   'Chrome, Android phone': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
   'Firefox, Android phone': 'Mozilla/5.0 (Android 14; Mobile; rv:132.0) Gecko/132.0 Firefox/132.0',
+  // Milo-Android's web view replaces the whole user agent (MainActivity.kt)
+  'Milo-Android app': 'Milo-Android-App/1.0',
 };
 
 const NOT_PHONES = {
