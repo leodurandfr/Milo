@@ -13,12 +13,12 @@
       <Dropdown
         v-model="countryFilter"
         :options="countryOptions"
-        @change="$emit('search')"
+        @change="search"
       />
       <Dropdown
         v-model="genreFilter"
         :options="genreOptions"
-        @change="$emit('search')"
+        @change="search"
       />
     </div>
 
@@ -180,13 +180,21 @@ function hasActiveFilters() {
   return radioStore.countryFilter !== '' || radioStore.genreFilter !== ''
 }
 
+// What the results on screen are for, or are on their way for: the query and
+// the filters of the last search asked. Typing on the virtual keyboard searches
+// as it goes, so the enter key that follows usually asks for the same again —
+// which would blank the grid and load it once more for nothing.
+let searchedFor = null
+const searchKey = () => JSON.stringify([radioStore.searchQuery.trim(), radioStore.countryFilter, radioStore.genreFilter])
+
+function search() {
+  searchedFor = searchKey()
+  emit('search')
+}
+
 const { debounced: debouncedSearch, cancel: cancelSearch } = useDebounce((query) => {
-  if (query.length === 0) {
-    emit('search')
-  } else {
-    showMinCharMessage.value = false
-    emit('search')
-  }
+  if (query.length > 0) showMinCharMessage.value = false
+  search()
 })
 
 function onSearchInput() {
@@ -213,9 +221,11 @@ function onSearchSubmit() {
     return
   }
 
-  // Valid search: emit immediately
+  // Valid search: at once, unless it is the one already searched (a failed
+  // one is asked again)
   showMinCharMessage.value = false
-  emit('search')
+  if (searchKey() === searchedFor && !radioStore.hasError) return
+  search()
 }
 
 // Two-way binding for filters (v-model on store properties)
