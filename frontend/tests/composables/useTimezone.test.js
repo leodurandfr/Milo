@@ -34,9 +34,9 @@ function stubBrowserZone(zone) {
   });
 }
 
-// What the backend offers: Area/Location names only, so no legacy CLDR alias
-// (`Asia/Calcutta`) and no bare `UTC`.
-const AVAILABLE = [BROWSER_ZONE, 'Asia/Kolkata', 'Etc/UTC', 'Europe/Paris'];
+// What the backend offers: places as Area/Location only, so no legacy CLDR
+// alias (`Asia/Calcutta`), no bare `UTC` and nothing under `Etc`.
+const AVAILABLE = [BROWSER_ZONE, 'Asia/Kolkata', 'Europe/Paris'];
 
 function systemTimezone({ timezone, is_default, available = AVAILABLE }) {
   return ok({ status: 'success', data: { timezone, is_default, available } });
@@ -63,9 +63,10 @@ describe('adoptBrowserTimezone', () => {
     );
   });
 
-  // Chromium reports these where the unit ships `Asia/Kolkata` and `Etc/UTC`;
-  // sent, each is refused, every time a browser opens the UI.
-  it.each(['Asia/Calcutta', 'UTC'])(
+  // Chromium reports these where the unit offers `Asia/Kolkata`, and a
+  // computer kept in UTC or on a fixed offset; sent, each is refused, every
+  // time a browser opens the UI.
+  it.each(['Asia/Calcutta', 'UTC', 'Etc/GMT-1'])(
     'skips a browser zone this unit does not ship (%s)',
     async (zone) => {
       stubBrowserZone(zone);

@@ -937,7 +937,19 @@
     "area": "क्षेत्र",
     "location": "शहर",
     "selectArea": "क्षेत्र चुनें",
-    "selectLocation": "शहर चुनें"
+    "selectLocation": "शहर चुनें",
+    "areas": {
+      "Africa": "अफ़्रीका",
+      "America": "अमेरिका महाद्वीप",
+      "Antarctica": "अंटार्कटिका",
+      "Arctic": "आर्कटिक",
+      "Asia": "एशिया",
+      "Atlantic": "अटलांटिक महासागर",
+      "Australia": "ऑस्ट्रेलिया",
+      "Europe": "यूरोप",
+      "Indian": "हिंद महासागर",
+      "Pacific": "प्रशांत महासागर"
+    }
   },
   "remoteControls": {
     "btRemote": "Bluetooth रिमोट",

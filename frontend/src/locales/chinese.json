@@ -937,7 +937,19 @@
     "area": "区域",
     "location": "城市",
     "selectArea": "选择区域",
-    "selectLocation": "选择城市"
+    "selectLocation": "选择城市",
+    "areas": {
+      "Africa": "非洲",
+      "America": "美洲",
+      "Antarctica": "南极洲",
+      "Arctic": "北极",
+      "Asia": "亚洲",
+      "Atlantic": "大西洋",
+      "Australia": "澳大利亚",
+      "Europe": "欧洲",
+      "Indian": "印度洋",
+      "Pacific": "太平洋"
+    }
   },
   "remoteControls": {
     "btRemote": "蓝牙遥控器",

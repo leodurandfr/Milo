@@ -937,7 +937,19 @@
     "area": "Área",
     "location": "Ciudad",
     "selectArea": "Seleccionar un área",
-    "selectLocation": "Seleccionar una ciudad"
+    "selectLocation": "Seleccionar una ciudad",
+    "areas": {
+      "Africa": "África",
+      "America": "América",
+      "Antarctica": "Antártida",
+      "Arctic": "Ártico",
+      "Asia": "Asia",
+      "Atlantic": "Océano Atlántico",
+      "Australia": "Australia",
+      "Europe": "Europa",
+      "Indian": "Océano Índico",
+      "Pacific": "Océano Pacífico"
+    }
   },
   "remoteControls": {
     "btRemote": "Mando Bluetooth",

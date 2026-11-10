@@ -937,7 +937,19 @@
     "area": "Area",
     "location": "Location",
     "selectArea": "Select an area",
-    "selectLocation": "Select a location"
+    "selectLocation": "Select a location",
+    "areas": {
+      "Africa": "Africa",
+      "America": "Americas",
+      "Antarctica": "Antarctica",
+      "Arctic": "Arctic",
+      "Asia": "Asia",
+      "Atlantic": "Atlantic Ocean",
+      "Australia": "Australia",
+      "Europe": "Europe",
+      "Indian": "Indian Ocean",
+      "Pacific": "Pacific Ocean"
+    }
   },
   "remoteControls": {
     "btRemote": "Bluetooth remote",

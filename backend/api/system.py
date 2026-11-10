@@ -22,7 +22,6 @@ from backend.config.constants import (
     RESET_SETUP_MARKER,
     SET_PASSWORD_CMD,
     SET_TIMEZONE_CMD,
-    TIMEZONE_CHOSEN_MARKER,
 )
 
 if TYPE_CHECKING:
@@ -41,24 +40,38 @@ logger = logging.getLogger(__name__)
 SSH_UNIT = "ssh.service"
 SYSFS_NET = "/sys/class/net"
 
-# The zone the image ships. Not a location — with no TIMEZONE_CHOSEN_MARKER it
-# means "nobody has told us yet", which is what lets the first browser to open
-# the UI supply the real one without ever overwriting a deliberate choice.
+# The zone the image ships. Not a location, and never offered (it is outside
+# PLACE_AREAS), so no choice can produce it: it means "nobody has told us yet",
+# which is what lets the first browser to open the UI supply the real one
+# without ever overwriting a deliberate choice.
 DEFAULT_TIMEZONE = "Etc/UTC"
+
+# The tz database's areas that hold places — continents and oceans, the islands
+# filed under the latter (`Indian/Reunion`, `Pacific/Tahiti`). Named, not
+# derived: `Etc` and `Factory` hold none, and `tzdata-legacy` would add `US/`,
+# `Canada/`… as second names for cities already offered. The frontend labels
+# each one (`timezone.areas.*`), held equal to this tuple by its i18n tests.
+PLACE_AREAS = (
+    "Africa", "America", "Antarctica", "Arctic", "Asia",
+    "Atlantic", "Australia", "Europe", "Indian", "Pacific",
+)
 
 
 @functools.lru_cache(maxsize=1)
 def _available_timezones() -> list:
-    """Every IANA zone this system ships, as `Area/Location`.
+    """Every IANA zone this system ships that names a place, as `Area/Location`.
 
-    Two things are dropped, both of them artefacts of the directory scan rather
-    than zones: `localtime` (the symlink itself), and the bare legacy aliases
-    (`UTC`, `CET`, `Zulu`…) which have no area to sort under. What remains is
-    total for an Area → Location pair of dropdowns, and `Etc/UTC` still carries
-    plain UTC. Cached: the scan is ~11 ms and the answer changes with a package
-    upgrade, never within a process.
+    The list is what the owner picks from, so only PLACE_AREAS are kept. Left
+    out with `Etc` are UTC under eight names and fixed offsets with no daylight
+    saving whose sign is inverted (`Etc/GMT+1` is UTC−1) — the one a French
+    owner would reach for puts the clock two hours off. Every country, UTC+0
+    ones included, is reachable through a city. Cached: the scan is ~11 ms and
+    the answer changes with a package upgrade, never within a process.
     """
-    return sorted(tz for tz in zoneinfo.available_timezones() if "/" in tz)
+    return sorted(
+        tz for tz in zoneinfo.available_timezones()
+        if tz.split("/", 1)[0] in PLACE_AREAS and "/" in tz
+    )
 
 
 async def _daylight_location() -> dict:
@@ -472,7 +485,7 @@ def create_system_router(
 
         `is_default` is what the frontend gates its one-shot adoption on: a
         browser reports the zone it lives in, and it is taken only while nobody
-        has chosen one — the shipped zone with no successful PUT behind it. The
+        has chosen one — the shipped zone, which no PUT can set. The
         list rides along so the settings dropdowns are built from the zones this
         system actually has rather than a table restated in the frontend.
         """
@@ -481,7 +494,7 @@ def create_system_router(
             "status": "success",
             "data": {
                 "timezone": current,
-                "is_default": current == DEFAULT_TIMEZONE and not TIMEZONE_CHOSEN_MARKER.exists(),
+                "is_default": current == DEFAULT_TIMEZONE,
                 "available": _available_timezones(),
             },
         }
@@ -520,12 +533,6 @@ def create_system_router(
                 raise HTTPException(status_code=500, detail=f"Failed to set timezone: {detail}")
 
             logger.info("Timezone set to %s", payload.timezone)
-            try:
-                await asyncio.to_thread(TIMEZONE_CHOSEN_MARKER.write_bytes, b"")
-            except OSError as e:
-                # The zone is applied either way; unmarked, a shipped Etc/UTC
-                # is merely offered to the next browser again.
-                logger.warning("Could not record the timezone as chosen: %s", e)
             if state_machine is not None:
                 await state_machine.broadcast(SystemTimezoneChanged(**await _daylight_location()))
             if satellite_timezone_service is not None:

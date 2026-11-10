@@ -46,6 +46,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
+import { bcp47For } from '@/constants/countries';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
@@ -100,16 +101,21 @@ function split(zone) {
   return [zone.slice(0, cut), zone.slice(cut + 1)];
 }
 
-const areaOptions = computed(() => {
-  const areas = [...new Set(zones.value.map(zone => split(zone)[0]))].sort();
-  return areas.map(area => ({ label: area.replace(/_/g, ' '), value: area }));
-});
+const collationLocale = computed(() => bcp47For(currentLanguage.value));
+
+// tzdata files islands under their ocean (`Indian/Reunion`, `Pacific/Tahiti`),
+// in English: translated, so someone on Réunion finds "Océan Indien".
+const areaOptions = computed(() =>
+  [...new Set(zones.value.map(zone => split(zone)[0]))]
+    .map(area => ({ label: t(`timezone.areas.${area}`), value: area }))
+    .sort((a, b) => a.label.localeCompare(b.label, collationLocale.value))
+);
 
 const locationOptions = computed(() =>
   zones.value
     .filter(zone => split(zone)[0] === selectedArea.value)
     .map(zone => ({ label: split(zone)[1].replace(/_/g, ' '), value: split(zone)[1] }))
-    .sort((a, b) => a.label.localeCompare(b.label))
+    .sort((a, b) => a.label.localeCompare(b.label, collationLocale.value))
 );
 
 async function loadTimezone() {
@@ -120,7 +126,10 @@ async function loadTimezone() {
   if (!result.ok) return;
   zones.value = result.data.data.available || [];
   const current = result.data.data.timezone;
-  if (current && current.includes('/')) {
+  // A zone the list does not offer — the shipped `Etc/UTC`, or one set by hand
+  // outside Milō — leaves the placeholders up rather than an Area with no
+  // Location under it.
+  if (zones.value.includes(current)) {
     [selectedArea.value, selectedLocation.value] = split(current);
   }
 }

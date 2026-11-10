@@ -937,7 +937,19 @@
     "area": "Region",
     "location": "Ort",
     "selectArea": "Region auswählen",
-    "selectLocation": "Ort auswählen"
+    "selectLocation": "Ort auswählen",
+    "areas": {
+      "Africa": "Afrika",
+      "America": "Amerika",
+      "Antarctica": "Antarktis",
+      "Arctic": "Arktis",
+      "Asia": "Asien",
+      "Atlantic": "Atlantik",
+      "Australia": "Australien",
+      "Europe": "Europa",
+      "Indian": "Indischer Ozean",
+      "Pacific": "Pazifik"
+    }
   },
   "remoteControls": {
     "btRemote": "Bluetooth-Fernbedienung",

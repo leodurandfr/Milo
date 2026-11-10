@@ -109,12 +109,6 @@ SET_TIMEZONE_CMD = "/usr/local/bin/milo-set-timezone"
 # and the UI warns beside an open SSH door. Not a gate: see `PUT /api/system/ssh`.
 PASSWORD_CHANGED_MARKER = MILO_DATA_DIR / "password-changed"
 
-# Written by PUT /api/system/timezone once the helper succeeded, read here only
-# for its existence. `Etc/UTC` is both the zone the image ships and one an owner
-# can pick, so the value alone cannot say whether anyone chose it: absent, the
-# first browser to open the UI supplies its own zone (`is_default`).
-TIMEZONE_CHOSEN_MARKER = MILO_DATA_DIR / "timezone-chosen"
-
 # Dropped by POST /api/system/reset-setup and consumed by milo-first-boot on the
 # next boot, which deletes settings.json and re-runs role detection. The
 # deletion belongs there, not here: this process owns settings.json, and any

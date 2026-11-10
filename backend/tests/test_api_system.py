@@ -834,13 +834,6 @@ class TestRecoveryAccessPoint:
 class TestTimezone:
     """`GET`/`PUT /api/system/timezone`."""
 
-    @pytest.fixture(autouse=True)
-    def chosen_marker(self, tmp_path, monkeypatch):
-        """The timezone-chosen marker, relocated: every successful PUT writes it."""
-        path = tmp_path / "timezone-chosen"
-        monkeypatch.setattr(api_system, "TIMEZONE_CHOSEN_MARKER", path)
-        return path
-
     def test_a_relative_localtime_link_is_read_as_its_zone(self, client, localtime):
         """timedated writes `/etc/localtime` as a relative link, so every zone
         set from Settings came back as `null` — on screen, in the PUT's answer,
@@ -849,17 +842,6 @@ class TestTimezone:
 
         assert client.get("/api/system/timezone").json()["data"]["timezone"] == "Europe/Paris"
         assert client.get("/api/system/daylight-location").json()["timezone"] == "Europe/Paris"
-
-    def test_a_chosen_utc_is_not_reported_as_default(self, client, spawn, localtime):
-        """`Etc/UTC` is both the shipped zone and one an owner can pick; only
-        the choice tells them apart. Reported as default, the next browser to
-        open the UI overwrites it with its own zone, silently."""
-        localtime("Etc/UTC")
-        spawn.script(returncode=0)
-
-        assert client.put("/api/system/timezone", json={"timezone": "Etc/UTC"}).status_code == 200
-
-        assert client.get("/api/system/timezone").json()["data"]["is_default"] is False
 
     def test_a_failed_set_leaves_the_zone_unchosen(self, client, spawn, localtime):
         """A helper that refused changed nothing, so the shipped zone still
@@ -896,7 +878,9 @@ class TestTimezone:
     def test_the_offered_zones_are_real_and_all_have_an_area(self, client, localtime):
         """The list feeds an Area → Location pair of dropdowns, so a bare
         legacy alias (`UTC`, `Zulu`, or the `localtime` symlink the scan picks
-        up) would render as an area with no location under it.
+        up) would render as an area with no location under it. `Etc` names no
+        place: offered, it put "Etc" before the owner and `Etc/GMT+1` — UTC−1,
+        no daylight saving — within reach of someone looking for Paris.
 
         Asserts its own output is non-trivial first: a scan that found nothing
         must fail here, not pass on an empty list.
@@ -909,16 +893,19 @@ class TestTimezone:
         assert all("/" in zone for zone in available)
         assert "Europe/Paris" in available
         assert "localtime" not in available
+        # Every area named is one this tzdata ships, and nothing else is.
+        assert {zone.split("/", 1)[0] for zone in available} == set(api_system.PLACE_AREAS)
 
-    @pytest.mark.parametrize("zone", ["UTC", "Middle/Earth"])
+    @pytest.mark.parametrize("zone", ["UTC", "Etc/UTC", "Middle/Earth"])
     def test_an_unknown_timezone_is_refused_without_a_banner(
         self, client, spawn, localtime, caplog, zone
     ):
         """A zone the unit does not offer is the caller's mistake, not a fault.
 
         Chromium reports bare `UTC` and legacy CLDR ids (`Asia/Calcutta`,
-        absent without tzdata-legacy), which the list does not carry. Only
-        `UTC` is refused on every host. Logged at error, the refusal
+        absent without tzdata-legacy), which the list does not carry, and
+        `Etc/UTC` on a computer kept in UTC. Only the first two `UTC`s are
+        refused on every host. Logged at error, the refusal
         became `system/backend_error` — the red banner on every open screen,
         kiosk included, each time such a browser opened the UI. The warning
         still lands in `errors.log`.
