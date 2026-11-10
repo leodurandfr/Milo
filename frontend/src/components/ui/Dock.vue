@@ -809,6 +809,8 @@ onUnmounted(() => {
 .dock-indicator.visible {
   opacity: 1;
   pointer-events: auto;
+  backdrop-filter: blur(calc(var(--blur-01) * 2));
+  -webkit-backdrop-filter: blur(calc(var(--blur-01) * 2));
 }
 
 .dock-indicator.hidden {
