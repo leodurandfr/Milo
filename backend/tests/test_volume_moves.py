@@ -310,11 +310,12 @@ async def test_a_state_already_sent_is_not_sent_again():
     """The admission publishes the state its registry event already did."""
     service = make_service({LOCAL: -40.0}, online=[LOCAL])
 
-    await service.broadcast_volume_state(show_bar=False)
-    await service.broadcast_volume_state(show_bar=False)
-    await service.broadcast_volume_state(show_bar=True)  # the bar is always shown
+    await service.broadcast_volume_state(display="none")
+    await service.broadcast_volume_state(display="none")
+    await service.broadcast_volume_state(display="bar")  # a shown change always goes out
+    await service.broadcast_volume_state(display="panel")
 
-    assert service.state_machine.broadcast.await_count == 2
+    assert service.state_machine.broadcast.await_count == 3
 
 
 async def test_a_state_listener_hears_each_state_that_goes_out_and_only_those():
@@ -325,8 +326,8 @@ async def test_a_state_listener_hears_each_state_that_goes_out_and_only_those():
     heard = []
     service.add_state_listener(lambda level, muted: heard.append((level, muted)))
 
-    await service.broadcast_volume_state(show_bar=False)
-    await service.broadcast_volume_state(show_bar=False)
+    await service.broadcast_volume_state(display="none")
+    await service.broadcast_volume_state(display="none")
 
     sent = service.state_machine.broadcast.await_args_list[0].args[0].state
     assert heard == [(sent["global_volume"], sent["global_mute"])]
@@ -342,8 +343,8 @@ async def test_two_broadcasts_of_one_state_in_flight_together_send_it_once():
 
     service.state_machine.broadcast = AsyncMock(side_effect=broadcast)
 
-    await asyncio.gather(service.broadcast_volume_state(show_bar=False),
-                         service.broadcast_volume_state(show_bar=False))
+    await asyncio.gather(service.broadcast_volume_state(display="none"),
+                         service.broadcast_volume_state(display="none"))
 
     assert service.state_machine.broadcast.await_count == 1
 

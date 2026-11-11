@@ -369,10 +369,18 @@ class SpotifyProfilesChanged(WsEvent):
 # VOLUME
 # =============================================================================
 
+# How a screen shows a volume change; VolumeChanged's docstring lists the values.
+VolumeDisplay = Literal["bar", "panel", "none"]
+
+
 class VolumeChanged(WsEvent):
     """The volume changed. `state` is the whole volume state, the object `GET
-    /api/volume/state` answers in `data`; `show_bar` says whether the screen shows
-    its volume bar for this change.
+    /api/volume/state` answers in `data`; `display` says how a screen shows this
+    change: `bar` (the volume bar), `panel` (the full-screen Volume panel on the
+    unit's own screen, the bar elsewhere — what a remote control asks for) or
+    `none` (shown nowhere: a room's or a zone's own level or mute, a
+    reconnection's sync, a heal, a new screen's snapshot, a request sent with
+    `show_bar` false).
 
     unifiedAudioStore (VolumeStateSchema); Milo-Mac reads state.global_volume_db,
     state.mode and multiroom_enabled (mirror of state.mode == "multiroom"), and
@@ -381,7 +389,7 @@ class VolumeChanged(WsEvent):
     """
     CATEGORY = "volume"
     TYPE = "volume_changed"
-    show_bar: bool
+    display: VolumeDisplay
     multiroom_enabled: bool
     state: Dict[str, Any]  # VolumeState.to_dict()
 

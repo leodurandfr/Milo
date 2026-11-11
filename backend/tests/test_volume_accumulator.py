@@ -20,7 +20,7 @@ class _RecordingVolumeService:
         self.calls = []
         self._delay = delay
 
-    async def adjust_volume_db(self, delta):
+    async def adjust_volume_db(self, delta, display):
         if self._delay:
             await asyncio.sleep(self._delay)
         self.calls.append(delta)
@@ -29,7 +29,7 @@ class _RecordingVolumeService:
 async def test_rapid_deltas_are_batched_and_all_applied():
     """Every dB fed in must come back out, batched but never lost."""
     service = _RecordingVolumeService()
-    acc = VolumeAccumulator(service)
+    acc = VolumeAccumulator(service, display="bar")
 
     for _ in range(10):
         acc.accumulate(2.0)
@@ -50,7 +50,7 @@ async def test_cleanup_applies_nothing_further():
     hardware after teardown, with nothing able to cancel it.
     """
     service = _RecordingVolumeService(delay=0.05)
-    acc = VolumeAccumulator(service)
+    acc = VolumeAccumulator(service, display="bar")
 
     acc.accumulate(3.0)
     await asyncio.sleep(0.01)  # first adjust_volume_db is in flight
@@ -68,7 +68,7 @@ async def test_cleanup_applies_nothing_further():
 async def test_a_delta_after_cleanup_spawns_nothing():
     """A late detent from a controller being torn down must not restart the loop."""
     service = _RecordingVolumeService()
-    acc = VolumeAccumulator(service)
+    acc = VolumeAccumulator(service, display="bar")
     await acc.cleanup()
 
     acc.accumulate(5.0)
@@ -88,9 +88,9 @@ async def test_a_refused_adjustment_does_not_strand_the_detents_behind_it():
     """
     service = _RecordingVolumeService()
     failures = [RuntimeError("CamillaDSP is down")]
-    acc = VolumeAccumulator(service)
+    acc = VolumeAccumulator(service, display="bar")
 
-    async def flaky(delta_db):
+    async def flaky(delta_db, display):
         service.calls.append(delta_db)
         if failures:
             acc.accumulate(3.0)  # a detent turned while the push was in flight
@@ -104,3 +104,4 @@ async def test_a_refused_adjustment_does_not_strand_the_detents_behind_it():
     assert service.calls == [2.0, 3.0], "the detent behind the refusal was applied"
     assert acc._processor_running is False
     await acc.cleanup()
+

@@ -149,7 +149,7 @@ The events you need for playback and volume:
 | `source/state` | the whole audio state, sent whenever any of it changes |
 | `source/position` | `{source, session_id, position}` — the playhead jumped (a seek, a skip) |
 | `source/session_ended` | `{source, session_id, reason}` — a session ended, and why |
-| `volume/volume_changed` | `{state, show_bar, multiroom_enabled}` — `state` is what `GET /api/volume/state` answers in `data` |
+| `volume/volume_changed` | `{state, display, multiroom_enabled}` — `state` is what `GET /api/volume/state` answers in `data`; `display` is `bar`, `panel` (a remote control: the full-screen panel on the unit's own screen) or `none` |
 
 Every event is in the [WebSocket reference](reference/ws-events.md). With the
 [`websockets`](https://pypi.org/project/websockets/) package:

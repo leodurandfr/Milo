@@ -14,6 +14,8 @@ import contextlib
 import logging
 from typing import Optional
 
+from backend.core.models.ws_events import VolumeDisplay
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,8 +24,12 @@ class VolumeAccumulator:
 
     BATCH_INTERVAL = 0.02  # 20ms between volume batches
 
-    def __init__(self, volume_service):
+    def __init__(self, volume_service, display: VolumeDisplay):
+        # How the screens show this controller's changes: the rotary sits on
+        # the unit, under its screen, and keeps the bar; a remote is used from
+        # across the room, and asks for the full-screen panel.
         self._volume_service = volume_service
+        self._display = display
         self._accumulator = 0.0
         self._processor_running = False
         self._processor_task: Optional[asyncio.Task] = None
@@ -45,7 +51,7 @@ class VolumeAccumulator:
                 delta = self._accumulator
                 self._accumulator = 0.0
                 try:
-                    await self._volume_service.adjust_volume_db(delta)
+                    await self._volume_service.adjust_volume_db(delta, display=self._display)
                 except Exception as e:
                     logger.error("Error adjusting volume: %s", e)
                 await asyncio.sleep(self.BATCH_INTERVAL)

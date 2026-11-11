@@ -118,7 +118,7 @@ class IrRemoteController:
         self._mode_lock = asyncio.Lock()
 
         # Shared multi-source dispatchers
-        self._volume = VolumeAccumulator(volume_service)
+        self._volume = VolumeAccumulator(volume_service, display="panel")
         self._dispatcher = PlaybackDispatcher(state_machine, device="ir_remote")
 
         # MENU click resolver — at T+MENU_CLICK_WINDOW after the first press,

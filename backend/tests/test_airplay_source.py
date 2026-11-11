@@ -185,7 +185,7 @@ class _Volume:
     async def get_volume_state(self):
         return Mock(global_volume_db=self.volume_db, global_mute=self.muted)
 
-    async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
+    async def set_volume_db(self, volume_db: float, display: str = "bar") -> bool:
         self.sets.append(volume_db)
         self.volume_db = volume_db
         self._broadcast()

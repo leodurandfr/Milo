@@ -70,7 +70,9 @@ def create_volume_router(
         what a phone shows at once instead of waiting for the next push.
         """
         async with api_error_handler("Failed to adjust volume"):
-            success = await volume_service.adjust_volume_db(request.delta_db, show_bar=request.show_bar)
+            success = await volume_service.adjust_volume_db(
+                request.delta_db, display="bar" if request.show_bar else "none"
+            )
 
             if success:
                 volume_db = await volume_service.get_volume_db()
@@ -112,7 +114,7 @@ def create_volume_router(
         async with api_error_handler("Failed to set global volume"):
             config = volume_service.volume_config
             if not await volume_service.set_volume_db(
-                config.denormalize(request.volume), show_bar=request.show_bar
+                config.denormalize(request.volume), display="bar" if request.show_bar else "none"
             ):
                 raise HTTPException(status_code=500, detail="Failed to set global volume")
 

@@ -7,9 +7,10 @@
       @pointerdown.capture="onOverlayPointerdown" @click="backdrop.onClick">
       <!-- The VolumeBar itself, larger and held: same plate, same track and
            fill, the level in mono on the fill — flanked by − / + as thick as
-           the plate. -->
-      <div class="volume-panel" :class="`volume-panel--${variant}`">
-        <button v-press class="volume-step glass-shell button-interactive-subtle"
+           the plate. Opened by a remote control it is only shown: no − / +,
+           and nothing in it takes a touch, so a tap anywhere closes it. -->
+      <div class="volume-panel" :class="[`volume-panel--${variant}`, { 'volume-panel--passive': passive }]">
+        <button v-if="!passive" v-press class="volume-step glass-shell button-interactive-subtle"
           :aria-label="t('volumePanel.decrease')"
           @pointerdown="(e) => volumeHold.onVolumeHoldStart(stepDb(-1), e)"
           @pointerup="volumeHold.onVolumeHoldEnd" @pointercancel="volumeHold.onVolumeHoldEnd"
@@ -19,7 +20,7 @@
 
         <div class="volume-plate glass-shell">
           <div ref="track" class="volume-track" :class="{ 'volume-track--held': dragging }"
-            role="slider" tabindex="0" :aria-label="t('settings.volume')"
+            role="slider" :tabindex="passive ? -1 : 0" :aria-label="t('settings.volume')"
             aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(level * 100)"
             :aria-valuetext="readout"
             @pointerdown="onTrackPointerdown" @pointermove="onTrackPointermove"
@@ -29,7 +30,7 @@
           </div>
         </div>
 
-        <button v-press class="volume-step glass-shell button-interactive-subtle"
+        <button v-if="!passive" v-press class="volume-step glass-shell button-interactive-subtle"
           :aria-label="t('volumePanel.increase')"
           @pointerdown="(e) => volumeHold.onVolumeHoldStart(stepDb(1), e)"
           @pointerup="volumeHold.onVolumeHoldEnd" @pointercancel="volumeHold.onVolumeHoldEnd"
@@ -51,10 +52,6 @@ import { useVolumeHold } from '@/composables/useVolumeHold';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
-
-// Nothing here is read for long, unlike a modal's 120 s: a panel left open on
-// the kiosk also holds back the auto-player (useAutoPlayer).
-const INACTIVITY_CLOSE_MS = 30000;
 
 // How long a released level is held on screen waiting for its echo. Past it the
 // server's own level is shown again: an echo can be skipped (a state identical
@@ -80,6 +77,8 @@ defineProps({
   }
 });
 
+const passive = computed(() => unifiedStore.volumePanelPassive);
+
 const track = ref(null);
 const dragging = ref(false);
 const localLevel = ref(0);
@@ -91,7 +90,6 @@ let dragPointerId = null;
 let dragStartX = 0;
 let dragStartLevel = 0;
 let echoTimer = null;
-let inactivityTimer = null;
 
 function close() {
   unifiedStore.closeVolumePanel();
@@ -157,11 +155,11 @@ function onTrackPointerdown(event) {
   dragStartLevel = start;
   localLevel.value = start;
   dragging.value = true;
+  unifiedStore.holdVolumePanel();
 }
 
 function onTrackPointermove(event) {
   if (!dragging.value || event.pointerId !== dragPointerId) return;
-  armInactivityClose();
   // Measured in the same client pixels as the pointer, so the kiosk's page
   // zoom cancels out.
   const width = track.value.getBoundingClientRect().width || 1;
@@ -175,6 +173,7 @@ function onTrackPointerup(event) {
   if (!dragging.value || event.pointerId !== dragPointerId) return;
   dragPointerId = null;
   dragging.value = false;
+  unifiedStore.armVolumePanelClose();
   if (localLevel.value === dragStartLevel) return;
   pendingLevel.value = localLevel.value;
   timer.clear(echoTimer);
@@ -187,7 +186,7 @@ function stepDb(sign) {
 
 function adjust(delta) {
   clearPending();
-  armInactivityClose();
+  unifiedStore.armVolumePanelClose();
   unifiedStore.adjustVolume(delta);
 }
 
@@ -228,19 +227,13 @@ function onDocumentKeydown(event) {
     close();
     return;
   }
-  armInactivityClose();
+  unifiedStore.armVolumePanelClose();
 }
 
-function armInactivityClose() {
-  timer.clear(inactivityTimer);
-  // A finger resting on the track is still in use, moving or not.
-  inactivityTimer = timer.setTimeout(() => (dragging.value ? armInactivityClose() : close()),
-    INACTIVITY_CLOSE_MS);
-}
-
+// Captured, so it runs before the track's own pointerdown holds the countdown.
 function onOverlayPointerdown(event) {
   backdrop.onPointerdown(event);
-  armInactivityClose();
+  unifiedStore.armVolumePanelClose();
 }
 
 watch(() => unifiedStore.volumePanelOpen, (open) => {
@@ -252,10 +245,8 @@ watch(() => unifiedStore.volumePanelOpen, (open) => {
   clearPending();
   if (open) {
     document.addEventListener('keydown', onDocumentKeydown);
-    armInactivityClose();
   } else {
     document.removeEventListener('keydown', onDocumentKeydown);
-    timer.clear(inactivityTimer);
   }
 }, { immediate: true });
 
@@ -295,6 +286,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-05);
+}
+
+/* A remote's panel is read, not touched: every press lands on the veil. */
+.volume-panel--passive {
+  pointer-events: none;
 }
 
 /* VolumeBar's variants, same tones: the fill takes the far end of the ramp and

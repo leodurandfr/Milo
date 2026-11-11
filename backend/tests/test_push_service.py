@@ -287,7 +287,7 @@ class TestTriggers:
         assert service._dirty.is_set() is True
 
     @pytest.mark.parametrize("event", [
-        VolumeChanged(show_bar=True, multiroom_enabled=True, state={}),
+        VolumeChanged(display="bar", multiroom_enabled=True, state={}),
         a_state_event(),
     ])
     def test_a_state_change_marks_the_service_dirty(self, service, event):
@@ -2080,7 +2080,7 @@ class TestCoalescing:
 
         for i in range(20):
             service.machine.get_current_state.return_value = playing_with(title=f"T{i}")
-            service.on_event(VolumeChanged(show_bar=True, multiroom_enabled=True, state={}))
+            service.on_event(VolumeChanged(display="bar", multiroom_enabled=True, state={}))
 
         await _settled(apns)
         await service.cleanup()
@@ -2142,7 +2142,7 @@ class TestCoalescing:
     def _nudge(self, service, title):
         """A `volume_changed`, over a state whose title names the push it is in."""
         service.machine.get_current_state.return_value = playing_with(title=title)
-        service.on_event(VolumeChanged(show_bar=True, multiroom_enabled=True, state={}))
+        service.on_event(VolumeChanged(display="bar", multiroom_enabled=True, state={}))
 
     def _restate(self, service, title):
         """A `source/state`, over a state whose title names the push it is in."""
@@ -2504,7 +2504,7 @@ class TestCoalescing:
         self._nudge(service, "T")
         await _settled(apns, settle=3 * window)
         service.machine.get_current_state.return_value = dict(READY)
-        service.on_event(VolumeChanged(show_bar=True, multiroom_enabled=True, state={}))
+        service.on_event(VolumeChanged(display="bar", multiroom_enabled=True, state={}))
         await _settled(apns, count=2, settle=3 * window)
         self._nudge(service, "T")
         await _settled(apns, count=3, settle=3 * window)
@@ -2591,13 +2591,13 @@ class TestCoalescing:
         service.machine.get_current_state.side_effect = RuntimeError("boom")
         await service.initialize()
 
-        service.on_event(VolumeChanged(show_bar=True, multiroom_enabled=True, state={}))
+        service.on_event(VolumeChanged(display="bar", multiroom_enabled=True, state={}))
         await asyncio.sleep(0.15)
 
         service.machine.get_current_state.side_effect = None
         service.machine.get_current_state.return_value = dict(PLAYING)
         registry.held["w"] = tok(PushTokenKind.WIDGET, "w")
-        service.on_event(VolumeChanged(show_bar=True, multiroom_enabled=True, state={}))
+        service.on_event(VolumeChanged(display="bar", multiroom_enabled=True, state={}))
         await _settled(apns)
         await service.cleanup()
 

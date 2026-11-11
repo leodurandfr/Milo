@@ -547,7 +547,7 @@ async def test_a_volume_key_reaches_the_volume_service(bt, keycode, expected_db)
     await device.events.put(key_event(keycode))
     await asyncio.sleep(0.05)
 
-    bt.volume_service.adjust_volume_db.assert_awaited_once_with(expected_db)
+    bt.volume_service.adjust_volume_db.assert_awaited_once_with(expected_db, display="panel")
     await bt.controller._stop_scanning()
 
 
@@ -579,7 +579,7 @@ async def test_a_volume_key_still_reaches_the_volume_service_after_a_disable_and
     await device.events.put(key_event(115))
     await asyncio.sleep(0.05)
 
-    bt.volume_service.adjust_volume_db.assert_awaited_once_with(2.0)
+    bt.volume_service.adjust_volume_db.assert_awaited_once_with(2.0, display="panel")
     await bt.controller._stop_scanning()
 
 

@@ -96,10 +96,10 @@ CASES = [
          "data": {"source": "bluetooth"}},
     ),
     (
-        VolumeChanged(show_bar=True, multiroom_enabled=False,
+        VolumeChanged(display="bar", multiroom_enabled=False,
                       state={"mode": "direct", "global_volume_db": -30.0}),
         {"category": "volume", "type": "volume_changed", "origin": "volume",
-         "data": {"show_bar": True,
+         "data": {"display": "bar",
                   "multiroom_enabled": False,
                   "state": {"mode": "direct", "global_volume_db": -30.0}}},
     ),

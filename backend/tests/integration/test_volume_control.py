@@ -369,33 +369,21 @@ class TestVolumeWebSocketEvents:
         assert "global_mute" in state
 
     @pytest.mark.asyncio
-    async def test_show_bar_flag_propagated(
+    async def test_display_propagated(
         self,
         volume_service: VolumeService,
         websocket_collector: WebSocketEventCollector
     ):
         """
-        Test show_bar flag is correctly propagated.
-
-        Validates:
-        - show_bar=True is included in event data
-        - show_bar=False is included when specified
+        The way a change is shown reaches the event every screen reads.
         """
-        # Test with show_bar=True (default)
-        websocket_collector.clear()
-        await volume_service.set_volume_db(-25.0, show_bar=True)
+        for display, volume_db in (("bar", -25.0), ("panel", -27.0), ("none", -30.0)):
+            websocket_collector.clear()
+            await volume_service.set_volume_db(volume_db, display=display)
 
-        events = websocket_collector.get_events_by_type("volume_changed")
-        assert len(events) >= 1
-        assert events[0]["data"]["show_bar"] is True
-
-        # Test with show_bar=False
-        websocket_collector.clear()
-        await volume_service.set_volume_db(-30.0, show_bar=False)
-
-        events = websocket_collector.get_events_by_type("volume_changed")
-        assert len(events) >= 1
-        assert events[0]["data"]["show_bar"] is False
+            events = websocket_collector.get_events_by_type("volume_changed")
+            assert len(events) >= 1
+            assert events[0]["data"]["display"] == display
 
 
 # ==============================================================================

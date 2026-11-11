@@ -56,7 +56,7 @@ function setMultiroom(enabled, volumeClients = {}) {
   });
   audioStore.handleVolumeEvent({
     data: {
-      show_bar: false,
+      display: 'none',
       state: {
         mode: enabled ? 'multiroom' : 'direct',
         global_volume_db: -30,

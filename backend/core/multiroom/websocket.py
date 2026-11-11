@@ -1382,7 +1382,7 @@ class SnapcastWebSocketService:
                                 label=f"push_timezone_{client.ip}",
                             )
                     if self._volume_service:
-                        await self._volume_service.broadcast_volume_state(show_bar=False)
+                        await self._volume_service.broadcast_volume_state(display="none")
                     self.logger.info(f"SYNC_RECONNECT: {mac_id} synced to {target_volume:.1f} dB (attempt {attempt + 1})")
                     return True
                 elif pinned:

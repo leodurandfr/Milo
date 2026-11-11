@@ -25,6 +25,7 @@ from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState
 from backend.core.models.ws_events import (
     VolumeChanged,
+    VolumeDisplay,
 )
 from backend.config.constants import DEFAULT_VOLUME_DB
 
@@ -143,7 +144,7 @@ class VolumeService:
 
         async def broadcast() -> None:
             self._state_broadcast_pending = False
-            await self.broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(display="none")
 
         self._bg.spawn(broadcast(), label="registry_volume_state")
 
@@ -375,7 +376,7 @@ class VolumeService:
             else:
                 self.logger.warning("Failed to unmute CamillaDSP on the way to direct mode")
 
-        await self.broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(display="none")
 
     # ============================================================================
     # CONFIGURATION LOADING
@@ -426,7 +427,7 @@ class VolumeService:
             return True
 
         await self._bring_levels_into_limits()
-        await self.broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(display="none")
         return True
 
     async def _bring_levels_into_limits(self) -> None:
@@ -561,7 +562,7 @@ class VolumeService:
             except Exception as e:
                 self.logger.warning(f"PUSH_VOLUME: Failed to apply the level trim to {cid}: {e}")
 
-        await self.broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(display="none")
         return len(failures) == 0
 
     def _refused(self, client_id: str, applied: bool) -> bool:
@@ -598,7 +599,7 @@ class VolumeService:
         refused = self._refused(client_id, applied)
 
         if broadcast:
-            await self.broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(display="none")
         return not refused
 
     @handle_errors(default=False)
@@ -612,7 +613,7 @@ class VolumeService:
         refused = self._refused(client_id, applied)
 
         if broadcast:
-            await self.broadcast_volume_state(show_bar=False)
+            await self.broadcast_volume_state(display="none")
         return not refused
 
     # ============================================================================
@@ -643,7 +644,7 @@ class VolumeService:
             mac_id for mac_id, answer in answers.items()
             if self._refused(mac_id, await answer)
         ]
-        await self.broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(display="none")
         return refused
 
     async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> Tuple[bool, float, float]:
@@ -698,7 +699,7 @@ class VolumeService:
             f"Zone {zone_id} moved {delta_db:+.1f}dB -> {new_avg:.1f}dB "
             f"({len(reachable)}/{len(members)} reachable)"
         )
-        await self.broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(display="none")
         return ok, new_avg, delta_db
 
     # ============================================================================
@@ -789,7 +790,7 @@ class VolumeService:
                 # Restore managed volume from state
                 await self.reapply_current_volume()
         self.logger.info(f"Local volume_control set to {enabled}")
-        await self.broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(display="none")
 
     @handle_errors(default=False)
     async def reapply_client_volume(self, mac_id: str) -> bool:
@@ -1016,7 +1017,7 @@ class VolumeService:
         else:
             await asyncio.sleep(0.5)
 
-        await self.broadcast_volume_state(show_bar=False)
+        await self.broadcast_volume_state(display="none")
 
     # ============================================================================
     # PUBLIC API (all in dB)
@@ -1027,7 +1028,7 @@ class VolumeService:
         volume_state = await self._state_store.get_complete_state(self._is_multiroom_enabled())
         return volume_state.global_volume_db
 
-    async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
+    async def set_volume_db(self, volume_db: float, display: VolumeDisplay = "bar") -> bool:
         """Move the whole house so its average lands on `volume_db`."""
         if not self._volume_control and not self._is_multiroom_enabled():
             return True  # Direct + DAC: no clients to control
@@ -1037,10 +1038,10 @@ class VolumeService:
         success, _ = await self._move(*group, self._aim(volume_db))
         # Even when the local speaker refused: the levels were written and the
         # satellites were sent theirs, and every screen must show them.
-        await self.broadcast_volume_state(show_bar)
+        await self.broadcast_volume_state(display)
         return success
 
-    async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
+    async def adjust_volume_db(self, delta_db: float, display: VolumeDisplay = "bar") -> bool:
         """Move the whole house by `delta_db` (positive = louder, negative = quieter)."""
         if not self._volume_control and not self._is_multiroom_enabled():
             return True  # Direct + DAC: no clients to control
@@ -1051,14 +1052,14 @@ class VolumeService:
         # In the background: the rotary's accumulator awaits this call before
         # sending its next batch, and the snapshot a broadcast builds has no
         # business pacing the knob.
-        self._bg.spawn(self.broadcast_volume_state(show_bar), label="post_volume_update")
+        self._bg.spawn(self.broadcast_volume_state(display), label="post_volume_update")
         return success
 
     # ============================================================================
     # WEBSOCKET BROADCASTING
     # ============================================================================
 
-    async def volume_event(self, show_bar: bool) -> VolumeChanged:
+    async def volume_event(self, display: VolumeDisplay) -> VolumeChanged:
         """The `volume_changed` event for the state as it is now.
 
         The one place it is built: the broadcast after every change and the
@@ -1067,7 +1068,7 @@ class VolumeService:
         """
         volume_state = await self.get_volume_state()
         return VolumeChanged(
-            show_bar=show_bar,
+            display=display,
             multiroom_enabled=volume_state.mode == "multiroom",
             state=volume_state.to_dict()
         )
@@ -1078,18 +1079,20 @@ class VolumeService:
         its own slider (AirPlay); called synchronously, so it must not block."""
         self._state_listeners.append(listener)
 
-    async def broadcast_volume_state(self, show_bar: bool = True) -> None:
+    async def broadcast_volume_state(self, display: VolumeDisplay = "bar") -> None:
         """Broadcast volume state immediately to WebSocket clients.
 
-        A state identical to the last one sent is not sent again, unless it is
-        to show the bar: nothing on any screen would move, and each broadcast
-        wakes the push coalescer. A screen that connects gets the whole state
-        from its own handshake (`volume_event`), never from a broadcast.
+        A state identical to the last one sent is not sent again when it is
+        shown nowhere (`none`): nothing on any screen would move, and each
+        broadcast wakes the push coalescer. A shown one always goes out — a
+        press at the limit still shows where the level stands. A screen that
+        connects gets the whole state from its own handshake (`volume_event`),
+        never from a broadcast.
         """
         try:
-            event = await self.volume_event(show_bar)
+            event = await self.volume_event(display)
             published = (event.multiroom_enabled, event.state)
-            if not show_bar and published == self._last_published:
+            if display == "none" and published == self._last_published:
                 return
             # Claimed before the send, which yields: the admission's broadcast
             # and the one its registry event raises run together, and the

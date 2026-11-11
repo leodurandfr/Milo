@@ -179,6 +179,17 @@ describe('useAutoPlayer', () => {
     expect(expansion.expanded.value).toBe(true);
   });
 
+  it('keeps counting through a remote control\'s Volume panel', async () => {
+    mountAutoPlayer();
+    await advance(DELAY_MS - 2000);
+
+    store.handleVolumeEvent({ data: { display: 'panel', state: { ...store.volumeState } } });
+    expect(store.volumePanelPassive).toBe(true);
+    await advance(2000);
+
+    expect(expansion.expanded.value).toBe(true);
+  });
+
   it('stops counting when a condition falls, and starts over when it holds again', async () => {
     mountAutoPlayer();
     await advance(DELAY_MS - 1000);

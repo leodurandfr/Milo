@@ -424,6 +424,15 @@ class TestVolumeAdjustRoute:
             "status": "success", "volume_db": -43.0, "volume": 0.5, "delta_db": 2.0,
         }
 
+    def test_show_bar_reaches_the_service(self, test_client, mock_volume_service):
+        """The widget's − / + and the dock's send the boolean; it becomes the bar
+        or nothing, never the panel, which only a remote control asks for."""
+        test_client.post("/api/volume/adjust", json={"delta_db": 2.0, "show_bar": False})
+        assert mock_volume_service.adjust_volume_db.await_args.kwargs["display"] == "none"
+
+        test_client.post("/api/volume/adjust", json={"delta_db": 2.0})
+        assert mock_volume_service.adjust_volume_db.await_args.kwargs["display"] == "bar"
+
 
 # =============================================================================
 # The absolute global write — PATCH /api/volume/global
@@ -492,12 +501,16 @@ class TestGlobalVolumeRoute:
     def test_show_bar_reaches_the_service(self, test_client, mock_volume_service):
         """A push-driven write must be able to move the level without lighting up
         the screen of an appliance nobody is standing in front of. The flag is the
-        only reason this route takes a body field beyond the level."""
+        only reason this route takes a body field beyond the level; Milo-iOS and
+        Milo-Mac send it, so it stays a boolean on the wire and becomes the
+        bar or nothing — never the panel, which only a remote control asks for."""
         test_client.patch(
             "/api/volume/global", json={"volume": 0.3, "show_bar": False}
         )
+        assert mock_volume_service.set_volume_db.await_args.kwargs["display"] == "none"
 
-        assert mock_volume_service.set_volume_db.await_args.kwargs["show_bar"] is False
+        test_client.patch("/api/volume/global", json={"volume": 0.3, "show_bar": True})
+        assert mock_volume_service.set_volume_db.await_args.kwargs["display"] == "bar"
 
     def test_genuine_failure_returns_500(self, test_client, mock_volume_service):
         """Same mapping as `/adjust`: False from the service is a real failure,

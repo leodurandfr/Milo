@@ -774,14 +774,14 @@ class TestHandleKeycode:
         controller = _runtime_controller(step_db=3.5)
         await controller._handle_keycode(evdev.ecodes.KEY_VOLUMEUP)
         await _drain_volume(controller)
-        controller.volume_service.adjust_volume_db.assert_awaited_once_with(3.5)
+        controller.volume_service.adjust_volume_db.assert_awaited_once_with(3.5, display="panel")
 
     @pytest.mark.asyncio
     async def test_volume_down_accumulates_the_negated_step(self):
         controller = _runtime_controller(step_db=3.5)
         await controller._handle_keycode(evdev.ecodes.KEY_VOLUMEDOWN)
         await _drain_volume(controller)
-        controller.volume_service.adjust_volume_db.assert_awaited_once_with(-3.5)
+        controller.volume_service.adjust_volume_db.assert_awaited_once_with(-3.5, display="panel")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("code,direction", [

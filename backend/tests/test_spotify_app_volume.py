@@ -41,7 +41,7 @@ class _Volume:
     async def get_volume_state(self):
         return Mock(global_volume_db=self.volume_db, global_mute=self.muted)
 
-    async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
+    async def set_volume_db(self, volume_db: float, display: str = "bar") -> bool:
         self.sets.append(volume_db)
         self.volume_db = volume_db + self.lands_off_db
         self._broadcast()
@@ -66,9 +66,9 @@ class _SlowVolume(_Volume):
 
     clock = None
 
-    async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
+    async def set_volume_db(self, volume_db: float, display: str = "bar") -> bool:
         await self.clock.sleep(0.15)
-        return await super().set_volume_db(volume_db, show_bar)
+        return await super().set_volume_db(volume_db, display)
 
 
 def _slider_posts(world: SpotifyWorld) -> List[int]:

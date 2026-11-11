@@ -105,7 +105,7 @@ def mock_volume_service():
     service.get_volume_state = AsyncMock(return_value=mock_state)
     # The real builder over this mock's state: the handshake sends exactly what a
     # broadcast would, because both go through VolumeService.volume_event.
-    service.volume_event = lambda show_bar: VolumeService.volume_event(service, show_bar)
+    service.volume_event = lambda display: VolumeService.volume_event(service, display)
 
     return service
 

@@ -22,6 +22,11 @@ import { DEFAULT_VOLUME_DB } from '@/constants/volume';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
+// The unit's own screen, or any other: a remote control's panel opens on the
+// first only. Reset to the kiosk before each test.
+const kiosk = { value: true };
+vi.mock('@/utils/kiosk', () => ({ isKiosk: () => kiosk.value }));
+
 /** A `source/state` event: its data IS the state. */
 const stateEvent = (state) => ({ category: 'source', type: 'state', data: state });
 
@@ -68,7 +73,7 @@ describe('unifiedAudioStore', () => {
     store.updateState(stateEvent({ ...VALID_STATE, multiroom_enabled: enabled }));
     store.handleVolumeEvent({
       data: {
-        show_bar: false,
+        display: 'none',
         state: {
           mode: enabled ? 'multiroom' : 'direct',
           global_volume_db: -30,
@@ -363,7 +368,7 @@ describe('unifiedAudioStore', () => {
     it('shows the volume bar and auto-hides it after 3s', () => {
       vi.useFakeTimers();
 
-      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { show_bar: true }));
+      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { display: 'bar' }));
       expect(store.showVolumeBar).toBe(true);
 
       vi.advanceTimersByTime(2999);
@@ -372,8 +377,8 @@ describe('unifiedAudioStore', () => {
       expect(store.showVolumeBar).toBe(false);
     });
 
-    it('keeps the volume bar hidden when show_bar is false', () => {
-      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { show_bar: false }));
+    it('keeps the volume bar hidden for a change shown nowhere', () => {
+      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { display: 'none' }));
 
       expect(store.showVolumeBar).toBe(false);
     });
@@ -381,9 +386,9 @@ describe('unifiedAudioStore', () => {
     it('restarts the auto-hide countdown on a second event', () => {
       vi.useFakeTimers();
 
-      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { show_bar: true }));
+      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { display: 'bar' }));
       vi.advanceTimersByTime(2000);
-      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { show_bar: true }));
+      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { display: 'bar' }));
 
       vi.advanceTimersByTime(2000);
       expect(store.showVolumeBar).toBe(true);
@@ -394,7 +399,7 @@ describe('unifiedAudioStore', () => {
     it('hideVolumeBar cancels the pending auto-hide', () => {
       vi.useFakeTimers();
 
-      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { show_bar: true }));
+      store.handleVolumeEvent(volumeEvent(MULTIROOM_STATE, { display: 'bar' }));
       store.hideVolumeBar();
       expect(store.showVolumeBar).toBe(false);
 
@@ -458,7 +463,7 @@ describe('unifiedAudioStore', () => {
     it('ignores a volume envelope reporting an error', async () => {
       // GET /api/volume/state answers a failure as HTTP 200 + status 'error'
       // (the resilience pattern), so `ok` alone does not mean there is a state.
-      store.handleVolumeEvent({ data: { show_bar: false, state: VOLUME_SNAPSHOT } });
+      store.handleVolumeEvent({ data: { display: 'none', state: VOLUME_SNAPSHOT } });
       apiCall.get.mockImplementation(async (url) => (
         url === '/api/audio/state'
           ? ok(VALID_STATE)
@@ -486,7 +491,7 @@ describe('unifiedAudioStore', () => {
 
       const paused = { ...VALID_STATE, session: { ...VALID_STATE.session, phase: 'paused' } };
       store.updateState(stateEvent(paused));
-      store.handleVolumeEvent({ data: { show_bar: false, state: { ...VOLUME_SNAPSHOT, global_volume_db: -24 } } });
+      store.handleVolumeEvent({ data: { display: 'none', state: { ...VOLUME_SNAPSHOT, global_volume_db: -24 } } });
 
       pending['/api/audio/state'](ok(VALID_STATE));
       pending['/api/volume/state'](ok({ status: 'success', data: { ...VOLUME_SNAPSHOT, global_volume_db: -30 } }));
@@ -754,14 +759,100 @@ describe('unifiedAudioStore', () => {
   });
 
   describe('Volume panel', () => {
+    const remotePress = () => store.handleVolumeEvent({ data: { display: 'panel', state: { ...store.volumeState } } });
+    const barChange = () => store.handleVolumeEvent({ data: { display: 'bar', state: { ...store.volumeState } } });
+
+    beforeEach(() => { kiosk.value = true; });
+    afterEach(() => vi.useRealTimers());
+
+    it('opens on the kiosk for a remote control\'s press, shown only, and closes 3 s after the last', () => {
+      vi.useFakeTimers();
+
+      remotePress();
+      expect(store.volumePanelOpen).toBe(true);
+      expect(store.volumePanelPassive).toBe(true);
+      expect(store.showVolumeBar).toBe(false);
+
+      vi.advanceTimersByTime(2000);
+      remotePress();
+      vi.advanceTimersByTime(2999);
+      expect(store.volumePanelOpen).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(store.volumePanelOpen).toBe(false);
+      expect(store.volumePanelPassive).toBe(false);
+    });
+
+    it('shows the bar, not the panel, for a remote control\'s press on any other screen', () => {
+      kiosk.value = false;
+
+      remotePress();
+
+      expect(store.volumePanelOpen).toBe(false);
+      expect(store.showVolumeBar).toBe(true);
+    });
+
+    it('leaves the panel opened from the dock held through a remote control\'s press', () => {
+      vi.useFakeTimers();
+      store.openVolumePanel();
+
+      remotePress();
+      vi.advanceTimersByTime(5000);
+
+      expect(store.volumePanelOpen).toBe(true);
+      expect(store.volumePanelPassive).toBe(false);
+    });
+
+    it('gives way to the bar when another gesture moves the level under a remote\'s panel', () => {
+      remotePress();
+
+      barChange();
+
+      expect(store.volumePanelOpen).toBe(false);
+      expect(store.showVolumeBar).toBe(true);
+    });
+
+    it('closes the panel held from the dock 30 s after its last use, a remote\'s press counting as one', () => {
+      vi.useFakeTimers();
+      store.openVolumePanel();
+
+      vi.advanceTimersByTime(20000);
+      remotePress();
+      vi.advanceTimersByTime(29999);
+      expect(store.volumePanelOpen).toBe(true);
+      expect(store.volumePanelPassive).toBe(false);
+
+      vi.advanceTimersByTime(1);
+      expect(store.volumePanelOpen).toBe(false);
+    });
+
+    it('runs no countdown while a finger rests on the track, and starts it again on release', () => {
+      vi.useFakeTimers();
+      store.openVolumePanel();
+
+      store.holdVolumePanel();
+      vi.advanceTimersByTime(60000);
+      expect(store.volumePanelOpen).toBe(true);
+
+      store.armVolumePanelClose();
+      vi.advanceTimersByTime(30000);
+      expect(store.volumePanelOpen).toBe(false);
+    });
+
+    it('is not opened by a change shown nowhere', () => {
+      store.handleVolumeEvent({ data: { display: 'none', state: { ...store.volumeState } } });
+
+      expect(store.volumePanelOpen).toBe(false);
+      expect(store.showVolumeBar).toBe(false);
+    });
+
     it('hides the bar while open, and drops a bar armed behind it on close', () => {
-      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      store.handleVolumeEvent({ data: { display: 'bar', state: { ...store.volumeState } } });
       expect(store.showVolumeBar).toBe(true);
 
       store.openVolumePanel();
       expect(store.showVolumeBar).toBe(false);
 
-      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      store.handleVolumeEvent({ data: { display: 'bar', state: { ...store.volumeState } } });
       store.closeVolumePanel();
       expect(store.showVolumeBar).toBe(false);
     });
@@ -773,13 +864,13 @@ describe('unifiedAudioStore', () => {
       const press = store.adjustVolume(-2);
       store.closeVolumePanel();
 
-      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      store.handleVolumeEvent({ data: { display: 'bar', state: { ...store.volumeState } } });
       expect(store.showVolumeBar).toBe(false);
 
       answer(ok({ status: 'success' }));
       await press;
       await Promise.resolve();
-      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      store.handleVolumeEvent({ data: { display: 'bar', state: { ...store.volumeState } } });
       expect(store.showVolumeBar).toBe(true);
     });
 
@@ -790,12 +881,12 @@ describe('unifiedAudioStore', () => {
       const drag = store.setGlobalVolume(0.5);
       store.closeVolumePanel();
 
-      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      store.handleVolumeEvent({ data: { display: 'bar', state: { ...store.volumeState } } });
       expect(store.showVolumeBar).toBe(false);
 
       answer(ok({ status: 'success' }));
       await drag;
-      store.handleVolumeEvent({ data: { show_bar: true, state: { ...store.volumeState } } });
+      store.handleVolumeEvent({ data: { display: 'bar', state: { ...store.volumeState } } });
       expect(store.showVolumeBar).toBe(true);
     });
   });

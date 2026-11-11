@@ -866,7 +866,7 @@ class AirPlaySource(BaseAudioSource):
         if self._volume_level is not None and abs(level - self._volume_level[0]) < VOLUME_EPSILON:
             return False
         self._volume_level = (level, False)
-        await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
+        await volume.set_volume_db(volume.volume_config.denormalize(level), display="bar")
         return True
 
     def _own_echo(self, airplay_db: float) -> Optional[Tuple[float, bool]]:

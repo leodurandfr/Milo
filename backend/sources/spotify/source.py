@@ -1309,7 +1309,7 @@ class SpotifySource(BaseAudioSource):
         # which differs from it by a rounding or a room held at its limit.
         self._volume_sent = status.volume
         level = status.volume / self._volume_steps
-        await volume.set_volume_db(volume.volume_config.denormalize(level), show_bar=True)
+        await volume.set_volume_db(volume.volume_config.denormalize(level), display="bar")
         state = await volume.get_volume_state()
         self._volume_landed = volume.volume_config.normalize(state.global_volume_db)
         return True

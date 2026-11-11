@@ -145,7 +145,7 @@ class WebSocketServer:
         """Send volume state after availability is ready (non-blocking)."""
         try:
             await self.volume_service.wait_for_availability(timeout=5.0)
-            event = await self.volume_service.volume_event(show_bar=False)
+            event = await self.volume_service.volume_event(display="none")
             await websocket.send_text(json.dumps(event.to_envelope()))
         except Exception as e:
             logger.debug(f"Failed to send volume state: {e}")

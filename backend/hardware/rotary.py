@@ -43,7 +43,7 @@ class RotaryVolumeController:
         self._monitor_task: Optional[asyncio.Task] = None
 
         # Volume accumulator (shared with BT remote)
-        self._volume = VolumeAccumulator(volume_service)
+        self._volume = VolumeAccumulator(volume_service, display="bar")
 
         # Playback dispatch (multi-click → play/pause, next, prev)
         self._dispatcher = PlaybackDispatcher(state_machine, device="rotary")

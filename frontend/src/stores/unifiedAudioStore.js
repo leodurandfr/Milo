@@ -7,6 +7,7 @@ import { reportError } from '@/services/errorReporter';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { AudioStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
 import { DEFAULT_VOLUME_DB, MAX_ADJUST_DB } from '@/constants/volume';
+import { isKiosk } from '@/utils/kiosk';
 
 // How long a radio player shows a station just tuned alone, before the song it
 // plays (usePlayerMetadata).
@@ -64,6 +65,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // Volume bar visibility state (replaces component coupling)
   const showVolumeBar = ref(false);
   let volumeBarHideTimer = null;
+
+  // How long a change stays on screen after the last one: the bar's, and the
+  // panel's when a remote control opened it.
+  const VOLUME_SHOWN_MS = 3000;
 
   // Transient command error (set on sendCommand failure, consumed by App.vue)
   const commandError = ref(null);
@@ -232,9 +237,48 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // opening the full player behind it would change the view it closes onto.
   const volumePanelOpen = ref(false);
 
+  // The same panel opened by a remote control (`display: "panel"`) rather than
+  // from the dock: shown, not held — no − / +, nothing to drag, gone
+  // VOLUME_SHOWN_MS after the last press, as the bar is.
+  const volumePanelPassive = ref(false);
+
+  // The panel's one countdown, whichever opened it, re-armed by any use of it —
+  // a remote's press included. The held panel's is short next to a modal's
+  // 120 s: nothing in it is read for long.
+  const HELD_PANEL_CLOSE_MS = 30000;
+  let panelCloseTimer = null;
+
+  function clearPanelClose() {
+    if (panelCloseTimer) clearTimeout(panelCloseTimer);
+    panelCloseTimer = null;
+  }
+
+  /** Starts the panel's countdown over; a no-op while it is closed. */
+  function armVolumePanelClose() {
+    clearPanelClose();
+    if (!volumePanelOpen.value) return;
+    panelCloseTimer = setTimeout(closeVolumePanel,
+      volumePanelPassive.value ? VOLUME_SHOWN_MS : HELD_PANEL_CLOSE_MS);
+  }
+
+  /** A finger resting on the track is still in use, moving or not: no
+   *  countdown runs until armVolumePanelClose() is called again. */
+  function holdVolumePanel() {
+    clearPanelClose();
+  }
+
   function openVolumePanel() {
     hideVolumeBar();
+    volumePanelPassive.value = false;
     volumePanelOpen.value = true;
+    armVolumePanelClose();
+  }
+
+  function showPassivePanel() {
+    hideVolumeBar();
+    volumePanelPassive.value = true;
+    volumePanelOpen.value = true;
+    armVolumePanelClose();
   }
 
   // Held while the panel's last requests drain after it closed: their echoes
@@ -242,6 +286,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   let barQuietAfterPanel = false;
 
   function closeVolumePanel() {
+    clearPanelClose();
+    volumePanelPassive.value = false;
     volumePanelOpen.value = false;
     hideVolumeBar();
     const draining = [globalInFlight, adjustInFlight].filter(Boolean);
@@ -319,7 +365,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   /** True when a state was applied. */
-  function applyVolumeState({ show_bar, state }) {
+  function applyVolumeState({ display, state }) {
     let applied = false;
     // Validate with Zod — .catch() defaults handle invalid fields automatically
     if (state) {
@@ -338,15 +384,28 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       }
     }
 
-    // Show volume bar and auto-hide after 3 seconds — not on the screen holding
-    // the Volume panel, which shows the level itself, nor for the echoes of its
+    if (!state || (display !== 'bar' && display !== 'panel')) return applied;
+
+    // A remote control's press opens the panel on the unit's own screen — it is
+    // read from across the room — and the bar on every other screen. The held
+    // panel already shows the level, and the press counts as using it.
+    if (display === 'panel' && isKiosk()) {
+      if (volumePanelOpen.value && !volumePanelPassive.value) armVolumePanelClose();
+      else showPassivePanel();
+      return applied;
+    }
+
+    // Any other change shows the bar, the last gesture deciding how: one made
+    // while a remote's panel is up replaces it. Not on the screen holding the
+    // Volume panel, which shows the level itself, nor for the echoes of its
     // last drag still arriving after it closed (other screens show them).
-    if (show_bar !== false && state && !volumePanelOpen.value && !globalInFlight && !barQuietAfterPanel) {
+    if (volumePanelPassive.value) closeVolumePanel();
+    if (!volumePanelOpen.value && !globalInFlight && !barQuietAfterPanel) {
       if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
       showVolumeBar.value = true;
       volumeBarHideTimer = setTimeout(() => {
         showVolumeBar.value = false;
-      }, 3000);
+      }, VOLUME_SHOWN_MS);
     }
     return applied;
   }
@@ -359,7 +418,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
    * copy websocket.js used to run on visibility change, which fetched the same two
    * endpoints and replayed them as synthetic WS envelopes.
    *
-   * `show_bar: false` — a heal the user did not cause must not flash the overlay.
+   * `display: 'none'` — a heal the user did not cause must not flash the overlay.
    *
    * A whole state or volume delta received while a request was in flight is
    * newer than its answer, so that half is not applied, and the domain counts as
@@ -399,7 +458,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     const volumeNewer = volumeDeltas !== volumeSeen;
     const volumeOk = volumeRes.ok && volumeRes.data.status === 'success';
     if (volumeOk && !volumeNewer) {
-      applyVolumeState({ show_bar: false, state: volumeRes.data.data });
+      applyVolumeState({ display: 'none', state: volumeRes.data.data });
     }
     return (audioRes.ok || audioNewer) && (volumeOk || volumeNewer);
   }
@@ -558,6 +617,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     volumeState,
     showVolumeBar,
     volumePanelOpen,
+    volumePanelPassive,
     commandError,
     transientNotice,
 
@@ -575,6 +635,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     hideVolumeBar,
     openVolumePanel,
     closeVolumePanel,
+    armVolumePanelClose,
+    holdVolumePanel,
 
     // Per-client volume / mute
     getClientVolume,

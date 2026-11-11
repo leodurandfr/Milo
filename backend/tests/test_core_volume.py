@@ -1830,7 +1830,7 @@ class TestPerClientApplyVerdict:
         service.state_store.ensure_local_client(self.ACCEPTING, -40.0)
         heard = []
         service.add_state_listener(lambda volume, mute: heard.append(volume))
-        before = (await service.volume_event(False)).state["global_volume"]
+        before = (await service.volume_event("none")).state["global_volume"]
 
         await service.update_client_volume_db(self.ACCEPTING, -25.0)
 

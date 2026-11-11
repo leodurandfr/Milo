@@ -516,3 +516,25 @@ async def test_a_press_the_source_refuses_is_logged_as_the_rotarys(caplog):
     ]
     assert len(warnings) == 1
     assert "rotary" in warnings[0] and "playpause" in warnings[0]
+
+
+async def test_a_turn_of_the_knob_asks_the_screens_for_the_bar(gpio, clock):
+    """The knob sits under the unit's own screen, and the full-screen panel is
+    what a remote asks for from across the room: the rotary's turns must reach
+    the service as the bar, or turning it would cover the screen being read."""
+    volume_service = types.SimpleNamespace(
+        volume_config=types.SimpleNamespace(step_rotary_db=STEP_DB),
+        adjust_volume_db=AsyncMock(),
+    )
+    controller = RotaryVolumeController(
+        volume_service, state_machine=types.SimpleNamespace(),
+        clk_pin=CLK, dt_pin=DT, sw_pin=SW,
+    )
+    controller.last_clk = 0
+    gpio.levels[CLK] = 1
+    gpio.levels[DT] = 0
+    controller._check_rotation()
+    await asyncio.sleep(0.05)
+
+    volume_service.adjust_volume_db.assert_awaited_once_with(STEP_DB, display="bar")
+    await controller._volume.cleanup()
