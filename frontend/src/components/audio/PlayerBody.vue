@@ -228,21 +228,17 @@ defineExpose({ swipe });
   padding-top: var(--space-06);
 }
 
-/* The box the lines are centred in. Sized by the incoming lines alone: the
-   outgoing ones are taken out of the flow and laid over the same box, so a
-   title of another height moves nothing while they cross. */
+/* The box the lines are centered in. Sized by the incoming lines alone: the
+   outgoing ones are taken out of the flow and laid under them in the same box
+   (lines-fade below), so a title of another height moves nothing while they
+   cross. Isolated, so the outgoing lines' negative z-index stays inside it. */
 .body-lines-stack {
   position: relative;
+  isolation: isolate;
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-.body-lines-stack>.lines-fade-leave-active {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
 }
 
 .body-lines {
@@ -260,9 +256,16 @@ defineExpose({ swipe });
   padding-block: var(--space-04);
 }
 
-/* In as the cover comes in; out fast, so the two texts barely overlap. */
+/* In as the cover comes in; out fast and under the new lines, so the two texts
+   barely overlap and the incoming one is never covered. Eased rather than the
+   linear --transition-crossfade: that one is a text becoming another at
+   reading pace (lyrics), this one a replacement keeping pace with the cover. */
 .lines-fade-leave-active {
-  transition: opacity var(--transition-lines-leave);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  transition: opacity var(--transition-lines-out);
 }
 
 .lines-fade-enter-active {

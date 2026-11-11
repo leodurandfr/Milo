@@ -475,9 +475,12 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
 
 /* The outgoing cover, out of the flow so the two share the box while they
    fade. The incoming one, inserted after it, paints over it. */
+/* Under the incoming cover, which a static element would otherwise paint
+   below; .artwork's z-index keeps the -1 inside it. */
 .artwork > .cover-reveal-leave-active {
   position: absolute;
   inset: 0;
+  z-index: -1;
 }
 
 /* Block, or the line box adds a descender under it and the cover runs 4px

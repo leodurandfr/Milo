@@ -460,8 +460,9 @@
     /* A track's title and line handing over to the next (PlayerBody's
        `lines-fade`). The new lines come in on --transition-cover, from the same
        instant as the cover; the old ones only have to clear the way, and two
-       texts over each other read as a blur, so they go fast and early. */
-    --transition-lines-leave: 150ms var(--easeOutCubic);
+       texts over each other read as a blur, so they go fast and early — on
+       easeOut, which is why this is not a `-leave` (easeIn) token. */
+    --transition-lines-out: 150ms var(--easeOutCubic);
 
     /* Springs, each headed by its overshoot: a share of the travel, so the
        longer the travel, the softer the spring it wants. A spring moves
@@ -1171,8 +1172,9 @@
    in the same box — the players' (AudioPlayer, AudioPlayerFull), on every
    change of cover but the first after a mount (useArtworkTransition's `fades`).
    The two overlap: each player takes the leaving one out of the flow, since
-   only it knows the box, and the entering one, which Vue inserts after it,
-   paints over it. Opacity alone, the one property the kiosk composites without
+   only it knows the box, and lays it under the entering one (z-index -1 in a
+   box that is its own stacking context) — out of the flow alone, it would be
+   positioned and paint over the static newcomer. Opacity alone, the one property the kiosk composites without
    repainting. The element it moves must carry no opacity of its own, or its
    scoped rule outranks these. */
 .cover-fade-enter-active {

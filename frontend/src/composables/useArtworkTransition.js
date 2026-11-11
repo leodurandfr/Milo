@@ -27,7 +27,7 @@
 // The players fade one cover into the next (`fades`), except at the first
 // settle after a mount: what it replaces is the fallback drawn while the cover
 // decodes, often before the first paint, and fading that out would show it for
-// half a second on every open.
+// a third of a second on every open.
 import { nextTick, ref, watch } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { MIN_IMAGE_SIZE } from '@/constants/imageQuality';

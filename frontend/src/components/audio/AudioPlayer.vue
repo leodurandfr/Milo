@@ -544,9 +544,11 @@ function onTouchEnd(e) {
 
 /* The cover's slot, the frame's square: the outgoing cover is taken out of
    the flow so the two share it while they fade, and the incoming one, inserted
-   after it, paints over it. */
+   after it, is drawn over it — the outgoing one's z-index, which `isolation`
+   keeps inside the slot, since a positioned element paints over a static one. */
 .player-artwork-stack {
   position: relative;
+  isolation: isolate;
   width: 100%;
   height: 100%;
   /* Clips the cover coming in zoomed and blurred (cover-reveal) to the cover's
@@ -558,13 +560,15 @@ function onTouchEnd(e) {
 .player-artwork-stack > .cover-reveal-leave-active {
   position: absolute;
   inset: 0;
+  z-index: -1;
 }
 
-/* The outgoing background, sharing the box with the incoming one, which
-   paints over it, while they fade. */
+/* The outgoing background, sharing the box with the incoming one and under
+   it while they fade (the box's own z-index keeps the -1 inside it). */
 .player-art-background > .cover-fade-leave-active {
   position: absolute;
   inset: 0;
+  z-index: -1;
 }
 
 /* Inline-SVG fallback: let the SVG sit in normal flow with width:100% and
