@@ -640,7 +640,7 @@ onUnmounted(() => {
 .dock-container {
   /* How far the open dock rides above the bottom edge — shared with the
      overflow panel, whose max-height measures the room left over the dock. */
-  --dock-raise: calc(24px + env(safe-area-inset-bottom, 0px) + var(--screen-inset));
+  --dock-raise: calc(8px + env(safe-area-inset-bottom, 0px) + var(--screen-inset));
   position: fixed;
   bottom: 0;
   left: 50%;
