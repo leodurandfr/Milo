@@ -454,8 +454,14 @@
     /* One cover handing over to the next in the same box (the `cover-fade`
        transition below): the incoming one rises early, the outgoing one goes
        late, so the box never dips to its ground halfway. */
-    --transition-cover: 500ms var(--easeOutCubic);
-    --transition-cover-leave: 500ms var(--easeInCubic);
+    --transition-cover: 300ms var(--easeOutCubic);
+    --transition-cover-leave: 300ms var(--easeInCubic);
+
+    /* A track's title and line handing over to the next (PlayerBody's
+       `lines-fade`). The new lines come in on --transition-cover, from the same
+       instant as the cover; the old ones only have to clear the way, and two
+       texts over each other read as a blur, so they go fast and early. */
+    --transition-lines-leave: 150ms var(--easeOutCubic);
 
     /* Springs, each headed by its overshoot: a share of the travel, so the
        longer the travel, the softer the spring it wants. A spring moves
@@ -1186,7 +1192,7 @@
    out of a blur and a slight zoom, as a held cover used to clear, over the
    outgoing one, which fades as in `cover-fade`. The zoom is not decoration: a
    blur pulls the transparent edge in, and the zoom keeps it outside the box.
-   The blur repaints, but on one cover-sized layer for half a second. */
+   The blur repaints, but on one cover-sized layer for a third of a second. */
 .cover-reveal-enter-active {
     transition:
         opacity var(--transition-cover),

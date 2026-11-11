@@ -38,28 +38,31 @@
           </div>
         </Transition>
         <!-- The title and its line, centred in what the source bar leaves. A
-             new track fades the old lines out and its own in, as one change
-             (keyed on the track, not on each string). -->
-        <Transition name="lines-fade" mode="out-in">
-          <div :key="trackKey" class="body-lines">
-            <template v-if="surface === 'full'">
-              <h1 v-press="albumLink" class="body-title heading-1" :class="{ 'is-link': albumLink }"
-                @click="onTitleClick">{{ title }}</h1>
-              <p v-if="secondaryLine" v-press="lineLink" class="body-secondary heading-2" :class="{ 'is-link': lineLink }"
-                @click="onSecondaryClick">
-                <ArtistNames v-if="nameLinks" :artists="artists" @open="openArtist" />
-                <template v-else>{{ secondaryLine }}</template>
-              </p>
-            </template>
-            <PlayerInfoText v-else class="card-lines"
-              :class="{ 'has-album-link': albumLink, 'has-artist-link': lineLink }" :title="title"
-              :secondary="secondaryLine || null" @click="onCardLinesClick">
-              <template v-if="nameLinks" #secondary>
-                <ArtistNames :artists="artists" @open="openArtist" />
+             new track crossfades them, as one change (keyed on the track, not
+             on each string), from the same instant as the cover: out-in made
+             the text land a beat after it. -->
+        <div class="body-lines-stack">
+          <Transition name="lines-fade">
+            <div :key="trackKey" class="body-lines">
+              <template v-if="surface === 'full'">
+                <h1 v-press="albumLink" class="body-title heading-1" :class="{ 'is-link': albumLink }"
+                  @click="onTitleClick">{{ title }}</h1>
+                <p v-if="secondaryLine" v-press="lineLink" class="body-secondary heading-2" :class="{ 'is-link': lineLink }"
+                  @click="onSecondaryClick">
+                  <ArtistNames v-if="nameLinks" :artists="artists" @open="openArtist" />
+                  <template v-else>{{ secondaryLine }}</template>
+                </p>
               </template>
-            </PlayerInfoText>
-          </div>
-        </Transition>
+              <PlayerInfoText v-else class="card-lines"
+                :class="{ 'has-album-link': albumLink, 'has-artist-link': lineLink }" :title="title"
+                :secondary="secondaryLine || null" @click="onCardLinesClick">
+                <template v-if="nameLinks" #secondary>
+                  <ArtistNames :artists="artists" @open="openArtist" />
+                </template>
+              </PlayerInfoText>
+            </div>
+          </Transition>
+        </div>
         <!-- The phone's mini-bar: one line each, as the swipe carousel's cells. -->
         <PlayerInfoText v-if="surface === 'card'" variant="line" class="body-mini-lines" :title="title"
           :secondary="secondaryLine || null" />
@@ -225,6 +228,23 @@ defineExpose({ swipe });
   padding-top: var(--space-06);
 }
 
+/* The box the lines are centred in. Sized by the incoming lines alone: the
+   outgoing ones are taken out of the flow and laid over the same box, so a
+   title of another height moves nothing while they cross. */
+.body-lines-stack {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.body-lines-stack>.lines-fade-leave-active {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
 .body-lines {
   flex: 1;
   display: flex;
@@ -240,14 +260,13 @@ defineExpose({ swipe });
   padding-block: var(--space-04);
 }
 
-/* Short out, a little longer in: the old lines are gone before the new ones
-   are read. */
+/* In as the cover comes in; out fast, so the two texts barely overlap. */
 .lines-fade-leave-active {
-  transition: opacity var(--transition-fast-leave);
+  transition: opacity var(--transition-lines-leave);
 }
 
 .lines-fade-enter-active {
-  transition: opacity var(--transition-in-out);
+  transition: opacity var(--transition-cover);
 }
 
 .lines-fade-enter-from,
@@ -462,7 +481,7 @@ defineExpose({ swipe });
     gap: 0;
   }
 
-  .player-body--card .body-lines,
+  .player-body--card .body-lines-stack,
   .player-body--card .body-source-slot {
     display: none;
   }
