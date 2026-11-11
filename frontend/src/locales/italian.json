@@ -1,7 +1,6 @@
 {
   "lyrics": {
     "title": "Testo",
-    "loading": "Caricamento del testo…",
     "noLyrics": "Nessun testo trovato per",
     "unavailable": "Servizio testi temporaneamente non disponibile",
     "notPlaying": "Nessuna riproduzione",

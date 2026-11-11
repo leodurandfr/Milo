@@ -1,7 +1,6 @@
 {
   "lyrics": {
     "title": "Lyrics",
-    "loading": "Loading the lyrics…",
     "noLyrics": "No lyrics found for",
     "unavailable": "Lyrics service temporarily unavailable",
     "notPlaying": "Nothing playing",

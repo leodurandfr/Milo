@@ -43,11 +43,11 @@
 
       <!-- One loader for both waits — the LRCLIB lookup and then LyricsContent's
            centring. It sits outside the Transition above so it stays put across
-           that swap: the reader sees a single uninterrupted message rather than
+           that swap: the reader sees a single uninterrupted spinner rather than
            two loading screens trading places mid-wait. -->
       <Transition name="lyrics-loader">
         <div v-if="showLoader" class="lyrics-view-loader">
-          <MessageContent variant="on-contrast" loading :loading-delay="0" :title="t('lyrics.loading')" />
+          <LoadingSpinner :size="isMobile ? 64 : 96" />
         </div>
       </Transition>
 
@@ -60,6 +60,7 @@
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useTimer } from '@/composables/useTimer';
+import { useIsMobile } from '@/composables/useIsMobile';
 import { markDarkSurface } from '@/composables/useDarkSurface';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/lyricsStore';
@@ -67,6 +68,7 @@ import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/l
 import IconButton from '@/components/ui/IconButton.vue';
 import BlurredArtwork from '@/components/audio/BlurredArtwork.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import LyricsContent from './LyricsContent.vue';
 import LyricsPlaybackBar from './LyricsPlaybackBar.vue';
 
@@ -74,6 +76,7 @@ const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
 const timer = useTimer();
+const { isMobile } = useIsMobile();
 
 // Contrast backdrop filling the whole slot, so the volume bar App.vue mounts
 // over it needs its on-contrast variant. Mounted only while open, so the mounted life
@@ -308,8 +311,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 /* Desktop only: a third of the view rather than shrink-to-fit, so the card
    reads as a deliberate column over the backdrop instead of an arbitrary
    width driven by its longest line. Reset back to auto on mobile below. */
-.lyrics-view-state :deep(.message-content),
-.lyrics-view-loader :deep(.message-content) {
+.lyrics-view-state :deep(.message-content) {
   width: 33.333%;
 }
 
@@ -318,8 +320,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 
 @media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
-  .lyrics-view-state :deep(.message-content),
-  .lyrics-view-loader :deep(.message-content) {
+  .lyrics-view-state :deep(.message-content) {
     width: auto;
   }
 }
@@ -334,6 +335,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--color-text-on-contrast);
 }
 
 /* Lifts away upward when both waits are over. No enter counterpart: on opening,

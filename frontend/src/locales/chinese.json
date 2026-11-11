@@ -1,7 +1,6 @@
 {
   "lyrics": {
     "title": "歌词",
-    "loading": "正在加载歌词…",
     "noLyrics": "未找到歌词",
     "unavailable": "歌词服务暂时不可用",
     "notPlaying": "未在播放",
