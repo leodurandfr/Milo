@@ -3,15 +3,17 @@
 <!-- The class names .gain-slider and .gain-value are read as anchors by
      tests/architecture/equalizerTargetScope.test.js, which pins that neither
      renders a figure before the store has loaded one: the zeroed placeholder
-     never shows, and the slider draws only a gain a record carried — the
+     never shows (the slider is its bare track until then), and it draws only a
+     gain a record carried — the
      previous target's, held for at most HOLD_MS. Renaming either is fine;
      update PRINTED_GAIN_CLASS / GAIN_SLIDER_CLASS there in the same commit. -->
 <template>
   <div class="eq-band" :class="{ 'horizontal': orientation === 'horizontal', 'compact': compact }">
     <div class="band-label text-mono-small">{{ displayName }}</div>
 
-    <div class="gain-slider" :class="{ 'pending': !loaded && !holding }">
+    <div class="gain-slider">
       <RangeSlider
+        :placeholder="!loaded && !holding"
         :model-value="shownGain"
         :min="-15"
         :max="15"
@@ -28,7 +30,7 @@
     </div>
 
     <div class="gain-value text-mono-small" :class="{ 'dragging': isDragging }">
-      {{ loaded ? formatNumber(gainValue, GAIN_FORMAT) : '—' }}
+      {{ loaded ? formatNumber(gainValue, GAIN_FORMAT) : '' }}<span v-if="!loaded" class="skeleton-text-line shimmer gain-skeleton" aria-hidden="true"></span>
     </div>
   </div>
 </template>
@@ -64,8 +66,8 @@ const placed = ref(false);
 // A target switch reloads a band that already drew a curve. It holds that
 // curve, disabled and unfigured, until the next record lands and the band glides
 // to it — never the zeroed placeholder. A record slower than HOLD_MS is a target
-// not answering, and the band hides as on a first load rather than keep showing
-// the previous target's curve under the new tab.
+// not answering, and the band falls back to its bare track as on a first load
+// rather than keep showing the previous target's curve under the new tab.
 const HOLD_MS = 1000;
 const timer = useTimer();
 const holding = ref(false);
@@ -153,11 +155,6 @@ function handleDragEnd() {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity var(--transition-fast);
-}
-
-.gain-slider.pending {
-  opacity: 0;
 }
 
 .eq-band:not(.horizontal) .gain-slider {
@@ -175,6 +172,17 @@ function handleDragEnd() {
   color: var(--color-brand);
   text-align: center;
   transition: color var(--transition-fast);
+}
+
+/* The figure's skeleton, drawn like every other one (.skeleton-text-line +
+   .shimmer): a bar where the reading will sit, about as wide as "+0,0" and
+   under the line's height, so the row keeps its height and nothing moves when
+   the figure replaces it. Inline-block: the bar sits on the line's strut. */
+.gain-skeleton {
+  display: inline-block;
+  width: 3.5ch;
+  height: 12px;
+  vertical-align: middle;
 }
 
 .gain-value.dragging {

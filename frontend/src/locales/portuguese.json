@@ -250,8 +250,7 @@
     },
     "meters": {
       "title": "Níveis de saída de áudio"
-    },
-    "connecting": "A conectar…"
+    }
   },
   "status": {
     "loading": "A iniciar…",

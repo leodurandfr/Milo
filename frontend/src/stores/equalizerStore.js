@@ -30,11 +30,19 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const builtinPresets = ref([]); // Array of { id, gains } objects
   const customGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   const activePreset = ref('flat'); // Preset ID ('flat' default, 'custom' or builtin ID)
-  const state = ref('disconnected'); // disconnected, inactive, running, paused
+  // disconnected, inactive, running, paused — or null while no record has said
+  // it for the selected target: unknown is not disconnected. A reload of the
+  // same target keeps the last answer; only cleanup() (a switch, a close)
+  // forgets it, as it forgets the rest of the target's record.
+  const state = ref(null);
   const filtersLoaded = ref(false);
   // True from the first loadStatus() onwards — `filtersLoaded` flips back to
   // false during a reload, so it cannot answer "has this store ever loaded?"
   const hasEverLoaded = ref(false);
+  // A record of the selected target is what the controls hold. cleanup() (a
+  // switch, a close) clears it; a reload of the same target does not, unlike
+  // `filtersLoaded`, since what is on screen is still that target's record.
+  const hasRecord = ref(false);
 
   // Equalizer effects enabled state (persisted in settings)
   // Note: Volume always works via CamillaDSP, this controls EQ/compressor/loudness
@@ -292,6 +300,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       // No need to update local cache here
 
       filtersLoaded.value = true;
+      hasRecord.value = true;
 
       // Snapshot current preset gains for edit detection
       _snapshotPresetGains(activePreset.value);
@@ -642,7 +651,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     // that went offline. Every read and write is addressed through targetRef():
     // a stale MAC 404s the whole page — and the record GET failing silently
     // leaves the previous target's EQ on screen — while an offline satellite's
-    // record reads `disconnected`, which holds the modal on "Connecting…". Drop
+    // record reads `disconnected`, which holds the modal on its spinner. Drop
     // it here, where a valid target is this function's job. A zone is kept
     // whoever represents it: it reads the local DSP. A resync can drop it under
     // an open modal, so the drop is a target switch: what is still throttled
@@ -848,6 +857,8 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   function cleanup() {
     cancelPending();
     filtersLoaded.value = false;
+    hasRecord.value = false;
+    state.value = null;
 
     // Reset equalizer state to defaults to prevent showing stale data while loading
     // This ensures users see flat/disabled state instead of previous zone's settings
@@ -937,6 +948,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     filters,
     activePreset,
     filtersLoaded,
+    hasRecord,
     outputPeak,
 
     // Equalizer Effects Enabled State

@@ -250,8 +250,7 @@
     },
     "meters": {
       "title": "Audio-Ausgangspegel"
-    },
-    "connecting": "Verbindung wird hergestellt…"
+    }
   },
   "status": {
     "loading": "Wird gestartet…",

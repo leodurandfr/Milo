@@ -78,6 +78,9 @@
     <GalleryVariant label="loading — the spinner is held back by loadingDelay (200 ms)" stacked>
       <MessageContent loading title="Scanning the library" />
     </GalleryVariant>
+    <GalleryVariant label='variant="loading" — a large spinner alone, no line under it' stacked>
+      <MessageContent variant="loading" :loading-delay="0" />
+    </GalleryVariant>
     <GalleryVariant label='variant="on-contrast" — card-less, for use over artwork' stacked>
       <div class="dark-strip">
         <MessageContent

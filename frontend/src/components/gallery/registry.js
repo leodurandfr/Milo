@@ -571,12 +571,13 @@ export const REGISTRY = {
     },
     overrides: {
       icon: OPTIONAL_ICON,
-      variant: { kind: 'enum', options: ['default', 'on-contrast'] },
+      variant: { kind: 'enum', options: ['default', 'on-contrast', 'loading'] },
       ctaVariant: { kind: 'enum', options: ['brand', 'control', 'tinted', 'important'] },
       ctaSecondaryVariant: { kind: 'enum', options: ['control', 'brand', 'tinted', 'important'] }
     },
     // `on-contrast` drops the card and colours every line white, for the blurred
-    // artwork the Lyrics view lays it over.
+    // artwork the Lyrics view lays it over. `loading` keeps the card and draws a
+    // large spinner alone: every other arg is ignored there.
     surface: args => (args.variant === 'on-contrast' ? 'contrast' : null)
   },
 

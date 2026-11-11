@@ -47,7 +47,7 @@
            two loading screens trading places mid-wait. -->
       <Transition name="lyrics-loader">
         <div v-if="showLoader" class="lyrics-view-loader">
-          <LoadingSpinner :size="isMobile ? 64 : 96" />
+          <LoadingSpinner :size="STANDALONE_SPINNER_SIZE[isMobile ? 'mobile' : 'desktop']" />
         </div>
       </Transition>
 
@@ -61,6 +61,7 @@ import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useTimer } from '@/composables/useTimer';
 import { useIsMobile } from '@/composables/useIsMobile';
+import { STANDALONE_SPINNER_SIZE } from '@/constants/layout';
 import { markDarkSurface } from '@/composables/useDarkSurface';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLyricsStore, isLyricsCompatible, getTrackIdentity } from '@/stores/lyricsStore';

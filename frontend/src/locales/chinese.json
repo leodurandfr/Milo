@@ -250,8 +250,7 @@
     },
     "meters": {
       "title": "音频输出电平"
-    },
-    "connecting": "正在连接…"
+    }
   },
   "status": {
     "loading": "正在启动…",

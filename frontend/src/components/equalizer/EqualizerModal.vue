@@ -11,22 +11,25 @@
     <div class="swap-stack">
       <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
         <!-- State 1: Equalizer disabled -->
-        <MessageContent v-if="!equalizerStore.isEqualizerEffectsEnabled" key="disabled" icon="equalizer"
+        <MessageContent v-if="contentKey === 'disabled'" key="disabled" icon="equalizer"
           :title="t('equalizer.effects_disabled')" />
 
-        <!-- State 2: Equalizer enabled but loading/connecting. The tabs stay, so
-             a target that never connects can be left. Not while nothing is
-             selected (the first opening): the strip would select its first tab
-             on mount, ahead of loadTargets() picking the local client. -->
-        <SectionStack v-else-if="!equalizerStore.isConnected" key="loading">
-          <ItemSelector v-if="equalizerStore.selectedTarget" ref="zoneTabsRef" />
-          <MessageContent :loading="true" :loading-delay="0" :title="t('equalizer.connecting')" />
+        <!-- State 2: the target's record came back saying its DSP is not
+             running. The tabs stay, so a target that never connects can be left. -->
+        <SectionStack v-else-if="contentKey === 'loading'" key="loading">
+          <ItemSelector ref="zoneTabsRef" />
+          <MessageContent variant="loading" :loading-delay="0" />
         </SectionStack>
 
-        <!-- State 3: Equalizer connected - controls -->
+        <!-- State 3: the controls — and while the record is on its way, their
+             skeleton: bare band tracks, the rest inert until it lands. -->
         <SectionStack v-else key="controls">
-          <!-- Section 1: Zones (tabs) -->
-          <ItemSelector ref="zoneTabsRef" />
+          <!-- Section 1: Zones (tabs). Not before the first record when nothing
+               is selected (the first opening): the strip would select its first
+               tab on mount, ahead of loadTargets() picking the local client.
+               After it, the strip is what picks one if loadTargets() found no
+               client yet (an empty or unreachable registry). -->
+          <ItemSelector v-if="equalizerStore.selectedTarget || !waiting" ref="zoneTabsRef" />
 
           <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
           <SectionCard>
@@ -39,7 +42,7 @@
                   </Button>
                   <Dropdown :model-value="currentPresetValue" :options="presetOptions"
                     :display-override="presetDisplayOverride" :placeholder="t('equalizer.selectPreset')"
-                    size="small" class="eq-preset-dropdown"
+                    :disabled="waiting" size="small" class="eq-preset-dropdown"
                     @update:model-value="handlePresetChange" />
                 </template>
               </SectionHeader>
@@ -51,13 +54,13 @@
 
           <!-- Section 3: Loudness -->
           <ToggleSection :title="t('equalizer.loudness.title')" :enabled="equalizerStore.loudness.enabled"
-            @change="handleLoudnessToggle">
+            :disabled="waiting" @change="handleLoudnessToggle">
             <div class="effect-controls">
-              <RangeSlider :label="t('equalizer.loudness.lowBoost')" :model-value="equalizerStore.loudness.low_boost" :min="0" :max="15" :step="0.5"
+              <RangeSlider :label="t('equalizer.loudness.lowBoost')" :disabled="waiting" :model-value="equalizerStore.loudness.low_boost" :min="0" :max="15" :step="0.5"
                 unit="dB" @update:model-value="(v) => equalizerStore.loudness.low_boost = v"
                 @change="handleLoudnessChange('low_boost', $event)" />
 
-              <RangeSlider :label="t('equalizer.loudness.highBoost')" :model-value="equalizerStore.loudness.high_boost" :min="0" :max="15" :step="0.5"
+              <RangeSlider :label="t('equalizer.loudness.highBoost')" :disabled="waiting" :model-value="equalizerStore.loudness.high_boost" :min="0" :max="15" :step="0.5"
                 unit="dB" @update:model-value="(v) => equalizerStore.loudness.high_boost = v"
                 @change="handleLoudnessChange('high_boost', $event)" />
             </div>
@@ -65,25 +68,25 @@
 
           <!-- Section 4: Compressor -->
           <ToggleSection :title="t('equalizer.compressor.title')" :enabled="equalizerStore.compressor.enabled"
-            @change="handleCompressorToggle">
+            :disabled="waiting" @change="handleCompressorToggle">
             <div class="effect-controls">
-              <RangeSlider :label="t('equalizer.compressor.ratio')" :model-value="equalizerStore.compressor.ratio" :min="1" :max="20" :step="0.5"
+              <RangeSlider :label="t('equalizer.compressor.ratio')" :disabled="waiting" :model-value="equalizerStore.compressor.ratio" :min="1" :max="20" :step="0.5"
                 unit=":1" @update:model-value="(v) => equalizerStore.compressor.ratio = v"
                 @change="handleCompressorChange('ratio', $event)" />
 
-              <RangeSlider :label="t('equalizer.compressor.threshold')" :model-value="equalizerStore.compressor.threshold" :min="-60" :max="0" :step="1"
+              <RangeSlider :label="t('equalizer.compressor.threshold')" :disabled="waiting" :model-value="equalizerStore.compressor.threshold" :min="-60" :max="0" :step="1"
                 unit="dB" @update:model-value="(v) => equalizerStore.compressor.threshold = v"
                 @change="handleCompressorChange('threshold', $event)" />
 
-              <RangeSlider :label="t('equalizer.compressor.attack')" :model-value="equalizerStore.compressor.attack" :min="0.1" :max="100" :step="0.1"
+              <RangeSlider :label="t('equalizer.compressor.attack')" :disabled="waiting" :model-value="equalizerStore.compressor.attack" :min="0.1" :max="100" :step="0.1"
                 unit="ms" @update:model-value="(v) => equalizerStore.compressor.attack = v"
                 @change="handleCompressorChange('attack', $event)" />
 
-              <RangeSlider :label="t('equalizer.compressor.release')" :model-value="equalizerStore.compressor.release" :min="10" :max="1000" :step="10"
+              <RangeSlider :label="t('equalizer.compressor.release')" :disabled="waiting" :model-value="equalizerStore.compressor.release" :min="10" :max="1000" :step="10"
                 unit="ms" @update:model-value="(v) => equalizerStore.compressor.release = v"
                 @change="handleCompressorChange('release', $event)" />
 
-              <RangeSlider :label="t('equalizer.compressor.makeup')" :model-value="equalizerStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5"
+              <RangeSlider :label="t('equalizer.compressor.makeup')" :disabled="waiting" :model-value="equalizerStore.compressor.makeup_gain" :min="0" :max="30" :step="0.5"
                 unit="dB" @update:model-value="(v) => equalizerStore.compressor.makeup_gain = v"
                 @change="handleCompressorChange('makeup_gain', $event)" />
             </div>
@@ -91,7 +94,7 @@
 
           <!-- Section 5: Mono -->
           <ToggleSection :title="t('equalizer.mono.title')" :enabled="equalizerStore.mono"
-            @change="handleMonoToggle" />
+            :disabled="waiting" @change="handleMonoToggle" />
 
           <!-- Level Meters -->
           <LevelMeters :client-ids="selectedClientIds" />
@@ -143,12 +146,20 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
   contentElRef: modalContentInnerRef,
 });
 
-// Detect content key changes and prepare transition before Vue patches the DOM
+// Which of the three states is shown; a change prepares the transition before
+// Vue patches the DOM. Before a record has said the target is disconnected, its
+// state is unknown, not disconnected (equalizerStore `state`), so the wait for
+// the first record is the controls' skeleton, not the spinner card.
 const contentKey = computed(() => {
   if (!equalizerStore.isEqualizerEffectsEnabled) return 'disabled';
   if (!equalizerStore.isConnected) return 'loading';
   return 'controls';
 });
+
+// No record of this target yet: the controls are its skeleton, inert until one
+// lands. Not `filtersLoaded`, which also drops for a reload of the same target,
+// whose values on screen are still right and stay usable.
+const waiting = computed(() => !equalizerStore.hasRecord);
 
 watch(contentKey, () => {
   prepareNavigation();
@@ -200,6 +211,9 @@ const presetOptions = computed(() => {
 });
 
 const currentPresetValue = computed(() => {
+  // cleanup()'s 'flat' is a default, not the target's preset: the placeholder
+  // until the record names one.
+  if (waiting.value) return null;
   if (equalizerStore.isCustomMode && equalizerStore.activePreset !== 'custom') {
     return 'custom';
   }

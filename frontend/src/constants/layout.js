@@ -11,3 +11,9 @@
  * is half desktop, half mobile.
  */
 export const MOBILE_QUERY = '(max-aspect-ratio: 4/3) and (max-width: 1023px)';
+
+/**
+ * A spinner standing alone as a whole view's wait, in CSS px — the Lyrics view's
+ * loader and MessageContent's `loading` variant, which must read as one thing.
+ */
+export const STANDALONE_SPINNER_SIZE = { desktop: 96, mobile: 64 };

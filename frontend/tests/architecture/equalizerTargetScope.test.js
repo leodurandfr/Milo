@@ -236,9 +236,10 @@ describe('equalizerStore target scoping', () => {
 
   it('no band renders a gain the store has not loaded', () => {
     // cleanup() zeroes the gains so the previous target's curve cannot leak into
-    // the next one. But `isConnected` — the gate that mounts the band section —
-    // is written only by loadStatus(), so the section re-mounts on the zeroed
-    // values and paints a flat curve until the record lands. Measured on the unit
+    // the next one. But the band section is on screen before the record lands —
+    // on a target switch, a re-opening, and since the modal stopped holding the
+    // first opening on "Connecting…", on that one too — so it paints the zeroed
+    // values as a flat curve until the record arrives. Measured on the unit
     // (2026-07-27): 3/6 target switches, 6/8 bypass-then-enable, 4/5 re-openings,
     // 59-650 ms each. Flat is indistinguishable from a real `flat` preset, so the
     // fix is to render no gain at all until `filtersLoaded`.
@@ -265,11 +266,14 @@ describe('equalizerStore target scoping', () => {
     const printed = band.match(
       new RegExp(`<div class="${PRINTED_GAIN_CLASS}[\\s\\S]*?>\\s*(\\{\\{[\\s\\S]*?\\}\\})`),
     );
-    const gainSlider = band.match(new RegExp(`<div class="${GAIN_SLIDER_CLASS}"[^>]*>`));
+    // The slider is the RangeSlider inside that div, held to its bare track.
+    const gainSlider = band.match(
+      new RegExp(`<div class="${GAIN_SLIDER_CLASS}"[^>]*>\\s*(<RangeSlider[\\s\\S]*?\\/>)`),
+    );
     expect(printed, ANCHOR_LOST(PRINTED_GAIN_CLASS, 'with an interpolation in it')).not.toBeNull();
-    expect(gainSlider, ANCHOR_LOST(GAIN_SLIDER_CLASS, '')).not.toBeNull();
+    expect(gainSlider, ANCHOR_LOST(GAIN_SLIDER_CLASS, 'wrapping a <RangeSlider>')).not.toBeNull();
     expect(printed[1]).toMatch(/\bloaded\b/);
-    expect(gainSlider[0]).toMatch(/\bloaded\b/);
+    expect(gainSlider[1]).toMatch(/:placeholder="[^"]*\bloaded\b[^"]*"/);
   });
 
   it('a field write sends only the field it changed', () => {

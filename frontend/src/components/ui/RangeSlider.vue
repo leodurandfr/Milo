@@ -4,7 +4,7 @@
      number, where the value sits from 0 to 1, which places the fill and the
      knob — so the two glide together from stop to stop. -->
 <template>
-  <div :class="['slider-container', orientation, { disabled, muted, stepped: isStepped, dragging: isDragging, labeled: hasLabel, glide }]"
+  <div :class="['slider-container', orientation, { disabled: disabled && !placeholder, placeholder, muted, stepped: isStepped, dragging: isDragging, labeled: hasLabel, glide }]"
     :style="{ '--fraction': fraction }">
     <span v-if="hasLabel" class="slider-label text-body-medium">{{ label }}</span>
 
@@ -26,7 +26,7 @@
         :max="posMax"
         :step="isStepped ? 1 : step"
         :value="position"
-        :disabled="disabled"
+        :disabled="disabled || placeholder"
         :aria-label="label || null"
         :aria-valuetext="currentLabel"
         @pointerdown="startDrag"
@@ -39,7 +39,7 @@
 
     <!-- Beside the track, never on it: a thumb at either end covered it. -->
     <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono-medium"
-      :class="{ 'slider-value--masked': showMuteGlyph }">
+      :class="{ 'slider-value--masked': showMuteGlyph || placeholder }">
       <template v-if="isStepped">
         <!-- Every label in one cell, all but the current one hidden: the box is as
              wide as the widest, so the track does not resize mid-drag. -->
@@ -91,7 +91,12 @@ const props = defineProps({
   // A value set from outside glides to its place instead of jumping: for a
   // value that moves in one go (an EQ preset), never one that streams in (a
   // volume under the encoder).
-  glide: { type: Boolean, default: false }
+  glide: { type: Boolean, default: false },
+  // No value to show yet (a record still on its way): the track alone, with no
+  // fill, knob, passed stop or figure, so no position is asserted. Inert, but
+  // not dimmed like `disabled` — it is the control's shape waiting for a value,
+  // not a refusal, and a dimmed faint track all but disappears.
+  placeholder: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
@@ -191,7 +196,7 @@ function valueOf(input) {
 // Only the thumb takes the pointer (the input itself has pointer-events off),
 // so a press is a press on the thumb: a touch on the track scrolls the page.
 function startDrag(event) {
-  if (props.disabled || !press(event)) return;
+  if (props.disabled || props.placeholder || !press(event)) return;
   localDragValue.value = props.modelValue;
   dragStartValue = props.modelValue;
   lastCommitted = null;
@@ -548,6 +553,21 @@ function handleChange(event) {
 /* === STATES === */
 .slider-container.disabled {
   opacity: var(--opacity-disabled);
+}
+
+/* The value fades in where it lands rather than popping on the empty track. */
+.range-track::before,
+.range-knob {
+  transition: opacity var(--transition-fast);
+}
+
+.slider-container.placeholder .range-track::before,
+.slider-container.placeholder .range-knob {
+  opacity: 0;
+}
+
+.slider-container.placeholder .range-tick--passed {
+  background: var(--color-fill-soft);
 }
 
 /* Muted is not disabled: the level still moves, nothing sounds. The fill

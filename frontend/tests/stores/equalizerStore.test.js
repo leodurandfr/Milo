@@ -957,6 +957,44 @@ describe('equalizerStore', () => {
       expect(equalizerStore.isConnected).toBe(true);
     });
 
+    /**
+     * EqualizerModal shows the "not running" spinner card iff !isConnected, and
+     * the controls' skeleton otherwise. A target nothing has answered for yet is
+     * unknown, not disconnected: reading it as disconnected held every first
+     * opening on that card while the record was merely in flight.
+     */
+    it('a target no record has answered for is not reported disconnected', async () => {
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      answerRecordWithState('disconnected');
+      await equalizerStore.loadStatus();
+      expect(equalizerStore.isConnected).toBe(false);
+
+      apiCall.get.mockImplementation(() => new Promise(() => {}));
+      equalizerStore.selectTarget(OTHER_MAC);
+
+      expect(equalizerStore.isConnected).toBe(true);
+      // Nor do the controls hold its record yet: they are its inert skeleton.
+      expect(equalizerStore.hasRecord).toBe(false);
+    });
+
+    /**
+     * The other half: a reload of the same target (resync on a tab return, the
+     * master toggle turned back on) keeps what its last record said, or the
+     * modal on an offline DSP flips card → skeleton → card on every one, and
+     * every control goes inert and the preset name blank for the round trip.
+     */
+    it('a reload of the same target keeps its last known state and record', async () => {
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      answerRecordWithState('disconnected');
+      await equalizerStore.loadStatus();
+
+      apiCall.get.mockImplementation(() => new Promise(() => {}));
+      equalizerStore.loadStatus();
+
+      expect(equalizerStore.isConnected).toBe(false);
+      expect(equalizerStore.hasRecord).toBe(true);
+    });
+
     it('levels falls back to silence when the monitor reports unavailable', () => {
       equalizerStore.handleLevelsChanged({ available: true, output_peak: [-12, -14] });
       expect(equalizerStore.outputPeak).toEqual([-12, -14]);

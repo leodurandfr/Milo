@@ -2,7 +2,7 @@
 <!-- 10+ band parametric equalizer display -->
 <template>
   <div class="parametric-eq" :class="{ 'mobile': isMobile }">
-    <div class="eq-bands" :class="{ 'loading': !filtersLoaded }">
+    <div class="eq-bands">
       <EQBand
         v-for="filter in filters"
         :key="filter.id"
@@ -60,11 +60,6 @@ function handleBandChange(filterId, { field, value }) {
   display: flex;
   justify-content: space-around;
   gap: var(--space-02);
-  transition: opacity var(--transition-normal);
-}
-
-.eq-bands.loading {
-  opacity: 0.5;
 }
 
 /* Mobile layout */

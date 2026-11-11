@@ -1,23 +1,29 @@
 <template>
   <div class="message-content"
-    :class="{ 'is-delayed': loading && !showLoading, 'mc--no-glyph': !icon && !showLoading, 'message-content--on-contrast': variant === 'on-contrast' }">
+    :class="{ 'is-delayed': waiting && !showLoading, 'mc--no-glyph': !icon && !showLoading, 'message-content--on-contrast': variant === 'on-contrast', 'message-content--loading': spinnerOnly }"
+    :role="spinnerOnly ? 'status' : null" :aria-label="spinnerOnly ? t('common.loading') : null">
+    <!-- With no line to read, the loading variant names its wait for a screen
+         reader itself. -->
     <!-- Loading spinner OR icon (mutually exclusive) — same size, so a card
-         swapping one for the other doesn't resize its glyph mid-transition. -->
-    <LoadingSpinner v-if="showLoading" :size="48" />
-    <SvgIcon v-else-if="icon" :name="icon" :size="48" :color="iconColor" />
+         swapping one for the other doesn't resize its glyph mid-transition.
+         The loading variant's spinner is the card's only content, and larger. -->
+    <LoadingSpinner v-if="showLoading" :size="spinnerSize" />
+    <SvgIcon v-else-if="icon && !spinnerOnly" :name="icon" :size="48" :color="iconColor" />
 
-    <!-- Content always visible (even while loading) -->
-    <p v-if="displayTitle" class="heading-2 mc-title">{{ displayTitle }}</p>
-    <p v-if="subtitle" class="text-body-medium mc-subtitle" v-html="subtitle"></p>
-    <p v-if="details" class="text-body-medium mc-details">{{ details }}</p>
-    <div v-if="ctaLabel || ctaSecondaryLabel" class="cta-group">
-      <Button v-if="ctaLabel" :variant="ctaVariant" :loading="ctaLoading" @click="ctaClick">
-        {{ ctaLabel }}
-      </Button>
-      <Button v-if="ctaSecondaryLabel" :variant="ctaSecondaryVariant" @click="ctaSecondaryClick">
-        {{ ctaSecondaryLabel }}
-      </Button>
-    </div>
+    <!-- The lines, shown while loading too — none in the loading variant. -->
+    <template v-if="!spinnerOnly">
+      <p v-if="displayTitle" class="heading-2 mc-title">{{ displayTitle }}</p>
+      <p v-if="subtitle" class="text-body-medium mc-subtitle" v-html="subtitle"></p>
+      <p v-if="details" class="text-body-medium mc-details">{{ details }}</p>
+      <div v-if="ctaLabel || ctaSecondaryLabel" class="cta-group">
+        <Button v-if="ctaLabel" :variant="ctaVariant" :loading="ctaLoading" @click="ctaClick">
+          {{ ctaLabel }}
+        </Button>
+        <Button v-if="ctaSecondaryLabel" :variant="ctaSecondaryVariant" @click="ctaSecondaryClick">
+          {{ ctaSecondaryLabel }}
+        </Button>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -25,6 +31,8 @@
 import { computed, ref, watch } from 'vue'
 import { useTimer } from '@/composables/useTimer'
 import { useI18n } from '@/services/i18n'
+import { useIsMobile } from '@/composables/useIsMobile'
+import { STANDALONE_SPINNER_SIZE } from '@/constants/layout'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 import Button from '@/components/ui/Button.vue'
@@ -32,11 +40,13 @@ import Button from '@/components/ui/Button.vue'
 const props = defineProps({
   // 'default' = a panel of wherever it is drawn; 'on-contrast' = card-less,
   // light-on-dark, for a state laid over a contrast surface (the Lyrics view's
-  // blurred artwork).
+  // blurred artwork); 'loading' = the default card holding a large spinner and
+  // nothing else — no line under it, whatever else is passed. It is a wait in
+  // itself, so `loading` need not be set; `loadingDelay` still holds it back.
   variant: {
     type: String,
     default: 'default',
-    validator: (value) => ['default', 'on-contrast'].includes(value)
+    validator: (value) => ['default', 'on-contrast', 'loading'].includes(value)
   },
   loading: {
     type: Boolean,
@@ -94,8 +104,18 @@ const props = defineProps({
 
 const { t } = useI18n()
 
+const spinnerOnly = computed(() => props.variant === 'loading')
+const waiting = computed(() => props.loading || spinnerOnly.value)
+
+// The loading variant's spinner stands alone, at the Lyrics loader's size.
+const { isMobile } = useIsMobile()
+const spinnerSize = computed(() => {
+  if (!spinnerOnly.value) return 48
+  return STANDALONE_SPINNER_SIZE[isMobile.value ? 'mobile' : 'desktop']
+})
+
 // A loading card always says so: a caller with nothing more specific to name
-// gets the generic line, rather than a spinner alone.
+// gets the generic line. A spinner alone is the loading variant, asked by name.
 const displayTitle = computed(() => props.title || (props.loading ? t('common.loading') : null))
 
 const iconColor = computed(() =>
@@ -107,7 +127,7 @@ const timer = useTimer()
 const showLoading = ref(false)
 let loadingTimeout = null
 
-watch(() => props.loading, (isLoading) => {
+watch(waiting, (isLoading) => {
   if (loadingTimeout) {
     timer.clear(loadingTimeout)
     loadingTimeout = null
@@ -145,10 +165,13 @@ watch(() => props.loading, (isLoading) => {
 }
 
 /* No leading icon/spinner: the reduced top padding exists to seat the glyph,
-   so drop it and balance the card with symmetric vertical padding. */
-.message-content.mc--no-glyph {
+   so drop it and balance the card with symmetric vertical padding. A spinner
+   with no line under it has nothing to be seated above: same balance. */
+.message-content.mc--no-glyph,
+.message-content.message-content--loading {
   padding-top: var(--space-08);
 }
+
 
 .message-content :deep(p),
 .message-content :deep(.heading-2) {
