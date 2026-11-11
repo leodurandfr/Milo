@@ -181,6 +181,8 @@ onMounted(loadPodcast)
 .podcast-details {
   display: flex;
   flex-direction: column;
+  /* The header's buttons end where the episode cards' do. */
+  --detail-header-inset-end: var(--space-04);
 }
 
 .details-content {

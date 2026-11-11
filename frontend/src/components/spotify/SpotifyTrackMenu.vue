@@ -9,7 +9,7 @@
     <template #trigger="{ toggle, isOpen }">
       <button v-press type="button" class="track-menu-trigger hit-outset" :aria-label="t('spotify.moreOptions')"
         :aria-busy="asking" @click="press(toggle, isOpen)">
-        <SvgIcon name="threeDots" :size="20" />
+        <SvgIcon name="threeDots" :size="24" />
       </button>
     </template>
   </Dropdown>

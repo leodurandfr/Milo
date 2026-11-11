@@ -57,7 +57,10 @@ const { isMobile } = useIsMobile();
   gap: var(--space-03);
   background: var(--color-contrast-on-ground);
   border-radius: var(--radius-04);
-  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
+  /* The right inset is the track list's, so the header's last button ends
+     where a row's ⋯ does; a page whose list is drawn otherwise (podcasts)
+     sets its own. */
+  padding: var(--space-03) var(--detail-header-inset-end, var(--space-05)) var(--space-03) var(--space-03);
 }
 
 .skeleton-detail-header__cover {

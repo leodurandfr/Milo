@@ -8,7 +8,7 @@
     <template #trigger="{ toggle }">
       <button v-press type="button" class="row-trigger hit-outset" :aria-label="t('musicLibrary.moreOptions')"
         @click="toggle">
-        <SvgIcon name="threeDots" :size="20" />
+        <SvgIcon name="threeDots" :size="24" />
       </button>
     </template>
   </Dropdown>

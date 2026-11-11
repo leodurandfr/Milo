@@ -58,7 +58,7 @@ defineProps({
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-03);
+  gap: var(--space-05);
 }
 
 .skeleton-track-row__position {

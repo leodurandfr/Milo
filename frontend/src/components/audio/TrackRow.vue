@@ -49,7 +49,7 @@
       <button v-else-if="showMenu" v-press type="button" class="track-icon-btn track-menu hit-outset"
         :aria-label="t('musicLibrary.playlists.addToPlaylist')"
         @pointerdown.stop @click.stop="$emit('menu')">
-        <SvgIcon name="threeDots" :size="20" />
+        <SvgIcon name="threeDots" :size="24" />
       </button>
     </template>
   </div>
@@ -210,7 +210,7 @@ function formatDuration(totalSeconds) {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: var(--space-03);
+  gap: var(--space-05);
 }
 
 .track-position {
