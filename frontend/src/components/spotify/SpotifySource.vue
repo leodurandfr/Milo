@@ -7,7 +7,7 @@
       @title-click="openPlayerAlbum" @secondary-click="openArtist">
       <template #navigation="{ bar }">
         <AudioSourceLayout ref="audioLayoutRef" :show-player="shouldShowPlayer"
-          :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="PAGES.includes(currentView) && currentView !== 'section'"
+          :header-title="currentTitle" :header-show-back="canGoBack" :header-title-muted="PAGES.includes(currentView) && !['section', 'discography'].includes(currentView)"
           header-icon="spotify" gradient="spotify"
           :header-actions-key="currentView" :content-key="currentKey"
           :player-mobile-height="144" :pending-scroll-restore="pendingScrollRestore"
