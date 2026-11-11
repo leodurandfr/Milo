@@ -26,7 +26,7 @@
     <div class="swap-stack">
     <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
       <div v-if="currentView === 'home'" key="home" class="view-content home-view">
-        <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }">
+        <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }" :inert="!showPowerMenu">
             <div class="power-menu-items">
               <ListItemButton v-for="action in POWER_ACTIONS" :key="action.key" variant="glass" @click="runPowerAction(action)">
                 <template #icon>
@@ -618,7 +618,10 @@ const showPowerToggle = computed(() => currentView.value === 'home');
 
 function togglePowerMenu() {
   showPowerMenu.value = !showPowerMenu.value;
-  if (!showPowerMenu.value) resetPowerActions();
+  // Disarmed as the drawer opens, not as it closes: a "confirm" label would
+  // cross-fade back while the drawer folds. Closed, the region is inert, so an
+  // armed button out of sight cannot be reached.
+  if (showPowerMenu.value) resetPowerActions();
 }
 
 // First tap arms the button, second sends. Arming one disarms the other: two

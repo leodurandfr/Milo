@@ -12,23 +12,24 @@
 <template>
   <div class="scan-progress" :class="{ 'is-open': open }">
     <div class="scan-progress__inner">
-      <div v-if="hasBar" class="scan-progress__track">
+      <div class="scan-progress__track">
         <div class="scan-progress__fill"
-          :class="{ 'scan-progress__fill--sweeping': percent === null }"
-          :style="percent === null ? null : { width: `${percent}%`, '--step-ms': `${stepMs}ms` }" />
+          :class="{ 'scan-progress__fill--sweeping': shown.percent === null }"
+          :style="shown.percent === null ? null : { width: `${shown.percent}%`, '--step-ms': `${stepMs}ms` }" />
       </div>
       <span class="scan-progress__labels text-mono-small">
-        <span class="scan-progress__label">{{ label }}</span>
-        <span v-if="hint" class="scan-progress__hint">{{ hint }}</span>
+        <span class="scan-progress__label">{{ shown.label }}</span>
+        <span v-if="shown.hint" class="scan-progress__hint">{{ shown.hint }}</span>
       </span>
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
+
+const props = defineProps({
   open: { type: Boolean, default: false },
-  hasBar: { type: Boolean, default: true },
   label: { type: String, required: true },
   /** null sweeps (unknown total); a number fills that share of the track. */
   percent: { type: Number, default: null },
@@ -41,6 +42,14 @@ defineProps({
    */
   stepMs: { type: Number, default: 200 },
 });
+
+// The work that ends a run also ends its label, its count and its fill, in the
+// tick the strip starts folding: it folds on what it last showed.
+const shown = useHeldWhileClosed(() => props.open, () => ({
+  label: props.label,
+  hint: props.hint,
+  percent: props.percent,
+}));
 </script>
 
 <style scoped>

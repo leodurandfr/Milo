@@ -99,6 +99,7 @@ const store = useMusicLibraryStore();
 const newName = ref('');
 const busy = ref(false);
 const creating = ref(false);
+let createdOnClose = false;
 const showCreate = ref(false);
 const addedIds = ref(new Set());
 const checkingExisting = ref(false);
@@ -122,6 +123,13 @@ const modalContentInnerRef = inject('modalContentInnerRef', null);
 const createExpandRef = ref(null);
 
 function setCreateOpen(next) {
+  // A create that went through closed the row on its name and its spinner, so
+  // it folds as it was; it is emptied for the next one here.
+  if (next && createdOnClose) {
+    createdOnClose = false;
+    creating.value = false;
+    newName.value = '';
+  }
   if (modalRequestHeightDelta && createExpandRef.value && modalContentInnerRef?.value) {
     const el = createExpandRef.value;
     const before = modalContentInnerRef.value.offsetHeight;
@@ -149,6 +157,7 @@ watch(() => props.isOpen, async (open) => {
   newName.value = '';
   busy.value = false;
   creating.value = false;
+  createdOnClose = false;
   showCreate.value = false;
   addedIds.value = new Set();
   await Promise.all([store.loadPlaylists(), store.loadLikedSongs()]);
@@ -175,11 +184,12 @@ async function createAndAdd() {
   if (!name || creating.value) return;
   creating.value = true;
   const created = await store.createPlaylist(name, props.songIds);
-  creating.value = false;
   if (created) {
-    newName.value = '';
+    createdOnClose = true;
     setCreateOpen(false);
     addedIds.value = new Set(addedIds.value).add(created.id);
+  } else {
+    creating.value = false;
   }
 }
 </script>

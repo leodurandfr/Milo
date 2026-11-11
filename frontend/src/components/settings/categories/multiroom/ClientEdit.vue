@@ -117,7 +117,7 @@
           :enabled="gainEnabled"
           @change="handleGainToggle"
         >
-          <RangeSlider :label="t('multiroom.tuning.gainHint')" v-model="gainDb" :min="-12" :max="0" :step="0.5" unit="dB"
+          <RangeSlider :label="t('multiroom.tuning.gainHint')" :model-value="shownGain" @update:model-value="gainDb = $event" :min="-12" :max="0" :step="0.5" unit="dB"
             @change="handleGainChange" />
         </ToggleSection>
 
@@ -127,7 +127,7 @@
           :enabled="delayEnabled"
           @change="handleDelayToggle"
         >
-          <RangeSlider :label="t('multiroom.tuning.delayHint')" v-model="delayMs" :min="1" :max="100" :step="1" unit="ms"
+          <RangeSlider :label="t('multiroom.tuning.delayHint')" :model-value="shownDelay" @update:model-value="delayMs = $event" :min="1" :max="100" :step="1" unit="ms"
             @change="handleDelayChange" />
         </ToggleSection>
       </template>
@@ -216,6 +216,7 @@ import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SshSection from '@/components/settings/categories/SshSection.vue';
+import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
 
 const props = defineProps({
   macId: {
@@ -330,6 +331,11 @@ const canTrim = computed(() => !!client.value && volumeControl.value);
 
 // The delay is "enabled" whenever a non-zero delay is set (mirror of auto-stop).
 const delayEnabled = computed(() => delayMs.value > 0);
+
+// OFF writes 0 in the tick the section starts closing: the sliders hold the
+// value they showed until it is out of sight.
+const shownGain = useHeldWhileClosed(gainEnabled, gainDb);
+const shownDelay = useHeldWhileClosed(delayEnabled, delayMs);
 
 const isSubwoofer = computed(() => selectedSpeakerType.value === 'subwoofer');
 

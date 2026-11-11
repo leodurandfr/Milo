@@ -8,7 +8,7 @@
       <div class="hardware-group">
         <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
           <Dropdown
-            :model-value="config.audio_id"
+            :model-value="shownAudio.id"
             :options="audioCardOptionsFiltered"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
@@ -21,7 +21,7 @@
           v-if="isDacCard"
           :title="t('volumeSettings.volumeManagement')"
           action="toggle"
-          :model-value="config.volume_control"
+          :model-value="shownAudio.volumeControl"
           @click="toggleVolumeControl"
         />
       </div>
@@ -30,7 +30,7 @@
     <ToggleSection :title="t('hardwareSettings.screen')" :enabled="hasScreen" :disabled="isRebooting" @change="toggleScreen">
       <SettingItem :label="t('hardwareSettings.screenModel')" inline>
         <Dropdown
-          :model-value="config.screen_type"
+          :model-value="shownScreenType"
           :options="screenOptionsFiltered"
           :disabled="isRebooting"
           placeholder=""
@@ -147,6 +147,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
+import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
 import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 import { nextRebootStep } from '@/utils/rebootPoll';
@@ -222,16 +223,22 @@ const freePinOptions = computed(() => {
   return gpioPinOptions.value.filter(pin => !held.has(pin.value));
 });
 
-// Check if the selected audio card is a DAC
-const isDacCard = computed(() => {
-  if (!config.value.audio_id) return false;
-  const card = audioCardOptions.value.find(c => c.value === config.value.audio_id);
-  return card?.category === 'dac';
-});
-
 // Audio card: toggle ON/OFF (replaces "none" option in dropdown); ON picks the
 // last card, else the first one listed.
 const hasAudioCard = computed(() => !!config.value.audio_id && config.value.audio_id !== 'none');
+// OFF writes 'none' (or '') in the tick the section starts closing: no option
+// names it, so the dropdown would blank and a DAC's row drop out mid-fold.
+const shownAudio = useHeldWhileClosed(hasAudioCard, () => ({
+  id: config.value.audio_id,
+  volumeControl: config.value.volume_control,
+}));
+
+// Is the card the section shows a DAC
+const isDacCard = computed(() => {
+  if (!shownAudio.value.id) return false;
+  const card = audioCardOptions.value.find(c => c.value === shownAudio.value.id);
+  return card?.category === 'dac';
+});
 const audioCardOptionsFiltered = computed(() => audioCardOptions.value.filter(c => c.value !== 'none'));
 const lastAudioId = ref(null);
 
@@ -254,6 +261,7 @@ function toggleAudioCard(enabled) {
 const hasScreen = computed(() => config.value.screen_type !== 'none');
 const screenOptionsFiltered = computed(() => screenOptions.value.filter(s => s.value !== 'none'));
 const lastScreenType = ref(null);
+const shownScreenType = useHeldWhileClosed(hasScreen, () => config.value.screen_type);
 
 function toggleScreen(enabled) {
   confirmReboot.value = false;
@@ -335,6 +343,9 @@ async function toggleVolumeControl() {
     });
     if (!result.ok) {
       config.value.volume_control = !config.value.volume_control; // Revert on failure
+    } else if (savedConfig.value) {
+      // Saved now: turning the card off and on again restores this value, not the one loaded.
+      savedConfig.value.volume_control = config.value.volume_control;
     }
   }
 }

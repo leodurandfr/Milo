@@ -26,7 +26,7 @@
     <!-- It stops short of full: only the result may finish it, so a slow
          network never shows a completed bar over a running analysis. -->
     <ProgressStrip :open="running" :percent="percent" :step-ms="stepMs"
-      :label="running ? label : ''" :hint="running ? hint : ''" />
+      :label="label" :hint="hint" />
 
     <!-- A Transition rather than a class: the stores drop the result the
          moment a run starts, and a leave transition keeps the last rendering

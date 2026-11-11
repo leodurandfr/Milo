@@ -21,7 +21,8 @@
       @change="handleCrossfadeToggle"
     >
       <RangeSlider :label="t('spotifySettings.crossfadeDuration')"
-        v-model="crossfadeSeconds"
+        :model-value="shownCrossfadeSeconds"
+        @update:model-value="crossfadeSeconds = $event"
         :min="1"
         :max="12"
         :step="1"
@@ -62,6 +63,7 @@ import { useI18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
@@ -82,6 +84,8 @@ const lastCrossfadeSeconds = ref(DEFAULT_SECONDS);
 const isApplying = ref(false);
 
 const crossfadeEnabled = computed(() => crossfadeSeconds.value !== 0);
+// OFF stores 0 in the tick the section starts closing; the slider holds its value.
+const shownCrossfadeSeconds = useHeldWhileClosed(crossfadeEnabled, crossfadeSeconds);
 const spotifyRunning = computed(() => unifiedStore.systemState.source === 'spotify');
 // What the running daemon read at its start, as the backend saw it (null when
 // no daemon runs): never what this screen wrote or found stored when it opened.

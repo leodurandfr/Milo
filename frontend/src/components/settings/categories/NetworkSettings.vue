@@ -24,15 +24,15 @@
         <div ref="wifiRowRef" class="expanded-content" :class="{ 'is-visible': showWifiCard }">
           <div class="connection-card">
             <div class="connection-card__name">
-              <WifiSignal :signal="wifiCardSignal" :size="24" />
-              <span class="heading-3 connection-card__ssid">{{ wifiDisplaySsid }}</span>
+              <WifiSignal :signal="wifiShown.signal" :size="24" />
+              <span class="heading-3 connection-card__ssid">{{ wifiShown.ssid }}</span>
             </div>
             <div class="connection-card__status">
-              <span v-if="miloLocalIface === 'wifi'" class="connection-card__ip text-mono-small">
-                {{ status.wifi.ip_address }}
+              <span v-if="wifiShown.ip" class="connection-card__ip text-mono-small">
+                {{ wifiShown.ip }}
               </span>
-              <Badge :tone="wifiBadgeTone" :pulse="status.wifi.connecting && !status.wifi.connected">
-                {{ wifiBadgeLabel }}
+              <Badge :tone="wifiShown.tone" :pulse="wifiShown.pulse">
+                {{ wifiShown.label }}
               </Badge>
             </div>
           </div>
@@ -55,7 +55,7 @@
           <div class="network-item network-item--preferred">
             <div class="network-item__row">
               <div class="network-item__ssid-row">
-                <WifiSignal :signal="wifiCardSignal" :size="24" />
+                <WifiSignal :signal="wifiShown.signal" :size="24" />
                 <span class="text-body-medium network-item__ssid">{{ preferredNetwork.ssid }}</span>
               </div>
               <Button variant="important" size="small" @click="forgetNetwork(preferredNetwork.ssid)">
@@ -134,6 +134,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from '
 import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
+import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
@@ -202,6 +203,18 @@ const miloLocalIface = computed(() => {
   if (status.value.wifi.connected && status.value.wifi.ip_address) return 'wifi';
   return null;
 });
+
+// What the WiFi card and the preferred row draw. Off, they close on what they
+// showed with the radio on: its reply and the status_changed echo land mid-fade
+// with the link down, and would flip the badge and blank the arc.
+const wifiShown = useHeldWhileClosed(() => status.value.wifi_enabled, () => ({
+  ssid: wifiDisplaySsid.value,
+  signal: wifiCardSignal.value,
+  ip: miloLocalIface.value === 'wifi' ? status.value.wifi.ip_address : null,
+  tone: wifiBadgeTone.value,
+  label: wifiBadgeLabel.value,
+  pulse: status.value.wifi.connecting && !status.value.wifi.connected,
+}));
 
 // === WiFi row expand/collapse (MultiroomItem pattern) ===
 const wifiWrapperRef = ref(null);

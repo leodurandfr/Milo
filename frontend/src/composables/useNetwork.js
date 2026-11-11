@@ -250,10 +250,10 @@ export function useNetwork() {
     } else {
       status.value = { ...status.value, wifi_enabled: enabled };
     }
-    if (!enabled) {
-      networks.value = [];
-    }
+    // Emptied as the section opens, not as it closes: the list stays drawn
+    // while the section fades out, and the skeletons stand in for the rescan.
     if (enabled) {
+      networks.value = [];
       scanning.value = true;
     }
     const result = await apiCall.put('/api/network/wifi/radio', { enabled }, {

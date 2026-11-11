@@ -100,7 +100,7 @@
         <SectionHeader :title="t('musicLibrary.maintenance.title')" />
       </template>
 
-      <ProgressStrip :open="busy" :has-bar="busy" :label="scanLabel" />
+      <ProgressStrip :open="busy" :label="scanLabel" />
 
       <Button variant="brand" size="medium" left-icon="arrowClockwise"
         :disabled="busy" @click="onRefresh">

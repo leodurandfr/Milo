@@ -837,13 +837,16 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   // === CLEANUP ===
-  function cleanup() {
-    // Cancel pending requests
+  function cancelPending() {
     if (loadAbortController) {
       loadAbortController.abort();
       loadAbortController = null;
     }
     clearAllThrottles();
+  }
+
+  function cleanup() {
+    cancelPending();
     filtersLoaded.value = false;
 
     // Reset equalizer state to defaults to prevent showing stale data while loading
@@ -874,7 +877,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       if (enabled) {
         await loadStatus();
       } else {
-        cleanup();
+        // The bypass leaves the record as it is, so the controls keep it: reset,
+        // they snapped to the defaults while the view faded out, and came back
+        // on them until the reload landed.
+        cancelPending();
       }
     } else if (!(await loadStatus())) {
       // A refused zone toggle may still have moved some members, and the zone
