@@ -424,6 +424,7 @@
     "compilation": "Recopilatorio",
     "connected": "Conectado",
     "discography": "Discografía",
+    "artistDiscography": "Discografía de {artist}",
     "followedPlaylists": "Playlists seguidas",
     "forget": "Olvidar",
     "forgetProfile": "Olvidar este perfil",

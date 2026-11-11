@@ -424,6 +424,7 @@
     "compilation": "合辑",
     "connected": "已连接",
     "discography": "唱片目录",
+    "artistDiscography": "{artist} 的唱片目录",
     "followedPlaylists": "关注的歌单",
     "forget": "忘记",
     "forgetProfile": "忘记此个人资料",

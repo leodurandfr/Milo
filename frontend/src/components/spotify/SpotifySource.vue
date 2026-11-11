@@ -122,7 +122,11 @@ const currentTitle = computed(() => {
   if (currentView.value === 'queue') return t('spotify.queue');
   if (currentView.value === 'search') return t('spotify.search');
   if (currentView.value === 'artist') return t('spotify.artist');
-  if (currentView.value === 'discography') return t('spotify.discography');
+  // Named after the artist once their page is known; the section's name until then.
+  if (currentView.value === 'discography') {
+    const artist = store.artists[currentParams.value.uri]?.name;
+    return artist ? t('spotify.artistDiscography', { artist }) : t('spotify.discography');
+  }
   if (currentView.value === 'section') return currentParams.value.title || t('audioSources.spotify');
   if (currentView.value === 'context') {
     return currentParams.value.kind === 'album' ? t('spotify.album') : t('spotify.playlist');

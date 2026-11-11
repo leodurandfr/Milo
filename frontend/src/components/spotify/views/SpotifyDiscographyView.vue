@@ -7,9 +7,6 @@
           :cta-label="t('spotify.retry')" cta-variant="control" :cta-click="load" />
 
         <div v-else-if="!groups.length" key="loading" class="content-stack swap-skeleton" aria-hidden="true">
-          <span class="skeleton-title-line heading-2">
-            <span class="skeleton-text-line shimmer skeleton-title"></span>&#8203;
-          </span>
           <div class="skeleton-groups shimmer"></div>
           <div class="cards-grid">
             <SkeletonSpotifyCard v-for="i in columns * 2" :key="i" />
@@ -17,7 +14,6 @@
         </div>
 
         <div v-else key="loaded" class="content-stack">
-          <h2 v-if="page.name" class="artist-name heading-2">{{ page.name }}</h2>
           <ButtonGroup v-if="groups.length > 1" :model-value="current.id" :options="options"
             size="small" mobile-layout="scroll"
             @update:model-value="state.group = $event" />
@@ -91,20 +87,6 @@ load();
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
-}
-
-.artist-name {
-  color: var(--color-text);
-  margin: 0;
-}
-
-.skeleton-title-line {
-  display: flex;
-  align-items: center;
-}
-
-.skeleton-title {
-  width: 30%;
 }
 
 /* A small ButtonGroup's track, as the loaded view draws one. */

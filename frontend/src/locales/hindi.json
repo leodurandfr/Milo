@@ -424,6 +424,7 @@
     "compilation": "संकलन",
     "connected": "कनेक्टेड",
     "discography": "डिस्कोग्राफ़ी",
+    "artistDiscography": "{artist} की डिस्कोग्राफ़ी",
     "followedPlaylists": "फ़ॉलो की गई प्लेलिस्ट",
     "forget": "भूल जाएं",
     "forgetProfile": "यह प्रोफ़ाइल भूलें",
