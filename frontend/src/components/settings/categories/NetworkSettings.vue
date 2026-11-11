@@ -170,6 +170,10 @@ const {
   initialize,
 } = useNetwork();
 
+// From setup, not onMounted: the view's first frame is then the skeletons, never
+// the last scan swapped for them a tick later.
+initialize();
+
 const wifiDisplaySsid = computed(() =>
   status.value.wifi.ssid || status.value.wifi.saved_ssid
 );
@@ -338,8 +342,6 @@ onMounted(async () => {
       skipNextWatcher = true;
     }
   }
-
-  initialize();
 });
 
 onUnmounted(() => {

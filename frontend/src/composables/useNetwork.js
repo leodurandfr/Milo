@@ -271,7 +271,10 @@ export function useNetwork() {
     }
   }
 
+  // Each opening reads the air afresh: the last scan is dropped, so the list
+  // shows the skeletons until the new one lands instead of a stale list.
   async function initialize() {
+    networks.value = [];
     try {
       const tasks = [loadSavedNetworks(), scanNetworks()];
       if (!_statusLoaded) tasks.push(loadStatus());
