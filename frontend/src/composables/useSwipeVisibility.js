@@ -8,10 +8,12 @@ import { onMounted, onUnmounted } from 'vue';
 import { markTouchRegion, holdScroll } from '@/utils/touchScroll';
 
 // `handle` is an optional always-visible grip (the Lyrics bar's arrow) that
-// stays outside `panel` so it survives the bar being hidden — it has to be
+// stays outside the panel so it survives the bar being hidden — it has to be
 // accepted explicitly in both directions, otherwise the element that looks like
-// the bar's drag handle is the one spot the gesture ignores.
-export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow, onHide }) {
+// the bar's drag handle is the one spot the gesture ignores. `hideZone` is the
+// one region, besides the handle, where a gesture can hide the shown panel —
+// the panel itself lets touches through to the content it covers.
+export function useSwipeVisibility({ dragZone, hideZone, handle, isVisible, onShow, onHide }) {
   let dragging = false;
   let startedInBand = false;
   let startY = 0;
@@ -42,9 +44,9 @@ export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow,
 
   const onDragStart = (e) => {
     if (isVisible.value) {
-      // Bar shown: only a gesture starting on the bar itself, or on the handle
+      // Bar shown: only a gesture starting in the hide zone, or on the handle
       // resting inside it, can hide it.
-      if (!panel.value?.contains(e.target) && !onHandle(e)) return;
+      if (!hideZone.value?.contains(e.target) && !onHandle(e)) return;
       startedInBand = false;
     } else {
       // Bar hidden: only a gesture starting in the bottom band, or on the

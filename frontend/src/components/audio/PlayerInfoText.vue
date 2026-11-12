@@ -25,12 +25,14 @@ defineProps({
   /**
    * `card`: the kiosk card's lines, the title on up to three. `line`: the
    * phone's mini-bar, one line each and no gap — what the body draws there and
-   * each cell of the swipe carousel, so the two cannot differ.
+   * each cell of the swipe carousel, so the two cannot differ. `single`: the
+   * card's sizes on one line each, ellipsized — the Lyrics playback bar, whose
+   * height must not move with the title's length.
    */
   variant: {
     type: String,
     default: 'card',
-    validator: (value) => ['card', 'line'].includes(value)
+    validator: (value) => ['card', 'line', 'single'].includes(value)
   }
 })
 </script>
@@ -73,5 +75,11 @@ defineProps({
   display: block;
   white-space: nowrap;
   text-overflow: clip;
+}
+
+.player-info-text--single .player-info-title,
+.player-info-text--single .player-info-secondary {
+  display: block;
+  white-space: nowrap;
 }
 </style>

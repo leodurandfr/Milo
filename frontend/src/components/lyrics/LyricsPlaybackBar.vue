@@ -13,7 +13,9 @@
      edge to show again (useSwipeVisibility — the same gesture the Dock would
      normally own, freed up because useDockDrag ignores .lyrics-view). The
      arrow hint doubles as a tap toggle and as a swipe handle in both
-     directions. -->
+     directions. Shown, the bar takes no touch of its own beyond its controls,
+     so the lyrics scroll under it; hiding it is the hide zone's job, a column
+     from the arrow down to the bottom edge. -->
 
 <template>
   <!-- Same inert reveal band as the Dock's (shared .swipe-reveal-band utility) —
@@ -39,6 +41,13 @@
       <SvgIcon name="arrowExtended" :size="24" />
     </button>
 
+    <!-- While the bar is shown, the one place a tap or a swipe down hides it —
+         the arrow's column, down to the glass. The bar is painted over it, so
+         its progress bar and transport still win where the two overlap.
+         Hidden from assistive tech: the arrow is the accessible toggle. -->
+    <div ref="hideZone" class="lyrics-bar-hide-zone" :class="{ 'is-active': isVisible }" aria-hidden="true"
+      @pointerdown="onHintPointerDown" @click="onHintClick"></div>
+
     <!-- The bar AND its content stay mounted (the layer takes its height from
          the bar, and unmounting the content would pop it out instantly instead
          of letting it travel with the bar) — show and hide are a plain class
@@ -47,10 +56,8 @@
          the subtree inert. -->
     <div ref="panel" class="lyrics-bar" :class="{ 'is-hidden': !isVisible }" :inert="isVisible ? undefined : true">
       <div class="lyrics-bar-content">
-        <div class="lyrics-bar-track">
-          <h2 class="heading-4 lyrics-bar-title">{{ identity.title }}</h2>
-          <p class="text-body-medium lyrics-bar-artist">{{ identity.artist }}</p>
-        </div>
+        <PlayerInfoText variant="single" class="lyrics-bar-track" :title="identity.title"
+          :secondary="identity.artist || null" />
 
         <div v-if="hasBar" class="lyrics-bar-progress">
           <ProgressBar :currentPosition="currentPosition" :duration="duration"
@@ -90,6 +97,7 @@ import { useSwipeVisibility } from '@/composables/useSwipeVisibility';
 import { useLoadingIndicator } from '@/composables/useLoadingIndicator';
 import { pausesOnPress } from '@/utils/transport';
 
+import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -135,7 +143,7 @@ function nextTrack() {
 
 // === Swipe show/hide ===
 const dragZone = ref(null);
-const panel = ref(null);
+const hideZone = ref(null);
 const hint = ref(null);
 // Starts hidden for exactly one painted frame so opening Lyrics plays the very
 // same slide-in the swipe does — one code path for both, instead of a separate
@@ -149,17 +157,17 @@ onMounted(() => {
 
 useSwipeVisibility({
   dragZone,
-  panel,
+  hideZone,
   handle: hint,
   isVisible,
   onShow: () => { isVisible.value = true; },
   onHide: () => { isVisible.value = false; },
 });
 
-// Tapping the hint toggles the bar. Its bar-hidden resting spot sits inside
-// the swipe band, so an upward swipe started on the arrow drives
-// useSwipeVisibility AND ends in a native click — that click has to be
-// dropped or the bar would flip straight back.
+// Tapping the hint (or, bar shown, the hide zone) toggles the bar. A swipe
+// started on either drives useSwipeVisibility AND can end in a native click (a
+// mouse drag always does) — that click has to be dropped or the bar would flip
+// straight back.
 const TAP_SLOP_PX = 10;
 let pressY = null;
 
@@ -181,9 +189,37 @@ function onHintClick(event) {
   right: 0;
   bottom: 0;
   z-index: 3;
+  /* The layer keeps the bar's height while the bar is hidden (a transform moves
+     no layout), so as a hit target it would sit invisible over the lyrics and
+     swallow their scroll. Only the controls, the hint and the hide zone take
+     touches. */
+  pointer-events: none;
+}
+
+.lyrics-bar-hide-zone {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  /* From just above the arrow's resting spot (top: --space-07) to the glass. */
+  top: var(--space-05);
+  bottom: 0;
+  width: calc(2 * var(--space-09));
+  pointer-events: none;
+  /* A swipe down here is the bar's, never a pan of anything beneath. */
+  touch-action: none;
+}
+
+.lyrics-bar-hide-zone.is-active {
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .lyrics-bar {
+  /* Positioned so it paints over the hide zone (positioned boxes paint above
+     in-flow ones whatever the DOM order): where they overlap, the controls win. */
+  position: relative;
+  /* The scrim, the title and the artist let the lyrics scroll through. */
+  pointer-events: none;
   background: linear-gradient(to bottom, transparent 0%, var(--color-image-scrim) 100%);
   display: flex;
   align-items: center;
@@ -199,7 +235,11 @@ function onHintClick(event) {
 .lyrics-bar.is-hidden {
   transform: translateY(100%);
   opacity: 0;
-  pointer-events: none;
+}
+
+.lyrics-bar:not(.is-hidden) .lyrics-bar-progress,
+.lyrics-bar:not(.is-hidden) .playback-controls {
+  pointer-events: auto;
 }
 
 .lyrics-bar-content {
@@ -238,21 +278,6 @@ function onHintClick(event) {
   min-width: 0;
 }
 
-.lyrics-bar-title,
-.lyrics-bar-artist {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lyrics-bar-title {
-  color: var(--color-text-on-contrast);
-}
-
-.lyrics-bar-artist {
-  color: var(--color-text-on-contrast-secondary);
-}
-
 .lyrics-bar-progress {
   /* Fills whatever's left after the two 28% columns — i.e. the 44% middle share,
      without a third magic number to keep in sync. */
@@ -283,6 +308,7 @@ function onHintClick(event) {
   /* 24px glyph + this padding = a 40px tap target; the bare glyph is too small
      to hit reliably on the kiosk touchscreen. */
   padding: var(--space-02);
+  pointer-events: auto;
   cursor: pointer;
   color: var(--color-text-on-contrast-secondary);
   transition: top var(--transition-spring-light), transform var(--transition-spring-light);
