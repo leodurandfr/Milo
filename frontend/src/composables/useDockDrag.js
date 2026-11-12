@@ -1,5 +1,6 @@
 import { ref, onUnmounted } from 'vue';
 import { useTimer } from '@/composables/useTimer';
+import { markTouchRegion, holdScroll } from '@/utils/touchScroll';
 
 /**
  * Dock drag/gesture composable — handles all pointer events for:
@@ -58,6 +59,8 @@ export function useDockDrag({
   let additionalGestureOriginY = 0;
   let additionalDragMoved = false;
 
+  let unmarkBand = null;
+
   // === Event coordinate helpers ===
   const getEventY = (e) => e.type.includes('touch') || e.pointerType === 'touch'
     ? (e.touches?.[0]?.clientY || e.changedTouches?.[0]?.clientY || e.clientY) : e.clientY;
@@ -85,6 +88,9 @@ export function useDockDrag({
     if (el) {
       el.addEventListener('mousedown', onAdditionalDragStart);
       el.addEventListener('touchstart', onAdditionalDragStart, { passive: false });
+      // On the panel itself, not on document: only a touch starting in the
+      // panel may have to cancel its scroll (see utils/touchScroll.js).
+      el.addEventListener('touchmove', onAdditionalDragMove, { passive: false });
     }
   };
 
@@ -93,6 +99,7 @@ export function useDockDrag({
     if (el) {
       el.removeEventListener('mousedown', onAdditionalDragStart);
       el.removeEventListener('touchstart', onAdditionalDragStart);
+      el.removeEventListener('touchmove', onAdditionalDragMove);
     }
   };
 
@@ -132,8 +139,9 @@ export function useDockDrag({
     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
   };
 
-  // Document-level gesture start. Nothing is captured here (no preventDefault /
-  // stopPropagation), so a plain tap flows through to whatever is underneath.
+  // Document-level gesture start. No preventDefault / stopPropagation, so a plain
+  // tap flows through to whatever is underneath; only a touch starting in the
+  // band, Dock hidden, has its scroll held until the finger lifts (holdScroll).
   const onDocumentDragStart = (e) => {
     // Document-level detection sees through z-index stacking, so ignore gestures
     // over an open modal (z 5000, above the dock) — otherwise a swipe inside one
@@ -151,47 +159,55 @@ export function useDockDrag({
       }
       return;
     }
-    // Dock hidden: only a gesture starting in the bottom band can open it.
+    // Dock hidden: only a gesture starting in the bottom band can open it, and
+    // the page under the band holds still while it does.
     if (pointInBand(e)) {
       onDragStart(e);
       startedInBand = true;
+      if (e.type === 'touchstart') holdScroll();
+    }
+  };
+
+  const onAdditionalDragMove = (e) => {
+    if (!isDraggingAdditional) return;
+    const y = getEventY(e);
+    if (Math.abs(y - additionalGestureOriginY) > 5 && !additionalDragMoved) {
+      // The overflow panel uses its own gesture stream (it doesn't touch the
+      // shared gestureHasMoved), so cancel any pending app-hold explicitly on
+      // the first swipe to avoid a misfired close.
+      onVolumeHoldEnd();
+      additionalDragMoved = true;
+    }
+    // A panel holding more entries than the screen fits scrolls, and while it
+    // does the browser owns the gesture — preventDefault here would freeze
+    // it. Swipe-to-close is only what pulls down from the top, as on a bottom
+    // sheet, so the close anchor follows the finger until the list is back at
+    // its top: the distance travelled scrolling never counts as a pull-down.
+    const el = additionalAppsContainer.value;
+    if ((el && el.scrollTop > 0) || y < additionalDragStartY) {
+      additionalDragStartY = y;
+      return;
+    }
+    const deltaY = y - additionalDragStartY;
+    if (deltaY <= 5) return;
+    if (e.cancelable) e.preventDefault();
+    if (deltaY >= 20) {
+      onCloseAdditionalApps();
+      isDraggingAdditional = false;
     }
   };
 
   const onDragMove = (e) => {
-    // Handle additional-apps drag first
+    // A touch on the overflow panel is followed by the panel's own listener.
     if (isDraggingAdditional) {
-      const y = getEventY(e);
-      if (Math.abs(y - additionalGestureOriginY) > 5 && !additionalDragMoved) {
-        // The overflow panel uses its own gesture stream (it doesn't touch the
-        // shared gestureHasMoved), so cancel any pending app-hold explicitly on
-        // the first swipe to avoid a misfired close.
-        onVolumeHoldEnd();
-        additionalDragMoved = true;
-      }
-      // A panel holding more entries than the screen fits scrolls, and while it
-      // does the browser owns the gesture — preventDefault here would freeze
-      // it. Swipe-to-close is only what pulls down from the top, as on a bottom
-      // sheet, so the close anchor follows the finger until the list is back at
-      // its top: the distance travelled scrolling never counts as a pull-down.
-      const el = additionalAppsContainer.value;
-      if ((el && el.scrollTop > 0) || y < additionalDragStartY) {
-        additionalDragStartY = y;
-        return;
-      }
-      const deltaY = y - additionalDragStartY;
-      if (deltaY <= 5) return;
-      e.preventDefault();
-      if (deltaY >= 20) {
-        onCloseAdditionalApps();
-        isDraggingAdditional = false;
-      }
+      if (e.type === 'mousemove') onAdditionalDragMove(e);
       return;
     }
 
     if (!isDragging.value) return;
 
-    if (startedInBand) e.preventDefault();
+    // A touch is held by holdScroll() from its touchstart.
+    if (startedInBand && e.type === 'mousemove') e.preventDefault();
 
     const currentY = getEventY(e);
     const currentX = getEventX(e);
@@ -285,7 +301,11 @@ export function useDockDrag({
 
     document.addEventListener('mousemove', onDragMove);
     document.addEventListener('mouseup', onDragEnd);
-    document.addEventListener('touchmove', onDragMove, { passive: false });
+    // Passive: a non-passive touchmove on document makes every touch on the
+    // page wait for the main thread before it may scroll. The one gesture that
+    // must cancel the scroll, a swipe up from the band, marks the band instead.
+    document.addEventListener('touchmove', onDragMove, { passive: true });
+    if (dragZone.value) unmarkBand = markTouchRegion(dragZone.value);
     document.addEventListener('touchend', onDragEnd);
     document.addEventListener('click', onDocumentClickCapture, true);
     document.addEventListener('click', onClickOutside);
@@ -306,6 +326,8 @@ export function useDockDrag({
     document.removeEventListener('click', onClickOutside);
     document.removeEventListener('pointerup', onVolumeHoldEnd);
     document.removeEventListener('pointercancel', onVolumeHoldEnd);
+    unmarkBand?.();
+    unmarkBand = null;
   };
 
   const cleanup = () => {

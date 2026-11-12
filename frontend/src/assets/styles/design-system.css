@@ -1059,11 +1059,19 @@
    Inert marker, never a hit target: the composables read its
    getBoundingClientRect() and detect the gesture at the document level, so the
    geometry lives here rather than duplicated in JS. It paints nothing and takes
-   no pointer events, hence no z-index.
+   no pointer events.
+
+   It is still the one region of the page where a touch waits for the main
+   thread (markTouchRegion, utils/touchScroll.js), and Chromium's compositor
+   takes a touch's region from the frontmost layer that has one at that point:
+   painted under the content (a browser's pan-y list, z-index 1), the band was
+   invisible to it, and the swipe scrolled the list. Hence a z-index above
+   everything at the bottom edge, the Dock included, and under the modals,
+   whose touches the composables ignore.
 
    Deliberately narrower than the viewport and short: a gesture starting in the
-   band calls preventDefault() on move, so every pixel of band is a pixel where
-   a list (or the lyrics scroller) can't start scrolling natively. */
+   band cancels the scroll, so every pixel of band is a pixel where a list (or
+   the lyrics scroller) can't start scrolling natively. */
 .swipe-reveal-band {
     position: fixed;
     left: 50%;
@@ -1073,6 +1081,7 @@
     /* Grows under the bezel: a swipe starts at the glass, hidden or not. */
     height: calc(8% + var(--screen-inset));
     pointer-events: none;
+    z-index: 4001;
 }
 
 /* Portrait: a percentage of a tall viewport is a lot of confiscated scroll, so

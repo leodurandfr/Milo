@@ -5,6 +5,7 @@
 // Lyrics playback bar, which repurposes the same gesture the Dock normally owns
 // (useDockDrag ignores gestures over .lyrics-view for exactly this reason).
 import { onMounted, onUnmounted } from 'vue';
+import { markTouchRegion, holdScroll } from '@/utils/touchScroll';
 
 // `handle` is an optional always-visible grip (the Lyrics bar's arrow) that
 // stays outside `panel` so it survives the bar being hidden — it has to be
@@ -16,6 +17,8 @@ export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow,
   let startY = 0;
   let startTime = 0;
   let actionTaken = false;
+  let unmarkBand = null;
+  let unmarkHandle = null;
 
   const getEventY = (e) => e.type.includes('touch')
     ? (e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? e.clientY) : e.clientY;
@@ -24,8 +27,8 @@ export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow,
 
   // Did the gesture start inside the bottom reveal band? Mirrors useDockDrag's
   // pointInBand, over the same shared .swipe-reveal-band geometry — the zone
-  // stays pointer-events:none, used only as a coordinate marker so it never
-  // intercepts taps/scrolls.
+  // stays pointer-events:none, so it never intercepts a tap; a touch starting
+  // in it, bar hidden, has its scroll held until the finger lifts (holdScroll).
   const pointInBand = (e) => {
     const zone = dragZone.value;
     if (!zone) return false;
@@ -49,6 +52,7 @@ export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow,
       // reveal it.
       if (!pointInBand(e) && !onHandle(e)) return;
       startedInBand = true;
+      if (e.type === 'touchstart') holdScroll();
     }
     dragging = true;
     startY = getEventY(e);
@@ -58,7 +62,8 @@ export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow,
 
   const onDragMove = (e) => {
     if (!dragging) return;
-    if (startedInBand) e.preventDefault();
+    // A touch is held by holdScroll() from its touchstart.
+    if (startedInBand && e.type === 'mousemove') e.preventDefault();
 
     const deltaY = startY - getEventY(e);
     const duration = Date.now() - startTime;
@@ -79,7 +84,11 @@ export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow,
 
   const setup = () => {
     document.addEventListener('touchstart', onDragStart, { passive: true });
-    document.addEventListener('touchmove', onDragMove, { passive: false });
+    // Passive, as in useDockDrag: the band is marked instead, so only a touch
+    // starting there waits for the main thread (utils/touchScroll.js).
+    document.addEventListener('touchmove', onDragMove, { passive: true });
+    if (dragZone.value) unmarkBand = markTouchRegion(dragZone.value);
+    if (handle?.value) unmarkHandle = markTouchRegion(handle.value);
     document.addEventListener('touchend', onDragEnd);
     document.addEventListener('mousedown', onDragStart);
     document.addEventListener('mousemove', onDragMove);
@@ -93,6 +102,9 @@ export function useSwipeVisibility({ dragZone, panel, handle, isVisible, onShow,
     document.removeEventListener('mousedown', onDragStart);
     document.removeEventListener('mousemove', onDragMove);
     document.removeEventListener('mouseup', onDragEnd);
+    unmarkBand?.();
+    unmarkHandle?.();
+    unmarkBand = unmarkHandle = null;
   };
 
   onMounted(setup);

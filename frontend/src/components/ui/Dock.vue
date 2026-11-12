@@ -645,6 +645,8 @@ onUnmounted(() => {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%) translateY(164px) scale(0.9);
+  /* .swipe-reveal-band sits just above (4001, design-system.css): raise this
+     past it and the band's touch region is hidden from Chromium's compositor. */
   z-index: 4000;
   transition: transform var(--transition-spring-light);
   width: fit-content;
