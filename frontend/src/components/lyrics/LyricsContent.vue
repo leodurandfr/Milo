@@ -7,7 +7,8 @@
 <template>
   <div class="lyrics-content">
     <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced, 'is-ready': ready }"
-      @scroll="handleScroll">
+      @scroll="handleScroll" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove"
+      @touchend="onTouchEnd" @touchcancel="onTouchEnd" @wheel.passive="onWheel">
       <template v-if="isSynced">
         <!-- One uniform size; the three states differ only in opacity: the active
              line is fully lit, lines still to come are bright, past lines fade
@@ -191,7 +192,7 @@ function stepTween(now) {
 function scrollToActiveLine(framesLeft = 10) {
   const container = scrollRef.value;
   const i = activeIndex.value;
-  if (!container || i < 0) return;
+  if (!container || i < 0 || handHeld) return;
 
   if (!anchors) anchors = measureAnchors();
   if (!anchors) {
@@ -218,6 +219,61 @@ function scrollToActiveLine(framesLeft = 10) {
 }
 
 watch(activeIndex, () => scrollToActiveLine(), { flush: 'post' });
+
+// === Hand scrolling ===
+//
+// A finger on the page holds the auto-scroll: a glide in flight stops under it,
+// and no line change moves the page while it is down. Once the hand has scrolled,
+// lifting it leaves the page where it was put for RESUME_AFTER_MS — long enough to
+// read, and for the momentum to settle — before the active line is brought back.
+// A touch that never moved (a tap) releases at once. A wheel is a hand too,
+// resumed the same delay after its last notch.
+//
+// Touch events, not pointer events: once the browser takes a touch over for its
+// own panning it sends pointercancel at the start of the pan, so "the finger
+// lifted" is only known from touchend.
+const RESUME_AFTER_MS = 3000;
+
+let handHeld = false;
+let handMoved = false;
+let resumeHandle = null;
+
+function holdForHand() {
+  handHeld = true;
+  if (resumeHandle !== null) timer.clear(resumeHandle);
+  resumeHandle = null;
+  stopTween();
+}
+
+function resumeSync() {
+  resumeHandle = null;
+  handHeld = false;
+  handMoved = false;
+  scrollToActiveLine();
+}
+
+function onTouchStart() {
+  if (isSynced.value) holdForHand();
+}
+
+function onTouchMove() {
+  if (handHeld) handMoved = true;
+}
+
+function onTouchEnd(event) {
+  if (!handHeld || event.touches.length > 0) return;
+  // Moved stays true across a second touch within the delay, so a tap on a page
+  // the hand just scrolled restarts the wait rather than snapping it back.
+  if (handMoved) resumeHandle = timer.setTimeout(resumeSync, RESUME_AFTER_MS);
+  else resumeSync();
+}
+
+function onWheel() {
+  if (!isSynced.value) return;
+  holdForHand();
+  handMoved = true;
+  resumeHandle = timer.setTimeout(resumeSync, RESUME_AFTER_MS);
+}
 
 function relayout() {
   invalidateAnchors();
@@ -306,7 +362,7 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
   /* Room above/below so the first and last lines can reach the vertical center
      (vh, not %, since % padding resolves against width — huge on a wide screen). */
   padding-block: 42vh;
-  /* Hide the scrollbar — auto-scroll drives this, it isn't hand-scrolled. */
+  /* Hide the scrollbar — auto-scroll drives this; a hand scroll only borrows it. */
   scrollbar-width: none;
   /* Soft fade over the bottom portion so lines dissolve as they scroll off,
      rather than hitting a hard edge (keywords, not hex → stylelint-safe). */
