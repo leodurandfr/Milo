@@ -39,7 +39,7 @@ defineProps({
 .player-info-text {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-01);
 }
 
 .player-info-title {
