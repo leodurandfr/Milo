@@ -98,6 +98,8 @@ import { useIsMobile } from '@/composables/useIsMobile';
 import { useDockDrag } from '@/composables/useDockDrag';
 import { useVolumeHold } from '@/composables/useVolumeHold';
 import { useDockAppHold } from '@/composables/useDockAppHold';
+import { usePlayerExpansion } from '@/composables/usePlayerExpansion';
+import { useRichDisplay } from '@/composables/useRichDisplay';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
@@ -398,6 +400,17 @@ const moveIndicatorTo = (index) => {
 };
 
 // === CLICK HANDLERS ===
+const playerExpansion = usePlayerExpansion();
+const { richSource } = useRichDisplay();
+
+// The active source's icon, pressed while its full player is on screen, goes
+// back to its navigation instead of selecting it again.
+const collapseActivePlayer = (appId) => {
+  if (appId !== richSource.value || !playerExpansion.expanded.value) return false;
+  playerExpansion.collapse();
+  return true;
+};
+
 const onIndicatorClick = () => {
   if (!isDragging.value && !isVisible.value) {
     showDock();
@@ -413,6 +426,7 @@ const handleAppClick = (appId, index) => {
 
   const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
   if (isAudioSource) {
+    if (collapseActivePlayer(appId)) return;
     moveIndicatorTo(index);
     unifiedStore.changeSource(appId);
   } else {
@@ -442,7 +456,7 @@ const handleAdditionalAppClick = (appId) => {
 
   const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
   if (isAudioSource) {
-    unifiedStore.changeSource(appId);
+    if (!collapseActivePlayer(appId)) unifiedStore.changeSource(appId);
   } else {
     const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
     if (action && action.handler) {

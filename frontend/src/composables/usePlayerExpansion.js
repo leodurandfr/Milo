@@ -6,9 +6,9 @@
 //
 // It holds "expanded or not" for the selected source: another source opens on
 // its own default view, so a change of source drops it. Besides the full
-// player's cover (or its pull down on the phone), only an ending with nothing
-// to resume does (BrowserSourceViews) — a pause or a stop that keeps something
-// to resume leaves the player on screen.
+// player's cover (or its pull down on the phone) and the source's own icon in
+// the Dock, only an ending with nothing to resume does (BrowserSourceViews) — a
+// pause or a stop that keeps something to resume leaves the player on screen.
 //
 // One exception to the change of source: coming back within RETURN_WINDOW_MS
 // to the source whose full player was open is taken for a source picked by
