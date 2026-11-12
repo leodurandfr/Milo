@@ -52,6 +52,12 @@ EnvironmentFile=-/var/lib/milo/kiosk.env
 ExecStartPre=/usr/local/bin/milo-kiosk-zoom
 
 # Launch Cage with Chromium in kiosk mode
+# --touch-slop-distance: how far a finger moves before Chromium calls it a scroll
+# rather than a tap. Its default, 15 DIP, is 15 panel px here (device scale 1),
+# ~2 mm on the 8" Waveshare against ~1.3 mm on a phone, and those pixels are
+# subtracted from the scroll: a slow drag sat still for ~200 ms, then trailed the
+# finger by 2 mm for good. 10 px (~1.35 mm, measured 2026-11-12) keeps a tap
+# with a slightly sliding finger a tap.
 ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --user-data-dir=/run/milo-kiosk/chromium \
   --kiosk \
@@ -72,6 +78,7 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --start-fullscreen \
   --disable-dev-shm-usage \
   --touch-events=enabled \
+  --touch-slop-distance=10 \
   --enable-features=TouchpadAndWheelScrollLatching \
   --force-device-scale-factor=1 \
   --disable-pinch \
