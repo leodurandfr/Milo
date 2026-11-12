@@ -2,7 +2,7 @@
 <template>
   <!-- `modal-overlay` is load-bearing: the dock refuses to reveal, and ignores
        swipes, over any element carrying it (Dock.vue showDock, useDockDrag). -->
-  <Transition name="volume-overlay" :duration="{ enter: 500, leave: 250 }">
+  <Transition name="volume-overlay" :duration="{ enter: 500, leave: 400 }">
     <div v-if="unifiedStore.volumePanelOpen" class="modal-overlay volume-overlay"
       @pointerdown.capture="onOverlayPointerdown" @click="backdrop.onClick">
       <!-- The VolumeBar itself, larger and held: same plate, same track and
@@ -383,10 +383,12 @@ onUnmounted(() => {
   transition: opacity 350ms var(--easeOutCubic);
 }
 
-/* Inert while it fades: a press on the leaving track would start a drag whose
-   release never arrives. */
+/* Slower than a modal's close: this panel mostly leaves on its own countdown,
+   unasked, so it fades as the VolumeBar does (--transition-normal) rather than
+   snapping away. Inert while it fades: a press on the leaving track would start
+   a drag whose release never arrives. */
 .volume-overlay-leave-active {
-  transition: opacity 250ms var(--easeOutCubic);
+  transition: opacity var(--transition-normal);
   pointer-events: none;
 }
 
@@ -401,7 +403,7 @@ onUnmounted(() => {
 }
 
 .volume-overlay-leave-active .volume-panel {
-  transition: transform 180ms var(--easeOutCubic), opacity 180ms var(--easeOutCubic);
+  transition: transform var(--transition-medium), opacity var(--transition-medium);
 }
 
 .volume-overlay-enter-from .volume-panel {
