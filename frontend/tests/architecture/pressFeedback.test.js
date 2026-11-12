@@ -66,8 +66,6 @@ const NOT_A_PRESS_SURFACE = {
     'an inline text link inside a card that presses as a whole',
   'components/lyrics/LyricsPlaybackBar.vue::lyrics-bar-swipe-hint':
     'the swipe affordance for the lyrics bar — a gesture hint, and pressing it is a fallback',
-  'components/lyrics/LyricsPlaybackBar.vue::lyrics-bar-hide-zone':
-    'an invisible swipe surface around the lyrics bar\'s arrow — nothing is drawn to press, and the bar sliding away is the acknowledgement',
   'components/ui/Modal.vue::modal-overlay':
     'the modal scrim, @click.self to dismiss',
   'components/volume/VolumeOverlay.vue::modal-overlay':

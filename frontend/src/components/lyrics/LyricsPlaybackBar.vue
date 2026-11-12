@@ -13,9 +13,10 @@
      edge to show again (useSwipeVisibility — the same gesture the Dock would
      normally own, freed up because useDockDrag ignores .lyrics-view). The
      arrow hint doubles as a tap toggle and as a swipe handle in both
-     directions. Shown, the bar takes no touch of its own beyond its controls,
-     so the lyrics scroll under it; hiding it is the hide zone's job, a column
-     from the arrow down to the bottom edge. -->
+     directions. Shown, the bar's transparent top lets the lyrics scroll under
+     it; below it, the row of title, progress and transport is the hide zone,
+     where a swipe down hides the bar (the progress bar and the buttons keep
+     their own touches). -->
 
 <template>
   <!-- Same inert reveal band as the Dock's (shared .swipe-reveal-band utility) —
@@ -41,25 +42,23 @@
       <SvgIcon name="arrowExtended" :size="24" />
     </button>
 
-    <!-- While the bar is shown, the one place a tap or a swipe down hides it —
-         the arrow's column, down to the glass. The bar is painted over it, so
-         its progress bar and transport still win where the two overlap.
-         Hidden from assistive tech: the arrow is the accessible toggle. -->
-    <div ref="hideZone" class="lyrics-bar-hide-zone" :class="{ 'is-active': isVisible }" aria-hidden="true"
-      @pointerdown="onHintPointerDown" @click="onHintClick"></div>
-
     <!-- The bar AND its content stay mounted (the layer takes its height from
          the bar, and unmounting the content would pop it out instantly instead
          of letting it travel with the bar) — show and hide are a plain class
          toggle, styled below. `inert` has to collapse to undefined rather than
          false: Vue renders inert="false" verbatim, and any value at all makes
          the subtree inert. -->
-    <div ref="panel" class="lyrics-bar" :class="{ 'is-hidden': !isVisible }" :inert="isVisible ? undefined : true">
+    <div class="lyrics-bar" :class="{ 'is-hidden': !isVisible }" :inert="isVisible ? undefined : true">
+      <!-- The band where a swipe down hides the shown bar: the content row,
+           full width, down to the glass. Painted under the progress bar and
+           the transport, so they keep their touches; a swipe only, the arrow
+           being the tap toggle (a tap on the title should not close the bar). -->
+      <div ref="hideZone" class="lyrics-bar-hide-zone" aria-hidden="true"></div>
       <div class="lyrics-bar-content">
         <PlayerInfoText variant="single" class="lyrics-bar-track" :title="identity.title"
           :secondary="identity.artist || null" />
 
-        <div v-if="hasBar" class="lyrics-bar-progress">
+        <div v-if="hasBar" class="lyrics-bar-progress" :class="{ 'is-seekable': canSeek }">
           <ProgressBar :currentPosition="currentPosition" :duration="duration"
             :progressPercentage="progressPercentage" :isReady="isPositionInitialized"
             :interactive="canSeek" variant="on-contrast" animateIn @seek="seekTo" @skip="skip"
@@ -164,10 +163,9 @@ useSwipeVisibility({
   onHide: () => { isVisible.value = false; },
 });
 
-// Tapping the hint (or, bar shown, the hide zone) toggles the bar. A swipe
-// started on either drives useSwipeVisibility AND can end in a native click (a
-// mouse drag always does) — that click has to be dropped or the bar would flip
-// straight back.
+// Tapping the hint toggles the bar. A swipe started on it drives
+// useSwipeVisibility AND can end in a native click (a mouse drag always does) —
+// that click has to be dropped or the bar would flip straight back.
 const TAP_SLOP_PX = 10;
 let pressY = null;
 
@@ -196,37 +194,20 @@ function onHintClick(event) {
   pointer-events: none;
 }
 
-.lyrics-bar-hide-zone {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  /* From just above the arrow's resting spot (top: --space-07) to the glass. */
-  top: var(--space-05);
-  bottom: 0;
-  width: calc(2 * var(--space-09));
-  pointer-events: none;
-  /* A swipe down here is the bar's, never a pan of anything beneath. */
-  touch-action: none;
-}
-
-.lyrics-bar-hide-zone.is-active {
-  pointer-events: auto;
-  cursor: pointer;
-}
-
 .lyrics-bar {
-  /* Positioned so it paints over the hide zone (positioned boxes paint above
-     in-flow ones whatever the DOM order): where they overlap, the controls win. */
+  /* The hide zone's containing block. */
   position: relative;
-  /* The scrim, the title and the artist let the lyrics scroll through. */
+  /* The scrim's transparent top lets the lyrics scroll through. */
   pointer-events: none;
   background: linear-gradient(to bottom, transparent 0%, var(--color-image-scrim) 100%);
   display: flex;
   align-items: center;
   gap: var(--space-06);
   /* The scrim is the bar's own background, so it still reaches the glass. */
+  /* Read by the hide zone, whose top is this padding's bottom edge. */
+  --lyrics-bar-top: var(--space-09);
   padding:
-    var(--space-09)
+    var(--lyrics-bar-top)
     calc(var(--space-07) + var(--screen-inset))
     calc(max(var(--space-06), env(safe-area-inset-bottom, 0px)) + var(--screen-inset));
   transition: transform var(--transition-normal), opacity var(--transition-normal);
@@ -237,8 +218,31 @@ function onHintClick(event) {
   opacity: 0;
 }
 
-.lyrics-bar:not(.is-hidden) .lyrics-bar-progress,
-.lyrics-bar:not(.is-hidden) .playback-controls {
+/* The content row, full width, down to the glass. */
+.lyrics-bar-hide-zone {
+  position: absolute;
+  top: var(--lyrics-bar-top);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* A swipe down here is the bar's, never a pan of anything beneath. */
+  touch-action: none;
+}
+
+/* What takes a touch of its own — a seekable progress bar, an enabled button —
+   is positioned after the zone in tree order, so it paints over it (a
+   positioned box paints above an in-flow one whatever the DOM order). The rest
+   — a read-only progress bar, a disabled button, the gaps between buttons —
+   stays in flow under the zone, so a swipe down started there still hides the
+   bar. */
+.lyrics-bar-progress.is-seekable,
+.playback-controls > :not(:disabled) {
+  position: relative;
+}
+
+.lyrics-bar:not(.is-hidden) .lyrics-bar-hide-zone,
+.lyrics-bar:not(.is-hidden) .lyrics-bar-progress.is-seekable,
+.lyrics-bar:not(.is-hidden) .playback-controls > :not(:disabled) {
   pointer-events: auto;
 }
 

@@ -12,7 +12,7 @@ import { markTouchRegion, holdScroll } from '@/utils/touchScroll';
 // accepted explicitly in both directions, otherwise the element that looks like
 // the bar's drag handle is the one spot the gesture ignores. `hideZone` is the
 // one region, besides the handle, where a gesture can hide the shown panel —
-// the panel itself lets touches through to the content it covers.
+// the rest of the panel may let touches through to the content it covers.
 export function useSwipeVisibility({ dragZone, hideZone, handle, isVisible, onShow, onHide }) {
   let dragging = false;
   let startedInBand = false;
@@ -45,7 +45,7 @@ export function useSwipeVisibility({ dragZone, hideZone, handle, isVisible, onSh
   const onDragStart = (e) => {
     if (isVisible.value) {
       // Bar shown: only a gesture starting in the hide zone, or on the handle
-      // resting inside it, can hide it.
+      // (which rests above it, in the bar's top band), can hide it.
       if (!hideZone.value?.contains(e.target) && !onHandle(e)) return;
       startedInBand = false;
     } else {
