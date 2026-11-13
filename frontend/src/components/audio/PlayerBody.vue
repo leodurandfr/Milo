@@ -292,6 +292,12 @@ defineExpose({ swipe });
   padding-bottom: var(--space-04);
 }
 
+@media not ((max-aspect-ratio: 4/3) and (max-width: 1023px)) {
+  .player-body--full .player-body-bottom {
+    padding-bottom: var(--space-02);
+  }
+}
+
 /* A receiver ends on its progress bar: as far from the bottom as the source
    bar is from the top. */
 .player-body--full.player-body--no-transport .player-body-bottom {

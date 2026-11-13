@@ -369,6 +369,12 @@ const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =
   gap: var(--space-06);
 }
 
+@media not ((max-aspect-ratio: 4/3) and (max-width: 1023px)) {
+  .now-playing :deep(.player-body--full > .player-body-bottom) {
+    gap: var(--space-05);
+  }
+}
+
 /* The body's top padding puts the source bar (a 24px row) on that line. */
 .now-playing :deep(.player-body--full > .player-body-info) {
   padding-top: calc(var(--source-line) - 12px);
