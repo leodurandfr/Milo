@@ -264,11 +264,6 @@ class TestPinsTheCardHolds:
         """The negative case above must fail for the card, not the payload."""
         assert HardwareConfigRequest(**self._payload("hifiberry_amp4pro", ir=17))
 
-    def test_a_card_with_no_i2c_leaves_the_i2c_pins_free(self):
-        """`hifiberry-dac` (Beocreate) declares no i2c1 fragment: refusing 2-3
-        there would take two pins off a board that does not use them."""
-        assert HardwareConfigRequest(**self._payload("hifiberry_beocreate", ir=2))
-
     @pytest.mark.parametrize("peripheral", ["ir", "rotary", "led"])
     def test_every_reserved_pin_is_refused_to_every_peripheral(self, peripheral):
         checked = 0

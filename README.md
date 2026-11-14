@@ -71,8 +71,7 @@ step.
 
 - **Raspberry Pi 5** (8 GB recommended) for the main unit; a Raspberry Pi 4 (2 GB) is enough
   for a multiroom speaker.
-- **A HiFiBerry board**: an amplifier for passive speakers (Amp2, Amp4, Amp4 Pro, Amp100,
-  Beocreate 4CA) or a DAC for an amplifier you already own (DAC2 HD, DAC2 Pro, DAC2 ADC Pro).
+- **A HiFiBerry board**: an amplifier for passive speakers (Amp2, Amp4, Amp4 Pro, Amp100) or a DAC for an amplifier you already own (DAC2 HD, DAC2 Pro, DAC2 ADC Pro).
   With a screen, the Amp4 Pro is the only amplifier that can power it.
 - **Optional**: a Waveshare touchscreen (7" USB or 8" DSI), a volume knob, an Apple Remote or a
   Bluetooth remote, a USB CD drive.

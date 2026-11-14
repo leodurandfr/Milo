@@ -43,7 +43,7 @@ def test_the_committed_page_is_what_the_code_says(name):
 def test_every_page_has_content():
     """A broken extractor writes a page with a header and nothing under it."""
     for name, text in PAGES.items():
-        assert text.count("\n|") > 20, name
+        assert text.count("\n|") > 15, name
 
 
 # What only makes sense inside the repo: a consumer named by its file or store,

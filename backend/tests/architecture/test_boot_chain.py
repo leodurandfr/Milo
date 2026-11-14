@@ -417,7 +417,7 @@ def _run_sat_launcher(tmp_path: Path, nm_online_rc: int) -> tuple[subprocess.Com
         fake.chmod(0o755)
 
     hardware = tmp_path / "hardware.json"
-    hardware.write_text(json.dumps({"audio": {"id": "hifiberry-dac"}}))
+    hardware.write_text(json.dumps({"audio": {"id": "hifiberry_dac2hd"}}))
     script = SAT_LAUNCHER.read_text(encoding="utf-8")
     for real, stand_in in (
         ("/var/lib/milo-client/hardware.json", hardware),

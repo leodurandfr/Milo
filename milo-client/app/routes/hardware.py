@@ -28,7 +28,6 @@ VALID_OVERLAYS = {
     "hifiberry-dacplusadcpro",
     "hifiberry-amp4pro",
     "hifiberry-amp100",
-    "hifiberry-dac",
     "hifiberry-dacplushd",
 }
 

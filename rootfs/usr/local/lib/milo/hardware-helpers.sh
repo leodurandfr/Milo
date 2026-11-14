@@ -11,7 +11,7 @@
 # Exactly the overlay set of backend/hardware/registry.py::AUDIO_CARDS — pinned by
 # backend/tests/architecture/test_audio_overlay_allowlist.py, because a card added
 # there and not here is rejected right before the reboot that would apply it.
-VALID_AUDIO_OVERLAYS="hifiberry-dacplus-std hifiberry-dacplus-pro hifiberry-dacplusadcpro hifiberry-amp4pro hifiberry-amp100 hifiberry-dac hifiberry-dacplushd"
+VALID_AUDIO_OVERLAYS="hifiberry-dacplus-std hifiberry-dacplus-pro hifiberry-dacplusadcpro hifiberry-amp4pro hifiberry-amp100 hifiberry-dacplushd"
 
 # What remove_legacy_overlays clears out of config.txt: the allowlist plus the
 # pre-6.1.77 "hifiberry-dacplus" alias, which no card selects any more but which

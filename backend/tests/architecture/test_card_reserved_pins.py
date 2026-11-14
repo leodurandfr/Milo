@@ -23,7 +23,7 @@ OVERLAY_CARDS = [card_id for card_id, card in AUDIO_CARDS.items() if card["overl
 
 
 def test_the_registry_has_overlay_cards_to_check():
-    assert len(OVERLAY_CARDS) >= 8, f"only {len(OVERLAY_CARDS)} overlay cards found"
+    assert len(OVERLAY_CARDS) >= 7, f"only {len(OVERLAY_CARDS)} overlay cards found"
 
 
 @pytest.mark.parametrize("card_id", OVERLAY_CARDS)

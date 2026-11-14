@@ -791,7 +791,7 @@ def test_hardware_helpers_ignore_a_json_module_in_the_working_directory(tree_nam
     """
     marker = tmp_path / "planted-ran"
     (tmp_path / "json.py").write_text(f"open({str(marker)!r}, 'a').write('ran\\n')\n", encoding="utf-8")
-    (tmp_path / "hardware.json").write_text('{"audio": {"overlay": "hifiberry-dac"}}', encoding="utf-8")
+    (tmp_path / "hardware.json").write_text('{"audio": {"overlay": "hifiberry-dacplushd"}}', encoding="utf-8")
     (tmp_path / "config.txt").write_text("", encoding="utf-8")
 
     result = subprocess.run(
@@ -806,4 +806,4 @@ def test_hardware_helpers_ignore_a_json_module_in_the_working_directory(tree_nam
 
     assert not marker.exists(), f"the planted json.py ran: {marker.read_text()!r}"
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "hifiberry-dac"
+    assert result.stdout.strip() == "hifiberry-dacplushd"

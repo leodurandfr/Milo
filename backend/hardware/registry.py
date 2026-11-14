@@ -24,7 +24,7 @@ file — a bash-seeded file cannot track the schema and shipped a stale one that
 
 # Every overlay drives the HAT over I2S (pinctrl `rp1_i2s1_18_21` on the Pi 5).
 _I2S_PINS = (18, 19, 20, 21)
-# The codec's control bus, i2c1 (SDA1/SCL1): every overlay but `hifiberry-dac`.
+# The codec's control bus, i2c1 (SDA1/SCL1).
 _I2C1_PINS = (2, 3)
 
 AUDIO_CARDS = {
@@ -67,14 +67,6 @@ AUDIO_CARDS = {
         "brand": "HiFiBerry",
         "category": "amplifier",
         "reserved_pins": _I2C1_PINS + _I2S_PINS + (4, 17),  # mute-gpio, reset-gpio
-    },
-    "hifiberry_beocreate": {
-        "label": "HiFiBerry Beocreate 4CA",
-        "overlay": "hifiberry-dac",
-        "card_name": "sndrpihifiberry",
-        "brand": "HiFiBerry",
-        "category": "amplifier",
-        "reserved_pins": _I2S_PINS,  # hifiberry-dac has no i2c1 fragment
     },
     "hifiberry_dac2hd": {
         "label": "HiFiBerry DAC2 HD",

@@ -13,7 +13,6 @@ The audio cards and screens the setup wizard offers. The id is what `hardware.js
 | `hifiberry_amp4` | HiFiBerry Amp4 | amplifier | `hifiberry-dacplus-std` | `sndrpihifiberry` |
 | `hifiberry_amp4pro` | HiFiBerry Amp4 Pro | amplifier | `hifiberry-amp4pro` | `sndrpihifiberry` |
 | `hifiberry_amp100` | HiFiBerry Amp100 | amplifier | `hifiberry-amp100` | `sndrpihifiberry` |
-| `hifiberry_beocreate` | HiFiBerry Beocreate 4CA | amplifier | `hifiberry-dac` | `sndrpihifiberry` |
 | `hifiberry_dac2hd` | HiFiBerry DAC2 HD | dac | `hifiberry-dacplushd` | `sndrpihifiberry` |
 | `hifiberry_dacplus_pro` | HiFiBerry DAC2 Pro / DAC+ Pro | dac | `hifiberry-dacplus-pro` | `sndrpihifiberry` |
 | `hifiberry_dac2adcpro` | HiFiBerry DAC2 ADC Pro | dac | `hifiberry-dacplusadcpro` | `sndrpihifiberry` |

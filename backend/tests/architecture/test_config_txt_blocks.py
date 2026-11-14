@@ -32,7 +32,7 @@ SCRIPT_VARIABLES = {
         "POWER_BUTTON_ENABLED": "True",
         "POWER_BUTTON_LED_GPIO": "26",
     },
-    "milo-client-apply-hardware": {"AUDIO_OVERLAY": "hifiberry-dac"},
+    "milo-client-apply-hardware": {"AUDIO_OVERLAY": "hifiberry-dacplushd"},
 }
 ROLE_OF_SCRIPT = {"milo-apply-hardware": "server", "milo-client-apply-hardware": "client"}
 
