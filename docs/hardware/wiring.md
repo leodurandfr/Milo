@@ -88,8 +88,9 @@ more than ~16 mA, drive it through an NPN transistor.
 
 A **latching** switch, **no LED**, wired on the amp's DC input. It fully cuts power.
 
-- Cut the **+ wire** of the **+18 V DC** going into the AMP4 Pro barrel jack and put the
-  latching switch **inline on that + wire**. The − wire goes straight to the amp.
+- Cut the **+ wire** of the **+20 V DC** going into the AMP4 Pro barrel jack (the brick is a
+  MEAN WELL GST120A20-P1M: 20 V ⎓ 6 A, 120 W, 5.5 × 2.5 mm plug) and put the latching
+  switch **inline on that + wire**. The − wire goes straight to the amp.
 
 ```
    DC brick (+) ──► [ latching switch ] ──► AMP4 Pro DC +
