@@ -44,7 +44,8 @@ PAYLOAD_PATHSPEC = (
 # How long a pushed app may take to reach a final state once the satellite has
 # answered the POST (or stopped deploying). The worst case is a version that
 # crashes just before its hold ends on every try: MAX_ATTEMPTS starts, each a
-# full TimeoutStartSec + HOLD_S + RestartSec. Held above that bound, read from
+# full TimeoutStartSec + TimeoutStopSec (a start that never gets READY is only
+# killed once its stop times out) + HOLD_S + RestartSec. Held above that bound, read from
 # the satellite's own source, by tests/architecture/test_satellite_app_ceiling.py.
 APP_UPDATE_CEILING_S = 600
 APP_UPDATE_POLL_S = 5

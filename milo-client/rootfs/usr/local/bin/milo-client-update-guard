@@ -75,6 +75,10 @@ DETAIL_MAX = 500
 # What a Python failure ends on ("ModuleNotFoundError: No module named 'x'"),
 # preferred over any other line that merely mentions an error.
 EXCEPTION_RE = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt)\b(?::.*)?$")
+# What systemd says of a start that left no exception behind (a timeout, a
+# signal, an os._exit): its result names the cause, where "Failed to start …",
+# printed after it, names only the unit. Measured on Bureau.
+SYSTEMD_RESULT_RE = re.compile(r"Failed with result '|start operation timed out")
 ERRORISH_RE = re.compile(r"\b(?:ERROR|CRITICAL|Error|error|Failed|failed|Traceback)\b")
 PROG = "milo-client-update-guard"
 
@@ -189,7 +193,7 @@ def _journal_detail(since: float) -> str | None:
         line.strip() for line in result.stdout.splitlines()
         if line.strip() and PROG not in line
     ]
-    for pattern in (EXCEPTION_RE, ERRORISH_RE):
+    for pattern in (EXCEPTION_RE, SYSTEMD_RESULT_RE, ERRORISH_RE):
         for line in reversed(lines):
             if pattern.search(line):
                 return line[:DETAIL_MAX]

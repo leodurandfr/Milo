@@ -11,8 +11,10 @@ was about to answer `committed` or `rolled_back`.
 
 The worst case is a new version that crashes just before its hold ends on every
 start: each of the `MAX_ATTEMPTS` starts then costs a whole `TimeoutStartSec`
-(the guard runs inside it, as ExecStartPre), the hold, and `RestartSec`. The
-four numbers live in three files of two trees that ship in the same commit but
+(the guard runs inside it, as ExecStartPre), the hold, and `RestartSec` — plus
+`TimeoutStopSec` for a start that never reaches READY, which systemd only
+kills once the stop it sends has timed out too (measured on Bureau: 40 s per
+start, not 30). The five numbers live in three files of two trees that ship in the same commit but
 are read by nobody else together, so only a rule reading all of them can hold
 the inequality. Each extractor asserts its own output first.
 """
@@ -70,8 +72,10 @@ def _unit_seconds(key: str) -> int:
     return int(match.group(1))
 
 
-def _settle_bound(hold_s: int, max_attempts: int, start_timeout_s: int, restart_s: int) -> int:
-    return max_attempts * (start_timeout_s + hold_s + restart_s)
+def _settle_bound(
+    hold_s: int, max_attempts: int, start_timeout_s: int, stop_timeout_s: int, restart_s: int
+) -> int:
+    return max_attempts * (start_timeout_s + stop_timeout_s + hold_s + restart_s)
 
 
 def test_the_extractors_read_plausible_values():
@@ -79,12 +83,14 @@ def test_the_extractors_read_plausible_values():
     assert _module_int("MAX_ATTEMPTS") >= 2
     assert _unit_seconds("TimeoutStartSec") > 0
     assert _unit_seconds("RestartSec") > 0
+    assert _unit_seconds("TimeoutStopSec") > 0
 
 
 def test_the_server_outwaits_the_slowest_trial_a_satellite_can_run():
     bound = _settle_bound(
         _module_int("HOLD_S"), _module_int("MAX_ATTEMPTS"),
-        _unit_seconds("TimeoutStartSec"), _unit_seconds("RestartSec"),
+        _unit_seconds("TimeoutStartSec"), _unit_seconds("TimeoutStopSec"),
+        _unit_seconds("RestartSec"),
     )
     assert APP_UPDATE_CEILING_S > bound + MARGIN_S, (
         f"APP_UPDATE_CEILING_S ({APP_UPDATE_CEILING_S} s) must exceed the slowest trial "

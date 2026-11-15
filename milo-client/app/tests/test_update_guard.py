@@ -169,6 +169,24 @@ def test_a_rollback_records_why_from_the_journal(satellite):
     assert "ERROR:" in result.stderr and "rolled back from NEW" in result.stderr
 
 
+def test_a_rollback_with_no_exception_names_what_systemd_saw(satellite):
+    """A start that never got READY leaves no traceback: systemd's result line
+    says it timed out, where the "Failed to start" printed after it names only
+    the unit — which is what the row showed on Bureau before this rule."""
+    satellite.on_trial()
+    (satellite.state / "update-trial.attempts").write_text("2\n")
+    (satellite.repo.parent / "journal.txt").write_text("\n".join([
+        "milo-client.service: start operation timed out. Terminating.",
+        "milo-client.service: State 'stop-sigterm' timed out. Killing.",
+        "milo-client.service: Failed with result 'timeout'.",
+        "Failed to start milo-client.service - Milo Client API Service.",
+    ]) + "\n")
+
+    satellite.guard("start")
+
+    assert satellite.last_update()["detail"] == "milo-client.service: Failed with result 'timeout'."
+
+
 def test_a_missing_app_is_put_back_at_the_first_start(satellite):
     """A power cut between the swap's two renames leaves no app/ at all: the
     unit cannot even run the new code once, so waiting for three starts is
