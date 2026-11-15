@@ -7,8 +7,8 @@ error_exit() { echo "ERROR: $1" >&2; exit 1; }
 
 # An update that changed nothing on disk and one that replaced every unit file
 # read identically in the journal, and the journal is the only surface this
-# machine has. Everything installed below is compared before it is overwritten,
-# and what actually moved is listed at the end.
+# machine has. Everything installed below is compared first and left alone when
+# it already matches, and what actually moved is listed at the end.
 CHANGED=()
 SYSCTL_FILES=()
 NM_CONF_DEPLOYED=false
@@ -37,7 +37,8 @@ would_change() {
 # overwrite this avoids.
 install_self() {
     local rel_path="$1"
-    would_change "$MILO_DIR/rootfs/$rel_path" "/$rel_path" && CHANGED+=("/$rel_path")
+    would_change "$MILO_DIR/rootfs/$rel_path" "/$rel_path" || return 0
+    CHANGED+=("/$rel_path")
     cp "$MILO_DIR/rootfs/$rel_path" "/$rel_path.new"
     chmod +x "/$rel_path.new"
     mv -f "/$rel_path.new" "/$rel_path"
@@ -59,7 +60,8 @@ install_sudoers() {
     local rel_path="$1"
     local target="/$rel_path"
 
-    would_change "$MILO_DIR/rootfs/$rel_path" "$target" && CHANGED+=("$target")
+    would_change "$MILO_DIR/rootfs/$rel_path" "$target" || return 0
+    CHANGED+=("$target")
     cp "$MILO_DIR/rootfs/$rel_path" "$target.new"
     chmod 0440 "$target.new"
     visudo -c -f "$target.new" >/dev/null || {
@@ -68,6 +70,18 @@ install_sudoers() {
     }
     mv -f "$target.new" "$target"
     echo "  Installed $target (validated)"
+}
+
+# Every other file goes in by the same rename: written beside its destination,
+# then swapped in, so a power cut leaves the old file or the new one, never a
+# truncated unit or helper. `.new` is a name nothing here reads as config:
+# systemd wants a unit suffix, sysctl.d and modprobe.d want `.conf`.
+install_atomic() {
+    # $1 source, $2 destination, then optionally $3 a chmod mode, $4 a chown owner
+    cp "$1" "$2.new"
+    [ -z "${3:-}" ] || chmod "$3" "$2.new"
+    [ -z "${4:-}" ] || chown "$4" "$2.new"
+    mv -f "$2.new" "$2"
 }
 
 [ $# -ne 1 ] && error_exit "Usage: $0 <extracted-tarball-directory>"
@@ -88,13 +102,62 @@ MILO_DIR="$UPDATE_DIR/milo-client"
 [ ! -d "$MILO_DIR/system" ] && error_exit "Missing milo-client/system/ in update"
 [ ! -d "$MILO_DIR/rootfs" ] && error_exit "Missing milo-client/rootfs/ in update"
 
+# --- Deploy rootfs files ---
+# Before the units: a unit names its helpers (ExecStartPre= of
+# milo-client.service is milo-client-update-guard), and a unit installed and
+# reloaded ahead of a helper it names fails to start in the window between.
+echo "Deploying rootfs files..."
+cd "$MILO_DIR/rootfs"
+
+while read -r rel_path; do
+    # Remove leading ./
+    rel_path="${rel_path#./}"
+
+    # Skip per-device config. This script is the one file a plain copy cannot
+    # install — see the rename branch below.
+    case "$rel_path" in
+        var/lib/milo-client/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
+        etc/avahi/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
+        usr/local/bin/milo-client-deploy-update) install_self "$rel_path"; continue ;;
+        etc/sudoers.d/*) install_sudoers "$rel_path"; continue ;;
+    esac
+
+    target="/$rel_path"
+
+    # Track what needs the kernel or its daemon told — changed or not, see below.
+    case "$rel_path" in
+        etc/sysctl.d/*) SYSCTL_FILES+=("$target") ;;
+        etc/NetworkManager/conf.d/*) NM_CONF_DEPLOYED=true ;;
+    esac
+
+    if ! would_change "$MILO_DIR/rootfs/$rel_path" "$target"; then
+        continue
+    fi
+    CHANGED+=("$target")
+    mkdir -p "$(dirname "$target")"
+
+    # Executable for scripts, ownership for home files — set on the copy, so
+    # the file is final the moment it is swapped in.
+    mode=""
+    owner=""
+    case "$target" in
+        /usr/local/bin/*|*/dispatcher.d/*) mode=+x ;;
+    esac
+    case "$target" in
+        /home/milo-client/*) owner=milo-client:milo-client ;;
+    esac
+    install_atomic "$MILO_DIR/rootfs/$rel_path" "$target" "$mode" "$owner"
+    echo "  Installed $target"
+done < <(find . -type f)
+
 # --- Deploy systemd service files ---
 echo "Deploying systemd service files..."
 for service_file in "$MILO_DIR"/system/*.service; do
     [ -f "$service_file" ] || continue
     unit=$(basename "$service_file")
-    would_change "$service_file" "/etc/systemd/system/$unit" && CHANGED+=("$unit")
-    cp "$service_file" /etc/systemd/system/
+    would_change "$service_file" "/etc/systemd/system/$unit" || continue
+    CHANGED+=("$unit")
+    install_atomic "$service_file" "/etc/systemd/system/$unit"
     echo "  Installed $unit"
 done
 
@@ -108,10 +171,10 @@ if [ -f "$MILO_DIR/system/avahi-daemon-override.conf" ]; then
     if would_change "$MILO_DIR/system/avahi-daemon-override.conf" "$AVAHI_OVERRIDE"; then
         avahi_changed=1
         CHANGED+=("avahi-daemon override")
+        install_atomic "$MILO_DIR/system/avahi-daemon-override.conf" "$AVAHI_OVERRIDE"
+        echo "  Installed avahi-daemon override"
     fi
-    cp "$MILO_DIR/system/avahi-daemon-override.conf" "$AVAHI_OVERRIDE"
     rm -f /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
-    echo "  Installed avahi-daemon override"
 fi
 
 systemctl daemon-reload
@@ -131,55 +194,6 @@ if [ "$avahi_changed" -eq 1 ]; then
     echo "  Restarted avahi-daemon (its drop-in changed)"
 fi
 
-# --- Deploy rootfs files ---
-echo "Deploying rootfs files..."
-cd "$MILO_DIR/rootfs"
-
-while read -r rel_path; do
-    # Remove leading ./
-    rel_path="${rel_path#./}"
-
-    # Skip per-device config. This script is the one file a plain copy cannot
-    # install — see the rename branch below.
-    case "$rel_path" in
-        var/lib/milo-client/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
-        etc/avahi/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
-        usr/local/bin/milo-client-deploy-update) install_self "$rel_path"; continue ;;
-        etc/sudoers.d/*) install_sudoers "$rel_path"; continue ;;
-    esac
-
-    target="/$rel_path"
-    target_dir=$(dirname "$target")
-
-    # Create parent directory
-    mkdir -p "$target_dir"
-
-    # Copy file
-    would_change "$MILO_DIR/rootfs/$rel_path" "$target" && CHANGED+=("$target")
-    cp "$MILO_DIR/rootfs/$rel_path" "$target"
-    echo "  Installed $target"
-
-    # Set executable for scripts
-    case "$target" in
-        /usr/local/bin/*|*/dispatcher.d/*)
-            chmod +x "$target"
-            ;;
-    esac
-
-    # Set ownership for home files
-    case "$target" in
-        /home/milo-client/*)
-            chown milo-client:milo-client "$target"
-            ;;
-    esac
-
-    # Track what needs the kernel or its daemon told
-    case "$rel_path" in
-        etc/sysctl.d/*) SYSCTL_FILES+=("$target") ;;
-        etc/NetworkManager/conf.d/*) NM_CONF_DEPLOYED=true ;;
-    esac
-done < <(find . -type f)
-
 # Our own files only, on every push, changed or not: the push that brings one
 # is run by the deploy script the unit already had, which may not apply it.
 # `sysctl --system` would also re-read every distro file, any of which can fail
@@ -193,6 +207,10 @@ if [ "$NM_CONF_DEPLOYED" = true ]; then
     nmcli general reload conf
     echo "  NetworkManager configuration reloaded"
 fi
+
+# The app's own trees are synced by its updater; this flushes what went in as
+# root before the identity names it and the unit restarts into it.
+sync
 
 if [ ${#CHANGED[@]} -eq 0 ]; then
     echo "Changed nothing: every deployed file already matched"

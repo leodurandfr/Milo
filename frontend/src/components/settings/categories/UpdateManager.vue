@@ -218,21 +218,33 @@
                         <span class="version-new">> {{ stripTagPrefix(satelliteByMacId[client.mac_id].server_version) }}</span>
                       </template>
                     </span>
+                    <!-- The last push it did not take: the cause in words, and
+                         under it the satellite's own error line, verbatim. -->
+                    <div v-if="appFailureShown(client.mac_id)" class="program-failure">
+                      <span v-if="appFailureCause(client.mac_id)" class="text-body-small failure-cause">
+                        {{ appFailureCause(client.mac_id) }}
+                      </span>
+                      <span v-if="satelliteAppFailure(client.mac_id).detail" class="text-mono-small failure-detail">
+                        {{ satelliteAppFailure(client.mac_id).detail }}
+                      </span>
+                    </div>
                   </div>
 
                   <div class="program-actions">
-                    <template v-if="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].app_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteAppUpdateCompleted(client.mac_id))">
+                    <!-- Retry is the row's update, offered even to a satellite that
+                         does not answer: the push is what finds out. -->
+                    <template v-if="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating || satelliteAppFailure(client.mac_id) || (satelliteByMacId[client.mac_id].app_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteAppUpdateCompleted(client.mac_id))">
                       <Button size="small" variant="brand" class="program-button action-wide"
                         :loading="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating"
                         @click="startSatelliteAppUpdate(client.mac_id)"
-                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)">
-                        {{ (isSatelliteAppUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteAppBlocked(client.mac_id)">
+                        {{ appButtonLabel(client.mac_id) }}
                       </Button>
-                      <IconButton icon="downloadSimple" variant="brand" size="small"
-                        class="action-compact row-icon-button" :aria-label="(isSatelliteAppUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update')"
+                      <IconButton :icon="appFailureShown(client.mac_id) ? 'arrowClockwise' : 'downloadSimple'" variant="brand" size="small"
+                        class="action-compact row-icon-button" :aria-label="appButtonLabel(client.mac_id)"
                         :loading="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating"
                         @click="startSatelliteAppUpdate(client.mac_id)"
-                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
+                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteAppBlocked(client.mac_id)" />
                     </template>
                     <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
@@ -240,8 +252,14 @@
                   </div>
                 </div>
 
+                <!-- Listed only for the app push it did not take: nothing is
+                     known of its other two programs. -->
+                <p v-if="!satelliteByMacId[client.mac_id].online" class="text-body-medium section-note">
+                  {{ t('multiroom.offline') }}
+                </p>
+
                 <!-- Snapclient row -->
-                <div class="program-item">
+                <div v-if="satelliteByMacId[client.mac_id].online" class="program-item">
                   <div class="program-info">
                     <AppIcon name="multiroom" :size="48" class="program-icon" />
                     <span class="program-name heading-4">Multiroom Client</span>
@@ -275,7 +293,7 @@
                 </div>
 
                 <!-- CamillaDSP row -->
-                <div class="program-item">
+                <div v-if="satelliteByMacId[client.mac_id].online" class="program-item">
                   <div class="program-info">
                     <AppIcon name="equalizer" :size="48" class="program-icon" />
                     <span class="program-name heading-4">{{ t('equalizer.title') }}</span>
@@ -395,8 +413,8 @@ const {
   isSatelliteUpdating, isSatelliteUpdateCompleted,
   isSatelliteAppUpdating, isSatelliteAppUpdateCompleted,
   isSatelliteCamillaUpdating, isSatelliteCamillaUpdateCompleted,
-  isSatelliteAwaitingReturn, localUpdateTarget, localUpdateVersion,
-  isMiloUpdating, isLocalUpdateBusy, isAnySatelliteUpdating, isSatelliteBusy,
+  isSatelliteAwaitingReturn, satelliteAppFailure, localUpdateTarget, localUpdateVersion,
+  isMiloUpdating, isLocalUpdateBusy, isAnySatelliteUpdating, isSatelliteBusy, isSatelliteAppBlocked,
 } = updatesStore;
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -420,7 +438,8 @@ const miloButtonLabel = computed(() => {
 });
 
 // Non-local satellites: online clients, plus those an update took offline —
-// while it runs, and until Snapcast admits them again after it ended. Sorted
+// while it runs, and until Snapcast admits them again after it ended — and
+// those holding an app push they did not take, for as long as they do. Sorted
 // by name alone: `clientList` puts online clients first, which moved the
 // section of a satellite to the bottom while its update restarted it.
 const anticipatedSatellites = computed(() =>
@@ -428,7 +447,7 @@ const anticipatedSatellites = computed(() =>
     .filter(c => {
       if (c.is_local) return false;
       if (c.online) return true;
-      return isSatelliteBusy(c.mac_id) || isSatelliteAwaitingReturn(c.mac_id);
+      return isSatelliteBusy(c.mac_id) || isSatelliteAwaitingReturn(c.mac_id) || !!satelliteAppFailure(c.mac_id);
     })
     .sort((a, b) => (a.name || a.mac_id).localeCompare(b.name || b.mac_id, undefined, { sensitivity: 'base' }))
 );
@@ -443,6 +462,27 @@ function isSatelliteLoading(macId) {
     || isSatelliteUpdating(macId)
     || isSatelliteAppUpdating(macId)
     || isSatelliteCamillaUpdating(macId);
+}
+
+const APP_FAILURE_CAUSES = {
+  rolled_back: 'updates.failureRolledBack',
+  did_not_return: 'updates.failureDidNotReturn',
+  rejected: 'updates.failureRejected'
+};
+
+// A retry in flight is the question the failure asked again.
+function appFailureShown(macId) {
+  return !!satelliteAppFailure(macId) && !isSatelliteAppUpdating(macId) && !debugForceUpdating.value;
+}
+
+function appFailureCause(macId) {
+  const key = APP_FAILURE_CAUSES[satelliteAppFailure(macId)?.verdict];
+  return key ? t(key) : null;
+}
+
+function appButtonLabel(macId) {
+  if (isSatelliteAppUpdating(macId) || debugForceUpdating.value) return t('updates.updating');
+  return satelliteAppFailure(macId) ? t('updates.retry') : t('updates.update');
 }
 
 // Debug: toggle via console with window.__miloDebugUpdating(true/false)
@@ -647,6 +687,25 @@ onMounted(async () => {
 
 .version-new {
   color: var(--color-brand);
+}
+
+/* Under the version, in the text column: the icon keeps its two rows. */
+.program-failure {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+  min-width: 0;
+}
+
+.failure-cause {
+  color: var(--color-error);
+}
+
+/* A traceback line has no spaces to break on. */
+.failure-detail {
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
 }
 
 .section-note {

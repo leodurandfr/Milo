@@ -39,6 +39,10 @@ export const useUpdatesStore = defineStore('updates', () => {
   // reconcileActiveUpdates clears those from the server's in-flight set, which
   // no longer holds an update the server considers finished.
   const satellitesAwaitingReturn = ref(new Set());
+  // The last app push each satellite did not take, by MAC: {verdict, detail}.
+  // The server keeps it until that satellite's next success and lists it with
+  // the satellite, so a unit that never came back still has a row to say so.
+  const satelliteAppFailures = ref({});
 
   // === COMPUTED ===
 
@@ -138,6 +142,16 @@ export const useUpdatesStore = defineStore('updates', () => {
     }
   }
 
+  // The server's record is complete: every satellite holding a failure is
+  // listed, answering or not, so one missing from the list has none. No delta
+  // clock here: every completion that moves a failure sends a read of its own,
+  // which supersedes the one in flight.
+  function reconcileAppFailures(list) {
+    satelliteAppFailures.value = Object.fromEntries(list
+      .filter(s => s.app_update_failure)
+      .map(s => [s.mac_id, { verdict: s.app_update_failure.verdict, detail: s.app_update_failure.detail ?? null }]));
+  }
+
   async function loadSatellites() {
     // `null` is the never-loaded state, and it is what draws the skeleton —
     // re-entering it on a refresh flashed every satellite section back to
@@ -164,6 +178,7 @@ export const useUpdatesStore = defineStore('updates', () => {
       forgetAnsweredCompletions(satelliteCompletedUpdates, answered, newer[0]);
       forgetAnsweredCompletions(satelliteAppCompletedUpdates, answered, newer[1]);
       forgetAnsweredCompletions(satelliteCamillaCompletedUpdates, answered, newer[2]);
+      reconcileAppFailures(list);
     } else {
       satellitesError.value = true;
     }
@@ -263,13 +278,17 @@ export const useUpdatesStore = defineStore('updates', () => {
   function isSatelliteCamillaUpdateCompleted(macId) {
     return satelliteCamillaCompletedUpdates.value.has(macId);
   }
+  function satelliteAppFailure(macId) {
+    return satelliteAppFailures.value[macId] || null;
+  }
 
   // What a running update must block, and no more. The app update blocks
   // everything: it reconciles the whole dependency set, pushes the client app
   // to the fleet and reboots. Local programs block each other because they
   // share dpkg/apt through the deploy wrapper. A satellite is a separate
   // machine — it blocks only its own three buttons, which its API enforces
-  // anyway (409 while one runs).
+  // anyway (409 while one runs) — except that two app pushes block each other
+  // whatever the satellite: each restarts a speaker, one room cut at a time.
   //
   // The same rule is enforced in `_claim_update` (backend/api/programs.py),
   // which is where it holds: what follows only disables buttons in one
@@ -291,6 +310,11 @@ export const useUpdatesStore = defineStore('updates', () => {
     return isSatelliteUpdating(macId)
       || isSatelliteAppUpdating(macId)
       || isSatelliteCamillaUpdating(macId);
+  }
+
+  function isSatelliteAppBlocked(macId) {
+    return isSatelliteBusy(macId)
+      || Object.values(satelliteAppUpdateStates.value).some(state => state.updating);
   }
 
   // === WEBSOCKET HANDLERS ===
@@ -357,7 +381,21 @@ export const useUpdatesStore = defineStore('updates', () => {
   const handleSatelliteUpdateProgress = makeProgressHandler(satelliteUpdateStates, 'mac_id', satClock.touch);
   const handleSatelliteUpdateComplete = makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', awaitSatelliteReturn, satClock.touch);
   const handleSatelliteAppUpdateProgress = makeProgressHandler(satelliteAppUpdateStates, 'mac_id', satAppClock.touch);
-  const handleSatelliteAppUpdateComplete = makeCompleteHandler(satelliteAppUpdateStates, satelliteAppCompletedUpdates, 'mac_id', awaitSatelliteReturn, satAppClock.touch);
+  const completeSatelliteAppUpdate = makeCompleteHandler(satelliteAppUpdateStates, satelliteAppCompletedUpdates, 'mac_id', awaitSatelliteReturn, satAppClock.touch);
+  // A failed app push is not the end of the row: a satellite that went back to
+  // its previous version restarted too, and one that did not return is still
+  // listed by the server with its failure — both are read again.
+  function handleSatelliteAppUpdateComplete(payload) {
+    const id = payload.mac_id;
+    if (!id) return;
+    if (payload.success) {
+      delete satelliteAppFailures.value[id];
+    } else {
+      satelliteAppFailures.value[id] = { verdict: payload.verdict ?? null, detail: payload.detail ?? null };
+    }
+    completeSatelliteAppUpdate(payload);
+    if (!payload.success) awaitSatelliteReturn(id);
+  }
   const handleSatelliteCamillaUpdateProgress = makeProgressHandler(satelliteCamillaUpdateStates, 'mac_id', satCamillaClock.touch);
   const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', awaitSatelliteReturn, satCamillaClock.touch);
 
@@ -407,12 +445,14 @@ export const useUpdatesStore = defineStore('updates', () => {
     isSatelliteCamillaUpdating,
     isSatelliteCamillaUpdateCompleted,
     isSatelliteAwaitingReturn,
+    satelliteAppFailure,
     localUpdateTarget,
     localUpdateVersion,
     isMiloUpdating,
     isLocalUpdateBusy,
     isAnySatelliteUpdating,
     isSatelliteBusy,
+    isSatelliteAppBlocked,
 
     // WebSocket handlers
     handleProgramUpdateProgress,

@@ -81,6 +81,9 @@ SETTINGS_ALLOWED = frozenset({
     # access point that will not come up and a 5 GHz band that is missing.
     "wifi.country",
     "updates.forced_versions.*",
+    # Per MAC, the app push a satellite did not take: payload, verdict, time and
+    # the satellite's own error line — a line its journal block already carries.
+    "updates.satellite_app_failures.*",
     "mac.target_latency_ms",
     "mac.latency_profile",
     "mac.frame_length_ms",

@@ -9,7 +9,9 @@ from fastapi import APIRouter, HTTPException
 
 from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
-from services.app_update import PAYLOAD_FILE, VERSION_FILE, AppUpdateService, read_identity
+from services.app_update import (
+    PAYLOAD_NAME, VERSION_NAME, AppUpdateService, read_identity, read_last_update, trial_payload,
+)
 from services.camilladsp_update import CamillaDSPUpdateService
 
 logger = logging.getLogger(__name__)
@@ -19,8 +21,8 @@ logger = logging.getLogger(__name__)
 # code a refused restart never ran — and the server, which compares the payload,
 # would call the unit current and never push it again.
 APP_STARTED_AT = int(time.time())
-APP_VERSION = read_identity(VERSION_FILE)
-APP_PAYLOAD = read_identity(PAYLOAD_FILE)
+APP_VERSION = read_identity(VERSION_NAME)
+APP_PAYLOAD = read_identity(PAYLOAD_NAME)
 
 
 def get_system_uptime() -> int:
@@ -85,7 +87,11 @@ def create_health_router(
                     "version": APP_VERSION,
                     "payload": APP_PAYLOAD,
                     "started_at": APP_STARTED_AT,
-                    "update_in_progress": app_update_service.update_in_progress
+                    "update_in_progress": app_update_service.update_in_progress,
+                    # Read per request, unlike the identity: they say how the
+                    # last push is ending, which is what the server waits on.
+                    "trial": trial_payload() is not None,
+                    "last_update": read_last_update(),
                 },
                 "camilladsp": {
                     "version": camilladsp_version,

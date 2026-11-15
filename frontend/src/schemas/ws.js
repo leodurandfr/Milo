@@ -62,7 +62,8 @@ const EqFilterWireSchema = z.object({
 });
 
 // Backend: backend/api/programs.py _create_background_update — progress events
-// carry {program|mac_id, status}; completion events carry {program|mac_id, success}.
+// carry {program|mac_id, status}; completion events carry {program|mac_id, success},
+// plus {verdict, detail} for a satellite's app push.
 const ProgramUpdateProgressSchema = z.object({
   program: z.string(),
   status: z.string(),
@@ -78,6 +79,16 @@ const SatelliteUpdateProgressSchema = z.object({
 const SatelliteUpdateCompleteSchema = z.object({
   mac_id: z.string(),
   success: z.boolean(),
+});
+// Backend: SatelliteAppVerdict — how one push of the client app ended.
+const SatelliteAppVerdictSchema = z.enum([
+  'committed', 'rolled_back', 'did_not_return', 'rejected',
+]);
+// The app push alone says how it ended; updatesStore keeps a failure on the
+// satellite's row.
+const SatelliteAppUpdateCompleteSchema = SatelliteUpdateCompleteSchema.extend({
+  verdict: SatelliteAppVerdictSchema.nullable().optional(),
+  detail: z.string().nullable().optional(),
 });
 
 // Backend: backend/hardware/fan.py FanController.get_status() — config + telemetry.
@@ -140,7 +151,7 @@ export const wsEventRegistry = {
   'programs.satellite_update_progress': SatelliteUpdateProgressSchema,
   'programs.satellite_update_complete': SatelliteUpdateCompleteSchema,
   'programs.satellite_app_update_progress': SatelliteUpdateProgressSchema,
-  'programs.satellite_app_update_complete': SatelliteUpdateCompleteSchema,
+  'programs.satellite_app_update_complete': SatelliteAppUpdateCompleteSchema,
   'programs.satellite_camilladsp_update_progress': SatelliteUpdateProgressSchema,
   'programs.satellite_camilladsp_update_complete': SatelliteUpdateCompleteSchema,
   // Backend: SourcePosition — the playhead's anchor alone moved (a seek, a

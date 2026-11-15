@@ -4,7 +4,7 @@ API routes for program management — Full version with satellites
 """
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 from fastapi import APIRouter, BackgroundTasks
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import (
@@ -90,13 +90,17 @@ def create_programs_router(
         client app to every satellite, colliding with that satellite's own 409,
         and then reboots the unit out from under the task polling it. Two local
         programs block each other for the deploy wrapper they share. A
-        satellite is a separate machine, so it blocks only its own three keys.
+        satellite is a separate machine, so it blocks only its own three keys —
+        except that two app pushes block each other whatever the satellite: each
+        restarts a speaker, and one room is cut at a time.
 
         Returns None once the key is claimed.
         """
         scope = _scope(update_key)
         for running in active_updates:
             if "milo" in (running, update_key) or _scope(running) == scope:
+                return running
+            if running.startswith("satellite_app_") and update_key.startswith("satellite_app_"):
                 return running
         active_updates.add(update_key)
         return None
@@ -120,12 +124,18 @@ def create_programs_router(
         complete_event_cls: type[ProgramsCompleteEvent],
         identifier: dict,
         pre_update_fn=None,
+        complete_fields: Optional[Callable[[dict], dict]] = None,
     ):
         """Create the background task that runs one update and broadcasts it.
 
         The key is already claimed by the route through _claim_update().
+        `complete_fields` maps the result onto the completion event's fields
+        beyond `success`, for the events that carry more.
         Returns an async do_update coroutine to pass to background_tasks.add_task().
         """
+        def _completion(result: dict):
+            extra = complete_fields(result) if complete_fields else {}
+            return complete_event_cls(**identifier, success=result["success"], **extra)
 
         async def do_update():
             try:
@@ -143,16 +153,17 @@ def create_programs_router(
                 if not result["success"]:
                     logger.error(f"Update {update_key} failed: {result.get('error', 'Update failed')}")
 
-                await state_machine.broadcast(
-                    complete_event_cls(**identifier, success=result["success"])
-                )
+                await state_machine.broadcast(_completion(result))
 
             except Exception as e:
                 logger.error(f"Update {update_key} failed: {e}")
                 active_updates.discard(update_key)
-                await state_machine.broadcast(
-                    complete_event_cls(**identifier, success=False)
-                )
+                # Whatever raised, no final state was seen.
+                await state_machine.broadcast(_completion({
+                    "success": False,
+                    "verdict": "did_not_return",
+                    "detail": f"{type(e).__name__}: {e}",
+                }))
 
         return do_update
 
@@ -199,7 +210,9 @@ def create_programs_router(
         """Retrieve the list of detected satellites with their versions"""
         try:
             # Fetch all data in parallel: satellite discovery + cached version lookups
-            satellites_task = satellite_service.discover_satellites()
+            # Online satellites, plus the ones that hold an app push they did
+            # not take: a failure must not vanish with the unit it is about.
+            satellites_task = satellite_service.list_satellites()
             snapclient_task = update_service.get_latest_github_version("multiroom")
             payload_task = satellite_service.get_client_payload_version()
             version_task = satellite_service.get_server_version()
@@ -229,8 +242,9 @@ def create_programs_router(
                 # release, or following a manifest rolled back. Asking only
                 # about newer leaves such a satellite reading "up to date" with
                 # a disabled button and no way back.
+                online = satellite.get("online", False)
                 satellite["latest_version"] = latest_version
-                satellite["update_available"] = bool(latest_version) and (
+                satellite["update_available"] = online and bool(latest_version) and (
                     satellite.get("snapclient_version") != latest_version
                 )
                 # Displayed and decided are two different values. The row
@@ -247,7 +261,7 @@ def create_programs_router(
                 )
                 # CamillaDSP update
                 satellite["camilladsp_latest_version"] = camilladsp_latest
-                satellite["camilladsp_update_available"] = bool(camilladsp_latest) and (
+                satellite["camilladsp_update_available"] = online and bool(camilladsp_latest) and (
                     satellite.get("camilladsp_version") != camilladsp_latest
                 )
 
@@ -335,6 +349,10 @@ def create_programs_router(
             progress_event_cls=SatelliteAppUpdateProgress,
             complete_event_cls=SatelliteAppUpdateComplete,
             identifier={"mac_id": mac_id},
+            complete_fields=lambda result: {
+                "verdict": result.get("verdict"),
+                "detail": result.get("detail"),
+            },
         )
 
         background_tasks.add_task(do_update)

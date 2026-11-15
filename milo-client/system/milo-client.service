@@ -7,7 +7,18 @@ Type=notify
 TimeoutStartSec=30
 User=milo-client
 Group=audio
-WorkingDirectory=/home/milo-client/repo/milo-client/app
+# "-": a power cut inside an app update's swap can leave no app/ at all, and a
+# missing WorkingDirectory fails the start (200/CHDIR) before ExecStartPre runs
+# — the guard below could never put the previous app/ back. Measured with
+# systemd 257: with "-" the guard runs from / and ExecStart, which chdirs anew,
+# runs in the app/ it restored.
+WorkingDirectory=-/home/milo-client/repo/milo-client/app
+# The trial of a pushed app version (app/services/app_update.py): counts this
+# start and, at the last one the trial allows, puts the previous version back
+# before it runs. "-" so the guard can never keep the app down. Its time counts
+# against TimeoutStartSec, and the server's wait for a verdict is bounded on
+# both values below.
+ExecStartPre=-/usr/local/bin/milo-client-update-guard start
 ExecStart=/home/milo-client/venv/bin/python3 main.py
 
 Restart=always

@@ -7,13 +7,16 @@ import asyncio
 import logging
 import os
 import socket
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 import uvicorn
 
 from services import EqualizerService, SnapclientService, AppUpdateService, CamillaDSPUpdateService
+from services.app_update import HOLD_S
 from routes import create_health_router, create_snapclient_router, create_equalizer_router, create_app_update_router, create_hardware_router, create_camilladsp_update_router, create_diagnostic_router, create_probe_router, create_system_router
+import routes.health
 from routes.health import get_hostname
 from access_log import quiet_frequent_requests
 from origin_gate import OriginGate
@@ -85,6 +88,42 @@ snapclient_service = SnapclientService()
 app_update_service = AppUpdateService()
 camilladsp_update_service = CamillaDSPUpdateService()
 
+# Set by the server once its socket accepts connections (`_Server.startup`).
+_listening: asyncio.Event | None = None
+
+
+def mark_listening() -> None:
+    if _listening is not None:
+        _listening.set()
+
+
+async def _hold_then_commit() -> None:
+    """Ends an update's trial once this process has stayed up HOLD_S.
+
+    Dying before that is the failure the trial exists for: the guard counts the
+    next start, and puts the previous version back at the last one.
+    """
+    await asyncio.sleep(HOLD_S)
+    await app_update_service.commit_trial(routes.health.APP_PAYLOAD)
+
+
+async def _once_listening(listening: asyncio.Event) -> None:
+    """READY=1 and what follows it, once :8001 actually answers.
+
+    The lifespan's end is not that moment: uvicorn binds the socket after the
+    lifespan startup returns, so a READY=1 sent from there started snapclient,
+    and got the satellite admitted, against an API not yet listening — and the
+    hold of a new version would count from before it could serve anything.
+    """
+    await listening.wait()
+    # Signal systemd that the service is ready (Type=notify).
+    # This unblocks milo-client-snapclient.service so snapclient only
+    # connects to snapserver AFTER our API is accepting requests.
+    _sd_notify_ready()
+    # After READY=1, not before: both units are After= this one, so a start
+    # issued earlier would wait for this unit's own start to finish.
+    await asyncio.gather(_start_bound_units(), _hold_then_commit())
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -94,11 +133,12 @@ async def lifespan(app: FastAPI):
     CamillaDSP starts MUTED and at a safe floor (-m and --gain in the systemd
     service) and stays there until the backend pushes the correct volume.
     """
+    global _listening
     logger.info("Milo Client API starting up...")
 
     # No connect attempt here on purpose. milo-client-camilladsp.service is ordered
     # After=milo-client.service, and this unit is Type=notify — so CamillaDSP does
-    # not even start until the READY=1 sent a few lines below. The loop's first
+    # not even start until READY=1, sent once the server listens. The loop's first
     # connect is therefore refused by construction, and the loop retries a refusal
     # after REFUSED_RETRY_DELAY rather than the backoff a failing daemon earns:
     # the daemon listens ~0.2 s after READY=1, and the room stays muted at its
@@ -110,14 +150,8 @@ async def lifespan(app: FastAPI):
 
     logger.info("Milo Client API startup complete")
 
-    # Signal systemd that the service is ready (Type=notify).
-    # This unblocks milo-client-snapclient.service so snapclient only
-    # connects to snapserver AFTER our API is accepting requests.
-    _sd_notify_ready()
-
-    # After READY=1, not before: both units are After= this one, so a start
-    # issued earlier would wait for this unit's own start to finish.
-    bound_units_task = asyncio.create_task(_start_bound_units())
+    _listening = asyncio.Event()
+    after_listening_task = asyncio.create_task(_once_listening(_listening))
 
     # Register with main Milo (background task, retries until successful)
     registration_task = asyncio.create_task(register_with_main_milo())
@@ -128,11 +162,20 @@ async def lifespan(app: FastAPI):
 
     yield  # Application runs here
 
-    bound_units_task.cancel()
+    after_listening_task.cancel()
     registration_task.cancel()
     address_watch_task.cancel()
     await equalizer_service.stop_connection_loop()
     logger.info("Milo Client API shutting down...")
+
+
+class _Server(uvicorn.Server):
+    """uvicorn's server, telling the app when its socket is bound."""
+
+    async def startup(self, sockets=None):
+        await super().startup(sockets=sockets)
+        if self.started:
+            mark_listening()
 
 
 # Create FastAPI app
@@ -161,10 +204,18 @@ if __name__ == "__main__":
     logger.info(f"Starting Milo Client API on port {API_PORT}")
     logger.info(f"Hostname: {get_hostname()}")
 
-    uvicorn.run(
-        "main:app",
+    # The app object, not "main:app": an import string makes uvicorn import
+    # this file a second time as `main`, whose lifespan would wait on an event
+    # this module's server never sets.
+    server = _Server(uvicorn.Config(
+        app,
         host="0.0.0.0",
         port=API_PORT,
         log_level="info",
         access_log=True
-    )
+    ))
+    server.run()
+    # uvicorn.run's own exit for a startup that failed (lifespan or bind), so
+    # systemd records a failure rather than a clean stop.
+    if not server.started:
+        sys.exit(3)

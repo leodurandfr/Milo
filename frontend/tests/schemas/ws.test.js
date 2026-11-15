@@ -16,6 +16,7 @@ import {
   parseWsEventModels,
   samplePayload,
   requiredKeys,
+  literalAliases,
   WS_EVENTS_PATH,
 } from '../helpers/wsEventModels';
 
@@ -169,5 +170,18 @@ describe('WS payload semantics', () => {
     expect(schema.safeParse(base).success).toBe(true);
     expect(schema.safeParse({ ...base, mode: 'turbo' }).success).toBe(false);
     expect(schema.safeParse({ ...base, mode: 'auto' }).success).toBe(false);
+  });
+
+  it('programs.satellite_app_update_complete knows exactly the verdicts the backend sends', () => {
+    // A verdict the schema lacks rejects the whole completion: the spinner is
+    // never cleared and the satellite's failure never reaches its row. One it
+    // keeps after the backend dropped it is a cause the row can never show.
+    const verdicts = /^Literal\[(.+)\]$/.exec(literalAliases().SatelliteAppVerdict ?? '');
+    expect(verdicts, `no SatelliteAppVerdict alias in ${WS_EVENTS_PATH}`).not.toBeNull();
+    const backend = verdicts[1].split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
+    expect(backend.length).toBeGreaterThan(1);
+
+    const verdict = wsEventRegistry['programs.satellite_app_update_complete'].shape.verdict;
+    expect([...verdict.unwrap().unwrap().options].sort()).toEqual([...backend].sort());
   });
 });

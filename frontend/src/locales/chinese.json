@@ -517,7 +517,10 @@
     "changeVersion": "更换版本",
     "releases": "版本",
     "validated": "已验证",
-    "installingVersion": "正在安装 {version}…"
+    "installingVersion": "正在安装 {version}…",
+    "failureRolledBack": "已回到上一个版本",
+    "failureDidNotReturn": "无响应",
+    "failureRejected": "已拒绝更新"
   },
   "info": {
     "temperature": "温度",

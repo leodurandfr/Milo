@@ -509,6 +509,8 @@ const DELTA_ONLY = new Map([
   ['multiroom.configuringClients', 'this tab\'s own configure request in flight, set by the click '
     + 'and cleared by the event or its timeout; the server offers no read of it'],
   ['equalizer.outputPeak', 'a live meter, overwritten by the next levels event'],
+  ['updates.satellitesAwaitingReturn', 'this tab\'s own poll for a satellite an update restarted, '
+    + 'set and cleared by that poll; the fleet it waits on is what resync() refetches'],
   ['radio.searchResults', SEARCH_VIEW],
 ]);
 

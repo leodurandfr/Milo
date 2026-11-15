@@ -8,12 +8,16 @@ import aiohttp
 import logging
 import os
 import hashlib
+import json
+import re
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from backend.config.constants import CLIENT_API_PORT
+from backend.core.models.ws_events import SatelliteAppVerdict
 from backend.shared.decorators import handle_errors
 
 MILO_REPO_DIR = Path("/home/milo/milo")
@@ -37,6 +41,66 @@ PAYLOAD_PATHSPEC = (
     ":(exclude,glob)milo-client/**/tests/**",
 )
 
+# How long a pushed app may take to reach a final state once the satellite has
+# answered the POST (or stopped deploying). The worst case is a version that
+# crashes just before its hold ends on every try: MAX_ATTEMPTS starts, each a
+# full TimeoutStartSec + HOLD_S + RestartSec. Held above that bound, read from
+# the satellite's own source, by tests/architecture/test_satellite_app_ceiling.py.
+APP_UPDATE_CEILING_S = 600
+APP_UPDATE_POLL_S = 5
+# A POST that got no answer may still be deploying (pip on a Pi takes minutes):
+# while the satellite says so the ceiling restarts, up to this much more.
+APP_DEPLOY_CEILING_S = 600
+# Polls in a row a satellite whose POST got no answer must look untouched —
+# never seen deploying, no trial, same process — before that reads as "it never
+# started the update". At 5 s apart, longer than the 2 s restart delay.
+APP_UNTOUCHED_POLLS = 3
+
+APP_FAILURES_KEY = "updates.satellite_app_failures"
+
+# The row draws one raw error line, as long as the satellite's guard keeps its
+# own (DETAIL_MAX): a refusal can carry pages of pip resolver output.
+DETAIL_MAX = 500
+_FAILURE_LINE_RE = re.compile(r"^(?:ERROR\b|[A-Za-z_][\w.]*(?:Error|Exception)\b)")
+
+
+def _describe_error(e: BaseException) -> str:
+    """aiohttp's TimeoutError has an empty str(); the type is the message."""
+    return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+
+
+def _one_line(text: str) -> str:
+    """The line that says why: the last one naming an error, else the last."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    chosen = next((line for line in reversed(lines) if _FAILURE_LINE_RE.search(line)), lines[-1])
+    return chosen[:DETAIL_MAX]
+
+
+def _refusal_text(text: str) -> str:
+    """The satellite's own reason: FastAPI answers `{"detail": ...}`."""
+    with contextlib.suppress(ValueError):
+        body = json.loads(text)
+        if isinstance(body, dict) and isinstance(body.get("detail"), str):
+            return _one_line(body["detail"])
+    return _one_line(text)
+
+
+def _settled_on(payload: Optional[str], satellite: Dict[str, Any]) -> bool:
+    """Whether an answering satellite runs `payload` with its trial over and
+    committed — or with no record at all, the push the old updater applied.
+    The same reading as the waiter's `committed`."""
+    if not payload or not satellite.get("online") or satellite.get("app_payload") != payload:
+        return False
+    if satellite.get("app_trial"):
+        return False
+    last = satellite.get("app_last_update")
+    return last is None or (
+        isinstance(last, dict) and last.get("payload") == payload
+        and last.get("outcome") == "committed"
+    )
+
 
 class SatelliteUpdateService:
     """Service to manage satellites and their updates.
@@ -45,11 +109,13 @@ class SatelliteUpdateService:
     and identifies them by mac_id.
     """
 
-    def __init__(self, snapcast_service, client_registry_service):
+    def __init__(self, snapcast_service, client_registry_service, settings_service):
         self.snapcast_service = snapcast_service
         self.client_registry_service = client_registry_service
+        self.settings_service = settings_service
         self.logger = logging.getLogger(__name__)
         self.satellite_api_port = CLIENT_API_PORT
+        self._failures_lock = asyncio.Lock()
 
     @handle_errors(default=[])
     async def discover_satellites(self, *, include_offline: bool = False) -> List[Dict[str, Any]]:
@@ -88,6 +154,9 @@ class SatelliteUpdateService:
                 "snapclient_version": result.get("version"),
                 "app_version": result.get("app_version"),
                 "app_payload": result.get("app_payload"),
+                "app_trial": result.get("app_trial", False),
+                "app_last_update": result.get("app_last_update"),
+                "app_started_at": result.get("app_started_at"),
                 "camilladsp_version": result.get("camilladsp_version"),
                 "online": True,
                 "uptime": result.get("uptime"),
@@ -115,6 +184,9 @@ class SatelliteUpdateService:
                         "uptime": data.get("uptime"),
                         "app_version": data.get("app", {}).get("version"),
                         "app_payload": data.get("app", {}).get("payload"),
+                        "app_trial": bool(data.get("app", {}).get("trial")),
+                        "app_last_update": data.get("app", {}).get("last_update"),
+                        "app_started_at": data.get("app", {}).get("started_at"),
                         "camilladsp_version": data.get("camilladsp", {}).get("version")
                     }
 
@@ -392,17 +464,60 @@ class SatelliteUpdateService:
         self,
         mac_id: str
     ) -> Dict[str, Any]:
-        """Pushes a milo-client app update to a satellite."""
+        """Pushes the client app to one satellite and follows it to a verdict.
+
+        The result carries `verdict` (`SatelliteAppVerdict`) and `detail`, the
+        satellite's own error line when it has one. Every verdict is recorded:
+        anything but `committed` stays in `updates.satellite_app_failures`
+        until this satellite's next committed push, so a satellite that failed
+        and stopped answering still shows why on its row.
+        """
+        result = await self._push_app(mac_id)
+        if result.get("payload") is None:
+            # Nothing was built or sent: the record already there, the
+            # satellite's own error line included, stays what the row shows.
+            return result
+        try:
+            await self._record_app_outcome(mac_id, result)
+        except Exception as e:
+            self.logger.error(
+                f"Satellite {mac_id}: the app push's {result['verdict']} could not be "
+                f"recorded ({_describe_error(e)}); its row will not show it"
+            )
+        return result
+
+    def _app_result(
+        self,
+        verdict: SatelliteAppVerdict,
+        payload: Optional[str],
+        detail: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "success": verdict == "committed",
+            "verdict": verdict,
+            "detail": _one_line(detail) if detail else None,
+            "payload": payload,
+        }
+        if verdict == "committed":
+            result["new_version"] = payload
+        else:
+            result["error"] = error or detail or verdict
+        return result
+
+    async def _push_app(self, mac_id: str) -> Dict[str, Any]:
         tarball_path = None
+        payload = None
         try:
             satellites = await self.discover_satellites(include_offline=True)
             satellite = next((s for s in satellites if s["mac_id"] == mac_id), None)
 
             if not satellite:
-                return {
-                    "success": False,
-                    "error": f"Satellite {mac_id} not found or offline"
-                }
+                # Nothing was sent, so nothing restarted.
+                return self._app_result(
+                    "rejected", None,
+                    error=f"Satellite {mac_id} not found or offline",
+                )
 
             ip = satellite["ip"]
 
@@ -411,34 +526,307 @@ class SatelliteUpdateService:
 
             url = f"http://{ip}:{self.satellite_api_port}/app/update"
             timeout = aiohttp.ClientTimeout(total=120)
+            unanswered = None
 
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                with open(tarball_path, "rb") as f:
-                    form = aiohttp.FormData()
-                    form.add_field("tarball", f, filename="milo-client.tar.gz",
-                                   content_type="application/gzip")
-                    form.add_field("payload", payload)
-                    form.add_field("version", version)
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    with open(tarball_path, "rb") as f:
+                        form = aiohttp.FormData()
+                        form.add_field("tarball", f, filename="milo-client.tar.gz",
+                                       content_type="application/gzip")
+                        form.add_field("payload", payload)
+                        form.add_field("version", version)
 
-                    async with session.post(url, data=form) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            return {
-                                "success": False,
-                                "error": f"Satellite rejected update: HTTP {response.status} - {error_text}"
-                            }
-
-            result = await self._wait_for_app_update_completion(mac_id, ip, payload)
-            return result
+                        async with session.post(url, data=form) as response:
+                            if response.status != 200:
+                                detail = f"HTTP {response.status} - {_refusal_text(await response.text())}"
+                                return self._app_result(
+                                    "rejected", payload, detail,
+                                    error=f"Satellite rejected update: {detail}",
+                                )
+            except aiohttp.ClientConnectorError as e:
+                # Never connected, so nothing was sent and nothing restarted.
+                detail = _describe_error(e)
+                return self._app_result(
+                    "rejected", payload, detail,
+                    error=f"Satellite {mac_id} could not be reached: {detail}",
+                )
+            except (asyncio.TimeoutError, aiohttp.ClientError, OSError) as e:
+                # The upload may have landed and the deploy still be running
+                # (pip on a Pi outlasts the POST's budget): only the satellite's
+                # /status can say what became of it.
+                unanswered = _describe_error(e)
+                self.logger.warning(
+                    f"Satellite {mac_id}: no answer to the app push ({unanswered}); "
+                    "following its status"
+                )
 
         except Exception as e:
-            self.logger.error(f"Error updating satellite app {mac_id}: {e}")
-            return {"success": False, "error": str(e)}
+            detail = _describe_error(e)
+            self.logger.error(f"Error updating satellite app {mac_id}: {detail}")
+            # Raised before the POST, or by it before an answer: nothing reached
+            # the satellite.
+            return self._app_result("rejected", payload, detail, error=str(e) or detail)
+
+        else:
+            # Past the POST the satellite may be restarting into the push: an
+            # error here is a wait that saw no final state, never a refusal.
+            try:
+                return await self._wait_for_app_update_completion(
+                    mac_id, ip, payload,
+                    baseline=satellite,
+                    unanswered=unanswered,
+                )
+            except Exception as e:
+                detail = _describe_error(e)
+                self.logger.error(f"Following satellite {mac_id}'s app update failed: {detail}")
+                return self._app_result("did_not_return", payload, detail)
 
         finally:
             if tarball_path:
                 with contextlib.suppress(OSError):
                     os.unlink(tarball_path)
+
+    def _registry_ip(self, mac_id: str) -> Optional[str]:
+        """Where the registry last saw this satellite: a unit that restarted may
+        come back over its WiFi link, on another address."""
+        client = self.client_registry_service.get_all_clients().get(mac_id)
+        return getattr(client, "ip", None) if client is not None else None
+
+    async def _read_app_status(self, ip: str) -> Dict[str, Any]:
+        url = f"http://{ip}:{self.satellite_api_port}/status"
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"/status answered HTTP {response.status}")
+                data = await response.json()
+                app = data.get("app") if isinstance(data, dict) else None
+                if not isinstance(app, dict):
+                    raise RuntimeError(f"/status carries no app object: {app!r}")
+                return app
+
+    async def _wait_for_app_update_completion(
+        self,
+        mac_id: str,
+        ip: str,
+        payload: str,
+        baseline: Dict[str, Any],
+        unanswered: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Polls the satellite's /status until the push reaches a final state.
+
+        A satellite on trial reports `trial` until its new process has held
+        HOLD_S, then commits; its guard, after MAX_ATTEMPTS failed starts, puts
+        the previous version back and records `rolled_back`. Both land in
+        `last_update`, which is compared to the one the satellite reported
+        before the push (`baseline`): a retry of a payload it once rolled back
+        must not read that old record as this push's answer.
+
+        `committed` also covers a satellite whose updater predates the trial
+        (`last_update` null): the push that installs the guard is applied by
+        the updater it replaces.
+
+        A POST that got no answer is not a verdict. The satellite may still be
+        deploying — while it says so the ceiling restarts — or may never have
+        received it: untouched for APP_UNTOUCHED_POLLS polls in a row, never
+        seen deploying, it is `rejected`, since nothing restarted.
+
+        `elapsed` counts the sleeps, so the real wait is never shorter than the
+        ceiling.
+        """
+        before = baseline.get("app_last_update")
+        started_at = baseline.get("app_started_at")
+        elapsed = 0
+        deadline = APP_UPDATE_CEILING_S
+        hard_deadline = APP_UPDATE_CEILING_S + APP_DEPLOY_CEILING_S
+        seen_moving = unanswered is None
+        untouched = 0
+        last_seen = None
+        seen_payload = baseline.get("app_payload")
+
+        while elapsed < deadline:
+            await asyncio.sleep(APP_UPDATE_POLL_S)
+            elapsed += APP_UPDATE_POLL_S
+            ip = self._registry_ip(mac_id) or ip
+
+            try:
+                app = await self._read_app_status(ip)
+            except Exception as e:
+                # Expected for a few seconds on every restart.
+                last_seen = _describe_error(e)
+                self.logger.debug(f"Waiting for satellite {mac_id}: {last_seen}")
+                untouched = 0
+                continue
+
+            last = app.get("last_update")
+            fresh = last if isinstance(last, dict) and last != before else None
+            if fresh and fresh.get("payload") == payload and fresh.get("outcome") == "rolled_back":
+                detail = fresh.get("detail")
+                self.logger.error(
+                    f"Satellite {mac_id} went back to its previous app after {payload}: "
+                    f"{detail or 'no error line recorded'}"
+                )
+                return self._app_result(
+                    "rolled_back", payload, detail,
+                    error=f"Satellite {mac_id} went back to its previous app"
+                          + (f": {detail}" if detail else ""),
+                )
+
+            trial = bool(app.get("trial"))
+            deploying = bool(app.get("update_in_progress"))
+            seen_payload = app.get("payload")
+
+            if seen_payload == payload and not trial and not deploying and (
+                last is None
+                or (fresh and fresh.get("payload") == payload
+                    and fresh.get("outcome") == "committed")
+            ):
+                return self._app_result("committed", payload)
+
+            if deploying:
+                deadline = min(max(deadline, elapsed + APP_UPDATE_CEILING_S), hard_deadline)
+
+            if not seen_moving:
+                if deploying or trial or fresh or app.get("started_at") != started_at:
+                    seen_moving = True
+                else:
+                    untouched += 1
+                    if untouched >= APP_UNTOUCHED_POLLS:
+                        detail = f"the satellite never started the update ({unanswered})"
+                        self.logger.error(f"Satellite {mac_id}: {detail}")
+                        return self._app_result("rejected", payload, detail)
+
+            last_seen = (
+                f"still on trial of {payload}" if trial and seen_payload == payload
+                else f"still deploying {payload}" if deploying
+                else f"still running {seen_payload}"
+            )
+
+        self.logger.error(
+            f"Satellite {mac_id}: no final state for {payload} after {elapsed} s ({last_seen})"
+        )
+        if seen_payload != payload:
+            error = f"Satellite {mac_id} deployed the update but never restarted into it"
+        else:
+            error = f"Satellite {mac_id} did not settle on the update"
+        return self._app_result("did_not_return", payload, last_seen, error=f"{error} ({last_seen})")
+
+    async def get_app_update_failures(self) -> Dict[str, Dict[str, Any]]:
+        """{mac: {payload, verdict, detail, at}}: the last app push each
+        satellite did not take, kept until its next committed one."""
+        stored = await self.settings_service.get_setting(APP_FAILURES_KEY)
+        return dict(stored) if isinstance(stored, dict) else {}
+
+    async def _record_app_outcome(self, mac_id: str, result: Dict[str, Any]) -> None:
+        async with self._failures_lock:
+            failures = await self.get_app_update_failures()
+            if result["verdict"] == "committed":
+                if mac_id not in failures:
+                    return
+                del failures[mac_id]
+            else:
+                failures[mac_id] = {
+                    "payload": result.get("payload"),
+                    "verdict": result["verdict"],
+                    "detail": _one_line(result.get("detail") or result.get("error") or "") or None,
+                    "at": int(time.time()),
+                }
+            if not await self.settings_service.set_setting(APP_FAILURES_KEY, failures):
+                self.logger.error(
+                    f"Satellite {mac_id}: the app push's {result['verdict']} could not be "
+                    "recorded; its row will not show it"
+                )
+
+    async def _reconcile_app_failures(
+        self, satellites: List[Dict[str, Any]], server_payload: Optional[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        """The record, read against what the answering satellites report now.
+
+        A failure is dropped once its satellite settled on that payload on its
+        own: a wait that ended `did_not_return` while the unit held and
+        committed, a 409 recorded while an earlier trial ran. And a rollback a
+        satellite recorded itself, of the payload this server offers, is taken
+        in where the server holds nothing about that payload — the wait that
+        would have recorded it was cut, by a restart of this backend.
+        """
+        async with self._failures_lock:
+            failures = await self.get_app_update_failures()
+            changed = False
+            for satellite in satellites:
+                mac = satellite["mac_id"]
+                failure = failures.get(mac)
+                if failure and _settled_on(failure.get("payload"), satellite):
+                    del failures[mac]
+                    changed = True
+                    continue
+                last = satellite.get("app_last_update")
+                if (
+                    server_payload and satellite.get("online") and isinstance(last, dict)
+                    and last.get("payload") == server_payload
+                    and last.get("outcome") == "rolled_back"
+                    and satellite.get("app_payload") != server_payload
+                    and (failure is None or failure.get("payload") != server_payload)
+                ):
+                    at = last.get("at")
+                    failures[mac] = {
+                        "payload": server_payload,
+                        "verdict": "rolled_back",
+                        "detail": _one_line(str(last.get("detail") or "")) or None,
+                        "at": at if isinstance(at, int) else int(time.time()),
+                    }
+                    changed = True
+            if changed and not await self.settings_service.set_setting(APP_FAILURES_KEY, failures):
+                self.logger.error("The satellites' app push failures could not be updated")
+            return failures
+
+    @staticmethod
+    def _rolled_back_before(payload: str, failure: Optional[dict], last_update: Optional[dict]) -> bool:
+        """Whether this satellite already went back from `payload`, by the
+        server's record or by its own."""
+        return any(
+            isinstance(record, dict) and record.get("payload") == payload
+            and (record.get("verdict") or record.get("outcome")) == "rolled_back"
+            for record in (failure, last_update)
+        )
+
+    async def list_satellites(self) -> List[Dict[str, Any]]:
+        """The rows of the programs panel: every satellite that answers, and
+        every one that does not but holds an app push it did not take — the
+        failure would otherwise vanish with the unit it is about.
+
+        Each row carries `app_update_failure`, the recorded failure or None,
+        read against what the satellite reports now.
+        """
+        satellites, server_payload = await asyncio.gather(
+            self.discover_satellites(), self.get_client_payload_version()
+        )
+        failures = await self._reconcile_app_failures(satellites, server_payload)
+        listed = {s["mac_id"] for s in satellites}
+        clients = self.client_registry_service.get_all_clients()
+        for mac in failures:
+            client = clients.get(mac)
+            if mac in listed or client is None or client.is_local:
+                continue
+            satellites.append({
+                "mac_id": mac,
+                "hostname": client.host,
+                "display_name": client.name or mac,
+                "ip": client.ip,
+                "snapclient_version": None,
+                "app_version": None,
+                "app_payload": None,
+                "app_trial": False,
+                "app_last_update": None,
+                "app_started_at": None,
+                "camilladsp_version": None,
+                "online": False,
+                "uptime": None,
+                "snapclient_running": False,
+            })
+        for satellite in satellites:
+            satellite["app_update_failure"] = failures.get(satellite["mac_id"])
+        return satellites
 
     async def push_client_app_to_fleet(self) -> list[str]:
         """Bring every satellite to the `milo-client/` tree this server now has.
@@ -449,6 +837,12 @@ class SatelliteUpdateService:
         appliance and then N speakers one screen at a time. It costs no extra
         silence either — the update reboots the unit on the next step, so the
         satellites restart inside a window that is already quiet.
+
+        One satellite at a time, and the first that rolls back or does not come
+        back stops the push: a release that breaks one room breaks them all, and
+        the rest are held back with their own app. A `rejected` push restarted
+        nothing and stops nothing. A satellite that already went back from this
+        payload is not pushed again — its own row offers the retry.
 
         Never raises. It runs past the point where the app can still be rolled
         back, and an unplugged satellite is a fact to report, not a failed Milō
@@ -478,6 +872,8 @@ class SatelliteUpdateService:
             reachable = {
                 s["mac_id"]: s for s in await self.discover_satellites(include_offline=True)
             }
+            failures = await self._reconcile_app_failures(list(reachable.values()), payload)
+            halted_by: Optional[str] = None
 
             for mac, client in remote.items():
                 name = client.name or mac
@@ -496,14 +892,33 @@ class SatelliteUpdateService:
                 if satellite.get("app_payload") == payload:
                     continue
 
+                if self._rolled_back_before(payload, failures.get(mac),
+                                            satellite.get("app_last_update")):
+                    left_behind.append(f"{name}: went back from {payload} before, not pushed again")
+                    self.logger.error(
+                        f"{name}: already went back from client app {payload}; not pushed "
+                        "again. Its own row offers the retry."
+                    )
+                    continue
+
+                if halted_by:
+                    left_behind.append(f"{name}: held back, {halted_by} did not take {payload}")
+                    self.logger.error(
+                        f"{name}: client app {payload} held back, {halted_by} did not take it"
+                    )
+                    continue
+
                 self.logger.info(f"{name}: pushing client app {payload} with the Milo update")
                 result = await self.update_satellite_app(mac)
                 if not result.get("success"):
                     left_behind.append(name)
                     self.logger.error(
-                        f"{name}: client app push failed ({result.get('error', 'unknown error')}). "
+                        f"{name}: client app push failed ({result.get('verdict')}: "
+                        f"{result.get('error', 'unknown error')}). "
                         "The Milo update continues; the satellite keeps the app it runs."
                     )
+                    if result.get("verdict") in ("rolled_back", "did_not_return"):
+                        halted_by = name
 
         except Exception as e:
             self.logger.error(f"Pushing the client app to the fleet failed: {e}")
@@ -626,54 +1041,3 @@ class SatelliteUpdateService:
             "success": False,
             "error": f"CamillaDSP update timeout for {mac_id}"
         }
-
-    async def _wait_for_app_update_completion(
-        self,
-        mac_id: str,
-        ip: str,
-        expected_payload: str
-    ) -> Dict[str, Any]:
-        """Polls satellite /status until the payload just sent is the one *running*.
-
-        A satellite reports the payload its process read when it started, so the
-        new one answers only from the restarted process. The deploy itself
-        already succeeded — the satellite answered the POST with 200 — so a
-        payload that never moves is a restart that never landed: an invalid unit
-        file the same update just deployed, a masked unit, or a new process that
-        never came up.
-        """
-        max_wait_time = 90
-        check_interval = 5
-        elapsed = 0
-
-        while elapsed < max_wait_time:
-            await asyncio.sleep(check_interval)
-            elapsed += check_interval
-
-            try:
-                url = f"http://{ip}:{self.satellite_api_port}/status"
-                timeout = aiohttp.ClientTimeout(total=5)
-
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            if data.get("app", {}).get("payload") == expected_payload:
-                                return {
-                                    "success": True,
-                                    "message": f"Satellite {mac_id} app updated successfully",
-                                    "new_version": expected_payload
-                                }
-
-            except Exception as e:
-                self.logger.debug(f"Waiting for satellite {mac_id} restart: {e}")
-                continue
-
-        self.logger.error(
-            f"Satellite {mac_id} deployed {expected_payload} but never restarted into it"
-        )
-        return {
-            "success": False,
-            "error": f"Satellite {mac_id} deployed the update but never restarted into it"
-        }
-

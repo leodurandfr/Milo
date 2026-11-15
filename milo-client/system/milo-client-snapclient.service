@@ -2,6 +2,12 @@
 Description=Snapclient for Milo Client
 After=network-online.target milo-client.service
 Wants=network-online.target
+# BindsTo= stays, so this unit goes down and comes back with every app restart,
+# an update's trial and rollback included. A new app process pushes the startup
+# floor (-80 dB, muted) into CamillaDSP at its first connect, and only a
+# snapclient reconnect gets the satellite re-admitted, which restores its level:
+# kept running across the restart (RestartMode=direct, refuted for this), the
+# room would sit at the floor with no re-admission to lift it.
 Requires=milo-client.service
 BindsTo=milo-client.service
 

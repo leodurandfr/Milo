@@ -8,6 +8,7 @@ Pi — so the mocks stand for the satellite's HTTP surface and for git, and the
 assertion is always what the service concluded from what the satellite said.
 """
 import asyncio
+import json
 import logging
 import os
 import subprocess
@@ -167,6 +168,24 @@ class _FakeFleet:
         return _FakeResponse(200, self._by_ip[ip])
 
 
+class _MemorySettings:
+    """SettingsService's two calls the satellite service makes, over a dict.
+
+    The round trip through the real service and its file is pinned once, in
+    TestAppFailureRecord; everywhere else the record is only a place to look.
+    """
+
+    def __init__(self, failures=None):
+        self.values = {"updates.satellite_app_failures": dict(failures or {})}
+
+    async def get_setting(self, key):
+        return self.values.get(key)
+
+    async def set_setting(self, key, value):
+        self.values[key] = value
+        return True
+
+
 def _patch_satellite(satellite):
     """Every ClientSession the service opens answers as this one satellite."""
     return patch("backend.core.updates.satellite.aiohttp.ClientSession", return_value=satellite)
@@ -181,7 +200,8 @@ def satellite_service():
     canape = Mock(is_local=False, ip="192.168.1.153", online=True, host="milo-client")
     canape.name = "Canapé"
     registry.get_all_clients = Mock(return_value={"dc:a6:32:7e:d3:43": canape})
-    return SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry)
+    return SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
+                                  settings_service=_MemorySettings())
 
 
 async def _registry_loaded_from(clients):
@@ -621,7 +641,7 @@ class TestAppUpdateAvailableFlag:
                 return_value={"status": "success", "version": "0.28.0"}
             )
             satellite_service = Mock()
-            satellite_service.discover_satellites = AsyncMock(return_value=satellites)
+            satellite_service.list_satellites = AsyncMock(return_value=satellites)
             satellite_service.get_client_payload_version = AsyncMock(return_value=server_payload)
             satellite_service.get_server_version = AsyncMock(return_value=server_version)
 
@@ -768,7 +788,8 @@ class TestAppUpdateOutcome:
         mode nothing admits a client: the push answered "not found or offline"
         to a satellite whose API was up, without ever asking it."""
         registry = await _registry_loaded_from({"dc:a6:32:7e:d3:43": ("192.168.1.153", "Canapé")})
-        service = SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry)
+        service = SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
+                                         settings_service=_MemorySettings())
         satellite = _FakeSatellite(
             status_payload={"app": {"payload": "0ae3872", "version": "v0.1.0", "started_at": 1000},
                             "snapclient": {"version": "0.28.0"}},
@@ -831,7 +852,8 @@ class TestDiscoverSatellites:
         registry = Mock()
         registry.get_all_clients = Mock(return_value=clients)
         return SatelliteUpdateService(snapcast_service=Mock(),
-                                      client_registry_service=registry)
+                                      client_registry_service=registry,
+                                      settings_service=_MemorySettings())
 
     STATUS = {
         "snapclient": {"version": "0.31.0", "running": True},
@@ -853,6 +875,9 @@ class TestDiscoverSatellites:
             "snapclient_version": "0.31.0",
             "app_version": "v0.2.0",
             "app_payload": "deadbee",
+            "app_trial": False,
+            "app_last_update": None,
+            "app_started_at": 1787000000,
             "camilladsp_version": "3.0.1",
             "online": True,
             "uptime": 4242,
@@ -970,15 +995,17 @@ class TestFleetPush:
             "d8:3a:dd:68:e7:e4": self._client("192.168.1.60", "Bureau"),
         })
         service = SatelliteUpdateService(snapcast_service=Mock(),
-                                         client_registry_service=registry)
+                                         client_registry_service=registry,
+                                         settings_service=_MemorySettings())
         service.pushed = []
 
         async def _push(mac_id):
             service.pushed.append(mac_id)
-            return service.push_result
+            return service.push_results.get(mac_id, service.push_result)
 
         service.update_satellite_app = _push
-        service.push_result = {"success": True}
+        service.push_result = {"success": True, "verdict": "committed"}
+        service.push_results = {}
         return service
 
     async def _push_to(self, service, by_ip):
@@ -1032,8 +1059,10 @@ class TestFleetPush:
 
     async def test_a_push_that_failed_is_reported_and_not_raised(self, fleet):
         """It runs past the point where the app can still be rolled back: a
-        raise here would abort a Milō update that has already succeeded."""
-        fleet.push_result = {"success": False, "error": "satellite rejected update"}
+        raise here would abort a Milō update that has already succeeded. And a
+        refusal restarted nothing, so it holds nobody back."""
+        fleet.push_result = {"success": False, "verdict": "rejected",
+                             "error": "satellite rejected update"}
 
         left_behind = await self._push_to(fleet, {
             "192.168.1.153": self._status("0ae3872", "v0.1.0"),
@@ -1042,6 +1071,54 @@ class TestFleetPush:
 
         assert fleet.pushed == ["dc:a6:32:7e:d3:43", "d8:3a:dd:68:e7:e4"]
         assert left_behind == ["Canapé", "Bureau"]
+
+    @pytest.mark.parametrize("verdict", ["rolled_back", "did_not_return"])
+    async def test_a_satellite_that_did_not_take_the_release_holds_back_the_rest(
+            self, fleet, verdict):
+        """A release that breaks one room breaks them all: the first satellite
+        is the canary, and the rest keep the app they run."""
+        fleet.push_results["dc:a6:32:7e:d3:43"] = {
+            "success": False, "verdict": verdict, "error": "x"}
+
+        left_behind = await self._push_to(fleet, {
+            "192.168.1.153": self._status("0ae3872", "v0.1.0"),
+            "192.168.1.60": self._status("0ae3872", "v0.1.0"),
+        })
+
+        assert fleet.pushed == ["dc:a6:32:7e:d3:43"]
+        assert left_behind == [
+            "Canapé", f"Bureau: held back, Canapé did not take {SERVER_PAYLOAD}"]
+
+    async def test_a_satellite_that_already_went_back_from_this_payload_is_not_pushed_it(
+            self, fleet):
+        """Pushed again, it would cut its room for the same crash; the server's
+        record and the satellite's own both say so."""
+        fleet.settings_service = _MemorySettings({"dc:a6:32:7e:d3:43": {
+            "payload": SERVER_PAYLOAD, "verdict": "rolled_back", "detail": "x", "at": 1}})
+        bureau = self._status("0ae3872", "v0.1.0")
+        bureau["app"]["last_update"] = {"payload": SERVER_PAYLOAD, "outcome": "rolled_back",
+                                        "detail": "x", "at": 1}
+
+        left_behind = await self._push_to(fleet, {
+            "192.168.1.153": self._status("0ae3872", "v0.1.0"),
+            "192.168.1.60": bureau,
+        })
+
+        assert fleet.pushed == []
+        assert len(left_behind) == 2
+        assert all(SERVER_PAYLOAD in entry for entry in left_behind)
+
+    async def test_a_rollback_of_an_earlier_payload_does_not_block_this_one(self, fleet):
+        fleet.settings_service = _MemorySettings({"dc:a6:32:7e:d3:43": {
+            "payload": "1111111", "verdict": "rolled_back", "detail": "x", "at": 1}})
+
+        left_behind = await self._push_to(fleet, {
+            "192.168.1.153": self._status("0ae3872", "v0.1.0"),
+            "192.168.1.60": self._status(SERVER_PAYLOAD),
+        })
+
+        assert fleet.pushed == ["dc:a6:32:7e:d3:43"]
+        assert left_behind == []
 
     async def test_the_local_client_is_not_a_satellite(self, fleet):
         """The server is a client of its own snapserver. Pushing the tarball to
@@ -1371,3 +1448,451 @@ class TestSatelliteUpdateRecoveryArms:
 
         assert "milo-client/app/main.py" in members
         assert not [m for m in members if m.endswith(".pyc")]
+
+
+# --------------------------------------------------------------------------- #
+# The verdict of one app push, read from the satellite's trial
+# --------------------------------------------------------------------------- #
+
+OLD_PAYLOAD = "0ae3872"
+CANAPE = "dc:a6:32:7e:d3:43"
+
+
+def _app(payload, started_at, *, trial=False, last=None, deploying=False):
+    """The `app` block of a satellite's /status, as its new updater answers it."""
+    return {"payload": payload, "version": "v", "started_at": started_at,
+            "update_in_progress": deploying, "trial": trial, "last_update": last}
+
+
+def _record(payload, outcome, at, detail=None):
+    return {"payload": payload, "outcome": outcome, "detail": detail, "at": at}
+
+
+class _TrialSatellite:
+    """A satellite whose /status moves through `timeline`, one entry per poll
+    after the POST (the last one repeats), an exception standing for a poll the
+    unit did not answer — the restart, a crashloop.
+
+    `before` is what it answers until the POST: the discovery the push starts
+    from, and the record the waiter must not mistake for this push's answer.
+    """
+
+    def __init__(self, before, timeline, *, post_status=200, post_body=None,
+                 post_raises=None, on_post=None):
+        self.before = before
+        self.timeline = list(timeline)
+        self.post_status = post_status
+        self.post_body = post_body
+        self.post_raises = post_raises
+        self.on_post = on_post
+        self.posts = []
+        self.polls = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def _answer(self, app):
+        return _FakeResponse(200, {"app": app, "snapclient": {"version": "0.35.0"}})
+
+    def get(self, url, **kwargs):
+        if not self.posts:
+            return self._answer(self.before)
+        step = self.timeline[min(self.polls, len(self.timeline) - 1)]
+        self.polls += 1
+        if isinstance(step, BaseException):
+            raise step
+        if callable(step):
+            return step(url)
+        return self._answer(step)
+
+    def post(self, url, **kwargs):
+        self.posts.append(url)
+        if self.on_post:
+            self.on_post()
+        if self.post_raises is not None:
+            raise self.post_raises
+        return _FakeResponse(self.post_status, self.post_body)
+
+
+class TestAppPushVerdict:
+    """What one push of the client app concludes from the satellite's trial.
+
+    The satellite keeps the previous version until the new one has held
+    HOLD_S, and its guard puts it back after the new one failed to start. The
+    server only sees /status — `payload`, `trial`, `last_update` — and each
+    conclusion it draws decides a row, a retry and whether the rest of the
+    fleet gets the same release.
+    """
+
+    @pytest.fixture
+    def client_tree(self, tmp_path):
+        tree = tmp_path / "milo-client"
+        (tree / "app").mkdir(parents=True)
+        (tree / "app" / "main.py").write_text("app\n")
+        return tree
+
+    @pytest.fixture
+    def push(self, satellite_service, client_tree):
+        async def _push(satellite, service=None):
+            with _patch_satellite(satellite), \
+                    patch("asyncio.sleep", new_callable=AsyncMock), \
+                    patch("backend.core.updates.satellite.MILO_CLIENT_DIR", client_tree), \
+                    patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                          _fake_git()):
+                return await (service or satellite_service).update_satellite_app(CANAPE)
+        return _push
+
+    async def test_a_version_that_held_its_trial_is_committed(self, push):
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [
+            OSError("Connection refused"),
+            _app(SERVER_PAYLOAD, 2000, trial=True),
+            _app(SERVER_PAYLOAD, 2000, trial=True),
+            _app(SERVER_PAYLOAD, 2000, last=_record(SERVER_PAYLOAD, "committed", 2125)),
+        ])
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "committed"
+        assert result["success"] is True
+        assert satellite.polls == 4, "the trial was read as a final state"
+
+    async def test_a_version_still_on_trial_is_not_a_success(self, push):
+        """The new process answers with the new payload from its first second;
+        reading that as success is how a crashloop two minutes later went
+        unseen."""
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [
+            _app(SERVER_PAYLOAD, 2000, trial=True),
+        ])
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "did_not_return"
+        assert result["success"] is False
+
+    async def test_a_version_the_guard_put_back_is_rolled_back_with_its_cause(self, push):
+        cause = "ModuleNotFoundError: No module named 'zeroconf'"
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [
+            OSError("Connection refused"),
+            _app(SERVER_PAYLOAD, 2000, trial=True),
+            OSError("Connection refused"),
+            _app(OLD_PAYLOAD, 2100, last=_record(SERVER_PAYLOAD, "rolled_back", 2100, cause)),
+        ])
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "rolled_back"
+        assert result["detail"] == cause
+        assert result["success"] is False
+
+    async def test_a_retry_is_not_answered_by_the_rollback_it_retries(self, push):
+        """The satellite keeps its last record until the trial ends: a retry of
+        a payload it went back from reads `rolled_back` for that payload while
+        the new trial runs."""
+        earlier = _record(SERVER_PAYLOAD, "rolled_back", 900, "ImportError: x")
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000, last=earlier), [
+            _app(OLD_PAYLOAD, 1000, trial=True, last=earlier),
+            _app(SERVER_PAYLOAD, 2000, trial=True, last=earlier),
+            _app(SERVER_PAYLOAD, 2000, last=_record(SERVER_PAYLOAD, "committed", 2125)),
+        ])
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "committed"
+
+    async def test_the_push_that_installs_the_guard_is_committed_without_a_trial(self, push):
+        """That push is applied by the updater it replaces, which opens no trial
+        and writes no record: the payload is all there is to read."""
+        satellite = _TrialSatellite(
+            {"payload": OLD_PAYLOAD, "version": "v", "started_at": 1000},
+            [{"payload": SERVER_PAYLOAD, "version": "v", "started_at": 2000}],
+        )
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "committed"
+
+    async def test_a_refusal_is_rejected_and_not_waited_on(self, push):
+        satellite = _TrialSatellite(
+            _app(OLD_PAYLOAD, 1000), [_app(OLD_PAYLOAD, 1000)],
+            post_status=409,
+            post_body='{"detail": "An update to 1234567 is still on trial"}',
+        )
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "rejected"
+        assert "still on trial" in result["detail"]
+        assert satellite.polls == 0
+
+    async def test_a_satellite_that_never_answers_again_did_not_return(self, push):
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [
+            ConnectionRefusedError("Connection refused"),
+        ])
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "did_not_return"
+        assert result["detail"].startswith("ConnectionRefusedError")
+
+    async def test_a_post_that_timed_out_is_followed_to_its_verdict(self, push):
+        """pip on a Pi outlasts the POST's 120 s: the deploy is still running,
+        and the restart that follows is the push's real answer."""
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [
+            _app(OLD_PAYLOAD, 1000, deploying=True),
+            _app(OLD_PAYLOAD, 1000, deploying=True),
+            OSError("Connection refused"),
+            _app(SERVER_PAYLOAD, 2000, trial=True),
+            _app(SERVER_PAYLOAD, 2000, last=_record(SERVER_PAYLOAD, "committed", 2125)),
+        ], post_raises=asyncio.TimeoutError())
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "committed"
+
+    async def test_a_deploy_longer_than_the_ceiling_is_still_waited_on(self, push):
+        from backend.core.updates.satellite import APP_UPDATE_CEILING_S, APP_UPDATE_POLL_S
+
+        polls = APP_UPDATE_CEILING_S // APP_UPDATE_POLL_S + 10
+        satellite = _TrialSatellite(
+            _app(OLD_PAYLOAD, 1000),
+            [_app(OLD_PAYLOAD, 1000, deploying=True)] * polls
+            + [_app(SERVER_PAYLOAD, 2000, last=_record(SERVER_PAYLOAD, "committed", 2125))],
+            post_raises=asyncio.TimeoutError(),
+        )
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "committed"
+
+    async def test_a_post_that_never_arrived_is_rejected_without_waiting_out_the_ceiling(
+            self, push):
+        """No answer, and a satellite that goes on exactly as before — never
+        deploying, no trial, the same process: nothing restarted, so the fleet
+        may go on, and waiting ten minutes on it would hold the Milō update."""
+        import aiohttp
+
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [_app(OLD_PAYLOAD, 1000)],
+                                    post_raises=aiohttp.ServerDisconnectedError())
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "rejected"
+        assert "ServerDisconnectedError" in result["detail"]
+        assert satellite.polls < 10
+
+    async def test_a_refusal_is_one_line_however_long_the_satellite_answered(self, push):
+        """A pip failure answers pages of resolver output; the row draws one raw
+        line, and the record lands in settings.json and every diagnostic."""
+        noise = "\n".join(f"  Collecting package-{i}" for i in range(400))
+        cause = "ERROR: No matching distribution found for aiohttp>=99.0"
+        body = json.dumps({"detail": f"pip install failed: {noise}\n{cause}\n"})
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [], post_status=500, post_body=body)
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "rejected"
+        assert result["detail"] == f"HTTP 500 - {cause}"
+
+    async def test_an_error_while_following_the_push_is_not_a_refusal(
+            self, satellite_service, push):
+        """The satellite took the push and is restarting into it: an error on
+        the server's side of the wait does not mean nothing restarted, and a
+        `rejected` would let the fleet push go on to the next room."""
+        registry = satellite_service.client_registry_service
+
+        def _registry_breaks():
+            registry.get_all_clients.side_effect = RuntimeError("registry reloading")
+
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [_app(OLD_PAYLOAD, 1000)],
+                                    on_post=_registry_breaks)
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "did_not_return"
+        assert "registry reloading" in result["detail"]
+
+    async def test_a_satellite_that_comes_back_on_another_address_is_still_followed(
+            self, satellite_service, push):
+        """A restarted satellite may come back over its WiFi link: the address
+        the push started from then answers nothing, for good."""
+        client = satellite_service.client_registry_service.get_all_clients()[CANAPE]
+
+        def _answer_by_address(url):
+            if "192.168.1.153" in url:
+                raise OSError("No route to host")
+            return _FakeResponse(200, {"app": _app(
+                SERVER_PAYLOAD, 2000, last=_record(SERVER_PAYLOAD, "committed", 2125))})
+
+        def _moves():
+            client.ip = "192.168.1.154"
+
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [_answer_by_address],
+                                    on_post=_moves)
+
+        result = await push(satellite)
+
+        assert result["verdict"] == "committed"
+
+
+class TestAppFailureRecord:
+    """A failure is remembered by the server until that satellite's next
+    committed push: the satellite that failed may be the one that no longer
+    answers, and its row is the only place that says why."""
+
+    @pytest.fixture
+    def settings(self, tmp_path, monkeypatch):
+        from backend.core.settings import SettingsService
+
+        service = SettingsService()
+        monkeypatch.setattr(service, "settings_file", str(tmp_path / "settings.json"))
+        return service
+
+    @pytest.fixture
+    def client_tree(self, tmp_path):
+        tree = tmp_path / "milo-client"
+        (tree / "app").mkdir(parents=True)
+        (tree / "app" / "main.py").write_text("app\n")
+        return tree
+
+    async def _push(self, service, satellite, client_tree):
+        with _patch_satellite(satellite), \
+                patch("asyncio.sleep", new_callable=AsyncMock), \
+                patch("backend.core.updates.satellite.MILO_CLIENT_DIR", client_tree), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      _fake_git()):
+            return await service.update_satellite_app(CANAPE)
+
+    async def test_a_rollback_is_kept_across_a_restart_and_cleared_by_the_next_success(
+            self, satellite_service, settings, client_tree, tmp_path, monkeypatch):
+        satellite_service.settings_service = settings
+        cause = "ModuleNotFoundError: No module named 'zeroconf'"
+        await self._push(satellite_service, _TrialSatellite(_app(OLD_PAYLOAD, 1000), [
+            _app(OLD_PAYLOAD, 2100, last=_record(SERVER_PAYLOAD, "rolled_back", 2100, cause)),
+        ]), client_tree)
+
+        from backend.core.settings import SettingsService
+        reloaded = SettingsService()
+        monkeypatch.setattr(reloaded, "settings_file", str(tmp_path / "settings.json"))
+        satellite_service.settings_service = reloaded
+        kept = await satellite_service.get_app_update_failures()
+        assert set(kept) == {CANAPE}
+        assert kept[CANAPE]["verdict"] == "rolled_back"
+        assert kept[CANAPE]["payload"] == SERVER_PAYLOAD
+        assert kept[CANAPE]["detail"] == cause
+
+        await self._push(satellite_service, _TrialSatellite(
+            _app(OLD_PAYLOAD, 2100, last=_record(SERVER_PAYLOAD, "rolled_back", 2100, cause)),
+            [_app(SERVER_PAYLOAD, 3000, last=_record(SERVER_PAYLOAD, "committed", 3125))],
+        ), client_tree)
+
+        assert await satellite_service.get_app_update_failures() == {}
+
+    async def test_a_push_that_reached_no_satellite_keeps_the_record_it_found(self):
+        """A retry pressed on a satellite that stopped answering sent nothing:
+        overwriting its record drops the traceback line its row exists for,
+        and calling it did_not_return held back the rest of a fleet push."""
+        cause = "ModuleNotFoundError: No module named 'zeroconf'"
+        kept = {"payload": SERVER_PAYLOAD, "verdict": "rolled_back", "detail": cause, "at": 1}
+        registry = Mock()
+        registry.get_all_clients = Mock(return_value={})
+        service = SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
+                                         settings_service=_MemorySettings({CANAPE: kept}))
+
+        result = await service.update_satellite_app(CANAPE)
+
+        assert result["verdict"] == "rejected"
+        assert await service.get_app_update_failures() == {CANAPE: kept}
+
+
+class TestSatelliteRows:
+    """GET /api/programs/satellites draws one row per satellite; a satellite
+    holding a failed app push keeps its row while it does not answer."""
+
+    def _service(self, failures):
+        registry = Mock()
+        canape = Mock(is_local=False, ip="192.168.1.153", online=True, host="milo-client")
+        canape.name = "Canapé"
+        bureau = Mock(is_local=False, ip="192.168.1.60", online=False, host="milo-client")
+        bureau.name = "Bureau"
+        registry.get_all_clients = Mock(return_value={
+            CANAPE: canape, "d8:3a:dd:68:e7:e4": bureau,
+        })
+        return SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
+                                      settings_service=_MemorySettings(failures))
+
+    def _rows(self, service, answers=None):
+        update_service = Mock()
+        update_service.get_latest_github_version = AsyncMock(
+            return_value={"status": "success", "version": "0.35.0"})
+        app = FastAPI()
+        app.include_router(create_programs_router(update_service, service, Mock()))
+        with _patch_satellite(_TrialSatellite(answers or _app(SERVER_PAYLOAD, 1000), [])), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                      _fake_git()):
+            body = TestClient(app).get("/api/programs/satellites").json()
+        assert body["status"] == "success"
+        return {row["mac_id"]: row for row in body["satellites"]}
+
+    def test_an_offline_satellite_with_a_failed_push_keeps_its_row(self):
+        failure = {"payload": SERVER_PAYLOAD, "verdict": "did_not_return",
+                   "detail": "ConnectionRefusedError: Connection refused", "at": 1787000000}
+        rows = self._rows(self._service({"d8:3a:dd:68:e7:e4": failure}))
+
+        assert set(rows) == {CANAPE, "d8:3a:dd:68:e7:e4"}
+        bureau = rows["d8:3a:dd:68:e7:e4"]
+        assert bureau["online"] is False
+        assert bureau["display_name"] == "Bureau"
+        assert bureau["app_update_failure"] == failure
+        assert bureau["app_update_available"] is True, "the row's retry is its update button"
+        assert bureau["update_available"] is False
+        assert bureau["camilladsp_update_available"] is False
+        assert rows[CANAPE]["app_update_failure"] is None
+
+    def test_an_offline_satellite_with_nothing_failed_has_no_row(self):
+        rows = self._rows(self._service({}))
+
+        assert set(rows) == {CANAPE}
+
+    def test_a_failure_the_satellite_got_over_on_its_own_is_dropped(self):
+        """The wait ended did_not_return — a LAN split past the ceiling — while
+        the unit held its trial and committed. Kept, the row says "Not
+        responding" for good, and its Retry restarts an occupied room to push
+        the bytes it already runs."""
+        failure = {"payload": SERVER_PAYLOAD, "verdict": "did_not_return",
+                   "detail": "still on trial of deadbee", "at": 1787000000}
+        service = self._service({CANAPE: failure})
+
+        rows = self._rows(service, _app(
+            SERVER_PAYLOAD, 1000, last=_record(SERVER_PAYLOAD, "committed", 1125)))
+
+        assert rows[CANAPE]["app_update_failure"] is None
+        assert service.settings_service.values["updates.satellite_app_failures"] == {}
+
+    def test_a_failure_on_trial_still_is_kept(self):
+        """Running the payload is not having taken it: the trial may still end
+        in a rollback."""
+        failure = {"payload": SERVER_PAYLOAD, "verdict": "did_not_return",
+                   "detail": "still on trial of deadbee", "at": 1787000000}
+
+        rows = self._rows(self._service({CANAPE: failure}), _app(SERVER_PAYLOAD, 1000, trial=True))
+
+        assert rows[CANAPE]["app_update_failure"] == failure
+
+    def test_a_rollback_no_wait_recorded_is_read_from_the_satellite(self):
+        """A backend restart cut the wait, and the guard rolled back after it:
+        the satellite's own record is then the only one, and without it the row
+        offers a plain update with no cause while the fleet push skips it as a
+        satellite that went back."""
+        cause = "ModuleNotFoundError: No module named 'zeroconf'"
+        service = self._service({})
+
+        rows = self._rows(service, _app(
+            OLD_PAYLOAD, 1000, last=_record(SERVER_PAYLOAD, "rolled_back", 1100, cause)))
+
+        failure = rows[CANAPE]["app_update_failure"]
+        assert (failure["payload"], failure["verdict"], failure["detail"]) == (
+            SERVER_PAYLOAD, "rolled_back", cause)
+        assert CANAPE in service.settings_service.values["updates.satellite_app_failures"]

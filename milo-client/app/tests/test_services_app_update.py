@@ -6,14 +6,19 @@ serve is the only way to repair it remotely. A sync that fails after it has
 already started overwriting the live tree therefore takes the repair path down
 with it, and the unit needs a hand on the machine.
 """
+import asyncio
 import io
+import json
 import logging
 import os
 import stat
+import subprocess
 import tarfile
 import shutil
+from pathlib import Path
 
 import pytest
+import pytest_asyncio
 from unittest.mock import AsyncMock, patch
 
 import services.app_update as app_update_module
@@ -116,13 +121,15 @@ class TestSyncAppFiles:
 
 
 def _make_tarball(tmp_path, app_files: dict, config_files: dict = None,
-                  root_files: dict = None) -> str:
+                  root_files: dict = None, runs_trials: bool = True) -> str:
     """Builds an update tarball holding milo-client/app/, plus configs/ and the
-    root deploy's system/ and rootfs/ trees when given.
+    root deploy's system/ and rootfs/ trees.
 
     `root_files` maps a path under milo-client/ (``system/…``, ``rootfs/…``) to
-    its body; with any of them present, the update runs the sudo deploy script.
+    its body, over the guard and the unit running it that every release since
+    the trial ships (`runs_trials`); the update runs the sudo deploy script.
     """
+    root_files = {**(TRIAL_FILES if runs_trials else {}), **(root_files or {})}
     staged = tmp_path / "tarball-src" / "milo-client" / "app"
     staged.mkdir(parents=True)
     for name, body in app_files.items():
@@ -142,32 +149,57 @@ def _make_tarball(tmp_path, app_files: dict, config_files: dict = None,
     return str(tarball)
 
 
+# What every release since the trial ships: the guard, run by the app's unit.
+APP_UNIT = (
+    "[Service]\nExecStartPre=-/usr/local/bin/milo-client-update-guard start\n"
+    "ExecStart=/bin/true\n"
+)
+TRIAL_FILES = {
+    "system/milo-client.service": APP_UNIT,
+    "rootfs/usr/local/bin/milo-client-update-guard": "#!/usr/bin/python3 -I\n",
+}
 # What a release that changes the satellite's units and sudo policy carries.
 ROOT_FILES = {
-    "system/milo-client.service": "[Service]\nExecStart=/bin/true\n",
+    "system/milo-client.service": APP_UNIT,
     "rootfs/etc/sudoers.d/milo-client": "milo-client ALL=(root) NOPASSWD: /bin/true\n",
 }
+NEW_REQUIREMENTS = {"main.py": "new main\n", "requirements.txt": "aiohttp==3.9.0\n"}
+IMPORT_ERROR = b"Traceback (most recent call last):\nModuleNotFoundError: No module named 'zeroconf'\n"
+
+_real_exec = asyncio.create_subprocess_exec
 
 
-def _spawner(pip_returncode: int):
-    """Stands in for sudo and pip — the outside world — answering by argv.
+def _spawner(pip_returncode: int = 0, import_returncode: int = 0, restart_returncode: int = -15):
+    """Stands in for sudo, pip and the venv's python — the outside world —
+    answering by argv. The update guard is not stood in for: it is this tree's
+    own script and runs for real, on the paths `update_world` redirected.
 
-    sudo succeeds; pip answers `pip_returncode`. Every argv spawned is kept, in
-    order, so a test can read which of the two ran and when.
+    Every argv spawned is kept, in order. pip writes into the live venv before
+    it answers, as a half-finished install does.
     """
     spawned = []
 
     async def _spawn(*argv, **kwargs):
         spawned.append(argv)
+        if argv[0] == app_update_module.GUARD:
+            return await _real_exec(*argv, **kwargs)
         proc = AsyncMock()
-        if argv[0] == str(app_update_module.VENV_PIP):
+        stderr = b""
+        if _ran_pip(argv):
+            (Path(os.path.realpath(app_update_module.VENV_DIR)) / "marker").write_text("HALF")
             proc.returncode = pip_returncode
-            stderr = b"" if pip_returncode == 0 else (
-                b"ERROR: No matching distribution found for aiohttp>=99.0"
-            )
+            if pip_returncode:
+                stderr = b"ERROR: No matching distribution found for aiohttp>=99.0"
+        elif _ran_import(argv):
+            proc.returncode = import_returncode
+            if import_returncode:
+                stderr = IMPORT_ERROR
+        elif "restart" in argv:
+            proc.returncode = restart_returncode
+            if restart_returncode > 0:
+                stderr = b"Failed to restart milo-client.service: Unit milo-client.service is masked."
         else:
             proc.returncode = 0
-            stderr = b""
         proc.communicate = AsyncMock(return_value=(b"", stderr))
         return proc
 
@@ -179,52 +211,82 @@ def _ran_deploy_script(argv) -> bool:
 
 
 def _ran_pip(argv) -> bool:
-    return argv[0] == str(app_update_module.VENV_PIP)
+    return argv[0] == str(app_update_module.VENV_DIR / "bin" / "pip3")
+
+
+def _ran_import(argv) -> bool:
+    return argv[0] == str(app_update_module.VENV_DIR / "bin" / "python3")
+
+
+def _ran_restart(argv) -> bool:
+    return "restart" in argv
+
+
+@pytest.fixture
+def identity_files(update_world):
+    """The two facts a satellite reports: which version it shows, and which
+    payload it runs.
+
+    Separate because they answer different questions and move
+    independently — most releases never touch `milo-client/` at all.
+    """
+    state, _ = update_world
+    version = state / app_update_module.VERSION_NAME
+    payload = state / app_update_module.PAYLOAD_NAME
+    version.write_text("v0.1.0")
+    payload.write_text("aaaa111")
+    return version, payload
+
+
+@pytest_asyncio.fixture
+async def no_restart_timer():
+    """Catches the restart deploy_update schedules two seconds out, so no timer
+    outlives the patched subprocess; a test that wants it runs it itself."""
+    scheduled = []
+    loop = asyncio.get_running_loop()
+    with patch.object(loop, "call_later", lambda delay, callback: scheduled.append(callback)):
+        yield scheduled
+
+
+async def _deploy(tmp_path, spawn, app_files=NEW_REQUIREMENTS, config_files=None, root_files=None,
+                  runs_trials=True):
+    tarball = _make_tarball(tmp_path, app_files, config_files, root_files, runs_trials)
+    with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+        return await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+
+
+def _last_update(state):
+    path = state / app_update_module.LAST_UPDATE_NAME
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def _trial_open(state) -> bool:
+    return (state / app_update_module.TRIAL_NAME).exists()
 
 
 class TestDeployUpdateDependencyFailure:
     """What a satellite is left running when `pip install` fails.
 
     The satellite restarts into whatever `app/` holds two seconds after it
-    answers, and `Restart=always` then retries it forever. A tree whose new
+    answers, and `Restart=always` then retries it. A tree whose new
     dependencies were never installed therefore crashloops on an appliance whose
     only repair path is port 8001 — the port that tree serves. So the update has
-    to fail *before* the version is written and the restart is scheduled, and the
-    tree it replaced has to still be there to go back to.
+    to fail *before* the identity is written and the restart is scheduled, and
+    what it replaced has to be put back before it answers.
     """
 
     @pytest.fixture
-    def identity_files(self, tmp_path):
-        """The two facts a satellite reports: which version it shows, and which
-        payload it runs.
-
-        Separate because they answer different questions and move
-        independently — most releases never touch `milo-client/` at all.
-        """
-        version = tmp_path / "app-version"
-        payload = tmp_path / "app-payload"
-        version.write_text("v0.1.0")
-        payload.write_text("aaaa111")
-        with patch.object(app_update_module, "VERSION_FILE", version), \
-                patch.object(app_update_module, "PAYLOAD_FILE", payload):
-            yield version, payload
-
-    @pytest.fixture
-    def failing_pip(self):
-        """Stands in for pip itself — the outside world, not a method of ours."""
-        _, spawn = _spawner(pip_returncode=1)
+    def failing_pip(self, no_restart_timer):
+        spawned, spawn = _spawner(pip_returncode=1)
         with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
-            yield
+            yield spawned
 
     @pytest.mark.asyncio
     async def test_a_failed_pip_install_fails_the_update(
         self, repo_dir, tmp_path, identity_files, failing_pip
     ):
         """A warning here is a satellite that reports success and crashloops."""
-        tarball = _make_tarball(tmp_path, {
-            "main.py": "new main\n",
-            "requirements.txt": "aiohttp==3.9.0\n",
-        })
+        tarball = _make_tarball(tmp_path, NEW_REQUIREMENTS)
 
         result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
 
@@ -232,151 +294,206 @@ class TestDeployUpdateDependencyFailure:
         assert "aiohttp" in result["error"], "the pip failure must reach the server verbatim"
 
     @pytest.mark.asyncio
-    async def test_no_identity_is_written_when_the_deps_are_missing(
+    async def test_no_identity_is_left_when_the_deps_are_missing(
         self, repo_dir, tmp_path, identity_files, failing_pip
     ):
-        """The payload file is what the server polls to call the update done,
-        and the version file is what the owner reads on the screen. Writing
-        either one over a deployment that failed makes a crashlooping satellite
-        report itself as the version it never reached."""
+        """The payload file is what the server compares to call the update
+        done, and the version file is what the owner reads on the screen."""
         version, payload = identity_files
-        tarball = _make_tarball(tmp_path, {
-            "main.py": "new main\n",
-            "requirements.txt": "aiohttp==3.9.0\n",
-        })
 
-        await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+        await AppUpdateService().deploy_update(_make_tarball(tmp_path, NEW_REQUIREMENTS), "bbbb222", "v0.2.0")
 
         assert version.read_text() == "v0.1.0"
         assert payload.read_text() == "aaaa111"
 
     @pytest.mark.asyncio
-    async def test_the_previous_configs_are_put_back_too(
-        self, repo_dir, tmp_path, identity_files, failing_pip
+    async def test_the_previous_app_configs_and_venv_are_put_back(
+        self, repo_dir, tmp_path, identity_files, update_world, failing_pip
     ):
-        """configs/ is swapped beside app/, so a failed update must not leave
-        the new release's CamillaDSP sections under the old release's code."""
+        """configs/ is swapped beside app/, and pip had already written into the
+        venv when it failed: the old code must find its own of all three."""
+        state, real_venv = update_world
         live = repo_dir / "configs" / "camilladsp"
         live.mkdir(parents=True)
         (live / "config.yml").write_text("live devices\n")
-        tarball = _make_tarball(
-            tmp_path,
-            {"main.py": "new main\n", "requirements.txt": "aiohttp==3.9.0\n"},
-            {"camilladsp/config.yml": "new devices\n"},
-        )
+        tarball = _make_tarball(tmp_path, NEW_REQUIREMENTS, {"camilladsp/config.yml": "new devices\n"})
 
         await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
 
+        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
+        assert (repo_dir / "app" / "routes" / "health.py").read_text() == "live health\n"
         assert (live / "config.yml").read_text() == "live devices\n"
-        assert not (repo_dir / "configs.old").exists()
-        assert not (repo_dir / "configs.new").exists()
+        assert (real_venv / "marker").read_text() == "OLD"
+        leftovers = [p.name for p in tmp_path.rglob("*") if p.name.endswith((".old", ".new", ".discard"))]
+        assert leftovers == [], "the restore must not leave a copy behind"
 
     @pytest.mark.asyncio
-    async def test_the_previous_tree_is_put_back(
-        self, repo_dir, tmp_path, identity_files, failing_pip
+    async def test_the_failure_is_recorded_and_the_trial_closed(
+        self, repo_dir, tmp_path, identity_files, update_world, failing_pip
     ):
-        """The window this closes: app.old was deleted inside the swap, so by the
-        time pip ran there was nothing left to go back to."""
-        tarball = _make_tarball(tmp_path, {
-            "main.py": "new main\n",
-            "requirements.txt": "aiohttp==3.9.0\n",
-        })
+        """What the server reads from /status to say why the push failed, and
+        the next push is not refused as a trial still running."""
+        state, _ = update_world
 
-        await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+        await AppUpdateService().deploy_update(_make_tarball(tmp_path, NEW_REQUIREMENTS), "bbbb222", "v0.2.0")
 
-        live = repo_dir / "app"
-        assert (live / "main.py").read_text() == "live main\n"
-        assert (live / "routes" / "health.py").read_text() == "live health\n"
-        assert not (repo_dir / "app.old").exists(), "the restore must not leave a copy behind"
-        assert not (repo_dir / "app.new").exists()
-
+        record = _last_update(state)
+        assert (record["payload"], record["outcome"]) == ("bbbb222", "rolled_back")
+        assert "aiohttp" in record["detail"]
+        assert not _trial_open(state)
 
     @pytest.mark.asyncio
     async def test_a_failed_pip_install_never_runs_the_root_deploy(
-        self, repo_dir, tmp_path, identity_files
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
     ):
-        """The rollback puts back app/ and configs/, never what the root deploy
-        installed — units, sudoers, helpers. Run before pip, a pip failure left
-        the old code under the new release's argument-scoped sudo policy, and
-        every retry replayed the root deploy into the same failure."""
-        version, payload = identity_files
-        live_configs = repo_dir / "configs" / "camilladsp"
-        live_configs.mkdir(parents=True)
-        (live_configs / "config.yml").write_text("live devices\n")
-        tarball = _make_tarball(
-            tmp_path,
-            {"main.py": "new main\n", "requirements.txt": "aiohttp>=99.0\n"},
-            {"camilladsp/config.yml": "new devices\n"},
-            ROOT_FILES,
-        )
+        """The rollback puts back app/, configs/ and the venv, never what the
+        root deploy installed — units, sudoers, helpers. Run before pip, a pip
+        failure left the old code under the new release's argument-scoped sudo
+        policy, and every retry replayed the root deploy into the same failure."""
         spawned, spawn = _spawner(pip_returncode=1)
 
-        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
-            result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+        result = await _deploy(tmp_path, spawn, root_files=ROOT_FILES)
 
         assert any(_ran_pip(argv) for argv in spawned), "pip must have been reached"
         assert not any(_ran_deploy_script(argv) for argv in spawned), (
             "the root deploy ran although pip failed"
         )
         assert result["success"] is False
-        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
-        assert (live_configs / "config.yml").read_text() == "live devices\n"
-        for name in ("app", "configs"):
-            assert not (repo_dir / f"{name}.old").exists()
-            assert not (repo_dir / f"{name}.new").exists()
-        assert version.read_text() == "v0.1.0"
-        assert payload.read_text() == "aaaa111"
+        assert no_restart_timer == []
 
 
-class TestDeployUpdateSuccess:
-    """The committed path, and the floor the failure tests above stand on."""
+class TestDeployUpdateImportFailure:
+    """The new app is imported before anything restarts.
 
-    @pytest.fixture
-    def identity_files(self, tmp_path):
-        """The two facts a satellite reports: which version it shows, and which
-        payload it runs.
-
-        Separate because they answer different questions and move
-        independently — most releases never touch `milo-client/` at all.
-        """
-        version = tmp_path / "app-version"
-        payload = tmp_path / "app-payload"
-        version.write_text("v0.1.0")
-        payload.write_text("aaaa111")
-        with patch.object(app_update_module, "VERSION_FILE", version), \
-                patch.object(app_update_module, "PAYLOAD_FILE", payload):
-            yield version, payload
-
-    @pytest.fixture
-    def working_pip(self):
-        _, spawn = _spawner(pip_returncode=0)
-        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
-            yield
+    The most frequent way a pushed version dies on start is an import — a
+    module the venv lacks, a syntax error. Caught here, the room is never cut:
+    the update answers an error and the process that answers keeps playing.
+    """
 
     @pytest.mark.asyncio
-    async def test_an_applied_update_leaves_no_copy_behind(
-        self, repo_dir, tmp_path, identity_files, working_pip
+    async def test_an_app_that_does_not_import_is_never_restarted_into(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
     ):
-        """Both staging dirs are one app/ each; keeping either doubles the
-        satellite's disk use per update, on a device with no one watching it."""
-        tarball = _make_tarball(tmp_path, {
-            "main.py": "new main\n",
-            "requirements.txt": "aiohttp==3.9.0\n",
-        })
-
+        state, _ = update_world
         version, payload = identity_files
-        result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+        spawned, spawn = _spawner(import_returncode=1)
+
+        result = await _deploy(tmp_path, spawn, root_files=ROOT_FILES)
+
+        assert any(_ran_import(argv) for argv in spawned), "the import must have been tried"
+        assert result["success"] is False
+        assert "No module named 'zeroconf'" in result["error"]
+        assert no_restart_timer == [], "no restart may be scheduled over an app that does not import"
+        assert not any(_ran_deploy_script(argv) for argv in spawned)
+        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
+        assert payload.read_text() == "aaaa111"
+        assert _last_update(state)["outcome"] == "rolled_back"
+
+    @pytest.mark.asyncio
+    async def test_the_import_runs_the_new_tree_with_the_venv_python(
+        self, repo_dir, tmp_path, identity_files, no_restart_timer
+    ):
+        """Run from anywhere else, the import tests the code that is leaving."""
+        seen = {}
+        spawned, spawn = _spawner()
+
+        async def _recording(*argv, **kwargs):
+            if _ran_import(argv):
+                seen["cwd"] = kwargs.get("cwd")
+                seen["main"] = (Path(kwargs["cwd"]) / "main.py").read_text()
+            return await spawn(*argv, **kwargs)
+
+        await _deploy(tmp_path, _recording)
+
+        assert seen == {"cwd": str(repo_dir / "app"), "main": "new main\n"}
+
+
+class TestDeployUpdateTrial:
+    """An applied update is a trial: what it replaced stays until it has held."""
+
+    @pytest.mark.asyncio
+    async def test_an_applied_update_keeps_what_it_replaced(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """The inverse of the rule this replaced (no copy left behind): the old
+        tree was deleted before the restart, so a version that died on start
+        had nothing to go back to and crashlooped with its room mute."""
+        state, real_venv = update_world
+        version, payload = identity_files
+        _, spawn = _spawner()
+
+        result = await _deploy(tmp_path, spawn)
 
         assert result["success"] is True
+        assert len(no_restart_timer) == 1
         assert (repo_dir / "app" / "main.py").read_text() == "new main\n"
-        assert version.read_text() == "v0.2.0"
-        assert payload.read_text() == "bbbb222"
-        assert not (repo_dir / "app.old").exists()
+        assert (repo_dir / "app.old" / "main.py").read_text() == "live main\n"
+        assert (real_venv.with_name("venv.old") / "marker").read_text() == "OLD"
+        assert (version.read_text(), payload.read_text()) == ("v0.2.0", "bbbb222")
+        assert (state / "app-payload.old").read_text() == "aaaa111"
+        assert (state / app_update_module.TRIAL_NAME).read_text().strip() == "bbbb222"
         assert not (repo_dir / "app.new").exists()
 
     @pytest.mark.asyncio
+    async def test_the_trial_is_open_before_the_swap(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """A power cut right after the swap must find a trial to roll back:
+        opened after it, the unit would boot the new code with nothing to say
+        it is on trial, and keep it however it fails."""
+        state, _ = update_world
+        real_rename = os.rename
+        open_at_swap = []
+
+        def _rename(src, dst):
+            if Path(dst) == repo_dir / "app.old":
+                open_at_swap.append(_trial_open(state))
+            return real_rename(src, dst)
+
+        _, spawn = _spawner()
+        with patch.object(app_update_module.os, "rename", _rename):
+            await _deploy(tmp_path, spawn)
+
+        assert open_at_swap == [True]
+
+    @pytest.mark.asyncio
+    async def test_the_venv_is_kept_and_pip_run_only_when_requirements_change(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """A venv is the largest thing on the card; copying it for a release
+        whose requirements did not move doubles its disk use for nothing, and
+        pip with unpinned `>=` lines would upgrade it for nothing too."""
+        _, real_venv = update_world
+        (repo_dir / "app" / "requirements.txt").write_text("aiohttp==3.9.0\n")
+        spawned, spawn = _spawner()
+
+        result = await _deploy(tmp_path, spawn)
+
+        assert result["success"] is True
+        assert not any(_ran_pip(argv) for argv in spawned)
+        assert not real_venv.with_name("venv.old").exists()
+        assert any(_ran_import(argv) for argv in spawned), "the import runs either way"
+
+    @pytest.mark.asyncio
+    async def test_dependencies_are_installed_before_the_root_deploy(
+        self, repo_dir, tmp_path, identity_files, no_restart_timer
+    ):
+        """The root deploy is the one step the rollback cannot undo, so it must
+        be the last one that can fail before the identity is written."""
+        spawned, spawn = _spawner()
+
+        result = await _deploy(tmp_path, spawn, root_files=ROOT_FILES)
+
+        assert result["success"] is True
+        pip_at = [i for i, argv in enumerate(spawned) if _ran_pip(argv)]
+        import_at = [i for i, argv in enumerate(spawned) if _ran_import(argv)]
+        deploy_at = [i for i, argv in enumerate(spawned) if _ran_deploy_script(argv)]
+        assert len(pip_at) == len(import_at) == len(deploy_at) == 1, spawned
+        assert pip_at[0] < import_at[0] < deploy_at[0]
+
+    @pytest.mark.asyncio
     async def test_the_shipped_configs_land_beside_the_app(
-        self, repo_dir, tmp_path, identity_files, working_pip
+        self, repo_dir, tmp_path, identity_files, no_restart_timer
     ):
         """configs/ is part of the payload fingerprint. Left out of the sync, a
         commit touching only the CamillaDSP config offered every satellite a
@@ -385,42 +502,186 @@ class TestDeployUpdateSuccess:
         live.mkdir(parents=True)
         (live / "config.yml").write_text("live devices\n")
         (live / "dropped.yml").write_text("dropped in the new release\n")
-        tarball = _make_tarball(
-            tmp_path,
-            {"main.py": "new main\n", "requirements.txt": "aiohttp==3.9.0\n"},
-            {"camilladsp/config.yml": "new devices\n"},
-        )
+        _, spawn = _spawner()
 
-        result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+        result = await _deploy(tmp_path, spawn, config_files={"camilladsp/config.yml": "new devices\n"})
 
         assert result["success"] is True
         assert (live / "config.yml").read_text() == "new devices\n"
         assert not (live / "dropped.yml").exists()
-        assert not (repo_dir / "configs.old").exists()
-        assert not (repo_dir / "configs.new").exists()
-
 
     @pytest.mark.asyncio
-    async def test_dependencies_are_installed_before_the_root_deploy(
-        self, repo_dir, tmp_path, identity_files
+    async def test_a_push_during_a_trial_is_refused(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
     ):
-        """The root deploy is the one step the rollback cannot undo, so it must
-        be the last one that can fail before the identity is written."""
-        tarball = _make_tarball(
-            tmp_path,
-            {"main.py": "new main\n", "requirements.txt": "aiohttp==3.9.0\n"},
-            root_files=ROOT_FILES,
-        )
-        spawned, spawn = _spawner(pip_returncode=0)
+        """A second push would overwrite app.old, the tree the first one's
+        rollback needs, with the version on trial."""
+        for push in ("first", "second"):
+            (tmp_path / push).mkdir()
+        _, spawn = _spawner()
+        await _deploy(tmp_path / "first", spawn)
+        spawned, spawn = _spawner()
 
-        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
-            result = await AppUpdateService().deploy_update(tarball, "bbbb222", "v0.2.0")
+        result = await _deploy(tmp_path / "second", spawn)
+
+        assert result["success"] is False
+        assert result["conflict"] is True
+        assert spawned == []
+        assert (repo_dir / "app.old" / "main.py").read_text() == "live main\n"
+
+    @pytest.mark.asyncio
+    async def test_the_layout_left_for_the_restart_is_one_the_guard_rolls_back(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """The two halves meet at the unit's start: three starts of a version
+        that keeps dying, and the third runs the code that was there before."""
+        state, real_venv = update_world
+        version, payload = identity_files
+        _, spawn = _spawner()
+        await _deploy(tmp_path, spawn)
+        env = {**app_update_module._guard_env(), "MILO_CLIENT_JOURNALCTL": "/bin/true"}
+
+        for _ in range(3):
+            subprocess.run([app_update_module.GUARD, "start"], env=env, check=True, timeout=30)
+
+        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
+        assert (real_venv / "marker").read_text() == "OLD"
+        assert (version.read_text(), payload.read_text()) == ("v0.1.0", "aaaa111")
+        assert _last_update(state)["outcome"] == "rolled_back"
+
+
+class TestTrialBoundaries:
+    """What a trial may not inherit from the update before it, and what a
+    pushed tree with no trial of its own leaves behind."""
+
+    @pytest.mark.asyncio
+    async def test_a_tree_that_runs_no_trial_is_applied_without_one(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """A retracted release from before the guard, pushed back: nothing in
+        it would ever commit, so a trial left open would refuse every push and
+        be rolled back over the next updater's deploy."""
+        state, real_venv = update_world
+        _, spawn = _spawner()
+
+        result = await _deploy(tmp_path, spawn, runs_trials=False)
 
         assert result["success"] is True
-        pip_at = [i for i, argv in enumerate(spawned) if _ran_pip(argv)]
-        deploy_at = [i for i, argv in enumerate(spawned) if _ran_deploy_script(argv)]
-        assert len(pip_at) == 1 and len(deploy_at) == 1, spawned
-        assert pip_at[0] < deploy_at[0]
+        assert len(no_restart_timer) == 1
+        assert (repo_dir / "app" / "main.py").read_text() == "new main\n"
+        assert not _trial_open(state)
+        assert not (repo_dir / "app.old").exists()
+        assert not real_venv.with_name("venv.old").exists()
+        assert _last_update(state)["outcome"] == "committed"
+
+    @pytest.fixture
+    def stuck_previous(self, repo_dir):
+        """An app.old milo-client cannot delete — a root-owned __pycache__ —
+        stood in for by a directory it may not write."""
+        stuck = repo_dir / "app.old" / "__pycache__"
+        stuck.mkdir(parents=True)
+        (stuck / "main.cpython-313.pyc").write_bytes(b"\x00")
+        stuck.chmod(0o500)
+        yield
+        stuck.chmod(0o700)
+
+    @pytest.mark.asyncio
+    async def test_a_kept_tree_that_cannot_be_cleared_refuses_the_update(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, stuck_previous
+    ):
+        """Kept as the trial's way back, the rollback would move the live app/
+        aside and put this partial tree in its place."""
+        state, _ = update_world
+        _, spawn = _spawner()
+
+        result = await _deploy(tmp_path, spawn)
+
+        assert result["success"] is False
+        assert "app.old" in result["error"]
+        assert not _trial_open(state)
+        assert _last_update(state) is None
+        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
+        assert no_restart_timer == []
+
+    @pytest.mark.asyncio
+    async def test_what_a_rollback_set_aside_is_deleted_by_the_next_update(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """The guard only renames inside TimeoutStartSec; a venv left aside is
+        the largest thing on the card."""
+        _, real_venv = update_world
+        for aside in (repo_dir / "app.discard", real_venv.with_name("venv.discard")):
+            aside.mkdir()
+        _, spawn = _spawner()
+
+        assert (await _deploy(tmp_path, spawn))["success"] is True
+
+        assert not (repo_dir / "app.discard").exists()
+        assert not real_venv.with_name("venv.discard").exists()
+
+
+class TestCommitTrial:
+    """The new process ends its own trial once it has held."""
+
+    @pytest.mark.asyncio
+    async def test_a_commit_that_failed_is_tried_again(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """Left open over a version that held, the trial refuses every push and
+        rolls that version back two restarts later."""
+        state, _ = update_world
+        _, spawn = _spawner()
+        await _deploy(tmp_path, spawn)
+        commits = []
+
+        async def _first_commit_times_out(*argv, **kwargs):
+            if argv[0] == app_update_module.GUARD and argv[1] == "commit":
+                commits.append(argv)
+                if len(commits) == 1:
+                    raise asyncio.TimeoutError()
+            return await spawn(*argv, **kwargs)
+
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", _first_commit_times_out), \
+                patch.object(app_update_module, "COMMIT_RETRY_S", 0):
+            await AppUpdateService().commit_trial("bbbb222")
+
+        assert len(commits) == 2
+        assert not _trial_open(state)
+        assert _last_update(state)["outcome"] == "committed"
+
+    @pytest.mark.asyncio
+    async def test_the_version_on_trial_commits_itself(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        state, real_venv = update_world
+        _, spawn = _spawner()
+        await _deploy(tmp_path, spawn)
+
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            await AppUpdateService().commit_trial("bbbb222")
+
+        assert not _trial_open(state)
+        assert _last_update(state)["outcome"] == "committed"
+        assert not (repo_dir / "app.old").exists()
+        assert not real_venv.with_name("venv.old").exists()
+
+    @pytest.mark.asyncio
+    async def test_a_process_running_other_code_never_commits_the_trial(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """A process whose own hold was still counting when it took the push:
+        committing then would bless a version that has not run once."""
+        state, _ = update_world
+        _, spawn = _spawner()
+        await _deploy(tmp_path, spawn)
+        spawned, spawn = _spawner()
+
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            await AppUpdateService().commit_trial("aaaa111")
+
+        assert spawned == []
+        assert _trial_open(state)
+        assert (repo_dir / "app.old").exists()
 
 
 class TestRestartOutcome:
@@ -433,28 +694,43 @@ class TestRestartOutcome:
     a satellite means the one log surface it has cries wolf.
     """
 
-    async def _restart_with(self, returncode, caplog):
-        proc = AsyncMock()
-        proc.returncode = returncode
-        proc.communicate = AsyncMock(return_value=(b"", b""))
-
-        with patch.object(app_update_module.asyncio, "create_subprocess_exec",
-                          AsyncMock(return_value=proc)):
+    async def _restart_after_deploy(self, tmp_path, returncode, caplog):
+        _, spawn = _spawner(restart_returncode=returncode)
+        assert (await _deploy(tmp_path, spawn))["success"] is True
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
             with caplog.at_level(logging.ERROR):
                 await AppUpdateService()._restart_service()
-        return caplog.records
+        return [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     @pytest.mark.asyncio
-    async def test_a_restart_that_killed_us_is_not_a_failure(self, caplog):
-        assert await self._restart_with(-15, caplog) == []
+    async def test_a_restart_that_killed_us_is_not_a_failure(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, caplog
+    ):
+        state, _ = update_world
+
+        assert await self._restart_after_deploy(tmp_path, -15, caplog) == []
+        assert _trial_open(state), "the new process ends the trial, not this one"
 
     @pytest.mark.asyncio
-    async def test_a_systemctl_that_refused_is(self, caplog):
-        """A masked unit, or one the deploy step just made invalid."""
-        records = await self._restart_with(1, caplog)
+    async def test_a_systemctl_that_refused_puts_the_previous_version_back(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, caplog
+    ):
+        """A masked unit, or one the deploy step just made invalid. Left open,
+        the trial would sit over a process still running the old code until
+        the next start — a reboot weeks later — landed in a version nothing
+        ever tried."""
+        state, _ = update_world
+        version, payload = identity_files
 
-        assert len(records) == 1
-        assert "Exit code 1" in records[0].message
+        records = await self._restart_after_deploy(tmp_path, 1, caplog)
+
+        assert any("masked" in r.getMessage() for r in records)
+        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
+        assert payload.read_text() == "aaaa111"
+        record = _last_update(state)
+        assert record["outcome"] == "rolled_back"
+        assert record["detail"].startswith("restart refused:")
+        assert not _trial_open(state)
 
 
 def _tarball_of(tmp_path, members) -> str:

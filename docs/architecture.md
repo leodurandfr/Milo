@@ -825,6 +825,51 @@ moment, a timeout, a refusal — each one WARNING) is caught up only at that
 satellite's next admission, so `sat conf all` can disagree with the server until
 then.
 
+**How a satellite takes an app update:** as a trial it can end on its own. The
+server posts the `milo-client/` tree to `POST :8001/app/update`; the satellite
+(`milo-client/app/services/app_update.py`) opens the trial
+(`/var/lib/milo-client/update-trial`) before it swaps anything, keeps what it
+replaces (`app.old`, `configs.old`, the identity files as `.old`, and a copy of
+the venv only when `requirements.txt` changed, the one case it runs pip), imports
+the new app with the venv's python, runs the root deploy, and restarts. A step
+that fails before the restart, the import included, is put back before the
+satellite answers, so a refused push never cuts the room; a push during a trial
+answers 409. From then on `milo-client-update-guard` decides, run as
+milo-client without sudo: as `ExecStartPre=-` of `milo-client.service` it counts
+the starts of the new version, and the third start runs the previous one, put
+back (two real tries, a reboot or a `sat restart` counting as one); the new
+process ends the trial itself once it has stayed up 120 s after READY=1, which
+is sent only once :8001 listens. Either end is written to `last-update.json`
+(`committed`, or `rolled_back` with the journal line that says why), which
+`GET :8001/status` reports as `app.last_update` beside `app.trial`, and which the
+server turns into a verdict per satellite. The root layer — units, sudoers,
+helpers — is never rolled back: it is installed after the import check, file by
+file through a rename, and every shell script both rootfs trees ship must parse
+(`backend/tests/architecture/test_satellite_update_trial.py`).
+
+The server (`backend/core/updates/satellite.py::update_satellite_app`) follows
+the satellite's `/status` until it reads one of four verdicts: `committed` (the
+pushed payload runs, no trial open, and a committed `last_update` for it — or
+none at all, for the push that installs the guard, applied by the updater it
+replaces), `rolled_back` (a new `last_update` says so, its `detail` the
+satellite's error line), `rejected` (the POST answered an error, the import
+check and a 409 included: nothing restarted) or `did_not_return` (nothing final
+before `APP_UPDATE_CEILING_S`, held above the slowest trial a satellite can run by
+`backend/tests/architecture/test_satellite_app_ceiling.py`). A POST that times
+out is not a verdict: the wait keeps reading `/status`, and re-reads the
+satellite's address from the registry, since it may come back over its WiFi
+link. Every verdict but `committed` is kept in `updates.satellite_app_failures`
+(one entry per MAC, cleared once that satellite reports the payload committed,
+whether or not the server followed that push; a rollback the satellite recorded
+of the payload on offer is taken in when no wait recorded it), and
+`GET /api/programs/satellites` lists an offline satellite that holds one, so its
+row still says why and offers the retry. A push that reached no satellite
+records nothing. A pushed tree that ships no guard (a release from before it,
+pushed back) is applied without a trial, since nothing in it would close one. Two app pushes never run at once, and a
+Milō update's fleet push stops at the first satellite that rolls back or does not
+return: the rest are held back on the app they run, and a satellite that already
+went back from this payload is not pushed again.
+
 ## DSP Processing (CamillaDSP)
 
 **What is it?**

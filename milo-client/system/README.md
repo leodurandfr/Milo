@@ -10,6 +10,9 @@ This directory contains systemd service files for Milo Client satellites. These 
 - **Dependencies**: network.target
 - **Startup**: Enabled at boot
 - **Notes**: Manages local volume control and communicates with main Milo
+- **Updates**: `ExecStartPre=-/usr/local/bin/milo-client-update-guard start` counts the starts of an app
+  version on trial and puts the previous one back at the third; the new process ends the trial after
+  holding 120 s (see docs/architecture.md, "How a satellite takes an app update")
 
 ### milo-client-snapclient.service
 - **Role**: Snapcast client for synchronized multiroom audio

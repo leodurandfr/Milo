@@ -289,6 +289,20 @@ describe('updatesStore in-flight update state', () => {
     expect(store.isMiloUpdating()).toBe(false);
   });
 
+  it('holds every app push while one runs, and nothing else', async () => {
+    // The server refuses a second app push whatever the satellite (one room
+    // cut at a time); an enabled button there spins, is refused and drops
+    // back with nothing on screen to say why.
+    apiCall.get.mockResolvedValue(ok({ programs: { milo: {} }, active_updates: [] }));
+    await store.loadLocalPrograms();
+    apiCall.post.mockResolvedValue(ok({ message: 'started' }));
+
+    await store.startSatelliteAppUpdate('aa:bb:cc:dd:ee:ff');
+
+    expect(store.isSatelliteAppBlocked('11:22:33:44:55:66')).toBe(true);
+    expect(store.isSatelliteBusy('11:22:33:44:55:66')).toBe(false);
+  });
+
   /** Park every inventory request until the test releases it, oldest first. */
   function deferInventory() {
     const pending = [];
@@ -426,5 +440,96 @@ describe('updatesStore in-flight update state', () => {
     pending[3](ok({ programs: {}, active_updates: [] }));
     await fourth;
     expect(store.localProgramsLoading).toBe(false);
+  });
+});
+
+describe('updatesStore satellite app push failure', () => {
+  const MAC = 'd8:3a:dd:68:e7:e4';
+  const PAYLOAD = '3f1c9a0e';
+  let store;
+
+  const failure = (verdict, detail) => ({ payload: PAYLOAD, verdict, detail, at: 1_763_200_000 });
+  const fleet = (row = {}) => ok({ satellites: [{ mac_id: MAC, online: true, app_update_failure: null, ...row }] });
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useUpdatesStore();
+    useMultiroomStore().clients.set(MAC, { mac_id: MAC, online: true });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps a failed push on the row and reads the fleet again', async () => {
+    // The satellite that went back to its previous version restarted as well:
+    // without a read its row keeps the state it had before the push, and the
+    // cause is gone with the spinner.
+    const detail = "ModuleNotFoundError: No module named 'zeroconf'";
+    apiCall.get.mockResolvedValue(fleet({ app_update_failure: failure('rolled_back', detail) }));
+
+    store.handleSatelliteAppUpdateComplete({ mac_id: MAC, success: false, verdict: 'rolled_back', detail });
+    // Before any read answers: probing a satellite that did not return takes
+    // the server its whole timeout, and the row has the cause meanwhile.
+    expect(store.satelliteAppFailure(MAC)).toEqual({ verdict: 'rolled_back', detail });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(apiCall.get).toHaveBeenCalledWith('/api/programs/satellites', expect.anything());
+    expect(store.satelliteAppFailure(MAC)).toEqual({ verdict: 'rolled_back', detail });
+    expect(store.isSatelliteAppUpdating(MAC)).toBe(false);
+  });
+
+  it('clears the failure once a later push of that satellite succeeds', async () => {
+    apiCall.get.mockResolvedValue(fleet({ app_update_failure: failure('did_not_return', null) }));
+    await store.loadSatellites();
+    expect(store.satelliteAppFailure(MAC)).not.toBeNull();
+
+    apiCall.get.mockResolvedValue(fleet());
+    store.handleSatelliteAppUpdateComplete({ mac_id: MAC, success: true, verdict: 'committed', detail: null });
+
+    expect(store.satelliteAppFailure(MAC)).toBeNull();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.satelliteAppFailure(MAC)).toBeNull();
+  });
+
+  it('shows after a reload the failure the server remembers, for a satellite that does not answer', async () => {
+    // A unit that never came back is listed by the server only because of its
+    // failure: the page opened afterwards has no WS event to learn it from.
+    const detail = 'TimeoutError: ';
+    apiCall.get.mockResolvedValue(fleet({ online: false, app_update_failure: failure('did_not_return', detail) }));
+
+    await store.loadSatellites();
+
+    expect(store.satelliteAppFailure(MAC)).toEqual({ verdict: 'did_not_return', detail });
+  });
+
+  it('forgets a failure the server no longer lists', async () => {
+    // Cleared on the server by a success another device pushed: the row would
+    // otherwise go on showing a cause that is over.
+    apiCall.get.mockResolvedValue(fleet({ app_update_failure: failure('rejected', '409') }));
+    await store.loadSatellites();
+
+    apiCall.get.mockResolvedValue(ok({ satellites: [] }));
+    await store.loadSatellites();
+
+    expect(store.satelliteAppFailure(MAC)).toBeNull();
+  });
+
+  it('keeps a failure that lands while the fleet read is in flight', async () => {
+    // That answer was read before the push ended; erasing the failure on it
+    // would drop the one word of it this client gets until the next read.
+    apiCall.get.mockResolvedValue(fleet());
+    await store.loadSatellites();
+    let answer;
+    apiCall.get.mockReturnValueOnce(new Promise(resolve => { answer = resolve; }))
+      .mockResolvedValue(fleet({ app_update_failure: failure('rolled_back', null) }));
+    const load = store.loadSatellites();
+
+    store.handleSatelliteAppUpdateComplete({ mac_id: MAC, success: false, verdict: 'rolled_back', detail: null });
+    answer(fleet());
+    await load;
+
+    expect(store.satelliteAppFailure(MAC)).toEqual({ verdict: 'rolled_back', detail: null });
   });
 });

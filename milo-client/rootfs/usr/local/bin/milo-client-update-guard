@@ -1,0 +1,335 @@
+#!/usr/bin/python3 -I
+"""milo-client-update-guard — the trial of a pushed app update, and its rollback.
+
+An app update pushed from the server lands on a speaker in an occupied room and
+restarts it. A new version that dies on start used to crashloop under
+`Restart=always` for good, since the tree it replaced was deleted before the
+restart: the room stayed mute and the update API, served by that same app, was
+gone with it. So the updater (app/services/app_update.py) now opens a *trial*
+before it swaps anything in, keeps what it replaced, and this script decides the
+trial's end — the only implementation of the rollback, which the updater calls
+too when a step fails after the swap.
+
+Runs as milo-client, never through sudo, with the system python and the
+standard library alone: it must work while the venv it may have to put back is
+the broken part.
+
+  start            ExecStartPre=- of milo-client.service, every start. No trial
+                   open: nothing. A trial open: count this start; the start that
+                   brings the count to MAX_ATTEMPTS puts the previous version
+                   back before the app runs, so a new version gets
+                   MAX_ATTEMPTS - 1 real starts (2) and the next one runs the old
+                   code. A start that cannot be counted is a rollback too. An
+                   update that never finished (app/ missing, a staging `.new`
+                   tree left, the identity still the one the trial replaced) is
+                   put back at once. A trial the identity names neither side of
+                   was left by an updater that predates trials: it is closed,
+                   and nothing is put back. What the rollback replaced is only
+                   renamed `.discard` here, inside TimeoutStartSec; the next
+                   update's updater deletes it.
+  restore [detail] The same rollback, run synchronously by the updater.
+  commit           The new version held: drop what was kept. No trial: nothing.
+
+State, under STATE_DIR (paths overridable for tests):
+  update-trial           the payload on trial, one line; present = trial open
+  update-trial.attempts  starts counted during this trial
+  last-update.json       {"payload", "outcome": committed|rolled_back, "detail", "at"}
+  app-version.old, app-payload.old   the identity the trial replaced
+and next to the trees: app.old, configs.old under REPO_DIR, venv.old beside the
+venv's real path (only when the update changed requirements.txt).
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+MAX_ATTEMPTS = 3
+
+REPO_DIR = Path(os.environ.get("MILO_CLIENT_REPO_DIR", "/home/milo-client/repo/milo-client"))
+STATE_DIR = Path(os.environ.get("MILO_CLIENT_STATE_DIR", "/var/lib/milo-client"))
+VENV_DIR = Path(os.environ.get("MILO_CLIENT_VENV", "/home/milo-client/venv"))
+JOURNALCTL = os.environ.get("MILO_CLIENT_JOURNALCTL", "journalctl")
+UNIT = "milo-client.service"
+
+# Held equal to app/services/app_update.py by
+# backend/tests/architecture/test_satellite_update_trial.py: the updater opens
+# what this script closes, across releases.
+TRIAL_NAME = "update-trial"
+ATTEMPTS_NAME = "update-trial.attempts"
+LAST_UPDATE_NAME = "last-update.json"
+VERSION_NAME = "app-version"
+PAYLOAD_NAME = "app-payload"
+OLD_SUFFIX = ".old"
+STAGING_SUFFIX = ".new"
+SYNCED_TREES = ("app", "configs")
+
+# The step-aside name of a tree being put back. Not STAGING_SUFFIX: a `.new`
+# tree left on disk means a swap was cut, and `start` restores on sight of one.
+DISCARD_SUFFIX = ".discard"
+DETAIL_MAX = 500
+
+# What a Python failure ends on ("ModuleNotFoundError: No module named 'x'"),
+# preferred over any other line that merely mentions an error.
+EXCEPTION_RE = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt)\b(?::.*)?$")
+ERRORISH_RE = re.compile(r"\b(?:ERROR|CRITICAL|Error|error|Failed|failed|Traceback)\b")
+PROG = "milo-client-update-guard"
+
+
+def _say(message: str) -> None:
+    print(f"{PROG}: {message}", file=sys.stderr, flush=True)
+
+
+def _error(message: str) -> None:
+    # stderr reaches the journal at priority 6 whatever it says, so the level
+    # lives in the text, where `ERROR:` greps find it.
+    print(f"ERROR: {PROG}: {message}", file=sys.stderr, flush=True)
+
+
+def _state(name: str) -> Path:
+    return STATE_DIR / name
+
+
+def _venv_real() -> Path:
+    return Path(os.path.realpath(VENV_DIR))
+
+
+def _with_suffix(path: Path, suffix: str) -> Path:
+    return path.with_name(path.name + suffix)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    tmp = _with_suffix(path, ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def _trial_payload() -> str | None:
+    try:
+        lines = _state(TRIAL_NAME).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return None
+    return lines[0].strip() if lines else ""
+
+
+def _attempts() -> int:
+    try:
+        return int(_state(ATTEMPTS_NAME).read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
+        return 0
+
+
+def _record(payload: str, outcome: str, detail: str | None) -> None:
+    """Best effort: a full card must not keep a trial open over a version
+    already put back or already kept."""
+    try:
+        _write_atomic(_state(LAST_UPDATE_NAME), json.dumps({
+            "payload": payload,
+            "outcome": outcome,
+            "detail": detail,
+            "at": int(time.time()),
+        }) + "\n")
+    except OSError as e:
+        _error(f"{outcome} of {payload} not recorded: {type(e).__name__}: {e}")
+
+
+def _read_state(name: str) -> str | None:
+    try:
+        return _state(name).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+
+
+def _close_trial() -> None:
+    # The trial file first: once it is gone no start can roll back, so nothing
+    # after this line can put back a half-dropped set of trees.
+    for name in (TRIAL_NAME, ATTEMPTS_NAME):
+        _state(name).unlink(missing_ok=True)
+
+
+def _put_back(live: Path, purge: bool) -> bool:
+    """`<live>.old` becomes `<live>` again; False when nothing was kept.
+
+    Without `purge` the tree it replaces is only renamed aside: deleting a
+    venv on an SD card can outlast the TimeoutStartSec the rollback runs in.
+    """
+    previous = _with_suffix(live, OLD_SUFFIX)
+    discard = _with_suffix(live, DISCARD_SUFFIX)
+    shutil.rmtree(discard, ignore_errors=True)
+    if purge:
+        shutil.rmtree(_with_suffix(live, STAGING_SUFFIX), ignore_errors=True)
+    if not previous.is_dir():
+        return False
+    if live.exists() or live.is_symlink():
+        os.rename(live, discard)
+    os.rename(previous, live)
+    if purge:
+        shutil.rmtree(discard, ignore_errors=True)
+    return True
+
+
+def _journal_detail(since: float) -> str | None:
+    """The line that best says why the tries failed, read from this unit's journal."""
+    try:
+        result = subprocess.run(
+            [JOURNALCTL, "-u", UNIT, "-o", "cat", "--no-pager", "-q",
+             "--since", f"@{int(since)}"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _error(f"journal unreadable: {type(e).__name__}: {e}")
+        return None
+    lines = [
+        line.strip() for line in result.stdout.splitlines()
+        if line.strip() and PROG not in line
+    ]
+    for pattern in (EXCEPTION_RE, ERRORISH_RE):
+        for line in reversed(lines):
+            if pattern.search(line):
+                return line[:DETAIL_MAX]
+    return None
+
+
+def restore(detail: str | None, purge: bool = True) -> int:
+    payload = _trial_payload()
+    if payload is None:
+        _say("no update on trial, nothing to restore")
+        return 0
+    if detail is None:
+        try:
+            since = _state(TRIAL_NAME).stat().st_mtime
+        except FileNotFoundError:
+            since = time.time()
+        detail = _journal_detail(since) or (
+            f"did not stay up through {max(_attempts() - 1, 1)} start(s)"
+        )
+
+    failed = []
+    for name in SYNCED_TREES:
+        try:
+            _put_back(REPO_DIR / name, purge)
+        except OSError as e:
+            failed.append(f"{name}/: {e}")
+    try:
+        _put_back(_venv_real(), purge)
+    except OSError as e:
+        failed.append(f"venv: {e}")
+    if failed:
+        # The identity stays the trial's, so the next start still reads this
+        # trial as its own and retries; put back now, it would name neither
+        # side and the trial would be closed over a half-restored install.
+        os.sync()
+        _error(f"rollback from {payload} incomplete: {'; '.join(failed)}")
+        return 1
+    for name in (VERSION_NAME, PAYLOAD_NAME):
+        previous = _state(name + OLD_SUFFIX)
+        try:
+            if previous.exists():
+                os.replace(previous, _state(name))
+        except OSError as e:
+            failed.append(f"{name}: {e}")
+    os.sync()
+
+    if failed:
+        # The trial stays open, so the next start tries the rollback again.
+        _error(f"rollback from {payload} incomplete: {'; '.join(failed)}")
+        return 1
+    detail = detail[:DETAIL_MAX]
+    _record(payload, "rolled_back", detail)
+    _close_trial()
+    _error(f"rolled back from {payload}: {detail}")
+    return 0
+
+
+def commit() -> int:
+    payload = _trial_payload()
+    if payload is None:
+        return 0
+    # Closed first, so no start can roll back a half-dropped set of trees, and
+    # recorded last, once the kept copies have freed what a full card needs.
+    _close_trial()
+    for name in SYNCED_TREES:
+        for suffix in (OLD_SUFFIX, DISCARD_SUFFIX):
+            shutil.rmtree(_with_suffix(REPO_DIR / name, suffix), ignore_errors=True)
+    for suffix in (OLD_SUFFIX, DISCARD_SUFFIX):
+        shutil.rmtree(_with_suffix(_venv_real(), suffix), ignore_errors=True)
+    for name in (VERSION_NAME, PAYLOAD_NAME):
+        _state(name + OLD_SUFFIX).unlink(missing_ok=True)
+    _record(payload, "committed", None)
+    _say(f"update to {payload} committed")
+    return 0
+
+
+def _update_unfinished(payload: str) -> str | None:
+    if not (REPO_DIR / "app").is_dir():
+        return "app/ is missing"
+    for name in SYNCED_TREES:
+        if _with_suffix(REPO_DIR / name, STAGING_SUFFIX).exists():
+            return f"the swap of {name}/ was cut"
+    # The identity is the deploy's last write before the restart, and the new
+    # process commits only the payload it names: a trial whose identity is
+    # still the one it replaced was cut before it got there, and would never
+    # commit, refusing every push (409) until two more starts rolled it back.
+    if (_read_state(PAYLOAD_NAME) or "") != payload:
+        return "it was cut before its identity was written"
+    return None
+
+
+def _left_by_another_updater(payload: str) -> bool:
+    """A trial the identity names neither side of: an updater that knows no
+    trial (a release before this guard) deployed since it was opened, so what
+    it kept is stale, and putting it back would undo that deploy."""
+    identity = _read_state(PAYLOAD_NAME) or ""
+    previous = _read_state(PAYLOAD_NAME + OLD_SUFFIX)
+    return identity != payload and identity != previous
+
+
+def start() -> int:
+    payload = _trial_payload()
+    if payload is None:
+        return 0
+    if _left_by_another_updater(payload):
+        _close_trial()
+        for name in (VERSION_NAME, PAYLOAD_NAME):
+            _state(name + OLD_SUFFIX).unlink(missing_ok=True)
+        _say(f"trial of {payload} left open by an updater that does not run trials: closed")
+        return 0
+    unfinished = _update_unfinished(payload)
+    if unfinished:
+        return restore(f"the update did not finish: {unfinished}", purge=False)
+    attempts = _attempts() + 1
+    try:
+        _write_atomic(_state(ATTEMPTS_NAME), f"{attempts}\n")
+    except OSError as e:
+        # Run uncounted, a version that keeps dying would never be put back.
+        return restore(f"the trial's start could not be counted: {type(e).__name__}: {e}", purge=False)
+    if attempts >= MAX_ATTEMPTS:
+        return restore(None, purge=False)
+    _say(f"trial of {payload}: start {attempts} of {MAX_ATTEMPTS - 1}")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[1] not in ("start", "restore", "commit"):
+        _error("usage: milo-client-update-guard start | restore [detail] | commit")
+        return 2
+    command = argv[1]
+    try:
+        if command == "start":
+            return start()
+        if command == "commit":
+            return commit()
+        return restore(" ".join(argv[2:]).strip() or None)
+    except Exception as e:  # the last word of a unit nobody watches: say it, never raise
+        _error(f"{command} failed: {type(e).__name__}: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

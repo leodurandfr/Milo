@@ -10,7 +10,7 @@ import re
 import aiofiles
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, get_args
 
 from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
@@ -28,6 +28,7 @@ from backend.config.constants import (
     VALID_DOCK_APPS,
     VALID_LANGUAGES,
 )
+from backend.core.models.ws_events import SatelliteAppVerdict
 from backend.hardware.fan import (
     TARGET_TEMP_DEFAULT_C,
     VALID_MODES,
@@ -153,7 +154,12 @@ class SettingsService:
                 # the one `dependencies.env` declares, to try it before the set
                 # is bumped. Empty is the normal state: the manifest is what a
                 # unit runs. `VersionService.get_forced_versions` resolves it.
-                "forced_versions": {}
+                "forced_versions": {},
+                # {mac: {payload, verdict, detail, at}} — the last client-app
+                # push each satellite did not take, kept until that satellite's
+                # next committed push. Remembered here because the satellite
+                # that failed may be the one that no longer answers.
+                "satellite_app_failures": {}
             },
             # The `mac` section is the macOS/ROC link's tuning — roc-recv here and
             # the Mac's roc-vad sender, applied by Milo-Mac — not a MAC address. It used to be the one section with defaults that
@@ -245,6 +251,29 @@ class SettingsService:
         except Exception as e:
             self.logger.error(f"Error saving settings: {e}")
             return False
+
+    @staticmethod
+    def _validated_app_failures(stored: Any, default: Dict[str, Any]) -> Dict[str, Any]:
+        """`updates.satellite_app_failures`, entry by entry: a malformed entry
+        is dropped rather than repaired."""
+        if not isinstance(stored, dict):
+            return dict(default)
+        failure_verdicts = set(get_args(SatelliteAppVerdict)) - {"committed"}
+        return {
+            str(mac): {
+                "payload": entry["payload"],
+                "verdict": entry["verdict"],
+                "detail": entry.get("detail") if isinstance(entry.get("detail"), str) else None,
+                "at": int(entry["at"]),
+            }
+            for mac, entry in stored.items()
+            if isinstance(entry, dict)
+            # None: the push failed before a payload was built (an unknown MAC).
+            and (entry.get("payload") is None or isinstance(entry.get("payload"), str))
+            and entry.get("verdict") in failure_verdicts
+            and isinstance(entry.get("at"), (int, float))
+            and not isinstance(entry.get("at"), bool)
+        }
 
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Validation and merge with defaults - Support 0 = disabled
@@ -427,7 +456,13 @@ class SettingsService:
                 str(key): version
                 for key, version in forced_input.items()
                 if isinstance(version, str) and VERSION_PATTERN.match(version)
-            } if isinstance(forced_input, dict) else dict(d['updates']['forced_versions'])
+            } if isinstance(forced_input, dict) else dict(d['updates']['forced_versions']),
+            'satellite_app_failures': self._validated_app_failures(
+                settings.get('updates', {}).get(
+                    'satellite_app_failures', d['updates']['satellite_app_failures']
+                ),
+                d['updates']['satellite_app_failures'],
+            ),
         }
 
         # Multiroom (client_types for crossover) - Preserve multiroom section without strict validation

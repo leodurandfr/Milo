@@ -87,8 +87,8 @@ def snapclient_service():
 
 @pytest.fixture
 def identity_at_startup(tmp_path):
-    """A satellite that came up on v0.1.0 / OLDPAYLOAD, with the identity files
-    left writable the way a deploy writes them.
+    """A satellite that came up on v0.1.0 / OLDPAYLOAD, with its state directory
+    (identity, trial) under tmp_path, writable the way a deploy writes it.
 
     `routes.health`, which reads the identity for both routes that report it, is
     re-imported under the patched paths, which is what a process start does; it
@@ -100,14 +100,42 @@ def identity_at_startup(tmp_path):
     import routes.health
     import services.app_update as app_update_module
 
-    version = tmp_path / "app-version"
-    payload = tmp_path / "app-payload"
+    state = tmp_path / "state"
+    state.mkdir(exist_ok=True)
+    version = state / app_update_module.VERSION_NAME
+    payload = state / app_update_module.PAYLOAD_NAME
     version.write_text("v0.1.0")
     payload.write_text("OLDPAYLOAD")
     try:
-        with patch.object(app_update_module, "VERSION_FILE", version), \
-                patch.object(app_update_module, "PAYLOAD_FILE", payload):
+        with patch.object(app_update_module, "STATE_DIR", state):
             importlib.reload(routes.health)
             yield version, payload
     finally:
         importlib.reload(routes.health)
+
+
+# The real guard, shipped beside the app in this tree.
+UPDATE_GUARD = Path(__file__).resolve().parents[2] / "rootfs" / "usr" / "local" / "bin" / "milo-client-update-guard"
+
+
+@pytest.fixture
+def update_world(tmp_path):
+    """Where an update keeps its trial, redirected under tmp_path: the state
+    directory, a venv reached through a symlink as on a unit, and the real
+    `milo-client-update-guard`, which the updater hands these same paths.
+
+    REPO_DIR is left to the test, which lays out the live app/ it needs.
+    """
+    import services.app_update as app_update_module
+
+    state = tmp_path / "state"
+    state.mkdir(exist_ok=True)
+    real_venv = tmp_path / "real" / "venv"
+    (real_venv / "bin").mkdir(parents=True)
+    (real_venv / "marker").write_text("OLD")
+    venv = tmp_path / "venv"
+    venv.symlink_to(real_venv)
+    with patch.object(app_update_module, "STATE_DIR", state), \
+            patch.object(app_update_module, "VENV_DIR", venv), \
+            patch.object(app_update_module, "GUARD", str(UPDATE_GUARD)):
+        yield state, real_venv

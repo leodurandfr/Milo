@@ -144,9 +144,10 @@ def test_the_servers_own_call_passes(client, host):
     assert client.post("/definitely-not-a-route", headers={"Host": host}).status_code == 404
 
 
-def test_the_servers_update_push_still_reaches_the_deploy_step(client, sudo):
+def test_the_servers_update_push_still_reaches_the_deploy_step(client, sudo, update_world):
     """The update endpoint carries every later fix, the gate's included: a push
-    the gate refused could only be undone over SSH, unit by unit."""
+    the gate refused could only be undone over SSH, unit by unit. The update's
+    trial state is kept under tmp_path (`update_world`)."""
     client.post("/app/update", **_update_form())
 
     assert _sudo_ran(sudo, DEPLOY_SCRIPT)

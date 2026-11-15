@@ -7,7 +7,7 @@ import tempfile
 import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
-from services.app_update import AppUpdateService
+from services.app_update import AppUpdateService, trial_payload
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +22,16 @@ def create_app_update_router(app_update_service: AppUpdateService) -> APIRouter:
         payload: str = Form(...),
         version: str = Form(...),
     ):
-        """Receives and deploys an app update tarball from the main server."""
+        """Receives and deploys an app update tarball from the main server.
+
+        409 while an update runs or a pushed version is still on trial: a second
+        push would replace the trees the first one's rollback needs.
+        """
         if app_update_service.update_in_progress:
             raise HTTPException(status_code=409, detail="Update already in progress")
+        on_trial = trial_payload()
+        if on_trial is not None:
+            raise HTTPException(status_code=409, detail=f"An update to {on_trial} is still on trial")
 
         # Save uploaded tarball to temp file
         try:
@@ -40,7 +47,8 @@ def create_app_update_router(app_update_service: AppUpdateService) -> APIRouter:
         result = await app_update_service.deploy_update(tarball_path, payload, version)
 
         if not result["success"]:
-            raise HTTPException(status_code=500, detail=result.get("error", "Update failed"))
+            status = 409 if result.get("conflict") else 500
+            raise HTTPException(status_code=status, detail=result.get("error", "Update failed"))
 
         return {
             "status": "success",

@@ -1045,15 +1045,28 @@ class SatelliteAppUpdateProgress(ProgramsProgressEvent):
     mac_id: str
 
 
+# How one push of the client app to one satellite ended. `committed`: the new
+# version ran HOLD_S without crashing and the satellite dropped the previous one.
+# `rolled_back`: the satellite's guard put the previous version back. `rejected`:
+# the satellite refused the push before restarting anything. `did_not_return`:
+# no final state was seen before the server stopped waiting.
+SatelliteAppVerdict = Literal["committed", "rolled_back", "did_not_return", "rejected"]
+
+
 class SatelliteAppUpdateComplete(ProgramsCompleteEvent):
     """An update of a satellite's Milō app finished; `success` says whether it
-    worked.
+    worked, `verdict` how it ended (`committed`, `rolled_back` — the satellite
+    went back to its previous version —, `did_not_return` or `rejected`) and
+    `detail` the satellite's own error line, if any.
 
-    Zod programs.satellite_app_update_complete → App.vue (spinner off + REST refetch).
+    Zod programs.satellite_app_update_complete → App.vue (spinner off + REST
+    refetch) → updatesStore, which keeps the failure on the satellite's row.
     """
     TYPE = "satellite_app_update_complete"
     source: Literal["satellite_update"] = "satellite_update"
     mac_id: str
+    verdict: Optional[SatelliteAppVerdict] = None
+    detail: Optional[str] = None
 
 
 class SatelliteCamillaDspUpdateProgress(ProgramsProgressEvent):

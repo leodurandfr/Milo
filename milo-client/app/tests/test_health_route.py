@@ -46,9 +46,16 @@ def _status_client(app_update_service: AppUpdateService) -> TestClient:
 
 
 def _tarball(tmp_path) -> str:
+    """A release that runs trials: its unit starts the guard it ships."""
     staged = tmp_path / "tarball-src" / "milo-client" / "app"
     staged.mkdir(parents=True)
     (staged / "main.py").write_text("new main\n")
+    unit = staged.parent / "system" / "milo-client.service"
+    unit.parent.mkdir()
+    unit.write_text("[Service]\nExecStartPre=-/usr/local/bin/milo-client-update-guard start\n")
+    guard = staged.parent / "rootfs" / "usr" / "local" / "bin" / "milo-client-update-guard"
+    guard.parent.mkdir(parents=True)
+    guard.write_text("#!/usr/bin/python3 -I\n")
     tarball = tmp_path / "update.tar.gz"
     with tarfile.open(tarball, "w:gz") as tar:
         tar.add(str(staged.parent), arcname="milo-client")
@@ -67,11 +74,17 @@ def repo_dir(tmp_path):
     os.chdir(cwd)
 
 
+_real_exec = asyncio.create_subprocess_exec
+
+
 def _refusing_restart(spawned):
-    """Stands in for sudo and pip — the outside world: pip installs, and
-    systemd refuses the restart the way a masked unit does."""
+    """Stands in for sudo, pip and the venv's python — the outside world: they
+    succeed, and systemd refuses the restart the way a masked unit does. The
+    update guard is this tree's own script and runs for real."""
     async def _spawn(*argv, **kwargs):
         spawned.append(argv)
+        if argv[0] == app_update_module.GUARD:
+            return await _real_exec(*argv, **kwargs)
         proc = AsyncMock()
         refused = "restart" in argv
         proc.returncode = 1 if refused else 0
@@ -83,10 +96,11 @@ def _refusing_restart(spawned):
 
 @pytest.mark.asyncio
 async def test_status_reports_the_identity_the_process_started_with(
-    tmp_path, repo_dir, identity_at_startup
+    tmp_path, repo_dir, identity_at_startup, update_world
 ):
     """The update has run and its restart was refused: /status must still name
-    the code that answers, so the server keeps offering this unit the push."""
+    the code that answers, so the server keeps offering this unit the push —
+    and say how that push ended, which is what the server's verdict reads."""
     version, payload = identity_at_startup
     service = AppUpdateService()
     spawned, scheduled = [], []
@@ -98,16 +112,30 @@ async def test_status_reports_the_identity_the_process_started_with(
             patch.object(loop, "call_later", lambda delay, callback: scheduled.append(callback)):
         result = await service.deploy_update(_tarball(tmp_path), "NEWPAYLOAD", "v0.2.0")
         assert result["success"] is True
+        assert payload.read_text() == "NEWPAYLOAD", "the deploy must have written the next identity"
+        assert _status_client(service).get("/status").json()["app"]["trial"] is True
         assert len(scheduled) == 1
         await scheduled[0]()
 
     assert any("restart" in argv for argv in spawned), "the restart must have been attempted"
-    assert payload.read_text() == "NEWPAYLOAD", "the deploy must have written the next identity"
 
     app = _status_client(service).get("/status").json()["app"]
 
     assert app["version"] == "v0.1.0"
     assert app["payload"] == "OLDPAYLOAD"
+    assert app["trial"] is False
+    assert app["last_update"]["payload"] == "NEWPAYLOAD"
+    assert app["last_update"]["outcome"] == "rolled_back"
+    assert "masked" in app["last_update"]["detail"]
+
+
+def test_status_reports_no_update_outcome_before_any_trial(identity_at_startup, update_world):
+    """The push that installs the guard is applied by the updater before it,
+    which records nothing: the server reads null as that transition."""
+    app = _status_client(AppUpdateService()).get("/status").json()["app"]
+
+    assert app["trial"] is False
+    assert app["last_update"] is None
 
 
 def test_the_next_process_reports_what_the_update_wrote(identity_at_startup):

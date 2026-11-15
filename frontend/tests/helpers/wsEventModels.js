@@ -26,6 +26,8 @@ export const AUDIO_WIRE_PATH = resolve(HERE, '../../../backend/core/models/audio
 
 const CLASS_RE = /^class\s+(\w+)\(([^)]*)\):/;
 const CLASSVAR_RE = /^\s{4}([A-Z_]+)\s*=\s*(.+?)\s*(?:#.*)?$/;
+// A module-level `Name = Literal[...]` alias, which a field annotation may name.
+const LITERAL_ALIAS_RE = /^(\w+)\s*=\s*(Literal\[[^\]]+\])\s*$/gm;
 const FIELD_RE = /^\s{4}([a-z_][a-z0-9_]*)\s*:\s*([^=#]+?)\s*(?:=\s*([^#]+?)\s*)?(?:#.*)?$/;
 
 /**
@@ -108,12 +110,23 @@ function resolve_(name, classes, seen = new Set()) {
   return { classVars, fields: [...fields.values()] };
 }
 
+/** `{alias: 'Literal[...]'}` for every module-level Literal alias. */
+export function literalAliases(source = readFileSync(WS_EVENTS_PATH, 'utf8')) {
+  return Object.fromEntries([...source.matchAll(LITERAL_ALIAS_RE)].map(m => [m[1], m[2]]));
+}
+
+/** A field type with every Literal alias it names spelled out. */
+function expandAliases(type, aliases) {
+  return type.replace(/\b\w+\b/g, word => aliases[word] ?? word);
+}
+
 /**
  * @returns {Map<string, {className: string, fields: {name,type,default}[],
  *   excludeNone: boolean}>} keyed by `${CATEGORY}.${TYPE}`
  */
 export function parseWsEventModels(source = readFileSync(WS_EVENTS_PATH, 'utf8')) {
   const classes = parseClasses(source);
+  const aliases = literalAliases(source);
   if (!classes.has('WsEvent')) {
     throw new Error(`ws_events.py parse failed: no WsEvent base found in ${WS_EVENTS_PATH}`);
   }
@@ -124,7 +137,7 @@ export function parseWsEventModels(source = readFileSync(WS_EVENTS_PATH, 'utf8')
     if (!classVars.CATEGORY || !classVars.TYPE) continue; // abstract base
     byEventKey.set(`${classVars.CATEGORY}.${classVars.TYPE}`, {
       className: name,
-      fields,
+      fields: fields.map(field => ({ ...field, type: expandAliases(field.type, aliases) })),
       excludeNone: classVars.EXCLUDE_NONE === 'True',
     });
   }

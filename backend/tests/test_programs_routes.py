@@ -15,7 +15,11 @@ from fastapi import BackgroundTasks
 
 from backend.api.models import ProgramUpdateRequest
 from backend.api.programs import create_programs_router
-from backend.core.models.ws_events import ProgramUpdateComplete, ProgramUpdateProgress
+from backend.core.models.ws_events import (
+    ProgramUpdateComplete,
+    ProgramUpdateProgress,
+    SatelliteAppUpdateComplete,
+)
 
 
 # The payload every one of these calls carries: they exercise the in-flight
@@ -317,3 +321,39 @@ async def test_an_update_finished_during_the_inventory_read_is_not_listed_active
     gate.set()
 
     assert "snapcast" not in (await listing)["active_updates"]
+
+
+async def test_two_app_pushes_wait_for_each_other_whatever_the_satellite(router):
+    """Each push restarts a speaker and can leave it on trial for minutes: two at
+    once can cut two rooms, and a release that breaks one breaks both. The
+    snapclient row of the other satellite stays free — that is not a restart
+    of the app."""
+    app = _endpoint(router, "/api/programs/satellites/{mac_id}/update-app")
+    snapclient = _endpoint(router, "/api/programs/satellites/{mac_id}/update")
+
+    assert (await app("aa:bb:cc:dd:ee:01", BackgroundTasks()))["status"] == "success"
+
+    refused = await app("aa:bb:cc:dd:ee:02", BackgroundTasks())
+    assert refused["status"] == "error"
+    assert "satellite_app_aa:bb:cc:dd:ee:01" in refused["message"]
+
+    assert (await snapclient("aa:bb:cc:dd:ee:02", BackgroundTasks()))["status"] == "success"
+
+
+async def test_an_app_push_that_raised_still_names_a_verdict(router):
+    """No verdict would draw the row as if nothing had been tried."""
+    satellite_service = MagicMock()
+    satellite_service.update_satellite_app = AsyncMock(side_effect=asyncio.TimeoutError())
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(router.update_service, satellite_service, state_machine)
+
+    tasks = BackgroundTasks()
+    await _endpoint(r, "/api/programs/satellites/{mac_id}/update-app")("aa:bb:cc:dd:ee:01", tasks)
+    await tasks()
+
+    complete = [c.args[0] for c in state_machine.broadcast.await_args_list
+                if isinstance(c.args[0], SatelliteAppUpdateComplete)]
+    assert complete[0].success is False
+    assert complete[0].verdict == "did_not_return"
+    assert complete[0].detail.startswith("TimeoutError")

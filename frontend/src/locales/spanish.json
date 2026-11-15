@@ -517,7 +517,10 @@
     "changeVersion": "Cambiar de versión",
     "releases": "Versiones",
     "validated": "Validada",
-    "installingVersion": "Instalando {version}…"
+    "installingVersion": "Instalando {version}…",
+    "failureRolledBack": "Ha vuelto a la versión anterior",
+    "failureDidNotReturn": "No responde",
+    "failureRejected": "Ha rechazado la actualización"
   },
   "info": {
     "temperature": "Temperatura",

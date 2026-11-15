@@ -15,10 +15,12 @@ satellite's sudoers policy, which grants exactly these two argv.
 import asyncio
 import logging
 import socket
+import sys
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import uvicorn
 
 import main
 
@@ -91,6 +93,7 @@ async def test_lifespan_starts_both_bound_units_after_ready(notify_socket):
     job, since both units are ordered After= it."""
     with _satellite(notify_socket) as spawned:
         async with main.lifespan(main.app):
+            main.mark_listening()
             await _until_spawned(spawned, 2)
 
     assert sorted(argv for argv, _ in spawned) == [START_CAMILLADSP, START_SNAPCLIENT]
@@ -105,9 +108,71 @@ async def test_a_failed_start_is_logged_at_error(notify_socket, caplog):
     caplog.set_level(logging.ERROR)
     with _satellite(notify_socket, returncode=1, stderr=b"Job failed") as spawned:
         async with main.lifespan(main.app):
+            main.mark_listening()
             await _until_spawned(spawned, 2)
 
     assert sorted(argv for argv, _ in spawned) == [START_CAMILLADSP, START_SNAPCLIENT]
     errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
     assert any("milo-client-camilladsp.service" in m and "Job failed" in m for m in errors)
     assert any("milo-client-snapclient.service" in m and "Job failed" in m for m in errors)
+
+
+@pytest.mark.asyncio
+async def test_nothing_follows_ready_until_the_server_listens(notify_socket):
+    """The lifespan's end is not READY=1: the socket is bound after it."""
+    with _satellite(notify_socket) as spawned:
+        async with main.lifespan(main.app):
+            await _until_spawned(spawned, 1)
+            ready_sent = _readable(notify_socket)
+
+    assert spawned == []
+    assert not ready_sent
+
+
+def _readable(sock):
+    try:
+        sock.recv(64, socket.MSG_PEEK)
+    except BlockingIOError:
+        return False
+    return True
+
+
+@pytest.mark.asyncio
+async def test_ready_is_sent_once_the_port_accepts_connections(notify_socket):
+    """The real server on an ephemeral port: when READY=1 reaches systemd's
+    socket, a connect to the app's port must already succeed. Sent earlier,
+    snapclient started and the server admitted a satellite whose API refused
+    it, and a new version's hold counted from before it could serve anything."""
+    if sys.platform != "linux":
+        pytest.skip("AF_UNIX notify socket")
+    server = main._Server(uvicorn.Config(
+        main.app, host="127.0.0.1", port=0, log_level="warning", ws="none"
+    ))
+    loop = asyncio.get_running_loop()
+    answered_at_ready = []
+    ready = asyncio.Event()
+
+    def on_datagram():
+        # Before `_satellite`'s spawn drains the socket: READY=1 is the first
+        # datagram, and it is what this reads.
+        loop.remove_reader(notify_socket.fileno())
+        try:
+            port = server.servers[0].sockets[0].getsockname()[1]
+            socket.create_connection(("127.0.0.1", port), timeout=1).close()
+        except (AttributeError, IndexError, OSError):
+            answered_at_ready.append(False)
+        else:
+            answered_at_ready.append(True)
+        ready.set()
+
+    loop.add_reader(notify_socket.fileno(), on_datagram)
+    with _satellite(notify_socket) as spawned:
+        serving = asyncio.create_task(server.serve())
+        # A bound on a hang, not a budget: nothing is measured against it.
+        await asyncio.wait_for(ready.wait(), timeout=30)
+        await _until_spawned(spawned, 2)
+        server.should_exit = True
+        await serving
+
+    assert answered_at_ready == [True]
+    assert sorted(argv for argv, _ in spawned) == [START_CAMILLADSP, START_SNAPCLIENT]

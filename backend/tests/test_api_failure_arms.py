@@ -122,7 +122,7 @@ class TestTheProgramsReads:
         collaborator raises there too — which is how this test used to pass
         while the failure it names was never injected at all.
         """
-        router.satellite_service.discover_satellites = AsyncMock(
+        router.satellite_service.list_satellites = AsyncMock(
             side_effect=RuntimeError("mDNS browse failed")
         )
         router.update_service.get_latest_github_version = AsyncMock(

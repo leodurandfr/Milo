@@ -246,7 +246,8 @@ def _create_service(name: str) -> Any:
         ),
         "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(
             snapcast_service=get_service("snapcast_service"),
-            client_registry_service=get_service("client_registry_service")
+            client_registry_service=get_service("client_registry_service"),
+            settings_service=get_service("settings_service")
         ),
 
         # Audio sources

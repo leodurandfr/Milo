@@ -20,6 +20,10 @@ pydantic>=2.10.0
 python-multipart>=0.0.9
 
 # WebSocket client for the local CamillaDSP daemon (services/camilladsp_client.py).
-# Also a runtime dep of uvicorn[standard], which is why the field already has it:
-# a satellite update ships the milo-client/ tree alone and never runs pip.
+# Also a runtime dep of uvicorn[standard], which is why the field already had it.
 websockets>=14.0
+
+# An app update runs pip only when this file differs from the one the unit runs
+# (byte for byte), after copying the venv aside: a version that fails its trial
+# gets that copy back. Any edit here — a comment included — costs every
+# satellite a venv copy and a pip run on its next push.
