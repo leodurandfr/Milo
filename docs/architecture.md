@@ -839,7 +839,10 @@ milo-client without sudo: as `ExecStartPre=-` of `milo-client.service` it counts
 the starts of the new version, and the third start runs the previous one, put
 back (two real tries, a reboot or a `sat restart` counting as one); the new
 process ends the trial itself once it has stayed up 120 s after READY=1, which
-is sent only once :8001 listens. Either end is written to `last-update.json`
+is sent only once :8001 listens. A version that hangs instead of dying still
+gets there: the app feeds `WatchdogSec=30` from its event loop, so systemd
+kills a wedged loop (SIGABRT, its stack in the journal through faulthandler)
+and the guard counts the restart. Either end is written to `last-update.json`
 (`committed`, or `rolled_back` with the journal line that says why), which
 `GET :8001/status` reports as `app.last_update` beside `app.trial`, and which the
 server turns into a verdict per satellite. The root layer — units, sudoers,

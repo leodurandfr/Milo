@@ -13,7 +13,9 @@ The unit names are written out rather than imported: the contract is the
 satellite's sudoers policy, which grants exactly these two argv.
 """
 import asyncio
+import contextlib
 import logging
+import os
 import socket
 import sys
 from contextlib import contextmanager
@@ -176,3 +178,57 @@ async def test_ready_is_sent_once_the_port_accepts_connections(notify_socket):
 
     assert answered_at_ready == [True]
     assert sorted(argv for argv, _ in spawned) == [START_CAMILLADSP, START_SNAPCLIENT]
+
+
+@pytest.mark.asyncio
+async def test_the_watchdog_is_fed_from_the_loop_once_ready(notify_socket, monkeypatch):
+    """WatchdogSec= restarts an app whose event loop stopped turning: a pushed
+    version that hangs after READY would otherwise neither commit its trial nor
+    reach the start that rolls it back, and the room's API would stay dead.
+    systemd arms the watchdog at READY=1, so the feed starts after it and must
+    keep coming."""
+    monkeypatch.setenv("WATCHDOG_USEC", "3000")
+    monkeypatch.setenv("WATCHDOG_PID", str(os.getpid()))
+    loop = asyncio.get_running_loop()
+    received = []
+    enough = asyncio.Event()
+
+    def on_datagram():
+        with contextlib.suppress(BlockingIOError):
+            received.append(notify_socket.recv(64))
+        if received.count(b"WATCHDOG=1") >= 3:
+            enough.set()
+
+    loop.add_reader(notify_socket.fileno(), on_datagram)
+    try:
+        with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=_FakeProc(0, b""))), \
+                patch.object(main, "register_with_main_milo", new=AsyncMock()), \
+                patch.object(main, "follow_server_address", new=AsyncMock()), \
+                patch.object(main.equalizer_service, "start_connection_loop", new=MagicMock()), \
+                patch.object(main.equalizer_service, "stop_connection_loop", new=AsyncMock()):
+            async with main.lifespan(main.app):
+                main.mark_listening()
+                # A bound on a hang, not a budget: nothing is measured against it.
+                await asyncio.wait_for(enough.wait(), timeout=30)
+    finally:
+        loop.remove_reader(notify_socket.fileno())
+
+    assert received[0] == b"READY=1"
+    assert set(received[1:]) == {b"WATCHDOG=1"}
+
+
+@pytest.mark.parametrize("usec, pid, expected", [
+    ("30000000", "self", 10.0),       # a third of WatchdogSec=30
+    (None, None, None),               # the unit sets no watchdog
+    ("30000000", "1", None),          # a child that inherited the variables
+    ("thirty", "self", None),
+])
+def test_the_watchdog_interval_follows_what_systemd_set(monkeypatch, usec, pid, expected):
+    """Fed from a process systemd does not watch, a dead main process would
+    look alive; fed too slowly, a healthy one would be killed."""
+    for name, value in (("WATCHDOG_USEC", usec), ("WATCHDOG_PID", pid)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, str(os.getpid()) if value == "self" else value)
+    assert main._watchdog_interval() == expected

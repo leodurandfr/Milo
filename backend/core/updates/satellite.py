@@ -45,9 +45,10 @@ PAYLOAD_PATHSPEC = (
 # answered the POST (or stopped deploying). The worst case is a version that
 # crashes just before its hold ends on every try: MAX_ATTEMPTS starts, each a
 # full TimeoutStartSec + TimeoutStopSec (a start that never gets READY is only
-# killed once its stop times out) + HOLD_S + RestartSec. Held above that bound, read from
+# killed once its stop times out) + HOLD_S + WatchdogSec (a hang just before the
+# hold ends) + RestartSec. Held above that bound, read from
 # the satellite's own source, by tests/architecture/test_satellite_app_ceiling.py.
-APP_UPDATE_CEILING_S = 600
+APP_UPDATE_CEILING_S = 720
 APP_UPDATE_POLL_S = 5
 # A POST that got no answer may still be deploying (pip on a Pi takes minutes):
 # while the satellite says so the ceiling restarts, up to this much more.

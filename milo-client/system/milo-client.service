@@ -24,6 +24,12 @@ ExecStart=/home/milo-client/venv/bin/python3 main.py
 Restart=always
 RestartSec=5
 TimeoutStopSec=10
+# A process that answers nothing but never exits (a wedged event loop) is
+# restarted: main.py feeds WATCHDOG=1 from that loop from READY=1 on. Without
+# it, a pushed version that hangs after READY neither commits its trial nor
+# reaches the start that rolls it back, and the room's API stays dead. Killed
+# by SIGABRT, which faulthandler turns into the loop's stack in the journal.
+WatchdogSec=30
 
 EnvironmentFile=/var/lib/milo-client/env
 # /run/milo-client: the address server_address_watch chose for snapclient's next

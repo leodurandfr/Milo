@@ -4,6 +4,7 @@ Milo Client - API Service for Snapclient Management and Equalizer Control
 Version: 2.0 - Feature-based architecture
 """
 import asyncio
+import faulthandler
 import logging
 import os
 import socket
@@ -35,17 +36,58 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 quiet_frequent_requests()
+# A watchdog kill (SIGABRT) prints where the loop was stuck, in the journal.
+faulthandler.enable()
 
-def _sd_notify_ready():
-    """Notify systemd that the service is ready (no external dependency)."""
+def _sd_notify(message: bytes) -> bool:
+    """One datagram to systemd's notify socket (no external dependency);
+    False when not run by systemd."""
     addr = os.environ.get("NOTIFY_SOCKET")
     if not addr:
-        return
+        return False
     if addr[0] == "@":
         addr = "\0" + addr[1:]
     with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
-        sock.sendto(b"READY=1", addr)
-    logger.info("sd_notify: READY=1 sent to systemd")
+        sock.sendto(message, addr)
+    return True
+
+
+def _sd_notify_ready():
+    """Notify systemd that the service is ready."""
+    if _sd_notify(b"READY=1"):
+        logger.info("sd_notify: READY=1 sent to systemd")
+
+
+def _watchdog_interval() -> float | None:
+    """Seconds between two WATCHDOG=1, or None when the unit set no watchdog.
+
+    A third of WatchdogSec, as sd_watchdog_enabled(3) advises. WATCHDOG_PID
+    names the process systemd watches: a child that inherited the variables is
+    not it, and feeding from there would keep a dead main process "alive".
+    """
+    usec = os.environ.get("WATCHDOG_USEC")
+    pid = os.environ.get("WATCHDOG_PID")
+    if not usec or (pid and pid != str(os.getpid())):
+        return None
+    try:
+        return int(usec) / 3_000_000
+    except ValueError:
+        logger.error("WATCHDOG_USEC=%r is not a number: the watchdog is not fed", usec)
+        return None
+
+
+async def _feed_watchdog() -> None:
+    """WATCHDOG=1 from the event loop itself, so a loop that stops turning
+    stops feeding it, and systemd restarts the app (WatchdogSec=)."""
+    interval = _watchdog_interval()
+    if interval is None:
+        return
+    while True:
+        try:
+            _sd_notify(b"WATCHDOG=1")
+        except OSError as e:
+            logger.error("sd_notify WATCHDOG=1 failed: %s", e)
+        await asyncio.sleep(interval)
 
 
 async def _start_bound_unit(unit: str) -> None:
@@ -121,8 +163,9 @@ async def _once_listening(listening: asyncio.Event) -> None:
     # connects to snapserver AFTER our API is accepting requests.
     _sd_notify_ready()
     # After READY=1, not before: both units are After= this one, so a start
-    # issued earlier would wait for this unit's own start to finish.
-    await asyncio.gather(_start_bound_units(), _hold_then_commit())
+    # issued earlier would wait for this unit's own start to finish. systemd
+    # arms the watchdog at READY=1 too.
+    await asyncio.gather(_start_bound_units(), _hold_then_commit(), _feed_watchdog())
 
 
 @asynccontextmanager
