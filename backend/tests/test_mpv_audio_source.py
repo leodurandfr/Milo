@@ -45,7 +45,9 @@ class TestAttach:
         spellings the four sources had drifted into. Whoever reads a boot's
         errors.log gets one record per failure, or the count means nothing.
         """
-        podcast_source._service_manager = Mock(start=AsyncMock(return_value=True))
+        podcast_source._service_manager = Mock(
+            start=AsyncMock(return_value=True), main_pid=AsyncMock(return_value=None)
+        )
 
         with patch.object(MpvController, "connect", AsyncMock(return_value=False)), \
              caplog.at_level(logging.DEBUG):
@@ -64,6 +66,19 @@ class TestAttach:
         with patch.object(MpvController, "connect", AsyncMock(return_value=True)):
             assert await radio_source._attach_mpv() is True
         assert radio_source._mpv.ipc_socket_path == radio_source._mpv_socket
+
+    @pytest.mark.asyncio
+    async def test_a_unit_with_no_process_left_is_not_waited_for(self, radio_source, caplog):
+        """MainPID 0 once the unit was started: mpv is already gone, and the
+        attach says so at once instead of polling, for the whole budget, a
+        socket nobody will publish. Without the pid reaching connect() this
+        waits out CONNECT_TIMEOUT and reports a socket that never appeared."""
+        radio_source._service_manager = Mock(main_pid=AsyncMock(return_value=0))
+
+        with caplog.at_level(logging.WARNING, logger="backend.shared.mpv"):
+            assert await radio_source._attach_mpv() is False
+
+        assert "exited" in caplog.records[-1].getMessage()
 
 
 class TestReloadAutoStop:

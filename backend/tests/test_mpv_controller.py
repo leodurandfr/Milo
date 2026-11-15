@@ -723,6 +723,95 @@ class TestConnectBudget:
         ) < AudioStateMachine.TRANSITION_TIMEOUT
 
 
+class TestTheWaitFollowsTheProcess:
+    """A dead mpv publishes no socket; a live one may still be reading its
+    libraries off a busy SD card.
+
+    The boot of 2026-11-15 killed a live mpv 6.1 s after exec, its socket not
+    there yet, and the retry connected in 0.0 s. So the wait is bound to the
+    process: it ends early when the process exits, and only then. The
+    processes are real (`sleep`), and so is the pidfd that hears them exit.
+    """
+
+    @staticmethod
+    async def _live_process():
+        return await asyncio.create_subprocess_exec("sleep", "60")
+
+    @staticmethod
+    async def _reap(proc):
+        if proc.returncode is None:
+            proc.kill()
+        await proc.wait()
+
+    async def test_a_process_that_exits_ends_the_wait(self, controller, caplog):
+        proc = await self._live_process()
+        try:
+            asyncio.get_running_loop().call_later(0.3, proc.kill)
+            started = time.monotonic()
+            with caplog.at_level(logging.WARNING, logger="backend.shared.mpv"):
+                assert await controller.connect(
+                    timeout=30.0, retry_delay=0.5, pid=proc.pid
+                ) is False
+            # Far short of the deadline: what ended the wait was the exit.
+            assert time.monotonic() - started < 5.0
+            assert "exited" in caplog.records[-1].getMessage()
+        finally:
+            await self._reap(proc)
+
+    async def test_a_live_process_is_given_the_whole_budget(self, controller, caplog):
+        proc = await self._live_process()
+        try:
+            budget, retry_delay = 1.5, 0.2
+            with caplog.at_level(logging.WARNING, logger="backend.shared.mpv"):
+                assert await controller.connect(
+                    timeout=budget, retry_delay=retry_delay, pid=proc.pid
+                ) is False
+            message = caplog.records[-1].getMessage()
+            assert "never appeared" in message
+            waited = float(re.search(r"in ([\d.]+)s", message).group(1))
+            assert budget - 2 * retry_delay < waited <= budget
+        finally:
+            await self._reap(proc)
+
+    async def test_a_socket_published_late_by_a_live_process_is_taken(self, tmp_path):
+        """The cold boot itself: no socket at first, then mpv publishes it."""
+        proc = await self._live_process()
+        fake = FakeMpv(tmp_path / "ipc.sock")
+        async def publish_late():
+            await asyncio.sleep(0.5)
+            await fake.start()
+
+        publish = asyncio.ensure_future(publish_late())
+        try:
+            controller = MpvController(ipc_socket_path=fake.path)
+            assert await controller.connect(
+                timeout=5.0, retry_delay=0.1, pid=proc.pid
+            ) is True
+            await publish
+            await controller.disconnect()
+        finally:
+            publish.cancel()
+            await fake.stop()
+            await self._reap(proc)
+
+    async def test_a_unit_with_no_process_is_not_polled(self, controller, monkeypatch):
+        """MainPID 0: nothing will ever publish the socket."""
+        stats = {"n": 0}
+
+        class CountingPath:
+            def __init__(self, _path):
+                pass
+
+            def exists(self):
+                stats["n"] += 1
+                return False
+
+        monkeypatch.setattr("backend.shared.mpv.Path", CountingPath)
+        assert await controller.connect(timeout=30.0, pid=0) is False
+
+        assert stats["n"] == 0
+
+
 class TestReserveIsPerBranch:
     """What `can_retry` holds back is the cost of the attempt it authorises.
 

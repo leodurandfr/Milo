@@ -105,9 +105,12 @@ class MpvAudioSource(BaseAudioSource):
         this unit warm, 1.081s with its 51 MB of libraries evicted, past 7s when
         something else is reading the same card), so work done in between is
         time not spent waiting. Radio loads its station data there.
+
+        The wait is bound to the process systemd started, so a live mpv is
+        given the whole budget and a dead one none of it (CONNECT_TIMEOUT).
         """
         self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
-        return await self._mpv.connect()
+        return await self._mpv.connect(pid=await self._service_main_pid())
 
     def mpv_refused(self, action: str) -> Dict[str, Any]:
         """Error response for a transport command mpv did not take.

@@ -9,6 +9,8 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 from pathlib import Path
 
+from backend.shared.pidfd import ProcessWatch
+
 
 # Reply deadline for a normal command.
 COMMAND_TIMEOUT = 5.0
@@ -18,10 +20,20 @@ COMMAND_TIMEOUT = 5.0
 # only inflates the connect budget.
 PROBE_TIMEOUT = 1.0
 
-# Total wall-clock budget for connect(). Sized to fit inside the caller's own
-# budget: _do_start runs under AudioStateMachine.TRANSITION_TIMEOUT, of
-# which _start_service_and_wait already spends its settle delay.
-CONNECT_TIMEOUT = 6.0
+# How long connect() gives a *live* mpv to publish its socket on a start. It is
+# not the latency of a cold start, which has no bound to give: mpv's socket
+# comes once its 51 MB of libraries are read, 0.27 s warm, 1.08 s cold, 7.8 s
+# with four other readers on the SD card. At 6.0 it killed the first radio of
+# the boot of 2026-11-15 — mpv still alive, no socket yet, 6.1 s after exec,
+# while the kiosk started and Navidrome scanned — and the retry took 0.0 s.
+#
+# So the wait follows the process (connect's `pid`) and ends the moment it
+# exits; this only bounds one that lives and never answers, and is what the
+# caller can spare: _do_start runs under AudioStateMachine.TRANSITION_TIMEOUT,
+# of which _start_service_and_wait spends its settle delay and the last
+# attempt a PROBE_TIMEOUT. A previous source slow to stop leaves less, and the
+# transition's own guard then cuts first: the same failure, as start_timeout.
+CONNECT_TIMEOUT = 12.0
 
 # Budget for the deliberate re-attach in ensure_connected(). Distinct from
 # CONNECT_TIMEOUT, which buys patience for a cold start where mpv was forked half
@@ -88,7 +100,10 @@ class MpvController:
         self._stream_options_hls: Optional[bool] = None
 
     async def connect(
-        self, timeout: float = CONNECT_TIMEOUT, retry_delay: float = 0.5
+        self,
+        timeout: float = CONNECT_TIMEOUT,
+        retry_delay: float = 0.5,
+        pid: Optional[int] = None,
     ) -> bool:
         """
         Connects to mpv IPC socket, retrying until `timeout` elapses.
@@ -98,6 +113,10 @@ class MpvController:
         timeout, so counting attempts gave no usable upper bound (10 attempts
         could run for ~55s under a 10s caller budget). What the caller has is
         time, so that is what this spends.
+
+        And by the process, when the caller names it: a dead mpv publishes no
+        socket, so the wait ends the moment it exits rather than at the
+        deadline, and the deadline only bounds a live one that never answers.
 
         Running out of that time is a warning, not an error. It is the one log
         line on this path under the `backend` hierarchy, which is what
@@ -117,6 +136,9 @@ class MpvController:
         Args:
             timeout: Total budget for the whole retry loop (seconds)
             retry_delay: Delay between attempts (seconds)
+            pid: The mpv process the socket will be published by, as systemd
+                names it (0: the unit has no process any more), or None when
+                it cannot be named, which leaves the deadline alone.
 
         Returns:
             True if connection successful
@@ -129,6 +151,13 @@ class MpvController:
         # would be a leaked task still delivering events.
         if self._link is not None:
             await self.disconnect()
+
+        exited = asyncio.Event()
+        watch: Optional[ProcessWatch] = None
+        if pid == 0:
+            exited.set()
+        elif pid is not None:
+            watch = ProcessWatch(pid, exited.set)
 
         def can_retry(attempt_cost: float) -> bool:
             """Room for another delay plus what the *next* attempt will cost.
@@ -148,71 +177,86 @@ class MpvController:
             """
             return time.monotonic() + retry_delay + attempt_cost < deadline
 
-        while True:
-            try:
-                if not Path(self.ipc_socket_path).exists():
-                    if can_retry(0.0):
-                        await asyncio.sleep(retry_delay)
-                        continue
+        async def pause() -> None:
+            """`retry_delay`, cut short by the process exiting."""
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(exited.wait(), retry_delay)
+
+        try:
+            while True:
+                if exited.is_set():
                     self.logger.warning(
-                        f"IPC socket never appeared in "
+                        f"mpv exited {time.monotonic() - started:.1f}s into the "
+                        f"connect, before its IPC socket answered: {self.ipc_socket_path}"
+                    )
+                    return False
+                try:
+                    if not Path(self.ipc_socket_path).exists():
+                        if can_retry(0.0):
+                            await pause()
+                            continue
+                        self.logger.warning(
+                            f"IPC socket never appeared in "
+                            f"{time.monotonic() - started:.1f}s: {self.ipc_socket_path}"
+                        )
+                        return False
+
+                    reader, writer = await asyncio.open_unix_connection(self.ipc_socket_path)
+                    self._open_link(reader, writer)
+
+                    # Verify mpv responds to commands before declaring connected
+                    # Use get_property with idle-active (always available even when idle)
+                    test_response = await self._send_command(
+                        "get_property", "idle-active", timeout=PROBE_TIMEOUT
+                    )
+                    if test_response is None:
+                        self.logger.debug("mpv socket connected but not responding, retrying...")
+                        await self.disconnect()
+                        if can_retry(PROBE_TIMEOUT):
+                            await pause()
+                            continue
+                        self.logger.warning(
+                            f"mpv never answered a command in "
+                            f"{time.monotonic() - started:.1f}s"
+                        )
+                        return False
+
+                    for observe_id, name in self._observed.items():
+                        response = await self._send_command(
+                            "observe_property", observe_id, name, timeout=PROBE_TIMEOUT
+                        )
+                        if response is None or response.get("error") != "success":
+                            self.logger.warning(f"mpv did not re-observe '{name}' on the new link")
+
+                    # Capture the launch-time reconnect options once, while mpv is
+                    # pristine — loadfile clears them for HLS and restores this.
+                    if self._default_stream_lavf_o is None:
+                        self._default_stream_lavf_o = await self.get_property(
+                            "stream-lavf-o", timeout=PROBE_TIMEOUT
+                        )
+
+                    self.logger.info(
+                        f"Connected to mpv IPC socket in "
                         f"{time.monotonic() - started:.1f}s: {self.ipc_socket_path}"
                     )
-                    return False
+                    return True
 
-                reader, writer = await asyncio.open_unix_connection(self.ipc_socket_path)
-                self._open_link(reader, writer)
-
-                # Verify mpv responds to commands before declaring connected
-                # Use get_property with idle-active (always available even when idle)
-                test_response = await self._send_command(
-                    "get_property", "idle-active", timeout=PROBE_TIMEOUT
-                )
-                if test_response is None:
-                    self.logger.debug("mpv socket connected but not responding, retrying...")
-                    await self.disconnect()
+                except (ConnectionRefusedError, FileNotFoundError) as e:
                     if can_retry(PROBE_TIMEOUT):
-                        await asyncio.sleep(retry_delay)
+                        self.logger.debug(f"Retry: {e}")
+                        await pause()
                         continue
                     self.logger.warning(
-                        f"mpv never answered a command in "
-                        f"{time.monotonic() - started:.1f}s"
+                        f"Failed to connect to mpv in "
+                        f"{time.monotonic() - started:.1f}s: {e}"
                     )
                     return False
-
-                for observe_id, name in self._observed.items():
-                    response = await self._send_command(
-                        "observe_property", observe_id, name, timeout=PROBE_TIMEOUT
-                    )
-                    if response is None or response.get("error") != "success":
-                        self.logger.warning(f"mpv did not re-observe '{name}' on the new link")
-
-                # Capture the launch-time reconnect options once, while mpv is
-                # pristine — loadfile clears them for HLS and restores this.
-                if self._default_stream_lavf_o is None:
-                    self._default_stream_lavf_o = await self.get_property(
-                        "stream-lavf-o", timeout=PROBE_TIMEOUT
-                    )
-
-                self.logger.info(
-                    f"Connected to mpv IPC socket in "
-                    f"{time.monotonic() - started:.1f}s: {self.ipc_socket_path}"
-                )
-                return True
-
-            except (ConnectionRefusedError, FileNotFoundError) as e:
-                if can_retry(PROBE_TIMEOUT):
-                    self.logger.debug(f"Retry: {e}")
-                    await asyncio.sleep(retry_delay)
-                    continue
-                self.logger.warning(
-                    f"Failed to connect to mpv in "
-                    f"{time.monotonic() - started:.1f}s: {e}"
-                )
-                return False
-            except Exception as e:
-                self.logger.error(f"Unexpected error connecting to mpv: {e}")
-                return False
+                except Exception as e:
+                    self.logger.error(f"Unexpected error connecting to mpv: {e}")
+                    return False
+        finally:
+            if watch is not None:
+                watch.close()
 
     def _open_link(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
