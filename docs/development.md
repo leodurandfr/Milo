@@ -833,6 +833,15 @@ state_machine.system_state.active_source = source
    `""` grants equal, and each helper's test runs it under bash against stubs
    (`milo-client/app/tests/test_{set_timezone,join_wifi,set_password}_helper.py`).
 
+5. **A write over the recovery access point is refused unless it is listed.** A client of the AP
+   may only read, and before setup send `PRE_SETUP_WRITES` (`api/middleware.py`; see
+   [architecture.md § Recovery access point](architecture.md#recovery-access-point)). A new
+   wizard or adoption call that must work over the AP joins that list, as an exact path with no
+   parameter, or it answers 403 there; `tests/architecture/test_recovery_ap_guard.py` refuses an
+   entry that is not one route of the app or has no caller in `components/setup/`,
+   `composables/useNetwork.js` or `core/multiroom/wifi_adoption.py`. Nothing else is added to it:
+   once set up, a unit is repaired from its screen or over Ethernet.
+
 ### Frontend
 
 1. **Composition API** instead of Options API
@@ -1072,6 +1081,11 @@ sudo systemctl edit milo-backend           # on a unit: a drop-in, kept across u
 #   [Service]
 #   Environment=MILO_LOG_LEVEL=DEBUG
 ```
+
+**NetworkManager from a shell:** the polkit rule grants NM to `milo-backend.service` alone, so an
+`nmcli` write from an SSH session as `milo` (`connection up`, `radio wifi off`…) is refused or
+asks for a password: run it with `sudo`. Reads (`nmcli connection show`, `device status`) need
+nothing.
 
 **Breakpoints (pdb):**
 ```python

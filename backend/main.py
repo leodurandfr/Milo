@@ -15,7 +15,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.dependencies import get_service, initialize_services, get_init_task
 from backend.api import audio
-from backend.api.middleware import ALLOWED_ORIGINS, RecoveryClientTracker, RequestOriginGate
+from backend.api.middleware import (
+    ALLOWED_ORIGINS, RecoveryAccessPointGuard, RecoveryClientTracker, RequestOriginGate,
+)
 from backend.api.routing import create_routing_router
 from backend.api.equalizer import create_equalizer_router
 from backend.api.volume import create_volume_router
@@ -242,9 +244,17 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
-# Added first, so it sits inside CORS and the gate: a request the gate refuses
-# is nobody using the recovery access point.
+# Starlette runs the last-added middleware first. The tracker is added first, so it
+# sits inside every gate: a request one of them refuses is nobody using the
+# recovery access point.
 app.add_middleware(RecoveryClientTracker, network_service=network_service)
+
+# Outside the tracker for that reason, inside CORS so an admitted reader reads its
+# 403 like any route's. See backend/api/middleware.py.
+app.add_middleware(
+    RecoveryAccessPointGuard,
+    network_service=network_service, settings_service=settings_service,
+)
 
 # CORS configuration - restricted to authorized origins
 app.add_middleware(
@@ -331,8 +341,6 @@ system_router = create_system_router(
     hardware_service=hardware_service,
     diagnostic_service=get_service("diagnostic_service"),
     state_machine=state_machine,
-    network_service=network_service,
-    settings_service=settings_service,
     satellite_timezone_service=get_service("satellite_timezone_service"),
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
@@ -412,6 +420,6 @@ if __name__ == "__main__":
         access_log=False,
         log_level="warning",
         # Only nginx, on loopback, may name the client in X-Forwarded-For. Pinned so
-        # FORWARDED_ALLOW_IPS cannot widen it: the recovery-AP gate reads the result.
+        # FORWARDED_ALLOW_IPS cannot widen it: the recovery-AP guard reads the result.
         forwarded_allow_ips="127.0.0.1",
     )

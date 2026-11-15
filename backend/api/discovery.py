@@ -8,9 +8,9 @@ fresh wifi scan only when the radio carries nothing that matters. Because
 the SSID is shared across devices, the scanner only ever returns 0 or 1
 adoptable hotspot (NetworkManager deduplicates by SSID).
 
-GET /api/discovery/server-wifi-creds → return this server's active WiFi
-credentials for auto-fill during wifi-speaker adoption (or `available: false`
-when the server is ethernet-only).
+GET /api/discovery/server-wifi → the network this server is on, by name, when
+a speaker could be handed it (`available: false` otherwise). Its key never
+leaves the server: an adoption onto it reads the key server-side.
 
 POST /api/discovery/adopt-speaker → orchestrate the wifi adoption of a fresh
 speaker: temporarily join its setup hotspot, push audio + target wifi config,
@@ -20,7 +20,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from backend.api.route_helpers import api_error_handler
 from backend.core.multiroom.models import SpeakerType
@@ -44,6 +44,17 @@ class AdoptSpeakerRequest(BaseModel):
     speaker_type: SpeakerType = Field(..., description="Speaker physical type")
     wifi_ssid: str = Field(..., min_length=1, description="Target home wifi the speaker must join")
     wifi_password: str = Field(default="", description="Target wifi password (empty for open networks)")
+    use_server_network: bool = Field(
+        default=False,
+        description="Join the network this server is on: `wifi_ssid` names the one shown, "
+                    "the server reads its key itself, and `wifi_password` must not be sent",
+    )
+
+    @model_validator(mode="after")
+    def _one_source_for_the_key(self):
+        if self.use_server_network and "wifi_password" in self.model_fields_set:
+            raise ValueError("wifi_password is read by the server when use_server_network is set")
+        return self
 
 
 # Map AdoptionError.code → HTTP status. 4xx = caller/state issue, 502 = the
@@ -56,6 +67,8 @@ _ADOPTION_CLIENT_ERROR_CODES = {
     "unsupported_target_wifi": 400,
     "already_configured": 409,
     "server_in_hotspot_mode": 409,
+    "server_network_changed": 409,
+    "server_key_unreadable": 409,
     "push_rejected": 502,
     "push_failed": 502,
     "no_gateway": 502,
@@ -100,25 +113,23 @@ def create_discovery_router(
             ]
             return {"status": "success", "data": {"hotspots": hotspots}}
 
-    @router.get("/server-wifi-creds")
-    async def get_server_wifi_creds():
-        """Return this server's active WiFi credentials for adoption auto-fill.
+    @router.get("/server-wifi")
+    async def get_server_wifi():
+        """Name the network this server is on, when a speaker could join it.
 
-        When adopting a wifi-only speaker, the UI pre-fills the speaker's
-        target WiFi with the server's home network so the user typically only
-        confirms instead of retyping the password. When the server is
-        ethernet-only (or otherwise has no active WiFi client connection), or
-        on a network the speaker cannot rebuild from an SSID and a PSK
-        (hidden, WPA3 alone, 802.1X), responds with ``available: false`` so
-        the UI falls back to manual credentials entry.
+        The adoption form offers it as the speaker's target; picking it sends
+        `use_server_network`, and the server reads the key itself. Answers
+        ``available: false`` when the server is ethernet-only (or otherwise has
+        no active WiFi client connection), when its key would not read, or on a
+        network the speaker cannot rebuild from an SSID and a PSK (hidden, WPA3
+        alone, 802.1X), so the UI falls back to manual credentials entry.
         """
-        async with api_error_handler("Discovery server wifi creds", logger):
-            creds = await network_service.get_active_wifi_credentials()
-            if creds is None:
-                return {"status": "success", "data": {"available": False}}
+        async with api_error_handler("Discovery server wifi", logger):
+            wifi = await network_service.shareable_wifi()
+            available = wifi.refusal is None
             return {
                 "status": "success",
-                "data": {"available": True, **creds},
+                "data": {"available": available, "ssid": wifi.ssid if available else None},
             }
 
     @router.post("/adopt-speaker")
@@ -138,7 +149,7 @@ def create_discovery_router(
                 speaker_name=payload.speaker_name,
                 speaker_type=payload.speaker_type,
                 wifi_ssid=payload.wifi_ssid,
-                wifi_password=payload.wifi_password,
+                wifi_password=None if payload.use_server_network else payload.wifi_password,
             )
             return {"status": "success", "data": data}
         except AdoptionError as e:

@@ -2,7 +2,7 @@
 Tests for SatelliteWifiService — the server's WiFi handed to every satellite.
 
 The outside world is the satellite's HTTP surface (an aiohttp session) and
-NetworkManager's view of the server (the network service's public reads). If
+the server's NetworkManager, read through the real network service (`nmcli`). If
 these fail: an Ethernet-only server sends satellites an empty network, a
 satellite that refuses or is gone breaks the admission that pushed to it, or
 the satellite is handed a network other than the one the server is on.
@@ -10,13 +10,13 @@ the satellite is handed a network other than the one the server is on.
 import asyncio
 import json
 import logging
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import aiohttp
 import pytest
 
-from backend.core.multiroom.satellite_wifi import KEY_READ_TRIES, SatelliteWifiService
-from backend.core.network.service import NetworkService, WifiKeyUnreadable
+from backend.core.multiroom.satellite_wifi import KEY_READ_RETRY_S, KEY_READ_TRIES, SatelliteWifiService
+from backend.core.network.service import NetworkService
 from backend.shared.background import BackgroundTaskSet
 
 
@@ -62,16 +62,48 @@ class _Satellite:
         return _Response(self.status, self.payload)
 
 
-_FREEBOX = {"ssid": "Freebox-CA3555", "password": "correct-horse", "hidden": False, "key_mgmt": "wpa-psk"}
+class _Nmcli:
+    """`nmcli` as the server's NetworkManager answers the two reads: wlan0's
+    active profile, then that profile, whose key line is each of `psk_lines` in
+    turn (the last one repeating; None leaves it out) — verbatim shapes."""
+
+    def __init__(self, *psk_lines, active="milo-Freebox-CA3555:3b7f2a9c-6d41-4e0b-9a55-1c2d3e4f5a6b:wlan0",
+                 hidden="no", key_mgmt="wpa-psk"):
+        self._psk_lines = list(psk_lines or ["802-11-wireless-security.psk:correct-horse"])
+        self._active = active
+        self._fields = (
+            "802-11-wireless.ssid:Freebox-CA3555\n"
+            f"802-11-wireless.hidden:{hidden}\n"
+            f"802-11-wireless-security.key-mgmt:{key_mgmt}"
+        )
+        self.profile_reads = 0
+
+    async def __call__(self, program, *args, **kwargs):
+        assert program == "nmcli"
+        if "--active" in args:
+            out = self._active
+        else:
+            self.profile_reads += 1
+            line = self._psk_lines.pop(0) if len(self._psk_lines) > 1 else self._psk_lines[0]
+            out = self._fields + ("" if line is None else "\n" + line)
+        proc = Mock(returncode=0)
+        proc.communicate = AsyncMock(return_value=(out.encode(), b""))
+        return proc
 
 
-def _service(profile=_FREEBOX, satellites=()):
-    network = Mock()
-    network.get_active_wifi_profile = AsyncMock(return_value=profile)
-    network.get_country = AsyncMock(return_value="FR")
+_EMPTY_KEY = "802-11-wireless-security.psk:"
+
+
+def _service(satellites=()):
+    settings = Mock()
+    settings.get_setting = AsyncMock(return_value="FR")
     registry = Mock()
     registry.get_online_clients = Mock(return_value=list(satellites))
-    return SatelliteWifiService(network, registry)
+    return SatelliteWifiService(NetworkService(AsyncMock(), settings), registry)
+
+
+def _server(nmcli=None):
+    return patch("backend.core.network.service.asyncio.create_subprocess_exec", new=nmcli or _Nmcli())
 
 
 def _session(satellite):
@@ -81,8 +113,8 @@ def _session(satellite):
 async def test_a_server_on_no_wifi_never_addresses_the_satellite():
     satellite = _Satellite()
 
-    with _session(satellite):
-        await _service(profile=None).push("192.168.1.60")
+    with _session(satellite), _server(_Nmcli(active="Wired connection 1:a1f0c0de-0000-4000-8000-000000000001:eth0")):
+        await _service().push("192.168.1.60")
 
     assert satellite.requests == []
 
@@ -90,7 +122,7 @@ async def test_a_server_on_no_wifi_never_addresses_the_satellite():
 async def test_the_satellite_is_handed_the_servers_network_and_country():
     satellite = _Satellite()
 
-    with _session(satellite):
+    with _session(satellite), _server():
         await _service().push("192.168.1.60")
 
     assert satellite.requests == [(
@@ -107,7 +139,7 @@ async def test_a_satellite_that_refuses_or_is_gone_raises_nothing():
         _Satellite(error=aiohttp.ClientConnectionError("unreachable")),
         _Satellite(error=asyncio.TimeoutError()),
     ):
-        with _session(satellite):
+        with _session(satellite), _server():
             await _service().push("192.168.1.60")
 
 
@@ -126,7 +158,8 @@ async def test_a_200_that_is_not_the_satellites_answer_raises_nothing(caplog, pa
     """
     satellite = _Satellite(payload=payload)
 
-    with _session(satellite), caplog.at_level(logging.WARNING, logger="backend.core.multiroom.satellite_wifi"):
+    with _session(satellite), _server(), \
+            caplog.at_level(logging.WARNING, logger="backend.core.multiroom.satellite_wifi"):
         await _service().push("192.168.1.60")
 
     assert [r.levelname for r in caplog.records] == ["WARNING"]
@@ -138,73 +171,63 @@ async def test_every_online_satellite_is_handed_it_and_never_the_main_unit():
     satellites = [Mock(ip="192.168.1.60", is_local=False), Mock(ip="127.0.0.1", is_local=True),
                   Mock(ip="192.168.1.153", is_local=False)]
     satellite = _Satellite()
-    service = _service(satellites=satellites)
+    nmcli = _Nmcli()
 
-    with _session(satellite):
-        await service.push_all()
+    with _session(satellite), _server(nmcli):
+        await _service(satellites=satellites).push_all()
 
     assert sorted(url for url, _ in satellite.requests) == [
         "http://192.168.1.153:8001/api/system/wifi",
         "http://192.168.1.60:8001/api/system/wifi",
     ]
-    assert service._network.get_active_wifi_profile.await_count == 1
+    assert nmcli.profile_reads == 1
 
 
 async def test_a_network_its_name_and_key_cannot_rebuild_is_never_handed_over():
     """The satellite would keep a profile that never associates, and the log would call it a standby link."""
-    for profile in (
-        {**_FREEBOX, "hidden": True},
-        {**_FREEBOX, "key_mgmt": "sae"},
-        {**_FREEBOX, "key_mgmt": "wpa-eap", "password": ""},
+    for network in (
+        {"hidden": "yes"},
+        {"key_mgmt": "sae"},
+        {"key_mgmt": "wpa-eap"},
     ):
         satellite = _Satellite()
 
-        with _session(satellite):
-            await _service(profile=profile).push("192.168.1.60")
+        with _session(satellite), _server(_Nmcli(**network)):
+            await _service().push("192.168.1.60")
 
-        assert satellite.requests == [], profile
+        assert satellite.requests == [], network
 
 
-class _Nmcli:
-    """`nmcli` as the server's NetworkManager answers the two reads, the key line given verbatim (or absent)."""
+async def test_a_network_that_cannot_be_handed_over_is_reported_once(caplog):
+    """Every admission pushes, and a line per admission for a network that will
+    never change its kind is noise in the journal."""
+    satellite = _Satellite()
+    service = _service()
 
-    def __init__(self, psk_line):
-        self._profile = (
-            "802-11-wireless.ssid:Freebox-CA3555\n"
-            "802-11-wireless.hidden:no\n"
-            "802-11-wireless-security.key-mgmt:wpa-psk"
-            + ("" if psk_line is None else "\n" + psk_line)
-        )
+    with _session(satellite), _server(_Nmcli(key_mgmt="sae")), caplog.at_level(logging.INFO):
+        await service.push("192.168.1.60")
+        await service.push("192.168.1.153")
 
-    async def __call__(self, program, *args, **kwargs):
-        out = "milo-Freebox-CA3555:wlan0" if "--active" in args else self._profile
-        proc = Mock(returncode=0)
-        proc.communicate = AsyncMock(return_value=(out.encode(), b""))
-        return proc
+    lines = [r.getMessage() for r in caplog.records if "not handed to the satellites" in r.getMessage()]
+    assert len(lines) == 1 and "sae" in lines[0], lines
 
 
 async def test_an_empty_key_on_a_wpa_psk_profile_is_never_handed_over(caplog):
     """Measured on Bureau: a PSK read back empty (rc 0) was pushed as is, and its helper replaced the
     working wpa-psk profile by an open one — the standby link lost until the next admission."""
-    for psk_line in ("802-11-wireless-security.psk:", None):
+    for psk_line in (_EMPTY_KEY, None):
         satellite = _Satellite()
-        settings = AsyncMock()
-        registry = Mock()
+        service = _service()
         caplog.clear()
 
-        with _session(satellite), caplog.at_level(logging.WARNING), \
-                patch("backend.core.network.service.asyncio.create_subprocess_exec", new=_Nmcli(psk_line)), \
+        with _session(satellite), _server(_Nmcli(psk_line)), caplog.at_level(logging.WARNING), \
                 patch("asyncio.sleep", new=AsyncMock()):
-            await SatelliteWifiService(NetworkService(AsyncMock(), settings), registry).push("192.168.1.60")
+            await service.push("192.168.1.60")
 
         assert satellite.requests == [], psk_line
         assert any(
             r.levelno == logging.WARNING and "milo-Freebox-CA3555" in r.getMessage() for r in caplog.records
         ), psk_line
-        settings.get_setting.assert_not_awaited()
-
-
-_UNREADABLE = WifiKeyUnreadable("milo-Freebox-CA3555")
 
 
 def _warnings(caplog):
@@ -215,14 +238,14 @@ async def test_a_key_that_reads_back_empty_once_is_read_again_and_handed_over(ca
     """Measured during a reboot: polkit stopped, NetworkManager answered an empty key. Given up at once,
     a satellite kept its stale standby key until the next admission or the next WiFi change."""
     satellite = _Satellite()
-    service = _service()
-    service._network.get_active_wifi_profile = AsyncMock(side_effect=[_UNREADABLE, _FREEBOX])
+    nmcli = _Nmcli(_EMPTY_KEY, "802-11-wireless-security.psk:correct-horse")
 
-    with _session(satellite), caplog.at_level(logging.WARNING), patch("asyncio.sleep", new=AsyncMock()) as sleep:
-        await service.push("192.168.1.60")
+    with _session(satellite), _server(nmcli), caplog.at_level(logging.WARNING), \
+            patch("asyncio.sleep", new=AsyncMock()) as sleep:
+        await _service().push("192.168.1.60")
 
     assert [body["password"] for _, body in satellite.requests] == ["correct-horse"]
-    assert sleep.await_count == 1
+    assert sleep.await_args_list == [call(KEY_READ_RETRY_S)]
     assert _warnings(caplog) == []
 
 
@@ -231,14 +254,14 @@ async def test_a_key_that_never_reads_is_reported_once_for_the_whole_push(caplog
     sent: an empty key would rebuild the satellite's standby link as an open network."""
     satellites = [Mock(ip="192.168.1.60", is_local=False), Mock(ip="192.168.1.153", is_local=False)]
     satellite = _Satellite()
-    service = _service(satellites=satellites)
-    service._network.get_active_wifi_profile = AsyncMock(side_effect=_UNREADABLE)
+    nmcli = _Nmcli(_EMPTY_KEY)
 
-    with _session(satellite), caplog.at_level(logging.WARNING), patch("asyncio.sleep", new=AsyncMock()):
-        await service.push_all()
+    with _session(satellite), _server(nmcli), caplog.at_level(logging.WARNING), \
+            patch("asyncio.sleep", new=AsyncMock()):
+        await _service(satellites=satellites).push_all()
 
     assert satellite.requests == []
-    assert service._network.get_active_wifi_profile.await_count == KEY_READ_TRIES
+    assert nmcli.profile_reads == KEY_READ_TRIES
     warnings = _warnings(caplog)
     assert len(warnings) == 1, warnings
     assert "milo-Freebox-CA3555" in warnings[0]
@@ -253,12 +276,12 @@ async def test_a_satellite_gone_during_the_wait_is_not_addressed():
     satellite = _Satellite()
     service = _service()
     service._registry.get_online_clients = Mock(side_effect=lambda: list(online))
-    service._network.get_active_wifi_profile = AsyncMock(side_effect=[_UNREADABLE, _FREEBOX])
 
     async def leaves(_seconds):
         online.remove(leaving)
 
-    with _session(satellite), patch("asyncio.sleep", new=AsyncMock(side_effect=leaves)):
+    with _session(satellite), _server(_Nmcli(_EMPTY_KEY, "802-11-wireless-security.psk:correct-horse")), \
+            patch("asyncio.sleep", new=AsyncMock(side_effect=leaves)):
         await service.push_all()
 
     assert [url for url, _ in satellite.requests] == ["http://192.168.1.60:8001/api/system/wifi"]
@@ -269,7 +292,7 @@ async def test_a_backend_stop_during_the_wait_sends_nothing_and_says_nothing(cap
     shutdown, and a WARNING would report a failure that is only the stop."""
     satellite = _Satellite()
     service = _service()
-    service._network.get_active_wifi_profile = AsyncMock(side_effect=[_UNREADABLE, _FREEBOX])
+    nmcli = _Nmcli(_EMPTY_KEY, "802-11-wireless-security.psk:correct-horse")
     waiting = asyncio.Event()
 
     async def wait_forever(_seconds):
@@ -277,7 +300,7 @@ async def test_a_backend_stop_during_the_wait_sends_nothing_and_says_nothing(cap
         await asyncio.Event().wait()
 
     bg = BackgroundTaskSet(logging.getLogger("test"), "test")
-    with _session(satellite), caplog.at_level(logging.WARNING), \
+    with _session(satellite), _server(nmcli), caplog.at_level(logging.WARNING), \
             patch("asyncio.sleep", new=AsyncMock(side_effect=wait_forever)):
         push = bg.spawn(service.push("192.168.1.60"), label="push_wifi")
         await asyncio.wait({push, asyncio.ensure_future(waiting.wait())}, return_when=asyncio.FIRST_COMPLETED)
@@ -285,5 +308,5 @@ async def test_a_backend_stop_during_the_wait_sends_nothing_and_says_nothing(cap
         await bg.cancel_all()
 
     assert satellite.requests == []
-    assert service._network.get_active_wifi_profile.await_count == 1
+    assert nmcli.profile_reads == 1
     assert _warnings(caplog) == []

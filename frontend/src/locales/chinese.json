@@ -165,6 +165,7 @@
       "useServerWifi": "使用服务器网络 ({ssid})",
       "changeNetwork": "更改",
       "enterCredentials": "请选择您希望此扬声器加入的 WiFi 网络。",
+      "ethernetHint": "通过 WiFi 配置时，您的 WiFi 密码会经由开放网络传送到扬声器：用以太网线连接扬声器更安全。",
       "adopting": "配置中…",
       "errorPush": "扬声器未接受该配置",
       "errors": {
@@ -173,6 +174,8 @@
         "unsupportedTargetWifi": "Milō 的 WiFi 网络已隐藏，或使用了扬声器仅凭密码无法加入的安全模式。请选择其他网络，或用网线连接扬声器。",
         "alreadyConfigured": "此扬声器已设置过。请先将其重置，然后重试。",
         "serverInHotspotMode": "Milō 正在广播自己的设置网络。请将其连接到您的 WiFi，然后重试。",
+        "serverNetworkChanged": "Milō 已不在所显示的 WiFi 网络上。请检查网络，然后重试。",
+        "serverKeyUnreadable": "Milō 无法读取其自身 WiFi 网络的密码。请重试，或选择该网络并输入其密码。",
         "pushRejected": "扬声器拒绝了该配置。请重启扬声器，然后重试。",
         "pushFailed": "Milō 无法通过设置网络连接到扬声器。请将其移近，然后重试。",
         "noGateway": "Milō 已加入扬声器的设置网络，但未获得地址。请重启扬声器，然后重试。",
@@ -865,7 +868,8 @@
     },
     "wifi": {
       "title": "配置网络",
-      "continueHint": "请选择国家并将 Milō 连接到网络后继续。"
+      "continueHint": "请选择国家并将 Milō 连接到网络后继续。",
+      "ethernetHint": "通过 WiFi 设置时，您的 WiFi 密码会经由开放网络传送到 Milō：使用以太网线更安全。"
     },
     "language": {
       "title": "选择您的语言"

@@ -10,7 +10,9 @@ it without ever touching the speaker physically:
      speaker's hotspot.
   3. Discover the speaker's gateway IP (typically 10.42.0.1, served by the
      hotspot's NetworkManager 'shared' mode).
-  4. POST /api/setup/become-client with audio config + target wifi creds.
+  4. POST /api/setup/become-client with audio config + target wifi creds —
+     the key typed by the owner, or the server's own, which the server reads
+     itself in step 1 and never hands to a browser.
   5. Tear down the temporary hotspot profile and reconnect the original wifi.
 
 Side effects on the server:
@@ -34,16 +36,17 @@ its end after it, still under the lock and the hold.
 """
 import asyncio
 import contextlib
+import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import NoReturn, Optional, Tuple
 
 import aiohttp
 
+from backend.config.constants import RECOVERY_AP_REFUSAL
 from backend.core.network.service import (
-    ADOPTION_PROFILE, HOTSPOT_NAME, OWN_PROFILES, WifiKeyUnreadable, _parse_nmcli_line,
-    is_rebuildable_wifi_profile,
+    ADOPTION_PROFILE, HOTSPOT_NAME, OWN_PROFILES, ServerWifi, WifiShareRefusal, _parse_nmcli_line,
 )
 from backend.shared.background import BackgroundTaskSet
 
@@ -91,6 +94,16 @@ ADOPTION_DEADLINE = 110.0
 STEPS_DEADLINE = ADOPTION_DEADLINE - RESTORE_WORST_CASE
 
 
+def _refused_over_the_ap(status: int, body: str) -> bool:
+    """Whether a speaker's answer is its recovery guard's 403."""
+    if status != 403:
+        return False
+    try:
+        return json.loads(body).get("detail") == RECOVERY_AP_REFUSAL
+    except (ValueError, AttributeError):
+        return False
+
+
 class AdoptionError(Exception):
     """Adoption failure with a stable code for UI mapping."""
 
@@ -98,6 +111,19 @@ class AdoptionError(Exception):
         super().__init__(detail or code)
         self.code = code
         self.detail = detail
+
+
+# A network the speaker would rebuild as a visible wpa-psk one that never
+# associates (`is_rebuildable_wifi_profile`).
+_UNREBUILDABLE = (WifiShareRefusal.HIDDEN, WifiShareRefusal.UNSUPPORTED_SECURITY)
+
+
+def _refuse_unrebuildable(wifi: ServerWifi) -> NoReturn:
+    kind = "hidden" if wifi.refusal is WifiShareRefusal.HIDDEN else wifi.key_mgmt
+    raise AdoptionError(
+        "unsupported_target_wifi",
+        f"'{wifi.ssid}' is a {kind} network: the speaker could not rebuild it from its name and key",
+    )
 
 
 @dataclass
@@ -127,9 +153,14 @@ class WifiAdoptionService:
         speaker_name: str,
         speaker_type: str,
         wifi_ssid: str,
-        wifi_password: str,
+        wifi_password: Optional[str],
     ) -> dict:
         """Adopt a speaker advertising hotspot ``ssid``.
+
+        ``wifi_password`` None hands the speaker the key of the network this
+        server is on, read here while it still is: ``wifi_ssid`` is then the
+        network the owner was shown, and a server since moved off it is
+        refused rather than pushed another network's key.
 
         Raises :class:`AdoptionError` on any failure; on success returns a
         dict with the gateway used and the speaker SSID.
@@ -167,7 +198,7 @@ class WifiAdoptionService:
         speaker_name: str,
         speaker_type: str,
         wifi_ssid: str,
-        wifi_password: str,
+        wifi_password: Optional[str],
     ) -> None:
         """Settle `verdict` by `deadline`, then bring the server's WiFi back.
 
@@ -181,7 +212,7 @@ class WifiAdoptionService:
                 async with asyncio.timeout_at(deadline):
                     await held.enter_async_context(self._lock)
                     await held.enter_async_context(self.network_service.recovery_held())
-                    await self._refuse_unadoptable(wifi_ssid)
+                    wifi_password = await self._key_to_push(wifi_ssid, wifi_password)
                     original_connection = await self._get_active_wifi_name()
                     self.logger.info(
                         "Adopting speaker '%s' (server wifi='%s', target wifi='%s')",
@@ -207,29 +238,39 @@ class WifiAdoptionService:
                 ssid, wifi_ssid,
             )
 
-    async def _refuse_unadoptable(self, wifi_ssid: str) -> None:
-        # Read inside the hold: entering it lets a raise already under way
-        # finish first.
+    async def _key_to_push(self, wifi_ssid: str, wifi_password: Optional[str]) -> str:
+        """The key the speaker is handed for ``wifi_ssid``, or why there is none.
+
+        Read inside the hold, since entering it lets a raise already under way
+        finish first, and before wlan0 leaves the home network, off which the
+        server has no key to read.
+        """
         if self.network_service.hotspot_active:
             raise AdoptionError(
                 "server_in_hotspot_mode",
                 "Cannot adopt while broadcasting the setup hotspot",
             )
-        # The speaker rebuilds its target as a visible wpa-psk profile. Only
-        # the server's own network can be judged from here, a typed one
-        # cannot; read under the lock, while no other adoption holds wlan0.
-        try:
-            profile = await self.network_service.get_active_wifi_profile()
-        except WifiKeyUnreadable:
-            # A visible wpa-psk network, so one the speaker can rebuild; the
-            # key it joins with is the typed one, not this read.
-            return
-        if profile is not None and profile["ssid"] == wifi_ssid and not is_rebuildable_wifi_profile(profile):
-            kind = "hidden" if profile["hidden"] else profile["key_mgmt"]
+        wifi = await self.network_service.shareable_wifi(timeout_s=NMCLI_TIMEOUT)
+        if wifi_password is not None:
+            # A typed network can only be judged when it is the server's own;
+            # a server key that would not read refuses nothing, the speaker
+            # joins with the typed one.
+            if wifi.ssid == wifi_ssid and wifi.refusal in _UNREBUILDABLE:
+                _refuse_unrebuildable(wifi)
+            return wifi_password
+        if wifi.refusal is WifiShareRefusal.UNREADABLE and wifi.ssid in (None, wifi_ssid):
             raise AdoptionError(
-                "unsupported_target_wifi",
-                f"'{wifi_ssid}' is a {kind} network: the speaker could not rebuild it from its name and key",
+                "server_key_unreadable",
+                f"The key of '{wifi.profile or wifi_ssid}' could not be read",
             )
+        if wifi.ssid != wifi_ssid:
+            raise AdoptionError(
+                "server_network_changed",
+                f"The server is on '{wifi.ssid or '<no WiFi>'}', not '{wifi_ssid}'",
+            )
+        if wifi.refusal is not None:
+            _refuse_unrebuildable(wifi)
+        return wifi.password
 
     async def _join_and_push(
         self,
@@ -314,7 +355,10 @@ class WifiAdoptionService:
                             "Speaker rejected become-client (status=%d): %s",
                             resp.status, body,
                         )
-                        if resp.status == 409:
+                        # Over its AP, a speaker already set up is refused the
+                        # write by its recovery guard before setup.py can answer
+                        # 409: become-client is admitted only before setup.
+                        if resp.status == 409 or _refused_over_the_ap(resp.status, body):
                             raise AdoptionError(
                                 "already_configured",
                                 "Speaker already configured (setup_completed=true)",

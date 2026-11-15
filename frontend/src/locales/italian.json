@@ -165,6 +165,7 @@
       "useServerWifi": "Usa la rete del server ({ssid})",
       "changeNetwork": "Cambia",
       "enterCredentials": "Scelga la rete WiFi a cui questo altoparlante deve connettersi.",
+      "ethernetHint": "Via WiFi, la sua password WiFi raggiunge l'altoparlante attraverso una rete aperta: collegarlo con un cavo Ethernet è più sicuro.",
       "adopting": "Configurazione in corso…",
       "errorPush": "L'altoparlante non ha accettato la configurazione",
       "errors": {
@@ -173,6 +174,8 @@
         "unsupportedTargetWifi": "La rete WiFi di Milō è nascosta o protetta da una modalità di sicurezza a cui un altoparlante non può connettersi con la sola password. Scelga un'altra rete o colleghi l'altoparlante con un cavo.",
         "alreadyConfigured": "Questo altoparlante è già configurato. Lo reimposti, poi riprovi.",
         "serverInHotspotMode": "Milō sta trasmettendo la propria rete di configurazione. Lo colleghi alla sua rete WiFi, poi riprovi.",
+        "serverNetworkChanged": "Milō non è più sulla rete WiFi mostrata. Verifichi la rete, poi riprovi.",
+        "serverKeyUnreadable": "Milō non è riuscito a leggere la password della propria rete WiFi. Riprovi, oppure scelga la rete e ne inserisca la password.",
         "pushRejected": "L'altoparlante ha rifiutato la configurazione. Lo riavvii, poi riprovi.",
         "pushFailed": "Milō non è riuscito a raggiungere l'altoparlante tramite la sua rete di configurazione. Lo avvicini, poi riprovi.",
         "noGateway": "Milō si è connesso alla rete di configurazione dell'altoparlante, ma non ha ottenuto alcun indirizzo. Riavvii l'altoparlante, poi riprovi.",
@@ -865,7 +868,8 @@
     },
     "wifi": {
       "title": "Configuri la rete",
-      "continueHint": "Selezioni un paese e colleghi Milō a una rete per continuare."
+      "continueHint": "Selezioni un paese e colleghi Milō a una rete per continuare.",
+      "ethernetHint": "Via WiFi, la sua password WiFi raggiunge Milō attraverso una rete aperta: un cavo Ethernet è più sicuro."
     },
     "language": {
       "title": "Scelga la sua lingua"

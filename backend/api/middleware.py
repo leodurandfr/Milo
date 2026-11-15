@@ -37,8 +37,9 @@ does not cover a WebSocket: a page served from the internet that opens
 names it in `Origin`, which it sends on every upgrade. A native client sends none,
 or the unit's own name, and passes either way.
 
-`client_address` and `RecoveryClientTracker`, at the end, answer another question
-about the same request — whether it comes from someone on the recovery access point.
+`client_address`, `RecoveryAccessPointGuard` and `RecoveryClientTracker`, at the end,
+answer another question about the same request — whether it comes from someone on the
+recovery access point, and what such a client may do.
 """
 import ipaddress
 import logging
@@ -50,6 +51,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.websockets import WebSocketClose
 
+from backend.config.constants import RECOVERY_AP_REFUSAL, RECOVERY_AP_SUBNET
 from backend.core.system.hostname_conflict import EXPECTED_SERVER_HOSTNAME
 
 logger = logging.getLogger(__name__)
@@ -161,9 +163,9 @@ class RequestOriginGate:
 # The address nginx proxies from (`upstream milo_backend`, provisioning/network.sh).
 _NGINX_PEER = "127.0.0.1"
 
-# The subnet NetworkManager hands the clients of a `shared` connection — 10.42.0.1/24
-# for the first, and the recovery AP (core/network/service.py) is the only one.
-_RECOVERY_AP_SUBNET = ipaddress.ip_network("10.42.0.0/24")
+# The subnet NetworkManager hands the clients of a `shared` connection; the recovery
+# AP (core/network/service.py) is the only one.
+_RECOVERY_AP_SUBNET = ipaddress.ip_network(RECOVERY_AP_SUBNET)
 
 
 def client_address(scope) -> str | None:
@@ -188,14 +190,113 @@ def is_recovery_ap_client(scope) -> bool:
         return False
 
 
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# The writes a client of the AP may send while the unit is not set up: the first-boot
+# wizard's three (frontend/src/components/setup/, composables/useNetwork.js) and the
+# adoption's one, which the adopting server sends straight to :8000 from a 10.42.0.x
+# address (core/multiroom/wifi_adoption.py). Exact paths: none takes a parameter, so a
+# path the router would dispatch to one of these four is that string and no other —
+# held by tests/architecture/test_recovery_ap_guard.py, with every entry's existence.
+PRE_SETUP_WRITES = frozenset({
+    ("PUT", "/api/network/wifi/country"),
+    ("POST", "/api/network/wifi/save"),
+    ("POST", "/api/setup/complete"),
+    ("POST", "/api/setup/become-client"),
+})
+
+class RecoveryAccessPointGuard:
+    """Refuses, with 403, every write a client of the recovery access point sends.
+
+    The AP is open — brcmfmac offers neither OWE nor SAE in AP mode — so its clients
+    are anyone in radio range of an outage, and this API authenticates nobody. The
+    same holds while an adoption takes this unit onto a speaker's open hotspot, where
+    it is one client among whoever else joined (`NetworkService.open_ap_reachable`,
+    which a refusal is judged on). Such a
+    client may read (GET, HEAD, OPTIONS, and `/ws`, which takes no command once its
+    `ready` handshake is in) and, before setup only, send `PRE_SETUP_WRITES`. Nothing
+    else, the wizard's writes included once setup is done: over an open AP, the key
+    of a "home" network can as well be a neighbor's, for a network of theirs that
+    carries the home name. A unit set up is repaired from its touch
+    screen (the kiosk is a loopback client, never one of the AP's) or over Ethernet;
+    a proof of presence, once one exists, is what would admit a write here, and here
+    is where it belongs.
+
+    Deny by default, in one place, rather than a dependency per route: the per-route
+    gate this replaced guarded three routes and left WiFi, power, hardware and
+    updates open. A request is judged as the router will see it
+    (`scope["path"]`, decoded, matched verbatim), and anything that is not exactly an
+    entry — a trailing slash, a doubled slash, another case — is refused, never let
+    through. Without a network service (a dev host) no AP exists and it passes; a
+    setting it cannot read counts as set up.
+
+    One warning per client per AP episode: a phone left on the AP refused every write
+    it tries would otherwise fill errors.log. The episode ends when a request finds
+    the AP no longer possible, which is all this guard can see of it.
+
+    Installed outside `RecoveryClientTracker`, so a refused request never counts as
+    someone using the AP, and inside CORS, so an admitted reader reads the refusal
+    like any other answer.
+    """
+
+    def __init__(self, app, network_service, settings_service):
+        self.app = app
+        self.network_service = network_service
+        self.settings_service = settings_service
+        self._warned: set[str] = set()
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or self.network_service is None:
+            await self.app(scope, receive, send)
+            return
+        if not self.network_service.open_ap_reachable:
+            self._warned.clear()
+            await self.app(scope, receive, send)
+            return
+        if (
+            scope["method"] in _READ_METHODS
+            or not is_recovery_ap_client(scope)
+            or await self._admits(scope)
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        address = client_address(scope)
+        if address in self._warned:
+            logger.debug("Refused %s %s to %s", scope["method"], scope["path"], address)
+        else:
+            self._warned.add(address)
+            logger.warning(
+                "Refused %s %s to %s, a client of the recovery access point"
+                " (its further refusals are logged at debug until the AP comes down)",
+                scope["method"], scope["path"], address,
+            )
+        await JSONResponse(status_code=403, content={"detail": RECOVERY_AP_REFUSAL})(
+            scope, receive, send,
+        )
+
+    async def _admits(self, scope) -> bool:
+        if (scope["method"], scope["path"]) not in PRE_SETUP_WRITES:
+            return False
+        if self.settings_service is None:
+            return False
+        try:
+            completed = await self.settings_service.get_setting("setup_completed")
+        except Exception as e:
+            logger.warning("Recovery AP guard: setup_completed unreadable, counted as set up: %s", e)
+            return False
+        return completed is False
+
+
 class RecoveryClientTracker:
     """Tells the network service while a request or a socket from its access point is open.
 
     On a WiFi-only unit the recovery AP is taken down every few minutes to try the
     home network again (`STATION_RETRY_S`, core/network/service.py), and that must
-    not happen under someone repairing the unit over it. The setup page can sit on
+    not happen under someone setting the unit up over it. The setup page can sit on
     `/ws` for minutes without one HTTP request, so a socket counts for as long as it
-    is open. Installed inside the gate, so a request it refuses counts for nothing.
+    is open. Installed inside both gates, so a request either refuses counts for
+    nothing.
     """
 
     def __init__(self, app, network_service):

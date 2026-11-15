@@ -16,8 +16,9 @@ cannot see this.
 The two reads matter for a smaller reason each: the scan must return nothing
 while this device is itself broadcasting the setup hotspot (a fresh server
 adopting itself deletes the AP the operator is connected through), and the
-credentials read must degrade to `available: false` rather than fail, or an
-ethernet-only server cannot open the wizard at all.
+server's network must degrade to `available: false` rather than fail, or an
+ethernet-only server cannot open the wizard at all — and must name that
+network without its key, which a GET hands to anyone who asks.
 """
 import ast
 from pathlib import Path
@@ -30,7 +31,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from backend.api.discovery import _ADOPTION_CLIENT_ERROR_CODES, create_discovery_router
 from backend.core.multiroom.wifi_adoption import AdoptionError
 from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
-from backend.core.network.service import HOTSPOT_NAME, NetworkService
+from backend.core.network.service import HOTSPOT_NAME, NetworkService, ServerWifi, WifiShareRefusal
 
 
 WIFI_ADOPTION = Path(__file__).resolve().parents[1] / "core/multiroom/wifi_adoption.py"
@@ -59,7 +60,9 @@ def network():
     service.hotspot_active = False
     service.scan_networks = AsyncMock(return_value=[])
     service.get_network_status = AsyncMock(return_value=_status(ethernet=True, wifi=True))
-    service.get_active_wifi_credentials = AsyncMock(return_value=None)
+    service.shareable_wifi = AsyncMock(
+        return_value=ServerWifi(ssid=None, password=None, refusal=WifiShareRefusal.NO_NETWORK),
+    )
     return service
 
 
@@ -213,33 +216,38 @@ class TestScan:
         network.scan_networks.assert_awaited_once_with(rescan=False)
 
 
-class TestServerCredentials:
+class TestTheServersNetwork:
 
-    def test_an_ethernet_only_server_reports_no_credentials_rather_than_failing(
+    def test_an_ethernet_only_server_offers_no_network_rather_than_failing(
         self, client
     ):
-        """The wizard pre-fills the speaker's target wifi from the server's own.
+        """The wizard offers the server's own network as the speaker's target.
         A failure here would close the wizard on every wired server instead of
         falling back to typing the password.
         """
-        data = client.get("/api/discovery/server-wifi-creds").json()["data"]
+        data = client.get("/api/discovery/server-wifi").json()["data"]
 
-        assert data == {"available": False}
+        assert data["available"] is False
 
-    def test_the_active_wifi_is_handed_over_for_the_prefill(self, client, network):
-        network.get_active_wifi_credentials.return_value = {
-            "ssid": "Maison", "password": "secret",
-        }
+    def test_the_active_wifi_is_named_and_its_key_never_leaves(self, client, network):
+        """Any client of the LAN, or of the recovery AP, may read a GET: the
+        key stays on the server, which reads it again for the adoption."""
+        network.shareable_wifi.return_value = ServerWifi(
+            ssid="Maison", password="s3cret-psk", refusal=None, profile="milo-Maison", key_mgmt="wpa-psk",
+        )
 
-        data = client.get("/api/discovery/server-wifi-creds").json()["data"]
+        response = client.get("/api/discovery/server-wifi")
 
-        assert data == {"available": True, "ssid": "Maison", "password": "secret"}
+        assert set(response.json()["data"]) == {"available", "ssid"}
+        assert response.json()["data"]["available"] is True
+        assert response.json()["data"]["ssid"] == "Maison"
+        assert "s3cret-psk" not in response.text
 
     @pytest.mark.parametrize("hidden, key_mgmt", [("yes", "wpa-psk"), ("no", "sae")])
     def test_a_network_the_speaker_cannot_rebuild_is_not_offered(
         self, adoption, calibration, hidden, key_mgmt
     ):
-        """The speaker rebuilds the pre-filled network as wpa-psk, never hidden:
+        """The speaker rebuilds the offered network as wpa-psk, never hidden:
         offered, it would reboot onto a profile that never associates. Read
         through the real service, over nmcli as NetworkManager answers it."""
         profile = (
@@ -250,7 +258,7 @@ class TestServerCredentials:
         )
 
         async def nmcli(program, *args, **kwargs):
-            out = "milo-Maison:wlan0" if "--active" in args else profile
+            out = "milo-Maison:u-maison:wlan0" if "--active" in args else profile
             proc = Mock(returncode=0)
             proc.communicate = AsyncMock(return_value=(out.encode(), b""))
             return proc
@@ -261,6 +269,32 @@ class TestServerCredentials:
         ))
 
         with patch("backend.core.network.service.asyncio.create_subprocess_exec", new=nmcli):
-            data = TestClient(app).get("/api/discovery/server-wifi-creds").json()["data"]
+            data = TestClient(app).get("/api/discovery/server-wifi").json()["data"]
 
-        assert data == {"available": False}
+        assert data["available"] is False
+
+
+class TestAdoptingOntoTheServersNetwork:
+
+    def test_the_browser_names_the_network_and_the_server_supplies_the_key(self, client, adoption):
+        """No key in the body means the service reads the server's own; an
+        empty string here would be pushed as an open network's key."""
+        body = {k: v for k, v in ADOPT.items() if k != "wifi_password"}
+
+        response = client.post("/api/discovery/adopt-speaker", json={**body, "use_server_network": True})
+
+        assert response.status_code == 200
+        assert adoption.adopt_speaker.await_args.kwargs["wifi_ssid"] == "Maison"
+        assert adoption.adopt_speaker.await_args.kwargs["wifi_password"] is None
+
+    @pytest.mark.parametrize("password", ["secret", ""])
+    def test_a_key_sent_with_the_servers_network_is_refused(self, client, adoption, password):
+        """Two sources for one key: whichever won, the other was a lie the
+        caller believed."""
+        response = client.post(
+            "/api/discovery/adopt-speaker",
+            json={**ADOPT, "wifi_password": password, "use_server_network": True},
+        )
+
+        assert response.status_code == 422
+        adoption.adopt_speaker.assert_not_awaited()

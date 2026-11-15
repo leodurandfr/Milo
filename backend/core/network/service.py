@@ -30,7 +30,9 @@ keeps working — just without live updates.
 """
 import asyncio
 import contextlib
+import enum
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import AsyncIterator, Iterator, List, Literal, Optional, Set, Tuple
@@ -38,7 +40,9 @@ from typing import AsyncIterator, Iterator, List, Literal, Optional, Set, Tuple
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
-from backend.config.constants import WIFI_RADIO_FORCED_FILE
+from backend.config.constants import (
+    RECOVERY_AP_ADDRESS, RECOVERY_AP_PREFIX, WIFI_RADIO_FORCED_FILE,
+)
 from backend.core.models.ws_events import NetworkStatusChanged
 from backend.shared.background import BackgroundTaskSet
 
@@ -97,6 +101,17 @@ ADOPTION_READ_SLOW_RETRY_S = 60.0
 
 # The bound on each nmcli call that creates and activates the access point.
 HOTSPOT_NMCLI_TIMEOUT_S = 20.0
+
+# The bound on a `connection up` of a station profile, the one being tried
+# included: NM gives up on a wrong key or a network out of range well inside it.
+STATION_UP_TIMEOUT_S = 30.0
+
+# How long `shareable_wifi` waits before reading again a key that read back empty.
+SHARE_READ_RETRY_S = 10.0
+
+# `nmcli connection add` prints "Connection '<name>' (<uuid>) successfully added."
+# — translated with the locale, the UUID in parentheses either way.
+_ADDED_UUID = re.compile(r"\(([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\)")
 
 # `nmcli radio wifi on` returns before NM has re-enumerated wlan0. 10 s of
 # half-second polls, which is generous: the device reappeared in under 2 s on
@@ -249,8 +264,17 @@ class NetworkService:
     @property
     def recovery_ap_possible(self) -> bool:
         """Whether the AP may be carrying clients: up, or not yet read back
-        after a restart — what the recovery gate refuses on."""
+        after a restart."""
         return self._hotspot_active or self._hotspot_unread
+
+    @property
+    def open_ap_reachable(self) -> bool:
+        """Whether a client of an open Milō access point can reach this unit:
+        its own recovery AP may be carrying clients, or an adoption holds wlan0
+        on a speaker's hotspot, where the unit is one client among strangers
+        (`recovery_held`). What `api/middleware.py::RecoveryAccessPointGuard`
+        refuses on."""
+        return self.recovery_ap_possible or self._recovery_holds > 0
 
     @contextlib.contextmanager
     def serving_recovery_client(self) -> Iterator[None]:
@@ -393,7 +417,8 @@ class NetworkService:
 
         Creates a NM profile for the given SSID so NetworkManager will
         auto-connect on next boot.  The current connection (e.g. hotspot)
-        is left untouched.
+        is left untouched, so nothing validates the key: the profiles the SSID
+        had before are replaced only once the new one is written.
         """
         async with self._connect_lock:
             # Saving a network is choosing the radio as much as connecting is:
@@ -401,41 +426,28 @@ class NetworkService:
             # off the radio carrying the network it chose once ethernet appears.
             await self._set_radio_override(False)
             self.logger.info("Saving WiFi network: %s", ssid)
+            try:
+                uuid = await self._write_station_profile(ssid, password)
+            except RuntimeError as e:
+                self.logger.error("Failed to save WiFi profile for '%s': %s", ssid, e)
+                raise RuntimeError(f"WiFi save failed: {e}") from e
 
-            # Best effort: the `connection add` below reports what matters.
+            # Best effort: the network is saved, and a profile left over is
+            # one more NM tries.
             with contextlib.suppress(RuntimeError):
-                await self._delete_ssid_profiles(ssid)
-
-            con_name = f"milo-{ssid}"
-            add_args = [
-                "connection", "add",
-                "type", "wifi",
-                "ifname", self.WIFI_INTERFACE,
-                "con-name", con_name,
-                "ssid", ssid,
-            ]
-            if password is not None:
-                add_args.extend([
-                    "wifi-sec.key-mgmt", "wpa-psk",
-                    "wifi-sec.psk", password,
-                    "wifi-sec.psk-flags", "0",
-                ])
-
-            rc, _, stderr = await self._run_nmcli(*add_args)
-            if rc != 0:
-                error_msg = stderr or "Failed to create connection profile"
-                self.logger.error("Failed to save WiFi profile for '%s': %s", ssid, error_msg)
-                raise RuntimeError(f"WiFi save failed: {error_msg}")
-
+                await self._delete_ssid_profiles(ssid, keep=uuid)
             self.logger.info("WiFi profile saved for '%s' (will connect on next boot)", ssid)
 
     async def connect(self, ssid: str, password: Optional[str] = None) -> NetworkStatus:
-        """Connect to a WiFi network.
+        """Connect to a WiFi network, without ever losing the one that worked.
 
-        Removes all existing profiles for this SSID, then creates a clean
-        profile with explicit security settings. Emits no WebSocket event of
-        its own: the status broadcast comes from NM's own property signals,
-        through the D-Bus tier below. Timeout: 30 seconds.
+        The new profile is tried before anything is removed: written in memory
+        with autoconnect off, brought up, and only once it is up written to disk
+        and made the SSID's one profile. A try that fails takes nothing with it
+        — a mistyped key used to delete the home network's working profile
+        first, and leave the unit on its access point. Emits no WebSocket event
+        of its own: the status broadcast comes from NM's own property signals,
+        through the D-Bus tier below.
         """
         async with self._connect_lock:
             return await self._connect_impl(ssid, password)
@@ -447,60 +459,143 @@ class NetworkService:
         await self._set_radio_override(False)
         self.logger.info("Connecting to WiFi network: %s (password provided: %s)", ssid, password is not None)
 
-        # Disconnect WiFi device first to ensure clean state — an active
-        # connection prevents its profile from being fully removed by NM
-        await self._run_nmcli("device", "disconnect", self.WIFI_INTERFACE)
-
-        # Drop the AP before switching to STA — one radio cannot do both. Also
-        # disarm the pending timer: this connect is the unit becoming reachable,
-        # and if it fails the evaluation will arm a new one.
+        # This connect is the unit becoming reachable; if it fails, the
+        # evaluation or the fall-back below decides again.
         self._cancel_recovery_arm()
-        if self._hotspot_active:
-            await self._stop_hotspot("switching to station mode")
-
-        # Remove all existing profiles for this SSID to avoid stale profiles —
-        # best effort: the `connection add` below reports what matters.
-        with contextlib.suppress(RuntimeError):
-            await self._delete_ssid_profiles(ssid)
-
-        # Create profile and activate in two steps with psk-flags=0
-        # to store the password in the system file (not via secret agent,
-        # which doesn't exist on headless systems).
-        con_name = f"milo-{ssid}"
-        add_args = [
-            "connection", "add",
-            "type", "wifi",
-            "ifname", self.WIFI_INTERFACE,
-            "con-name", con_name,
-            "ssid", ssid,
-        ]
-        if password is not None:
-            add_args.extend([
-                "wifi-sec.key-mgmt", "wpa-psk",
-                "wifi-sec.psk", password,
-                "wifi-sec.psk-flags", "0",
-            ])
-
-        rc, _, stderr = await self._run_nmcli(*add_args)
-        if rc != 0:
-            error_msg = stderr or "Failed to create connection profile"
-            self.logger.error("Failed to create WiFi profile for '%s': %s", ssid, error_msg)
-            raise RuntimeError(f"WiFi connection failed: {error_msg}")
+        try:
+            previous = await self._active_station()
+        except (RuntimeError, asyncio.TimeoutError) as e:
+            self.logger.warning("Could not read which WiFi profile is up before trying '%s': %s", ssid, e)
+            previous = None
 
         try:
-            rc, stdout, stderr = await self._run_nmcli(
-                "connection", "up", con_name, timeout=30.0
+            uuid = await self._write_station_profile(ssid, password, trial=True)
+        except RuntimeError as e:
+            self.logger.error("Failed to create WiFi profile for '%s': %s", ssid, e)
+            raise RuntimeError(f"WiFi connection failed: {e}") from e
+
+        # One radio cannot be AP and station: the AP goes before the try, and
+        # comes back if the try fails.
+        hotspot_was_up = self._hotspot_active
+        if hotspot_was_up and not await self._stop_hotspot("switching to station mode"):
+            await self._discard_trial(uuid)
+            raise RuntimeError(f"WiFi connection to '{ssid}' not tried: the access point holds the radio")
+
+        try:
+            rc, _, stderr = await self._run_nmcli(
+                "connection", "up", "uuid", uuid, timeout=STATION_UP_TIMEOUT_S
             )
         except asyncio.TimeoutError:
-            raise RuntimeError(f"WiFi connection to '{ssid}' timed out")
-
+            rc, stderr = None, None
         if rc != 0:
+            # NM finishes an activation whose nmcli timed out: the delete is
+            # what ends it.
+            await self._discard_trial(uuid)
+            await self._restore_after_failed_try(previous, hotspot_was_up)
+            if rc is None:
+                raise RuntimeError(f"WiFi connection to '{ssid}' timed out")
             error_msg = stderr or "Connection failed"
             self.logger.error("WiFi connection to '%s' failed: %s", ssid, error_msg)
             raise RuntimeError(f"WiFi connection failed: {error_msg}")
 
         self.logger.info("Successfully connected to WiFi: %s", ssid)
+        await self._keep_station_profile(ssid, uuid)
         return await self.get_network_status()
+
+    async def _write_station_profile(self, ssid: str, password: Optional[str], *, trial: bool = False) -> str:
+        """Add `milo-<ssid>` for wlan0 and return its UUID — the one writer of a
+        station profile. psk-flags 0 keeps the key in the profile itself: a
+        headless unit has no secret agent to ask. A `trial` profile is kept in
+        memory with autoconnect off, until `_keep_station_profile` keeps it.
+        Raises RuntimeError with NM's answer."""
+        args = ["connection", "add"]
+        if trial:
+            args += ["save", "no"]
+        args += [
+            "type", "wifi",
+            "ifname", self.WIFI_INTERFACE,
+            "con-name", f"milo-{ssid}",
+            "ssid", ssid,
+        ]
+        if password is not None:
+            args += [
+                "wifi-sec.key-mgmt", "wpa-psk",
+                "wifi-sec.psk", password,
+                "wifi-sec.psk-flags", "0",
+            ]
+        if trial:
+            args += ["connection.autoconnect", "no"]
+
+        rc, stdout, stderr = await self._run_nmcli(*args)
+        if rc != 0:
+            raise RuntimeError(stderr or "Failed to create connection profile")
+        match = _ADDED_UUID.search(stdout)
+        if match is None:
+            raise RuntimeError(f"NetworkManager named no UUID for the new profile: {stdout!r}")
+        return match.group(1)
+
+    async def _keep_station_profile(self, ssid: str, uuid: str) -> None:
+        """Make a trial profile that came up the SSID's profile: on disk with
+        autoconnect on, then the SSID's other profiles removed — in that order,
+        so a power cut between the two leaves both rather than neither.
+
+        nmcli saves a modify unless it is `--temporary`, which is what takes an
+        in-memory profile to disk; the file NM reports back is checked anyway,
+        since the deletion that follows is the one step here that cannot be
+        undone, and a profile left in /run is gone at the next reboot."""
+        rc, _, stderr = await self._run_nmcli(
+            "connection", "modify", "uuid", uuid, "connection.autoconnect", "yes"
+        )
+        if rc != 0 or not await self._profile_on_disk(uuid):
+            self.logger.error(
+                "WiFi '%s' joined, but its profile could not be written to disk (%s): the profiles"
+                " it was to replace are kept, and it is lost at the next reboot",
+                ssid, stderr or "kept in memory",
+            )
+            return
+        with contextlib.suppress(RuntimeError):
+            await self._delete_ssid_profiles(ssid, keep=uuid)
+
+    async def _profile_on_disk(self, uuid: str) -> bool:
+        rc, stdout, _ = await self._run_nmcli("-t", "-f", "UUID,FILENAME", "connection", "show")
+        if rc != 0:
+            return False
+        for fields in map(_parse_nmcli_line, stdout.split("\n")):
+            if len(fields) >= 2 and fields[0] == uuid:
+                return bool(fields[1]) and not fields[1].startswith("/run/")
+        return False
+
+    async def _discard_trial(self, uuid: str) -> None:
+        """Remove a trial profile. One that survives is in memory with
+        autoconnect off: nothing joins with it, and it is gone at reboot."""
+        try:
+            rc, _, stderr = await self._run_nmcli("connection", "delete", "uuid", uuid)
+        except asyncio.TimeoutError:
+            rc, stderr = None, "timed out"
+        if rc not in (0, NMCLI_NO_SUCH_CONNECTION):
+            self.logger.warning("The WiFi profile just tried (%s) could not be removed: %s", uuid, stderr)
+
+    async def _restore_after_failed_try(self, previous: Optional[Tuple[str, str]], hotspot_was_up: bool) -> None:
+        """Give wlan0 back what it carried before a failed try: the profile that
+        was up, asked for at once rather than left to an autoconnect that may
+        not come, or the AP — at once too, and under `_retry_station`'s own
+        conditions: no hold, and no other link."""
+        if previous is not None:
+            name, uuid = previous
+            try:
+                rc, _, stderr = await self._run_nmcli(
+                    "connection", "up", "uuid", uuid, timeout=STATION_UP_TIMEOUT_S
+                )
+            except asyncio.TimeoutError:
+                rc, stderr = None, "timed out"
+            if rc == 0:
+                self.logger.info("WiFi profile '%s' brought back after the failed try", name)
+            else:
+                self.logger.warning("WiFi profile '%s' could not be brought back: %s", name, stderr or f"rc={rc}")
+            return
+        if hotspot_was_up and not self._recovery_holds and await self._has_active_connection() is not True:
+            self._cancel_recovery_arm()
+            await self._start_hotspot()
 
     async def forget_network(self, ssid: str) -> None:
         """Forget (delete) all saved WiFi connection profiles for this SSID.
@@ -513,41 +608,37 @@ class NetworkService:
         self.logger.info("Forgot WiFi network: %s", ssid)
 
     async def get_saved_networks(self) -> List[SavedNetwork]:
-        """List saved WiFi network connections."""
-        rc, stdout, stderr = await self._run_nmcli(
-            "-t", "-f", "NAME,TYPE", "connection", "show"
-        )
-
-        if rc != 0:
-            self.logger.error("Failed to list saved networks: %s", stderr)
-            raise RuntimeError(f"Failed to list saved networks: {stderr}")
-
-        networks = []
-        for line in stdout.split("\n"):
-            if not line:
-                continue
-            fields = _parse_nmcli_line(line)
-            if len(fields) >= 2 and "wireless" in fields[1]:
-                networks.append(SavedNetwork(ssid=_ssid_from_profile(fields[0])))
-
-        return networks
+        """List saved WiFi networks, one per SSID — the SSID `forget_network`
+        takes back. Raises RuntimeError when the profiles cannot be listed."""
+        ssids: dict[str, None] = {}
+        for _, _, ssid in await self._wifi_profiles():
+            ssids[ssid] = None
+        return [SavedNetwork(ssid=ssid) for ssid in ssids]
 
     async def known_ssids(self) -> Set[str]:
         """The SSID of every WiFi profile NetworkManager holds, the setup
         hotspot's excepted — for the diagnostic report, which must not name them.
+        Read as `_wifi_profiles` reads them, each SSID asked for within 2 s."""
+        ssids = {ssid for _, _, ssid in await self._wifi_profiles(timeout=2.0)}
+        ssids.discard(HOTSPOT_NAME)
+        return ssids
 
-        Read from each profile's `802-11-wireless.ssid` rather than from its
-        name, because only the profiles Milō wrote follow `milo-<ssid>`: a card
-        prepared by Raspberry Pi Imager holds one called `preconfigured`. Each
-        is asked for by UUID, since a name can be shared or be one of nmcli's
-        own keywords, and a profile whose SSID cannot be read counts by the
-        name it gives.
+    async def _wifi_profiles(self, timeout: float = 10.0) -> List[Tuple[str, str, str]]:
+        """(name, UUID, SSID) of every WiFi profile but the unit's own (OWN_PROFILES).
+
+        A `milo-<ssid>` profile is Milō's, named for its SSID. Any other is
+        asked for the SSID it carries, by UUID — only the profiles Milō wrote
+        follow the naming, a card prepared by Raspberry Pi Imager holds one
+        called `preconfigured`, and a name can be shared or be one of nmcli's
+        own keywords. One whose SSID cannot be read, or not in time, counts by
+        its name, and costs the others nothing. Raises RuntimeError when the
+        listing fails.
         """
         rc, stdout, stderr = await self._run_nmcli(
-            "-t", "-f", "NAME,UUID,TYPE", "connection", "show", timeout=2.0
+            "-t", "-f", "NAME,UUID,TYPE", "connection", "show", timeout=timeout
         )
         if rc != 0:
-            raise RuntimeError(f"Failed to list WiFi profiles: {stderr}")
+            raise RuntimeError(f"Failed to list WiFi profiles: {stderr or f'nmcli exited with code {rc}'}")
 
         profiles = []
         for line in stdout.split("\n"):
@@ -555,98 +646,114 @@ class NetworkService:
             if len(fields) >= 3 and "wireless" in fields[2] and fields[0] not in OWN_PROFILES:
                 profiles.append((fields[0], fields[1]))
 
+        foreign = [(name, uuid) for name, uuid in profiles if not name.startswith("milo-")]
         answers = await asyncio.gather(*(
             self._run_nmcli(
                 "-t", "-f", "802-11-wireless.ssid", "connection", "show", "uuid", uuid,
-                timeout=2.0,
+                timeout=timeout,
             )
-            for _, uuid in profiles
+            for _, uuid in foreign
         ), return_exceptions=True)
-        ssids = set()
-        for (name, _), answer in zip(profiles, answers):
-            ssid = None
+        carried = {}
+        for (_, uuid), answer in zip(foreign, answers):
             if not isinstance(answer, BaseException) and answer[0] == 0:
                 fields = _parse_nmcli_line(answer[1].split("\n", 1)[0])
-                ssid = fields[1] if len(fields) >= 2 else None
-            ssids.add(ssid or _ssid_from_profile(name))
-        ssids.discard(HOTSPOT_NAME)
-        return ssids
+                if len(fields) >= 2 and fields[1]:
+                    carried[uuid] = fields[1]
+        return [(name, uuid, carried.get(uuid) or _ssid_from_profile(name)) for name, uuid in profiles]
 
-    async def get_active_wifi_credentials(self) -> Optional[dict]:
-        """Return SSID + PSK of the active WiFi client connection on wlan0.
-
-        Used by the multiroom adoption flow: when adopting a wifi-only speaker,
-        the server pushes its own home-network credentials so the speaker
-        joins the same LAN after reboot.
-
-        Returns a dict ``{"ssid": str, "password": str}`` or ``None`` when
-        wlan0 has no active client connection (e.g. ethernet-only server, or
-        only the setup hotspot is up), or when that network is not one the
-        speaker can rebuild from these two (`is_rebuildable_wifi_profile`).
-        ``password`` is an empty string for open networks.
-        """
-        try:
-            profile = await self.get_active_wifi_profile()
-        except WifiKeyUnreadable as unreadable:
-            name = unreadable.profile_name
-            self.logger.warning(
-                "WiFi profile '%s' is wpa-psk but its key read back empty: not offered for adoption", name
-            )
-            return None
-        if profile is None or not is_rebuildable_wifi_profile(profile):
-            return None
-        return {"ssid": profile["ssid"], "password": profile["password"]}
-
-    async def get_active_wifi_profile(self) -> Optional[dict]:
-        """The credentials of the active WiFi connection, with what a copy of it needs.
-
-        ``{"ssid", "password", "hidden": bool, "key_mgmt": str}``, or ``None``
-        as for the credentials. ``key_mgmt`` is empty for an open network (the
-        profile then has no security setting at all), ``wpa-psk`` for WPA2 —
-        anything else (SAE alone, 802.1X, WEP) is a network an SSID and a PSK
-        cannot rebuild.
-
-        Raises `WifiKeyUnreadable` when the key of a visible ``wpa-psk``
-        profile reads back empty: that is a read that failed, not an open
-        network, and handed over it would rebuild the network as an open one.
-        It is the caller's to report, since only the caller knows whether a
-        later read is worth trying.
-        """
-        rc, stdout, _ = await self._run_nmcli(
-            "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"
+    async def _active_station(
+        self, timeout: float = 10.0, log_timeout: bool = True
+    ) -> Optional[Tuple[str, str]]:
+        """(name, UUID) of the station profile wlan0 carries now, or None — the
+        unit's own AP or a speaker's hotspot is none. Raises RuntimeError when
+        nmcli fails."""
+        rc, stdout, stderr = await self._run_nmcli(
+            "-t", "-f", "NAME,UUID,DEVICE", "connection", "show", "--active",
+            timeout=timeout, log_timeout=log_timeout,
         )
         if rc != 0:
-            return None
-
-        active_name: Optional[str] = None
+            raise RuntimeError(f"Failed to list the active connections: {stderr or f'rc={rc}'}")
         for line in stdout.split("\n"):
-            if not line:
-                continue
-            fields = _parse_nmcli_line(line)
-            if len(fields) < 2:
-                continue
-            name, device = fields[0], fields[1]
-            if device != self.WIFI_INTERFACE:
-                continue
-            if name in OWN_PROFILES:
-                continue
-            active_name = name
-            break
+            fields = _parse_nmcli_line(line) if line else []
+            if len(fields) >= 3 and fields[2] == self.WIFI_INTERFACE and fields[0] not in OWN_PROFILES:
+                return fields[0], fields[1]
+        return None
 
-        if not active_name:
+    async def shareable_wifi(
+        self, *, tries: int = 1, retry_delay_s: float = SHARE_READ_RETRY_S, timeout_s: float = 10.0,
+    ) -> "ServerWifi":
+        """The network this server is on, as a peer handed its SSID and key
+        would rebuild it — or why there is none to hand over.
+
+        Only the station profile wlan0 carries **now** is read, never a saved
+        one: on the recovery AP or a speaker's hotspot there is none, so a
+        unit off its network has no key to give. A read that fails (nmcli
+        failed or timed out, a ``wpa-psk`` key read back empty) is tried again
+        up to `tries` reads in all, `retry_delay_s` apart; each nmcli call is
+        bounded by `timeout_s`. Logs nothing above debug: whether a refusal is
+        worth a line, and which, is the caller's — a push that reads three
+        times would otherwise put three error banners up for one outage.
+        """
+        answer = ServerWifi(ssid=None, password=None, refusal=WifiShareRefusal.UNREADABLE)
+        for attempt in range(1, tries + 1):
+            if attempt > 1:
+                await asyncio.sleep(retry_delay_s)
+            try:
+                read = await self._read_active_profile(timeout=timeout_s)
+            except WifiKeyUnreadable as unreadable:
+                answer = ServerWifi(
+                    ssid=unreadable.ssid, password=None, refusal=WifiShareRefusal.UNREADABLE,
+                    profile=unreadable.profile_name, key_mgmt="wpa-psk",
+                )
+                continue
+            except (RuntimeError, asyncio.TimeoutError) as failed:
+                self.logger.debug("WiFi profile read %d/%d failed: %r", attempt, tries, failed)
+                continue
+            if read is None:
+                return ServerWifi(ssid=None, password=None, refusal=WifiShareRefusal.NO_NETWORK)
+            name, profile = read
+            if not is_rebuildable_wifi_profile(profile):
+                refusal = WifiShareRefusal.HIDDEN if profile["hidden"] else WifiShareRefusal.UNSUPPORTED_SECURITY
+                return ServerWifi(
+                    ssid=profile["ssid"], password=None, refusal=refusal,
+                    profile=name, key_mgmt=profile["key_mgmt"],
+                )
+            return ServerWifi(
+                ssid=profile["ssid"], password=profile["password"], refusal=None,
+                profile=name, key_mgmt=profile["key_mgmt"],
+            )
+        return answer
+
+    async def _read_active_profile(self, timeout: float = 10.0) -> Optional[Tuple[str, dict]]:
+        """(name, profile) of the station profile wlan0 carries now, or None
+        when there is none. The profile is ``{"ssid", "password", "hidden":
+        bool, "key_mgmt": str}``: ``key_mgmt`` is empty for an open network (the
+        profile then has no security setting at all), ``wpa-psk`` for WPA2 —
+        anything else (SAE alone, 802.1X, WEP) is a network an SSID and a PSK
+        cannot rebuild. Read by UUID: a connect being tried holds a second
+        profile of the same name.
+
+        Raises RuntimeError (or asyncio.TimeoutError) when nmcli fails, and
+        `WifiKeyUnreadable` when the key of a visible ``wpa-psk`` profile reads
+        back empty: that is a read that failed, not an open network, and
+        handed over it would rebuild the network as an open one. Logs nothing:
+        `shareable_wifi`, its one caller, leaves the report to its own.
+        """
+        active = await self._active_station(timeout=timeout, log_timeout=False)
+        if active is None:
             return None
+        active_name, active_uuid = active
 
         rc, stdout, stderr = await self._run_nmcli(
             "-s", "-t",
             "-f", "802-11-wireless.ssid,802-11-wireless.hidden,"
                   "802-11-wireless-security.key-mgmt,802-11-wireless-security.psk",
-            "connection", "show", active_name,
+            "connection", "show", "uuid", active_uuid,
+            timeout=timeout, log_timeout=False,
         )
         if rc != 0:
-            self.logger.error(
-                "Failed to read WiFi credentials for '%s': %s", active_name, stderr
-            )
-            return None
+            raise RuntimeError(f"Failed to read WiFi profile '{active_name}': {stderr}")
 
         ssid: Optional[str] = None
         password: str = ""
@@ -672,9 +779,9 @@ class NetworkService:
             return None
         # A hidden one is still returned: its callers refuse it for being hidden.
         if key_mgmt == "wpa-psk" and not password and not hidden:
-            raise WifiKeyUnreadable(active_name)
+            raise WifiKeyUnreadable(active_name, ssid)
 
-        return {"ssid": ssid, "password": password, "hidden": hidden, "key_mgmt": key_mgmt}
+        return active_name, {"ssid": ssid, "password": password, "hidden": hidden, "key_mgmt": key_mgmt}
 
     async def get_country(self) -> str:
         """Return the stored WiFi country code, or empty string if not set."""
@@ -751,10 +858,12 @@ class NetworkService:
         internet" as unreachable — `_has_active_connection` asks for a link,
         not for connectivity, so a LAN without a WAN raises nothing.
 
-        The AP is open, and it has to be: the device password that could
-        protect it is read from a UI that, in the one situation this exists
-        for, cannot be reached. The exposure window is exactly the window in
-        which the unit is unreachable by any other means.
+        The AP is open on purpose: a key would have to be read from a UI that,
+        in the one situation this exists for, cannot be reached, and brcmfmac
+        offers neither OWE nor SAE in AP mode anyway. What its clients may do
+        is the request guard's (`api/middleware.py::RecoveryAccessPointGuard`):
+        once the unit is set up, only read — a repair goes through the touch
+        screen or Ethernet — and before setup, only the wizard's writes.
         """
         # A status the caller already computed is a free first look, and it is
         # used in one direction only: `connected` there is sound (ethernet has
@@ -966,8 +1075,8 @@ class NetworkService:
 
         The AP stays owned until NM has removed it, the mirror of
         `_start_hotspot` owning it before `connection up`: until then NM still
-        carries the AP and its clients, and the recovery gate
-        (`api/route_helpers.py::RecoveryAccessPointGate`) refuses them only
+        carries the AP and its clients, and the recovery guard
+        (`api/middleware.py::RecoveryAccessPointGuard`) refuses them only
         while `recovery_ap_possible` holds: `hotspot_active`, the half this
         teardown clears, or an AP not yet read back after a restart. A delete
         NM did not carry out — nmcli timed out, or NM refused — keeps the flag
@@ -1063,7 +1172,7 @@ class NetworkService:
                 return
             self._station_tries += 1
             try:
-                rc, _, stderr = await self._run_nmcli("connection", "up", profile, timeout=30.0)
+                rc, _, stderr = await self._run_nmcli("connection", "up", profile, timeout=STATION_UP_TIMEOUT_S)
             except asyncio.TimeoutError:
                 rc, stderr = None, "timed out"
             if rc == 0:
@@ -1126,7 +1235,8 @@ class NetworkService:
         It reads until it is answered, more slowly after `ADOPTION_READ_TRIES`.
         Giving up left the question open for the run: an AP really left up
         stayed on air, open and unowned, and one that was never there kept the
-        gate shut on 10.42.0.0/24, which a home LAN may be."""
+        guard shut on the AP's subnet (`RECOVERY_AP_SUBNET`), which a home LAN
+        may be."""
         tries = 0
         while True:
             tries += 1
@@ -1228,18 +1338,25 @@ class NetworkService:
     async def _activate_hotspot(self) -> None:
         """Create and activate an open (no password) NetworkManager hotspot.
         Raises on failure; `_start_hotspot` removes what it leaves behind."""
-        # Clean up any stale profile from a previous crashed run
+        # A profile left by a previous process: NM keeps an in-memory one
+        # across a backend restart, and across its own (in /run).
         stale = await self._delete_hotspot_profile()
         if stale is not None:
             self.logger.debug("Hotspot profile cleanup: %s", stale)
 
-        # Create an open AP profile (nmcli device wifi hotspot always adds WPA).
-        # autoconnect=no is load-bearing: nmcli defaults it to yes, and a profile
-        # that survives a reboot then raises the AP on its own — behind the
-        # backend's back, so `_hotspot_active` stays False and nothing ever tears
-        # it down. The AP must only ever exist because this method ran.
+        # An open AP profile (nmcli device wifi hotspot always adds WPA, and
+        # brcmfmac offers neither OWE nor SAE in AP mode), kept in memory: no
+        # boot ever finds it. autoconnect=no is still load-bearing, nmcli
+        # defaulting it to yes: the profile outlives a restart of NM, which
+        # would raise the AP on its own — behind the backend's back, so
+        # `_hotspot_active` stays False and nothing ever tears it down. The AP
+        # must only ever exist because this method ran. The address is pinned,
+        # not left to `shared`'s pick, because the request guard and the
+        # captive DNS answer both name it; and IPv6 is off, so no client
+        # reaches a service by its link-local address.
         rc, _, stderr = await self._run_nmcli(
             "connection", "add",
+            "save", "no",
             "type", "wifi",
             "ifname", self.WIFI_INTERFACE,
             "con-name", HOTSPOT_NAME,
@@ -1248,6 +1365,8 @@ class NetworkService:
             "wifi.band", "bg",
             "wifi.channel", "6",
             "ipv4.method", "shared",
+            "ipv4.addresses", f"{RECOVERY_AP_ADDRESS}/{RECOVERY_AP_PREFIX}",
+            "ipv6.method", "disabled",
             "connection.autoconnect", "no",
             timeout=HOTSPOT_NMCLI_TIMEOUT_S,
         )
@@ -1396,39 +1515,39 @@ class NetworkService:
                     return _ssid_from_profile(name)
         return None
 
-    async def _delete_ssid_profiles(self, ssid: str) -> None:
-        """Delete all NM connection profiles matching a given SSID.
+    async def _delete_ssid_profiles(self, ssid: str, keep: Optional[str] = None) -> None:
+        """Delete every station profile of an SSID but the one whose UUID is `keep`.
 
-        A profile counts by its name: the SSID itself, or `milo-<ssid>` as Milō
-        writes them. A refused delete does not stop the others; RuntimeError
-        once they are all tried if the listing failed or a profile survived.
+        A profile counts by the SSID it stands for (`_wifi_profiles`), so one
+        written by hand, by Imager or by `nmcli device wifi connect` goes with
+        Milō's own: left behind, NM may pick its stale key. Deleted by UUID. A
+        refused delete does not stop the others; RuntimeError once they are
+        all tried if the listing failed or a profile survived.
         """
-        rc, stdout, stderr = await self._run_nmcli(
-            "-t", "-f", "NAME,TYPE", "connection", "show"
-        )
-        if rc != 0:
-            # A warning: a forget's caller logs the raise at error, and a save's
-            # or a connect's own `connection add` reports NetworkManager down.
-            reason = stderr or f"nmcli exited with code {rc}"
-            self.logger.warning("Failed to list WiFi profiles before deleting '%s': %s", ssid, reason)
-            raise RuntimeError(f"Failed to list WiFi profiles: {reason}")
+        try:
+            profiles = await self._wifi_profiles()
+        except (RuntimeError, asyncio.TimeoutError) as e:
+            # A warning: a forget's caller logs the raise at error, and the
+            # network a save or a connect wrote is already in place.
+            self.logger.warning("Could not list WiFi profiles before deleting '%s': %s", ssid, e or "timed out")
+            if isinstance(e, RuntimeError):
+                raise
+            raise RuntimeError("Failed to list WiFi profiles: timed out") from e
 
         survivors = []
-        for line in stdout.split("\n"):
-            if not line:
+        for name, uuid, carried in profiles:
+            if carried != ssid or uuid == keep:
                 continue
-            fields = _parse_nmcli_line(line)
-            if len(fields) < 2 or "wireless" not in fields[1]:
-                continue
-            name = fields[0]
-            if name == ssid or name == f"milo-{ssid}":
-                self.logger.info("Deleting WiFi profile: %s (ssid=%s)", name, ssid)
-                rc2, _, stderr2 = await self._run_nmcli("connection", "delete", name)
-                if rc2 == 0:
-                    self.logger.info("Deleted WiFi profile: %s", name)
-                else:
-                    self.logger.error("Failed to delete WiFi profile %s: %s", name, stderr2)
-                    survivors.append(name)
+            self.logger.info("Deleting WiFi profile: %s (ssid=%s)", name, ssid)
+            try:
+                rc, _, stderr = await self._run_nmcli("connection", "delete", "uuid", uuid)
+            except asyncio.TimeoutError:
+                rc, stderr = None, "timed out"
+            if rc == 0:
+                self.logger.info("Deleted WiFi profile: %s", name)
+            else:
+                self.logger.error("Failed to delete WiFi profile %s: %s", name, stderr)
+                survivors.append(name)
         if survivors:
             raise RuntimeError(f"Failed to delete WiFi profile(s) {', '.join(survivors)} for '{ssid}'")
 
@@ -1877,9 +1996,37 @@ class WifiKeyUnreadable(Exception):
     profile is sound and a later read may well return its key.
     """
 
-    def __init__(self, profile_name: str):
+    def __init__(self, profile_name: str, ssid: Optional[str] = None):
         super().__init__(profile_name)
         self.profile_name = profile_name
+        self.ssid = ssid
+
+
+class WifiShareRefusal(str, enum.Enum):
+    """Why `NetworkService.shareable_wifi` has no network to hand over."""
+    # wlan0 carries no station profile: Ethernet only, the radio off, the
+    # recovery AP or a speaker's hotspot up.
+    NO_NETWORK = "no_network"
+    # The profile could not be read on any try: nmcli failed or timed out, or
+    # a wpa-psk key read back empty.
+    UNREADABLE = "unreadable"
+    # A hidden network is never probed for by the peer that rebuilds it.
+    HIDDEN = "hidden"
+    # SAE alone, 802.1X, WEP: refused by a PSK (`key_mgmt` says which).
+    UNSUPPORTED_SECURITY = "unsupported_security"
+
+
+@dataclass(frozen=True)
+class ServerWifi:
+    """`NetworkService.shareable_wifi`'s answer. Shareable iff `refusal` is None,
+    and `password` (``""`` for an open network) is set exactly then. `ssid` is
+    None for NO_NETWORK and for an UNREADABLE whose profile never answered;
+    `profile` names the NM profile read, for a log line."""
+    ssid: Optional[str]
+    password: Optional[str]
+    refusal: Optional[WifiShareRefusal]
+    profile: Optional[str] = None
+    key_mgmt: str = ""
 
 
 def is_rebuildable_wifi_profile(profile: dict) -> bool:

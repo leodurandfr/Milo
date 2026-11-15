@@ -165,6 +165,7 @@
       "useServerWifi": "Netzwerk des Servers verwenden ({ssid})",
       "changeNetwork": "Ändern",
       "enterCredentials": "Wählen Sie das WLAN, mit dem sich dieser Lautsprecher verbinden soll.",
+      "ethernetHint": "Per WLAN gelangt Ihr WLAN-Passwort über ein offenes Netzwerk zum Lautsprecher: Ihn per Ethernet-Kabel anzuschließen ist sicherer.",
       "adopting": "Konfiguration läuft…",
       "errorPush": "Der Lautsprecher hat die Konfiguration nicht akzeptiert",
       "errors": {
@@ -173,6 +174,8 @@
         "unsupportedTargetWifi": "Das WLAN von Milō ist verborgen oder nutzt einen Sicherheitsmodus, dem ein Lautsprecher nicht allein mit einem Passwort beitreten kann. Wählen Sie ein anderes Netzwerk oder verbinden Sie den Lautsprecher mit einem Kabel.",
         "alreadyConfigured": "Dieser Lautsprecher ist bereits eingerichtet. Setzen Sie ihn zurück und versuchen Sie es erneut.",
         "serverInHotspotMode": "Milō sendet gerade sein eigenes Einrichtungsnetzwerk. Verbinden Sie es mit Ihrem WLAN und versuchen Sie es erneut.",
+        "serverNetworkChanged": "Milō ist nicht mehr mit dem angezeigten WLAN verbunden. Prüfen Sie das Netzwerk und versuchen Sie es erneut.",
+        "serverKeyUnreadable": "Milō konnte das Passwort seines eigenen WLANs nicht lesen. Versuchen Sie es erneut, oder wählen Sie das Netzwerk und geben Sie sein Passwort ein.",
         "pushRejected": "Der Lautsprecher hat die Konfiguration abgelehnt. Starten Sie ihn neu und versuchen Sie es erneut.",
         "pushFailed": "Milō konnte den Lautsprecher über sein Einrichtungsnetzwerk nicht erreichen. Stellen Sie ihn näher auf und versuchen Sie es erneut.",
         "noGateway": "Milō hat sich mit dem Einrichtungsnetzwerk des Lautsprechers verbunden, aber keine Adresse erhalten. Starten Sie den Lautsprecher neu und versuchen Sie es erneut.",
@@ -865,7 +868,8 @@
     },
     "wifi": {
       "title": "Netzwerk einrichten",
-      "continueHint": "Wählen Sie ein Land und verbinden Sie Milō mit einem Netzwerk, um fortzufahren."
+      "continueHint": "Wählen Sie ein Land und verbinden Sie Milō mit einem Netzwerk, um fortzufahren.",
+      "ethernetHint": "Per WLAN gelangt Ihr WLAN-Passwort über ein offenes Netzwerk zu Milō: Ein Ethernet-Kabel ist sicherer."
     },
     "language": {
       "title": "Wählen Sie Ihre Sprache"

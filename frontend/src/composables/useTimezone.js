@@ -27,7 +27,8 @@ import { isKiosk } from '@/utils/kiosk';
  * failure here is silent by design. Settings > Language and region is the
  * correction.
  *
- * Called from App.vue after the stores resync.
+ * Called from App.vue once the initial state is in, never over the recovery
+ * access point, where the write would be refused.
  */
 export async function adoptBrowserTimezone() {
   if (isKiosk()) return false;

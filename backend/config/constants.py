@@ -278,3 +278,19 @@ HOSTNAME_DISPLAY_NAMES = {
 def get_client_display_name(hostname: str) -> str:
     """Return user-friendly display name for a hostname, or the hostname itself."""
     return HOSTNAME_DISPLAY_NAMES.get(hostname, hostname)
+
+# =============================================================================
+# RECOVERY ACCESS POINT
+# =============================================================================
+# The address the recovery AP (core/network/service.py) pins on wlan0, and the
+# subnet its clients get from NetworkManager's `shared` mode. One spelling for the
+# AP profile, the request guard (api/middleware.py), sshd's refusal and the
+# captive DNS answer (rootfs/etc/NetworkManager/dnsmasq-shared.d/milo-captive.conf).
+RECOVERY_AP_ADDRESS = "10.42.0.1"
+RECOVERY_AP_PREFIX = 24
+RECOVERY_AP_SUBNET = f"10.42.0.0/{RECOVERY_AP_PREFIX}"
+# The 403 detail a write refused over the AP answers with. A wire contract
+# between two units as well: an adopting server reads it from a speaker that
+# refused `become-client` because it is already set up
+# (core/multiroom/wifi_adoption.py).
+RECOVERY_AP_REFUSAL = "Not available over the recovery access point"

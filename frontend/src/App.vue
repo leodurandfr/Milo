@@ -474,6 +474,16 @@ watch(isReady, (ready) => {
   if (ready) timer.setTimeout(() => { isInsetWaitOver.value = true; }, BOOT_INSET_WAIT_MS);
 });
 
+// Once the initial state says whether this unit is on its recovery access point:
+// a write from a client of it is refused (api/middleware.py), so a phone running
+// the wizard there would only log a refusal. The next browser on the home network
+// adopts its zone, while the zone is still the default.
+function adoptTimezoneOnceReady() {
+  const adopt = () => { if (!settingsStore.hotspotActive) adoptBrowserTimezone(); };
+  if (isReady.value) adopt();
+  else watch(isReady, adopt, { once: true });
+}
+
 // Watch isReady → trigger boot screen fade and dock auto-show
 watch(() => isReady.value && (isInsetKnown.value || isInsetWaitOver.value), (ready) => {
   if (ready && bootScreenEl) {
@@ -832,7 +842,7 @@ onMounted(async () => {
   // the reverse) fails silently, since both look like they populate the app.
   await resyncStores('boot');
 
-  adoptBrowserTimezone();
+  adoptTimezoneOnceReady();
 
   if (isKiosk()) resumeAfterKioskRestart();
 

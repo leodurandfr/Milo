@@ -89,10 +89,10 @@ Parts list and wiring: [Required hardware](https://milo-audio.com/docs/quick-sta
    working or opens it to the network.
 3. Insert the card and power the Raspberry Pi on.
 4. Reach the setup wizard:
-   - **with an Ethernet cable**, open **http://milo.local** from a phone or computer on the
-     same network;
+   - **with an Ethernet cable** (recommended), open **http://milo.local** from a phone or
+     computer on the same network;
    - **without a cable**, join the open **Milō** Wi-Fi network, and the setup page opens on its
-     own.
+     own. That network is open, so the Wi-Fi password you type there crosses it unencrypted.
 5. Follow the wizard, then Milō restarts, ready to play.
 
 **Multiroom speakers** use the same image. Connect them with an Ethernet cable for their first

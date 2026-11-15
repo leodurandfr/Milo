@@ -165,6 +165,7 @@
       "useServerWifi": "Usar a rede do servidor ({ssid})",
       "changeNetwork": "Alterar",
       "enterCredentials": "Escolha a rede WiFi a que este altifalante se deve ligar.",
+      "ethernetHint": "Por WiFi, a sua palavra-passe WiFi chega ao altifalante através de uma rede aberta: ligá-lo com um cabo Ethernet é mais seguro.",
       "adopting": "A configurar…",
       "errorPush": "O altifalante não aceitou a configuração",
       "errors": {
@@ -173,6 +174,8 @@
         "unsupportedTargetWifi": "A rede WiFi do Milō está oculta ou usa um modo de segurança a que um altifalante não se consegue ligar apenas com uma palavra-passe. Escolha outra rede ou ligue o altifalante com um cabo.",
         "alreadyConfigured": "Este altifalante já está configurado. Reponha-o e tente novamente.",
         "serverInHotspotMode": "O Milō está a emitir a sua própria rede de configuração. Ligue-o à sua rede WiFi e tente novamente.",
+        "serverNetworkChanged": "O Milō já não está na rede WiFi indicada. Verifique a rede e tente novamente.",
+        "serverKeyUnreadable": "O Milō não conseguiu ler a palavra-passe da sua própria rede WiFi. Tente novamente, ou escolha a rede e introduza a palavra-passe.",
         "pushRejected": "O altifalante recusou a configuração. Reinicie-o e tente novamente.",
         "pushFailed": "O Milō não conseguiu contactar o altifalante através da rede de configuração. Aproxime-o e tente novamente.",
         "noGateway": "O Milō ligou-se à rede de configuração do altifalante, mas não obteve nenhum endereço. Reinicie o altifalante e tente novamente.",
@@ -865,7 +868,8 @@
     },
     "wifi": {
       "title": "Configure a rede",
-      "continueHint": "Selecione um país e ligue o Milō a uma rede para continuar."
+      "continueHint": "Selecione um país e ligue o Milō a uma rede para continuar.",
+      "ethernetHint": "Por WiFi, a sua palavra-passe WiFi chega ao Milō através de uma rede aberta: um cabo Ethernet é mais seguro."
     },
     "language": {
       "title": "Escolha o seu idioma"

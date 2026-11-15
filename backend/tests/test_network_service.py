@@ -35,18 +35,19 @@ import types
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from fastapi import HTTPException
-from starlette.requests import Request
 
-from backend.api.route_helpers import RecoveryAccessPointGate
+from backend.api.middleware import RecoveryAccessPointGuard
+from backend.config.constants import RECOVERY_AP_ADDRESS, RECOVERY_AP_PREFIX
 from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
 from backend.core.network.service import (
     ADOPTION_PROFILE,
     ADOPTION_READ_TRIES,
     HOTSPOT_NAME,
     NetworkService,
-    WifiKeyUnreadable,
+    ServerWifi,
+    WifiShareRefusal,
     _parse_nmcli_line,
+    _redact_nmcli_args,
 )
 
 
@@ -243,6 +244,146 @@ class FakeNetworkManager:
                 return (4, "", "Error: Connection activation failed: The Wi-Fi network could not be found")
             else:
                 self.active.add(name)
+            return (0, "", "")
+        raise AssertionError(f"not modelled: nmcli {' '.join(args)}")
+
+
+class FakeStations:
+    """NetworkManager's WiFi station profiles as nmcli lists, reads, adds,
+    activates, modifies and deletes them — what a connect, a save or a forget
+    leaves NM holding is what these tests assert.
+
+    Profiles are addressed by UUID as NM does, and two may share a name. A
+    profile is `{name, ssid, psk, on_disk, autoconnect}`; `in_range` maps each
+    network in reach to its key (None for an open one), and `connection up`
+    joins iff the profile's key is that one. Bringing a profile up takes wlan0
+    from whatever held it — the AP included — before it joins or fails, as one
+    radio does. `persists` False models a modify NM keeps in /run. `fail(*command,
+    answer=…)` answers one later command (by prefix) with `answer` instead.
+    """
+
+    WIRED = ("Wired connection 1", "a1f0c0de-0000-4000-8000-000000000001")
+
+    def __init__(self, profiles=(), *, active=None, in_range=None, hotspot=False, ethernet=False, persists=True):
+        self.profiles: dict[str, dict] = {}
+        for name, uuid, ssid, psk in profiles:
+            self.profiles[uuid] = {"name": name, "ssid": ssid, "psk": psk, "on_disk": True, "autoconnect": True}
+        self.active = active
+        self.in_range = dict(in_range or {})
+        self.hotspot = hotspot
+        self.hotspot_profile = hotspot
+        self.ethernet = ethernet
+        self.persists = persists
+        self._added = 0
+        self._failing: list[tuple[tuple, tuple]] = []
+
+    def fail(self, *command, answer):
+        self._failing.append((command, answer))
+
+    def by_name(self, name):
+        return [p for p in self.profiles.values() if p["name"] == name]
+
+    def _take_radio(self):
+        self.active = None
+        self.hotspot = False
+
+    def route(self, args):
+        for i, (command, answer) in enumerate(self._failing):
+            if args[:len(command)] == command:
+                del self._failing[i]
+                return answer
+        if args == ("radio", "wifi"):
+            return (0, "enabled", "")
+        if args[:2] == ("radio", "wifi"):
+            return (0, "", "")
+        if args == ("-t", "-f", "NAME,UUID,TYPE", "connection", "show"):
+            rows = [f"{self.WIRED[0]}:{self.WIRED[1]}:802-3-ethernet"]
+            rows += [f"{p['name']}:{uuid}:802-11-wireless" for uuid, p in self.profiles.items()]
+            if self.hotspot_profile:
+                rows.append(f"{HOTSPOT_NAME}:5e1f0000-0000-4000-8000-0000000000a9:802-11-wireless")
+            return (0, "\n".join(rows), "")
+        if args == ("-t", "-f", "NAME,TYPE", "connection", "show"):
+            return (0, "\n".join(f"{p['name']}:802-11-wireless" for p in self.profiles.values()), "")
+        if args[:5] == ("-t", "-f", "802-11-wireless.ssid", "connection", "show"):
+            profile = self.profiles.get(args[-1])
+            if profile is None:
+                return (10, "", "Error: no such connection profile.")
+            return (0, f"802-11-wireless.ssid:{profile['ssid']}", "")
+        if args == ("-t", "-f", "NAME,UUID,DEVICE", "connection", "show", "--active"):
+            rows = [f"{self.WIRED[0]}:{self.WIRED[1]}:eth0"] if self.ethernet else []
+            if self.active is not None:
+                rows.append(f"{self.profiles[self.active]['name']}:{self.active}:wlan0")
+            elif self.hotspot:
+                rows.append(f"{HOTSPOT_NAME}:5e1f0000-0000-4000-8000-0000000000a9:wlan0")
+            return (0, "\n".join(rows), "")
+        if args == ("-t", "-f", "UUID,FILENAME", "connection", "show"):
+            return (0, "\n".join(
+                f"{uuid}:/{'etc' if p['on_disk'] else 'run'}/NetworkManager/system-connections/{p['name']}.nmconnection"
+                for uuid, p in self.profiles.items()
+            ), "")
+        if "TYPE,STATE,CONNECTION" in args:
+            rows = ["ethernet:connected:Wired connection 1" if self.ethernet else "ethernet:unavailable:"]
+            if self.active is not None:
+                rows.append(f"wifi:connected:{self.profiles[self.active]['name']}")
+            elif self.hotspot:
+                rows.append(f"wifi:connected:{HOTSPOT_NAME}")
+            else:
+                rows.append("wifi:disconnected:")
+            return (0, "\n".join(rows), "")
+        if args[-3:] == ("device", "show", "eth0"):
+            if self.ethernet:
+                return (0, _device_show("Wired connection 1", "192.168.1.55"), "")
+            return (0, _device_show("--", None), "")
+        if args[-3:] == ("device", "show", "wlan0"):
+            if self.active is None:
+                return (0, "GENERAL.STATE:30 (disconnected)\n" + _device_show("--", None), "")
+            return (0, "GENERAL.STATE:100 (connected)\n"
+                    + _device_show(self.profiles[self.active]["name"], "192.168.1.66"), "")
+        if args[:2] == ("connection", "add"):
+            if "wifi.mode" in args:
+                self.hotspot_profile = True
+                return (0, f"Connection '{HOTSPOT_NAME}' (5e1f0000-0000-4000-8000-0000000000a9) successfully added.", "")
+            self._added += 1
+            uuid = f"0d0e0f00-0000-4000-8000-{self._added:012d}"
+
+            def value(key, default=None):
+                return args[args.index(key) + 1] if key in args else default
+            self.profiles[uuid] = {
+                "name": value("con-name"), "ssid": value("ssid"), "psk": value("wifi-sec.psk"),
+                "on_disk": value("save", "yes") == "yes",
+                "autoconnect": value("connection.autoconnect", "yes") == "yes",
+            }
+            return (0, f"Connection '{value('con-name')}' ({uuid}) successfully added.", "")
+        if args[:3] == ("connection", "up", "uuid"):
+            profile = self.profiles.get(args[3])
+            if profile is None:
+                return (10, "", f"Error: unknown connection '{args[3]}'.")
+            self._take_radio()
+            if profile["ssid"] not in self.in_range:
+                return (4, "", "Error: Connection activation failed: The Wi-Fi network could not be found")
+            if self.in_range[profile["ssid"]] != profile["psk"]:
+                return (4, "", "Error: Connection activation failed: Secrets were required, but not provided")
+            self.active = args[3]
+            return (0, "", "")
+        if args == ("connection", "up", HOTSPOT_NAME):
+            self._take_radio()
+            self.hotspot = True
+            return (0, "", "")
+        if args[:3] == ("connection", "modify", "uuid"):
+            profile = self.profiles[args[3]]
+            profile["autoconnect"] = args[args.index("connection.autoconnect") + 1] == "yes"
+            profile["on_disk"] = profile["on_disk"] or self.persists
+            return (0, "", "")
+        if args[:3] == ("connection", "delete", "uuid"):
+            if self.profiles.pop(args[3], None) is None:
+                return (10, "", f"Error: unknown connection '{args[3]}'.")
+            if self.active == args[3]:
+                self.active = None
+            return (0, "", "")
+        if args == ("connection", "delete", HOTSPOT_NAME):
+            if not self.hotspot_profile:
+                return (10, "", f"Error: unknown connection '{HOTSPOT_NAME}'.")
+            self.hotspot_profile = self.hotspot = False
             return (0, "", "")
         raise AssertionError(f"not modelled: nmcli {' '.join(args)}")
 
@@ -575,7 +716,7 @@ async def test_known_ssids_fall_back_to_the_profile_name_when_its_ssid_is_unread
     in its name — and one stalled read does not cost the others."""
     def router(args):
         if args == ("-t", "-f", "NAME,UUID,TYPE", "connection", "show"):
-            return 0, "milo-Home:u-1:802-11-wireless\nmilo-Cafe:u-2:802-11-wireless\nOffice:u-3:802-11-wireless", ""
+            return 0, "Livebox:u-1:802-11-wireless\nCafe:u-2:802-11-wireless\nOffice:u-3:802-11-wireless", ""
         if args[-1] == "u-1":
             return 10, "", "Error: no such connection profile."
         if args[-1] == "u-2":
@@ -586,7 +727,7 @@ async def test_known_ssids_fall_back_to_the_profile_name_when_its_ssid_is_unread
     with patcher:
         known = await service.known_ssids()
 
-    assert known == {"Home", "Cafe", "Office Net"}
+    assert known == {"Livebox", "Cafe", "Office Net"}
 
 
 # --------------------------------------------------------------------------- #
@@ -1062,15 +1203,9 @@ async def test_connecting_to_a_network_ends_the_override(service):
     cable's return — the restore would otherwise switch off the radio
     carrying it."""
     service._radio_forced_on = True
+    nm = FakeStations(ethernet=True, in_range={"Maison": "secret"})
 
-    def router(args):
-        if "status" in args and "TYPE,STATE,CONNECTION" in args:
-            return (0, "ethernet:connected:Wired connection 1", "")
-        if "show" in args and "eth0" in args:
-            return (0, _device_show("Wired connection 1", "192.168.1.55"), "")
-        return (0, "", "")
-
-    fake, patcher = with_nmcli(router)
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         await service.connect("Maison", "secret")
         await service.evaluate_reachability()
@@ -1085,15 +1220,9 @@ async def test_saving_a_network_ends_the_override(service):
     connect does — or the first ethernet lease switches off the radio that was
     to carry the network just chosen."""
     service._radio_forced_on = True
+    nm = FakeStations(ethernet=True)
 
-    def router(args):
-        if "status" in args and "TYPE,STATE,CONNECTION" in args:
-            return (0, "ethernet:connected:Wired connection 1", "")
-        if "show" in args and "eth0" in args:
-            return (0, _device_show("Wired connection 1", "192.168.1.55"), "")
-        return (0, "", "")
-
-    fake, patcher = with_nmcli(router)
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         await service.save_network("Maison", "secret")
         await service.evaluate_reachability()
@@ -1119,6 +1248,25 @@ async def test_the_hotspot_profile_is_created_with_autoconnect_disabled(service)
     assert add[add.index("connection.autoconnect") + 1] == "no"
     assert add[add.index("wifi.mode") + 1] == "ap"
     assert add[add.index("ipv4.method") + 1] == "shared"
+
+
+@pytest.mark.asyncio
+async def test_the_hotspot_profile_lives_in_memory_at_the_address_its_guard_watches(service):
+    """`save no` keeps the open AP's profile off the card, so no boot finds one
+    to raise. The address is pinned rather than left to `shared`'s pick: the
+    request guard and the captive DNS answer name it, and a pick that moved
+    would hand the AP's clients a subnet the guard never refuses. IPv6 off, or
+    a client reaches every listener by its link-local address, past the
+    IPv4-only refusals."""
+    fake, patcher = with_nmcli()
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: service.hotspot_active)
+
+    add = next(c for c in fake.calls if "add" in c)
+    assert add[add.index("save") + 1] == "no"
+    assert add[add.index("ipv4.addresses") + 1] == f"{RECOVERY_AP_ADDRESS}/{RECOVERY_AP_PREFIX}"
+    assert add[add.index("ipv6.method") + 1] == "disabled"
 
 
 @pytest.mark.asyncio
@@ -1505,18 +1653,43 @@ async def test_a_failed_home_network_try_raises_no_access_point_under_an_adoptio
 # --------------------------------------------------------------------------- #
 
 async def recovery_gate_answer(service) -> int:
-    """What `api/route_helpers.py::RecoveryAccessPointGate` answers a client of
+    """What `api/middleware.py::RecoveryAccessPointGuard` answers a client of
     the AP sending `PUT /api/system/ssh` through nginx, on a unit set up."""
-    request = Request({
+    scope = {
         "type": "http", "method": "PUT", "path": "/api/system/ssh",
         "client": ("127.0.0.1", 41000), "headers": [(b"x-real-ip", b"10.42.0.5")],
-    })
+    }
+    sent = []
+
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
     settings = Mock(get_setting=AsyncMock(return_value=True))
-    try:
-        await RecoveryAccessPointGate(service, settings)(request)
-    except HTTPException as refused:
-        return refused.status_code
-    return 200
+    await RecoveryAccessPointGuard(app, service, settings)(scope, receive, send)
+    return next(m["status"] for m in sent if m["type"] == "http.response.start")
+
+
+@pytest.mark.asyncio
+async def test_the_recovery_gate_is_shut_while_an_adoption_holds_wlan0_on_a_speakers_hotspot(service):
+    """The adoption takes the server onto a fresh speaker's open AP, as a
+    10.42.0.x client beside anyone else who joined it, and no AP of its own is
+    up meanwhile. Judged on its own AP alone, the guard let any of them enable
+    SSH or set the password for as long as the association and the push took."""
+    nm = FakeNetworkManager(profiles={ADOPTION_PROFILE: "infrastructure"}, active={ADOPTION_PROFILE})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay():
+        assert await recovery_gate_answer(service) == 200
+        async with service.recovery_held():
+            assert service.hotspot_active is False
+            assert await recovery_gate_answer(service) == 403
+        await service.cleanup()
 
 
 @pytest.mark.parametrize("teardown", ["station-retry", "link-back"])
@@ -1925,35 +2098,23 @@ async def test_wifi_signal_fails_open_when_no_access_point_is_anchored(service):
 # Which profiles a forget deletes — and which it must not
 # --------------------------------------------------------------------------- #
 
-def _profiles_router(listing, deleted):
-    """Answers `connection show` with a listing, records every delete."""
-    def router(args):
-        if args[:2] == ("connection", "delete"):
-            deleted.append(args[2])
-            return (0, "", "")
-        if "show" in args and "connection" in args:
-            return (0, listing, "")
-        return (0, "", "")
-    return router
-
-
 @pytest.mark.asyncio
-async def test_forgetting_a_network_takes_its_milo_twin_with_it(service):
-    """One SSID can own two profiles — named by the SSID itself, as
-    `nmcli device wifi connect` writes one, and `milo-<ssid>`, as Milō does —
-    and either one left behind still autoconnects to a network the user forgot.
-    """
-    deleted = []
-    fake, patcher = with_nmcli(_profiles_router("\n".join([
-        "Livebox:802-11-wireless",
-        "milo-Livebox:802-11-wireless",
-        "Maison:802-11-wireless",
-    ]), deleted))
+async def test_forgetting_a_network_takes_every_profile_that_carries_it(service):
+    """One SSID can own several profiles — Milō's `milo-<ssid>`, one named by
+    the SSID as `nmcli device wifi connect` writes it, Imager's `preconfigured`
+    — and any one left behind still autoconnects to a network the user forgot.
+    A profile counts by the SSID it carries, not by its name."""
+    nm = FakeStations([
+        ("milo-Livebox", "u-1", "Livebox", "k"),
+        ("Livebox", "u-2", "Livebox", "k"),
+        ("preconfigured", "u-3", "Livebox", "k"),
+        ("Maison", "u-4", "Maison", "k"),
+    ])
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         await service.forget_network("Livebox")
 
-    assert deleted, "nothing was deleted — the listing never reached the filter"
-    assert set(deleted) == {"Livebox", "milo-Livebox"}
+    assert set(nm.profiles) == {"u-4"}
 
 
 @pytest.mark.asyncio
@@ -1967,34 +2128,33 @@ async def test_forgetting_a_network_spares_a_different_ssid_that_ends_with_its_n
     credentials the user must retype, which on a wifi-only unit means from the
     setup AP after a reboot.
     """
-    deleted = []
-    fake, patcher = with_nmcli(_profiles_router("\n".join([
-        "milo-Livebox:802-11-wireless",
-        "Guest-Livebox:802-11-wireless",
-    ]), deleted))
+    nm = FakeStations([
+        ("milo-Livebox", "u-1", "Livebox", "k"),
+        ("Guest-Livebox", "u-2", "Guest-Livebox", "k"),
+        ("milo-Guest-Livebox", "u-3", "Guest-Livebox", "k"),
+    ])
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         await service.forget_network("Livebox")
 
-    assert deleted == ["milo-Livebox"]
+    assert set(nm.profiles) == {"u-2", "u-3"}
 
 
 @pytest.mark.asyncio
 async def test_forgetting_a_network_never_deletes_a_wired_profile(service):
     """The route is `/wifi/saved/{ssid}` and takes the segment verbatim.
 
-    `DELETE /api/network/wifi/saved/Wired%20connection%201` matches the wired
-    profile by name; the connection-type filter is the only thing between that
-    URL and the ethernet link the appliance is actually reachable on.
+    `DELETE /api/network/wifi/saved/Wired%20connection%201` names the wired
+    profile; the connection-type filter is the only thing between that URL and
+    the ethernet link the appliance is actually reachable on.
     """
-    deleted = []
-    fake, patcher = with_nmcli(_profiles_router("\n".join([
-        "Wired connection 1:802-3-ethernet",
-        "milo-Wired connection 1:802-11-wireless",
-    ]), deleted))
+    nm = FakeStations([("milo-Wired connection 1", "u-1", "Wired connection 1", "k")])
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         await service.forget_network("Wired connection 1")
 
-    assert deleted == ["milo-Wired connection 1"]
+    assert nm.profiles == {}
+    assert fake.argv_containing("delete") == [("connection", "delete", "uuid", "u-1")]
 
 
 # --------------------------------------------------------------------------- #
@@ -2011,13 +2171,47 @@ async def test_saving_credentials_leaves_the_live_connection_alone(service):
     unconfigured with a pending_client_role.json it will act on. `connect()` is
     the method that may take the link down; this one may not.
     """
-    fake, patcher = with_nmcli()
+    nm = FakeStations(hotspot=True)
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         await service.save_network("Maison", "secret")
 
-    assert fake.argv_containing("add"), "no profile was created — the save did nothing"
+    assert [p["ssid"] for p in nm.profiles.values()] == ["Maison"], "no profile was created — the save did nothing"
+    assert nm.hotspot is True
     assert not fake.argv_containing("up")
-    assert not fake.argv_containing("disconnect")
+
+
+@pytest.mark.asyncio
+async def test_a_saved_network_replaces_the_profiles_its_ssid_had_once_it_is_written(service):
+    """The wizard on the AP cannot try the key it saves, so the save replaces
+    whatever the SSID held — Imager's `preconfigured` included, which NM could
+    otherwise keep picking with its stale key — and leaves other networks be.
+    The new profile is on disk and autoconnects: it is what the unit joins after
+    the wizard's reboot."""
+    nm = FakeStations([
+        ("preconfigured", "u-1", "Maison", "old"),
+        ("milo-Maison", "u-2", "Maison", "older"),
+        ("milo-Voisins", "u-3", "Voisins", "k"),
+    ])
+    fake, patcher = with_nmcli(nm.route)
+    with patcher:
+        await service.save_network("Maison", "secret")
+
+    kept = {(p["ssid"], p["psk"], p["on_disk"], p["autoconnect"]) for p in nm.profiles.values()}
+    assert kept == {("Maison", "secret", True, True), ("Voisins", "k", True, True)}
+
+
+@pytest.mark.asyncio
+async def test_a_save_nm_refuses_keeps_the_profile_the_ssid_had(service):
+    """The add comes first: a key NM refuses (too short for WPA) used to arrive
+    after the SSID's profiles were gone, and the save failed with nothing left."""
+    nm = FakeStations([("milo-Maison", "u-1", "Maison", "secret")])
+    nm.fail("connection", "add", answer=(2, "", "802-11-wireless-security.psk: property is invalid"))
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, pytest.raises(RuntimeError, match="WiFi save failed"):
+        await service.save_network("Maison", "short")
+
+    assert set(nm.profiles) == {"u-1"}
 
 
 @pytest.mark.asyncio
@@ -2028,7 +2222,8 @@ async def test_a_saved_profile_keeps_its_password_in_the_system_file(service):
     profile would come up asking for a password nobody can type — after the
     reboot, on a box with no screen and no network to reach it by.
     """
-    fake, patcher = with_nmcli()
+    nm = FakeStations()
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         await service.save_network("Maison", "secret")
 
@@ -2040,7 +2235,8 @@ async def test_a_saved_profile_keeps_its_password_in_the_system_file(service):
 @pytest.mark.asyncio
 async def test_an_open_network_is_saved_with_no_security_settings_at_all(service):
     """A wpa-psk key-mgmt on an open network makes NM refuse to activate it."""
-    fake, patcher = with_nmcli()
+    nm = FakeStations()
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         await service.save_network("Cafe", None)
 
@@ -2107,22 +2303,24 @@ def radio_override_marker(tmp_path):
 #
 # Shapes from this appliance, 2026-08-26:
 #
-#   nmcli -t -f NAME,DEVICE connection show --active
-#       Wired connection 1:eth0
-#       milo-Freebox-CA3555:wlan0
-#       tun0:tun0
-#       lo:lo
+#   nmcli -t -f NAME,UUID,DEVICE connection show --active
+#       Wired connection 1:<uuid>:eth0
+#       milo-Freebox-CA3555:<uuid>:wlan0
+#       tun0:<uuid>:tun0
+#       lo:<uuid>:lo
 #
 #   nmcli -s -t -f 802-11-wireless.ssid,802-11-wireless-security.psk \
-#         connection show milo-Freebox-CA3555
+#         connection show uuid <uuid>
 #       802-11-wireless.ssid:<ssid>
 #       802-11-wireless-security.psk:<psk>
 
+FREEBOX_UUID = "3b7f2a9c-6d41-4e0b-9a55-1c2d3e4f5a6b"
+
 ACTIVE_CONNECTIONS = (
-    "Wired connection 1:eth0\n"
-    "milo-Freebox-CA3555:wlan0\n"
-    "tun0:tun0\n"
-    "lo:lo"
+    "Wired connection 1:a1f0c0de-0000-4000-8000-000000000001:eth0\n"
+    f"milo-Freebox-CA3555:{FREEBOX_UUID}:wlan0\n"
+    "tun0:a1f0c0de-0000-4000-8000-000000000002:tun0\n"
+    "lo:a1f0c0de-0000-4000-8000-000000000003:lo"
 )
 
 
@@ -2147,51 +2345,24 @@ def creds_router(active=ACTIVE_CONNECTIONS, ssid="Freebox-CA3555", psk="hunter2"
 
 
 @pytest.mark.asyncio
-async def test_the_credentials_pushed_to_a_speaker_are_the_ones_on_wlan0(service):
-    """`GET /discovery/server-wifi-creds` pre-fills the adoption form with these.
-
-    The active list carries eth0, tun0 and lo alongside wlan0 — picking
-    any of them would hand the speaker a name that is not a WiFi network at all,
-    and it would reboot onto nothing.
-    """
+async def test_the_profile_shared_is_read_by_the_uuid_found_on_wlan0(service):
+    """Not by the SSID or the name, which a connect being tried shares with
+    the profile it replaces."""
     fake, patcher = with_nmcli(creds_router())
     with patcher:
-        assert await service.get_active_wifi_credentials() == {
-            "ssid": "Freebox-CA3555", "password": "hunter2",
-        }
-    # The profile is read by the name found on wlan0, not by the SSID.
-    assert fake.calls[1][-1] == "milo-Freebox-CA3555"
-
-
-@pytest.mark.parametrize("profile", [HOTSPOT_NAME, ADOPTION_PROFILE])
-@pytest.mark.asyncio
-async def test_the_setup_hotspot_is_never_offered_as_home_credentials(service, profile):
-    """During first-boot setup wlan0 carries the unit's own AP, and during an
-    adoption a speaker's setup hotspot. Handing "Milō" to a speaker sends it to
-    an access point that stops existing the moment setup completes."""
-    fake, patcher = with_nmcli(creds_router(active=f"{profile}:wlan0"))
-    with patcher:
-        assert await service.get_active_wifi_credentials() is None
+        await service.shareable_wifi()
+    assert fake.calls[1][-2:] == ("uuid", FREEBOX_UUID)
 
 
 @pytest.mark.asyncio
-async def test_an_ethernet_only_server_offers_nothing(service):
-    """The UI reads `available: false` and falls back to manual entry; a dict
-    with an empty ssid would pre-fill the form with a blank it looks filled."""
-    fake, patcher = with_nmcli(creds_router(active="Wired connection 1:eth0\nlo:lo"))
-    with patcher:
-        assert await service.get_active_wifi_credentials() is None
-
-
-@pytest.mark.asyncio
-async def test_an_open_home_network_yields_an_empty_password_not_none(service):
-    """`AdoptSpeakerRequest.wifi_password` is a string; None would serialise as
-    JSON null and the satellite would build a WPA profile for an open AP."""
+async def test_an_open_home_network_is_shared_with_an_empty_key_not_none(service):
+    """The speaker and the satellite write a key-less profile for an empty
+    key; None is what a refusal carries, and the adoption would refuse an
+    open network it can share."""
     fake, patcher = with_nmcli(creds_router(psk=None))
     with patcher:
-        assert await service.get_active_wifi_credentials() == {
-            "ssid": "Freebox-CA3555", "password": "",
-        }
+        wifi = await service.shareable_wifi()
+    assert (wifi.refusal, wifi.password) == (None, "")
 
 
 @pytest.mark.parametrize("psk", ["", None])
@@ -2202,19 +2373,10 @@ async def test_a_wpa_psk_profile_whose_key_reads_back_empty_is_unreadable(servic
     as an open profile that never associates. Told apart from "no WiFi", so the
     satellite push can read it again rather than wait for the next admission."""
     fake, patcher = with_nmcli(creds_router(key_mgmt="wpa-psk", hidden="no", psk=psk))
-    with patcher, pytest.raises(WifiKeyUnreadable) as unreadable:
-        await service.get_active_wifi_profile()
-    assert unreadable.value.profile_name == "milo-Freebox-CA3555"
-
-
-@pytest.mark.asyncio
-async def test_an_unreadable_key_offers_no_credentials_and_says_which_profile(service, caplog):
-    """The adoption form would pre-fill an empty password for a WPA network,
-    and the speaker would reboot onto an open profile that never associates."""
-    fake, patcher = with_nmcli(creds_router(key_mgmt="wpa-psk", hidden="no", psk=""))
-    with patcher, caplog.at_level(logging.WARNING):
-        assert await service.get_active_wifi_credentials() is None
-    assert "milo-Freebox-CA3555" in caplog.text
+    with patcher:
+        wifi = await service.shareable_wifi()
+    assert (wifi.refusal, wifi.password) == (WifiShareRefusal.UNREADABLE, None)
+    assert wifi.profile == "milo-Freebox-CA3555"
 
 
 @pytest.mark.asyncio
@@ -2223,29 +2385,8 @@ async def test_a_hidden_network_whose_key_reads_back_empty_is_still_named_hidden
     hidden SSID to a speaker that can never join it."""
     fake, patcher = with_nmcli(creds_router(key_mgmt="wpa-psk", hidden="yes", psk=""))
     with patcher:
-        profile = await service.get_active_wifi_profile()
-    assert profile["hidden"] is True
-
-
-@pytest.mark.parametrize("hidden, key_mgmt", [("yes", "wpa-psk"), ("no", "sae"), ("no", "wpa-eap")])
-@pytest.mark.asyncio
-async def test_a_network_its_name_and_key_cannot_rebuild_offers_no_credentials(service, hidden, key_mgmt):
-    """The adoption form pre-fills from these and the speaker rebuilds the
-    network from an SSID and a PSK alone, as wpa-psk and never hidden: it would
-    reboot onto a profile that never associates. `available: false` sends the
-    user to manual entry instead."""
-    fake, patcher = with_nmcli(creds_router(hidden=hidden, key_mgmt=key_mgmt))
-    with patcher:
-        assert await service.get_active_wifi_credentials() is None
-
-
-@pytest.mark.asyncio
-async def test_a_visible_wpa_psk_network_still_offers_its_credentials(service):
-    fake, patcher = with_nmcli(creds_router(hidden="no", key_mgmt="wpa-psk"))
-    with patcher:
-        assert await service.get_active_wifi_credentials() == {
-            "ssid": "Freebox-CA3555", "password": "hunter2",
-        }
+        wifi = await service.shareable_wifi()
+    assert wifi.refusal is WifiShareRefusal.HIDDEN
 
 
 @pytest.mark.asyncio
@@ -2255,134 +2396,319 @@ async def test_a_passphrase_containing_a_colon_survives_the_terse_format(service
     would fail to join with no error anyone can see from here."""
     fake, patcher = with_nmcli(creds_router(psk=r"pa\:ss\:word"))
     with patcher:
-        creds = await service.get_active_wifi_credentials()
-    assert creds["password"] == "pa:ss:word"
+        wifi = await service.shareable_wifi()
+    assert wifi.password == "pa:ss:word"
 
 
 @pytest.mark.asyncio
 async def test_a_profile_that_cannot_be_read_is_reported_not_guessed(service, caplog):
     """A refused secret read (no polkit, deleted profile) must not become an
-    empty password the user then watches fail on the speaker."""
+    empty password the user then watches fail on the speaker. The caller
+    reports the refusal; the read itself says, at debug, which profile failed."""
     fake, patcher = with_nmcli(creds_router(profile_rc=1))
-    with patcher, caplog.at_level(logging.ERROR):
-        assert await service.get_active_wifi_credentials() is None
+    with patcher, caplog.at_level(logging.DEBUG, logger="backend.core.network.service"):
+        wifi = await service.shareable_wifi()
+    assert (wifi.refusal, wifi.password) == (WifiShareRefusal.UNREADABLE, None)
     assert "milo-Freebox-CA3555" in caplog.text
 
 
 @pytest.mark.asyncio
-async def test_a_profile_without_an_ssid_field_yields_nothing(service):
+async def test_a_profile_without_an_ssid_field_shares_nothing(service):
     """802-11-wireless.ssid is absent on a profile NM stores by BSSID."""
     fake, patcher = with_nmcli(creds_router(ssid=None))
     with patcher:
-        assert await service.get_active_wifi_credentials() is None
+        wifi = await service.shareable_wifi()
+    assert wifi.refusal is not None and wifi.password is None
 
 
 @pytest.mark.asyncio
-async def test_a_failed_active_connection_list_yields_nothing(service):
+async def test_a_failed_active_connection_list_is_unreadable_not_no_network(service):
     """First read of the pair; without the exit-code check an nmcli that died
     reads as "no wifi", which is the same answer as an ethernet-only server."""
     fake, patcher = with_nmcli(lambda args: (1, "", "NetworkManager not running"))
     with patcher:
-        assert await service.get_active_wifi_credentials() is None
+        wifi = await service.shareable_wifi()
+    assert wifi.refusal is WifiShareRefusal.UNREADABLE
+
+
+# --------------------------------------------------------------------------- #
+# The one reader of the network this server can hand over
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_the_network_shared_is_the_one_wlan0_is_on(service):
+    """The satellites' standby link and the speaker adoption both hand a peer
+    this SSID and key, and the peer rebuilds the network from them."""
+    fake, patcher = with_nmcli(creds_router(hidden="no", key_mgmt="wpa-psk"))
+    with patcher:
+        wifi = await service.shareable_wifi()
+    assert wifi == ServerWifi(
+        ssid="Freebox-CA3555", password="hunter2", refusal=None,
+        profile="milo-Freebox-CA3555", key_mgmt="wpa-psk",
+    )
+
+
+@pytest.mark.parametrize("active", [
+    f"{HOTSPOT_NAME}:{FREEBOX_UUID}:wlan0",
+    f"{ADOPTION_PROFILE}:{FREEBOX_UUID}:wlan0",
+    "Wired connection 1:u-0:eth0",
+], ids=["recovery-ap", "adoption", "ethernet-only"])
+@pytest.mark.asyncio
+async def test_a_unit_off_its_network_has_none_to_share(service, active):
+    """Only the profile wlan0 carries now is read, never a saved one: on the AP
+    — where a client is anyone in range — there is no key to give."""
+    fake, patcher = with_nmcli(creds_router(active=active))
+    with patcher:
+        wifi = await service.shareable_wifi()
+    assert wifi.refusal is WifiShareRefusal.NO_NETWORK and wifi.password is None
+    assert not [c for c in fake.calls if c[:2] == ("-s", "-t")]
+
+
+@pytest.mark.parametrize("hidden, key_mgmt, refusal", [
+    ("yes", "wpa-psk", WifiShareRefusal.HIDDEN),
+    ("no", "sae", WifiShareRefusal.UNSUPPORTED_SECURITY),
+    ("no", "wpa-eap", WifiShareRefusal.UNSUPPORTED_SECURITY),
+])
+@pytest.mark.asyncio
+async def test_a_network_its_name_and_key_cannot_rebuild_is_refused_by_name(service, hidden, key_mgmt, refusal):
+    """The adoption names the refusal to the user and the satellite push logs
+    it once per network, so the reason and the network travel with it — the
+    key never does."""
+    fake, patcher = with_nmcli(creds_router(hidden=hidden, key_mgmt=key_mgmt))
+    with patcher:
+        wifi = await service.shareable_wifi()
+    assert (wifi.refusal, wifi.ssid, wifi.key_mgmt, wifi.password) == (refusal, "Freebox-CA3555", key_mgmt, None)
+
+
+def _key_reads(*psks):
+    """creds_router whose profile read answers each key in turn, the last one
+    repeating; an exception is raised by that read instead."""
+    answers = list(psks)
+
+    def router(args):
+        if args[:2] != ("-s", "-t"):
+            return creds_router()(args)
+        psk = answers.pop(0) if len(answers) > 1 else answers[0]
+        if isinstance(psk, BaseException):
+            async def raises():
+                raise psk
+            return raises()
+        return creds_router(hidden="no", key_mgmt="wpa-psk", psk=psk)(args)
+    return router
+
+
+def _waits(sleep):
+    """The waits a patched `asyncio.sleep` saw, the fake nmcli's own yields left out."""
+    return [c.args[0] for c in sleep.await_args_list if c.args != (0,)]
+
+
+@pytest.mark.asyncio
+async def test_a_key_read_back_empty_is_read_again_within_the_tries_given(service):
+    """Measured during a reboot: polkit stopped, NM answered an empty key with
+    rc 0. Given up at once, a satellite kept its stale standby key until the
+    next admission."""
+    fake, patcher = with_nmcli(_key_reads("", "hunter2"))
+    with patcher, patch("backend.core.network.service.asyncio.sleep", new=AsyncMock()) as sleep:
+        wifi = await service.shareable_wifi(tries=3, retry_delay_s=7)
+    assert wifi.password == "hunter2"
+    assert _waits(sleep) == [7]
+
+
+@pytest.mark.parametrize("failure", ["empty-key", "nmcli-failed", "nmcli-timeout"])
+@pytest.mark.asyncio
+async def test_a_profile_that_never_reads_is_unreadable_not_absent(service, failure):
+    """"No network" and "could not read it" are different answers to the user
+    adopting a speaker, and an empty key handed over rebuilds a WPA network as
+    an open one. One read only when one try is asked for: the adoption reads
+    inside its own deadline."""
+    if failure == "empty-key":
+        router = creds_router(hidden="no", key_mgmt="wpa-psk", psk="")
+    elif failure == "nmcli-failed":
+        router = creds_router(profile_rc=8)
+    else:
+        router = _key_reads(asyncio.TimeoutError())
+    fake, patcher = with_nmcli(router)
+    with patcher, patch("backend.core.network.service.asyncio.sleep", new=AsyncMock()) as sleep:
+        wifi = await service.shareable_wifi()
+    assert wifi.refusal is WifiShareRefusal.UNREADABLE and wifi.password is None
+    assert _waits(sleep) == []
+    if failure == "empty-key":
+        assert (wifi.ssid, wifi.profile) == ("Freebox-CA3555", "milo-Freebox-CA3555")
+
+
+@pytest.mark.asyncio
+async def test_a_stalled_read_is_bounded_by_the_budget_given(service):
+    """The adoption reads under its lock, inside a deadline: a read that hangs
+    must come back unreadable within the caller's bound, not nmcli's default."""
+    def router(args):
+        if args[:2] == ("-s", "-t"):
+            return asyncio.get_running_loop().create_future()
+        return creds_router()(args)
+
+    fake, patcher = with_nmcli(router)
+    with patcher:
+        wifi = await asyncio.wait_for(service.shareable_wifi(timeout_s=0.05), timeout=1.0)
+    assert wifi.refusal is WifiShareRefusal.UNREADABLE
 
 
 # --------------------------------------------------------------------------- #
 # Connecting, forgetting, listing
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.asyncio
-async def test_connecting_disconnects_the_device_before_rewriting_its_profile(service):
-    """NM will not fully remove a profile that is currently active, so a connect
-    that skips the disconnect leaves the old profile behind and `connection up`
-    activates the stale one — the unit reports the new SSID and stays on the old
-    network."""
-    fake, patcher = with_nmcli()
-    with patcher, patch.object(service, "get_network_status", new=AsyncMock()):
-        await service.connect("Maison", "secret")
-
-    order = [c for c in fake.calls]
-    disconnect = order.index(("device", "disconnect", "wlan0"))
-    add = next(i for i, c in enumerate(order) if c[:2] == ("connection", "add"))
-    assert disconnect < add
+HOME = ("milo-Maison", "u-home", "Maison", "secret")
 
 
 @pytest.mark.asyncio
-async def test_connecting_tears_the_setup_hotspot_down_first(service):
-    """NM auto-reconnects an AP profile the moment wlan0 is free, which would
-    put the card back in AP mode behind the connect. Only done when the hotspot
-    is up: `connection delete Milō` on every connect would log an error on every
-    normal reconnect."""
-    fake, patcher = with_nmcli()
+async def test_a_key_that_joins_becomes_the_networks_one_profile_on_disk(service):
+    """The key the user typed replaces the SSID's other profiles — Imager's
+    `preconfigured` included — once it joined, and only then. It is on disk and
+    autoconnects: a profile left in memory would be gone at the next reboot.
+    Another network's profile is not the SSID's and stays."""
+    nm = FakeStations(
+        [HOME, ("preconfigured", "u-imager", "Maison", "old"), ("milo-Voisins", "u-voisins", "Voisins", "k")],
+        active="u-home", in_range={"Maison": "n3w-key"},
+    )
+    fake, patcher = with_nmcli(nm.route)
+    with patcher:
+        status = await service.connect("Maison", "n3w-key")
+
+    [maison] = [p for p in nm.profiles.values() if p["ssid"] == "Maison"]
+    assert (maison["psk"], maison["on_disk"], maison["autoconnect"]) == ("n3w-key", True, True)
+    assert nm.profiles[nm.active] is maison
+    assert "u-voisins" in nm.profiles
+    # The wizard advances on this payload, read from what NM now carries.
+    assert status.wifi.connected is True
+
+
+@pytest.mark.asyncio
+async def test_a_key_that_does_not_join_leaves_the_working_profile_and_brings_it_back(service):
+    """A mistyped key used to delete the home network's profile before the try:
+    the unit fell off its network for good, onto an AP a client set up may only
+    read. The profile tried is gone with its failure, the old one is untouched,
+    and it is asked for again at once rather than left to an autoconnect that
+    a `device disconnect` had blocked."""
+    nm = FakeStations([HOME], active="u-home", in_range={"Maison": "secret"})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, pytest.raises(RuntimeError, match="Secrets were required"):
+        await service.connect("Maison", "typo")
+
+    assert set(nm.profiles) == {"u-home"}
+    assert nm.profiles["u-home"]["psk"] == "secret"
+    assert nm.active == "u-home"
+
+
+@pytest.mark.asyncio
+async def test_a_connect_from_the_access_point_that_fails_raises_the_access_point_again(service):
+    """One radio: the AP goes down for the try. If the try fails, the AP comes
+    back at once — not after the settle window plus an autoconnect wait, a
+    minute and more during which the person who typed the key has no way in.
+    Nothing saved before the try is lost either."""
+    nm = FakeStations([HOME], hotspot=True, in_range={})
     service._hotspot_active = True
-    with patcher, patch.object(service, "get_network_status", new=AsyncMock()):
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, pytest.raises(RuntimeError, match="could not be found"):
+        await service.connect("Maison", "secret")
+    await service.cleanup()
+
+    assert nm.hotspot is True and service.hotspot_active is True
+    assert set(nm.profiles) == {"u-home"}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_try_raises_no_access_point_where_the_unit_is_reachable_or_held(service):
+    """The fall-back takes `_retry_station`'s conditions: a cable back meanwhile
+    is a way in already, and an adoption holding the radio looks again itself
+    once it lets go."""
+    nm = FakeStations(hotspot=True, in_range={}, ethernet=True)
+    service._hotspot_active = True
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, pytest.raises(RuntimeError):
         await service.connect("Maison", "secret")
 
-    assert fake.argv_containing(HOTSPOT_NAME)
-    assert service.hotspot_active is False
+    assert nm.hotspot is False and not nm.hotspot_profile
+
+    nm = FakeStations(hotspot=True, in_range={})
+    service._hotspot_active = True
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, pytest.raises(RuntimeError):
+        async with service.recovery_held():
+            await service.connect("Maison", "secret")
+        await service.cleanup()
+
+    assert not fake.argv_containing("ap")
+
+
+@pytest.mark.asyncio
+async def test_a_profile_nm_kept_in_memory_replaces_nothing(service):
+    """The SSID's other profiles are deleted only once the new one is on disk:
+    with NM keeping it in /run, deleting them would leave the unit with no
+    profile for its network after the next reboot."""
+    nm = FakeStations([HOME], active="u-home", in_range={"Maison": "n3w-key"}, persists=False)
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, caplog_at_error() as records:
+        await service.connect("Maison", "n3w-key")
+
+    assert "u-home" in nm.profiles
+    assert [r for r in records if "could not be written to disk" in r.getMessage()]
 
 
 @pytest.mark.asyncio
 async def test_a_connect_on_a_unit_with_no_hotspot_deletes_no_hotspot_profile(service):
-    fake, patcher = with_nmcli()
-    with patcher, patch.object(service, "get_network_status", new=AsyncMock()):
+    nm = FakeStations(in_range={"Maison": "secret"})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher:
         await service.connect("Maison", "secret")
     assert ("connection", "delete", HOTSPOT_NAME) not in fake.calls
 
 
 @pytest.mark.asyncio
 async def test_a_connection_that_never_comes_up_is_raised_as_a_timeout(service):
-    """`connection up` is bounded at 30 s, and the bound is raised from the
-    spawn boundary here rather than from a patched private. Without the arm the
-    wizard's spinner sits on an `asyncio.TimeoutError` traceback instead of a
-    message that names the network."""
-    async def spawn(program, *args, **kwargs):
-        assert program == "nmcli"
-        if args[:2] == ("connection", "up"):
-            raise asyncio.TimeoutError()
-        return FakeProc(0, "", "")
+    """`connection up` is bounded at 30 s. Without the arm the wizard's spinner
+    sits on an `asyncio.TimeoutError` traceback instead of a message that names
+    the network — and NM finishes an activation whose nmcli gave up, so the
+    profile tried is deleted, which is what ends it."""
+    async def stalls():
+        raise asyncio.TimeoutError()
 
-    with patch("backend.core.network.service.asyncio.create_subprocess_exec",
-               new=spawn):
-        with pytest.raises(RuntimeError, match="'Maison' timed out"):
-            await service.connect("Maison", "secret")
+    nm = FakeStations([HOME], active="u-home", in_range={"Maison": "secret"})
+
+    def route(args):
+        if args[:3] == ("connection", "up", "uuid") and args[3] != "u-home":
+            return stalls()
+        return nm.route(args)
+
+    fake, patcher = with_nmcli(route)
+    with patcher, pytest.raises(RuntimeError, match="'Maison' timed out"):
+        await service.connect("Maison", "secret")
+
+    assert set(nm.profiles) == {"u-home"}
+    assert nm.active == "u-home"
 
 
 @pytest.mark.asyncio
 async def test_a_refused_activation_names_the_network_that_refused(service):
     """Wrong password is the common case, and nmcli's stderr is the only text
     that says so; the wizard shows this string."""
-    def route(args):
-        if args[:2] == ("connection", "up"):
-            return (4, "", "Error: Connection activation failed: Secrets were required")
-        return (0, "", "")
-
-    fake, patcher = with_nmcli(route)
+    nm = FakeStations(in_range={"Maison": "secret"})
+    fake, patcher = with_nmcli(nm.route)
     with patcher, pytest.raises(RuntimeError, match="Secrets were required"):
         await service.connect("Maison", "wrong")
+    assert nm.profiles == {}
 
 
 @pytest.mark.asyncio
-async def test_a_successful_connect_answers_with_the_new_status(service):
-    """The wizard advances on this payload; returning None would leave it
-    showing "connecting" on a unit that is connected."""
-    fake, patcher = with_nmcli()
-    status = object()
-    with patcher, patch.object(service, "get_network_status",
-                               new=AsyncMock(return_value=status)):
-        assert await service.connect("Maison", "secret") is status
-
-
-@pytest.mark.asyncio
-async def test_the_saved_list_shows_the_ssid_not_the_milo_profile_name(service):
-    """The settings panel lists these; `milo-Freebox` is a NM profile name and
-    is not what the user recognises — nor what `forget_network` expects back."""
-    def route(args):
-        return (0, "milo-Freebox-CA3555:802-11-wireless\n"
-                   "Wired connection 1:802-3-ethernet\n"
-                   "tun0:tun\n"
-                   "Voisins:802-11-wireless", "")
-
-    fake, patcher = with_nmcli(route)
+async def test_the_saved_list_names_each_network_once_by_the_ssid_it_carries(service):
+    """The settings panel lists these, and hands one back to `forget_network`,
+    which matches the SSID a profile carries: `milo-Freebox` is a NM profile
+    name, `preconfigured` names no network at all, and two profiles of one SSID
+    are one network. Neither the unit's own AP nor the adoption's profile is a
+    network the user saved."""
+    nm = FakeStations([
+        ("milo-Freebox-CA3555", "u-1", "Freebox-CA3555", "k"),
+        ("preconfigured", "u-2", "Voisins", "k"),
+        ("Voisins", "u-3", "Voisins", "k"),
+    ], hotspot=True)
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         saved = await service.get_saved_networks()
 
@@ -2394,7 +2720,7 @@ async def test_a_saved_list_that_cannot_be_read_is_raised_not_emptied(service):
     """An empty list reads as "no saved networks" and the panel offers to set
     one up — over a unit that has one."""
     fake, patcher = with_nmcli(lambda args: (1, "", "NetworkManager not running"))
-    with patcher, pytest.raises(RuntimeError, match="Failed to list saved networks"):
+    with patcher, pytest.raises(RuntimeError, match="Failed to list WiFi profiles"):
         await service.get_saved_networks()
 
 
@@ -3302,17 +3628,17 @@ async def test_forgetting_a_network_while_nm_is_down_raises_and_deletes_nothing(
     assert not fake.argv_containing("delete")
 
 
+REFUSED_DELETE = (1, "", "Error: unknown connection")
+
+
 @pytest.mark.asyncio
 async def test_a_profile_that_refuses_to_be_deleted_fails_the_forget(service, caplog):
     """A profile that survives keeps its credentials and its autoconnect, so the
     forget must not read as done: the exception and the operator log both name
     the profile NetworkManager kept."""
-    def route(args):
-        if args[:2] == ("connection", "delete"):
-            return (1, "", "Error: unknown connection")
-        return (0, "milo-Maison:802-11-wireless", "")
-
-    fake, patcher = with_nmcli(route)
+    nm = FakeStations([HOME])
+    nm.fail("connection", "delete", "uuid", "u-home", answer=REFUSED_DELETE)
+    fake, patcher = with_nmcli(nm.route)
     with patcher, caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as raised:
         await service.forget_network("Maison")
     assert "milo-Maison" in str(raised.value)
@@ -3324,20 +3650,12 @@ async def test_one_refused_delete_does_not_stop_the_others_and_only_survivors_ar
     """One refusal must not stop the others — a twin left behind still
     autoconnects — and the error names only what survived, which is what the
     operator has to remove by hand."""
-    attempted = []
-
-    def route(args):
-        if args[:2] == ("connection", "delete"):
-            attempted.append(args[2])
-            if args[2] == "Maison":
-                return (1, "", "Error: unknown connection")
-            return (0, "", "")
-        return (0, "Maison:802-11-wireless\nmilo-Maison:802-11-wireless", "")
-
-    fake, patcher = with_nmcli(route)
+    nm = FakeStations([("Maison", "u-bare", "Maison", "k"), HOME])
+    nm.fail("connection", "delete", "uuid", "u-bare", answer=REFUSED_DELETE)
+    fake, patcher = with_nmcli(nm.route)
     with patcher, pytest.raises(RuntimeError) as raised:
         await service.forget_network("Maison")
-    assert attempted == ["Maison", "milo-Maison"]
+    assert set(nm.profiles) == {"u-bare"}
     assert "Maison" in str(raised.value)
     assert "milo-Maison" not in str(raised.value)
 
@@ -3351,14 +3669,11 @@ def test_a_forget_nm_refused_answers_an_error_on_the_route(service):
 
     from backend.api.network import create_network_router
 
-    def route(args):
-        if args[:2] == ("connection", "delete"):
-            return (1, "", "Error: unknown connection")
-        return (0, "milo-Maison:802-11-wireless", "")
-
+    nm = FakeStations([HOME])
+    nm.fail("connection", "delete", "uuid", "u-home", answer=REFUSED_DELETE)
     app = FastAPI()
     app.include_router(create_network_router(service))
-    fake, patcher = with_nmcli(route)
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         response = TestClient(app).delete("/api/network/wifi/saved/Maison")
     assert response.status_code == 500
@@ -3375,41 +3690,32 @@ def test_forget_takes_an_ssid_with_a_slash(service):
 
     from backend.api.network import create_network_router
 
-    def route(args):
-        if args[:2] == ("connection", "delete"):
-            return (0, "", "")
-        return (0, "milo-Livebox/5GHz:802-11-wireless", "")
-
+    nm = FakeStations([("milo-Livebox/5GHz", "u-1", "Livebox/5GHz", "k")])
     app = FastAPI()
     app.include_router(create_network_router(service))
-    fake, patcher = with_nmcli(route)
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
         response = TestClient(app).delete("/api/network/wifi/saved/Livebox%2F5GHz")
     assert response.status_code == 200
-    assert ("connection", "delete", "milo-Livebox/5GHz") in fake.calls
+    assert nm.profiles == {}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["listing", "delete"])
 @pytest.mark.parametrize("call", ["save_network", "connect"])
-async def test_saving_and_connecting_still_proceed_when_the_old_profile_survives(service, call, failure):
-    """Both clear the SSID's old profiles before their own `connection add`, and
-    that add is what reports a NetworkManager that is down. A clear-out that
-    raised here would cost the wizard its save over a profile that the new one
-    replaces anyway."""
-    def route(args):
-        if args[-2:] == ("connection", "show"):
-            if failure == "listing":
-                return (1, "", "NetworkManager not running")
-            return (0, "milo-Maison:802-11-wireless", "")
-        if args[:2] == ("connection", "delete"):
-            return (1, "", "Error: unknown connection")
-        return (0, "", "")
-
-    fake, patcher = with_nmcli(route)
+async def test_saving_and_connecting_still_succeed_when_the_old_profile_survives(service, call, failure):
+    """Both clear the SSID's old profiles once their own is in place, and the
+    network is saved or joined by then: a clear-out that raised here would fail
+    the wizard over a profile left beside the one that works."""
+    nm = FakeStations([HOME], in_range={"Maison": "n3w-key"})
+    if failure == "listing":
+        nm.fail("-t", "-f", "NAME,UUID,TYPE", "connection", "show", answer=(8, "", "NetworkManager not running"))
+    else:
+        nm.fail("connection", "delete", "uuid", "u-home", answer=REFUSED_DELETE)
+    fake, patcher = with_nmcli(nm.route)
     with patcher:
-        await getattr(service, call)("Maison", "secret")
-    assert fake.argv_containing("add"), f"{call} stopped at the clear-out"
+        await getattr(service, call)("Maison", "n3w-key")
+    assert [p["psk"] for p in nm.profiles.values()] == ["secret", "n3w-key"]
 
 
 @pytest.mark.asyncio
@@ -3464,28 +3770,38 @@ async def test_nmcli_timeout_log_never_carries_the_psk(service, call):
 
 
 @pytest.mark.asyncio
-async def test_a_timed_out_secret_read_still_names_its_command(service):
-    """The credential read asks for `…,802-11-wireless-security.psk` in its
-    field list. The list names the PSK without carrying it, so masking what
-    follows it would only blank the verb of the very line that says which
-    nmcli hung."""
+async def test_a_failed_key_read_logs_nothing_above_debug(service):
+    """The satellite push reads up to three times and warns once; a reader that
+    logged its own error put three banners up on every UI for one NM hiccup,
+    ahead of the push's warning that already says it."""
     async def times_out():
         raise asyncio.TimeoutError()
 
     def route(args):
         if "--active" in args:
-            return (0, "milo-Maison:wlan0", "")
+            return (0, f"milo-Maison:{FREEBOX_UUID}:wlan0", "")
         if args[0] == "-s":
             return times_out()
         return (0, "", "")
 
     _, patcher = with_nmcli(route)
-    with patcher, caplog_at_error() as records, pytest.raises(asyncio.TimeoutError):
-        await service.get_active_wifi_profile()
+    with patcher, caplog_at_error() as records:
+        wifi = await service.shareable_wifi(tries=2, retry_delay_s=0)
 
-    timed_out = [r.getMessage() for r in records if "nmcli timed out" in r.getMessage()]
-    assert timed_out, "no timeout logged"
-    assert "connection show milo-Maison" in timed_out[0]
+    assert wifi.refusal is WifiShareRefusal.UNREADABLE
+    assert records == []
+
+
+def test_a_psk_field_list_is_not_mistaken_for_a_key():
+    """A logged nmcli argv masks the value after `*.psk`; a `-f` list naming the
+    PSK field carries no key, and masking what follows it would blank the verb
+    of the very line that says which nmcli hung."""
+    line = _redact_nmcli_args((
+        "-s", "-t", "-f", "802-11-wireless.ssid,802-11-wireless-security.psk",
+        "connection", "show", "uuid", FREEBOX_UUID,
+    ))
+    assert f"connection show uuid {FREEBOX_UUID}" in line
+    assert _redact_nmcli_args(("wifi-sec.psk", "hunter2")) == "wifi-sec.psk ***"
 
 
 @pytest.mark.asyncio
@@ -3567,7 +3883,7 @@ async def test_a_fresh_unit_with_no_profiles_reads_as_empty_everywhere(service):
     fake, patcher = with_nmcli(lambda args: (0, "", ""))
     with patcher:
         assert await service.get_saved_networks() == []
-        assert await service.get_active_wifi_credentials() is None
+        assert (await service.shareable_wifi()).refusal is WifiShareRefusal.NO_NETWORK
         await service.forget_network("Maison")
     assert not fake.argv_containing("delete")
 

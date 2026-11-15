@@ -3,7 +3,7 @@
 System power management + status + telemetry routes
 (restart, shutdown, hostname conflict, temperature, resources, network).
 """
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 import asyncio
 import functools
 import logging
@@ -13,7 +13,7 @@ from time import monotonic
 from typing import Optional, TYPE_CHECKING
 
 from backend.api.models import DevicePasswordRequest, SshRequest, TimezoneRequest
-from backend.api.route_helpers import RecoveryAccessPointGate, api_error_handler
+from backend.api.route_helpers import api_error_handler
 from backend.core.models.ws_events import SystemTimezoneChanged
 from backend.core.system.localtime import current_timezone
 from backend.core.system.zone_coordinates import read_zone_coordinates
@@ -26,8 +26,6 @@ from backend.config.constants import (
 
 if TYPE_CHECKING:
     from backend.core.multiroom.satellite_timezone import SatelliteTimezoneService
-    from backend.core.network.service import NetworkService
-    from backend.core.settings import SettingsService
     from backend.core.state import AudioStateMachine
     from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
@@ -88,13 +86,9 @@ def create_system_router(
     hardware_service: Optional["HardwareService"] = None,
     diagnostic_service: Optional["DiagnosticService"] = None,
     state_machine: Optional["AudioStateMachine"] = None,
-    network_service: Optional["NetworkService"] = None,
-    settings_service: Optional["SettingsService"] = None,
     satellite_timezone_service: Optional["SatelliteTimezoneService"] = None,
 ):
     router = APIRouter()
-    # What outlives an outage is refused to the open recovery AP; see the gate.
-    not_over_the_recovery_ap = [Depends(RecoveryAccessPointGate(network_service, settings_service))]
 
     @router.post("/restart")
     async def restart_system(background_tasks: BackgroundTasks):
@@ -370,7 +364,7 @@ def create_system_router(
             )
             return {"status": "success", "data": result}
 
-    @router.post("/reset-setup", dependencies=not_over_the_recovery_ap)
+    @router.post("/reset-setup")
     async def reset_setup(background_tasks: BackgroundTasks):
         """Re-run first-boot: role detection, then the setup wizard.
 
@@ -417,7 +411,7 @@ def create_system_router(
             },
         }
 
-    @router.put("/ssh", dependencies=not_over_the_recovery_ap)
+    @router.put("/ssh")
     async def set_ssh_state(payload: SshRequest):
         """Open or close SSH.
 
@@ -429,7 +423,8 @@ def create_system_router(
         *published*: the same value on every unit, in a public repository. That
         is a fact to report beside an open door, which `GET /ssh` carries, not a
         permission to withhold. The one position refused is the open recovery
-        AP, whose clients are anyone in radio range (`RecoveryAccessPointGate`).
+        AP, whose clients are anyone in radio range: they may send no write at
+        all, setup or not (`api/middleware.py::RecoveryAccessPointGuard`).
         """
         if not await systemd_manager.set_enabled(SSH_UNIT, payload.enabled):
             raise HTTPException(
@@ -447,7 +442,7 @@ def create_system_router(
             },
         }
 
-    @router.post("/password", dependencies=not_over_the_recovery_ap)
+    @router.post("/password")
     async def set_device_password(payload: DevicePasswordRequest):
         """Set the `milo` account password (SSH login + sudo).
 

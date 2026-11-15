@@ -3320,10 +3320,11 @@ class TestAdmissionPathConvergence:
         the server had left until its next admission.
         """
         from backend.core.multiroom.satellite_wifi import SatelliteWifiService
+        from backend.core.network.service import ServerWifi
 
-        profile = {"ssid": "Freebox-OLD", "password": "old-key", "hidden": False, "key_mgmt": "wpa-psk"}
+        profile = {"ssid": "Freebox-OLD", "password": "old-key"}
         network = MagicMock()
-        network.get_active_wifi_profile = AsyncMock(side_effect=lambda: dict(profile))
+        network.shareable_wifi = AsyncMock(side_effect=lambda **_: ServerWifi(refusal=None, **profile))
         network.get_country = AsyncMock(return_value="FR")
         sent = []
         self._satellites_answer(monkeypatch, sent)

@@ -471,9 +471,9 @@ onMounted(async () => {
     multiroomClientStore.fetchPendingClients();
   }
 
-  // Start hotspot polling + load the server's wifi creds for adoption auto-fill.
+  // Start hotspot polling + load the server's network, offered as the target.
   discoveryStore.startPolling();
-  discoveryStore.loadServerWifiCreds();
+  discoveryStore.loadServerWifi();
 });
 
 onBeforeUnmount(() => {

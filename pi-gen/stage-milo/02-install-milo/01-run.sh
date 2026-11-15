@@ -230,6 +230,15 @@ cp /home/milo/milo/rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules \
 chmod 0644 /etc/polkit-1/rules.d/50-milo-networkmanager.rules
 CHROOT
 
+# ── sshd: no shell over the recovery access point ────────────────────────────
+
+on_chroot << 'CHROOT'
+mkdir -p /etc/ssh/sshd_config.d
+cp /home/milo/milo/rootfs/etc/ssh/sshd_config.d/milo-recovery-ap.conf \
+    /etc/ssh/sshd_config.d/milo-recovery-ap.conf
+chmod 0644 /etc/ssh/sshd_config.d/milo-recovery-ap.conf
+CHROOT
+
 # ── Bluetooth device name ────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'

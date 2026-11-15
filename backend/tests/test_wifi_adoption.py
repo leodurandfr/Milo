@@ -17,13 +17,15 @@ had ever built an AdoptionError.
 """
 import asyncio
 import contextlib
+import json
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from backend.config.constants import RECOVERY_AP_REFUSAL
 from backend.core.multiroom import wifi_adoption
 from backend.core.multiroom.wifi_adoption import AdoptionError, WifiAdoptionService
-from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME, WifiKeyUnreadable
+from backend.core.network.service import ADOPTION_PROFILE, HOTSPOT_NAME, ServerWifi, WifiShareRefusal
 
 
 AUDIO = {
@@ -31,6 +33,14 @@ AUDIO = {
     "speaker_name": "Bureau",
     "speaker_type": "bookshelf",
 }
+
+# What `NetworkService.shareable_wifi` answers for the home wifi below, for a
+# wired server, and for a home key polkit would not hand over.
+MAISON = ServerWifi(ssid="Maison", password="secret", refusal=None, profile="milo-Maison", key_mgmt="wpa-psk")
+NO_WIFI = ServerWifi(ssid=None, password=None, refusal=WifiShareRefusal.NO_NETWORK)
+UNREADABLE_MAISON = ServerWifi(
+    ssid="Maison", password=None, refusal=WifiShareRefusal.UNREADABLE, profile="milo-Maison", key_mgmt="wpa-psk",
+)
 
 
 @pytest.fixture
@@ -48,7 +58,7 @@ def service(monkeypatch):
     monkeypatch.setattr(wifi_adoption.asyncio, "create_subprocess_exec", _never)
     network = MagicMock()
     network.hotspot_active = False
-    network.get_active_wifi_profile = AsyncMock(return_value=None)
+    network.shareable_wifi = AsyncMock(return_value=NO_WIFI)
     return WifiAdoptionService(network_service=network)
 
 
@@ -89,18 +99,20 @@ async def test_an_empty_target_wifi_is_refused_before_nmcli_runs(service):
     assert exc.value.code == "invalid_target_wifi"
 
 
-@pytest.mark.parametrize("unbuildable", [{"hidden": True}, {"key_mgmt": "sae"}])
+@pytest.mark.parametrize("refusal, key_mgmt", [
+    (WifiShareRefusal.HIDDEN, "wpa-psk"), (WifiShareRefusal.UNSUPPORTED_SECURITY, "sae"),
+])
 async def test_a_hidden_or_wpa3_server_network_is_refused_before_the_speaker_reboots(
-    service, speaker, unbuildable
+    service, speaker, refusal, key_mgmt
 ):
     """The speaker rebuilds its target from an SSID and a PSK alone, as
     wpa-psk and never hidden: handed the server's hidden or WPA3 network, it
     answers 200, reboots onto a profile that never associates, and only a cable
     or a reflash brings it back. Refused before the server leaves its network
     (the fixture fails any spawn) and before the push."""
-    service.network_service.get_active_wifi_profile.return_value = {
-        "ssid": "Maison", "password": "secret", "hidden": False, "key_mgmt": "wpa-psk", **unbuildable,
-    }
+    service.network_service.shareable_wifi.return_value = ServerWifi(
+        ssid="Maison", password=None, refusal=refusal, profile="milo-Maison", key_mgmt=key_mgmt,
+    )
 
     with pytest.raises(AdoptionError) as exc:
         await service.adopt_speaker(
@@ -115,7 +127,9 @@ async def test_a_target_wifi_other_than_the_servers_own_is_not_judged_by_it(adop
     """A network typed by hand cannot be read from here: the server's own
     profile says nothing about it, so a hidden server network refuses nothing
     else."""
-    adopting.network_service.get_active_wifi_profile.return_value = {**MAISON, "ssid": "Grenier", "hidden": True}
+    adopting.network_service.shareable_wifi.return_value = ServerWifi(
+        ssid="Grenier", password=None, refusal=WifiShareRefusal.HIDDEN, profile="milo-Grenier",
+    )
 
     await _adopt(adopting)
 
@@ -126,11 +140,104 @@ async def test_a_server_key_that_reads_back_empty_refuses_nothing(adopting, spea
     """The server's network is visible wpa-psk, so the speaker can rebuild it,
     and the key it joins with is the one typed: an empty read of the server's
     own key (polkit stopped) must not turn the adoption into a server error."""
-    adopting.network_service.get_active_wifi_profile.side_effect = WifiKeyUnreadable("milo-Maison")
+    adopting.network_service.shareable_wifi.return_value = UNREADABLE_MAISON
 
     await _adopt(adopting)
 
     assert [(body["wifi_ssid"], body["wifi_password"]) for _, body in speaker.posts] == [("Maison", "secret")]
+
+
+# =============================================================================
+# The server's own network: the key is read here, never sent by the browser
+# =============================================================================
+
+async def _adopt_onto_the_servers_network(service, wifi_ssid="Maison"):
+    return await service.adopt_speaker(
+        ssid=HOTSPOT_NAME, wifi_ssid=wifi_ssid, wifi_password=None, **AUDIO
+    )
+
+
+async def test_the_servers_own_key_is_read_before_it_leaves_home_and_pushed(adopting, spawns, speaker):
+    """The form names the network and nothing else: the key the speaker joins
+    with is read by the server, inside the hold, while wlan0 is still on the
+    network — on the speaker's hotspot there is no key left to read."""
+    async def read(**kwargs):
+        spawns.calls.append(("<read>",))
+        return MAISON
+
+    @contextlib.asynccontextmanager
+    async def recovery_held():
+        spawns.calls.append(("<hold>",))
+        yield
+
+    adopting.network_service.shareable_wifi = read
+    adopting.network_service.recovery_held = recovery_held
+
+    await _adopt_onto_the_servers_network(adopting)
+
+    read_at = spawns.calls.index(("<read>",))
+    assert spawns.calls.index(("<hold>",)) < read_at < spawns.index_of("connection", "up", ADOPTION_PROFILE)
+    assert [(body["wifi_ssid"], body["wifi_password"]) for _, body in speaker.posts] == [
+        (MAISON.ssid, MAISON.password),
+    ]
+
+
+@pytest.mark.parametrize("wifi", [
+    ServerWifi(ssid="Voisins", password="theirs", refusal=None, profile="milo-Voisins", key_mgmt="wpa-psk"),
+    NO_WIFI,
+], ids=["another-network", "no-wifi"])
+async def test_a_server_no_longer_on_the_network_shown_is_refused(service, speaker, wifi):
+    """The owner picked the network the page named; pushing the key of the
+    one the server has moved to since would send the speaker somewhere he
+    never chose. Refused before nmcli (the fixture fails any spawn)."""
+    service.network_service.shareable_wifi.return_value = wifi
+
+    with pytest.raises(AdoptionError) as exc:
+        await _adopt_onto_the_servers_network(service)
+
+    assert exc.value.code == "server_network_changed"
+    assert speaker.posts == []
+
+
+@pytest.mark.parametrize("wifi", [
+    UNREADABLE_MAISON,
+    ServerWifi(ssid=None, password=None, refusal=WifiShareRefusal.UNREADABLE),
+], ids=["key-read-back-empty", "nmcli-failed"])
+async def test_a_server_key_that_does_not_read_is_refused_never_pushed_empty(service, speaker, wifi):
+    """An empty key rebuilds a WPA network as an open one: the speaker
+    reboots onto a profile that never associates, and only a cable or a
+    reflash brings it back."""
+    service.network_service.shareable_wifi.return_value = wifi
+
+    with pytest.raises(AdoptionError) as exc:
+        await _adopt_onto_the_servers_network(service)
+
+    assert exc.value.code == "server_key_unreadable"
+    assert speaker.posts == []
+
+
+async def test_a_hidden_server_network_is_refused_when_picked_as_the_servers(service, speaker):
+    service.network_service.shareable_wifi.return_value = ServerWifi(
+        ssid="Maison", password=None, refusal=WifiShareRefusal.HIDDEN, profile="milo-Maison",
+    )
+
+    with pytest.raises(AdoptionError) as exc:
+        await _adopt_onto_the_servers_network(service)
+
+    assert exc.value.code == "unsupported_target_wifi"
+    assert speaker.posts == []
+
+
+async def test_an_open_server_network_is_pushed_with_its_empty_key(adopting, speaker):
+    """Empty is the open network's key, not a failed read: the speaker writes
+    a profile without security for it."""
+    adopting.network_service.shareable_wifi.return_value = ServerWifi(
+        ssid="Maison", password="", refusal=None, profile="milo-Maison",
+    )
+
+    await _adopt_onto_the_servers_network(adopting)
+
+    assert [body["wifi_password"] for _, body in speaker.posts] == [""]
 
 
 # =============================================================================
@@ -241,6 +348,7 @@ def speaker(monkeypatch):
 
         def __init__(self):
             self.status = 200
+            self.body = ""
             self.takes = 0.0
             self.posts = []
 
@@ -259,7 +367,7 @@ def speaker(monkeypatch):
             return False
 
         async def text(self):
-            return ""
+            return speaker.body
 
     class _Session:
         def __init__(self, *a, **kw):
@@ -279,15 +387,11 @@ def speaker(monkeypatch):
     return speaker
 
 
-# What `NetworkService.get_active_wifi_profile` reads for the home wifi above.
-MAISON = {"ssid": "Maison", "password": "secret", "hidden": False, "key_mgmt": "wpa-psk"}
-
-
 @pytest.fixture
 def adopting(spawns, speaker):
     network = MagicMock()
     network.hotspot_active = False
-    network.get_active_wifi_profile = AsyncMock(return_value=MAISON)
+    network.shareable_wifi = AsyncMock(return_value=MAISON)
     return WifiAdoptionService(network_service=network)
 
 
@@ -380,6 +484,21 @@ class TestAdoptionOrchestration:
         maps the code to its own message; a generic push_rejected would send the
         operator looking for a network fault that is not there."""
         speaker.status = 409
+
+        with pytest.raises(AdoptionError) as exc:
+            await _adopt(adopting)
+
+        assert exc.value.code == "already_configured"
+
+    async def test_a_speaker_set_up_and_refused_over_its_access_point_is_already_configured(
+        self, adopting, speaker
+    ):
+        """A unit already set up that lost its network raises the same open AP
+        a fresh one does, and its recovery guard refuses become-client before
+        setup.py can answer 409. Read as push_rejected, the operator is told to
+        restart a speaker that only needs a reset."""
+        speaker.status = 403
+        speaker.body = json.dumps({"detail": RECOVERY_AP_REFUSAL})
 
         with pytest.raises(AdoptionError) as exc:
             await _adopt(adopting)
@@ -609,11 +728,11 @@ class TestTheAdoptionDeadline:
     @staticmethod
     def _every_step_at_its_cap(adopting, spawns, speaker):
         """Each step stalls just under its own cap: ~124 s before the restore."""
-        async def profile_read():
+        async def profile_read(**kwargs):
             await asyncio.sleep(19.9)  # NetworkService: two nmcli at 10 s each
             return MAISON
 
-        adopting.network_service.get_active_wifi_profile = profile_read
+        adopting.network_service.shareable_wifi = profile_read
         spawns.script("connection show --active", stdout=ACTIVE_WIFI_SERVER, takes=9.9)
         spawns.script("connection delete", takes=9.9)
         spawns.script("connection add", takes=9.9)

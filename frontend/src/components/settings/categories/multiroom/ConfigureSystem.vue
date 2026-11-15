@@ -35,12 +35,12 @@
 
       <!-- WiFi connection (wifi mode only) -->
       <SectionCard v-if="mode === 'wifi'" :title="t('multiroom.adopt.networkSection')">
-        <!-- Auto-fill from server's active wifi -->
+        <!-- The server's own network: its key never leaves the server -->
         <template v-if="canUseServerWifi && useServerWifi">
           <div class="server-wifi-row">
             <SvgIcon name="wifi" :size="24" />
             <span class="text-body-medium server-wifi-row__ssid">
-              {{ t('multiroom.adopt.useServerWifi', { ssid: discoveryStore.serverWifiCreds.ssid }) }}
+              {{ t('multiroom.adopt.useServerWifi', { ssid: discoveryStore.serverWifi.ssid }) }}
             </span>
             <Button variant="control" size="small" @click="useServerWifi = false">
               {{ t('multiroom.adopt.changeNetwork') }}
@@ -61,6 +61,8 @@
             @update:wifi="onManualWifiUpdate"
           />
         </template>
+
+        <p class="text-body-small adopt-hint">{{ t('multiroom.adopt.ethernetHint') }}</p>
       </SectionCard>
 
       <!-- Audio Card Selection -->
@@ -180,10 +182,7 @@ const REBOOT_TIMEOUT_MS = 120000; // 2 minutes
 // Reactive reference to the pending client (ethernet mode only)
 const pendingClient = computed(() => multiroomStore.pendingClients.get(props.macId));
 
-const canUseServerWifi = computed(() =>
-  discoveryStore.serverWifiCreds?.available === true
-  && !!discoveryStore.serverWifiCreds?.ssid
-);
+const canUseServerWifi = computed(() => discoveryStore.serverWifi?.available === true);
 
 // Speaker type options (same as ClientEdit)
 const speakerTypes = computed(() => [
@@ -247,6 +246,11 @@ async function resetError() {
   if (audioCards.value.length === 0) {
     await loadAudioCards();
   }
+  // The refusal may be that the server moved to another network since.
+  if (props.mode === 'wifi') {
+    await discoveryStore.loadServerWifi();
+    if (!canUseServerWifi.value) useServerWifi.value = false;
+  }
 }
 
 const applyButtonLabel = computed(() => {
@@ -270,15 +274,9 @@ async function applyConfiguration() {
 
   try {
     if (props.mode === 'wifi') {
-      const wifiCreds = useServerWifi.value && canUseServerWifi.value
-        ? {
-            ssid: discoveryStore.serverWifiCreds.ssid,
-            password: discoveryStore.serverWifiCreds.password || '',
-          }
-        : {
-            ssid: manualWifi.value.ssid,
-            password: manualWifi.value.password || '',
-          };
+      const typedWifi = useServerWifi.value && canUseServerWifi.value
+        ? null
+        : { ssid: manualWifi.value.ssid, password: manualWifi.value.password || '' };
 
       // Mirror the ethernet watchdog: if the request stalls (server stuck on
       // hotspot, restore wifi failure, etc.) flip the UI to a timeout state
@@ -291,9 +289,7 @@ async function applyConfiguration() {
         audio_id: selectedAudioId.value,
         speaker_name: speakerName.value.trim() || 'Speaker',
         speaker_type: selectedSpeakerType.value,
-        wifi_ssid: wifiCreds.ssid,
-        wifi_password: wifiCreds.password,
-      });
+      }, typedWifi);
       // Server returns once the device has accepted the config and is rebooting.
       // The new client appears in the multiroom list when it joins the LAN.
       timer.clear(rebootTimeoutId);
@@ -327,10 +323,10 @@ onMounted(async () => {
   if (!loaded) return;
 
   if (props.mode === 'wifi') {
-    // Ensure server wifi creds are loaded — usually preloaded by MultiroomSettings,
-    // but we may navigate here without that guarantee on a refresh.
-    if (discoveryStore.serverWifiCreds === null) {
-      await discoveryStore.loadServerWifiCreds();
+    // Usually preloaded by MultiroomSettings, but we may navigate here
+    // without that guarantee on a refresh.
+    if (discoveryStore.serverWifi === null) {
+      await discoveryStore.loadServerWifi();
     }
     // Default to manual mode if the server isn't on wifi.
     if (!canUseServerWifi.value) {

@@ -805,7 +805,8 @@ been silent for `idle_threshold` (5 s), so a switch lost up to 5 s in every room
 - Format: PCM 48kHz 32-bit stereo (`48000:32:2`, forced in `snapcast.py`)
 
 **What the server hands every satellite besides the audio:** its own WiFi, kept
-as a standby link (`SatelliteWifiService` → `PUT :8001/api/system/wifi`), and its
+as a standby link (`SatelliteWifiService` → `PUT :8001/api/system/wifi`, read through
+`NetworkService.shareable_wifi`, see Security › The home WiFi key), and its
 own timezone (`SatelliteTimezoneService` → `PUT :8001/api/system/timezone`). Both
 are pushed at every admission and again whenever the server's own value changes
 — its WiFi coming up or changing network, `PUT /api/system/timezone` — and never
@@ -1217,6 +1218,9 @@ The threat model is a **trusted home LAN**: there is no authentication, no autho
 rate limiting anywhere in the stack. What protects a unit is that nothing reaches it from outside
 the local network. Do not expose a Milō to the internet.
 
+One network a unit serves is not that LAN: its recovery access point, which is open to anyone in
+radio range (below). Its clients are confined to reading.
+
 ### Rate limiting
 **None.** There is no rate limiter in the backend and none in the nginx config — no `slowapi`, no
 `limit_req`. The API answers every request it receives.
@@ -1260,6 +1264,96 @@ out of its reach: upstream's `/auth/callback` carries no `state`, so a login CSR
 landing the browser on a callback with the attacker's code — is not something a Host/Origin gate
 can tell from a real login.
 
+### Recovery access point
+With no link at all, `NetworkService` raises the `Milō` access point on wlan0 (`10.42.0.1/24`:
+`RECOVERY_AP_ADDRESS`/`RECOVERY_AP_PREFIX` in `backend/config/constants.py`). It is how a fresh
+unit with no cable reaches its setup wizard, how a unit whose WiFi went away stays reachable, and
+the hotspot a fresh speaker raises for its WiFi adoption. It is **open on purpose**: brcmfmac
+offers neither OWE nor SAE in AP mode. The profile is created in memory (`nmcli connection add
+save no`), so it is never written under `/etc/NetworkManager/system-connections`; it survives an
+NM restart in `/run` and is gone at reboot (`connection.autoconnect no` and the cleanup before
+each creation stay for that reason). It sets `ipv6.method disabled`, so a client of it has only
+the IPv4 address to reach the unit on. The captive DNS answer
+(`rootfs/etc/NetworkManager/dnsmasq-shared.d/milo-captive.conf`) is held equal to
+`RECOVERY_AP_ADDRESS` by `tests/architecture/test_captive_dns_address.py`.
+
+What a client of the AP may do over HTTP is decided by one ASGI middleware,
+`RecoveryAccessPointGuard` (`backend/api/middleware.py`), which **refuses by default**. A client
+is one whose address — `X-Real-IP` when nginx is the peer, the peer otherwise — is in
+`RECOVERY_AP_SUBNET`, while `NetworkService.open_ap_reachable` holds: the unit's own AP may be
+carrying clients, or an adoption holds wlan0 on a speaker's open hotspot, where the unit is a
+client among whoever else joined it. It may:
+- read: `GET`, `HEAD`, `OPTIONS`, and `/ws`, which takes no command;
+- before setup only (`setup_completed` reads exactly `false`), send `PRE_SETUP_WRITES`: the
+  wizard's `PUT /api/network/wifi/country`, `POST /api/network/wifi/save` and
+  `POST /api/setup/complete`, and the adoption's `POST /api/setup/become-client`, which the
+  adopting server sends from a `10.42.0.x` address straight to the fresh speaker's :8000.
+
+Every other request answers 403 `{"detail": "Not available over the recovery access point"}`,
+SSH and the password included, before setup too. A `setup_completed` that cannot be read counts
+as set up. The list is matched on the exact decoded path, which is the router's own match since no
+entry takes a parameter; a spelling the router would normalize is refused, never admitted. A
+refused client is logged once at WARNING per AP episode, then at DEBUG. Middleware order at
+runtime: `RequestOriginGate` → CORS → `RecoveryAccessPointGuard` → `RecoveryClientTracker` → app;
+the guard sits outside the tracker so a refused request never holds off the home-network retry.
+`tests/architecture/test_recovery_ap_guard.py` sends every write in the live route table as an AP
+client and expects 403 for all but the list, and requires every entry to be one route with a
+caller in the wizard or `wifi_adoption.py`.
+
+So a unit that is set up is never repaired over its AP: its WiFi is repaired from the touch
+screen (the kiosk is loopback, not an AP client) or over Ethernet. A proof of presence that would
+admit a write over the AP belongs in that guard; none exists yet.
+
+Both repair paths go through `POST /api/network/wifi/connect`, which never deletes before it
+tries. It writes a trial profile in memory with autoconnect off and brings it up by UUID; on
+success it switches autoconnect on (which writes the profile to disk), checks that the profile's
+file now lives under `/etc`, and only then deletes the SSID's other profiles. On failure the trial
+is deleted and the profile that was up before comes back at once, or the AP, raised again at once.
+A mistyped key therefore no longer costs the working profile. `POST /api/network/wifi/save` writes
+first and removes the SSID's other profiles after. A profile belongs to an SSID by the SSID it
+carries (a `milo-*` profile by its name, which carries it), so an Imager `preconfigured` profile or
+one written by hand is replaced and forgotten with Milō's own; the satellite's
+`milo-client-join-wifi` matches the same way.
+
+Below HTTP, sshd refuses every connection made to the AP's address
+(`rootfs/etc/ssh/sshd_config.d/milo-recovery-ap.conf`: `Match LocalAddress 10.42.0.1` /
+`RefuseConnection yes`, OpenSSH ≥ 10.0), so the shell is reachable only over the home network or
+Ethernet. sshd reads its config at start; a Milō update installs the drop-in only once
+`sshd -t` accepts the whole config (the previous copy is put back otherwise, since sshd refuses to
+start on a config it cannot parse), then reloads a running sshd (`try-reload-or-restart`, which
+starts none). `tests/architecture/test_recovery_ap_lockdown.py` holds its address
+equal to `RECOVERY_AP_ADDRESS`, checks that the image ships it and `inspect-image.sh` compares it,
+pins the polkit rule (Permissions, below) and requires `X-Forwarded-For` on every nginx location
+that proxies to the backend, `/ws` included. Known limits: the other ports under Exposure stay
+reachable from the AP at L4, each with its own gate or none; and a client that addresses the unit's
+LAN address over wlan0 reaches sshd under that address, a small window since the AP rises only
+with no other link; and while an adoption holds the server on a speaker's hotspot, it is a
+`10.42.0.x` client there, not `10.42.0.1`, so sshd does not refuse that hotspot's other clients
+(the HTTP guard does). Matching all of `10.42.0.0/24` would close it, and take SSH away from a home
+LAN numbered like the AP.
+
+### The home WiFi key
+The key of the network the server is on never leaves it through the API. One reader decides what
+the server may hand to a peer, `NetworkService.shareable_wifi`: it reads only the station profile
+active on wlan0, by UUID, and answers the SSID and key or names a refusal (`no_network`,
+`unreadable`, `hidden`, `unsupported_security`). Two callers:
+- the standby link pushed to every satellite (`SatelliteWifiService`, three reads 10 s apart);
+- the WiFi adoption of a fresh speaker. The form offers the server's network by name only,
+  through `GET /api/discovery/server-wifi` → `{available, ssid}`. Choosing it sends
+  `use_server_network: true` with the SSID shown and no `wifi_password` (sending one is a 422);
+  the server reads the key itself, inside the adoption lock and the recovery hold, before wlan0
+  leaves home. A server that has since moved to another network, or to none, is refused with
+  `server_network_changed`, a key that would not read with `server_key_unreadable` (both 409,
+  never pushed empty), a hidden or WPA3-only/802.1X network with `unsupported_target_wifi`. A
+  network typed by hand is pushed as typed.
+
+The key still crosses an open network twice, as decided: from the phone to a fresh unit during
+the wizard, and from the server to a fresh speaker's `Milō` hotspot during a WiFi adoption.
+Ethernet avoids both, and both screens say so in one sentence — the wizard's network step when it
+runs in a browser on the AP with no cable, the adoption form whenever it offers WiFi. Neither the
+unit nor the speaker is authenticated to the one sending the key, so a fake `Milō` network in
+range could collect it; nor is the server's push to a satellite (`PUT :8001/api/system/wifi`).
+
 ### Exposure
 nginx serves the app and proxies `/api/` and `/ws` on port 80. The backend also listens on port
 8000 on every interface, because satellites register with the server there; the gate applies on
@@ -1282,7 +1376,7 @@ Allowed methods: `GET POST PUT PATCH DELETE OPTIONS`. Allowed headers: `Content-
 
 ### Permissions
 - Backend runs as `milo` user, and on the server that user is **root by construction**: the `milo-backend` policy grants a bare `systemctl` (any argv), `milo-deploy-update` (installs, as root, a checkout `milo` can write) and `milo-set-password` (no old password asked). Scoping one of them closes nothing while the others stand. The boundary is the LAN — nothing on the API authenticates, see `set_ssh_state` in `backend/api/system.py` — plus `NoNewPrivileges=true` on every other unit running as `milo`, so a compromised daemon cannot reach those grants (`backend/tests/architecture/test_unit_hardening.py`), and `ProtectHome=read-only` on the source daemons, so none can rewrite the checkout systemd runs as the backend (a daemon that needs a writable HOME gets one under `/var/lib/milo`, as qobuz-proxy does). Known limits: a process of the same uid can still ptrace the backend, and the units without `ProtectHome` (kiosk, snapserver, snapclient, camilladsp, navidrome) can still write the checkout that the backend and the root oneshot `milo-navidrome-config` run. The satellite's policy is argument-scoped: a grant names the exact argv (`systemctl stop milo-client-snapclient.service`), or `""` — no argument at all — for a helper that takes its input on stdin and validates it itself (`milo-client-set-timezone`, `milo-client-join-wifi`, `milo-set-password`). Each of them also refuses an argument itself — on the server, whose grant of the `milo-set-password` twin stays bare since scoping it would close nothing, that refusal is the only one — and `test_privileged_exec_contract.py` holds the satellite helpers that refuse an argument and the `""` grants equal. That scoping keeps each call in step with its grant; it is not a privilege boundary, because `milo-client` is **root by construction too**. Its policy grants `milo-client-deploy-update` bare, and that helper installs as root whatever tree under `/tmp` it is handed — unit files, `/usr/local/bin`, `/etc/sudoers.d` included, which `visudo -c` checks for syntax only — while `POST /app/update`, which hands it the uploaded tarball, authenticates nobody, like every other route on the LAN. So the `""` grants are hygiene, an argv kept away from helpers that never read one, and they close nothing while that grant stands.
-- Privileged exec is centralized: systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager.
+- Privileged exec is centralized: systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager, and only for the `milo` user inside `milo-backend.service` (`subject.system_unit` in `rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules`, polkit ≥ 124): every Milō daemon runs as `milo` and so does an SSH login, and none of them holds an NM right. From an SSH session, an `nmcli` write therefore needs `sudo`; reads are unaffected.
 - Each policy file is authored once under `rootfs/etc/sudoers.d/` (satellite: `milo-client/rootfs/`) and copied verbatim by `pi-gen/`, the only provisioning path, so no second spelling of a grant set exists. `backend/tests/contracts/test_privileged_exec_contract.py` compares the granted commands against the argv the code builds, in both directions.
 - The scoping only means something because each policy's first rule withdraws the blanket `NOPASSWD: ALL` Raspberry Pi OS grants the image's first user (`/etc/sudoers.d/010_pi-nopasswd`, shipped by `raspberrypi-sys-mods`, its username rewritten on first boot by `userconf-pi`). Any unit whose appliance account is also that first user held unrestricted passwordless root until then — measured on a satellite. sudo reads `/etc/sudoers.d` in lexical order and applies the *last* matching rule, so `milo-*` is read after `010_*` and the withdrawal must sit above the grants, never below them.
 

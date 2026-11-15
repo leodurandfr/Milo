@@ -165,6 +165,7 @@
       "useServerWifi": "Utiliser le réseau du serveur ({ssid})",
       "changeNetwork": "Changer",
       "enterCredentials": "Choisissez le réseau WiFi que ce haut-parleur doit rejoindre.",
+      "ethernetHint": "En WiFi, votre mot de passe WiFi parvient au haut-parleur par un réseau ouvert : le brancher avec un câble Ethernet est plus sûr.",
       "adopting": "Configuration en cours…",
       "errorPush": "Le haut-parleur n'a pas accepté la configuration",
       "errors": {
@@ -173,6 +174,8 @@
         "unsupportedTargetWifi": "Le réseau WiFi de Milō est masqué ou utilise un mode de sécurité qu'un haut-parleur ne peut pas rejoindre avec un simple mot de passe. Choisissez un autre réseau, ou branchez le haut-parleur avec un câble.",
         "alreadyConfigured": "Ce haut-parleur est déjà configuré. Réinitialisez-le, puis réessayez.",
         "serverInHotspotMode": "Milō diffuse son propre réseau de configuration. Connectez-le à votre WiFi, puis réessayez.",
+        "serverNetworkChanged": "Milō n'est plus sur le réseau WiFi affiché. Vérifiez le réseau, puis réessayez.",
+        "serverKeyUnreadable": "Milō n'a pas pu lire le mot de passe de son propre réseau WiFi. Réessayez, ou choisissez le réseau et saisissez son mot de passe.",
         "pushRejected": "Le haut-parleur a refusé la configuration. Redémarrez-le, puis réessayez.",
         "pushFailed": "Milō n'a pas pu joindre le haut-parleur par son réseau de configuration. Rapprochez-le, puis réessayez.",
         "noGateway": "Milō a rejoint le réseau de configuration du haut-parleur sans en obtenir d'adresse. Redémarrez le haut-parleur, puis réessayez.",
@@ -865,7 +868,8 @@
     },
     "wifi": {
       "title": "Configurez le réseau",
-      "continueHint": "Sélectionnez un pays et connectez Milō à un réseau pour continuer."
+      "continueHint": "Sélectionnez un pays et connectez Milō à un réseau pour continuer.",
+      "ethernetHint": "En WiFi, votre mot de passe WiFi parvient à Milō par un réseau ouvert : un câble Ethernet est plus sûr."
     },
     "language": {
       "title": "Choisissez votre langue"

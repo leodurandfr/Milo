@@ -11,7 +11,9 @@ web.
 Consumers: the Vue frontend (served by nginx, by the kiosk over loopback, and by the
 Vite dev server), Milo-Mac (no `Origin` at all), and curl on the unit itself. The
 last section is the tracker beside the gate, read by the network service's
-home-network retry while the recovery access point is up.
+home-network retry while the recovery access point is up, and the wiring of the
+guard that limits that AP's clients (its behavior: test_api_system.py and
+architecture/test_recovery_ap_guard.py).
 """
 import contextlib
 
@@ -20,7 +22,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from backend.api.middleware import (
-    ALLOWED_ORIGINS, RecoveryClientTracker, RequestOriginGate, client_address,
+    ALLOWED_ORIGINS,
+    RecoveryAccessPointGuard,
+    RecoveryClientTracker,
+    RequestOriginGate,
+    client_address,
 )
 
 
@@ -294,12 +300,29 @@ def test_a_socket_from_the_access_point_counts_for_as_long_as_it_is_open(tracked
     assert network.open == 0
 
 
-def test_the_tracker_is_handed_the_network_service_inside_the_gate():
-    """Installed without the service there is nothing to tell; outside the gate a
-    request it refuses would count as someone using the AP."""
+def test_the_tracker_is_handed_the_network_service_inside_the_gates():
+    """Installed without the service there is nothing to tell; outside a gate a
+    request it refuses would count as someone using the AP, and hold a WiFi-only
+    unit off its home network for a neighbor's refused writes."""
     from backend import main
 
     stack = [m.cls for m in main.app.user_middleware]
     tracker = next(m for m in main.app.user_middleware if m.cls is RecoveryClientTracker)
     assert tracker.kwargs["network_service"] is main.network_service
     assert stack.index(RequestOriginGate) < stack.index(RecoveryClientTracker)
+    assert stack.index(RecoveryAccessPointGuard) < stack.index(RecoveryClientTracker)
+
+
+def test_the_access_point_guard_is_handed_both_services_inside_cors():
+    """The guard passes everything without a network service and refuses the
+    wizard without a settings service, so a `main.py` that dropped either would
+    leave its own tests green. Inside CORS, its 403 reads like any route's."""
+    from fastapi.middleware.cors import CORSMiddleware
+
+    from backend import main
+
+    stack = [m.cls for m in main.app.user_middleware]
+    guard = next(m for m in main.app.user_middleware if m.cls is RecoveryAccessPointGuard)
+    assert guard.kwargs["network_service"] is main.network_service
+    assert guard.kwargs["settings_service"] is main.settings_service
+    assert stack.index(CORSMiddleware) < stack.index(RecoveryAccessPointGuard)

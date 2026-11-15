@@ -83,3 +83,70 @@ describe('discoveryStore — the hotspot poll', () => {
     expect(scans()).toBe(3);
   });
 });
+
+/**
+ * The server's own network is offered as a speaker's target by name only: the
+ * adoption asks the server to read the key itself, so the key never crosses a
+ * GET any client of the LAN, or of the open recovery AP, can make. Fails when
+ * the store keeps a key, or when an adoption onto the server's network sends
+ * one — the backend refuses that body with a 422.
+ */
+describe('discoveryStore — the server network offered for an adoption', () => {
+  const SPEAKER = { ssid: 'Milō', audio_id: 'hifiberry_amp2', speaker_name: 'Bureau', speaker_type: 'bookshelf' };
+  let discovery;
+
+  function serverAnswers(data) {
+    apiCall.get.mockImplementation(async url => (
+      url === '/api/discovery/server-wifi' ? ok({ status: 'success', data }) : ok({ status: 'success', data: {} })
+    ));
+  }
+
+  function adoptBody() {
+    const [[url, body]] = apiCall.post.mock.calls;
+    expect(url).toBe('/api/discovery/adopt-speaker');
+    return body;
+  }
+
+  beforeEach(() => {
+    resetApiCallMock();
+    setActivePinia(createPinia());
+    discovery = useDiscoveryStore();
+  });
+
+  it('keeps the name and the availability, and nothing else the answer carries', async () => {
+    serverAnswers({ available: true, ssid: 'Maison', password: 's3cret-psk' });
+
+    await discovery.loadServerWifi();
+
+    expect(Object.keys(discovery.serverWifi).sort()).toEqual(['available', 'ssid']);
+    expect(JSON.stringify(discovery.serverWifi)).not.toContain('s3cret-psk');
+  });
+
+  it('offers no network it could not name', async () => {
+    serverAnswers({ available: true, ssid: '' });
+
+    await discovery.loadServerWifi();
+
+    expect(discovery.serverWifi.available).toBe(false);
+  });
+
+  it("adopts onto the server's network by its name, with no key in the body", async () => {
+    serverAnswers({ available: true, ssid: 'Maison' });
+    await discovery.loadServerWifi();
+
+    await discovery.adoptSpeaker(SPEAKER, null);
+
+    const body = adoptBody();
+    expect(body.use_server_network).toBe(true);
+    expect(body.wifi_ssid).toBe(discovery.serverWifi.ssid);
+    expect(body).not.toHaveProperty('wifi_password');
+  });
+
+  it('adopts onto a typed network with its typed key, never as the server network', async () => {
+    await discovery.adoptSpeaker(SPEAKER, { ssid: 'Grenier', password: 'typed' });
+
+    const body = adoptBody();
+    expect([body.wifi_ssid, body.wifi_password]).toEqual(['Grenier', 'typed']);
+    expect(body).not.toHaveProperty('use_server_network');
+  });
+});

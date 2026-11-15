@@ -42,7 +42,7 @@ The 214 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | Method | Path | Request | Response | Stability |
 |---|---|---|---|---|
 | `GET` | `/api/discovery/wifi-speakers` |  | untyped JSON | internal |
-| `GET` | `/api/discovery/server-wifi-creds` |  | untyped JSON | internal |
+| `GET` | `/api/discovery/server-wifi` |  | untyped JSON | internal |
 | `POST` | `/api/discovery/adopt-speaker` | AdoptSpeakerRequest | untyped JSON | internal |
 
 ## /api/equalizer

@@ -31,7 +31,6 @@ import builtins
 import io
 import logging
 import os
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -40,7 +39,8 @@ from unittest.mock import AsyncMock, Mock
 
 import backend.main as main
 from backend.api import system as api_system
-from backend.api.route_helpers import RecoveryAccessPointGate
+from backend.api.middleware import RECOVERY_AP_REFUSAL, RecoveryAccessPointGuard
+from backend.api.network import create_network_router
 from backend.api.system import create_system_router
 from backend.core.system import localtime as localtime_module
 from backend.tests.conftest import shortened_wait_for
@@ -717,21 +717,26 @@ class TestDevicePassword:
 
 
 class TestRecoveryAccessPoint:
-    """The three routes whose effect outlives an outage, refused to the recovery AP.
+    """What a client of the recovery AP may still do: read, and, before setup, the wizard.
 
     The AP (`core/network/service.py`) is open on purpose: it is how an owner
     repairs a unit that lost its network. Anyone in radio range can join it too,
     and nothing on this API authenticates, so `PUT /ssh` then `POST /password`
     used to hand root to a passer-by, and both survived the link coming back.
-    Refused once setup is done, while the AP is up, to a 10.42.0.0/24 client.
+    The guard is `api/middleware.py::RecoveryAccessPointGuard`, mounted here in
+    front of the real system and network routers, so a refusal is one the
+    endpoint never ran behind.
     """
-
-    GUARDED = ["ssh", "password", "reset-setup"]
 
     @pytest.fixture
     def network(self):
-        """What the gate reads of NetworkService: whether the AP may be up, nothing else."""
-        return SimpleNamespace(recovery_ap_possible=True)
+        """The guard's half of NetworkService (whether the AP may be up) and the
+        network router's (the two wizard writes, recorded)."""
+        service = Mock()
+        service.open_ap_reachable = True
+        service.set_country = AsyncMock()
+        service.save_network = AsyncMock()
+        return service
 
     @pytest.fixture
     def settings(self):
@@ -744,18 +749,14 @@ class TestRecoveryAccessPoint:
     @pytest.fixture
     def reached_from(self, systemd, hostname_conflict, network, settings):
         app = FastAPI()
-        app.include_router(
-            create_system_router(
-                systemd, hostname_conflict,
-                network_service=network, settings_service=settings,
-            ),
-            prefix="/api/system",
-        )
+        app.include_router(create_system_router(systemd, hostname_conflict), prefix="/api/system")
+        app.include_router(create_network_router(network))
+        app.add_middleware(RecoveryAccessPointGuard, network_service=network, settings_service=settings)
         return lambda peer: TestClient(app, client=(peer, 41000))
 
     @pytest.fixture
-    def routes(self, systemd, spawn, tmp_path, monkeypatch):
-        """Each guarded route: the request that drives it, and whether it touched the box."""
+    def routes(self, systemd, network, spawn, tmp_path, monkeypatch):
+        """Each write: the request that drives it, and whether it touched the box."""
         reset_marker = tmp_path / "reset-setup"
         monkeypatch.setattr(api_system, "RESET_SETUP_MARKER", reset_marker)
         monkeypatch.setattr(api_system, "PASSWORD_CHANGED_MARKER", tmp_path / "password-changed")
@@ -776,7 +777,28 @@ class TestRecoveryAccessPoint:
                 "post", "/api/system/reset-setup", None,
                 lambda: reset_marker.exists() or systemd.power.await_count > 0,
             ),
+            "restart": (
+                "post", "/api/system/restart", None,
+                lambda: systemd.power.await_count > 0,
+            ),
+            "wifi-country": (
+                "put", "/api/network/wifi/country", {"country_code": "FR"},
+                lambda: network.set_country.await_count > 0,
+            ),
+            "wifi-save": (
+                "post", "/api/network/wifi/save", {"ssid": "Home", "password": "correct horse"},
+                lambda: network.save_network.await_count > 0,
+            ),
         }
+
+    OUTLIVE_THE_OUTAGE = ["ssh", "password", "reset-setup", "restart"]
+    WIZARD = ["wifi-country", "wifi-save"]
+
+    THROUGH = [
+        pytest.param("127.0.0.1", "10.42.0.5", id="through-nginx"),
+        pytest.param("10.42.0.5", None, id="straight-to-8000"),
+        pytest.param("10.42.0.5", "127.0.0.1", id="forged-header-straight-to-8000"),
+    ]
 
     @staticmethod
     def _send(client, route, real_ip):
@@ -785,50 +807,104 @@ class TestRecoveryAccessPoint:
         response = getattr(client, method)(path, json=body, headers=headers)
         return response.status_code, touched()
 
-    @pytest.mark.parametrize("name", GUARDED)
-    @pytest.mark.parametrize("peer,real_ip", [
-        pytest.param("127.0.0.1", "10.42.0.5", id="through-nginx"),
-        pytest.param("10.42.0.5", None, id="straight-to-8000"),
-        pytest.param("10.42.0.5", "127.0.0.1", id="forged-header-straight-to-8000"),
-    ])
-    def test_a_client_of_the_recovery_access_point_is_refused(
-        self, reached_from, routes, name, peer, real_ip,
+    @pytest.mark.parametrize("setup_done", [True, False], ids=["set-up", "first-boot"])
+    @pytest.mark.parametrize("name", OUTLIVE_THE_OUTAGE)
+    @pytest.mark.parametrize("peer,real_ip", THROUGH)
+    def test_what_outlives_the_outage_is_refused_set_up_or_not(
+        self, reached_from, routes, settings, name, peer, real_ip, setup_done,
     ):
-        """A 200 here is SSH opened, the sudo password set, or the unit sent back to
-        its wizard by whoever happened to be in radio range of an outage."""
+        """A 200 here is SSH opened, the sudo password set, the unit rebooted or sent
+        back to its wizard by whoever happened to be in radio range. Before setup
+        too: a fresh unit's AP is as open, and its factory password is published."""
+        settings.stored["setup_completed"] = setup_done
         assert self._send(reached_from(peer), routes[name], real_ip) == (403, False)
 
-    @pytest.mark.parametrize("name", GUARDED)
-    @pytest.mark.parametrize("peer,real_ip,ap_up,setup_done", [
-        pytest.param("127.0.0.1", None, True, True, id="kiosk-over-loopback"),
-        pytest.param("10.42.0.5", None, False, True, id="lan-numbered-like-the-ap"),
-        pytest.param("10.42.0.5", None, True, False, id="first-boot-wizard-on-the-ap"),
+    @pytest.mark.parametrize("name", WIZARD)
+    @pytest.mark.parametrize("peer,real_ip", THROUGH)
+    def test_the_wizard_writes_over_the_ap_until_setup_is_done(
+        self, reached_from, routes, network, settings, name, peer, real_ip,
+    ):
+        """The first-boot wizard runs over this AP from a phone; refused, a fresh unit
+        cannot be given its home network. Once set up, the same write is a
+        neighbor's way to point the unit at a network of theirs."""
+        settings.stored["setup_completed"] = False
+        assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
+
+        settings.stored["setup_completed"] = True
+        network.reset_mock()
+        assert self._send(reached_from(peer), routes[name], real_ip) == (403, False)
+
+    @pytest.mark.parametrize("failure", [
+        pytest.param(OSError("settings.json unreadable"), id="read-raises"),
+        pytest.param(None, id="read-answers-nothing"),
+    ])
+    def test_a_setting_that_cannot_be_read_counts_as_set_up(
+        self, reached_from, routes, settings, failure,
+    ):
+        """Opening on a failed read would hand the wizard's writes to the AP of a unit
+        set up whenever its settings misbehave."""
+        if failure is None:
+            settings.get_setting = AsyncMock(return_value=None)
+        else:
+            settings.get_setting = AsyncMock(side_effect=failure)
+
+        assert self._send(reached_from("10.42.0.5"), routes["wifi-save"], None) == (403, False)
+
+    def test_a_client_of_the_ap_may_still_read(self, reached_from, routes):
+        """The AP exists so the owner can see what is wrong; status reads are its point.
+        (`routes` scripts the systemd answers the read needs.)"""
+        response = reached_from("10.42.0.5").get("/api/system/ssh")
+
+        assert response.status_code == 200
+
+    def test_a_refusal_says_why_in_the_shape_apicall_reads(self, reached_from, routes):
+        """apiCall surfaces `detail`, as for any HTTPException; another shape is a
+        blank error toast on the phone of the owner trying a repair."""
+        response = reached_from("10.42.0.5").put("/api/system/ssh", json={"enabled": True})
+
+        assert response.status_code == 403
+        assert response.json() == {"detail": RECOVERY_AP_REFUSAL}
+
+    @pytest.mark.parametrize("name", OUTLIVE_THE_OUTAGE + WIZARD)
+    @pytest.mark.parametrize("peer,real_ip,ap_up", [
+        pytest.param("127.0.0.1", None, True, id="kiosk-over-loopback"),
+        pytest.param("127.0.0.1", "192.168.1.20", True, id="lan-through-nginx"),
+        pytest.param("10.42.0.5", None, False, id="lan-numbered-like-the-ap"),
     ])
     def test_everyone_else_is_served(
-        self, reached_from, routes, network, settings, name, peer, real_ip, ap_up, setup_done,
+        self, reached_from, routes, network, name, peer, real_ip, ap_up,
     ):
-        """The kiosk is the owner at the unit itself, a home LAN may well be
-        10.42.0.0/24, and an unconfigured unit has nothing yet to protect."""
-        network.recovery_ap_possible = ap_up
-        settings.stored["setup_completed"] = setup_done
+        """The kiosk is the owner at the unit itself, and the way to repair it once
+        set up; a home LAN may well be 10.42.0.0/24."""
+        network.open_ap_reachable = ap_up
 
         assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
 
-    def test_the_production_router_hands_the_gate_both_services(self):
-        """The services are optional and the gate opens without them, so a
-        router built without them guards nothing and answers every test above."""
-        for method, path in (("PUT", "/ssh"), ("POST", "/password"), ("POST", "/reset-setup")):
-            route = next(
-                r for r in main.system_router.routes
-                if r.path == path and method in r.methods
-            )
-            gates = [
-                d.dependency for d in route.dependencies
-                if isinstance(d.dependency, RecoveryAccessPointGate)
-            ]
-            assert len(gates) == 1, f"{method} {path} is not gated"
-            assert gates[0].network_service is main.network_service
-            assert gates[0].settings_service is main.settings_service
+    def test_one_warning_per_client_per_access_point_episode(
+        self, reached_from, routes, network, caplog,
+    ):
+        """A phone left on the AP retries what it is refused; a warning each time
+        fills errors.log, and silence after the first hides a second phone."""
+        caplog.set_level(logging.DEBUG, logger="backend.api.middleware")
+        client = reached_from("127.0.0.1")
+
+        def refuse(real_ip):
+            assert self._send(client, routes["ssh"], real_ip)[0] == 403
+
+        refuse("10.42.0.5")
+        refuse("10.42.0.5")
+        refuse("10.42.0.6")
+        network.open_ap_reachable = False
+        client.get("/api/system/ssh")
+        network.open_ap_reachable = True
+        refuse("10.42.0.5")
+
+        warned = [
+            r.getMessage().split(" to ", 1)[1].split(",", 1)[0]
+            for r in caplog.records
+            if r.name == "backend.api.middleware" and r.levelno == logging.WARNING
+        ]
+        assert warned == ["10.42.0.5", "10.42.0.6", "10.42.0.5"]
 
 
 class TestTimezone:

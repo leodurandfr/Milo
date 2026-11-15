@@ -2,8 +2,9 @@
 /**
  * Pinia store for wifi-only speaker adoption discovery.
  *
- * Tracks 'Milō' setup hotspots visible from the server and the server's own
- * WiFi credentials (used to auto-fill the adoption form). The hotspot list is
+ * Tracks 'Milō' setup hotspots visible from the server and the network the
+ * server is on, by name only: an adoption onto it asks the server to read the
+ * key itself, so no WiFi key ever reaches this store. The hotspot list is
  * refreshed on demand and via an opt-in 10s polling loop activated while the
  * multiroom discovery UI is open, which skips its ticks while nobody can see
  * the page (hidden tab, kiosk panel asleep): each one may be a WiFi scan on the
@@ -33,9 +34,9 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   // True while a hotspot scan is in flight.
   const scanning = ref(false);
 
-  // Server's active wifi credentials, or null if not yet loaded.
-  // When loaded: { available: true, ssid, password } | { available: false }
-  const serverWifiCreds = ref(null);
+  // The network the server is on, or null if not yet loaded.
+  // When loaded: { available: true, ssid } | { available: false, ssid: null }
+  const serverWifi = ref(null);
 
   // Polling lifecycle (timer + active subscriber count).
   let pollTimer = null;
@@ -64,25 +65,34 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   }
 
   /**
-   * Load the server's active wifi credentials for adoption auto-fill.
-   * Returns `{ available: false }` when the server is ethernet-only.
+   * Load the network the server is on, offered as the speaker's target.
+   * `available: false` when the server is ethernet-only, or on a network a
+   * speaker could not join.
    */
-  async function loadServerWifiCreds() {
-    const result = await apiCall.get('/api/discovery/server-wifi-creds', {
+  async function loadServerWifi() {
+    const result = await apiCall.get('/api/discovery/server-wifi', {
       category: 'discovery',
-      message: 'Error loading server wifi creds',
+      message: 'Error loading the server wifi',
     });
     if (result.ok) {
-      serverWifiCreds.value = result.data.data || { available: false };
+      const data = result.data.data;
+      const available = data?.available === true && !!data.ssid;
+      serverWifi.value = { available, ssid: available ? data.ssid : null };
     }
   }
 
   /**
    * Orchestrate adoption of a wifi-only speaker.
    * Throws on failure so the caller can surface a precise error to the UI.
-   * @param {Object} payload - { ssid, audio_id, speaker_name, speaker_type, wifi_ssid, wifi_password }
+   * @param {Object} speaker - { ssid, audio_id, speaker_name, speaker_type }
+   * @param {Object|null} wifi - { ssid, password } typed by the owner, or null
+   *   for the server's own network, whose key the server reads itself
    */
-  async function adoptSpeaker(payload) {
+  async function adoptSpeaker(speaker, wifi) {
+    const target = wifi
+      ? { wifi_ssid: wifi.ssid, wifi_password: wifi.password }
+      : { wifi_ssid: serverWifi.value.ssid, use_server_network: true };
+    const payload = { ...speaker, ...target };
     const result = await apiCall.post('/api/discovery/adopt-speaker', payload, {
       category: 'discovery',
       message: 'Error adopting wifi speaker',
@@ -128,10 +138,10 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   return {
     // State
     hotspots,
-    serverWifiCreds,
+    serverWifi,
 
     // Actions
-    loadServerWifiCreds,
+    loadServerWifi,
     adoptSpeaker,
     startPolling,
     stopPolling,

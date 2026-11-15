@@ -1,8 +1,18 @@
-// Allow the milo user to manage NetworkManager connections from systemd services
-// (without requiring a local active session).
+// Let the backend manage NetworkManager from its system unit, which holds no
+// local active session for the distribution's rule to match.
+//
+// Bound to the unit, not only to the user: every daemon Milō runs is `milo` too,
+// and so is an SSH login, while only the backend calls NetworkManager — on a
+// user-wide rule, any of them could raise or rewrite the recovery access point.
+// A process cannot leave its unit's cgroup for another without root.
+//
+// The whole NetworkManager prefix, not a list of actions: an action missing
+// from a list would be refused in silence, and the recovery AP is the one path
+// that has to work with nothing else up.
 polkit.addRule(function(action, subject) {
     if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 &&
-        subject.user === "milo") {
+        subject.user === "milo" &&
+        subject.system_unit === "milo-backend.service") {
         return polkit.Result.YES;
     }
 });

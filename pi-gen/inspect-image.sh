@@ -241,6 +241,13 @@ fi
 check "sshswitch.service enabled (the boot-partition escape hatch)" \
       "compgen -G '${ROOT%/}/etc/systemd/system/*.wants/sshswitch.service' >/dev/null"
 
+# The recovery AP is open, so sshd refuses whoever reaches it through the AP.
+# The drop-in counts only while Debian's sshd_config still includes the directory.
+check "sshd refuses recovery-AP clients (drop-in deployed)" \
+      "cmp -s '$REPO/rootfs/etc/ssh/sshd_config.d/milo-recovery-ap.conf' '${ROOT%/}/etc/ssh/sshd_config.d/milo-recovery-ap.conf'"
+check "sshd_config includes sshd_config.d" \
+      "grep -qxF 'Include /etc/ssh/sshd_config.d/*.conf' '${ROOT%/}/etc/ssh/sshd_config'"
+
 # SSH logs in as `milo`, and `sudo` on the unit needs a password that works. A
 # locked or absent hash breaks both — the switch would open a door no password
 # fits, and the account could not sudo at all.
@@ -382,6 +389,10 @@ check "ARP sysctl deployed"         "cmp -s '$REPO/rootfs/etc/sysctl.d/90-milo-a
 check "link-down sysctl deployed"   "cmp -s '$REPO/rootfs/etc/sysctl.d/90-milo-linkdown.conf' '${ROOT%/}/etc/sysctl.d/90-milo-linkdown.conf'"
 check "ethernet IPv4 wait deployed" "cmp -s '$REPO/rootfs/etc/NetworkManager/conf.d/90-milo-ethernet-ipv4.conf' '${ROOT%/}/etc/NetworkManager/conf.d/90-milo-ethernet-ipv4.conf'"
 check "nginx site written"          "grep -q 'server_name milo.local' '${ROOT%/}/etc/nginx/sites-available/milo'"
+# The recovery-AP gate reads the client from X-Forwarded-For; a proxied path
+# without it hands the backend nginx's loopback address instead.
+check "nginx names the client on every proxied path" \
+      "[ \"\$(grep -cF 'proxy_pass http://milo_backend' '${ROOT%/}/etc/nginx/sites-available/milo')\" = \"\$(grep -cF 'X-Forwarded-For \$proxy_add_x_forwarded_for' '${ROOT%/}/etc/nginx/sites-available/milo')\" ]"
 check "go-librespot uses avahi"     "grep -q 'zeroconf_backend: avahi' '${ROOT%/}/var/lib/milo/go-librespot/config.yml'"
 check "navidrome config written"    "[ -f '${ROOT%/}/var/lib/milo/navidrome/navidrome.toml' ]"
 check "qobuz config is ASCII-named" "grep -q 'name: Milo' '${ROOT%/}/var/lib/milo/qobuz/config.yaml'"
@@ -398,7 +409,9 @@ if [[ "$ROOT" == "/" ]]; then
 else
     check "hardware.json NOT seeded" "! [ -f '${ROOT%/}/var/lib/milo/hardware.json' ]"
 fi
-check "polkit rule deployed"        "[ -f '${ROOT%/}/etc/polkit-1/rules.d/50-milo-networkmanager.rules' ]"
+# Content, not presence: the rule's unit condition is what keeps every other
+# `milo` process off NetworkManager.
+check "polkit rule deployed"        "cmp -s '$REPO/rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules' '${ROOT%/}/etc/polkit-1/rules.d/50-milo-networkmanager.rules'"
 check "journald drop-in deployed"   "[ -f '${ROOT%/}/etc/systemd/journald.conf.d/99-milo-journald.conf' ]"
 check "persistent journal dir"      "[ -d '${ROOT%/}/var/log/journal' ]"
 check "snd-aloop two cards"         "grep -q 'id=Loopback,LoopbackDLNA' '${ROOT%/}/etc/modprobe.d/snd-aloop.conf'"

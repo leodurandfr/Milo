@@ -165,6 +165,7 @@
       "useServerWifi": "Usar la red del servidor ({ssid})",
       "changeNetwork": "Cambiar",
       "enterCredentials": "Elija la red WiFi a la que debe unirse este altavoz.",
+      "ethernetHint": "Por WiFi, su contraseña WiFi llega al altavoz a través de una red abierta: conectarlo con un cable Ethernet es más seguro.",
       "adopting": "Configurando…",
       "errorPush": "El altavoz no aceptó la configuración",
       "errors": {
@@ -173,6 +174,8 @@
         "unsupportedTargetWifi": "La red WiFi de Milō está oculta o usa un modo de seguridad al que un altavoz no puede unirse solo con una contraseña. Elija otra red o conecte el altavoz con un cable.",
         "alreadyConfigured": "Este altavoz ya está configurado. Restablézcalo y vuelva a intentarlo.",
         "serverInHotspotMode": "Milō está emitiendo su propia red de configuración. Conéctelo a su WiFi y vuelva a intentarlo.",
+        "serverNetworkChanged": "Milō ya no está en la red WiFi indicada. Compruebe la red y vuelva a intentarlo.",
+        "serverKeyUnreadable": "Milō no pudo leer la contraseña de su propia red WiFi. Vuelva a intentarlo, o elija la red e introduzca su contraseña.",
         "pushRejected": "El altavoz rechazó la configuración. Reinícielo y vuelva a intentarlo.",
         "pushFailed": "Milō no pudo comunicarse con el altavoz a través de su red de configuración. Acérquelo y vuelva a intentarlo.",
         "noGateway": "Milō se unió a la red de configuración del altavoz, pero no obtuvo ninguna dirección. Reinicie el altavoz y vuelva a intentarlo.",
@@ -865,7 +868,8 @@
     },
     "wifi": {
       "title": "Configure la red",
-      "continueHint": "Seleccione un país y conecte Milō a una red para continuar."
+      "continueHint": "Seleccione un país y conecte Milō a una red para continuar.",
+      "ethernetHint": "Por WiFi, su contraseña WiFi llega a Milō a través de una red abierta: un cable Ethernet es más seguro."
     },
     "language": {
       "title": "Elija su idioma"

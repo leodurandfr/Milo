@@ -62,6 +62,27 @@ install_sudoers() {
     echo "  Installed $target (validated)"
 }
 
+# sshd refuses to start on a config it cannot parse, so a bad drop-in would take
+# SSH down at the next boot rather than fail here. Each one is checked against
+# the whole config (`sshd -t` reads sshd_config.d/*.conf) and the previous copy
+# put back if it breaks it. The running sshd parsed its config at start: it is
+# told to read it again, or a drop-in would wait for the next reboot.
+install_sshd_dropin() {
+    local rel_path="$1"
+    local target="/$rel_path"
+
+    mkdir -p "$(dirname "$target")"
+    [ -f "$target" ] && cp -p "$target" "$target.previous"
+    cp "$REPO_PATH/rootfs/$rel_path" "$target"
+    chmod 0644 "$target"
+    if command -v sshd >/dev/null && ! sshd -t; then
+        if [ -f "$target.previous" ]; then mv -f "$target.previous" "$target"; else rm -f "$target"; fi
+        error_exit "sshd rejects $rel_path -- not installed"
+    fi
+    rm -f "$target.previous"
+    echo "  Installed $target (validated)"
+}
+
 # --- Input validation helpers ---
 
 validate_absolute_path() {
@@ -92,6 +113,7 @@ cmd_sync_system_files() {
     # Hardcoded repo path — no arguments needed.
     local synced_udev=false
     local synced_nm_conf=false
+    local synced_sshd=false
     local sysctl_files=()
 
     # 1. Deploy systemd service files
@@ -121,11 +143,12 @@ cmd_sync_system_files() {
     while read -r rel_path; do
         rel_path="${rel_path#./}"
 
-        # Every rootfs file is installed; these two are the ones a plain copy
-        # cannot install — see install_self and install_sudoers.
+        # Every rootfs file is installed; these three are the ones a plain copy
+        # cannot install — see install_self, install_sudoers and install_sshd_dropin.
         case "$rel_path" in
             usr/local/bin/milo-deploy-update) install_self "$rel_path"; continue ;;
             etc/sudoers.d/*) install_sudoers "$rel_path"; continue ;;
+            etc/ssh/sshd_config.d/*) install_sshd_dropin "$rel_path"; synced_sshd=true; continue ;;
         esac
 
         target="/$rel_path"
@@ -177,6 +200,12 @@ cmd_sync_system_files() {
     if [ "$synced_nm_conf" = true ]; then
         nmcli general reload conf
         echo "  NetworkManager configuration reloaded"
+    fi
+
+    # Reload only a running sshd: SSH ships off, and this must not start it.
+    if [ "$synced_sshd" = true ]; then
+        systemctl try-reload-or-restart ssh.service
+        echo "  sshd configuration reloaded"
     fi
 
     echo "System files sync complete"

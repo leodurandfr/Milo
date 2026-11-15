@@ -95,6 +95,15 @@ The image is a universal image supporting both **Milo** (server) and **Milo Clie
   `multi-user.target` forever on a flashed satellite, and `01-install-audio` purges the
   cloud-init packages stage2 installs whatever `ENABLE_CLOUD_INIT` says. `netplan.io` stays:
   network-manager depends on it. `inspect-image.sh` checks all of it on the built image.
+- **Setup without a cable**: a unit with no link raises the `Milō` access point, and the setup
+  wizard is reached over it. The access point is **open** — the Pi's WiFi chip offers no
+  encryption that needs no password (OWE) in access-point mode — so the home WiFi key typed in
+  the wizard crosses it in clear, and so does the key the server hands a fresh speaker during a
+  WiFi adoption from Settings › Multiroom. An **Ethernet cable avoids both and is the
+  recommended path**, for the first boot and for the adoption alike. SSH is never served over
+  the access point, and before setup its clients may send only the wizard's writes. Once the
+  unit is set up they can only read, and WiFi is repaired from the touch screen or over
+  Ethernet.
 - **Hostname**: `milo` (renamed to `milo-client` on first boot if an existing `milo.local` is detected on the network)
 - **Locale**: `en_US.UTF-8`
 - **Timezone**: `Etc/UTC` — a value meaning "nobody has said yet". The first non-kiosk browser

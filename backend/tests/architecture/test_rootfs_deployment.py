@@ -530,18 +530,15 @@ def test_sync_system_files_skips_no_static_config():
     writes that file at run time: a release that corrected CamillaDSP's
     `devices` reached a freshly flashed card and no running unit, and the same
     release moving a Loopback slot in asound.conf, which is synced, left the
-    capture reading a slot nobody played into. Only two branches are admitted,
-    the two files a plain copy cannot install.
+    capture reading a slot nobody played into. Only the installers of the
+    files a plain copy cannot install are admitted: the script itself, a
+    sudoers policy and an sshd drop-in, each validated before it is read.
     """
+    installers = {"install_self", "install_sudoers", "install_sshd_dropin"}
     branches = _rootfs_case_branches()
     actions = {action.split()[0] for _, action in branches}
-    assert {"install_self", "install_sudoers"} <= actions, (
-        f"the rootfs case was not read: {branches}"
-    )
-    skipped = [
-        pattern for pattern, action in branches
-        if action.split()[0] not in {"install_self", "install_sudoers"}
-    ]
+    assert installers <= actions, f"the rootfs case was not read: {branches}"
+    skipped = [pattern for pattern, action in branches if action.split()[0] not in installers]
     assert not skipped, f"sync-system-files leaves these rootfs paths out: {skipped}"
 
 

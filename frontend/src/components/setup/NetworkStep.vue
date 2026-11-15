@@ -38,6 +38,9 @@
       </template>
     </div>
 
+    <!-- A browser on the open setup AP sends the key it types in clear; the kiosk types it locally -->
+    <p v-if="showEthernetHint" class="text-body-small ethernet-hint">{{ t('setup.wifi.ethernetHint') }}</p>
+
     <!-- Network selector (country + scan + password) -->
     <NetworkSelector
       :exclude-ssid="wifiDisplaySsid || undefined"
@@ -62,6 +65,7 @@ import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
+import { isKiosk } from '@/utils/kiosk';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -86,6 +90,10 @@ const props = defineProps({
     default: false,
   },
 });
+
+const showEthernetHint = computed(() =>
+  props.hotspotActive && !isKiosk() && !loading.value && !status.value.ethernet.connected
+);
 
 // WiFi display: connected SSID or saved SSID (ready when ethernet takes over)
 const wifiDisplaySsid = computed(() =>
@@ -186,5 +194,9 @@ onMounted(() => {
 
 .connection-badge {
   margin-left: auto;
+}
+
+.ethernet-hint {
+  color: var(--color-text-secondary);
 }
 </style>

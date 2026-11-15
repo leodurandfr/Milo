@@ -165,6 +165,7 @@
       "useServerWifi": "Use the server's network ({ssid})",
       "changeNetwork": "Change",
       "enterCredentials": "Choose the WiFi network this speaker should join.",
+      "ethernetHint": "Over WiFi, your WiFi password reaches the speaker through an open network: connecting it with an Ethernet cable is safer.",
       "adopting": "Configuring…",
       "errorPush": "The speaker did not accept the configuration",
       "errors": {
@@ -173,6 +174,8 @@
         "unsupportedTargetWifi": "Milō's WiFi network is hidden or uses a security mode a speaker cannot join with a password alone. Choose another network, or connect the speaker with a cable.",
         "alreadyConfigured": "This speaker is already set up. Reset it, then try again.",
         "serverInHotspotMode": "Milō is broadcasting its own setup network. Connect it to your WiFi, then try again.",
+        "serverNetworkChanged": "Milō is no longer on the WiFi network shown. Check the network, then try again.",
+        "serverKeyUnreadable": "Milō could not read its own WiFi password. Try again, or choose the network and enter its password.",
         "pushRejected": "The speaker refused the configuration. Restart it, then try again.",
         "pushFailed": "Milō could not reach the speaker over its setup network. Move it closer, then try again.",
         "noGateway": "Milō joined the speaker's setup network but got no address from it. Restart the speaker, then try again.",
@@ -865,7 +868,8 @@
     },
     "wifi": {
       "title": "Set up the network",
-      "continueHint": "Select a country and connect Milō to a network to continue."
+      "continueHint": "Select a country and connect Milō to a network to continue.",
+      "ethernetHint": "Over WiFi, your WiFi password reaches Milō through an open network: an Ethernet cable is safer."
     },
     "language": {
       "title": "Choose your language"

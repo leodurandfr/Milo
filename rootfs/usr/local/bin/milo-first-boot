@@ -39,9 +39,6 @@ MILO_CLIENT_USER="milo-client"
 MILO_CLIENT_HOME="/home/$MILO_CLIENT_USER"
 MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
 
-# Setup hotspot SSID — must match HOTSPOT_NAME in backend/core/network/service.py
-# and is_hotspot_connection() in the 90-milo-network dispatcher.
-HOTSPOT_SSID="Milō"
 AVAHI_STATE_FILE="$MILO_DATA_DIR/avahi-interface"
 
 # Active ethernet IPv4 address, populated by wait_for_ethernet_ip
@@ -243,26 +240,13 @@ apply_avahi_role() {
 # Setup-phase network reset
 # =============================================================================
 
-# Drop the setup hotspot's NetworkManager profile, if any. The backend
-# re-creates it seconds later (maybe_start_hotspot) iff the device really has
-# no network, so the AP is always a decision of the current boot and never an
-# inheritance from the previous one.
-delete_hotspot_profile() {
-    nmcli -t -f NAME connection show 2>/dev/null | grep -qxF "$HOTSPOT_SSID" || return 0
-    if nmcli connection delete "$HOTSPOT_SSID" >/dev/null 2>&1; then
-        log "Setup hotspot profile removed"
-    else
-        log "Warning: could not remove the setup hotspot profile"
-    fi
-}
-
-# While setup is incomplete, every boot starts from a clean network slate.
-# Saved WiFi *client* profiles are deliberately left alone: the wizard writes
-# one before setup_completed flips, and a power cut mid-wizard must not lose
-# the credentials the user just typed.
+# While setup is incomplete, every boot starts from a clean network slate. The
+# hotspot's own profile needs no clearing: the backend keeps it in memory only
+# (`save no`), so no boot ever finds it, and raises it again iff the device
+# really has no network. Saved WiFi *client* profiles are deliberately left
+# alone: the wizard writes one before setup_completed flips, and a power cut
+# mid-wizard must not lose the credentials the user just typed.
 reset_setup_network_state() {
-    delete_hotspot_profile
-
     # An AP inherited from a previous boot pins Avahi to wlan0 (the hotspot rule
     # in 90-milo-network), which hides the device from the LAN entirely. Avahi
     # has not started yet here — milo-apply-avahi-iface reads this file in its
@@ -560,11 +544,6 @@ EOF
 
     # 8b. Switch mDNS interface selection to the client mechanism
     apply_avahi_role client
-
-    # 8c. A client has no backend left to clean up after the setup hotspot. The
-    # wifi-adoption path reaches here with setup_completed already true, so
-    # reset_setup_network_state never ran for it.
-    delete_hotspot_profile
 
     # 9. Enable client services
     local client_services=(
