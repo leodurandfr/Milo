@@ -26,18 +26,6 @@
         />
       </div>
     </template>
-
-    <!-- Ungrouped cards (e.g. "No audio card") -->
-    <div v-if="ungroupedCards.length" class="audio-step__list">
-      <ListItemButton
-        v-for="card in ungroupedCards"
-        :key="card.value"
-        :title="cardLabel(card)"
-        action="radio"
-        :model-value="modelValue === card.value"
-        @click="emit('update:modelValue', card.value)"
-      />
-    </div>
   </div>
 </template>
 
@@ -52,7 +40,7 @@ const { t } = useI18n();
 const props = defineProps({
   modelValue: {
     type: String,
-    default: 'none',
+    default: null,
   },
   volumeControl: {
     type: Boolean,
@@ -77,45 +65,13 @@ const categoryLabelMap = {
 };
 
 function categoryLabel(category) {
-  return t(categoryLabelMap[category] || 'setup.audio.other');
+  return t(categoryLabelMap[category]);
 }
 
-function cardLabel(card) {
-  return card.value === 'none' ? t('setup.audio.none') : card.label;
-}
-
-const categoryOrder = ['amplifier', 'dac'];
-
-const groupedCards = computed(() => {
-  const groups = {};
-  for (const card of props.audioCards) {
-    if (card.category) {
-      if (!groups[card.category]) {
-        groups[card.category] = [];
-      }
-      groups[card.category].push(card);
-    }
-  }
-
-  const result = [];
-  for (const cat of categoryOrder) {
-    if (groups[cat]) {
-      result.push({ category: cat, cards: groups[cat] });
-    }
-  }
-  // Any remaining categories not in the predefined order
-  for (const [cat, cards] of Object.entries(groups)) {
-    if (!categoryOrder.includes(cat)) {
-      result.push({ category: cat, cards });
-    }
-  }
-  return result;
-});
-
-const ungroupedCards = computed(() =>
-  props.audioCards
-    .filter(card => !card.category)
-    .sort((a, b) => (a.value === 'none') - (b.value === 'none'))
+const groupedCards = computed(() =>
+  Object.keys(categoryLabelMap)
+    .map(category => ({ category, cards: props.audioCards.filter(card => card.category === category) }))
+    .filter(group => group.cards.length)
 );
 </script>
 
@@ -136,9 +92,8 @@ const ungroupedCards = computed(() =>
   gap: var(--space-01);
 }
 
-/* Extra spacing between groups (amplifiers → dacs → ungrouped) */
-.audio-step__list + .audio-step__category,
-.audio-step__list + .audio-step__list {
+/* Extra spacing between groups (amplifiers → dacs) */
+.audio-step__list + .audio-step__category {
   margin-top: var(--space-04);
 }
 

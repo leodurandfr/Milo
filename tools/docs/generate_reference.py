@@ -408,7 +408,7 @@ def render_hardware() -> str:
         if card_id == "none":
             continue
         lines.append(f"| `{card_id}` | {cell(card['label'])} | {card['category']} | "
-                     f"{code(card['overlay'])} | {code(card['card_name'])} |")
+                     f"{code(card['overlay'])} | {code(registry.OUTPUT_CARD)} |")
     lines += [
         "",
         "`dac` cards need an external amplifier; `amplifier` cards drive speakers directly.",

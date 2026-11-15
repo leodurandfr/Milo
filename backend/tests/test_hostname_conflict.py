@@ -321,30 +321,55 @@ async def settle(predicate, timeout=2.0):
 
 
 # --------------------------------------------------------------------------- #
-# The satellite short-circuit
+# A server not named milo
 # --------------------------------------------------------------------------- #
 
 class TestHostnameShortCircuit:
-    """A unit whose OS hostname is not `milo` never asks anything."""
+    """A unit whose OS hostname is not `milo` never asks anything.
 
-    async def test_a_satellite_is_never_in_conflict_and_touches_nothing(self, service):
-        """`milo-client` legitimately owns its own name; the whole detection is
-        skipped. Asserting the spawn and connect counts is the point: the browse
-        costs a 5 s multicast wait, and it would run on every satellite boot for
-        nothing."""
-        with on_unit(hostname="milo-client") as (spawn, bus):
+    Only a server runs this backend (a satellite runs `milo-client/app/`), so
+    the branch is a dev host or a card renamed in Raspberry Pi Imager."""
+
+    async def test_a_misnamed_server_is_never_in_conflict_and_touches_nothing(self, service):
+        """Avahi publishes the unit under its own name, which detection would
+        read as a rename and restart avahi-daemon to reclaim `milo.local`.
+        Asserting the spawn and connect counts is the point: the browse costs
+        a 5 s multicast wait for a verdict that cannot be right."""
+        with on_unit(hostname="raspberrypi") as (spawn, bus):
             assert await service.check() is False
 
         assert spawn.calls == []
         assert bus.connects == 0
-        assert service.get_state()["advertised_name"] == "milo-client.local"
+        assert service.get_state()["advertised_name"] == "raspberrypi.local"
 
-    async def test_the_satellite_branch_still_stamps_the_check_time(self, service):
+    async def test_the_short_circuit_still_stamps_the_check_time(self, service):
         """`last_checked` is what the settings panel shows; a branch that skips
         the work must not also skip saying when it ran."""
-        with on_unit(hostname="milo-client"):
+        with on_unit(hostname="raspberrypi"):
             await service.check()
         assert service.get_state()["last_checked"] is not None
+
+    async def test_a_misnamed_server_says_so_once_at_warning(self, service, caplog):
+        """The satellites and both apps address `milo.local`, so a renamed
+        server is unreachable to all of them, and nothing on screen says why:
+        the journal is the only place it is told. Warning, never error — an
+        error reaches the UI banner, and a dev host is never named milo. Once,
+        because the check reruns every five minutes."""
+        with on_unit(hostname="raspberrypi"), caplog.at_level(logging.DEBUG):
+            await service.check()
+            await service.check()
+
+        told = [r for r in caplog.records if "raspberrypi is not milo" in r.getMessage()]
+        assert len(told) == 1
+        assert told[0].levelno == logging.WARNING
+        assert "cannot reach this unit" in told[0].getMessage()
+
+    async def test_a_unit_named_milo_says_nothing_of_its_name(self, service, caplog):
+        """The warning is about a name, so the appliance's own must never
+        produce it."""
+        with on_unit(), caplog.at_level(logging.DEBUG):
+            await service.check()
+        assert "is not milo" not in caplog.text
 
 
 # --------------------------------------------------------------------------- #

@@ -14,6 +14,7 @@ be just as broken and is what the second half of each test catches.
 import pytest
 from pydantic import ValidationError
 
+from backend.api.setup import SetupCompleteRequest
 from backend.api.models import (
     AudioControlRequest,
     AudioStopRequest,
@@ -81,8 +82,8 @@ class TestHardwareIdsMustExistInTheRegistry:
         with pytest.raises(ValidationError):
             HardwareAudioRequest(id="no-such-card")
 
-    def test_every_card_the_registry_declares_is_accepted(self):
-        for card_id in AUDIO_CARDS:
+    def test_every_real_card_the_registry_declares_is_accepted(self):
+        for card_id in (k for k in AUDIO_CARDS if k != "none"):
             assert HardwareAudioRequest(id=card_id).id == card_id
 
     def test_an_unknown_screen_type_is_refused(self):
@@ -285,24 +286,42 @@ class TestPinsTheCardHolds:
                 )
 
 
-class TestConfigurableAudioIdExcludesNone:
-    """`_validate_configurable_audio_id`, shared by the two satellite-facing
-    audio requests.
+def _audio_request(model, audio_id):
+    if model is HardwareAudioRequest:
+        return model(id=audio_id)
+    if model is SetupCompleteRequest:
+        return model(language="english", audio_id=audio_id, volume_control=True, screen_type="none")
+    if model is ConfigurePendingClientRequest:
+        return model(audio_id=audio_id, name="Bureau")
+    return model(audio_id=audio_id)
 
-    Both end in `_send_audio_config_and_reboot`: the satellite writes the card
-    and reboots. `none` has no overlay, so it reboots a speaker into silence,
-    and the wizard offers no way back that does not start with unplugging it.
+
+CONFIGURING_MODELS = [
+    ConfigureClientAudioRequest,
+    ConfigurePendingClientRequest,
+    HardwareAudioRequest,
+    SetupCompleteRequest,
+]
+
+
+class TestConfigurableAudioIdExcludesNone:
+    """`validate_configurable_audio_id`, shared by every request that configures
+    a card — the two satellite-facing ones, the setup wizard and the Hardware page.
+
+    Each ends in a reboot onto the card it names. `none` has no overlay: on a
+    satellite it reboots a speaker into silence, and the server plays through a
+    HAT or not at all, so on either it is a unit with no playback device.
     """
 
-    @pytest.mark.parametrize("model", [ConfigureClientAudioRequest, ConfigurePendingClientRequest])
+    @pytest.mark.parametrize("model", CONFIGURING_MODELS)
     def test_the_absent_card_is_refused(self, model):
         with pytest.raises(ValidationError, match="Invalid audio_id"):
-            model(audio_id="none", **({"name": "Bureau"} if model is ConfigurePendingClientRequest else {}))
+            _audio_request(model, "none")
 
-    @pytest.mark.parametrize("model", [ConfigureClientAudioRequest, ConfigurePendingClientRequest])
+    @pytest.mark.parametrize("model", CONFIGURING_MODELS)
     def test_a_card_outside_the_registry_is_refused(self, model):
         with pytest.raises(ValidationError, match="Invalid audio_id"):
-            model(audio_id="allo-boss", **({"name": "Bureau"} if model is ConfigurePendingClientRequest else {}))
+            _audio_request(model, "allo-boss")
 
     def test_every_real_card_the_registry_declares_is_accepted(self):
         """Read out of the registry: a guard that refused everything would ship

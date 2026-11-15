@@ -235,7 +235,7 @@ def test_the_upstream_extractors_are_not_vacuous():
     """
     counts = {name: len(derive()) for name, (derive, _, _) in UPSTREAM.items()}
     assert counts["settings.json"] > 30, counts
-    assert counts["hardware.json"] == 14, counts
+    assert counts["hardware.json"] == 13, counts
     assert counts["multiroom Client"] >= 10, counts
     assert counts["multiroom Zone"] == 4, counts
     assert counts["EqualizerSettings"] == 7, counts
@@ -488,7 +488,7 @@ def _logged_ssid_formats():
     return found
 
 
-# A profile name is `milo-<ssid>` (or netplan's, or the SSID itself), and an
+# A profile name is `milo-<ssid>` (or the SSID itself), and an
 # nmcli argv carries both: they name the network under another variable.
 _PROFILE_ARGS = {"name", "active_name", "profile", "con_name"}
 _PROFILE_LINE = re.compile(r"profile|connection|credentials", re.IGNORECASE)

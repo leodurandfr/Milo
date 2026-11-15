@@ -82,3 +82,42 @@ def test_a_heartbeat_answer_keeps_the_servers_ipv4_addresses_in_order():
         assert known_server_addresses() == ("192.168.1.55", "192.168.1.39")
     finally:
         remember_server_addresses({"server_addresses": []})
+
+
+# /proc/asound/cards as a satellite with a HAT and the image's loopbacks prints
+# it: the id padded inside its brackets, a continuation line under each card.
+_ASOUND_CARDS = """\
+ 0 [sndrpihifiberry]: HifiberryDacp - snd_rpi_hifiberry_dacplus
+                      snd_rpi_hifiberry_dacplus
+ 1 [Loopback       ]: Loopback - Loopback
+                      Loopback 1
+"""
+
+
+def test_the_alsa_card_ids_are_read_from_proc_asound(tmp_path):
+    """The server tells a seated board from a missing one by these ids alone; a
+    padded id read with its spaces would never match the one it expects."""
+    from services import registration
+
+    cards = tmp_path / "cards"
+    cards.write_text(_ASOUND_CARDS)
+    with patch.object(registration, "ASOUND_CARDS_FILE", str(cards)):
+        assert registration.read_alsa_cards() == ["sndrpihifiberry", "Loopback"]
+
+
+def test_a_unit_with_no_card_reports_an_empty_list(tmp_path):
+    """No card is an answer — the board is not seen — unlike an unreadable file."""
+    from services import registration
+
+    cards = tmp_path / "cards"
+    cards.write_text("--- no soundcards ---\n")
+    with patch.object(registration, "ASOUND_CARDS_FILE", str(cards)):
+        assert registration.read_alsa_cards() == []
+
+
+def test_an_unreadable_card_list_is_none(tmp_path):
+    """None tells the server it knows nothing, so it reports no missing board."""
+    from services import registration
+
+    with patch.object(registration, "ASOUND_CARDS_FILE", str(tmp_path / "absent")):
+        assert registration.read_alsa_cards() is None

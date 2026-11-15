@@ -67,7 +67,7 @@
       <SectionCard :title="t('multiroom.pending.audioCard')">
         <div class="audio-list">
           <ListItemButton
-            v-for="card in audioCardOptions"
+            v-for="card in audioCards"
             :key="card.value"
             :title="card.label"
             action="radio"
@@ -183,11 +183,6 @@ const pendingClient = computed(() => multiroomStore.pendingClients.get(props.mac
 const canUseServerWifi = computed(() =>
   discoveryStore.serverWifiCreds?.available === true
   && !!discoveryStore.serverWifiCreds?.ssid
-);
-
-// Filter out "none" — the whole point of this form is to configure audio
-const audioCardOptions = computed(() =>
-  audioCards.value.filter(card => card.value !== 'none')
 );
 
 // Speaker type options (same as ClientEdit)

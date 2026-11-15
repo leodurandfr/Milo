@@ -8,7 +8,7 @@ carry `ENABLE_SSH=1` with a password identical on every unit Milō would ship,
 and a timezone and WiFi country pinned to France for a product sold in eight
 languages.
 
-Three rules, each one the load-bearing half of a decision made elsewhere:
+Five rules, each one the load-bearing half of a decision made elsewhere:
 
   1. **SSH is off in the image.** The factory password is the same on every
      unit, which is safe only while it stays a *local* convenience — SSH is the
@@ -29,6 +29,16 @@ Three rules, each one the load-bearing half of a decision made elsewhere:
      "where is this unit", and the wizard already refuses to continue without
      the real one.
 
+  4. **The first-boot user wizard stays off.** The `milo` account is created by
+     the image and everything is written around its name; upstream's
+     export-image renames it on first boot unless told not to, by re-enabling
+     `userconfig.service`, whose tty8 prompt nobody can answer on an appliance.
+
+  5. **No cloud-init on the card.** Raspberry Pi Imager's OS customization
+     reaches a trixie card through it — renaming the account, rewriting the
+     hostname — and stage2 installs it whatever `ENABLE_CLOUD_INIT` says, so
+     the stage purges it; `netplan.io`, which network-manager depends on, stays.
+
 Plus the doctrine every guardrail here follows: the extractor asserts its own
 output is non-trivial first, so a parse that stops matching fails loudly
 instead of passing on an empty file.
@@ -42,11 +52,16 @@ from backend.api.system import DEFAULT_TIMEZONE
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PIGEN_CONFIG = REPO_ROOT / "pi-gen" / "config"
+STAGE_DIR = REPO_ROOT / "pi-gen" / "stage-milo"
 SET_PASSWORD_HELPER = REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-set-password"
 
 # `NAME=value` / `NAME="value"`, skipping comment lines. pi-gen sources this
 # file, so the assignments are the whole content.
 ASSIGNMENT = re.compile(r'^([A-Z_][A-Z0-9_]*)=(.*)$')
+
+# `apt-get [opts] purge|remove pkg… [2>/dev/null || true]`, in any stage script.
+REMOVAL = re.compile(r'\bapt-get\s+(?:-\S+\s+)*(purge|remove)\s+(.*)')
+SHELL_OPERATOR = re.compile(r'^(?:\d?>|\|\||&&|;|\|)')
 
 
 def _config() -> dict:
@@ -59,6 +74,25 @@ def _config() -> dict:
         if match:
             values[match.group(1)] = match.group(2).strip().strip('"')
     return values
+
+
+def _stage_removals() -> dict:
+    """Package name → the apt-get verbs the stage removes it with."""
+    removals = {}
+    for script in sorted(STAGE_DIR.glob("*/*.sh")):
+        for line in script.read_text(encoding="utf-8").replace("\\\n", " ").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            match = REMOVAL.search(stripped)
+            if not match:
+                continue
+            for token in match.group(2).split():
+                if SHELL_OPERATOR.match(token):
+                    break
+                if not token.startswith("-"):
+                    removals.setdefault(token, set()).add(match.group(1))
+    return removals
 
 
 @pytest.fixture(scope="module")
@@ -76,6 +110,38 @@ def test_the_image_ships_with_ssh_closed(config):
     """Rule 1. `ENABLE_SSH=1` puts a fleet-wide credential on port 22 of every
     unit sold, reachable by a scanner that never opens the UI."""
     assert config.get("ENABLE_SSH") == "0"
+
+
+def test_the_first_boot_user_rename_is_disabled(config):
+    """Rule 4. At `0`, upstream's export-image runs `rename-user -f -s` after
+    stage-milo, which re-enables `userconfig.service`: its tty8 wizard waits for
+    an answer forever, `multi-user.target` never completes, and the system stays
+    `starting` — measured on a satellite flashed from the image."""
+    assert config.get("DISABLE_FIRST_BOOT_USER_RENAME") == "1"
+
+
+def test_cloud_init_is_not_seeded(config):
+    """Rule 5. At `1`, stage2 seeds `user-data`, `meta-data` and
+    `network-config` on the boot partition for a cloud-init the stage then
+    purges: files on every card that read as the way to set its account and
+    network, and do nothing."""
+    assert config.get("ENABLE_CLOUD_INIT") == "0"
+
+
+def test_the_stage_purges_cloud_init_and_keeps_netplan():
+    """Rule 5, the half the config cannot do: stage2's package list installs
+    cloud-init regardless, so a stage that stopped purging it ships it again with
+    nothing failing. Purge rather than remove, or its conffiles under /etc/cloud
+    stay behind. netplan.io must never be in a removal: network-manager depends
+    on it, so apt would take the unit's whole network stack with it."""
+    removals = _stage_removals()
+    # Non-triviality: the ALSA-only removal of pulseaudio has always been there,
+    # so a parser that reads nothing fails here rather than below.
+    assert "pulseaudio" in removals, "no apt-get removal parsed from pi-gen/stage-milo"
+
+    for package in ("cloud-init", "rpi-cloud-init-mods"):
+        assert "purge" in removals.get(package, set()), f"the stage no longer purges {package}"
+    assert "netplan.io" not in removals, "the stage removes netplan.io, and network-manager with it"
 
 
 def test_the_first_user_is_still_milo(config):

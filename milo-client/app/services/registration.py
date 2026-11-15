@@ -11,6 +11,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import socket
 
 import aiohttp
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 HARDWARE_FILE = "/var/lib/milo-client/hardware.json"
 IDENTITY_FILE = "/var/lib/milo-client/identity.json"
+ASOUND_CARDS_FILE = "/proc/asound/cards"
 MILO_PRINCIPAL_HOST = "milo.local"
 MILO_PRINCIPAL_PORT = 8000
 REGISTER_ENDPOINT = "/api/multiroom/register-client"
@@ -109,6 +111,22 @@ def _read_hardware_config() -> dict:
         return {"audio_id": "none", "hardware_configured": False, "volume_control": True}
 
 
+_CARD_ID = re.compile(r"^\s*\d+\s+\[([^\]\s]+)\s*\]", re.MULTILINE)
+
+
+def read_alsa_cards() -> list[str] | None:
+    """The ALSA card ids /proc/asound/cards lists, None when it cannot be read.
+
+    Facts only: the server knows which id the configured card registers, and
+    judges from it whether the board is seen.
+    """
+    try:
+        with open(ASOUND_CARDS_FILE, "r") as f:
+            return _CARD_ID.findall(f.read())
+    except OSError:
+        return None
+
+
 def _read_identity() -> dict:
     """Read identity.json (name + speaker_type) for registration payload.
 
@@ -151,6 +169,7 @@ async def register_with_main_milo() -> None:
             local_ip = await loop.run_in_executor(None, local_ip_towards, milo_ip, MILO_PRINCIPAL_PORT)
             hw_config = await loop.run_in_executor(None, _read_hardware_config)
             identity = await loop.run_in_executor(None, _read_identity)
+            alsa_cards = await loop.run_in_executor(None, read_alsa_cards)
 
             payload = {
                 "mac_id": mac_id,
@@ -158,6 +177,7 @@ async def register_with_main_milo() -> None:
                 "hardware_configured": hw_config["hardware_configured"],
                 "audio_id": hw_config["audio_id"],
                 "volume_control": hw_config["volume_control"],
+                "alsa_cards": alsa_cards,
             }
             if identity.get("name"):
                 payload["name"] = identity["name"]

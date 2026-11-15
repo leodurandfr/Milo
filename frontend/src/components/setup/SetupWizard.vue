@@ -23,7 +23,7 @@
 
           <NetworkStep v-else-if="currentStep === 2" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive" />
 
-          <AudioStep v-else-if="currentStep === 3" v-model="wizardState.audioId"
+          <AudioStep v-else-if="currentStep === 3" :model-value="wizardState.audioId" @update:model-value="pickAudio"
             v-model:volume-control="wizardState.volumeControl" :audio-cards="audioCards" />
 
           <ScreenStep v-else-if="currentStep === 4" v-model="wizardState.screenType" :screens="screens" />
@@ -54,6 +54,15 @@
           </Button>
         </template>
 
+        <template v-else-if="currentStep === 3">
+          <span v-if="!wizardState.audioId" class="text-mono-small setup-card__hint">
+            {{ t('setup.audio.continueHint') }}
+          </span>
+          <Button floating variant="brand" :disabled="!wizardState.audioId" @click="nextStep">
+            {{ t('setup.continue') }}
+          </Button>
+        </template>
+
         <Button floating v-else-if="!isSummaryStep" variant="brand" @click="nextStep">
           {{ t('setup.continue') }}
         </Button>
@@ -68,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -107,7 +116,7 @@ const screens = ref([]);
 const wizardState = reactive({
   wifiSsid: null,
   language: i18n.getCurrentLanguage() || 'english',
-  audioId: 'none',
+  audioId: null,
   volumeControl: true,
   screenType: 'none',
 });
@@ -140,7 +149,6 @@ const selectedLanguageLabel = computed(() => {
 });
 
 const selectedAudioLabel = computed(() => {
-  if (wizardState.audioId === 'none') return t('setup.audio.none');
   const card = audioCards.value.find(c => c.value === wizardState.audioId);
   return card?.label || wizardState.audioId;
 });
@@ -156,10 +164,12 @@ const isDacSelected = computed(() => {
   return card?.category === 'dac';
 });
 
-// Auto-set volume_control default when audio card changes
-watch(() => wizardState.audioId, () => {
+// A pick resets volume management to the card's default: only a DAC hands it away.
+function pickAudio(audioId) {
+  if (audioId === wizardState.audioId) return;
+  wizardState.audioId = audioId;
   wizardState.volumeControl = !isDacSelected.value;
-});
+}
 
 const { getAvailableLanguages } = useI18n();
 
@@ -204,7 +214,7 @@ async function applySetup() {
   const applyResult = await apiCall.post('/api/setup/complete', {
     language: wizardState.language,
     audio_id: wizardState.audioId,
-    volume_control: isDacSelected.value ? wizardState.volumeControl : undefined,
+    volume_control: wizardState.volumeControl,
     screen_type: wizardState.screenType,
   }, {
     category: 'setup',
@@ -254,6 +264,19 @@ onMounted(async () => {
   if (data) {
     audioCards.value = data.options.audio_cards;
     screens.value = data.options.screens;
+    // A re-run (reset-setup keeps hardware.json) or an interrupted apply starts
+    // from the hardware the unit already names: a fresh default would silence
+    // it and turn its kiosk off.
+    const { audio, screen } = data.current;
+    if (audioCards.value.some(card => card.value === audio.id)) {
+      pickAudio(audio.id);
+      if (isDacSelected.value && typeof audio.volume_control === 'boolean') {
+        wizardState.volumeControl = audio.volume_control;
+      }
+    }
+    if (screens.value.some(option => option.value === screen.type)) {
+      wizardState.screenType = screen.type;
+    }
   }
 });
 

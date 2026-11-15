@@ -190,7 +190,7 @@ VALID_DOCK_APPS = AUDIO_SOURCE_APPS | UTILITY_DOCK_APPS
 class MultiroomStream(NamedTuple):
     """The snapserver stream a source plays on in multiroom."""
     name: str    # snapserver's stream id, what Group.SetStream names
-    device: str  # the Loopback capture snapserver reads it from
+    device: str  # the Loopback capture snapserver reads it from, card by id, never by index
     pcm: str     # the ALSA PCM the source's unit writes, `pcm.<pcm>_multiroom` in asound.conf
 
 
@@ -204,16 +204,16 @@ class MultiroomStream(NamedTuple):
 # holds the writer's side: tests/architecture/test_multiroom_capture_map.py holds
 # all three equal.
 MULTIROOM_STREAMS: Dict[AudioSource, MultiroomStream] = {
-    AudioSource.BLUETOOTH: MultiroomStream("Bluetooth", "hw:1,1,1", "milo_bluetooth"),
-    AudioSource.MAC: MultiroomStream("ROC", "hw:1,1,2", "milo_roc"),
-    AudioSource.SPOTIFY: MultiroomStream("Spotify", "hw:1,1,3", "milo_spotify"),
-    AudioSource.RADIO: MultiroomStream("Radio", "hw:1,1,4", "milo_radio"),
-    AudioSource.PODCAST: MultiroomStream("Podcast", "hw:1,1,5", "milo_podcast"),
-    AudioSource.AIRPLAY: MultiroomStream("AirPlay", "hw:1,1,6", "milo_airplay"),
-    AudioSource.CD: MultiroomStream("CD", "hw:1,1,7", "milo_cd"),
-    AudioSource.QOBUZ: MultiroomStream("Qobuz", "hw:2,1,1", "milo_qobuz"),
-    AudioSource.MUSIC_LIBRARY: MultiroomStream("MusicLibrary", "hw:2,1,2", "milo_music_library"),
-    AudioSource.TIDAL: MultiroomStream("Tidal", "hw:2,1,3", "milo_tidal"),
+    AudioSource.BLUETOOTH: MultiroomStream("Bluetooth", "hw:Loopback,1,1", "milo_bluetooth"),
+    AudioSource.MAC: MultiroomStream("ROC", "hw:Loopback,1,2", "milo_roc"),
+    AudioSource.SPOTIFY: MultiroomStream("Spotify", "hw:Loopback,1,3", "milo_spotify"),
+    AudioSource.RADIO: MultiroomStream("Radio", "hw:Loopback,1,4", "milo_radio"),
+    AudioSource.PODCAST: MultiroomStream("Podcast", "hw:Loopback,1,5", "milo_podcast"),
+    AudioSource.AIRPLAY: MultiroomStream("AirPlay", "hw:Loopback,1,6", "milo_airplay"),
+    AudioSource.CD: MultiroomStream("CD", "hw:Loopback,1,7", "milo_cd"),
+    AudioSource.QOBUZ: MultiroomStream("Qobuz", "hw:LoopbackDLNA,1,1", "milo_qobuz"),
+    AudioSource.MUSIC_LIBRARY: MultiroomStream("MusicLibrary", "hw:LoopbackDLNA,1,2", "milo_music_library"),
+    AudioSource.TIDAL: MultiroomStream("Tidal", "hw:LoopbackDLNA,1,3", "milo_tidal"),
 }
 
 # Default dock apps (ordered for UI)

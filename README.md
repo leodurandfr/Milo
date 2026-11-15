@@ -71,7 +71,8 @@ step.
 
 - **Raspberry Pi 5** (8 GB recommended) for the main unit; a Raspberry Pi 4 (2 GB) is enough
   for a multiroom speaker.
-- **A HiFiBerry board**: an amplifier for passive speakers (Amp2, Amp4, Amp4 Pro, Amp100) or a DAC for an amplifier you already own (DAC2 HD, DAC2 Pro, DAC2 ADC Pro).
+- **A HiFiBerry board, on every unit**: Milō plays through it alone, not through HDMI or a USB
+  DAC, and does not set up without one. An amplifier for passive speakers (Amp2, Amp4, Amp4 Pro, Amp100) or a DAC for an amplifier you already own (DAC2 HD, DAC2 Pro, DAC2 ADC Pro).
   With a screen, the Amp4 Pro is the only amplifier that can power it.
 - **Optional**: a Waveshare touchscreen (7" USB or 8" DSI), a volume knob, an Apple Remote or a
   Bluetooth remote, a USB CD drive.
@@ -82,7 +83,10 @@ Parts list and wiring: [Required hardware](https://milo-audio.com/docs/quick-sta
 
 1. Download the latest `.img.xz` from [Releases](https://github.com/leodurandfr/Milo/releases).
 2. Write it to a microSD card (32 GB or more) with
-   [Raspberry Pi Imager](https://www.raspberrypi.com/software/) ("Use custom").
+   [Raspberry Pi Imager](https://www.raspberrypi.com/software/) ("Use custom"). If Imager asks
+   whether to apply "OS customisation" settings, choose **No**: Milō sets up its own Wi-Fi in its
+   setup wizard, and a user name, hostname or SSH setting applied by Imager stops it from
+   working or opens it to the network.
 3. Insert the card and power the Raspberry Pi on.
 4. Reach the setup wizard:
    - **with an Ethernet cable**, open **http://milo.local** from a phone or computer on the

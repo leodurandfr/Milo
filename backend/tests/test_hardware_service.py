@@ -25,7 +25,10 @@ from backend.hardware.registry import (
     DEFAULT_IR_REMOTE,
     DEFAULT_POWER_BUTTON,
     DEFAULT_ROTARY_PINS,
+    OUTPUT_CARD,
     SCREENS,
+    alsa_card_ids,
+    missing_card_label,
 )
 from backend.hardware.service import HardwareService
 from backend.shared.persistence import SchemaVersionMismatch
@@ -81,38 +84,25 @@ class TestWhatAnAbsentSectionAnswers:
         assert service.get_audio_id() is None
 
 
-class TestVolumeControlDerivation:
+class TestVolumeControlIsReadAsStored:
     """`get_volume_control` — who attenuates, the card or CamillaDSP.
 
     False means an external amplifier owns the volume, so Milo must not also
-    attenuate. The value is derived from the card category unless the operator
-    set it explicitly, and CLAUDE.md pins CamillaDSP as the only attenuation
-    stage — an inverted answer here is a second one.
+    attenuate. Every write of the audio block stores the choice
+    (`registry.audio_config`), so the read derives nothing: a second derivation
+    here is how a DAC's stored "Milō manages the volume" could be read back as
+    the category's False, and CLAUDE.md pins CamillaDSP as the only attenuation
+    stage.
     """
 
-    def test_an_explicit_choice_wins_over_the_card(self, service):
-        dac = next(k for k, v in AUDIO_CARDS.items() if v.get("category") == "dac")
-        _write(service, {"audio": {"id": dac, "volume_control": True}})
-        assert service.get_volume_control() is True
+    @pytest.mark.parametrize("stored", [True, False])
+    def test_the_stored_choice_is_the_answer_whatever_the_card(self, service, stored):
+        for audio_id in AUDIO_CARDS:
+            _write(service, {"audio": {"id": audio_id, "volume_control": stored}})
+            assert service.get_volume_control() is stored, audio_id
 
-    def test_an_explicit_false_is_honoured_and_not_read_as_absent(self, service):
-        amp = next(k for k, v in AUDIO_CARDS.items() if v.get("category") == "amplifier")
-        _write(service, {"audio": {"id": amp, "volume_control": False}})
-        assert service.get_volume_control() is False
-
-    def test_a_dac_with_no_explicit_choice_hands_volume_away(self, service):
-        dac = next(k for k, v in AUDIO_CARDS.items() if v.get("category") == "dac")
-        _write(service, {"audio": {"id": dac}})
-        assert service.get_volume_control() is False
-
-    def test_an_amplifier_with_no_explicit_choice_keeps_volume(self, service):
-        amp = next(k for k, v in AUDIO_CARDS.items() if v.get("category") == "amplifier")
-        _write(service, {"audio": {"id": amp}})
-        assert service.get_volume_control() is True
-
-    @pytest.mark.parametrize("audio", [{}, {"id": "none"}])
-    def test_no_card_configured_keeps_volume_rather_than_losing_it(self, service, audio):
-        _write(service, {"audio": audio})
+    def test_a_unit_the_wizard_has_not_configured_keeps_volume(self, service):
+        _write(service, {})
         assert service.get_volume_control() is True
 
 
@@ -269,7 +259,7 @@ class TestTheFullConfig:
     """
 
     STORED = {
-        "audio": {"id": "hifiberry_amp2", "card_name": "sndrpihifiberry"},
+        "audio": {"id": "hifiberry_amp2", "overlay": "hifiberry-dacplus-std", "volume_control": True},
         "screen": {"type": "waveshare_8_dsi", "resolution": "1280x800"},
         "rotary_encoder": {"enabled": False, "clk_pin": 5, "dt_pin": 6, "sw_pin": 13},
         "ir_remote": {"enabled": False, "gpio_pin": 26},
@@ -468,6 +458,51 @@ class TestApply:
             await service.apply()
 
 
+# /proc/asound/cards on the server, 2026-11-15: a Pi 5 with an Amp4 Pro seated
+# and the two loopback cards Milō loads.
+PI5_WITH_HAT = (
+    " 0 [sndrpihifiberry]: HifiberryDacp - snd_rpi_hifiberry_dacplus\n"
+    "                      snd_rpi_hifiberry_dacplus\n"
+    " 1 [Loopback       ]: Loopback - Loopback\n"
+    "                      Loopback 1\n"
+    " 2 [LoopbackDLNA   ]: Loopback - Loopback\n"
+    "                      Loopback 2\n"
+)
+
+
+class TestTheOutputCardInProcAsound:
+    """`alsa_card_ids` + `missing_card_label` — the HAT found by its id, the
+    only thing every overlay agrees on (`OUTPUT_CARD`). The server reads its own
+    /proc/asound/cards through them, and each satellite's heartbeat carries the
+    same ids, judged by the same function."""
+
+    def test_the_ids_are_read_from_their_brackets_padding_dropped(self):
+        assert alsa_card_ids(PI5_WITH_HAT) == [OUTPUT_CARD, "Loopback", "LoopbackDLNA"]
+
+    def test_the_hat_among_the_loopbacks_is_not_missing(self):
+        assert missing_card_label("hifiberry_amp2", alsa_card_ids(PI5_WITH_HAT)) is None
+
+    def test_the_loopbacks_alone_name_the_configured_card(self):
+        without = "".join(PI5_WITH_HAT.splitlines(keepends=True)[2:])
+        assert missing_card_label("hifiberry_amp2", alsa_card_ids(without)) == AUDIO_CARDS["hifiberry_amp2"]["label"]
+
+    def test_the_id_is_matched_in_its_brackets_not_in_a_long_name(self):
+        """A card's second line is free text: a USB DAC named after the HAT
+        is not the HAT."""
+        ids = alsa_card_ids(
+            f" 0 [Device         ]: USB-Audio - {OUTPUT_CARD} clone\n"
+            f"                      {OUTPUT_CARD} clone at usb-xhci-hcd.0-1\n"
+        )
+        assert missing_card_label("hifiberry_amp2", ids) == AUDIO_CARDS["hifiberry_amp2"]["label"]
+
+    @pytest.mark.parametrize("audio_id, card_ids", [
+        ("hifiberry_amp2", None),   # no card list: unreadable, or a satellite one push behind
+        ("retired_card", []),       # an id no card answers to
+    ])
+    def test_nothing_to_judge_is_never_a_complaint(self, audio_id, card_ids):
+        assert missing_card_label(audio_id, card_ids) is None
+
+
 class TestTheConfiguredCardBeingThere:
     """`get_missing_audio_card` — the only thing that notices a card that isn't.
 
@@ -500,8 +535,7 @@ class TestTheConfiguredCardBeingThere:
         })
 
     def test_a_card_alsa_lists_is_not_reported(self, service, cards_file):
-        card = AUDIO_CARDS["hifiberry_amp2"]
-        cards_file.write_text(f" 0 [{card['card_name']:<14}]: card\n")
+        cards_file.write_text(PI5_WITH_HAT)
         self._configure(service, "hifiberry_amp2")
 
         assert service.get_missing_audio_card() is None
@@ -515,14 +549,22 @@ class TestTheConfiguredCardBeingThere:
 
         assert service.get_missing_audio_card() == AUDIO_CARDS["hifiberry_amp2"]["label"]
 
-    def test_no_card_configured_is_never_a_complaint(self, service, cards_file):
-        """`none` is a legitimate choice — a unit waiting for a board, or one
-        driven over HDMI. Reporting it would put a permanent banner on every
-        such unit."""
+    def test_a_unit_the_wizard_has_not_configured_is_never_a_complaint(self, service, cards_file):
+        """Before the wizard there is no card to name, and the wizard is on
+        screen saying so."""
+        cards_file.write_text(" 0 [vc4hdmi        ]: vc4-hdmi\n")
+        _write(service, {"schema_version": HardwareService.SCHEMA_VERSION})
+
+        assert service.get_missing_audio_card() is None
+
+    def test_a_server_configured_with_no_card_is_reported(self, service, cards_file):
+        """The server plays through a HAT or not at all: `none` is no longer a
+        choice the wizard or the Hardware page accepts, so a record naming it is
+        a silent unit, which is what the banner exists for."""
         cards_file.write_text(" 0 [vc4hdmi        ]: vc4-hdmi\n")
         self._configure(service, "none")
 
-        assert service.get_missing_audio_card() is None
+        assert service.get_missing_audio_card() == AUDIO_CARDS["none"]["label"]
 
     def test_an_unreadable_proc_reports_nothing(self, service, monkeypatch):
         """Fails open: a dev host has no /proc/asound at all, and reporting

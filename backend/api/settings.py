@@ -806,21 +806,19 @@ def create_settings_router(
         async with api_error_handler("Error getting hardware config", logger):
             current = hardware_service.get_full_config()
 
-            # Ensure volume_control is always present (resolved from hardware or auto-detected)
-            if "audio" in current and "volume_control" not in current["audio"]:
-                current["audio"]["volume_control"] = hardware_service.get_volume_control()
-
             # Build dropdown options from registry. Each card carries the GPIOs
             # its overlay holds, which the page drops from gpio_pins for that
-            # card and the PUT validator refuses.
+            # card and the PUT validator refuses. `none` is no choice: both
+            # write routes refuse it.
             audio_options = [
                 {
                     "value": card_id,
                     "label": card["label"],
-                    "category": card.get("category"),
+                    "category": card["category"],
                     "reserved_pins": sorted(reserved_pins(card_id)),
                 }
                 for card_id, card in AUDIO_CARDS.items()
+                if card_id != "none"
             ]
             screen_options = [
                 {"value": screen_id, "label": screen["label"]}
@@ -856,25 +854,13 @@ def create_settings_router(
         staged the EEPROM or began rewriting config.txt. Only a successful
         apply reboots.
         """
-        from backend.hardware.registry import AUDIO_CARDS, SCREENS
+        from backend.hardware.registry import SCREENS, audio_config
 
         async with api_error_handler("Error setting hardware config", logger):
-            card = AUDIO_CARDS[payload.audio.id]
             screen = SCREENS[payload.screen.type]
 
-            from backend.hardware.registry import is_dac_card
-            audio_config = {"id": payload.audio.id}
-            if card["overlay"]:
-                audio_config.update({
-                    "card_name": card["card_name"],
-                    "overlay": card["overlay"],
-                })
-            # Persist volume_control: explicit override or auto-detect from card category
-            volume_control = payload.audio.volume_control if payload.audio.volume_control is not None else not is_dac_card(payload.audio.id)
-            audio_config["volume_control"] = volume_control
-
             config = {
-                "audio": audio_config,
+                "audio": audio_config(payload.audio.id, payload.audio.volume_control),
                 "screen": {
                     "type": payload.screen.type,
                     "resolution": screen["resolution"],

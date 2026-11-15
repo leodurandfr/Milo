@@ -32,6 +32,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         eq_independent: client.eq_independent ?? false,
         delay_ms: client.delay_ms ?? 0,
         gain_db: client.gain_db ?? 0,
+        audio_card_missing: client.audio_card_missing ?? null,
         last_seen_age: 0 // Not tracked here, use registry if needed
       };
     });

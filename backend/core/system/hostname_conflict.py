@@ -95,6 +95,7 @@ class HostnameConflictService:
         self._other_milos: List[str] = []
         self._renamed: bool = False
         self._reclaim_attempted_ts: Optional[float] = None
+        self._misnamed_reported: bool = False
         self._lock = asyncio.Lock()
         self._periodic_task: Optional[asyncio.Task] = None
         self._bus: Optional[MessageBus] = None
@@ -145,7 +146,8 @@ class HostnameConflictService:
         """Run detection. Returns True if a conflict is detected.
 
         Strategy:
-          1. If OS hostname isn't `milo` (e.g. `milo-client`), no conflict.
+          1. If the OS hostname isn't `milo` (a dev host, or a card renamed in
+             Raspberry Pi Imager), no conflict — said once at warning.
           2. Ask Avahi what it publishes for us:
              - not RUNNING (still probing, or the daemon is unreachable) →
                nothing is decidable, fail open.
@@ -162,6 +164,17 @@ class HostnameConflictService:
 
             os_hostname = socket.gethostname()
             if os_hostname != EXPECTED_SERVER_HOSTNAME:
+                # Warning, not error: an error reaches the UI banner, and a dev
+                # host is never named milo. Detection must not run either — it
+                # would read the unit's own name as a rename and restart
+                # avahi-daemon every 30 min to reclaim milo.local.
+                if not self._misnamed_reported:
+                    self._misnamed_reported = True
+                    logger.warning(
+                        "%s is not milo: satellites and the apps address milo.local "
+                        "and cannot reach this unit",
+                        os_hostname,
+                    )
                 self._conflict = False
                 self._advertised_name = f"{os_hostname}.local"
                 self._last_checked = time.time()

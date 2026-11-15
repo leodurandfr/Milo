@@ -211,6 +211,29 @@ def test_the_readiness_deadline_runs_on_the_monotonic_clock():
     assert "/proc/uptime" in code, "the readiness deadline reads no monotonic clock"
 
 
+WALL_CLOCK = re.compile(r"\bSECONDS\b|\bEPOCH(?:REAL)?SECONDS\b|EPOCHREALTIME|date \+%s")
+
+
+def test_no_rootfs_script_times_a_wait_on_the_wall_clock():
+    """The step above is not the readiness script's alone: it hits every wait a
+    unit runs at boot. milo-alsa-passthrough waited for the HAT's mixer on a
+    `$SECONDS` deadline in both trees, which the same step cuts short, leaving the
+    card's own attenuation unpinned in front of CamillaDSP. A wait counts its
+    tries or reads /proc/uptime."""
+    scripts = [p for tree in ROOTFS_TREES for p in _shell_files(tree)]
+    names = {p.name for p in scripts}
+    assert {"milo-wait-ready.sh", "milo-alsa-passthrough"} <= names, (
+        f"the shell scan no longer sees the scripts it exists for: {sorted(names)}"
+    )
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}:{n}"
+        for path in scripts
+        for n, line in enumerate(path.read_text(errors="ignore").splitlines(), 1)
+        if WALL_CLOCK.search(line.split("#", 1)[0])
+    ]
+    assert not offenders, f"wall-clock time read in a boot script: {offenders}"
+
+
 # --------------------------------------------------------------------------- #
 # WI-2: the screen does not follow the services it merely waits on.
 # --------------------------------------------------------------------------- #

@@ -54,6 +54,12 @@ IR_GPIO_PIN=$(read_json "ir_remote.gpio_pin")
 POWER_BUTTON_ENABLED=$(read_json "power_button.enabled")
 POWER_BUTTON_LED_GPIO=$(read_json "power_button.led_gpio_pin")
 
+# The server plays only through a HAT: with no card it has nothing to play to.
+# The satellite's twin accepts none, so this is not validate_audio_overlay's.
+if [[ -z "$AUDIO_OVERLAY" ]]; then
+    echo "ERROR: No audio card configured — the server needs a HiFiBerry HAT" >&2
+    exit 1
+fi
 validate_audio_overlay "$AUDIO_OVERLAY"
 
 # Validate IR GPIO pin (must be a BCM GPIO number 2..27) — only if enabled
@@ -186,27 +192,19 @@ fi
 # Audio configuration
 # =============================================================================
 
-# Remove previous managed audio block
 remove_block "MILO AUDIO"
 
-# Remove any legacy (non-managed) hifiberry overlays
-remove_legacy_overlays "# Milo - HiFiBerry Audio"
-
-# Disable built-in audio
+# The on-board audio and HDMI's stay off: nothing plays to them, and each card
+# would take an ALSA card slot.
 sed -i '/^dtparam=audio=on$/d' "$CONFIG_FILE"
-
-# Disable GPU audio on vc4 overlays
 disable_vc4_audio
 
-# Write new audio block
-if [[ -n "$AUDIO_OVERLAY" ]]; then
-    cat >> "$CONFIG_FILE" << EOF
+cat >> "$CONFIG_FILE" << EOF
 
 # BEGIN MILO AUDIO
 dtoverlay=$AUDIO_OVERLAY
 # END MILO AUDIO
 EOF
-fi
 
 # =============================================================================
 # Screen configuration
@@ -214,14 +212,6 @@ fi
 
 # Remove previous managed screen block
 remove_block "MILO SCREEN"
-
-# Remove legacy HDMI params (from old installs without managed blocks)
-for param in hdmi_force_hotplug hdmi_blanking hdmi_group hdmi_mode hdmi_cvt framebuffer_width framebuffer_height; do
-    sed -i "/^${param}=/d" "$CONFIG_FILE"
-done
-
-# Remove legacy DSI overlay (from old installs without managed blocks)
-sed -i '/^dtoverlay=vc4-kms-dsi-waveshare-panel/d' "$CONFIG_FILE"
 
 # Write screen-specific config
 case "$SCREEN_TYPE" in

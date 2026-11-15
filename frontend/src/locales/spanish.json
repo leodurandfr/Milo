@@ -183,6 +183,7 @@
     },
     "systemOffline": "«{name}» está desconectado",
     "systemOfflineDescription": "Este sistema de audio no está conectado actualmente a Milō.<br>IP: {ip}",
+    "audioCardMissing": "{card} está configurada pero este sistema de audio no la detecta. Compruebe que la placa esté bien encajada o elija otra tarjeta.",
     "deleteSystem": "Eliminar este sistema de audio",
     "offline": "Desconectado",
     "externalVolume": "Volumen no gestionado por Milō"
@@ -874,8 +875,7 @@
       "amplifiers": "Amplificadores",
       "dacs": "DACs",
       "volumeManagement": "Volumen gestionado por Milō",
-      "none": "Sin tarjeta de audio",
-      "other": "Otro"
+      "continueHint": "Seleccione la tarjeta de audio instalada en Milō para continuar."
     },
     "screen": {
       "title": "Seleccione su pantalla",

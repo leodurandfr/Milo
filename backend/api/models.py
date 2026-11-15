@@ -577,6 +577,16 @@ class SpotifySettingsRequest(StrictModel):
 # HARDWARE CONFIGURATION
 # =============================================================================
 
+def validate_configurable_audio_id(v: str) -> str:
+    """A card a unit can be configured with: any registry id but 'none', on the server
+    as on a satellite."""
+    from backend.hardware.registry import AUDIO_CARDS
+    if v not in AUDIO_CARDS or v == 'none':
+        valid = [k for k in AUDIO_CARDS if k != 'none']
+        raise ValueError(f"Invalid audio_id '{v}'. Must be one of: {', '.join(valid)}")
+    return v
+
+
 class HardwareAudioRequest(StrictModel):
     """Audio card selection"""
     id: str = Field(..., min_length=1, max_length=50)
@@ -585,10 +595,7 @@ class HardwareAudioRequest(StrictModel):
     @field_validator('id')
     @classmethod
     def validate_audio_id(cls, v: str) -> str:
-        from backend.hardware.registry import AUDIO_CARDS
-        if v not in AUDIO_CARDS:
-            raise ValueError(f"Unknown audio card '{v}'. Valid: {list(AUDIO_CARDS.keys())}")
-        return v
+        return validate_configurable_audio_id(v)
 
 
 class HardwareScreenRequest(StrictModel):
@@ -767,6 +774,8 @@ class RegisterClientRequest(BaseModel):
     # registry without waiting for a separate configure step.
     name: Optional[str] = Field(default=None, max_length=64)
     speaker_type: Optional[SpeakerType] = None
+    # The ids /proc/asound/cards lists; None when the satellite could not read it.
+    alsa_cards: Optional[List[str]] = None
 
     @field_validator('mac_id')
     @classmethod
@@ -786,15 +795,6 @@ class RegisterClientRequest(BaseModel):
         return stripped or None
 
 
-def _validate_configurable_audio_id(v: str) -> str:
-    """Shared validator for audio_id fields that exclude 'none'."""
-    from backend.hardware.registry import AUDIO_CARDS
-    if v not in AUDIO_CARDS or v == 'none':
-        valid = [k for k in AUDIO_CARDS if k != 'none']
-        raise ValueError(f"Invalid audio_id '{v}'. Must be one of: {', '.join(valid)}")
-    return v
-
-
 class ConfigureClientAudioRequest(BaseModel):
     """Request to change audio card on a registered milo-client and reboot it."""
     audio_id: str = Field(..., min_length=1)
@@ -803,7 +803,7 @@ class ConfigureClientAudioRequest(BaseModel):
     @field_validator('audio_id')
     @classmethod
     def validate_audio_id(cls, v):
-        return _validate_configurable_audio_id(v)
+        return validate_configurable_audio_id(v)
 
 
 class ConfigurePendingClientRequest(BaseModel):
@@ -816,7 +816,7 @@ class ConfigurePendingClientRequest(BaseModel):
     @field_validator('audio_id')
     @classmethod
     def validate_audio_id(cls, v):
-        return _validate_configurable_audio_id(v)
+        return validate_configurable_audio_id(v)
 
 
 class ProgramUpdateRequest(BaseModel):

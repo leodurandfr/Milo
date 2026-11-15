@@ -398,12 +398,16 @@ class Client:
     eq_independent: bool = False  # True = zone member with its own EQ (still in zone for audio)
     delay_ms: int = 0  # Native Snapcast per-client latency in ms
     gain_db: float = 0.0  # Level trim in dB, applied as a CamillaDSP Gain stage
+    # The label of the configured card when the satellite's ALSA lists no HAT,
+    # set from its heartbeat — the only way a satellite with no screen says so.
+    audio_card_missing: Optional[str] = None
 
     # The only fields that outlive a reboot, and the single declaration of the
     # settings.json shape (ClientRegistryService persists exactly this). The
     # rest is runtime state with another owner: host and online come from
-    # Snapcast on registration. Volume and mute are not here at all — they
-    # belong to VolumeStateStore, which is the only place they live.
+    # Snapcast on registration, audio_card_missing from the heartbeat. Volume
+    # and mute are not here at all — they belong to VolumeStateStore, which is
+    # the only place they live.
     PERSISTED_FIELDS = (
         "mac_id", "name", "ip", "zone_id", "speaker_type", "volume_control",
         "eq_independent", "delay_ms", "gain_db",
@@ -439,6 +443,7 @@ class Client:
         if include_runtime:
             result["online"] = self.online
             result["is_local"] = self.is_local
+            result["audio_card_missing"] = self.audio_card_missing
         return result
 
     @classmethod

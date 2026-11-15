@@ -874,10 +874,12 @@ MILO_MODE=multiroom → milo_spotify_multiroom
 
 Virtual device that captures audio and makes it available to snapcast:
 ```
-Source → Loopback (hw:1,0,X) → Snapserver reads from hw:1,1,X
+Source → Loopback (hw:Loopback,0,X) → Snapserver reads from hw:Loopback,1,X
 ```
 
-Loopback subdevice layout (**card 1 `Loopback`**):
+Every consumer addresses a sound card by its **id**, never by its index: asound.conf (`card Loopback`, `card LoopbackDLNA`, `card sndrpihifiberry`), the CamillaDSP capture (`plughw:Loopback,1,0`) and playback (`hw:sndrpihifiberry,0`), and snapserver's captures (`MULTIROOM_STREAMS`, `config/constants.py`). The index is wherever the kernel happened to probe the card, so the module options claim none: an explicit `index=` that another card already holds makes snd-aloop's registration of that card fail with `-EBUSY`, and every multiroom stream on it dies without a message. Held by `tests/architecture/test_multiroom_capture_map.py`.
+
+Loopback subdevice layout (**card `Loopback`**):
 - subdevice 0: DSP input (`pcm.camilladsp`) — captured by milo-camilladsp on `plughw:Loopback,1,0`. Written by the active source (direct mode) or by snapclient (multiroom mode); the two writers are mutually exclusive.
 - subdevice 1: Bluetooth (multiroom)
 - subdevice 2: ROC / Mac (multiroom)
@@ -887,19 +889,19 @@ Loopback subdevice layout (**card 1 `Loopback`**):
 - subdevice 6: AirPlay (multiroom)
 - subdevice 7: CD (multiroom)
 
-Card 1 is full: DSP fills slot 0 and the seven sources fill slots 1..7. `snd-aloop` caps at **8 substreams per card** (kernel limit), so the remaining sources live on a **second loopback card** (card 2, id `LoopbackDLNA` — historical, only an id) created by the same module:
+`Loopback` is full: DSP fills slot 0 and the seven sources fill slots 1..7. `snd-aloop` caps at **8 substreams per card** (kernel limit), so the remaining sources live on a **second loopback card** (id `LoopbackDLNA` — historical, only an id) created by the same module:
 
 ```
-options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
+options snd-aloop enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
 ```
 
-- **card 2 `LoopbackDLNA`**, subdevice 0: free — the next source takes it.
-- **card 2 `LoopbackDLNA`**, subdevice 1: Qobuz (multiroom) — qobuz-proxy writes `hw:LoopbackDLNA,0,1`, Snapserver reads `hw:2,1,1`.
-- **card 2 `LoopbackDLNA`**, subdevice 2: Music Library (multiroom) — mpv writes `hw:LoopbackDLNA,0,2`, Snapserver reads `hw:2,1,2`. Direct mode routes `pcm.milo_music_library` → `camilladsp`, the same trio pattern as `milo_cd`/`milo_qobuz`.
-- **card 2 `LoopbackDLNA`**, subdevice 3: Tidal (multiroom) — the Tidal Connect daemon writes `hw:LoopbackDLNA,0,3`, Snapserver reads `hw:2,1,3`.
-- **card 2 `LoopbackDLNA`**, subdevices 4..7: free.
+- **`LoopbackDLNA`**, subdevice 0: free — the next source takes it.
+- **`LoopbackDLNA`**, subdevice 1: Qobuz (multiroom) — qobuz-proxy writes `hw:LoopbackDLNA,0,1`, Snapserver reads `hw:LoopbackDLNA,1,1`.
+- **`LoopbackDLNA`**, subdevice 2: Music Library (multiroom) — mpv writes `hw:LoopbackDLNA,0,2`, Snapserver reads `hw:LoopbackDLNA,1,2`. Direct mode routes `pcm.milo_music_library` → `camilladsp`, the same trio pattern as `milo_cd`/`milo_qobuz`.
+- **`LoopbackDLNA`**, subdevice 3: Tidal (multiroom) — the Tidal Connect daemon writes `hw:LoopbackDLNA,0,3`, Snapserver reads `hw:LoopbackDLNA,1,3`.
+- **`LoopbackDLNA`**, subdevices 4..7: free.
 
-A new source takes subdevice 0 of card 2 first, then 4..7; only once all eight are taken does it need another loopback card (bump `index`/`enable`/`id`/`pcm_substreams` in the module options, written once in `pi-gen/stage-milo/02-install-milo/01-run.sh`).
+A new source takes subdevice 0 of `LoopbackDLNA` first, then 4..7; only once all eight are taken does it need another loopback card (extend `enable`/`id`/`pcm_substreams` in the module options, written once in `pi-gen/stage-milo/02-install-milo/01-run.sh`).
 
 ### High-quality resampling (44.1 → 48 kHz)
 
@@ -981,13 +983,14 @@ TSOP4838 pulses → gpio-ir overlay → /dev/lirc0
 ```json
 {
   "schema_version": 2,
-  "audio":  { "id": "hifiberry_amp4pro", ... },
+  "audio":  { "id": "hifiberry_amp4pro", "overlay": "hifiberry-amp4pro", "volume_control": true },
   "screen": { "type": "waveshare_8_dsi", "resolution": "1280x800" },
   "rotary_encoder": { "enabled": true,  "clk_pin": 22, "dt_pin": 27, "sw_pin": 23 },
   "ir_remote":      { "enabled": false, "gpio_pin": 17 },
   "power_button":   { "enabled": false, "led_gpio_pin": 26 }
 }
 ```
+The `audio` block is built by one function, `hardware/registry.py::audio_config`, for the wizard and the Hardware page alike (and for the payload a satellite is pushed); `volume_control` is always stored, so nothing derives it on read. The server refuses `none` on both write routes: it plays through a HAT or not at all, and `none` survives in the registry only as a satellite's "not configured yet". The ALSA card is not stored either — every supported overlay registers the same id, `OUTPUT_CARD` (`sndrpihifiberry`), which the boot check looks for in `/proc/asound/cards` and which `tests/architecture/test_output_card_name.py` holds equal to the six configs that spell it.
 
 **radio_data.json** - Radio favorites and custom stations. Durable (`schema_version: 1`).
 **radio_images/** - Station artwork the user uploaded (custom stations, edited favorites), stored as WebP ≤1024×1024 with a JPEG rendition beside each for callers that cannot draw WebP. Durable — it is the user's own work.

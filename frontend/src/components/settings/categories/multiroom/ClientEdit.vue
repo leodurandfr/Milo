@@ -32,7 +32,7 @@
       </SectionCard>
 
       <!-- Audio Card Selection (remote clients only) -->
-      <SectionCard v-if="!client?.is_local && (isLoadingAudio || audioCardOptions.length > 0)" :title="t('multiroom.pending.audioCard')">
+      <SectionCard v-if="!client?.is_local && (isLoadingAudio || audioCards.length > 0)" :title="t('multiroom.pending.audioCard')">
         <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
           <div v-if="isLoadingAudio" class="skeleton-dropdown">
             <span class="skeleton-dropdown__text shimmer"></span>
@@ -40,7 +40,7 @@
           <Dropdown
             v-else
             :model-value="selectedAudioId"
-            :options="audioCardOptions"
+            :options="audioCards"
             :disabled="isApplying"
             @change="selectAudioCard"
           />
@@ -54,6 +54,9 @@
           @click="toggleVolumeControl"
         />
 
+        <NoticeBox v-if="client?.audio_card_missing" kind="warning">
+          {{ t('multiroom.audioCardMissing', { card: client.audio_card_missing }) }}
+        </NoticeBox>
         <NoticeBox v-if="audioError">{{ audioError }}</NoticeBox>
       </SectionCard>
 
@@ -282,11 +285,6 @@ const isRebooting = ref(false);
 const rebootTimedOut = ref(false);
 let rebootTimeoutId = null;
 const REBOOT_TIMEOUT_MS = 120000;
-
-// Filter out "none" from audio card options
-const audioCardOptions = computed(() =>
-  audioCards.value.filter(card => card.value !== 'none')
-);
 
 // Check if the selected audio card is a DAC (show volume control toggle)
 const isDacCard = computed(() => {

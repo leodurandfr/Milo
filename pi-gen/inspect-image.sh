@@ -271,6 +271,45 @@ fi
 check "no country pinned in wpa_supplicant.conf" \
       "! [ -f '${ROOT%/}/etc/wpa_supplicant/wpa_supplicant.conf' ]"
 
+# What upstream pi-gen and Raspberry Pi Imager change about the account and the
+# name on a first boot. On a unit in service these legitimately differ (a
+# satellite is milo-client, the server's own card predates the purge), so they
+# are read on an image only.
+image_check() {
+    if [[ "$ROOT" == "/" ]]; then
+        printf '  \033[0;33mskip\033[0m  %s (only checked on an image)\n' "$1"
+    else
+        check "$1" "$2"
+    fi
+}
+# milo.local, the address the README and both apps open, is published from it.
+image_check "hostname is milo" "[ \"\$(cat '${ROOT%/}/etc/hostname')\" = milo ]"
+# Every path, sudoers policy and unit is written around this account; Imager's
+# customization renames uid 1000 in place.
+image_check "uid 1000 is milo, at /home/milo" \
+    "[ \"\$(awk -F: '\$3 == 1000 {print \$1 \":\" \$6}' '${ROOT%/}/etc/passwd')\" = milo:/home/milo ]"
+# export-image's `rename-user` re-enabled the tty8 wizard after stage-milo had
+# disabled it, and multi-user.target waited on it forever (Bureau, 2026-11-06).
+# The sshd drop-in is the same script's other trace.
+image_check "userconfig.service not enabled (the tty8 wizard)" \
+    "! compgen -G '${ROOT%/}/etc/systemd/system/*.wants/userconfig.service'"
+image_check "no rename-user sshd drop-in" "! [ -e '${ROOT%/}/etc/ssh/sshd_config.d/rename_user.conf' ]"
+# stage2 installs cloud-init and seeds it whatever ENABLE_CLOUD_INIT says; the
+# server's own card carries both.
+image_check "cloud-init not installed" "! [ -e '${ROOT%/}/usr/bin/cloud-init' ]"
+for seed in user-data meta-data network-config; do
+    image_check "no cloud-init $seed on the boot partition" "! [ -e '$BOOT/$seed' ]"
+done
+# The purge's autoremove must not reach it: network-manager depends on it.
+image_check "netplan.io still installed" \
+    "dpkg-query --admindir='${ROOT%/}/var/lib/dpkg' -W -f='\${db:Status-Abbrev}' netplan.io | grep -q '^ii'"
+
+# The Bluetooth name. `hostnamectl hostname`, which raspi-config's hostname
+# setter calls, sets the pretty hostname too, so a rename clears it. Nothing on
+# the unit changes it on purpose, so it is checked everywhere.
+check "machine-info matches the repo (the Bluetooth name)" \
+      "cmp -s '$REPO/rootfs/etc/machine-info' '${ROOT%/}/etc/machine-info'"
+
 # --------------------------------------------------------------------------
 section "Unit files match the repo"
 # --------------------------------------------------------------------------

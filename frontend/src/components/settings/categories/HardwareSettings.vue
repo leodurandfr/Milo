@@ -4,28 +4,26 @@
     <!-- Live, outside isDirty: the fan never waits for Apply & Reboot. -->
     <FanSection v-if="fanStore.available" />
 
-    <ToggleSection :title="t('hardwareSettings.audioCard')" :enabled="hasAudioCard" :disabled="isRebooting" @change="toggleAudioCard">
-      <div class="hardware-group">
-        <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
-          <Dropdown
-            :model-value="shownAudio.id"
-            :options="audioCardOptionsFiltered"
-            :disabled="isRebooting"
-            :placeholder="t('common.selectOption')"
-            @change="onAudioChange"
-          />
-        </SettingItem>
-
-        <!-- Volume management toggle (DAC cards only) -->
-        <ListItemButton
-          v-if="isDacCard"
-          :title="t('volumeSettings.volumeManagement')"
-          action="toggle"
-          :model-value="shownAudio.volumeControl"
-          @click="toggleVolumeControl"
+    <SectionCard :title="t('hardwareSettings.audioCard')">
+      <SettingItem :label="t('hardwareSettings.audioCardModel')" inline>
+        <Dropdown
+          :model-value="config.audio_id"
+          :options="audioCardOptions"
+          :disabled="isRebooting"
+          :placeholder="t('common.selectOption')"
+          @change="onAudioChange"
         />
-      </div>
-    </ToggleSection>
+      </SettingItem>
+
+      <!-- Volume management toggle (DAC cards only) -->
+      <ListItemButton
+        v-if="isDacCard"
+        :title="t('volumeSettings.volumeManagement')"
+        action="toggle"
+        :model-value="config.volume_control"
+        @click="toggleVolumeControl"
+      />
+    </SectionCard>
 
     <ToggleSection :title="t('hardwareSettings.screen')" :enabled="hasScreen" :disabled="isRebooting" @change="toggleScreen">
       <SettingItem :label="t('hardwareSettings.screenModel')" inline>
@@ -155,6 +153,7 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import Button from '@/components/ui/Button.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
@@ -223,39 +222,9 @@ const freePinOptions = computed(() => {
   return gpioPinOptions.value.filter(pin => !held.has(pin.value));
 });
 
-// Audio card: toggle ON/OFF (replaces "none" option in dropdown); ON picks the
-// last card, else the first one listed.
-const hasAudioCard = computed(() => !!config.value.audio_id && config.value.audio_id !== 'none');
-// OFF writes 'none' (or '') in the tick the section starts closing: no option
-// names it, so the dropdown would blank and a DAC's row drop out mid-fold.
-const shownAudio = useHeldWhileClosed(hasAudioCard, () => ({
-  id: config.value.audio_id,
-  volumeControl: config.value.volume_control,
-}));
-
-// Is the card the section shows a DAC
-const isDacCard = computed(() => {
-  if (!shownAudio.value.id) return false;
-  const card = audioCardOptions.value.find(c => c.value === shownAudio.value.id);
-  return card?.category === 'dac';
-});
-const audioCardOptionsFiltered = computed(() => audioCardOptions.value.filter(c => c.value !== 'none'));
-const lastAudioId = ref(null);
-
-function toggleAudioCard(enabled) {
-  const saved = savedConfig.value;
-  if (enabled) {
-    const id = lastAudioId.value || audioCardOptionsFiltered.value[0]?.value;
-    if (!id) return;
-    onAudioChange(id);
-    // Back on the saved card: its saved volume management, not the category default.
-    if (saved && id === saved.audio_id) config.value.volume_control = saved.volume_control;
-  } else {
-    lastAudioId.value = config.value.audio_id;
-    // Off is spelled as saved ('' when no card was ever set), or off-and-back is dirty.
-    onAudioChange(saved && (!saved.audio_id || saved.audio_id === 'none') ? saved.audio_id : 'none');
-  }
-}
+const isDacCard = computed(() =>
+  audioCardOptions.value.find(c => c.value === config.value.audio_id)?.category === 'dac'
+);
 
 // Screen: toggle ON/OFF (replaces "none" option in dropdown)
 const hasScreen = computed(() => config.value.screen_type !== 'none');
@@ -295,10 +264,6 @@ function syncFromData(data) {
   };
   config.value = { ...snapshot };
   savedConfig.value = { ...snapshot };
-
-  if (snapshot.audio_id && snapshot.audio_id !== 'none') {
-    lastAudioId.value = snapshot.audio_id;
-  }
 
   // Remember last non-none screen type for toggle restore
   if (snapshot.screen_type !== 'none') {
@@ -343,9 +308,6 @@ async function toggleVolumeControl() {
     });
     if (!result.ok) {
       config.value.volume_control = !config.value.volume_control; // Revert on failure
-    } else if (savedConfig.value) {
-      // Saved now: turning the card off and on again restores this value, not the one loaded.
-      savedConfig.value.volume_control = config.value.volume_control;
     }
   }
 }
@@ -458,12 +420,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.hardware-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
 .encoder-pins {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;

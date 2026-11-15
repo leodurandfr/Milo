@@ -18,9 +18,10 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from typing import Optional, TYPE_CHECKING
-from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING
+from pydantic import BaseModel, Field, field_validator
 
+from backend.api.models import validate_configurable_audio_id
 from backend.config.constants import MILO_DATA_DIR
 from backend.core.multiroom.models import SpeakerType
 
@@ -60,8 +61,13 @@ class SetupCompleteRequest(BaseModel):
     """Wizard completion payload — all settings applied atomically."""
     language: str = Field(..., description="Language key")
     audio_id: str = Field(..., description="Audio card registry ID")
-    volume_control: Optional[bool] = Field(None, description="Volume management override (None = auto-detect from card category)")
+    volume_control: bool = Field(..., description="Whether CamillaDSP attenuates (False: a DAC's amplifier owns the volume)")
     screen_type: str = Field(..., description="Screen type registry ID")
+
+    @field_validator("audio_id")
+    @classmethod
+    def validate_audio_id(cls, v: str) -> str:
+        return validate_configurable_audio_id(v)
 
 
 class BecomeClientRequest(BaseModel):
@@ -108,7 +114,7 @@ def create_setup_router(
         "rebooting" and applies nothing.
         """
         nonlocal completing
-        from backend.hardware.registry import AUDIO_CARDS, SCREENS, reserved_pins
+        from backend.hardware.registry import AUDIO_CARDS, SCREENS, audio_config, reserved_pins
         from backend.core.settings import VALID_LANGUAGES
 
         # Idempotency guard — a second device pressing Finish (the kiosk and a
@@ -128,9 +134,6 @@ def create_setup_router(
             if payload.language not in VALID_LANGUAGES:
                 raise HTTPException(status_code=400, detail=f"Invalid language: {payload.language}")
 
-            # Validate audio card and screen
-            if payload.audio_id not in AUDIO_CARDS:
-                raise HTTPException(status_code=400, detail=f"Unknown audio card: {payload.audio_id}")
             if payload.screen_type not in SCREENS:
                 raise HTTPException(status_code=400, detail=f"Unknown screen type: {payload.screen_type}")
 
@@ -142,15 +145,6 @@ def create_setup_router(
             # 2. Save hardware config
             card = AUDIO_CARDS[payload.audio_id]
             screen = SCREENS[payload.screen_type]
-
-            audio_config = {"id": payload.audio_id}
-            if card["overlay"]:
-                audio_config.update({
-                    "card_name": card["card_name"],
-                    "overlay": card["overlay"],
-                })
-            if payload.volume_control is not None:
-                audio_config["volume_control"] = payload.volume_control
 
             current = hardware_service.get_full_config()
             # A peripheral kept on a pin the new card's overlay holds would
@@ -169,7 +163,7 @@ def create_setup_router(
                     )
                 kept[key] = block
             config = {
-                "audio": audio_config,
+                "audio": audio_config(payload.audio_id, payload.volume_control),
                 "screen": {
                     "type": payload.screen_type,
                     "resolution": screen["resolution"],
@@ -264,7 +258,7 @@ def create_setup_router(
         On any failure before the reboot is scheduled, the marker file is
         removed so the device stays a fresh server (retry is safe).
         """
-        from backend.hardware.registry import AUDIO_CARDS, is_dac_card
+        from backend.hardware.registry import AUDIO_CARDS, audio_config
 
         if payload.audio_id not in AUDIO_CARDS or payload.audio_id == "none":
             valid = [k for k in AUDIO_CARDS if k != "none"]
@@ -296,14 +290,11 @@ def create_setup_router(
                     detail="Device already configured (setup_completed=true)",
                 )
 
-            card = AUDIO_CARDS[payload.audio_id]
-            overlay = card.get("overlay") or ""
-            volume_control = not is_dac_card(payload.audio_id)
-
+            audio = audio_config(payload.audio_id)
             marker = {
-                "audio_id": payload.audio_id,
-                "overlay": overlay,
-                "volume_control": volume_control,
+                "audio_id": audio["id"],
+                "overlay": audio["overlay"],
+                "volume_control": audio["volume_control"],
                 "speaker_name": payload.speaker_name,
                 "speaker_type": payload.speaker_type,
             }

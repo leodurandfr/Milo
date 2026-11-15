@@ -51,15 +51,11 @@ backup_config
 # Always remove previous managed audio block (cleanup)
 remove_block "MILO CLIENT AUDIO"
 
-# Always remove legacy (non-managed) entries from old installs
-remove_legacy_overlays "# Milo Client - HiFiBerry Audio"
-
 # Only modify built-in audio and write overlay when an audio card is configured
 if [[ -n "$AUDIO_OVERLAY" ]]; then
-    # Disable built-in audio
+    # The on-board audio and HDMI's stay off: nothing plays to them, and each
+    # card would take an ALSA card slot.
     sed -i '/^dtparam=audio=on$/d' "$CONFIG_FILE"
-
-    # Disable GPU audio on vc4 overlays
     disable_vc4_audio
 
     # Write new audio block

@@ -183,6 +183,7 @@
     },
     "systemOffline": "「{name}」已离线",
     "systemOfflineDescription": "此音频系统当前未连接到Milō。<br>IP：{ip}",
+    "audioCardMissing": "已配置 {card}，但此音频系统未检测到。请检查扩展板是否插紧，或选择其他声卡。",
     "deleteSystem": "删除此音频系统",
     "offline": "离线",
     "externalVolume": "音量未由 Milō 管理"
@@ -874,8 +875,7 @@
       "amplifiers": "功放",
       "dacs": "DACs",
       "volumeManagement": "音量由 Milō 管理",
-      "none": "无声卡",
-      "other": "其他"
+      "continueHint": "请选择 Milō 上安装的声卡后继续。"
     },
     "screen": {
       "title": "选择您的屏幕",

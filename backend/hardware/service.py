@@ -13,7 +13,15 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple
 
 from backend.config.constants import HARDWARE_FILE
-from backend.hardware.registry import DEFAULT_ROTARY_PINS, DEFAULT_IR_REMOTE, DEFAULT_POWER_BUTTON, SCREENS
+from backend.hardware.registry import (
+    DEFAULT_IR_REMOTE,
+    DEFAULT_POWER_BUTTON,
+    DEFAULT_ROTARY_PINS,
+    OUTPUT_CARD,
+    SCREENS,
+    alsa_card_ids,
+    missing_card_label,
+)
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
 
@@ -150,18 +158,11 @@ class HardwareService:
     def get_volume_control(self) -> bool:
         """Returns False if audio card is a DAC with external amp managing volume.
 
-        Reads explicit 'volume_control' from hardware.json if set by user,
-        otherwise auto-detects from audio card category.
+        Every write of the audio block stores it; only a unit the wizard has
+        not configured yet has none, and CamillaDSP attenuates there.
         """
         config = self._ensure_cache()
-        explicit = config.get('audio', {}).get('volume_control')
-        if explicit is not None:
-            return explicit
-        from backend.hardware.registry import is_dac_card
-        audio_id = self.get_audio_id()
-        if not audio_id or audio_id == "none":
-            return True
-        return not is_dac_card(audio_id)
+        return config.get('audio', {}).get('volume_control', True)
 
     async def set_volume_control(self, enabled: bool) -> None:
         """Persist volume_control override in hardware.json without reboot."""
@@ -198,18 +199,13 @@ class HardwareService:
         answer is settled at boot and read back through `GET /api/system/status`.
 
         Fails open in both directions that are not a real answer — no card
-        configured, or /proc/asound unreadable (a dev host has no such tree) —
-        because reporting hardware trouble we have not observed is worse than
-        reporting none.
+        configured yet, or /proc/asound unreadable (a dev host has no such tree)
+        — because reporting hardware trouble we have not observed is worse than
+        reporting none. A stored `none` is not one of them: the server plays
+        through a HAT or not at all.
         """
-        from backend.hardware.registry import AUDIO_CARDS
-
         audio_id = self.get_audio_id()
-        if not audio_id or audio_id == "none":
-            return None
-
-        card = AUDIO_CARDS.get(audio_id)
-        if not card or not card.get("card_name"):
+        if not audio_id:
             return None
 
         try:
@@ -217,15 +213,15 @@ class HardwareService:
         except OSError:
             return None
 
-        if card["card_name"] in cards:
+        label = missing_card_label(audio_id, alsa_card_ids(cards))
+        if label is None:
             return None
-
         self.logger.error(
             "Audio card '%s' (%s) is configured but ALSA does not see it — "
             "check that the board is seated, or pick another card in Settings",
-            card["label"], card["card_name"],
+            label, OUTPUT_CARD,
         )
-        return card["label"]
+        return label
 
     # =========================================================================
     # PUBLIC — write

@@ -363,6 +363,7 @@ class TestCompleteSetup:
         return {
             "language": next(iter(VALID_LANGUAGES)),
             "audio_id": AMP_CARD,
+            "volume_control": True,
             "screen_type": next(k for k in SCREENS if k != "none"),
             **over,
         }
@@ -444,32 +445,47 @@ class TestCompleteSetup:
 
     def test_the_chosen_card_reaches_the_file_with_its_overlay(self, client, services):
         """The overlay is what config.txt gets; the wizard is the only thing
-        that ever picks it on a fresh unit.
+        that ever picks it on a fresh unit. Nothing else is stored: the ALSA
+        card is the registry's one `OUTPUT_CARD`, not a per-unit record.
         """
         client.post("/api/setup/complete", json=self._payload())
 
         saved = services.hardware.save_config.await_args.args[0]
-        assert saved["audio"]["id"] == AMP_CARD
-        assert saved["audio"]["overlay"] == AUDIO_CARDS[AMP_CARD]["overlay"]
-        assert saved["audio"]["card_name"] == AUDIO_CARDS[AMP_CARD]["card_name"]
-        assert "volume_control" not in saved["audio"], (
-            "no override was sent; storing one freezes the card's own category"
+        assert saved["audio"] == {
+            "id": AMP_CARD,
+            "overlay": AUDIO_CARDS[AMP_CARD]["overlay"],
+            "volume_control": True,
+        }
+
+    @pytest.mark.parametrize("audio_id, volume_control", [(AMP_CARD, False), (DAC_CARD, True)])
+    def test_the_volume_choice_sent_is_stored_not_the_category(
+        self, client, services, audio_id, volume_control
+    ):
+        """`get_volume_control` reads the stored key and derives nothing, so the
+        choice the wizard showed is the one that must land — against the
+        category's default in both directions."""
+        assert volume_control is is_dac_card(audio_id)
+
+        client.post(
+            "/api/setup/complete",
+            json=self._payload(audio_id=audio_id, volume_control=volume_control),
         )
 
-    def test_a_card_with_no_overlay_stores_no_overlay(self, client, services):
-        """`none` has `overlay: None` — writing the key anyway hands
-        milo-apply-hardware a null dtoverlay line.
-        """
-        client.post("/api/setup/complete", json=self._payload(audio_id="none"))
-
         saved = services.hardware.save_config.await_args.args[0]
-        assert saved["audio"] == {"id": "none"}
+        assert saved["audio"]["volume_control"] is volume_control
 
-    def test_an_explicit_volume_override_is_stored(self, client, services):
-        client.post("/api/setup/complete", json=self._payload(volume_control=False))
+    @pytest.mark.parametrize("audio_id", ["none", "not-a-card"])
+    def test_a_server_without_a_card_is_refused_before_anything_is_written(
+        self, client, services, audio_id
+    ):
+        """Milō plays through a HAT or not at all: `none` would reboot the
+        server into a unit with no playback device, the wizard gone."""
+        response = client.post("/api/setup/complete", json=self._payload(audio_id=audio_id))
 
-        saved = services.hardware.save_config.await_args.args[0]
-        assert saved["audio"]["volume_control"] is False
+        assert response.status_code == 422
+        services.hardware.save_config.assert_not_awaited()
+        services.settings.set_setting.assert_not_awaited()
+        services.systemd.power.assert_not_awaited()
 
     @staticmethod
     def _reflecting_store(services) -> dict:
@@ -700,13 +716,12 @@ class TestCompleteSetup:
 
     @pytest.mark.parametrize("bad", [
         {"language": "klingon"},
-        {"audio_id": "not-a-card"},
         {"screen_type": "not-a-screen"},
     ])
     def test_an_unknown_registry_id_is_refused_before_anything_is_written(
         self, client, services, bad
     ):
-        """Each of the three is a key into a dict a few lines later; an unchecked
+        """Each of the two is a key into a dict a few lines later; an unchecked
         one is a KeyError inside the try, which rolls back and answers 500 —
         the wizard then reports an internal failure for a typo it could name.
         """

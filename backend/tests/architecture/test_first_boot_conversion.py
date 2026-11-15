@@ -61,7 +61,7 @@ def test_wifi_adoption_applies_the_audio_overlay_before_reboot():
     assert not early, f"the marker is removed before the overlay is applied: {early}"
 
 
-HOSTNAME_SET = "hostnamectl set-hostname milo-client"
+HOSTNAME_SET = "set_role_hostname milo-client"
 DEFAULT_HARDWARE = "_write_default_client_hardware"
 HARDWARE_GUARD = '[[ -s "$MILO_CLIENT_DATA_DIR/hardware.json" ]] ||'
 
@@ -152,7 +152,7 @@ def test_the_client_hostname_marks_a_conversion_in_progress():
     )
 
 
-SERVER_HOSTNAME_SET = "hostnamectl set-hostname milo\n"
+SERVER_HOSTNAME_SET = "set_role_hostname milo\n"
 AS_MILO_GIT = r'runuser -u milo -- git -C "\$MILO_APP_DIR"'
 CHECKOUT_CHOWN = re.compile(r'^\s*chown (?![^\n]*-h\b)[^\n]*"\$MILO_APP_DIR/([^"]+)"', re.MULTILINE)
 
@@ -264,3 +264,106 @@ def test_every_role_change_clears_the_config_txt_blocks_of_the_role_left():
             if re.search(rf"^\s*clear_role_blocks {leaving}$", functions[name], re.MULTILINE)
         ]
         assert calls, f"{entry} never clears the {leaving} role's blocks from config.txt"
+
+
+HOSTNAMECTL = re.compile(r"^\s*hostnamectl\b(.*)$", re.MULTILINE)
+
+
+def test_the_role_hostname_never_rewrites_the_bluetooth_name():
+    """Every hostname write leaves the pretty hostname alone.
+
+    The pretty hostname is the name the unit advertises over Bluetooth
+    (`PRETTY_HOSTNAME` in /etc/machine-info). A `hostnamectl hostname` naming
+    neither `--static` nor `--transient` sets all three, so a satellite that
+    reverted to a server came back calling itself "milo" to every phone. Fails
+    when a call sets all three, or the pretty one, or when /etc/hostname is
+    written behind hostnamed's back.
+    """
+    code = _uncommented(FIRST_BOOT.read_text())
+    calls = HOSTNAMECTL.findall(code)
+    assert calls, "could not find a hostnamectl call in milo-first-boot; the extractor is broken"
+    for args in calls:
+        flags = set(args.split())
+        assert flags & {"--static", "--transient"} and "--pretty" not in flags, (
+            f"`hostnamectl{args}` rewrites the pretty hostname, which is the Bluetooth name"
+        )
+    assert not re.search(r">\s*/etc/hostname\b", code), "milo-first-boot writes /etc/hostname directly"
+
+
+SERVER_ONLY_REPAIRS = ("repair_first_user", "repair_default_target")
+ROLE_GUARD = re.compile(r"^if ! client_role_enabled; then\n(.*?)^fi$", re.MULTILINE | re.DOTALL)
+
+
+def test_the_imager_repairs_never_run_on_a_satellite():
+    """The account and default-target repairs are reached only on a server.
+
+    A satellite's first user may legitimately be milo-client (a unit whose
+    image created it first), which the account repair would rename to milo
+    under the running app, and a satellite may boot to multi-user.target. Both
+    repairs must therefore sit under the guard on the client unit, and that
+    unit must be the one the conversion enables and the revert disables.
+    """
+    text = FIRST_BOOT.read_text()
+    functions = _functions(text)
+    main = _uncommented(text[text.rindex("\n}\n"):])
+    guarded = "".join(ROLE_GUARD.findall(main))
+    assert guarded, "could not find the client-role guard in milo-first-boot's main; the extractor is broken"
+    outside = ROLE_GUARD.sub("", main)
+    for name in SERVER_ONLY_REPAIRS:
+        assert name in functions, f"milo-first-boot defines no {name}"
+        callers = {n for n, body in functions.items() if n != name and re.search(rf"\b{name}\b", body)}
+        assert not callers, f"{name} is called from {sorted(callers)}, outside the client-role guard"
+        assert name in guarded and not re.search(rf"\b{name}\b", outside), (
+            f"{name} runs outside `if ! client_role_enabled`, so a satellite reaches it too"
+        )
+
+    unit = re.search(r"is-enabled (\S+)\.service", functions["client_role_enabled"])
+    assert unit, "client_role_enabled no longer reads a unit's enablement"
+    for entry, verb in (("_apply_client_filesystem", "enable"), ("configure_server", "disable")):
+        listed = re.search(r"local client_services=\((.*?)\)", functions[entry], re.DOTALL)
+        assert listed and re.search(rf'systemctl {verb} "\$svc\.service"', functions[entry]), (
+            f"could not read the client units {entry} {verb}s; the extractor is broken"
+        )
+        assert unit.group(1) in listed.group(1).split(), (
+            f"client_role_enabled reads {unit.group(1)}, which {entry} does not {verb}"
+        )
+
+
+SYSTEM_DIR = REPO_ROOT / "system"
+FIRST_BOOT_UNIT = "milo-first-boot.service"
+
+
+def _directive(text: str, key: str) -> list[str]:
+    return [v for line in re.findall(rf"^{key}=(.*)$", text, re.MULTILINE) for v in line.split()]
+
+
+def test_every_boot_unit_running_as_milo_waits_for_first_boot():
+    """No unit running as milo starts at boot before milo-first-boot has finished.
+
+    milo-first-boot may rename the first user back to milo (an Imager
+    customisation renames it), and usermod refuses an account that runs a
+    process; it also moves the checkout every such unit runs from. A unit with
+    an [Install] section and `User=milo` must be ordered after it, through the
+    After=/Before= edges of system/. Units with no [Install] are started by the
+    backend, which is itself ordered after.
+    """
+    units = {path.name: path.read_text() for path in SYSTEM_DIR.glob("*.service")}
+    assert FIRST_BOOT_UNIT in units and len(units) > 10, "could not read system/*.service; the extractor is broken"
+    after = {name: set(_directive(text, "After")) for name, text in units.items()}
+    for name, text in units.items():
+        for target in _directive(text, "Before"):
+            after.setdefault(target, set()).add(name)
+
+    def waits(name: str, seen: set[str]) -> bool:
+        if FIRST_BOOT_UNIT in after.get(name, ()):
+            return True
+        seen.add(name)
+        return any(waits(dep, seen) for dep in after.get(name, ()) if dep not in seen)
+
+    at_boot = [
+        name for name, text in units.items()
+        if re.search(r"^User=milo$", text, re.MULTILINE) and re.search(r"^WantedBy=", text, re.MULTILINE)
+    ]
+    assert len(at_boot) >= 5, f"found only {at_boot} as boot units running as milo; the extractor is broken"
+    late = sorted(name for name in at_boot if not waits(name, set()))
+    assert not late, f"{late} run as milo at boot without waiting for {FIRST_BOOT_UNIT}"

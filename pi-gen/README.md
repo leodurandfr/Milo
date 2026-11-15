@@ -25,7 +25,7 @@ This uses [pi-gen](https://github.com/RPi-Distro/pi-gen), the official Raspberry
 | Stage | Purpose |
 |---|---|
 | `00-install-deps` | APT packages, Node.js upgrade, PulseAudio removal |
-| `01-install-audio` | Pre-compiled binaries (go-librespot, CamillaDSP, Snapcast) + compiled audio software (shairport-sync, NQPTP, bluez-alsa, roc-toolkit) |
+| `01-install-audio` | Pre-compiled binaries (go-librespot, CamillaDSP, Snapcast) + compiled audio software (shairport-sync, NQPTP, bluez-alsa, roc-toolkit), then cloud-init purged |
 | `02-install-milo` | Clone repo, Python venv, frontend build, deploy configs (ALSA, Nginx, Avahi, systemd services) |
 | `03-configure` | Plymouth splash, boot params, fan control, udev rules, sudoers, kiosk mode, service enablement |
 
@@ -90,8 +90,25 @@ The image is a universal image supporting both **Milo** (server) and **Milo Clie
   System on the server, from a satellite's own panel under Multiroom for a satellite, or by
   dropping an empty `ssh` file on the boot partition (`sshswitch.service`, shipped enabled
   by Raspberry Pi OS).
+- **No first-boot wizard, no cloud-init**: `DISABLE_FIRST_BOOT_USER_RENAME=1` keeps
+  upstream's `rename-user` from re-enabling `userconfig.service`, whose tty8 prompt held
+  `multi-user.target` forever on a flashed satellite, and `01-install-audio` purges the
+  cloud-init packages stage2 installs whatever `ENABLE_CLOUD_INIT` says. `netplan.io` stays:
+  network-manager depends on it. `inspect-image.sh` checks all of it on the built image.
 - **Hostname**: `milo` (renamed to `milo-client` on first boot if an existing `milo.local` is detected on the network)
 - **Locale**: `en_US.UTF-8`
 - **Timezone**: `Etc/UTC` — a value meaning "nobody has said yet". The first non-kiosk browser
   that opens the UI reports its own zone and the backend adopts it while that default stands.
 - **Architecture**: ARM64 (Raspberry Pi 4/5)
+
+## Raspberry Pi Imager manifest
+
+Any Raspberry Pi Imager manifest (`os_list` JSON) Milō ever publishes must give its image
+`"init_format": "none"`. The field tells Imager how to apply its OS customization, and every
+other value applies one: `systemd` writes a `firstrun.sh` that renames uid 1000 through
+userconf-pi and resets the default target, and the `cloudinit` formats write `user-data` for a
+cloud-init this image no longer carries, so the settings the user typed are dropped without a
+word. Milō sets up its own Wi-Fi in its wizard, and its account, hostname and default target
+are what every path, sudoers policy and unit is written around. With `none`, Imager offers no
+customization at all. A user flashing with "Use custom" has no manifest to read, which is
+why the top-level README tells them to answer **No** when Imager asks.

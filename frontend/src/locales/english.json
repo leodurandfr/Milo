@@ -183,6 +183,7 @@
     },
     "systemOffline": "“{name}” is offline",
     "systemOfflineDescription": "This audio system is not currently connected to Milō.<br>IP: {ip}",
+    "audioCardMissing": "{card} is configured but this audio system does not detect it. Check that the board is properly seated, or pick another card.",
     "deleteSystem": "Delete this audio system",
     "offline": "Offline",
     "externalVolume": "Volume not managed by Milō"
@@ -874,8 +875,7 @@
       "amplifiers": "Amplifiers",
       "dacs": "DACs",
       "volumeManagement": "Volume managed by Milō",
-      "none": "No audio card",
-      "other": "Other"
+      "continueHint": "Select the audio card installed on Milō to continue."
     },
     "screen": {
       "title": "Select your screen",

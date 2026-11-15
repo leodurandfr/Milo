@@ -112,7 +112,6 @@ SETTINGS_EXCLUDED = {
 
 HARDWARE_ALLOWED = frozenset({
     "audio.id",
-    "audio.card_name",
     "audio.overlay",
     "audio.volume_control",
     "screen.type",
@@ -149,6 +148,7 @@ CLIENT_ALLOWED = frozenset({
     "gain_db",
     "online",
     "is_local",
+    "audio_card_missing",
 })
 
 CLIENT_EXCLUDED = {

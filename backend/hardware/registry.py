@@ -8,6 +8,7 @@ backend (save_versioned_json, which always stamps the current schema_version) wh
 user picks hardware in the setup wizard. The install scripts no longer seed a default
 file — a bash-seeded file cannot track the schema and shipped a stale one that crash-looped.
 """
+import re
 
 # =============================================================================
 # AUDIO CARDS
@@ -15,12 +16,16 @@ file — a bash-seeded file cannot track the schema and shipped a stale one that
 # Each entry maps an ID to its hardware properties:
 # - label: Human-readable name for the UI dropdown
 # - overlay: dtoverlay value for /boot/firmware/config.txt
-# - card_name: ALSA card name (all HiFiBerry HATs share "sndrpihifiberry")
 # - brand: Manufacturer (for future grouping in the UI)
 # - reserved_pins: BCM GPIOs the card's overlay claims, read from its .dtbo
 #   (`dtc -I dtb -O dts`). No rotary, IR or LED pin may sit on one: two drivers
 #   claiming the same line leave one of them unprobed, and a dead codec reads as
 #   a HAT that is not seated.
+
+# The ALSA card id every overlay below registers. asound.conf, both CamillaDSP
+# configs and both milo-alsa-passthrough spell it too, held equal to this by
+# tests/architecture/test_output_card_name.py.
+OUTPUT_CARD = "sndrpihifiberry"
 
 # Every overlay drives the HAT over I2S (pinctrl `rp1_i2s1_18_21` on the Pi 5).
 _I2S_PINS = (18, 19, 20, 21)
@@ -28,10 +33,11 @@ _I2S_PINS = (18, 19, 20, 21)
 _I2C1_PINS = (2, 3)
 
 AUDIO_CARDS = {
+    # A satellite's "not configured yet", which it registers with until the
+    # server pushes it a card. Never offered: Milō plays through a HAT or not at all.
     "none": {
         "label": "No audio card",
         "overlay": None,
-        "card_name": None,
         "brand": None,
         "category": None,
         "reserved_pins": (),
@@ -39,7 +45,6 @@ AUDIO_CARDS = {
     "hifiberry_amp2": {
         "label": "HiFiBerry Amp2",
         "overlay": "hifiberry-dacplus-std",
-        "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
         "reserved_pins": _I2C1_PINS + _I2S_PINS,
@@ -47,7 +52,6 @@ AUDIO_CARDS = {
     "hifiberry_amp4": {
         "label": "HiFiBerry Amp4",
         "overlay": "hifiberry-dacplus-std",
-        "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
         "reserved_pins": _I2C1_PINS + _I2S_PINS,
@@ -55,7 +59,6 @@ AUDIO_CARDS = {
     "hifiberry_amp4pro": {
         "label": "HiFiBerry Amp4 Pro",
         "overlay": "hifiberry-amp4pro",
-        "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
         "reserved_pins": _I2C1_PINS + _I2S_PINS + (4,),  # mute-gpio
@@ -63,7 +66,6 @@ AUDIO_CARDS = {
     "hifiberry_amp100": {
         "label": "HiFiBerry Amp100",
         "overlay": "hifiberry-amp100",
-        "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "amplifier",
         "reserved_pins": _I2C1_PINS + _I2S_PINS + (4, 17),  # mute-gpio, reset-gpio
@@ -71,7 +73,6 @@ AUDIO_CARDS = {
     "hifiberry_dac2hd": {
         "label": "HiFiBerry DAC2 HD",
         "overlay": "hifiberry-dacplushd",
-        "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "dac",
         "reserved_pins": _I2C1_PINS + _I2S_PINS + (16,),  # reset-gpio
@@ -82,7 +83,6 @@ AUDIO_CARDS = {
         # "hifiberry-dacplus" overlay into -std/-pro because clock auto-detection
         # misfires on the Pi 5; the plain name is a deprecated alias.
         "overlay": "hifiberry-dacplus-pro",
-        "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "dac",
         "reserved_pins": _I2C1_PINS + _I2S_PINS,
@@ -90,12 +90,38 @@ AUDIO_CARDS = {
     "hifiberry_dac2adcpro": {
         "label": "HiFiBerry DAC2 ADC Pro",
         "overlay": "hifiberry-dacplusadcpro",
-        "card_name": "sndrpihifiberry",
         "brand": "HiFiBerry",
         "category": "dac",
         "reserved_pins": _I2C1_PINS + _I2S_PINS,
     },
 }
+
+
+def audio_config(audio_id: str, volume_control: bool | None = None) -> dict:
+    """The audio block a card is configured by: hardware.json's on the server,
+    the payload pushed to a satellite. `volume_control` left out is the card's
+    own default — CamillaDSP attenuates unless a DAC hands volume to its amplifier."""
+    return {
+        "id": audio_id,
+        "overlay": AUDIO_CARDS[audio_id]["overlay"],
+        "volume_control": not is_dac_card(audio_id) if volume_control is None else volume_control,
+    }
+
+
+def alsa_card_ids(cards: str) -> list[str]:
+    """The card ids /proc/asound/cards lists, given as text: each card's first
+    line, the id in its brackets — never the free-text long name."""
+    return re.findall(r"^\s*\d+\s+\[(\S+?)\s*\]", cards, re.MULTILINE)
+
+
+def missing_card_label(audio_id: str, card_ids: list[str] | None) -> str | None:
+    """The configured card's label when ALSA lists no HAT, for the server and
+    for each satellite alike. None when there is nothing to judge: an id no
+    card answers to (none configured yet), or no card list at all."""
+    card = AUDIO_CARDS.get(audio_id)
+    if card is None or card_ids is None or OUTPUT_CARD in card_ids:
+        return None
+    return card["label"]
 
 
 def reserved_pins(audio_id: str) -> frozenset[int]:

@@ -42,6 +42,7 @@ from backend.core.system.diagnostic.whitelist import (
     strip_global_ipv6,
 )
 from backend.core.system.localtime import current_timezone
+from backend.hardware.registry import OUTPUT_CARD
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +272,7 @@ async def audio_path(ctx) -> str:
 
     cards, mixer, alsa_states, envs = await asyncio.gather(
         probes.read_file(Path("/proc/asound/cards")),
-        probes.run(["amixer", "-c", "0", "scontents"], timeout=5.0),
+        probes.run(["amixer", "-c", OUTPUT_CARD, "scontents"], timeout=5.0),
         _alsa_stream_states(),
         _env_files(),
     )

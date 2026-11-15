@@ -480,6 +480,29 @@ class ClientRegistryService:
         })
         return client
 
+    async def set_client_audio_card_missing(self, mac_id: str, label: Optional[str]) -> None:
+        """Record which configured card a satellite's ALSA does not list.
+
+        Runtime only, so nothing is persisted, and announced only when it moves:
+        every heartbeat (15 s) calls this, and each CLIENT_UPDATED wakes the
+        volume publisher and the crossover.
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if client is None or client.audio_card_missing == label:
+                return
+            client.audio_card_missing = label
+            client_dict = client.to_dict()
+
+        if label:
+            self.logger.warning(f"Client {mac_id}: {label} is configured but its ALSA does not list it")
+        else:
+            self.logger.info(f"Client {mac_id}: its configured audio card is seen again")
+        await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
+            "mac_id": mac_id,
+            "client": client_dict
+        })
+
     # === CLIENT QUERIES ===
 
     def get_client(self, mac_id: str) -> Optional[Client]:

@@ -82,6 +82,18 @@ apt-get remove -y pulseaudio pipewire 2>/dev/null || true
 apt-get autoremove -y
 CHROOT
 
+# cloud-init out of the image: Raspberry Pi Imager's OS customization reaches a
+# trixie card through it, renaming the milo account and rewriting the hostname,
+# and stage2 installs it whatever ENABLE_CLOUD_INIT says. The root partition is
+# grown by raspberrypi-sys-mods' initramfs hook, not by cloud-init's growpart.
+# netplan.io stays: network-manager depends on it, and the mark keeps the
+# autoremove off it even if that dependency ever loosens.
+on_chroot << 'CHROOT'
+apt-mark manual netplan.io
+apt-get purge -y cloud-init rpi-cloud-init-mods
+apt-get autoremove --purge -y
+CHROOT
+
 # Clean up build caches to reduce image size. The apt *lists* deliberately stay:
 # later stages still install packages (02-install-milo pulls libportaudio2 for
 # qobuz-proxy), and without an index apt has no candidate version. 03-configure's

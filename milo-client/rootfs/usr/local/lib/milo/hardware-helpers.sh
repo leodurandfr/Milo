@@ -13,11 +13,6 @@
 # there and not here is rejected right before the reboot that would apply it.
 VALID_AUDIO_OVERLAYS="hifiberry-dacplus-std hifiberry-dacplus-pro hifiberry-dacplusadcpro hifiberry-amp4pro hifiberry-amp100 hifiberry-dacplushd"
 
-# What remove_legacy_overlays clears out of config.txt: the allowlist plus the
-# pre-6.1.77 "hifiberry-dacplus" alias, which no card selects any more but which
-# units installed before the overlay split still carry.
-LEGACY_SWEEP_OVERLAYS="$VALID_AUDIO_OVERLAYS hifiberry-dacplus"
-
 # --- JSON reader ---
 read_json() {
     python3 -I -c "
@@ -52,14 +47,11 @@ remove_block() {
 # --- The managed blocks of each role ---
 # Exactly the blocks each role's apply script writes. A unit changes role in
 # place (milo-first-boot) and each apply removes only its own blocks, so the
-# role change clears the other role's. Only the audio overlay line of the role
-# left meets anything else — remove_legacy_overlays sweeps every allowlisted
-# `dtoverlay=` line, inside a block or not — and only once the new role's apply
-# runs, which neither the auto-detected conversion nor the revert does: until
-# then the unit boots the card of the role it left. The server's screen, IR and
-# power LED blocks meet nothing at all, so a satellite would keep the server's
-# display setup (the DSI panel overlay, or the forced HDMI mode and framebuffer
-# size), claim the IR pin and drive the LED pin low for good.
+# role change clears the other role's, and nothing else ever would: the unit
+# would boot the card of the role it left, alongside its own once that role's
+# apply runs, and a satellite would keep the server's display setup (the DSI
+# panel overlay, or the forced HDMI mode and framebuffer size), claim the IR pin
+# and drive the LED pin low for good.
 SERVER_CONFIG_BLOCKS=("MILO AUDIO" "MILO SCREEN" "MILO IR" "MILO POWER LED")
 CLIENT_CONFIG_BLOCKS=("MILO CLIENT AUDIO")
 
@@ -117,38 +109,14 @@ backup_config() {
     ls -1t "$CONFIG_FILE".backup.* 2>/dev/null | tail -n +4 | xargs -r rm -f
 }
 
-# --- Disable GPU audio on vc4 overlays (preserves existing options) ---
+# --- Disable HDMI audio on the vc4-kms-v3d overlay (preserves existing options) ---
 disable_vc4_audio() {
     local file="$CONFIG_FILE"
 
-    # vc4-fkms-v3d → ,audio=off
-    if grep -q "vc4-fkms-v3d" "$file"; then
-        # Already has audio=off → skip
-        if ! grep -q "vc4-fkms-v3d.*audio=off" "$file"; then
-            # Replace audio=on with audio=off
-            if grep -q "vc4-fkms-v3d.*audio=on" "$file"; then
-                sed -i 's/\(dtoverlay=vc4-fkms-v3d.*\)audio=on/\1audio=off/' "$file"
-            else
-                # Append ,audio=off (preserving any existing options)
-                sed -i 's/\(dtoverlay=vc4-fkms-v3d[^,]*\)\(.*\)/\1\2,audio=off/' "$file"
-            fi
-        fi
-    fi
-
-    # vc4-kms-v3d → ,noaudio
     if grep -q "vc4-kms-v3d" "$file"; then
         if ! grep -q "vc4-kms-v3d.*noaudio" "$file"; then
             # Append ,noaudio (preserving any existing options)
             sed -i 's/\(dtoverlay=vc4-kms-v3d.*\)/\1,noaudio/' "$file"
         fi
     fi
-}
-
-# --- Remove legacy (non-managed) hifiberry overlays ---
-remove_legacy_overlays() {
-    local legacy_comment="${1:-# Milo - HiFiBerry Audio}"
-    for overlay in $LEGACY_SWEEP_OVERLAYS; do
-        sed -i "/^dtoverlay=$overlay$/d" "$CONFIG_FILE"
-    done
-    sed -i "/^${legacy_comment}$/d" "$CONFIG_FILE"
 }

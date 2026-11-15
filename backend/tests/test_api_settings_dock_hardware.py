@@ -695,8 +695,7 @@ class TestTheHardwareConfig:
         svc = HardwareService()
         svc.hardware_file = tmp_path / "hardware.json"
         asyncio.run(svc.save_config({
-            "audio": {"id": "hifiberry_amp2", "card_name": "sndrpihifiberry",
-                      "overlay": "hifiberry-dacplus-std", "volume_control": True},
+            "audio": {"id": "hifiberry_amp2", "overlay": "hifiberry-dacplus-std", "volume_control": True},
             "screen": {"type": "none", "resolution": None},
             "rotary_encoder": {"enabled": False, "clk_pin": 5, "dt_pin": 6, "sw_pin": 13},
             "ir_remote": {"enabled": False, "gpio_pin": 17},
@@ -825,16 +824,19 @@ class TestTheHardwareConfig:
         empty = sorted(key for key, value in read.items() if not value.strip())
         assert not empty, f"milo-apply-hardware reads keys PUT /hardware-config does not store: {empty}"
 
-    def test_an_unknown_card_is_refused_before_anything_is_written(
-        self, client, hardware
+    @pytest.mark.parametrize("audio_id", ["not-a-card", "none"])
+    def test_a_card_the_server_cannot_play_through_is_refused_before_anything_is_written(
+        self, client, hardware, audio_id
     ):
         """The id indexes the registry directly; an unknown one must not reach
-        `save_config` with a half-built record."""
-        payload = {**self.PAYLOAD, "audio": {"id": "not-a-card"}}
+        `save_config` with a half-built record. `none` is in the registry, as a
+        satellite's "not configured yet", and is refused all the same: the
+        server plays through a HAT or not at all."""
+        payload = {**self.PAYLOAD, "audio": {"id": audio_id}}
 
         response = client.put("/api/settings/hardware-config", json=payload)
 
-        assert response.status_code >= 400
+        assert response.status_code == 422
         hardware.save_config.assert_not_called()
         hardware.apply.assert_not_called()
 

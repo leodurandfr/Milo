@@ -10,8 +10,11 @@ Description=Milo First Boot — Auto-detect server or client mode
 # start, leaving the device with no network at all and the first-boot setup hotspot
 # unable to start. Ordering before the .service still guarantees the hostname is set
 # before avahi advertises mDNS.
+# Before every unit that runs as milo and starts at boot, directly or through
+# one of these (the others are After=milo-backend): the first user may be
+# renamed back to milo here, which usermod refuses while it runs a process.
 After=NetworkManager.service
-Before=avahi-daemon.service milo-backend.service milo-readiness.service
+Before=avahi-daemon.service milo-backend.service milo-readiness.service milo-camilladsp.service
 
 [Service]
 Type=oneshot

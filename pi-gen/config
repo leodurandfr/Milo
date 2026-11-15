@@ -13,7 +13,16 @@ FIRST_USER_NAME="milo"
 # Changing this name is not a config edit: /home/milo/milo, both sudoers
 # policies and every systemd unit are written around it.
 FIRST_USER_PASS="milo"
+# Upstream's export-image runs `rename-user -f -s` after stage-milo unless this
+# is 1, which re-enables userconfig.service: its tty8 wizard waits for input
+# nobody can give, holding multi-user.target in "waiting" forever (measured on
+# Bureau, reflashed from the image on 2026-11-06).
+DISABLE_FIRST_BOOT_USER_RENAME=1
 ENABLE_SSH=0
+
+# Only skips the boot-partition seed files: stage2 installs the cloud-init
+# packages whatever this says, so 01-install-audio purges them.
+ENABLE_CLOUD_INIT=0
 
 LOCALE_DEFAULT="en_US.UTF-8"
 # Console keymap only, and there is no console: getty@tty1 is masked for the

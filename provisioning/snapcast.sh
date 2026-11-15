@@ -29,16 +29,16 @@ sampleformat = 48000:32:2
 
 source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast/AirPlay/CD/Qobuz/MusicLibrary/Tidal?name=Multiroom
 
-source = alsa:///?name=Bluetooth&device=hw:1,1,1&idle_threshold=5000
-source = alsa:///?name=ROC&device=hw:1,1,2&idle_threshold=5000
-source = alsa:///?name=Spotify&device=hw:1,1,3&idle_threshold=5000
-source = alsa:///?name=Radio&device=hw:1,1,4&idle_threshold=5000
-source = alsa:///?name=Podcast&device=hw:1,1,5&idle_threshold=5000
-source = alsa:///?name=AirPlay&device=hw:1,1,6&idle_threshold=5000
-source = alsa:///?name=CD&device=hw:1,1,7&idle_threshold=5000
-source = alsa:///?name=Qobuz&device=hw:2,1,1&idle_threshold=5000
-source = alsa:///?name=MusicLibrary&device=hw:2,1,2&idle_threshold=5000
-source = alsa:///?name=Tidal&device=hw:2,1,3&idle_threshold=5000
+source = alsa:///?name=Bluetooth&device=hw:Loopback,1,1&idle_threshold=5000
+source = alsa:///?name=ROC&device=hw:Loopback,1,2&idle_threshold=5000
+source = alsa:///?name=Spotify&device=hw:Loopback,1,3&idle_threshold=5000
+source = alsa:///?name=Radio&device=hw:Loopback,1,4&idle_threshold=5000
+source = alsa:///?name=Podcast&device=hw:Loopback,1,5&idle_threshold=5000
+source = alsa:///?name=AirPlay&device=hw:Loopback,1,6&idle_threshold=5000
+source = alsa:///?name=CD&device=hw:Loopback,1,7&idle_threshold=5000
+source = alsa:///?name=Qobuz&device=hw:LoopbackDLNA,1,1&idle_threshold=5000
+source = alsa:///?name=MusicLibrary&device=hw:LoopbackDLNA,1,2&idle_threshold=5000
+source = alsa:///?name=Tidal&device=hw:LoopbackDLNA,1,3&idle_threshold=5000
 
 [http]
 enabled = true

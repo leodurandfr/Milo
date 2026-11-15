@@ -20,6 +20,11 @@
 # all run — so a converted card stays a satellite before its audio card is set.
 # A reset-setup marker deletes settings.json first, so detection runs again.
 #
+# Every boot, whatever the flag: a server undoes what an Imager customisation
+# changed (the first user's name, the default target), and the hostname is put
+# back to the role: the one the enabled units encode once setup completed, milo
+# before that when it names neither role.
+#
 # Must be run as root (systemd service).
 
 set -euo pipefail
@@ -44,6 +49,85 @@ ETH_IP=""
 log() { echo "[milo-first-boot] $1"; }
 
 source /usr/local/lib/milo/hardware-helpers.sh
+
+# The hostname is how the next boot reads the role. Static and transient only: a bare
+# `hostnamectl hostname` also rewrites the pretty name, which is the Bluetooth
+# name (/etc/machine-info). /etc/hosts maps it too — nsswitch has no myhostname.
+set_role_hostname() {
+    local name="$1" was
+    was=$(hostname)
+    if [[ "$(cat /etc/hostname 2>/dev/null)" == "$name" && "$was" == "$name" ]]; then
+        return 0
+    fi
+    hostnamectl --static --transient hostname "$name"
+    if grep -q "127.0.1.1" /etc/hosts; then
+        sed -i "s/127.0.1.1.*/127.0.1.1\t$name/" /etc/hosts
+    else
+        echo -e "127.0.1.1\t$name" >> /etc/hosts
+    fi
+    log "Hostname set to $name (was $was)"
+}
+
+# Step 9 of _apply_client_filesystem enables it and configure_server disables
+# it, so it names the role a unit was last given, whatever its hostname says.
+client_role_enabled() {
+    systemctl -q is-enabled milo-client.service
+}
+
+role_hostname() {
+    if client_role_enabled; then echo milo-client; else echo milo; fi
+}
+
+# Raspberry Pi Imager's customisation renames the image's first user (userconf),
+# taking the checkout every milo unit runs from out of /home/milo. Renamed back
+# the way userconf renamed it, never through userconf or cancel-rename, which
+# also set the console boot. Each step is conditional, so a repair cut halfway
+# resumes on the next boot. Server role only: a satellite's first user may be
+# milo-client, which this must never rename.
+repair_first_user() {
+    [[ ! -d "$MILO_APP_DIR" ]] || return 0
+    local user group home f
+    user=$(getent passwd 1000 | cut -d: -f1) || true
+    group=$(getent group 1000 | cut -d: -f1) || true
+    home=$(getent passwd 1000 | cut -d: -f6) || true
+    if [[ -z "$user" || ! -d "$home/milo" ]]; then
+        log "WARNING: $MILO_APP_DIR missing and the first user holds no checkout — account not repaired"
+        return 0
+    fi
+    if [[ "$user" != milo ]] && getent passwd milo >/dev/null; then
+        log "WARNING: first user $user holds the checkout but an account milo exists — account not repaired"
+        return 0
+    fi
+    if [[ "$home" != /home/milo && -e /home/milo ]]; then
+        log "WARNING: first user $user holds the checkout but /home/milo exists — account not repaired"
+        return 0
+    fi
+    if [[ "$user" != milo ]]; then
+        usermod -l milo "$user"
+        for f in /etc/subuid /etc/subgid /etc/sudoers.d/010_pi-nopasswd; do
+            if [[ -f "$f" ]]; then
+                sed -i "s/^$user\([: ]\)/milo\1/" "$f"
+            fi
+        done
+    fi
+    if [[ "$home" != /home/milo ]]; then
+        usermod -m -d /home/milo milo
+    fi
+    if [[ -n "$group" && "$group" != milo ]] && ! getent group milo >/dev/null; then
+        groupmod -n milo "$group"
+    fi
+    log "First user $user renamed back to milo, home /home/milo"
+}
+
+# cancel-rename, which userconf ends with, sets the console boot on an image
+# without lightdm, and the kiosk is WantedBy=graphical.target. Server role only:
+# a satellite runs either target.
+repair_default_target() {
+    [[ "$(systemctl get-default)" != graphical.target ]] || return 0
+    systemctl set-default graphical.target
+    systemctl --no-block start graphical.target
+    log "Default target set back to graphical.target"
+}
 
 # config.txt keeps no managed block of the role this unit leaves ($1): no apply
 # of the new role removes it, and what each would still load is in
@@ -246,14 +330,7 @@ _apply_client_filesystem() {
     # from here on an interrupted conversion is hostname=milo-client without
     # setup_completed, which both recovery branches of the main block read —
     # resume_client_conversion while milo.local answers, configure_server when not.
-    hostnamectl set-hostname milo-client
-    echo "milo-client" > /etc/hostname
-    if grep -q "127.0.1.1" /etc/hosts; then
-        sed -i "s/127.0.1.1.*/127.0.1.1\tmilo-client/" /etc/hosts
-    else
-        echo -e "127.0.1.1\tmilo-client" >> /etc/hosts
-    fi
-    log "Hostname set to milo-client"
+    set_role_hostname milo-client
 
     # 2. Create milo-client user
     if ! id "$MILO_CLIENT_USER" &>/dev/null; then
@@ -557,10 +634,7 @@ for key in required:
         print(f"Marker missing required key: {key}", file=sys.stderr)
         sys.exit(1)
 
-audio = {"id": m["audio_id"]}
-if m["audio_id"] != "none":
-    audio["overlay"] = m["overlay"]
-    audio["volume_control"] = bool(m["volume_control"])
+audio = {"id": m["audio_id"], "overlay": m["overlay"], "volume_control": bool(m["volume_control"])}
 
 def atomic_write(path: str, data: dict) -> None:
     tmp = path + ".tmp"
@@ -700,14 +774,7 @@ configure_server() {
     clear_role_blocks client
 
     # 5. Set hostname back to milo (last — see top of function)
-    hostnamectl set-hostname milo
-    echo "milo" > /etc/hostname
-    if grep -q "127.0.1.1" /etc/hosts; then
-        sed -i "s/127.0.1.1.*/127.0.1.1\tmilo/" /etc/hosts
-    else
-        echo -e "127.0.1.1\tmilo" >> /etc/hosts
-    fi
-    log "Hostname set to milo"
+    set_role_hostname milo
 
     log "Server configuration complete — rebooting"
     /sbin/reboot
@@ -716,6 +783,13 @@ configure_server() {
 # =============================================================================
 # Main
 # =============================================================================
+
+# Every boot, before the units running as milo (all ordered after this one):
+# each repair is a no-op once done.
+if ! client_role_enabled; then
+    repair_first_user
+    repair_default_target
+fi
 
 # Requested reset (POST /api/system/reset-setup): drop the settings file that
 # holds setup_completed, so the checks below re-detect the role and the wizard
@@ -746,6 +820,9 @@ try:
 except Exception:
     sys.exit(1)
 " 2>/dev/null; then
+    # Anything that renamed the unit since (Imager, a hand edit) loses milo.local
+    # or the satellite's name; the units its role enabled say which it is.
+    set_role_hostname "$(role_hostname)"
     if [[ -f "$PENDING_CLIENT_ROLE_FILE" ]]; then
         log "Pending client-role marker found — applying wifi adoption"
         configure_client_with_hardware  # reboots
@@ -755,6 +832,15 @@ fi
 
 current_hostname=$(hostname)
 log "Setup not completed (hostname=$current_hostname) — detecting role..."
+
+# A name of neither role (Imager's customisation, a hand edit) would stay a
+# server named so for good: no milo.local, and the API refuses requests by name.
+# Only then is the role read from the units: an interrupted conversion is
+# milo-client before its units are enabled, which the branches below rely on.
+if [[ "$current_hostname" != milo && "$current_hostname" != milo-client ]]; then
+    set_role_hostname "$(role_hostname)"
+    current_hostname=$(hostname)
+fi
 
 # Align the avahi mechanism with the current role on every detection boot. The
 # fresh-server path stays a server without ever calling configure_server, so this

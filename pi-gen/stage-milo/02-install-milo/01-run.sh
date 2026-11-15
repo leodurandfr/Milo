@@ -44,8 +44,11 @@ on_chroot << 'CHROOT'
 # ALSA loopback: 2 cards — "Loopback" (DSP slot 0 + 7 sources) and "LoopbackDLNA"
 # (Qobuz, Music Library, Tidal). snd-aloop caps at 8 substreams/card, so an 8th source
 # needs a second card rather than a 9th substream (which the driver rejects).
+# No index=: every consumer addresses the cards by id, and a slot claimed
+# explicitly that another card already holds fails that card's registration
+# (-EBUSY), taking every multiroom stream on it down without a message.
 echo "snd-aloop" > /etc/modules-load.d/snd-aloop.conf
-echo "options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8" > /etc/modprobe.d/snd-aloop.conf
+echo "options snd-aloop enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8" > /etc/modprobe.d/snd-aloop.conf
 
 # ALSA routing + env files (asound.conf, routing.env, snapclient.env, mac.env).
 # Reuse provisioning/alsa.sh::configure_alsa_complete rather than restating it here —

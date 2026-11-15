@@ -4,12 +4,14 @@
 `# BEGIN MILO … / # END MILO …` blocks in `/boot/firmware/config.txt`, removed
 and appended again on every apply. Both run as root on a vfat partition CI never
 sees, so these tests source the real `hardware-helpers.sh` of each tree and run
-the real config-writing section of each apply script on a temporary file.
+the real validation and config-writing sections of each apply script on a
+temporary file.
 
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on
 an empty surface.
 """
+import json
 import re
 import shlex
 import subprocess
@@ -17,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.hardware.registry import AUDIO_CARDS
 from backend.tests.architecture.test_rootfs_deployment import APPLY_HARDWARE_SCRIPTS, HARDWARE_HELPERS
 
 BEGIN_RE = re.compile(r"^# BEGIN (.+)$", re.MULTILINE)
@@ -35,6 +38,9 @@ SCRIPT_VARIABLES = {
     "milo-client-apply-hardware": {"AUDIO_OVERLAY": "hifiberry-dacplushd"},
 }
 ROLE_OF_SCRIPT = {"milo-apply-hardware": "server", "milo-client-apply-hardware": "client"}
+# The validation part of an apply script: from the hardware.json check to the
+# first section that acts (the server's EEPROM, the satellite's backup).
+VALIDATION_RE = re.compile(r"^validate_hardware_json\n(.*?)^(?=# =+\n# (?:Power-on|Backup))", re.MULTILINE | re.DOTALL)
 
 # What Raspberry Pi OS ships, with a hand-added stanza after it and the blank
 # lines earlier applies left behind (16 in a row measured on the server).
@@ -126,11 +132,10 @@ def test_a_role_change_removes_only_the_blocks_of_the_role_left(tree_name, leavi
 
     A unit that ran the server wizard and is then adopted as a satellite kept
     the server's blocks: the satellite's apply removes only `MILO CLIENT
-    AUDIO`. Its legacy sweep does take the server's audio overlay line out, but
-    only when it runs, which the auto-detected conversion does not, so the
-    satellite booted the server's card; and nothing ever took out the screen
-    block (the DSI panel overlay, or the forced HDMI mode), the IR pin or the
-    power LED pin of a unit that drives none of them. The revert to a server is the same in the other direction.
+    AUDIO`, so the satellite booted the server's card, and nothing ever took
+    out the screen block (the DSI panel overlay, or the forced HDMI mode), the
+    IR pin or the power LED pin of a unit that drives none of them. The revert
+    to a server is the same in the other direction.
     """
     helpers = HARDWARE_HELPERS[tree_name]
     blocks = {role: _role_blocks(helpers, role, tmp_path) for role in ("server", "client")}
@@ -148,3 +153,46 @@ def test_a_role_change_removes_only_the_blocks_of_the_role_left(tree_name, leavi
     left = BEGIN_RE.findall(config.read_text(encoding="utf-8"))
     assert left == blocks[staying], f"after leaving the {leaving} role, config.txt holds {left}"
     assert "dtparam=eee=off" in config.read_text(encoding="utf-8")
+
+
+def _validation_section(script: Path) -> str:
+    found = VALIDATION_RE.search(script.read_text(encoding="utf-8"))
+    assert found and "read_json" in found.group(1) and "validate_audio_overlay" in found.group(1), (
+        f"could not extract the validation section of {script.name}; the extractor is broken"
+    )
+    return found.group(1)
+
+
+@pytest.mark.parametrize("script", APPLY_HARDWARE_SCRIPTS, ids=lambda p: p.name)
+def test_only_the_server_refuses_to_apply_with_no_audio_card(script, tmp_path):
+    """The server plays only through a HAT; a satellite may be set up before its card.
+
+    `audio.overlay` is absent from hardware.json for the "none" card. The
+    server's apply exits non-zero on it before it touches the EEPROM or
+    config.txt, and the backend answers the refusal and restores the previous
+    hardware.json; the satellite's apply accepts it, since its pairing writes
+    "none" until the card is picked. Fails when either side moves — the
+    server writing a config.txt with no card, or the satellite refusing its
+    pairing default. Consumers: the server's setup wizard and Hardware page,
+    the satellite's `POST /api/hardware/reboot` and its first-boot conversion.
+    """
+    section = _validation_section(script)
+    hardware = tmp_path / "hardware.json"
+    (tmp_path / "config.txt").write_text(IMAGE_CONFIG, encoding="utf-8")
+
+    def validate(audio_id: str) -> subprocess.CompletedProcess:
+        # Shaped as the backend writes it: no overlay key for a card without one.
+        overlay = AUDIO_CARDS[audio_id]["overlay"]
+        audio = {"id": audio_id, **({"overlay": overlay} if overlay else {})}
+        hardware.write_text(json.dumps({"audio": audio}), encoding="utf-8")
+        return _bash(_helpers_of(script), f"HARDWARE_FILE=hardware.json\n{section}", tmp_path)
+
+    card = next(audio_id for audio_id, entry in AUDIO_CARDS.items() if entry["overlay"])
+    with_card = validate(card)
+    assert with_card.returncode == 0, f"{script.name} refused {card}, which the registry offers: {with_card.stderr}"
+
+    without_card = validate("none")
+    if ROLE_OF_SCRIPT[script.name] == "server":
+        assert without_card.returncode != 0, f"{script.name} accepted a unit with no audio card"
+    else:
+        assert without_card.returncode == 0, f"{script.name} refused the pairing default: {without_card.stderr}"

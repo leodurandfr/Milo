@@ -536,14 +536,13 @@ async def test_the_saved_ssid_is_read_back_from_the_milo_prefixed_profile(servic
 async def test_known_ssids_name_every_station_profile_and_not_the_hotspot(service):
     """The diagnostic report redacts exactly these, so one missing is one leaked.
 
-    The SSID is read from the profile, not its name: a first-flash netplan
-    profile and an Imager `preconfigured` one name their network nowhere else,
-    and two profiles may share a name, which is why each is asked for by UUID.
+    The SSID is read from the profile, not its name: an Imager `preconfigured`
+    profile names its network nowhere else, and two profiles may share a name,
+    which is why each is asked for by UUID.
     The setup hotspot is every Milō's, not the household's, and stays readable.
     """
     profiles = [
         ("milo-Home", "u-1", "Home"),
-        ("netplan-wlan0-Flash Net", "u-2", "Flash Net"),
         ("preconfigured", "u-3", "Imager: Net"),
         ("preconfigured", "u-4", "Second Net"),
         (HOTSPOT_NAME, "u-5", HOTSPOT_NAME),
@@ -566,7 +565,7 @@ async def test_known_ssids_name_every_station_profile_and_not_the_hotspot(servic
     with patcher:
         known = await service.known_ssids()
 
-    assert known == {"Home", "Flash Net", "Imager: Net", "Second Net"}
+    assert known == {"Home", "Imager: Net", "Second Net"}
     assert not any("u-5" in call for call in fake.argv_containing("802-11-wireless.ssid"))
 
 
@@ -817,7 +816,7 @@ async def test_the_radio_alone_coming_back_is_enough(service):
     assert not fake.argv_containing("add")
 
 
-@pytest.mark.parametrize("profile", ["milo-Maison", "netplan-wlan0-Maison"])
+@pytest.mark.parametrize("profile", ["milo-Maison", "preconfigured"])
 @pytest.mark.asyncio
 async def test_a_saved_network_gets_its_autoconnect_before_the_access_point(service, profile):
     """Measured 2026-10-03: NM began autoconnecting the saved network 2.5 s
@@ -1926,18 +1925,12 @@ async def test_wifi_signal_fails_open_when_no_access_point_is_anchored(service):
 # Which profiles a forget deletes — and which it must not
 # --------------------------------------------------------------------------- #
 
-def _profiles_router(listing, deleted, ssids=None):
-    """Answers `connection show` with a listing and a profile's SSID from
-    `ssids` (by name; any other is unreadable), records every delete."""
+def _profiles_router(listing, deleted):
+    """Answers `connection show` with a listing, records every delete."""
     def router(args):
         if args[:2] == ("connection", "delete"):
             deleted.append(args[2])
             return (0, "", "")
-        if "802-11-wireless.ssid" in args:
-            ssid = (ssids or {}).get(args[-1])
-            if ssid is None:
-                return (10, "", "Error: no such connection profile.")
-            return (0, f"802-11-wireless.ssid:{ssid}", "")
         if "show" in args and "connection" in args:
             return (0, listing, "")
         return (0, "", "")
@@ -1945,63 +1938,22 @@ def _profiles_router(listing, deleted, ssids=None):
 
 
 @pytest.mark.asyncio
-async def test_forgetting_a_network_takes_its_netplan_and_milo_twins_with_it(service):
-    """One SSID can own three profiles, and leaving one behind breaks the next connect.
-
-    A surviving netplan profile is what made `nmcli device wifi connect` fail
-    with 'key-mgmt: property is missing'; the whole delete-then-add shape exists
-    to clear it. Dropping one of the three names silently restores that failure,
-    on the first-boot path nothing else exercises.
+async def test_forgetting_a_network_takes_its_milo_twin_with_it(service):
+    """One SSID can own two profiles — named by the SSID itself, as
+    `nmcli device wifi connect` writes one, and `milo-<ssid>`, as Milō does —
+    and either one left behind still autoconnects to a network the user forgot.
     """
     deleted = []
     fake, patcher = with_nmcli(_profiles_router("\n".join([
         "Livebox:802-11-wireless",
         "milo-Livebox:802-11-wireless",
-        "netplan-wlan0-Livebox:802-11-wireless",
         "Maison:802-11-wireless",
     ]), deleted))
     with patcher:
         await service.forget_network("Livebox")
 
     assert deleted, "nothing was deleted — the listing never reached the filter"
-    assert set(deleted) == {"Livebox", "milo-Livebox", "netplan-wlan0-Livebox"}
-
-
-@pytest.mark.asyncio
-async def test_a_netplan_profile_is_matched_on_the_ssid_it_holds(service):
-    """A netplan profile is named `netplan-<id>-<ssid>`, and both halves are
-    free-form: matched on its name's end, forgetting "5GHz" also deleted the
-    twin of "Livebox-5GHz" — credentials the user must retype, from the setup
-    AP on a wifi-only unit. Its `802-11-wireless.ssid` says which network it
-    is, as `known_ssids` reads it, and a dash in the id cannot hide a twin."""
-    deleted = []
-    fake, patcher = with_nmcli(_profiles_router("\n".join([
-        "milo-5GHz:802-11-wireless",
-        "netplan-wlan0-Livebox-5GHz:802-11-wireless",
-        "netplan-home-net-5GHz:802-11-wireless",
-    ]), deleted, ssids={
-        "netplan-wlan0-Livebox-5GHz": "Livebox-5GHz",
-        "netplan-home-net-5GHz": "5GHz",
-    }))
-    with patcher:
-        await service.forget_network("5GHz")
-
-    assert deleted == ["milo-5GHz", "netplan-home-net-5GHz"]
-
-
-@pytest.mark.asyncio
-async def test_a_netplan_profile_whose_ssid_cannot_be_read_counts_by_its_name(service):
-    """An unreadable profile falls back to the name with its interface id cut
-    off — whole, never its end."""
-    deleted = []
-    fake, patcher = with_nmcli(_profiles_router("\n".join([
-        "netplan-wlan0-Livebox-5GHz:802-11-wireless",
-        "netplan-wlan0-5GHz:802-11-wireless",
-    ]), deleted))
-    with patcher:
-        await service.forget_network("5GHz")
-
-    assert deleted == ["netplan-wlan0-5GHz"]
+    assert set(deleted) == {"Livebox", "milo-Livebox"}
 
 
 @pytest.mark.asyncio
@@ -2435,20 +2387,6 @@ async def test_the_saved_list_shows_the_ssid_not_the_milo_profile_name(service):
         saved = await service.get_saved_networks()
 
     assert [n.ssid for n in saved] == ["Freebox-CA3555", "Voisins"]
-
-
-@pytest.mark.asyncio
-async def test_a_netplan_profile_is_not_offered_as_a_saved_network(service):
-    """A netplan twin carries the same SSID as its milo profile; listing both
-    puts the same network on screen twice, and the second entry's name is not
-    an SSID at all."""
-    def route(args):
-        return (0, "netplan-wlan0-Maison:802-11-wireless\n"
-                   "milo-Maison:802-11-wireless", "")
-
-    fake, patcher = with_nmcli(route)
-    with patcher:
-        assert [n.ssid for n in await service.get_saved_networks()] == ["Maison"]
 
 
 @pytest.mark.asyncio
@@ -3159,20 +3097,20 @@ async def test_dissociating_drops_the_access_point_proxy(service, wired):
 async def test_the_live_ssid_comes_from_the_access_point_not_the_profile_name(service, wired):
     """The profile is named `milo-<ssid>` by this service, so falling back to it
     is only a derivation. The AP's own SSID is what the card is associated with,
-    and the two differ after a manual `nmcli` edit or a netplan profile."""
-    def netplan_profile(args):
+    and the two differ after a manual `nmcli` edit or on Imager's profile."""
+    def imager_profile(args):
         if args[:2] == ("radio", "wifi"):
             return (0, "enabled", "")
-        return (0, "GENERAL.CONNECTION:netplan-wlan0-Freebox\n"
+        return (0, "GENERAL.CONNECTION:preconfigured\n"
                    "IP4.ADDRESS[1]:192.168.1.39/24", "")
 
     nm = FakeNM(ssid=b"Freebox-CA3555")
-    fake, patcher = with_nmcli(netplan_profile)
+    fake, patcher = with_nmcli(imager_profile)
     with with_nm(nm), patcher:
         await service.initialize()
         status = await service.get_network_status()
 
-    # The derivation would answer "netplan-wlan0-Freebox" — a profile name, not
+    # The derivation would answer "preconfigured" — a profile name, not
     # a network. Only the AP knows what the card is actually associated with.
     assert status.wifi.ssid == "Freebox-CA3555"
     assert status.wifi.signal == 71
@@ -3383,27 +3321,25 @@ async def test_a_profile_that_refuses_to_be_deleted_fails_the_forget(service, ca
 
 @pytest.mark.asyncio
 async def test_one_refused_delete_does_not_stop_the_others_and_only_survivors_are_named(service):
-    """One refusal must not stop the others — a netplan twin left behind is the
-    profile that breaks the next connect — and the error names only what
-    survived, which is what the operator has to remove by hand."""
+    """One refusal must not stop the others — a twin left behind still
+    autoconnects — and the error names only what survived, which is what the
+    operator has to remove by hand."""
     attempted = []
 
     def route(args):
         if args[:2] == ("connection", "delete"):
             attempted.append(args[2])
-            if args[2] == "milo-Maison":
+            if args[2] == "Maison":
                 return (1, "", "Error: unknown connection")
             return (0, "", "")
-        if "802-11-wireless.ssid" in args:
-            return (0, "802-11-wireless.ssid:Maison", "")
-        return (0, "milo-Maison:802-11-wireless\nnetplan-wlan0-Maison:802-11-wireless", "")
+        return (0, "Maison:802-11-wireless\nmilo-Maison:802-11-wireless", "")
 
     fake, patcher = with_nmcli(route)
     with patcher, pytest.raises(RuntimeError) as raised:
         await service.forget_network("Maison")
-    assert attempted == ["milo-Maison", "netplan-wlan0-Maison"]
-    assert "milo-Maison" in str(raised.value)
-    assert "netplan-wlan0-Maison" not in str(raised.value)
+    assert attempted == ["Maison", "milo-Maison"]
+    assert "Maison" in str(raised.value)
+    assert "milo-Maison" not in str(raised.value)
 
 
 def test_a_forget_nm_refused_answers_an_error_on_the_route(service):

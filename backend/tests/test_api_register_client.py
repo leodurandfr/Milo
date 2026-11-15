@@ -35,7 +35,8 @@ from backend.api.multiroom import create_multiroom_router
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.equalizer_router import EqualizerRouter
-from backend.core.multiroom.models import Client
+from backend.core.multiroom.models import Client, RegistryEventType
+from backend.hardware.registry import AUDIO_CARDS, OUTPUT_CARD
 
 
 SAT_IP = "192.168.1.153"
@@ -64,6 +65,7 @@ def registry():
     service.get_client = Mock(return_value=None)
     service.update_client = AsyncMock()
     service.set_client_gain = AsyncMock()
+    service.set_client_audio_card_missing = AsyncMock()
     service.unregister_client = AsyncMock(return_value=True)
     return service
 
@@ -358,6 +360,76 @@ class TestIdentityAfterAdmission:
         for _ in range(3):
             await self._heartbeat(reg, pending, name="Salon", speaker_type="subwoofer")
 
+        assert events == []
+
+
+class TestAudioCardSeen:
+    """A satellite has no screen, so its heartbeat's card list is the only way a
+    board that is not seated reaches anyone: the client panel draws the record's
+    `audio_card_missing`. The registry is the real one, as above.
+    """
+
+    @pytest.fixture
+    async def admitted(self):
+        reg = ClientRegistryService(settings_service=None)
+        await reg.register_client(SAT_MAC, "Bureau", SAT_IP, host="milo-client")
+        events = []
+
+        async def record(event_type, data):
+            events.append((event_type, data))
+
+        reg.subscribe(record)
+        return reg, events
+
+    async def _heartbeat(self, registry, pending, **body):
+        app = FastAPI()
+        app.include_router(create_multiroom_router(registry, pending_clients_service=pending))
+        transport = httpx.ASGITransport(app=app, client=(SAT_IP, 41000))
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as satellite:
+            response = await satellite.post("/api/multiroom/register-client", json={
+                **BODY, "hardware_configured": True, **body,
+            })
+        assert response.status_code == 200
+
+    async def test_a_board_its_alsa_does_not_list_is_named_on_the_record(self, admitted, pending):
+        """Announced once, with the record the panel replaces its copy by."""
+        reg, events = admitted
+
+        await self._heartbeat(reg, pending, alsa_cards=["Loopback"])
+
+        label = AUDIO_CARDS[BODY["audio_id"]]["label"]
+        assert reg.get_client(SAT_MAC).audio_card_missing == label
+        assert [(t, d["client"]["audio_card_missing"]) for t, d in events] == [
+            (RegistryEventType.CLIENT_UPDATED, label)
+        ]
+
+    async def test_a_board_seen_again_clears_it(self, admitted, pending):
+        reg, _ = admitted
+        await self._heartbeat(reg, pending, alsa_cards=[])
+
+        await self._heartbeat(reg, pending, alsa_cards=[OUTPUT_CARD, "Loopback"])
+
+        assert reg.get_client(SAT_MAC).audio_card_missing is None
+
+    async def test_an_unchanged_verdict_announces_nothing(self, admitted, pending):
+        """Four heartbeats a minute: each CLIENT_UPDATED wakes the volume
+        publisher and the crossover."""
+        reg, events = admitted
+        await self._heartbeat(reg, pending, alsa_cards=[])
+        events.clear()
+
+        for _ in range(3):
+            await self._heartbeat(reg, pending, alsa_cards=[])
+
+        assert events == []
+
+    async def test_a_satellite_one_push_behind_reports_nothing_missing(self, admitted, pending):
+        """Its app predates the field: the heartbeat has no card list at all."""
+        reg, events = admitted
+
+        await self._heartbeat(reg, pending)
+
+        assert reg.get_client(SAT_MAC).audio_card_missing is None
         assert events == []
 
 

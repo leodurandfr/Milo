@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from unittest.mock import Mock, AsyncMock, patch
-from backend.api.models import HardwareConfigRequest
+from backend.api.models import HardwareAudioRequest, HardwareConfigRequest
 from backend.api.responses import BulkSettingsResponse
 from backend.api.settings import create_settings_router
 from backend.core.models.audio_state import AudioSource
@@ -108,7 +108,6 @@ class TestSettingsRoutes:
             "ir_remote": {"enabled": False, "gpio_pin": 17},
             "power_button": {"enabled": False, "led_gpio_pin": 26},
         })
-        service.get_volume_control = Mock(return_value=False)
         service.power_button_supported = Mock(return_value=True)
         return service
 
@@ -1012,16 +1011,6 @@ class TestSettingsRoutes:
     # HARDWARE CONFIG (read side)
     # ===================
 
-    def test_get_hardware_config_resolves_the_volume_control_it_was_not_given(self, client):
-        """`volume_control` decides whether CamillaDSP attenuates or the card's
-        own mixer does. A stored config from before the key existed carries no
-        such key, and the Hardware page would render the checkbox as off — the
-        DAC-attenuating state the appliance is built to avoid."""
-        body = client.get("/api/settings/hardware-config").json()
-
-        assert body["status"] == "success"
-        assert body["current"]["audio"]["volume_control"] is False
-
     def test_hardware_config_offers_no_pin_its_own_validator_rejects(self, client):
         """The dropdown's pins and the request model's checks are two spellings
         of one list per card. When they drift the page offers a pin that comes
@@ -1029,11 +1018,22 @@ class TestSettingsRoutes:
         the validator refuses and the page would have let the user pick."""
         from backend.hardware.registry import AUDIO_CARDS, SCREENS
 
+        def accepted(audio_id):
+            try:
+                HardwareAudioRequest(id=audio_id)
+            except ValidationError:
+                return False
+            return True
+
         options = client.get("/api/settings/hardware-config").json()["options"]
         pins = [entry["value"] for entry in options["gpio_pins"]]
 
         assert len(pins) >= 10, f"only {len(pins)} pins offered — the route is not building them"
-        assert {entry["value"] for entry in options["audio_cards"]} == set(AUDIO_CARDS)
+        # A card offered and refused is a pick that answers 422 — `none`, the
+        # satellite's "not configured yet", was one.
+        offered_cards = {entry["value"] for entry in options["audio_cards"]}
+        assert offered_cards == {card for card in AUDIO_CARDS if accepted(card)}
+        assert len(offered_cards) >= 5, f"only {offered_cards} offered"
         assert {entry["value"] for entry in options["screens"]} == set(SCREENS)
         held = {entry["value"]: set(entry["reserved_pins"]) for entry in options["audio_cards"]}
         # The Amp100's overlay resets its codec on GPIO 17 (read with dtc).

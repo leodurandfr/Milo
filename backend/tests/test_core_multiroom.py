@@ -100,14 +100,14 @@ class TestClient:
         # Verify all expected fields are present (including is_local, host, volume_control)
         expected_fields = {"mac_id", "name", "ip", "host", "speaker_type", "zone_id",
                           "online", "is_local", "volume_control",
-                          "eq_independent", "delay_ms", "gain_db"}
+                          "eq_independent", "delay_ms", "gain_db", "audio_card_missing"}
         assert set(data.keys()) == expected_fields
 
         # Explicit: the persistence shape drops every field with another
         # runtime owner, and what it writes reloads into the same client.
         data_persist = client.to_dict(include_runtime=False)
         assert set(data_persist) <= set(data)
-        for runtime_owned in ("online", "is_local", "host"):
+        for runtime_owned in ("online", "is_local", "host", "audio_card_missing"):
             assert runtime_owned not in data_persist
         reloaded = Client.from_dict(data_persist)
         for name in data_persist:

@@ -49,38 +49,17 @@ SHELL_TWINS = {
 SATELLITE_ROUTE = REPO_ROOT / "milo-client/app/routes/hardware.py"
 APPLY_SCRIPT = REPO_ROOT / "rootfs/usr/local/bin/milo-apply-hardware"
 
-# Overlays no card selects any more, still swept out of config.txt because units
-# installed before the kernel 6.1.77 overlay split carry the line. They are
-# deliberately absent from the allowlist: an overlay that can be cleaned up is
-# not an overlay that can be applied.
-DEPRECATED_ALIASES = {"hifiberry-dacplus"}
-
-SHELL_LIST_RE = re.compile(r'^(VALID_AUDIO_OVERLAYS|LEGACY_SWEEP_OVERLAYS)="([^"]*)"', re.MULTILINE)
+SHELL_LIST_RE = re.compile(r'^VALID_AUDIO_OVERLAYS="([^"]*)"', re.MULTILINE)
 
 
 def _registry_overlays() -> set[str]:
     return {card["overlay"] for card in AUDIO_CARDS.values() if card["overlay"]}
 
 
-def _shell_lists(path: Path) -> dict[str, set[str]]:
-    """Both overlay variables of a hardware-helpers.sh, expanded.
-
-    `LEGACY_SWEEP_OVERLAYS` is declared as `"$VALID_AUDIO_OVERLAYS <aliases>"`,
-    which is the point — the sweep is the allowlist plus what it dropped — so the
-    reference has to be substituted rather than read as a literal.
-    """
-    found = dict(SHELL_LIST_RE.findall(path.read_text()))
-    missing = {"VALID_AUDIO_OVERLAYS", "LEGACY_SWEEP_OVERLAYS"} - set(found)
-    assert not missing, f"{path.name}: no double-quoted assignment for {sorted(missing)}"
-
-    valid = set(found["VALID_AUDIO_OVERLAYS"].split())
-    sweep = set(
-        found["LEGACY_SWEEP_OVERLAYS"]
-        .replace("$VALID_AUDIO_OVERLAYS", found["VALID_AUDIO_OVERLAYS"])
-        .split()
-    )
-    assert "$" not in " ".join(sweep), f"{path.name}: unexpanded variable in LEGACY_SWEEP_OVERLAYS"
-    return {"valid": valid, "sweep": sweep}
+def _shell_allowlist(path: Path) -> set[str]:
+    found = SHELL_LIST_RE.findall(path.read_text())
+    assert len(found) == 1, f"{path.name}: expected one double-quoted VALID_AUDIO_OVERLAYS assignment, got {found}"
+    return set(found[0].split())
 
 
 def _route_overlays() -> set[str]:
@@ -100,14 +79,14 @@ def test_extractors_are_not_vacuous():
     assert len(_route_overlays()) >= 5
 
     for name, path in SHELL_TWINS.items():
-        lists = _shell_lists(path)
-        assert len(lists["valid"]) >= 5, f"{name}: {sorted(lists['valid'])}"
+        valid = _shell_allowlist(path)
+        assert len(valid) >= 5, f"{name}: {sorted(valid)}"
 
 
 @pytest.mark.parametrize("tree", sorted(SHELL_TWINS))
 def test_shell_allowlist_matches_the_registry(tree):
     """`validate_audio_overlay` rejecting a card the UI offers = exit 1, no reboot, no sound."""
-    valid = _shell_lists(SHELL_TWINS[tree])["valid"]
+    valid = _shell_allowlist(SHELL_TWINS[tree])
     registry = _registry_overlays()
 
     assert valid == registry, (
@@ -126,21 +105,6 @@ def test_satellite_route_allowlist_matches_the_registry():
         f"{SATELLITE_ROUTE.relative_to(REPO_ROOT)}::VALID_OVERLAYS disagrees with AUDIO_CARDS — "
         f"offered but rejected: {sorted(registry - route)}; "
         f"granted but never offered: {sorted(route - registry)}"
-    )
-
-
-@pytest.mark.parametrize("tree", sorted(SHELL_TWINS))
-def test_legacy_sweep_covers_the_allowlist_and_the_aliases(tree):
-    """`remove_legacy_overlays` clears a stale line before the managed block is written.
-
-    It reads its own list, not the allowlist: an overlay dropped from the
-    allowlist still has to be cleaned off units that already wrote it.
-    """
-    lists = _shell_lists(SHELL_TWINS[tree])
-
-    assert lists["sweep"] == _registry_overlays() | DEPRECATED_ALIASES, (
-        f"{SHELL_TWINS[tree].relative_to(REPO_ROOT)}: LEGACY_SWEEP_OVERLAYS must cover every "
-        f"overlay Milō can write plus the deprecated aliases — got {sorted(lists['sweep'])}"
     )
 
 

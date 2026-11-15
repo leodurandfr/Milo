@@ -16,12 +16,14 @@
 set -uo pipefail
 
 CARD="${1:-sndrpihifiberry}"
-DEADLINE=$((SECONDS + 3))
 
-# CamillaDSP can be ordered before udev has registered the HAT — give it a moment
-# rather than silently leaving the mixer wherever the driver left it.
+# CamillaDSP can be ordered before udev has registered the HAT — give it 3 s
+# rather than silently leaving the mixer wherever the driver left it. Counted in
+# waits, not timed on $SECONDS: the boot clock steps mid-boot, and a step has
+# ended a wall-clock deadline early before.
+waits=0
 until amixer -c "$CARD" scontrols >/dev/null 2>&1; do
-    if [ "$SECONDS" -ge "$DEADLINE" ]; then
+    if (( waits++ >= 15 )); then
         echo "card '$CARD' not present — nothing to pin"
         exit 0
     fi

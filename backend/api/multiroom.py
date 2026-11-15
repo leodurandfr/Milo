@@ -42,6 +42,7 @@ from backend.config.constants import CLIENT_API_PORT, get_client_display_name
 from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.network.addresses import server_addresses
 from backend.core.multiroom.models import EqualizerSettings
+from backend.hardware.registry import missing_card_label
 
 if TYPE_CHECKING:
     from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
@@ -626,17 +627,15 @@ def create_multiroom_router(
                 raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
             _require_satellite(client)
 
-            from backend.hardware.registry import AUDIO_CARDS, is_dac_card
-            card_info = AUDIO_CARDS.get(request.audio_id, {})
-            overlay = card_info.get("overlay", "")
-            # Use explicit value from request, or auto-detect from card category
-            volume_control = request.volume_control if request.volume_control is not None else not is_dac_card(request.audio_id)
+            from backend.hardware.registry import audio_config
+            audio = audio_config(request.audio_id, request.volume_control)
+            volume_control = audio["volume_control"]
 
             if not volume_control:
                 await _drop_trim_before_dac(mac_id, client)
 
             await _send_audio_config_and_reboot(
-                mac_id, client.ip, request.audio_id, overlay, volume_control,
+                mac_id, client.ip, request.audio_id, audio["overlay"], volume_control,
                 registry_service=registry_service,
             )
 
@@ -1026,6 +1025,9 @@ def create_multiroom_router(
                         else:
                             await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
                             logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
+                    await registry_service.set_client_audio_card_missing(
+                        request.mac_id, missing_card_label(request.audio_id, request.alsa_cards)
+                    )
                     # A wifi-adopted satellite's snapclient connects ~5 s before
                     # this first heartbeat, so OnConnect admitted it under the
                     # fallback name. Its identity lands once: applying the name
@@ -1106,11 +1108,9 @@ def create_multiroom_router(
             client_ip = client["ip"]
 
             # 1. Resolve overlay and volume_control from audio card
-            from backend.hardware.registry import AUDIO_CARDS, is_dac_card
-            card_info = AUDIO_CARDS.get(request.audio_id, {})
-            overlay = card_info.get("overlay", "")
-            # Use explicit value from request, or auto-detect from card category
-            volume_control = request.volume_control if request.volume_control is not None else not is_dac_card(request.audio_id)
+            from backend.hardware.registry import audio_config
+            audio = audio_config(request.audio_id, request.volume_control)
+            volume_control = audio["volume_control"]
 
             # 2. Update pending storage (including volume_control)
             await pending_clients_service.update_client(
@@ -1135,7 +1135,7 @@ def create_multiroom_router(
                 )
 
             # 4. Send config + reboot to client
-            await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, overlay, volume_control)
+            await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, audio["overlay"], volume_control)
             logger.info(f"Pending client {mac_id} configured with audio={request.audio_id}, rebooting")
             return {"status": "success", "message": f"Client {mac_id} configured and rebooting"}
 

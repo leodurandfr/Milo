@@ -432,11 +432,10 @@ class NetworkService:
     async def connect(self, ssid: str, password: Optional[str] = None) -> NetworkStatus:
         """Connect to a WiFi network.
 
-        Removes all existing profiles for this SSID (including broken
-        netplan-generated ones), then creates a clean profile with explicit
-        security settings. Emits no WebSocket event of its own: the status
-        broadcast comes from NM's own property signals, through the D-Bus tier
-        below. Timeout: 30 seconds.
+        Removes all existing profiles for this SSID, then creates a clean
+        profile with explicit security settings. Emits no WebSocket event of
+        its own: the status broadcast comes from NM's own property signals,
+        through the D-Bus tier below. Timeout: 30 seconds.
         """
         async with self._connect_lock:
             return await self._connect_impl(ssid, password)
@@ -529,10 +528,7 @@ class NetworkService:
                 continue
             fields = _parse_nmcli_line(line)
             if len(fields) >= 2 and "wireless" in fields[1]:
-                name = fields[0]
-                # netplan's are not offered; milo-managed ones show their SSID
-                if not name.startswith("netplan-"):
-                    networks.append(SavedNetwork(ssid=_ssid_from_profile(name)))
+                networks.append(SavedNetwork(ssid=_ssid_from_profile(fields[0])))
 
         return networks
 
@@ -541,11 +537,11 @@ class NetworkService:
         hotspot's excepted — for the diagnostic report, which must not name them.
 
         Read from each profile's `802-11-wireless.ssid` rather than from its
-        name, because only the profiles Milō wrote follow `milo-<ssid>`: the
-        first flash leaves `netplan-wlan0-<ssid>`, and a card prepared by
-        Raspberry Pi Imager holds one called `preconfigured`. Each is asked for
-        by UUID, since a name can be shared or be one of nmcli's own keywords,
-        and a profile whose SSID cannot be read counts by the name it gives.
+        name, because only the profiles Milō wrote follow `milo-<ssid>`: a card
+        prepared by Raspberry Pi Imager holds one called `preconfigured`. Each
+        is asked for by UUID, since a name can be shared or be one of nmcli's
+        own keywords, and a profile whose SSID cannot be read counts by the
+        name it gives.
         """
         rc, stdout, stderr = await self._run_nmcli(
             "-t", "-f", "NAME,UUID,TYPE", "connection", "show", timeout=2.0
@@ -870,7 +866,8 @@ class NetworkService:
     async def _station_profiles(self) -> List[str]:
         """The WiFi client profiles that stand for a home network — `milo-` ones
         first, as the wizard and the WiFi panel write them, then any other,
-        netplan's included; never one of the unit's own (OWN_PROFILES)."""
+        Imager's `preconfigured` included; never one of the unit's own
+        (OWN_PROFILES)."""
         rc, stdout, _ = await self._run_nmcli("-t", "-f", "NAME,TYPE", "connection", "show")
         if rc != 0:
             return []
@@ -1399,30 +1396,12 @@ class NetworkService:
                     return _ssid_from_profile(name)
         return None
 
-    async def _netplan_profile_ssid(self, name: str) -> str:
-        """The SSID a `netplan-<id>-<ssid>` profile connects to.
-
-        Read from the profile, as `known_ssids` does: the netplan id is
-        free-form, so its name cannot say where the SSID starts, and its end
-        is the SSID of every network whose name ends the same way. Unreadable,
-        it counts by the name with the interface id cut off, whole.
-        """
-        rc, stdout, _ = await self._run_nmcli(
-            "-t", "-f", "802-11-wireless.ssid", "connection", "show", "id", name
-        )
-        if rc == 0:
-            fields = _parse_nmcli_line(stdout.split("\n", 1)[0])
-            if len(fields) >= 2 and fields[1]:
-                return fields[1]
-        return name.split("-", 2)[-1]
-
     async def _delete_ssid_profiles(self, ssid: str) -> None:
         """Delete all NM connection profiles matching a given SSID.
 
-        Handles netplan-prefixed names (e.g. 'netplan-wlan0-MySSID') and
-        milo-prefixed names from previous connections. A refused delete does
-        not stop the others; RuntimeError once they are all tried if the
-        listing failed or a profile survived.
+        A profile counts by its name: the SSID itself, or `milo-<ssid>` as Milō
+        writes them. A refused delete does not stop the others; RuntimeError
+        once they are all tried if the listing failed or a profile survived.
         """
         rc, stdout, stderr = await self._run_nmcli(
             "-t", "-f", "NAME,TYPE", "connection", "show"
@@ -1442,10 +1421,7 @@ class NetworkService:
             if len(fields) < 2 or "wireless" not in fields[1]:
                 continue
             name = fields[0]
-            netplan_twin = (
-                name.startswith("netplan-") and await self._netplan_profile_ssid(name) == ssid
-            )
-            if name == ssid or name == f"milo-{ssid}" or netplan_twin:
+            if name == ssid or name == f"milo-{ssid}":
                 self.logger.info("Deleting WiFi profile: %s (ssid=%s)", name, ssid)
                 rc2, _, stderr2 = await self._run_nmcli("connection", "delete", name)
                 if rc2 == 0:
