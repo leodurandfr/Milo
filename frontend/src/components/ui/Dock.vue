@@ -7,7 +7,7 @@
   <div ref="dragZone" class="swipe-reveal-band"></div>
 
   <!-- Drag indicator -->
-  <div class="dock-indicator" :class="{ hidden: isVisible || lyricsStore.isOpen, visible: showDragIndicator && !lyricsStore.isOpen }"
+  <div class="dock-indicator" :class="{ hidden: isVisible || lyricsStore.isOpen }"
     @click.stop="onIndicatorClick">
   </div>
 
@@ -34,7 +34,7 @@
       <div v-if="volumeShown" class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
         <button v-for="{ icon, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
-          @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd" v-press
+          @pointercancel="onVolumeHoldCancel" @pointerleave="onVolumeHoldCancel" v-press
           class="volume-btn button-interactive-subtle">
           <SvgIcon :name="icon" :size="32" />
         </button>
@@ -204,12 +204,12 @@ const desktopDockItems = ref([]);
 const isVisible = ref(false);
 const isFullyVisible = ref(false);
 const showAdditionalApps = ref(false);
-const showDragIndicator = ref(false);
 const additionalAppsInDOM = ref(false);
 
 // === TIMERS ===
 const timer = useTimer();
 let hideTimeout = null;
+let fullyVisibleTimeout = null;
 let additionalHideTimeout = null;
 
 const { isMobile } = useIsMobile();
@@ -245,14 +245,20 @@ const startHideTimer = () => {
 
 const resetHideTimer = () => isVisible.value && startHideTimer();
 
+// What the dock must never coexist with: a Modal or the volume panel (both sit
+// above it at a higher z-index, and both report into anyModalOpen), or Lyrics
+// (a full-screen slot, not a modal, that owns the same swipe gesture for its
+// own playback bar — see useDockDrag's .lyrics-view exclusion). Read as state,
+// not from the DOM: a closing overlay keeps its .modal-overlay through its
+// leave animation, and the dock coming back when it closes must not be refused.
+const overlayOpen = computed(() => anyModalOpen.value || lyricsStore.isOpen);
+
 const showDock = () => {
-  // The dock must never coexist with a modal (which sits above it at a higher
-  // z-index) or with Lyrics (a full-screen slot, not a modal, that owns the
-  // same swipe gesture for its own playback bar — see useDockDrag's
-  // .lyrics-view exclusion). Refuse to open while either is on screen — this
-  // covers every reveal path: swipe, pill, the source dropping to none, and
-  // App.vue's auto-reveal (at boot, when the backend restarts, on a touch wake).
-  if (isVisible.value || document.querySelector('.modal-overlay') || lyricsStore.isOpen) return;
+  // Refused while an overlay is open — this covers every reveal path: swipe,
+  // pill, a tap with no source, the source dropping to none, an overlay
+  // closing, and App.vue's auto-reveal (at boot, when the backend restarts, on
+  // a touch wake).
+  if (isVisible.value || overlayOpen.value) return;
   isVisible.value = true;
   isFullyVisible.value = false;
 
@@ -263,17 +269,30 @@ const showDock = () => {
 
   // Wait one frame so the reset state is painted before triggering visible transition
   requestAnimationFrame(() => {
+    // A hide can land before this frame (a click outside, a modal opening).
+    if (!isVisible.value) return;
     startHideTimer();
-    timer.setTimeout(() => isFullyVisible.value = true, 400);
-    timer.setTimeout(updateActiveIndicator, 500);
+    // Cleared by hideDock, so a quick hide + show never lets the first reveal
+    // end the second one's staggered entrance early.
+    fullyVisibleTimeout = timer.setTimeout(() => isFullyVisible.value = true, 400);
+    updateActiveIndicator({ withItemEntrance: true });
   });
 };
 
 // With no source selected the dock is the only way in, so it comes up by
 // itself; with one on, it waits for the swipe or the pill. The auto-reveal
 // App.vue triggers (boot, backend restart, touch wake) goes through here.
+const isIdle = () => unifiedStore.systemState.source === 'none';
 const revealIfIdle = () => {
-  if (unifiedStore.systemState.source === 'none') showDock();
+  if (isIdle()) showDock();
+};
+
+// A tap outside the open dock hides it — except with no source, where the dock
+// is the screen's only way in: there a tap never hides it, and brings it back
+// if a swipe put it away. The swipe down stays the one explicit way to hide it.
+const onTapOutside = () => {
+  if (isIdle()) showDock();
+  else hideDock();
 };
 
 const hideDock = () => {
@@ -282,11 +301,13 @@ const hideDock = () => {
   showAdditionalApps.value = false;
   isVisible.value = false;
   timer.clear(hideTimeout);
+  timer.clear(fullyVisibleTimeout);
   timer.clear(additionalHideTimeout);
-  indicatorStyle.value.opacity = '0';
+  hideIndicator();
   timer.setTimeout(() => additionalAppsInDOM.value = false, 400);
 
   volumeHold.cancel();
+  appHold.onAppHoldEnd();
   drag.resetGestureState();
 };
 
@@ -300,11 +321,14 @@ const drag = useDockDrag({
   showAdditionalApps,
   onShow: showDock,
   onHide: hideDock,
+  onTapOutside,
   onCloseAdditionalApps: () => closeAdditionalApps(),
   // Ends both the volume hold and the app hold — routed through drag's
-  // movement-cancel and document pointerup/pointercancel so a swipe/scroll
-  // can't leave the app-hold timer armed (would misfire a close).
+  // movement-cancel and document pointerup so a swipe/scroll can't leave the
+  // app-hold timer armed (would misfire a close). A pointercancel abandons
+  // them instead: the browser took the pointer, so no volume tap fires.
   onVolumeHoldEnd: (e) => { volumeHold.onVolumeHoldEnd(e); appHold.onAppHoldEnd(e); },
+  onHoldCancel: (e) => { volumeHold.onVolumeHoldCancel(e); appHold.onAppHoldEnd(e); },
   onResetHideTimer: resetHideTimer,
 });
 
@@ -319,13 +343,13 @@ const volumeHold = useVolumeHold({
   getEventY: drag.getEventY,
 });
 
-const { onVolumeHoldStart, onVolumeHoldEnd } = volumeHold;
+const { onVolumeHoldStart, onVolumeHoldEnd, onVolumeHoldCancel } = volumeHold;
 
 // === APP HOLD COMPOSABLE (hold active source's icon → close it) ===
 const appHold = useDockAppHold({
   isActiveSource: (id) => id === unifiedStore.systemState.source,
   onCloseActive: () => {
-    indicatorStyle.value.opacity = '0';
+    hideIndicator();
     unifiedStore.changeSource('none');
   },
   gestureHasMoved: drag.gestureHasMoved,
@@ -362,35 +386,55 @@ const getIndicatorOffset = (targetItem) => {
   return (itemRect.left - dockRect.left + (itemRect.width / 2) - 2) / scale;
 };
 
-const updateActiveIndicator = () => {
+// Every write to the pill takes a number, so a placement still waiting on the
+// DOM gives way to whatever wrote after it — a hide during the reveal, a tap
+// that moved the pill — instead of landing on top of it.
+let indicatorWrite = 0;
+
+// Rebuilt rather than patched: a reveal leaves its stagger delay in the style,
+// and a fade-out must not wait for it.
+const hideIndicator = () => {
+  indicatorWrite += 1;
+  indicatorStyle.value = { transform: indicatorStyle.value.transform, opacity: '0' };
+};
+
+// The offset reads the item's center, which its entrance (a scale about that
+// center) leaves in place, so it is exact mid-animation. On a reveal the pill
+// fades in on its own item's stagger, in the same frame as the items.
+const updateActiveIndicator = ({ withItemEntrance = false } = {}) => {
   if (!isVisible.value || activeSourceIndex.value === -1) {
-    indicatorStyle.value.opacity = '0';
+    hideIndicator();
     return;
   }
 
-  nextTick(() => {
-    const items = getDockItems();
-    const targetItem = items[activeSourceIndex.value];
-    const offsetX = getIndicatorOffset(targetItem);
+  const write = ++indicatorWrite;
+  nextTick(async () => {
+    if (write !== indicatorWrite) return;
+    const index = activeSourceIndex.value;
+    const offsetX = getIndicatorOffset(getDockItems()[index]);
     if (offsetX === null) return;
+    const transform = `translateX(${offsetX}px)`;
 
-    indicatorStyle.value = { opacity: '0', transform: `translateX(${offsetX}px)`, transition: 'none' };
-
-    timer.setTimeout(() => {
-      indicatorStyle.value = {
-        opacity: '1',
-        transform: `translateX(${offsetX}px)`,
-      };
-    }, 50);
+    indicatorStyle.value = { opacity: '0', transform, transition: 'none' };
+    await nextTick();
+    if (write !== indicatorWrite) return;
+    // Commit the placement with no transition, or the fade would also slide
+    // the pill in from wherever it last was.
+    void activeIndicator.value?.offsetWidth;
+    indicatorStyle.value = {
+      opacity: '1',
+      transform,
+      ...(withItemEntrance && { transitionDelay: getDockItemDelay(index) }),
+    };
   });
 };
 
 const moveIndicatorTo = (index) => {
   if (!isVisible.value) return;
+  const write = ++indicatorWrite;
   nextTick(() => {
-    const items = getDockItems();
-    const targetItem = items[index];
-    const offsetX = getIndicatorOffset(targetItem);
+    if (write !== indicatorWrite) return;
+    const offsetX = getIndicatorOffset(getDockItems()[index]);
     if (offsetX === null) return;
     indicatorStyle.value = {
       opacity: '1',
@@ -514,7 +558,7 @@ const handleToggleClick = (event) => {
 // === LIFECYCLE ===
 watch(() => unifiedStore.systemState.source, (newSource) => {
   if (newSource === 'none') {
-    indicatorStyle.value.opacity = '0';
+    hideIndicator();
     timer.clear(hideTimeout);
     revealIfIdle();
   } else if (isVisible.value && indicatorStyle.value.opacity === '1') {
@@ -523,7 +567,7 @@ watch(() => unifiedStore.systemState.source, (newSource) => {
     if (newIndex !== -1) {
       moveIndicatorTo(newIndex);
     } else {
-      indicatorStyle.value.opacity = '0';
+      hideIndicator();
     }
     startHideTimer();
   } else {
@@ -538,12 +582,15 @@ watch(() => unifiedStore.systemState.source, (newSource) => {
 watch([allEnabledApps, isMobile, volumeShown],
   () => nextTick(updateDockMetrics));
 
-// Lyrics opening must never leave the dock lingering behind it — hideDock()
-// runs its normal fade/slide-away animation rather than an abrupt cut.
-watch(() => lyricsStore.isOpen, (open) => { if (open) hideDock(); });
-// Same for any modal: the dock's own actions hide it, but a modal opened from
-// elsewhere (a status card's CTA, a playlist modal) would leave it lingering.
-watch(anyModalOpen, (open) => { if (open) hideDock(); });
+// An overlay opening never leaves the dock lingering under it — the dock's own
+// actions hide it, but one opened from elsewhere (a status card's CTA, a
+// playlist modal, the volume panel from a remote) would not; hideDock() runs
+// its normal slide-away rather than an abrupt cut. With no source the dock
+// comes back once the last overlay has closed.
+watch(overlayOpen, (open) => {
+  if (open) hideDock();
+  else revealIfIdle();
+});
 
 onMounted(() => {
   drag.setupDragEvents();
@@ -551,8 +598,6 @@ onMounted(() => {
   if (registerDockControl) {
     registerDockControl(revealIfIdle);
   }
-
-  timer.setTimeout(() => showDragIndicator.value = true, 800);
 
   nextTick(updateDockMetrics);
   window.addEventListener('resize', updateDockMetrics);
@@ -798,6 +843,13 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
+/* No fill: the pill is what lies under it, blurred, under a veil of the
+   opposite tone — a partial invert pulls each channel toward its complement,
+   so a light backdrop darkens and a dark one lightens, and saturate gives back
+   the hue the invert drained. A backdrop at mid gray is the one tone the veil
+   cannot move off: the glass's lit rim outlines the pill there. The look sits
+   here, on the base rule, so it holds through the fade-out: .hidden is the one
+   state class, with nothing in the stylesheet's order to rely on. */
 .dock-indicator {
   position: fixed;
   bottom: calc(var(--space-03) - 2px + env(safe-area-inset-bottom, 0px) + var(--screen-inset));
@@ -807,9 +859,10 @@ onUnmounted(() => {
   height: var(--space-01);
   border-radius: var(--radius-full);
   z-index: 998;
-  opacity: 0;
-  pointer-events: none;
   cursor: pointer;
+  backdrop-filter: blur(calc(var(--blur-01) * 2)) invert(0.4) saturate(4);
+  -webkit-backdrop-filter: blur(calc(var(--blur-01) * 2)) invert(0.4) saturate(4);
+  box-shadow: inset 0 0 0 0.5px var(--color-shell-rim);
   transition: opacity var(--transition-normal), transform var(--transition-spring);
 }
 
@@ -821,19 +874,6 @@ onUnmounted(() => {
   position: absolute;
   inset: calc(var(--space-05) * -1) calc(var(--space-04) * -1);
   bottom: calc(var(--space-05) * -1 - var(--screen-inset));
-}
-
-/* No fill: the pill is what lies under it, blurred, under a veil of the
-   opposite tone — a partial invert pulls each channel toward its complement,
-   so a light backdrop darkens and a dark one lightens, and saturate gives back
-   the hue the invert drained. A backdrop at mid gray is the one tone the veil
-   cannot move off: the glass's lit rim outlines the pill there. */
-.dock-indicator.visible {
-  opacity: 1;
-  pointer-events: auto;
-  backdrop-filter: blur(calc(var(--blur-01) * 2)) invert(0.4) saturate(4);
-  -webkit-backdrop-filter: blur(calc(var(--blur-01) * 2)) invert(0.4) saturate(4);
-  box-shadow: inset 0 0 0 0.5px var(--color-shell-rim);
 }
 
 .dock-indicator.hidden {

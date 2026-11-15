@@ -100,6 +100,7 @@ clean run. Three verification passes recorded it as evidence before anyone notic
 | Warnings | `journalctl -u milo-backend --since -10min \| grep -E "ERROR:\|WARNING:"` shows nothing new | smoke |
 | Schema versions | No fail-loud banner in the journal (`SchemaVersionMismatch` → the unit restart-loops) | smoke |
 | Dock | Every source enabled in Settings > Dock appears, in the configured order; disabled ones absent | targeted |
+| Dock with nothing playing | With no source active, the dock opens by itself and stays: a tap on the logo or anywhere outside it leaves it up, and it never hides after 10 s. A swipe down hides it and shows the pill, and a tap anywhere then brings it back. Opening Settings or the Equalizer from the dock hides it, and closing them brings it back with no touch. With a source playing, a tap outside hides the dock as before | targeted |
 
 ## Shared player and state machine
 

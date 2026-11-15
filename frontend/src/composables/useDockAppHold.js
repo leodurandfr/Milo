@@ -37,13 +37,18 @@ export function useDockAppHold({
   const timer = useTimer();
   let holdTimer = null;
   let holdFired = false;
-  let lockedPointerType = null;
+  let lockedPointerId = null;
 
   const onAppHoldStart = (appId, event) => {
-    // Ignore conflicting pointer types (e.g. ghost mouse after touch)
-    if (lockedPointerType && lockedPointerType !== event.pointerType) return;
+    // One press at a time, owned by its pointer: a second finger (never the
+    // primary pointer while the first is down) neither arms a second timer nor,
+    // lifting, ends the first finger's hold. A primary pointer, or the same one
+    // pressing again, means no other is down: a lock still held belongs to a
+    // release that never arrived, so the press starts afresh.
+    if (lockedPointerId !== null && lockedPointerId !== event.pointerId && !event.isPrimary) return;
+    if (holdTimer) timer.clear(holdTimer);
 
-    lockedPointerType = event.pointerType;
+    lockedPointerId = event.pointerId;
     // Seed the shared start point so onDragMove measures travel from the real
     // press point (leaving it at {0,0} would cancel the hold on the first move).
     gestureStartPosition.value = { x: getEventX(event), y: getEventY(event) };
@@ -51,8 +56,9 @@ export function useDockAppHold({
     holdFired = false;
 
     holdTimer = timer.setTimeout(() => {
+      holdTimer = null;
       if (!gestureHasMoved.value
-        && lockedPointerType === event.pointerType
+        && lockedPointerId === event.pointerId
         && isActiveSource(appId)) {
         holdFired = true;
         onCloseActive();
@@ -61,9 +67,13 @@ export function useDockAppHold({
   };
 
   const onAppHoldEnd = (event) => {
-    if (event && lockedPointerType && event.pointerType !== lockedPointerType) return;
+    // Another finger lifting reaches here too, through the document's pointerup:
+    // a pointer this hold does not own (or no hold at all) leaves everything as
+    // it is, the gesture state it shares with the volume hold included. The
+    // dock calls this with no event to end the press whatever owns it.
+    if (event && event.pointerId !== lockedPointerId) return;
 
-    lockedPointerType = null;
+    lockedPointerId = null;
     if (holdTimer) {
       timer.clear(holdTimer);
       holdTimer = null;

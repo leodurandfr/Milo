@@ -17,20 +17,21 @@ import { useVolumeHold } from '@/composables/useVolumeHold';
 
 function mountHold() {
   const adjustVolume = vi.fn();
+  const gestureStartPosition = ref({ x: 0, y: 0 });
   let hold;
   mount(defineComponent({
     setup() {
       hold = useVolumeHold({
         adjustVolume,
         gestureHasMoved: ref(false),
-        gestureStartPosition: ref({ x: 0, y: 0 }),
+        gestureStartPosition,
         getEventX: (e) => e.clientX,
         getEventY: (e) => e.clientY,
       });
       return () => h('div');
     },
   }));
-  return { hold, adjustVolume };
+  return { hold, adjustVolume, gestureStartPosition };
 }
 
 const touch = (type, pointerId, isPrimary = pointerId === 1) => ({
@@ -137,5 +138,43 @@ describe('useVolumeHold', () => {
 
     expect(adjustVolume).toHaveBeenCalledTimes(callsAtEnd);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a press the browser takes back, or the pointer leaves, is no tap', () => {
+    const { hold, adjustVolume } = mountHold();
+
+    hold.onVolumeHoldStart(1, touch('pointerdown', 1));
+    vi.advanceTimersByTime(100);
+    hold.onVolumeHoldCancel(touch('pointercancel', 1));
+    hold.onVolumeHoldEnd(touch('pointerup', 1));
+    expect(adjustVolume).not.toHaveBeenCalled();
+
+    hold.onVolumeHoldStart(-1, touch('pointerdown', 2));
+    vi.advanceTimersByTime(100);
+    hold.onVolumeHoldCancel(touch('pointerleave', 2));
+    vi.advanceTimersByTime(1000);
+    expect(adjustVolume).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('another pointer\'s cancel leaves the press alone', () => {
+    const { hold, adjustVolume } = mountHold();
+
+    hold.onVolumeHoldStart(1, touch('pointerdown', 1));
+    vi.advanceTimersByTime(100);
+    hold.onVolumeHoldCancel(touch('pointercancel', 2));
+    hold.onVolumeHoldEnd(touch('pointerup', 1));
+
+    expect(adjustVolume).toHaveBeenCalledTimes(1);
+  });
+
+  it('a pointer that holds nothing leaves the gesture state it shares alone', () => {
+    const { hold, gestureStartPosition } = mountHold();
+    gestureStartPosition.value = { x: 5, y: 5 };
+
+    hold.onVolumeHoldEnd(touch('pointerup', 9));
+    hold.onVolumeHoldCancel(touch('pointercancel', 9));
+
+    expect(gestureStartPosition.value).toEqual({ x: 5, y: 5 });
   });
 });

@@ -9,8 +9,9 @@ import { useTimer } from '@/composables/useTimer';
  * Movement beyond MOVE_THRESHOLD cancels the hold to avoid conflicts
  * with drag gestures sharing the same pointer stream.
  *
- * A release ends the gesture; `cancel()` abandons it — the dock hiding or the
- * component leaving — and a press abandoned before its hold began is no tap.
+ * A release ends the gesture; `onVolumeHoldCancel()` (a pointercancel, the
+ * pointer leaving the button) and `cancel()` (the dock hiding, the component
+ * leaving) abandon it, and a press abandoned before its hold began is no tap.
  *
  * @param {Object} options
  * @param {Function} options.adjustVolume - (delta: number) => void
@@ -68,14 +69,23 @@ export function useVolumeHold({
   };
 
   const onVolumeHoldEnd = (event) => {
-    // Another finger lifting reaches here too, through the document's pointerup.
+    // Another finger lifting reaches here too, through the document's pointerup:
+    // a pointer this hold does not own (or no hold at all) leaves everything as
+    // it is, the gesture state it shares with the Dock's other holds included.
     // useDockDrag calls this with no event: that always ends the press.
-    if (event && lockedPointerId !== null && event.pointerId !== lockedPointerId) return;
+    if (event && event.pointerId !== lockedPointerId) return;
 
     // Tap: fire once on release if no hold action was taken and no movement
     if (!gestureHasMoved.value && !actionTaken && currentDelta !== 0) {
       adjustVolume(currentDelta);
     }
+    cancel();
+  };
+
+  // The press was abandoned, not released — the pointer left the button, or
+  // the browser took it for a scroll — so it ends with no tap.
+  const onVolumeHoldCancel = (event) => {
+    if (event && event.pointerId !== lockedPointerId) return;
     cancel();
   };
 
@@ -104,5 +114,5 @@ export function useVolumeHold({
 
   onUnmounted(cancel);
 
-  return { onVolumeHoldStart, onVolumeHoldEnd, cancel };
+  return { onVolumeHoldStart, onVolumeHoldEnd, onVolumeHoldCancel, cancel };
 }

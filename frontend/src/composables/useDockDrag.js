@@ -2,6 +2,15 @@ import { ref, onUnmounted } from 'vue';
 import { useTimer } from '@/composables/useTimer';
 import { markTouchRegion, holdScroll } from '@/utils/touchScroll';
 
+// === Event coordinate helpers ===
+// `??`, not `||`: 0 is a real coordinate (the screen's left or top edge), and a
+// TouchEvent has no clientX/clientY of its own to fall back on.
+export const getEventY = (e) => e.type.includes('touch') || e.pointerType === 'touch'
+  ? (e.touches?.[0]?.clientY ?? e.changedTouches?.[0]?.clientY ?? e.clientY) : e.clientY;
+
+export const getEventX = (e) => e.type.includes('touch') || e.pointerType === 'touch'
+  ? (e.touches?.[0]?.clientX ?? e.changedTouches?.[0]?.clientX ?? e.clientX) : e.clientX;
+
 /**
  * Dock drag/gesture composable — handles all pointer events for:
  * - Main dock show/hide via vertical swipe (velocity-adaptive threshold)
@@ -14,12 +23,14 @@ import { markTouchRegion, holdScroll } from '@/utils/touchScroll';
  * @param {import('vue').Ref<HTMLElement>} options.dock - dock inner element ref
  * @param {import('vue').Ref<HTMLElement>} options.dockContainer - dock container ref (for click-outside)
  * @param {import('vue').Ref<HTMLElement>} options.additionalAppsContainer - additional apps scroller ref (the panel's inner list, which is what scrolls)
- * @param {import('vue').Ref<boolean>} options.isVisible - dock visibility (read by click-outside guard)
+ * @param {import('vue').Ref<boolean>} options.isVisible - dock visibility (picks the swipe's direction)
  * @param {import('vue').Ref<boolean>} options.showAdditionalApps - additional panel visibility
  * @param {Function} options.onShow - called when swipe-up opens the dock
  * @param {Function} options.onHide - called when swipe-down closes the dock
+ * @param {Function} options.onTapOutside - called on every click outside the dock and the overlays, whether the dock is open or not
  * @param {Function} options.onCloseAdditionalApps - called when additional panel swiped down
- * @param {Function} options.onVolumeHoldEnd - called when movement exceeds threshold
+ * @param {Function} options.onVolumeHoldEnd - called when movement exceeds threshold, and on every pointerup
+ * @param {Function} options.onHoldCancel - called on every pointercancel: the browser took the pointer, so the press is abandoned
  * @param {Function} options.onResetHideTimer - called after drag-end to restart auto-hide
  */
 export function useDockDrag({
@@ -31,8 +42,10 @@ export function useDockDrag({
   showAdditionalApps,
   onShow,
   onHide,
+  onTapOutside,
   onCloseAdditionalApps,
   onVolumeHoldEnd,
+  onHoldCancel,
   onResetHideTimer,
 }) {
   const MOVE_THRESHOLD = 10;
@@ -50,8 +63,11 @@ export function useDockDrag({
   let dragActionTaken = false;
   let dragGraceTimeout = null;
   let startedInBand = false;
+  // Set once a drag has acted, so the click a mouse sends at the end of it is
+  // not read as a tap (with no source, a tap outside brings the dock back).
+  // Cleared by the next gesture's start, never by a clock: a drag held past
+  // any delay still ends in that click, and a touch swipe sends none at all.
   let suppressNextClick = false;
-  let suppressClickTimeout = null;
 
   // Additional-apps drag state
   let isDraggingAdditional = false;
@@ -60,13 +76,6 @@ export function useDockDrag({
   let additionalDragMoved = false;
 
   let unmarkBand = null;
-
-  // === Event coordinate helpers ===
-  const getEventY = (e) => e.type.includes('touch') || e.pointerType === 'touch'
-    ? (e.touches?.[0]?.clientY || e.changedTouches?.[0]?.clientY || e.clientY) : e.clientY;
-
-  const getEventX = (e) => e.type.includes('touch') || e.pointerType === 'touch'
-    ? (e.touches?.[0]?.clientX || e.changedTouches?.[0]?.clientX || e.clientX) : e.clientX;
 
   // === Gesture state ===
   const resetGestureState = () => {
@@ -111,7 +120,6 @@ export function useDockDrag({
     dragStartTime = Date.now();
     dragActionTaken = false;
     startedInBand = false;
-    suppressNextClick = false;
 
     if (dragGraceTimeout) {
       timer.clear(dragGraceTimeout);
@@ -143,6 +151,7 @@ export function useDockDrag({
   // tap flows through to whatever is underneath; only a touch starting in the
   // band, Dock hidden, has its scroll held until the finger lifts (holdScroll).
   const onDocumentDragStart = (e) => {
+    suppressNextClick = false;
     // Document-level detection sees through z-index stacking, so ignore gestures
     // over an open modal (z 5000, above the dock) — otherwise a swipe inside one
     // would open the dock behind it and hijack the modal's own scroll. Mirrors
@@ -238,8 +247,6 @@ export function useDockDrag({
       dragActionTaken = true;
 
       suppressNextClick = true;
-      if (suppressClickTimeout) timer.clear(suppressClickTimeout);
-      suppressClickTimeout = timer.setTimeout(() => { suppressNextClick = false; }, 400);
 
       if (deltaY > 0 && !isVisible.value) {
         onShow();
@@ -282,12 +289,11 @@ export function useDockDrag({
 
   // === Click-outside ===
   const onClickOutside = (event) => {
-    if (!isVisible.value ||
-      (dockContainer.value && dockContainer.value.contains(event.target)) ||
+    if ((dockContainer.value && dockContainer.value.contains(event.target)) ||
       event.target.closest('.modal-overlay, .modal-shell, .modal-scroller, .lyrics-view')) {
       return;
     }
-    onHide();
+    onTapOutside();
   };
 
   // === Lifecycle ===
@@ -310,7 +316,7 @@ export function useDockDrag({
     document.addEventListener('click', onDocumentClickCapture, true);
     document.addEventListener('click', onClickOutside);
     document.addEventListener('pointerup', onVolumeHoldEnd);
-    document.addEventListener('pointercancel', onVolumeHoldEnd);
+    document.addEventListener('pointercancel', onHoldCancel);
   };
 
   const removeDragEvents = () => {
@@ -325,7 +331,7 @@ export function useDockDrag({
     document.removeEventListener('click', onDocumentClickCapture, true);
     document.removeEventListener('click', onClickOutside);
     document.removeEventListener('pointerup', onVolumeHoldEnd);
-    document.removeEventListener('pointercancel', onVolumeHoldEnd);
+    document.removeEventListener('pointercancel', onHoldCancel);
     unmarkBand?.();
     unmarkBand = null;
   };
@@ -335,10 +341,6 @@ export function useDockDrag({
     if (dragGraceTimeout) {
       timer.clear(dragGraceTimeout);
       dragGraceTimeout = null;
-    }
-    if (suppressClickTimeout) {
-      timer.clear(suppressClickTimeout);
-      suppressClickTimeout = null;
     }
     resetGestureState();
   };

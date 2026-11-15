@@ -1,7 +1,9 @@
 <!-- frontend/src/components/volume/VolumeOverlay.vue -->
 <template>
-  <!-- `modal-overlay` is load-bearing: the dock refuses to reveal, and ignores
-       swipes, over any element carrying it (Dock.vue showDock, useDockDrag). -->
+  <!-- `modal-overlay` is load-bearing: the dock ignores swipes and taps over
+       any element carrying it (useDockDrag). Its refusal to reveal while the
+       panel is open reads the presence this panel reports (useModalPresence,
+       read by Dock.vue overlayOpen). -->
   <Transition name="volume-overlay" :duration="{ enter: 500, leave: 400 }">
     <div v-if="unifiedStore.volumePanelOpen" class="modal-overlay volume-overlay"
       @pointerdown.capture="onOverlayPointerdown" @click="backdrop.onClick">
@@ -13,8 +15,8 @@
         <button v-if="!passive" v-press class="volume-step glass-shell button-interactive-subtle"
           :aria-label="t('volumePanel.decrease')"
           @pointerdown="(e) => volumeHold.onVolumeHoldStart(stepDb(-1), e)"
-          @pointerup="volumeHold.onVolumeHoldEnd" @pointercancel="volumeHold.onVolumeHoldEnd"
-          @pointerleave="volumeHold.cancel" @click="onStepKeyboardClick($event, -1)">
+          @pointerup="volumeHold.onVolumeHoldEnd" @pointercancel="volumeHold.onVolumeHoldCancel"
+          @pointerleave="volumeHold.onVolumeHoldCancel" @click="onStepKeyboardClick($event, -1)">
           <SvgIcon name="minus" :size="48" />
         </button>
 
@@ -33,8 +35,8 @@
         <button v-if="!passive" v-press class="volume-step glass-shell button-interactive-subtle"
           :aria-label="t('volumePanel.increase')"
           @pointerdown="(e) => volumeHold.onVolumeHoldStart(stepDb(1), e)"
-          @pointerup="volumeHold.onVolumeHoldEnd" @pointercancel="volumeHold.onVolumeHoldEnd"
-          @pointerleave="volumeHold.cancel" @click="onStepKeyboardClick($event, 1)">
+          @pointerup="volumeHold.onVolumeHoldEnd" @pointercancel="volumeHold.onVolumeHoldCancel"
+          @pointerleave="volumeHold.onVolumeHoldCancel" @click="onStepKeyboardClick($event, 1)">
           <SvgIcon name="plus" :size="48" />
         </button>
       </div>
