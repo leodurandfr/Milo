@@ -293,6 +293,12 @@ function handleApply() {
 function onAudioChange(value) {
   config.value.audio_id = value;
   confirmReboot.value = false;
+  // Back on the saved card: its saved volume management, which isDirty does not
+  // compare — the category default would show a value hardware.json does not hold.
+  if (savedConfig.value && value === savedConfig.value.audio_id) {
+    config.value.volume_control = savedConfig.value.volume_control;
+    return;
+  }
   // Default volume_control based on card category (user can override via toggle)
   const card = audioCardOptions.value.find(c => c.value === value);
   config.value.volume_control = card?.category !== 'dac';
@@ -308,6 +314,9 @@ async function toggleVolumeControl() {
     });
     if (!result.ok) {
       config.value.volume_control = !config.value.volume_control; // Revert on failure
+    } else if (savedConfig.value) {
+      // Saved now: picking another card and this one again restores this value, not the one loaded.
+      savedConfig.value.volume_control = config.value.volume_control;
     }
   }
 }

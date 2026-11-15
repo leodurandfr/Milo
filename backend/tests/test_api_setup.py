@@ -336,18 +336,19 @@ class TestBecomeClientGuards:
         assert not marker.exists()
         services.systemd.power.assert_not_called()
 
-    @pytest.mark.parametrize("audio_id", ["none", "not-a-card"])
+    @pytest.mark.parametrize("audio_id", ["none", "not-a-card", ""])
     def test_a_device_with_no_usable_card_is_refused_before_anything_is_written(
         self, client, marker, services, audio_id
     ):
         """A satellite with `audio_id: none` has no overlay to apply and comes
-        back mute; the reboot would be spent for nothing.
+        back mute; the reboot would be spent for nothing. Refused by the rule
+        every request that configures a card shares.
         """
         response = client.post(
             "/api/setup/become-client", json={**ADOPT, "audio_id": audio_id}
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert not marker.exists()
         services.network.save_network.assert_not_awaited()
         services.systemd.power.assert_not_called()

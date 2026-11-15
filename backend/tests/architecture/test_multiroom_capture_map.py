@@ -170,6 +170,22 @@ def test_the_loopback_cards_are_named_and_never_numbered():
     assert ids <= addressed, f"snd-aloop creates {sorted(ids - addressed)}, which nothing reads"
 
 
+def test_the_docs_quote_the_module_options_pi_gen_writes():
+    """The guide to adding a source tells a developer to extend this line, so a
+    stale copy is the one they extend: `index=1,2` outlived its removal there,
+    the very option that makes a card's registration fail with -EBUSY."""
+    written = re.search(r"options snd-aloop [^\"\n]*", ALOOP.read_text(encoding="utf-8")).group(0)
+    quoted = {
+        path.relative_to(ROOT).as_posix(): line.strip()
+        for path in (ROOT / "docs").rglob("*.md")
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("options snd-aloop")
+    }
+    assert len(quoted) >= 2, f"found the module options quoted only in {sorted(quoted)}; the extractor is broken"
+    stale = {doc: line for doc, line in quoted.items() if line != written}
+    assert not stale, f"docs quote snd-aloop options other than pi-gen's `{written}`: {stale}"
+
+
 def test_the_provisioning_heredoc_is_the_capture_map():
     """A freshly flashed card starts with exactly the lines the backend would
     write, so its first boot rewrites nothing and restarts nothing."""

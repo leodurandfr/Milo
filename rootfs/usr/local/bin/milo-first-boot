@@ -21,16 +21,17 @@
 # A reset-setup marker deletes settings.json first, so detection runs again.
 #
 # Every boot, whatever the flag: a server undoes what an Imager customisation
-# changed (the first user's name, the default target), and the hostname is put
-# back to the role: the one the enabled units encode once setup completed, milo
-# before that when it names neither role.
+# changed (the first user's name, the default target, the Bluetooth name), and
+# the hostname is put back to the role: the one the enabled units encode once
+# setup completed, milo before that when it names neither role.
 #
 # Must be run as root (systemd service).
 
 set -euo pipefail
 
 MILO_DATA_DIR="/var/lib/milo"
-MILO_APP_DIR="/home/milo/milo"
+MILO_HOME="/home/milo"
+MILO_APP_DIR="$MILO_HOME/milo"
 PENDING_CLIENT_ROLE_FILE="$MILO_DATA_DIR/pending_client_role.json"
 RESET_SETUP_MARKER="$MILO_DATA_DIR/reset-setup"
 
@@ -78,12 +79,17 @@ role_hostname() {
     if client_role_enabled; then echo milo-client; else echo milo; fi
 }
 
+# The Imager repairs below are called with `|| true`, which turns errexit off
+# inside them: each checks every command that changes the system itself, logs a
+# refusal and returns 1, and the boot goes on.
+
 # Raspberry Pi Imager's customisation renames the image's first user (userconf),
 # taking the checkout every milo unit runs from out of /home/milo. Renamed back
 # the way userconf renamed it, never through userconf or cancel-rename, which
 # also set the console boot. Each step is conditional, so a repair cut halfway
-# resumes on the next boot. Server role only: a satellite's first user may be
-# milo-client, which this must never rename.
+# — usermod refuses an account that runs a process — resumes on the next boot.
+# Server role only: a satellite's first user may be milo-client, which this must
+# never rename.
 repair_first_user() {
     [[ ! -d "$MILO_APP_DIR" ]] || return 0
     local user group home f
@@ -98,25 +104,31 @@ repair_first_user() {
         log "WARNING: first user $user holds the checkout but an account milo exists — account not repaired"
         return 0
     fi
-    if [[ "$home" != /home/milo && -e /home/milo ]]; then
-        log "WARNING: first user $user holds the checkout but /home/milo exists — account not repaired"
+    if [[ "$home" != "$MILO_HOME" && -e "$MILO_HOME" ]]; then
+        log "WARNING: first user $user holds the checkout but $MILO_HOME exists — account not repaired"
         return 0
     fi
     if [[ "$user" != milo ]]; then
-        usermod -l milo "$user"
+        if ! usermod -l milo "$user"; then
+            log "WARNING: could not rename the first user $user to milo — retried next boot"
+            return 1
+        fi
         for f in /etc/subuid /etc/subgid /etc/sudoers.d/010_pi-nopasswd; do
-            if [[ -f "$f" ]]; then
-                sed -i "s/^$user\([: ]\)/milo\1/" "$f"
+            if [[ -f "$f" ]] && ! sed -i "s/^$user\([: ]\)/milo\1/" "$f"; then
+                log "WARNING: could not rename $user to milo in $f"
             fi
         done
     fi
-    if [[ "$home" != /home/milo ]]; then
-        usermod -m -d /home/milo milo
+    if [[ "$home" != "$MILO_HOME" ]] && ! usermod -m -d "$MILO_HOME" milo; then
+        log "WARNING: could not move milo's home from $home to $MILO_HOME — retried next boot"
+        return 1
     fi
-    if [[ -n "$group" && "$group" != milo ]] && ! getent group milo >/dev/null; then
-        groupmod -n milo "$group"
+    if [[ -n "$group" && "$group" != milo ]] && ! getent group milo >/dev/null \
+        && ! groupmod -n milo "$group"; then
+        log "WARNING: could not rename the first group $group to milo — retried next boot"
+        return 1
     fi
-    log "First user $user renamed back to milo, home /home/milo"
+    log "First user $user renamed back to milo, home $MILO_HOME"
 }
 
 # cancel-rename, which userconf ends with, sets the console boot on an image
@@ -124,9 +136,35 @@ repair_first_user() {
 # a satellite runs either target.
 repair_default_target() {
     [[ "$(systemctl get-default)" != graphical.target ]] || return 0
-    systemctl set-default graphical.target
-    systemctl --no-block start graphical.target
+    if ! systemctl set-default graphical.target; then
+        log "WARNING: could not set the default target back to graphical.target — retried next boot"
+        return 1
+    fi
+    if ! systemctl --no-block start graphical.target; then
+        log "WARNING: graphical.target set as default but not started — the kiosk starts at the next boot"
+        return 1
+    fi
     log "Default target set back to graphical.target"
+}
+
+# The customisation names the unit through raspi-config, whose `hostnamectl
+# hostname` clears the pretty hostname: the name BlueZ advertises. Put back from
+# the checkout, the only copy left once it is cleared, through hostnamed, which
+# tells bluetoothd. Server role only, after repair_first_user, which puts the
+# checkout back where this reads it.
+repair_bluetooth_name() {
+    local name
+    name=$(sed -n 's/^PRETTY_HOSTNAME=//p' "$MILO_APP_DIR/rootfs/etc/machine-info" 2>/dev/null) || true
+    if [[ -z "$name" ]]; then
+        log "WARNING: no PRETTY_HOSTNAME in $MILO_APP_DIR/rootfs/etc/machine-info — Bluetooth name not repaired"
+        return 0
+    fi
+    [[ "$(hostnamectl --pretty 2>/dev/null)" != "$name" ]] || return 0
+    if ! hostnamectl --pretty hostname "$name"; then
+        log "WARNING: could not set the Bluetooth name back to $name — retried next boot"
+        return 1
+    fi
+    log "Bluetooth name set back to $name"
 }
 
 # config.txt keeps no managed block of the role this unit leaves ($1): no apply
@@ -785,10 +823,12 @@ configure_server() {
 # =============================================================================
 
 # Every boot, before the units running as milo (all ordered after this one):
-# each repair is a no-op once done.
+# each repair is a no-op once done. A refusal only warns: ending here would skip
+# the hostname, the reset marker and role detection on every boot.
 if ! client_role_enabled; then
-    repair_first_user
-    repair_default_target
+    repair_first_user || true
+    repair_default_target || true
+    repair_bluetooth_name || true
 fi
 
 # Requested reset (POST /api/system/reset-setup): drop the settings file that

@@ -74,9 +74,14 @@ class BecomeClientRequest(BaseModel):
     """Wifi adoption payload pushed by a server to a fresh device."""
     wifi_ssid: str = Field(..., min_length=1, description="Target WiFi SSID the device must join after reboot")
     wifi_password: str = Field(default="", description="Target WiFi password (empty for open networks)")
-    audio_id: str = Field(..., min_length=1, description="Audio card registry ID")
+    audio_id: str = Field(..., description="Audio card registry ID")
     speaker_name: str = Field(..., min_length=1, max_length=64, description="Display name for the speaker")
     speaker_type: SpeakerType = Field(..., description="Speaker physical type")
+
+    @field_validator("audio_id")
+    @classmethod
+    def validate_audio_id(cls, v: str) -> str:
+        return validate_configurable_audio_id(v)
 
 
 def _atomic_write_json(path, data: dict) -> None:
@@ -258,14 +263,7 @@ def create_setup_router(
         On any failure before the reboot is scheduled, the marker file is
         removed so the device stays a fresh server (retry is safe).
         """
-        from backend.hardware.registry import AUDIO_CARDS, audio_config
-
-        if payload.audio_id not in AUDIO_CARDS or payload.audio_id == "none":
-            valid = [k for k in AUDIO_CARDS if k != "none"]
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid audio_id '{payload.audio_id}'. Must be one of: {', '.join(valid)}",
-            )
+        from backend.hardware.registry import audio_config
 
         async with _become_client_lock:
             if not FIRST_BOOT_HELPER.is_file():

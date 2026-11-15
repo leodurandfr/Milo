@@ -116,8 +116,11 @@ def alsa_card_ids(cards: str) -> list[str]:
 
 def missing_card_label(audio_id: str, card_ids: list[str] | None) -> str | None:
     """The configured card's label when ALSA lists no HAT, for the server and
-    for each satellite alike. None when there is nothing to judge: an id no
-    card answers to (none configured yet), or no card list at all."""
+    for each satellite alike. None when there is nothing to judge: no card
+    list at all, or an id the registry no longer lists. `none` is judged like
+    any card — on the server it is a unit without its HAT — so a caller with no
+    card configured yet (an empty id, a satellite's heartbeat with
+    `hardware_configured` false) does not ask."""
     card = AUDIO_CARDS.get(audio_id)
     if card is None or card_ids is None or OUTPUT_CARD in card_ids:
         return None

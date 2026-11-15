@@ -358,7 +358,7 @@ pcm.milo_mysource_direct {
 }
 
 # Multiroom mode: via Snapcast loopback
-# Card 1 `Loopback` is FULL: slot 0 = DSP input, slots 1..7 = the seven original
+# The `Loopback` card is FULL: slot 0 = DSP input, slots 1..7 = the seven original
 # sources. snd-aloop caps at 8 substreams/card (kernel limit), so the others live
 # on a *second* loopback card, `LoopbackDLNA` — and that card is NOT full: it has 8
 # subdevices (0..7) and only 3 are taken (1=Qobuz, 2=Music Library, 3=Tidal, see
@@ -384,9 +384,9 @@ pcm.milo_mysource_multiroom {
 
 Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. The snd-aloop module options are written in exactly one place, `pi-gen/stage-milo/02-install-milo/01-run.sh` (`/etc/modprobe.d/snd-aloop.conf`), which today declares two cards:
 ```
-options snd-aloop index=1,2 enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
+options snd-aloop enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
 ```
-A third card extends each list by one entry.
+A third card extends each list by one entry. Never add `index=`: every consumer addresses a card by its id, and an index another card already holds makes snd-aloop's registration of that card fail with `-EBUSY`, silencing every stream on it.
 
 Note: CamillaDSP is always in the audio path for volume control. DSP effects are toggled within CamillaDSP.
 

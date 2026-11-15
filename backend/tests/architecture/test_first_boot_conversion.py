@@ -11,7 +11,12 @@ Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on
 an empty surface.
 """
+import os
 import re
+import shlex
+import subprocess
+
+import pytest
 
 from backend.tests.architecture.test_helper_deployment import REPO_ROOT, _shell_function, _uncommented
 
@@ -266,31 +271,45 @@ def test_every_role_change_clears_the_config_txt_blocks_of_the_role_left():
         assert calls, f"{entry} never clears the {leaving} role's blocks from config.txt"
 
 
-HOSTNAMECTL = re.compile(r"^\s*hostnamectl\b(.*)$", re.MULTILINE)
+# A write, wherever it sits on its line (`if ! hostnamectl …` included): the
+# flags, then `hostname NAME`. A bare `hostnamectl --pretty` is a read.
+HOSTNAME_WRITE = re.compile(r"\bhostnamectl((?:\s+--[\w-]+)*)\s+(?:set-)?hostname\s+[\"$\w]")
+BLUETOOTH_NAME_REPAIR = "repair_bluetooth_name"
 
 
 def test_the_role_hostname_never_rewrites_the_bluetooth_name():
-    """Every hostname write leaves the pretty hostname alone.
+    """Every hostname write leaves the pretty hostname alone, but the one that
+    puts it back.
 
     The pretty hostname is the name the unit advertises over Bluetooth
     (`PRETTY_HOSTNAME` in /etc/machine-info). A `hostnamectl hostname` naming
     neither `--static` nor `--transient` sets all three, so a satellite that
     reverted to a server came back calling itself "milo" to every phone. Fails
-    when a call sets all three, or the pretty one, or when /etc/hostname is
-    written behind hostnamed's back.
+    when a role write sets all three, or the pretty one, when /etc/hostname is
+    written behind hostnamed's back, or when the repair of a name an Imager
+    customisation cleared writes anything but the pretty one, or a value other
+    than the checkout's machine-info.
     """
-    code = _uncommented(FIRST_BOOT.read_text())
-    calls = HOSTNAMECTL.findall(code)
-    assert calls, "could not find a hostnamectl call in milo-first-boot; the extractor is broken"
-    for args in calls:
-        flags = set(args.split())
+    text = FIRST_BOOT.read_text()
+    code = _uncommented(text)
+    repair = _functions(text)[BLUETOOTH_NAME_REPAIR]
+    writes, restores = HOSTNAME_WRITE.findall(code), HOSTNAME_WRITE.findall(repair)
+    assert len(writes) >= 2 and restores, (
+        f"found hostnamectl writes {writes}, {restores} in {BLUETOOTH_NAME_REPAIR}; the extractor is broken"
+    )
+    for flags in restores:
+        assert flags.split() == ["--pretty"], f"{BLUETOOTH_NAME_REPAIR} runs `hostnamectl{flags} hostname`"
+        writes.remove(flags)
+    assert "rootfs/etc/machine-info" in repair, f"{BLUETOOTH_NAME_REPAIR} no longer reads the checkout's name"
+    for flags in writes:
+        flags = set(flags.split())
         assert flags & {"--static", "--transient"} and "--pretty" not in flags, (
-            f"`hostnamectl{args}` rewrites the pretty hostname, which is the Bluetooth name"
+            f"`hostnamectl {' '.join(sorted(flags))} hostname` rewrites the pretty hostname, which is the Bluetooth name"
         )
     assert not re.search(r">\s*/etc/hostname\b", code), "milo-first-boot writes /etc/hostname directly"
 
 
-SERVER_ONLY_REPAIRS = ("repair_first_user", "repair_default_target")
+SERVER_ONLY_REPAIRS = ("repair_first_user", "repair_default_target", BLUETOOTH_NAME_REPAIR)
 ROLE_GUARD = re.compile(r"^if ! client_role_enabled; then\n(.*?)^fi$", re.MULTILINE | re.DOTALL)
 
 
@@ -299,9 +318,11 @@ def test_the_imager_repairs_never_run_on_a_satellite():
 
     A satellite's first user may legitimately be milo-client (a unit whose
     image created it first), which the account repair would rename to milo
-    under the running app, and a satellite may boot to multi-user.target. Both
+    under the running app, and a satellite may boot to multi-user.target. The
     repairs must therefore sit under the guard on the client unit, and that
-    unit must be the one the conversion enables and the revert disables.
+    unit must be the one the conversion enables and the revert disables. The
+    Bluetooth name is read from the checkout, so it is repaired after the
+    account that puts the checkout back.
     """
     text = FIRST_BOOT.read_text()
     functions = _functions(text)
@@ -316,6 +337,9 @@ def test_the_imager_repairs_never_run_on_a_satellite():
         assert name in guarded and not re.search(rf"\b{name}\b", outside), (
             f"{name} runs outside `if ! client_role_enabled`, so a satellite reaches it too"
         )
+    assert guarded.index("repair_first_user") < guarded.index(BLUETOOTH_NAME_REPAIR), (
+        f"{BLUETOOTH_NAME_REPAIR} runs before repair_first_user, which puts back the checkout it reads"
+    )
 
     unit = re.search(r"is-enabled (\S+)\.service", functions["client_role_enabled"])
     assert unit, "client_role_enabled no longer reads a unit's enablement"
@@ -327,6 +351,72 @@ def test_the_imager_repairs_never_run_on_a_satellite():
         assert unit.group(1) in listed.group(1).split(), (
             f"client_role_enabled reads {unit.group(1)}, which {entry} does not {verb}"
         )
+
+
+# Each refuses what a repair asks of it; `getent` answers as on a card whose
+# customisation renamed the first user to pi, home and checkout included.
+_REFUSING = {
+    "getent": 'case "$1 $2" in "passwd 1000") echo "pi:x:1000:1000::$CARD_HOME/pi:/bin/bash";;'
+              ' "group 1000") echo "pi:x:1000:";; *) exit 2;; esac',
+    "usermod": 'echo "usermod: user pi is currently used by process 812" >&2; exit 8',
+    "groupmod": "exit 10",
+    "systemctl": 'case "$1" in get-default) echo multi-user.target;; *) exit 1;; esac',
+    "hostnamectl": '[ "$*" = --pretty ] || exit 1',
+}
+
+
+@pytest.mark.parametrize("checkout_in_place, refusal", [
+    (False, "could not rename the first user pi to milo"),
+    (True, "could not set the Bluetooth name back"),
+])
+def test_a_refused_imager_repair_never_ends_the_boot(tmp_path, checkout_in_place, refusal):
+    """A repair the system refuses is logged, and the boot goes on.
+
+    usermod refuses an account that runs a process (an SSH login the
+    customisation enabled, a lingering user manager). Under the script's
+    `set -euo pipefail` that refusal ended milo-first-boot on every boot,
+    before the hostname, the reset marker and role detection ever ran, and a
+    server whose account is not named milo starts none of its units. Runs the
+    script's own repairs and main guard against commands that refuse.
+    """
+    text = FIRST_BOOT.read_text()
+    strict = re.search(r"^set -euo pipefail$", text, re.MULTILINE)
+    log = re.search(r"^log\(\) \{.*\}$", text, re.MULTILINE)
+    guard = ROLE_GUARD.search(_uncommented(text[text.rindex("\n}\n"):]))
+    functions = {name: _shell_function(text, name) for name in ("client_role_enabled", *SERVER_ONLY_REPAIRS)}
+    assert strict and log and guard and all(functions.values()), (
+        "could not read milo-first-boot's strict mode, log, role guard and repairs; the extractor is broken"
+    )
+
+    card = tmp_path / "home"
+    (card / "pi" / "milo").mkdir(parents=True)
+    if checkout_in_place:
+        machine_info = card / "milo" / "milo" / "rootfs" / "etc" / "machine-info"
+        machine_info.parent.mkdir(parents=True)
+        machine_info.write_text((REPO_ROOT / "rootfs" / "etc" / "machine-info").read_text())
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    for name, body in _REFUSING.items():
+        (stubs / name).write_text(f"#!/bin/bash\n{body}\n")
+        (stubs / name).chmod(0o755)
+
+    script = "\n".join([
+        strict.group(0),
+        f"MILO_HOME={shlex.quote(str(card / 'milo'))}",
+        'MILO_APP_DIR="$MILO_HOME/milo"',
+        log.group(0),
+        *(f"{name}() {{\n{body}}}" for name, body in functions.items()),
+        guard.group(0),
+        "echo 'boot went on'",
+    ])
+    env = {**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}", "CARD_HOME": str(card)}
+    result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, timeout=30)
+
+    assert result.returncode == 0 and "boot went on" in result.stdout, (
+        f"a refused repair ended milo-first-boot (rc={result.returncode}):\n{result.stdout}{result.stderr}"
+    )
+    assert refusal in result.stdout, f"the refusal was not logged:\n{result.stdout}"
+    assert "could not set the default target back" in result.stdout, f"the refusal was not logged:\n{result.stdout}"
 
 
 SYSTEM_DIR = REPO_ROOT / "system"

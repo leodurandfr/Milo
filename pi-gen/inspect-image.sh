@@ -305,10 +305,14 @@ image_check "netplan.io still installed" \
     "dpkg-query --admindir='${ROOT%/}/var/lib/dpkg' -W -f='\${db:Status-Abbrev}' netplan.io | grep -q '^ii'"
 
 # The Bluetooth name. `hostnamectl hostname`, which raspi-config's hostname
-# setter calls, sets the pretty hostname too, so a rename clears it. Nothing on
-# the unit changes it on purpose, so it is checked everywhere.
-check "machine-info matches the repo (the Bluetooth name)" \
-      "cmp -s '$REPO/rootfs/etc/machine-info' '${ROOT%/}/etc/machine-info'"
+# setter (and so an Imager customisation) calls, sets the pretty hostname too,
+# so a rename clears it; milo-first-boot puts it back on a server through
+# hostnamed, which quotes a value holding a space. Nothing on the unit changes
+# it on purpose, so it is checked everywhere, by value.
+pretty_hostname() { sed -n 's/^PRETTY_HOSTNAME=//p' "$1" | sed 's/^"\(.*\)"$/\1/'; }
+BLUETOOTH_NAME=$(pretty_hostname "$REPO/rootfs/etc/machine-info")
+check "machine-info names the repo's Bluetooth name ($BLUETOOTH_NAME)" \
+      "[ -n \"\$BLUETOOTH_NAME\" ] && [ \"\$(pretty_hostname '${ROOT%/}/etc/machine-info')\" = \"\$BLUETOOTH_NAME\" ]"
 
 # --------------------------------------------------------------------------
 section "Unit files match the repo"
