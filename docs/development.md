@@ -1098,14 +1098,23 @@ the backend restart once into it (`was not put back before this start`).
 
 What only a unit can show — systemd counting starts, a start that times out, the
 real checkout going back, the rollback's `sudo` — needs no broken release on
-GitHub: the guard acts on whatever the journal names. On a test unit nobody is
-listening to, running a release that carries the guard, with a clean tree and
-nothing playing:
+GitHub: the guard acts on whatever the journal names. On a unit nobody is
+listening to, with a clean tree and nothing playing. Clean means committed: the
+rollback runs `git checkout --force` and `git clean -fd`, so uncommitted work in
+the checkout — another session's included — is lost. A development tree works
+too (the guard never reads a tag); its `origin_tag` is then only the name the
+banner shows.
 
 ```bash
 cd ~/milo
+branch=$(git rev-parse --abbrev-ref HEAD)
 origin=$(git rev-parse HEAD)
-origin_tag=$(git describe --tags --exact-match)   # must name the release; stop if it fails
+origin_tag=$(git describe --tags)
+# What a previous update kept aside. The updater empties this when it opens
+# its journal; a journal written by hand does not, and the guard puts back any
+# copy it finds there (measured: an old release's frontend left by the updater
+# before the guard came back in place of the live one).
+rm -rf /var/lib/milo/backups/milo-app/{venv,venv.partial,dist,data,discard}
 git checkout --detach
 # Break the tree the way the check asks for (verification checklist,
 # "Settings, updates, system"), then commit it. Never push it.
@@ -1119,8 +1128,15 @@ with open("/var/lib/milo/app-update/journal.json", "w") as f:
                "target_commit": target, "step": "rebooting", "failure": None,
                "venv_kept": False}, f)
 EOF
-sudo systemctl restart milo-backend
+sudo systemctl restart --no-block milo-backend
+# Afterwards: the guard checks the origin out by hash, so HEAD is left detached.
+git checkout "$branch"
 ```
+
+`--no-block`, because the restart's own start never succeeds: a crash returns at
+once, a hang only after `TimeoutStartSec`. Measured on the server (2026-11-16): a
+crash and a missing module were put back at the third start, 26-28 s after the
+restart; a hang after two timed-out starts, 6 min 47 s.
 
 That journal is what the updater leaves at its reboot, minus the copies it keeps,
 so the guard reports no data snapshot to put back. And no client saw an update
