@@ -938,9 +938,9 @@
       "factoryPassword": "Milō ha ancora la password di fabbrica."
     },
     "password": {
-      "title": "Password del dispositivo",
+      "title": "Password SSH",
       "change": "Cambia password",
-      "description": "Usata per SSH e per i comandi di amministrazione sull'apparecchio stesso. Tutti i Milō escono di fabbrica con la stessa password.",
+      "description": "La password SSH deve contenere almeno {n} caratteri.",
       "newPlaceholder": "Nuova password",
       "confirmPlaceholder": "Conferma password",
       "save": "Salva",

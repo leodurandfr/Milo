@@ -938,9 +938,9 @@
       "factoryPassword": "Milō 仍在使用出厂密码。"
     },
     "password": {
-      "title": "设备密码",
+      "title": "SSH 密码",
       "change": "更改密码",
-      "description": "用于 SSH 以及在设备上执行管理命令。所有 Milō 出厂时使用相同的默认密码。",
+      "description": "SSH 密码至少需要 {n} 个字符。",
       "newPlaceholder": "新密码",
       "confirmPlaceholder": "确认密码",
       "save": "保存",

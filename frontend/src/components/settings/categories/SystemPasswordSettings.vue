@@ -5,7 +5,7 @@
      mounts again, and that read waits for a save still in flight. -->
 <template>
   <SectionStack>
-    <SectionCard :description="t('system.password.description')">
+    <SectionCard :description="t('system.password.description', { n: PASSWORD_MIN_LENGTH })">
       <InputText v-model="newPassword" type="password" :maxlength="128"
         :placeholder="t('system.password.newPlaceholder')" />
       <InputText v-model="confirmPassword" type="password" :maxlength="128"
@@ -51,8 +51,11 @@ const savingPassword = ref(false);
 const passwordSaved = ref(false);
 const passwordError = ref(null);
 
+// Enabled as soon as both fields hold something: the length and the match are
+// told by savePassword, since a button greyed out for a rule nothing on screen
+// states reads as broken.
 const canSavePassword = computed(() =>
-  newPassword.value.length >= PASSWORD_MIN_LENGTH && confirmPassword.value.length > 0
+  newPassword.value.length > 0 && confirmPassword.value.length > 0
 );
 
 async function savePassword() {
