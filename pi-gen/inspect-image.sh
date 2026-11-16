@@ -376,6 +376,10 @@ check "bluealsa stores under /var/lib/bluealsa" \
       "strings -a '${ROOT%/}/usr/bin/bluealsa' | grep -qx /var/lib/bluealsa"
 check "bluealsa has no /usr/var path" \
       "command -v strings && [ -f '${ROOT%/}/usr/bin/bluealsa' ] && ! strings -a '${ROOT%/}/usr/bin/bluealsa' | grep -q /usr/var"
+# fdk-aac's license is GPL-incompatible and bluealsa links libbluetooth (GPL),
+# so a bluealsa built with AAC is not redistributable.
+check "no fdk-aac in the image (bluealsa built without AAC)" \
+      "[ -f '${ROOT%/}/usr/bin/bluealsa' ] && ! compgen -G '${ROOT%/}/usr/lib/*/libfdk-aac.so*'"
 check "ALSA only — no pipewire" "! [ -x '${ROOT%/}/usr/bin/pipewire' ]"
 check "ALSA only — no pulseaudio" "! [ -x '${ROOT%/}/usr/bin/pulseaudio' ]"
 

@@ -245,10 +245,14 @@ Spotify app, and guests join the way the app offers.
   BlueALSA never sees a title — asking it for one is a category error
 
 **Codecs (sink side):**
-- Built with `--enable-aac --enable-aptx --enable-aptx-hd --with-libfreeaptx`.
-  The decoder set is what the *sender* picks from: an Apple device chooses AAC
-  whenever the sink offers it and silently falls back to SBC otherwise, which is
-  the single biggest audio-quality lever on this path
+- Built with `--enable-aptx --enable-aptx-hd --with-libfreeaptx`: SBC, aptX and
+  aptX HD. The decoder set is what the *sender* picks from, so an Apple device,
+  which offers only AAC and SBC, streams SBC
+- AAC is deliberately absent: its only decoder, `fdk-aac`, carries a license
+  incompatible with the GPL (Debian ships it in `non-free`), and `bluealsa` links
+  `libbluetooth`, which is GPL and mandatory — so a `bluealsa` built with AAC
+  cannot be redistributed in the image. `pi-gen/inspect-image.sh` fails an image
+  that carries `libfdk-aac`
 - LDAC is deliberately absent: decoding needs `ldacBT-dec`, which Debian does
   not package (only the encoder), so enabling it would advertise LDAC in the
   source role Milō never uses

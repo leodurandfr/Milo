@@ -41,7 +41,6 @@ libbluetooth-dev
 libdbus-1-dev
 libglib2.0-dev
 libsbc-dev
-libfdk-aac-dev
 libfreeaptx-dev
 bluez
 bluez-tools
