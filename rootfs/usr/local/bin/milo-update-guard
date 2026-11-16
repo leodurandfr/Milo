@@ -1,0 +1,640 @@
+#!/usr/bin/python3 -I
+"""milo-update-guard — the trial of a Milō app update, and its rollback.
+
+A Milō update is installed by the release that is leaving
+(`UpdateService._update_milo_app`) and judged by the one that arrives. The
+leaving release writes a journal before its first change to the checkout and
+moves it forward after each step; this script reads it before every start of
+milo-backend.service (`ExecStartPre=-`) and is the only implementation of the
+rollback. The names it reads are frozen and restated below from
+backend/core/updates/milo_journal.py, which documents the protocol.
+
+Runs as milo, never through sudo (git as root trips safe.directory and leaves
+root-owned files in the checkout), with the system python and the standard
+library alone: it must work while the venv it may have to put back is the
+broken part.
+
+  start            ExecStartPre=- of milo-backend.service, every start. No
+                   journal: nothing. A journal whose HEAD is neither of its two
+                   commits: closed, the tree left as it is. An install that never
+                   reached its reboot, or a failure the updater recorded: the
+                   previous release is put back now. The trial (step
+                   "rebooting"): this start is counted, and the one that brings
+                   the count to MAX_ATTEMPTS puts the previous release back
+                   before the app runs, as does a start that cannot be counted.
+                   Committed: nothing, the backend finishes it.
+  restore [detail] The same rollback, synchronous.
+  commit           The arriving release held: the journal moves to "committed",
+                   then what the update kept aside is dropped.
+
+The rollback runs RESTORE_STEPS in order, each idempotent, under a marker
+written before its first change, so a restore cut by a power loss or by
+TimeoutStartSec is resumed by the next start. It never loops: a step that fails
+or a restore cut MAX_ATTEMPTS times ends as rollback_failed, the journal closed,
+and the unit then runs whatever starts.
+"""
+import contextlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# Held equal to backend/core/updates/milo_journal.py by
+# backend/tests/architecture/test_server_update_trial.py: the updater of one
+# release writes what the guard of the next reads.
+STATE_DIR = "/var/lib/milo/app-update"
+JOURNAL_NAME = "journal.json"
+ATTEMPTS_NAME = "attempts"
+LAST_UPDATE_NAME = "last-update.json"
+ROLLING_BACK_NAME = "rolling-back.json"
+BACKUP_DIR = "/var/lib/milo/backups/milo-app"
+KEPT_VENV_NAME = "venv"
+KEPT_VENV_PARTIAL_NAME = "venv.partial"
+KEPT_DIST_NAME = "dist"
+DATA_SNAPSHOT_NAME = "data"
+DISCARD_NAME = "discard"
+DATA_MANIFEST_NAME = "manifest.json"
+KEY_DATA_FILES = "files"
+KEY_DATA_PATH = "path"
+KEY_DATA_COPY = "copy"
+KEY_ORIGIN_COMMIT = "origin_commit"
+KEY_ORIGIN_TAG = "origin_tag"
+KEY_TARGET_TAG = "target_tag"
+KEY_TARGET_COMMIT = "target_commit"
+KEY_STEP = "step"
+KEY_FAILURE = "failure"
+STEPS = ("started", "checked_out", "installed", "synced", "swapped", "rebooting", "committed")
+TRIAL_STEP = "rebooting"
+COMMITTED_STEP = "committed"
+KEY_FROM = "from"
+KEY_TO = "to"
+KEY_OUTCOME = "outcome"
+KEY_DETAIL = "detail"
+OUTCOMES = ("committed", "rolled_back", "rollback_failed")
+MAX_ATTEMPTS = 3
+RESTORE_STEPS = ("checkout", "clean", "venv", "dist", "data", "system_files")
+
+# The checkout milo-backend.service runs (its WorkingDirectory), and the helper
+# that installs a checkout's system files, through the backend's existing grant.
+REPO_DIR = "/home/milo/milo"
+DEPLOY_UPDATE = "/usr/local/bin/milo-deploy-update"
+UNIT = "milo-backend.service"
+
+_REPO = Path(os.environ.get("MILO_UPDATE_REPO_DIR", REPO_DIR))
+_STATE = Path(os.environ.get("MILO_UPDATE_STATE_DIR", STATE_DIR))
+_BACKUP = Path(os.environ.get("MILO_UPDATE_BACKUP_DIR", BACKUP_DIR))
+_JOURNALCTL = os.environ.get("MILO_UPDATE_JOURNALCTL", "journalctl")
+
+# Only these, and only while a journal is open: a checkout cut by a power loss
+# leaves its lock behind, and git then refuses every later checkout. Restated
+# from milo_journal.py like the names above: the updater removes the same ones
+# before its fetch.
+GIT_LOCKS = ("index.lock", "HEAD.lock", "packed-refs.lock")
+GIT_TIMEOUT_S = 120
+DEPLOY_TIMEOUT_S = 120
+DETAIL_MAX = 500
+
+# What a Python failure ends on ("ModuleNotFoundError: No module named 'x'"),
+# preferred over any other line that merely mentions an error.
+EXCEPTION_RE = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt)\b(?::.*)?$")
+# What systemd says of a start that left no exception behind (a timeout before
+# READY=1, a signal): its result names the cause, where "Failed to start …",
+# printed after it, names only the unit.
+SYSTEMD_RESULT_RE = re.compile(r"Failed with result '|start operation timed out")
+ERRORISH_RE = re.compile(r"\b(?:ERROR|CRITICAL|Error|error|Failed|failed|Traceback)\b")
+PROG = "milo-update-guard"
+
+
+class StepFailed(Exception):
+    """A restore step that could not do its part; the message says why."""
+
+
+def _say(message: str) -> None:
+    print(f"{PROG}: {message}", file=sys.stderr, flush=True)
+
+
+def _error(message: str) -> None:
+    # stderr reaches the journal at priority 6 whatever it says, so the level
+    # lives in the text, where `ERROR:` greps find it.
+    print(f"ERROR: {PROG}: {message}", file=sys.stderr, flush=True)
+
+
+def _state(name: str) -> Path:
+    return _STATE / name
+
+
+def _fsync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    _fsync_dir(path.parent)
+
+
+def _write_json(path: Path, value: dict) -> None:
+    _write_atomic(path, json.dumps(value) + "\n")
+
+
+def _read_json(path: Path) -> dict | None:
+    """None when the file is absent; ValueError when it is not a JSON object."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    value = json.loads(text)
+    if not isinstance(value, dict):
+        raise ValueError(f"{path.name} holds {type(value).__name__}, not an object")
+    return value
+
+
+def _last_line(text: str) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
+# --------------------------------------------------------------------------- #
+# The journal.
+# --------------------------------------------------------------------------- #
+
+def _read_journal() -> dict | None:
+    journal = _read_json(_state(JOURNAL_NAME))
+    if journal is None:
+        return None
+    for key in (KEY_ORIGIN_COMMIT, KEY_TARGET_COMMIT, KEY_STEP):
+        if not isinstance(journal.get(key), str) or not journal[key]:
+            raise ValueError(f"it names no {key}")
+    return journal
+
+
+def _attempts() -> int:
+    try:
+        return int(_state(ATTEMPTS_NAME).read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
+        return 0
+
+
+def _read_marker() -> dict | None:
+    try:
+        marker = _read_json(_state(ROLLING_BACK_NAME))
+    except (OSError, ValueError) as e:
+        # Only ever written atomically, so this is a damaged card: start over,
+        # the steps are idempotent.
+        _error(f"rollback marker unreadable, the rollback starts over: {type(e).__name__}: {e}")
+        return None
+    if marker is None:
+        return None
+    if not isinstance(marker.get("runs"), int) or not isinstance(marker.get("detail"), str):
+        _error("rollback marker incomplete, the rollback starts over")
+        return None
+    return marker
+
+
+def _close() -> None:
+    """Ends the update's life on disk. The journal first: once it is gone no
+    start acts on this update again, whatever is left of the rest."""
+    try:
+        for name in (JOURNAL_NAME, ATTEMPTS_NAME, ROLLING_BACK_NAME):
+            _state(name).unlink(missing_ok=True)
+        _fsync_dir(_STATE)
+    except OSError as e:
+        _error(f"the update journal could not be closed: {type(e).__name__}: {e}")
+
+
+def _record(journal: dict, outcome: str, detail: str | None, step: str | None) -> None:
+    """Best effort: a full card must not keep a journal open over a release
+    already put back."""
+    try:
+        _write_json(_state(LAST_UPDATE_NAME), {
+            KEY_FROM: journal.get(KEY_ORIGIN_TAG),
+            KEY_TO: journal.get(KEY_TARGET_TAG),
+            KEY_OUTCOME: outcome,
+            KEY_DETAIL: detail[:DETAIL_MAX] if detail else detail,
+            KEY_STEP: step,
+        })
+    except OSError as e:
+        _error(f"{outcome} not recorded: {type(e).__name__}: {e}")
+
+
+def _git(*args: str, timeout: float = GIT_TIMEOUT_S) -> subprocess.CompletedProcess:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    return subprocess.run(
+        ["git", "-C", str(_REPO), "-c", "core.hooksPath=/dev/null", *args],
+        capture_output=True, text=True, timeout=timeout, check=False, env=env,
+    )
+
+
+def _head() -> str | None:
+    try:
+        result = _git("rev-parse", "--verify", "--quiet", "HEAD", timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _error(f"HEAD unreadable: {type(e).__name__}: {e}")
+        return None
+    if result.returncode != 0:
+        _error(f"HEAD unreadable: {_last_line(result.stderr) or f'exit code {result.returncode}'}")
+        return None
+    return result.stdout.strip()
+
+
+def _open() -> tuple[dict | None, str | None, int]:
+    """The journal this start may act on, with HEAD (None when git cannot read
+    it); or (None, None, exit code) once a journal there is nothing to do with
+    has been dealt with."""
+    try:
+        journal = _read_journal()
+    except (OSError, ValueError) as e:
+        # Written atomically by both sides, so unreadable means a damaged card.
+        # Left open, it would hold the power routes refused for good, and
+        # without its origin commit there is nothing to put back.
+        detail = f"the update journal is unreadable: {type(e).__name__}: {e}"
+        _error(f"{detail}; closed with nothing put back")
+        _record({}, "rollback_failed", detail, None)
+        _close()
+        return None, None, 1
+    if journal is None:
+        # What a closing cut short can leave; meaningless without a journal.
+        for name in (ATTEMPTS_NAME, ROLLING_BACK_NAME):
+            with contextlib.suppress(OSError):
+                _state(name).unlink(missing_ok=True)
+        return None, None, 0
+    head = _head()
+    if head is None:
+        # A stalled card or a damaged ref: the journal is still acted on. A
+        # restore checks the origin out by hash and needs no HEAD, and a trial
+        # start is counted; only a commit, which must see the release on trial,
+        # waits for one. Left alone instead, the backend would start on the
+        # half-installed tree with nothing ever closing the journal.
+        return journal, None, 0
+    if head not in (journal[KEY_ORIGIN_COMMIT], journal[KEY_TARGET_COMMIT]):
+        # Something else moved the checkout since (a hand checkout, an updater
+        # that writes no journal): what this update kept describes neither side.
+        _close()
+        _say(
+            f"the update {journal.get(KEY_ORIGIN_TAG)} -> {journal.get(KEY_TARGET_TAG)} names "
+            f"neither side of HEAD {head[:12]}: closed, the tree left as it is"
+        )
+        return None, None, 0
+    return journal, head, 0
+
+
+# --------------------------------------------------------------------------- #
+# The rollback.
+# --------------------------------------------------------------------------- #
+
+def _remove_git_locks() -> None:
+    git_dir = _REPO / ".git"
+    if not git_dir.is_dir():
+        return
+    locks = [git_dir / name for name in GIT_LOCKS]
+    refs = git_dir / "refs"
+    if refs.is_dir():
+        locks += sorted(refs.rglob("*.lock"))
+    for lock in locks:
+        if lock.is_file():
+            lock.unlink()
+            _say(f"removed stale {lock.relative_to(git_dir)}")
+
+
+def _step_checkout(journal: dict) -> None:
+    origin = journal[KEY_ORIGIN_COMMIT]
+    _remove_git_locks()
+    result = _git("checkout", "--force", "--quiet", origin)
+    if result.returncode != 0:
+        raise StepFailed(f"git checkout: {_last_line(result.stderr) or f'exit code {result.returncode}'}")
+    head = _head()
+    if head != origin:
+        raise StepFailed(f"HEAD is {head} after the checkout of {origin}")
+
+
+def _step_clean(journal: dict) -> None:
+    # Never -x: venv/ and frontend/dist are ignored, and must stay.
+    result = _git("clean", "-f", "-d", "--quiet")
+    if result.returncode != 0:
+        raise StepFailed(f"git clean: {_last_line(result.stderr) or f'exit code {result.returncode}'}")
+
+
+def _discard_slot(name: str) -> Path:
+    discard = _BACKUP / DISCARD_NAME
+    discard.mkdir(parents=True, exist_ok=True)
+    slot, n = discard / name, 1
+    while os.path.lexists(slot):
+        slot, n = discard / f"{name}.{n}", n + 1
+    return slot
+
+
+def _put_back(kept: Path, live: Path) -> bool:
+    """`kept` becomes `live` again; False when this update kept nothing there.
+
+    What it replaces is only renamed aside: deleting a venv on an SD card can
+    outlast the TimeoutStartSec the rollback runs in. BACKUP_DIR is cleared when
+    a journal opens, so a kept copy is always the one this update replaced.
+    """
+    if not kept.is_dir():
+        return False
+    if os.path.lexists(live):
+        os.rename(live, _discard_slot(live.name))
+    os.rename(kept, live)
+    return True
+
+
+def _step_venv(journal: dict) -> None:
+    if _put_back(_BACKUP / KEPT_VENV_NAME, _REPO / "venv"):
+        _say("previous venv put back")
+
+
+def _step_dist(journal: dict) -> None:
+    # The copy's presence alone decides, not the step: the swap renames the
+    # live dist aside before the step that records it, so a swap cut there
+    # has replaced it already while the journal still says "synced".
+    if _put_back(_BACKUP / KEPT_DIST_NAME, _REPO / "frontend" / "dist"):
+        _say("previous frontend put back")
+
+
+def _copy_atomic(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".restore.tmp")
+    shutil.copyfile(source, tmp)
+    shutil.copymode(source, tmp)
+    with open(tmp, "rb") as f:
+        os.fsync(f.fileno())
+    os.replace(tmp, target)
+
+
+def _step_data(journal: dict) -> None:
+    snapshot = _BACKUP / DATA_SNAPSHOT_NAME
+    try:
+        manifest = _read_json(snapshot / DATA_MANIFEST_NAME)
+    except ValueError as e:
+        raise StepFailed(f"the data snapshot's manifest is unreadable: {e}") from e
+    if manifest is None:
+        _say("no complete data snapshot: no data put back")
+        return
+    entries = manifest.get(KEY_DATA_FILES)
+    if not isinstance(entries, list):
+        raise StepFailed("the data snapshot's manifest lists no files")
+    errors = []
+    restored = 0
+    for entry in entries:
+        try:
+            path = Path(entry[KEY_DATA_PATH])
+            copy = entry[KEY_DATA_COPY]
+            if not path.is_absolute():
+                raise ValueError(f"{path} is not absolute")
+            if copy is None:
+                # Absent when the update began: the new release may have
+                # created it in a schema the previous one refuses.
+                path.unlink(missing_ok=True)
+            elif not isinstance(copy, str) or Path(copy).name != copy or copy in (".", ".."):
+                raise ValueError(f"{copy!r} is not a file name in the snapshot")
+            else:
+                _copy_atomic(snapshot / copy, path)
+            restored += 1
+        except (OSError, KeyError, TypeError, ValueError) as e:
+            errors.append(f"{entry!r}: {type(e).__name__}: {e}")
+    if errors:
+        raise StepFailed(f"data not put back: {'; '.join(errors)}")
+    _say(f"{restored} data file(s) put back")
+
+
+def _step_system_files(journal: dict) -> None:
+    # Files the new release added stay: this installs the previous release's
+    # set over them, it removes nothing.
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", DEPLOY_UPDATE, "sync-system-files"],
+            capture_output=True, text=True, timeout=DEPLOY_TIMEOUT_S, check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise StepFailed(f"sync-system-files still running after {DEPLOY_TIMEOUT_S} s") from e
+    if result.returncode != 0:
+        why = _last_line(result.stderr) or _last_line(result.stdout) or f"exit code {result.returncode}"
+        raise StepFailed(f"sync-system-files: {why}")
+    _say(f"system files: {_last_line(result.stdout) or 'synced'}")
+
+
+STEP_FUNCTIONS = {
+    "checkout": _step_checkout,
+    "clean": _step_clean,
+    "venv": _step_venv,
+    "dist": _step_dist,
+    "data": _step_data,
+    "system_files": _step_system_files,
+}
+# Nothing after these applies to a known tree.
+FATAL_STEPS = ("checkout",)
+
+
+def _journal_detail(since: float) -> str | None:
+    """The line that best says why the trial's starts failed, read from this
+    unit's journal for this boot (the trial runs in the boot the update
+    rebooted into, or in the same one when the reboot was refused)."""
+    try:
+        result = subprocess.run(
+            [_JOURNALCTL, "-u", UNIT, "-b", "-o", "cat", "--no-pager", "-q",
+             "--since", f"@{int(since)}"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        _error(f"journal unreadable: {type(e).__name__}: {e}")
+        return None
+    lines = [
+        line.strip() for line in result.stdout.splitlines()
+        if line.strip() and PROG not in line
+    ]
+    for pattern in (EXCEPTION_RE, SYSTEMD_RESULT_RE, ERRORISH_RE):
+        for line in reversed(lines):
+            if pattern.search(line):
+                return line[:DETAIL_MAX]
+    return None
+
+
+def _trial_detail(journal: dict) -> str:
+    try:
+        since = _state(JOURNAL_NAME).stat().st_mtime
+    except OSError:
+        since = 0
+    starts = max(_attempts() - 1, 1)
+    return _journal_detail(since) or (
+        f"{journal.get(KEY_TARGET_TAG) or journal[KEY_TARGET_COMMIT][:12]} "
+        f"did not stay up through {starts} start(s)"
+    )
+
+
+def _mark(detail: str, runs: int, step: str | None) -> None:
+    try:
+        _write_json(_state(ROLLING_BACK_NAME), {"detail": detail, "runs": runs, "step": step})
+    except OSError as e:
+        _error(f"rollback marker not written: {type(e).__name__}: {e}")
+
+
+def _finish(journal: dict, outcome: str, detail: str, step: str | None) -> int:
+    # What the steps moved reaches the card before the journal goes: closed
+    # first, a power cut could leave a half-written tree nobody acts on again.
+    os.sync()
+    _record(journal, outcome, detail, step)
+    _close()
+    names = f"{journal.get(KEY_TARGET_TAG)} -> {journal.get(KEY_ORIGIN_TAG)}"
+    if outcome == "rolled_back":
+        _error(f"rolled back {names}: {detail}")
+        return 0
+    _error(f"rollback {names} failed at {step}: {detail}")
+    return 1
+
+
+def _restore(journal: dict, detail: str | None) -> int:
+    marker = _read_marker()
+    if marker is not None:
+        runs = marker["runs"] + 1
+        detail = marker["detail"]
+        if runs > MAX_ATTEMPTS:
+            cut_at = marker.get("step") if marker.get("step") in RESTORE_STEPS else RESTORE_STEPS[0]
+            return _finish(
+                journal, "rollback_failed",
+                f"{detail}; the rollback was cut {runs - 1} times, last during {cut_at}", cut_at,
+            )
+        _say(f"resuming the rollback (run {runs} of {MAX_ATTEMPTS})")
+    else:
+        runs = 1
+        if detail is None:
+            detail = _trial_detail(journal)
+    detail = detail[:DETAIL_MAX]
+
+    failed_step, failure = None, None
+    for step in RESTORE_STEPS:
+        _mark(detail, runs, step)
+        try:
+            STEP_FUNCTIONS[step](journal)
+        except (OSError, subprocess.SubprocessError, StepFailed) as e:
+            why = str(e) if isinstance(e, StepFailed) else f"{type(e).__name__}: {e}"
+            _error(f"rollback step {step} failed: {why}")
+            if failed_step is None:
+                failed_step, failure = step, why
+            if step in FATAL_STEPS:
+                break
+
+    if failed_step is not None:
+        return _finish(journal, "rollback_failed", f"{detail}; {failed_step}: {failure}", failed_step)
+    return _finish(journal, "rolled_back", detail, journal[KEY_STEP])
+
+
+# --------------------------------------------------------------------------- #
+# Commands.
+# --------------------------------------------------------------------------- #
+
+def _drop_kept() -> None:
+    for name in (KEPT_VENV_NAME, KEPT_VENV_PARTIAL_NAME, KEPT_DIST_NAME, DATA_SNAPSHOT_NAME, DISCARD_NAME):
+        shutil.rmtree(_BACKUP / name, ignore_errors=True)
+
+
+def start() -> int:
+    journal, _, code = _open()
+    if journal is None:
+        return code
+    step = journal[KEY_STEP]
+    target = journal.get(KEY_TARGET_TAG)
+    if step == COMMITTED_STEP:
+        return 0
+    if step not in STEPS:
+        # Steps are appended after "committed" only, so a step this guard does
+        # not know is one past the trial.
+        _say(f"the update to {target} is at step {step!r}, which this guard does not know: nothing done")
+        return 0
+    if _read_marker() is not None:
+        return _restore(journal, None)
+    if journal.get(KEY_FAILURE):
+        return _restore(journal, str(journal[KEY_FAILURE]))
+    if STEPS.index(step) < STEPS.index(TRIAL_STEP):
+        return _restore(journal, f"the update to {target} stopped before it finished (at step {step})")
+    attempts = _attempts() + 1
+    try:
+        _write_atomic(_state(ATTEMPTS_NAME), f"{attempts}\n")
+    except OSError as e:
+        # Run uncounted, a release that keeps dying would never be put back.
+        return _restore(journal, f"a start of {target} could not be counted: {type(e).__name__}: {e}")
+    if attempts >= MAX_ATTEMPTS:
+        return _restore(journal, None)
+    _say(f"trial of {target}: start {attempts} of {MAX_ATTEMPTS - 1}")
+    return 0
+
+
+def restore(detail: str | None) -> int:
+    journal, _, code = _open()
+    if journal is None:
+        if code == 0:
+            _say("no update journal, nothing to restore")
+        return code
+    if journal[KEY_STEP] not in STEPS[:STEPS.index(COMMITTED_STEP)]:
+        # What it kept is being dropped or gone: there is no rollback left.
+        _say(f"the update to {journal.get(KEY_TARGET_TAG)} is past its trial "
+             f"(step {journal[KEY_STEP]}), nothing to restore")
+        return 0
+    return _restore(journal, detail)
+
+
+def commit() -> int:
+    journal, head, code = _open()
+    if journal is None:
+        return code
+    target = journal.get(KEY_TARGET_TAG)
+    step = journal[KEY_STEP]
+    if step == COMMITTED_STEP:
+        # A commit cut while it dropped the copies: finish it.
+        _drop_kept()
+        return 0
+    if step != TRIAL_STEP or journal.get(KEY_FAILURE) or _read_marker() is not None:
+        _say(f"the update to {target} is not on trial (step {step}): not committed")
+        return 0
+    if head is None:
+        _error(f"the update to {target} is not committed while HEAD cannot be read")
+        return 1
+    if head != journal[KEY_TARGET_COMMIT]:
+        _say(f"HEAD is not {target}: not committed")
+        return 0
+    # Committed first, so no start can roll back over a half-dropped set of
+    # copies; dropped after, so a cut here only leaves disk to free.
+    try:
+        _write_json(_state(JOURNAL_NAME), {**journal, KEY_STEP: COMMITTED_STEP})
+    except OSError as e:
+        _error(f"the update to {target} could not be committed: {type(e).__name__}: {e}")
+        return 1
+    _state(ATTEMPTS_NAME).unlink(missing_ok=True)
+    _drop_kept()
+    _say(f"update to {target} committed")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[1] not in ("start", "restore", "commit"):
+        _error("usage: milo-update-guard start | restore [detail] | commit")
+        return 2
+    command = argv[1]
+    if os.geteuid() == 0:
+        # A checkout as root leaves root-owned files the next update, run as
+        # milo, cannot replace.
+        _error("runs as milo, never as root: nothing done")
+        return 2
+    try:
+        if command == "start":
+            return start()
+        if command == "commit":
+            return commit()
+        return restore(" ".join(argv[2:]).strip() or None)
+    except Exception as e:  # the last word of a unit start nobody watches: say it, never raise
+        _error(f"{command} failed: {type(e).__name__}: {e}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

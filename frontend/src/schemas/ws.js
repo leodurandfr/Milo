@@ -64,9 +64,23 @@ const EqFilterWireSchema = z.object({
 // Backend: backend/api/programs.py _create_background_update — progress events
 // carry {program|mac_id, status}; completion events carry {program|mac_id, success},
 // plus {verdict, detail} for a satellite's app push.
+// Backend: the phases of a Milō app update (GET /api/programs `milo_update.phase`).
+const MiloUpdatePhaseSchema = z.enum([
+  'download', 'install', 'restart', 'verify', 'dependencies', 'satellites',
+]);
+// A `milo` update's progress also says where it stands, with the fields of
+// GET /api/programs' `milo_update`; every other program sends none of them.
+// `item`/`index`/`total` name the program or the room being updated, 1-based,
+// during the two post-commit phases only.
 const ProgramUpdateProgressSchema = z.object({
   program: z.string(),
   status: z.string(),
+  phase: MiloUpdatePhaseSchema.nullable().optional(),
+  from_version: z.string().nullable().optional(),
+  to_version: z.string().nullable().optional(),
+  item: z.string().nullable().optional(),
+  index: z.number().int().nullable().optional(),
+  total: z.number().int().nullable().optional(),
 });
 const ProgramUpdateCompleteSchema = z.object({
   program: z.string(),

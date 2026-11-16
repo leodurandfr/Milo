@@ -885,9 +885,10 @@ npm run build
 ### Creating a release
 
 A tag is the only way a version reaches a unit. Pushing one runs
-`.github/workflows/build-image.yml`, which builds the frontend once with
-`npm ci`, bakes that artefact into the image, and publishes a GitHub Release
-carrying three files:
+`.github/workflows/build-image.yml`, which runs the CI checks on the tagged tree
+(`lint.yml`, called as a reusable workflow), builds the frontend once with
+`npm ci`, bakes that artefact into the image once the checks have passed, and
+publishes a GitHub Release carrying three files:
 
 | Asset | Read by |
 |---|---|
@@ -966,7 +967,8 @@ The workflow publishes it with `prerelease: true`, so it never becomes
   installed on a unit somebody is watching, by somebody who chose it.
 - **the update button will not install it either**, for the same reason. On the
   test unit, drive `UpdateService._update_milo_app` with the rc's status
-  directly — same checkout, same asset, same reboot, only the offer is skipped.
+  directly — same checkout, same asset, same reboot, same trial, only the offer
+  is skipped.
 - **a unit running an rc is not a development build.** It sits on a tag, says
   so on the update screen, and is offered the stable release the channel
   publishes — which is how it gets back.
@@ -976,7 +978,10 @@ visited: a release that is never published is offered to nobody, and one that is
 un-published (or marked pre-release) stops being `releases/latest`, so every
 unit that took it is offered the return on its next check.
 
-**A build that fails publishes nothing.** The release step sits after the image
+**A build that fails publishes nothing.** The image build needs the CI checks,
+so a tag cut on a commit they fail is never built at all — they are the one
+check a release meets before any unit is offered it, since a unit judges a
+release only once it is installed. The release step then sits after the image
 inspection (`pi-gen/inspect-image.sh`, which checks the checkout sits exactly on
 the tag and that the frontend artefact landed), so a red build is itself the
 withholding mechanism.
@@ -987,7 +992,8 @@ Every upstream version Milō ships is declared once, in **`dependencies.env`** a
 root — read by `provisioning/`, by `pi-gen/stage-milo/` and by the backend's update flow, so a
 bump is a one-line edit and there is nowhere else it can disagree. That single line is also
 the only thing standing between an upstream release and every unit: a Milō update installs
-the app *and* the set declared with it, and nothing else is ever offered.
+the app *and*, once the new release has held, the set declared with it, and nothing else is
+ever offered.
 
 So "validated" has to mean something. It means **a person watched this version do the thing
 the dependency exists for, on a unit** — not that it compiled, and not that audio came out.
@@ -1047,9 +1053,89 @@ A unit installs **releases**, not branches, and it does not build a frontend.
 artefact CI built once, verified against its `sha256` sidecar. Pressing Update
 in the settings screen is the supported path; there is nothing to do by hand.
 
+The update is a **trial**. The release that is leaving installs the app alone,
+under a journal, and reboots; `milo-update-guard`, which runs before every start
+of the backend, counts the new release's starts and puts the previous one back —
+checkout, venv, frontend, versioned data, system files — when it does not stay
+up; and once it has held, the new release reconciles the dependency set and
+pushes the satellites itself. [Architecture § App updates on the server](architecture.md#app-updates-on-the-server)
+describes it step by step. Two things to know before relying on it:
+
+- **The first release that carries the guard is installed unprotected**, by the
+  updater it replaces, which knows nothing of a journal. Only the update after it
+  is a trial.
+- **The names it leaves on disk are frozen** (`backend/core/updates/milo_journal.py`):
+  one release writes the journal, the next reads it, and the guard restates them.
+  Append a step or a key at the end; never rename, reorder or remove one.
+
+#### Reading an update on a unit
+
+| Path | What it holds |
+|---|---|
+| `/var/lib/milo/app-update/journal.json` | The update in progress: its two commits and tags, the `step` reached, a `failure` the updater recorded. Absent when no update is open |
+| `/var/lib/milo/app-update/attempts` | The starts the trial has counted |
+| `/var/lib/milo/app-update/rolling-back.json` | A rollback under way, or cut and waiting for the next start |
+| `/var/lib/milo/app-update/last-update.json` | How the last update ended — `outcome`, `detail`, `step` — until the next one opens a journal |
+| `/var/lib/milo/backups/milo-app/` | What the update kept aside: `data/` with its `manifest.json`, `dist/`, `venv/` when pip ran; `discard/` after a rollback |
+
+```bash
+journalctl -u milo-backend -b -o cat | grep -E 'milo-update-guard|on trial|READY=1|Milo update'
+curl -s http://milo.local/api/programs/milo/update   # `milo_update`: where it stands; `last_update`: how it ended
+systemctl list-inhibitors                 # "Milo" while an install runs
+```
+
+The guard's own lines read `trial of <tag>: start 1 of 2`, then `update to <tag>
+committed`; a rollback is `ERROR: milo-update-guard: rolled back <new> -> <previous>:
+<why>`, where *why* is the line of that boot's journal that best explains it. The
+backend says `READY=1 sent to systemd` and `Milo <tag> is on trial: …` once it
+listens, and `Milo update <previous> -> <new> complete` when the post-commit
+phase ends. A journal left open needs no hand: the next start acts on it. A
+post-commit phase cut twice is not run a third time (`… were cut 2 times, last
+during <where>: not run again`), and a journal the guard did not put back makes
+the backend restart once into it (`was not put back before this start`).
+
+#### Rehearsing a release that fails
+
+What only a unit can show — systemd counting starts, a start that times out, the
+real checkout going back, the rollback's `sudo` — needs no broken release on
+GitHub: the guard acts on whatever the journal names. On a test unit nobody is
+listening to, running a release that carries the guard, with a clean tree and
+nothing playing:
+
+```bash
+cd ~/milo
+origin=$(git rev-parse HEAD)
+origin_tag=$(git describe --tags --exact-match)   # must name the release; stop if it fails
+git checkout --detach
+# Break the tree the way the check asks for (verification checklist,
+# "Settings, updates, system"), then commit it. Never push it.
+git -c user.name=trial -c user.email=trial@localhost commit -qam "trial: never pushed"
+mkdir -p /var/lib/milo/app-update
+python3 - "$origin" "$origin_tag" "$(git rev-parse HEAD)" <<'EOF'
+import json, sys
+origin, origin_tag, target = sys.argv[1:]
+with open("/var/lib/milo/app-update/journal.json", "w") as f:
+    json.dump({"origin_commit": origin, "origin_tag": origin_tag, "target_tag": "trial",
+               "target_commit": target, "step": "rebooting", "failure": None,
+               "venv_kept": False}, f)
+EOF
+sudo systemctl restart milo-backend
+```
+
+That journal is what the updater leaves at its reboot, minus the copies it keeps,
+so the guard reports no data snapshot to put back. And no client saw an update
+begin, so what the screens show until the previous release is back is not what
+an update shows; the rollback banner and the Milō row afterwards are the real
+ones. What this cannot rehearse is the updater's own half — the import check
+that refuses a release before its reboot, a power cut in the middle of the
+install — which takes a real release newer than the one installed.
+
+#### A development checkout
+
 What a *development* checkout does is a different thing, and the update screen
 says so rather than offering a button: a tree that is not sitting exactly on a
-tag reads as a development build.
+tag reads as a development build. The guard leaves it alone: it acts only on a
+journal naming `HEAD`, and only an update writes one.
 
 ```bash
 cd ~/milo

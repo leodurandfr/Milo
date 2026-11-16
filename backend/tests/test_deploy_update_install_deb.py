@@ -117,3 +117,22 @@ def test_install_deb_reports_the_package_it_installed(world):
     installs = [line for line in log.splitlines() if line.startswith("apt-get ")]
     assert any(str(world["deb"]) in line for line in installs), installs
 
+
+
+def test_install_deb_finishes_an_interrupted_dpkg_run_before_apt(world):
+    """`dpkg --configure -a` runs before apt, and its failure does not stop it.
+
+    A power cut during an earlier install leaves dpkg "interrupted", and apt
+    then refuses every install until someone runs it by hand: the dependency
+    reconciliation of each later Milō update failed on it, on every unit that
+    had lost power once. Fatal instead, a configure that cannot finish anything
+    (dpkg stubbed to fail here) would hide the reason apt-get gives below.
+    """
+    result, log = _run(world, dpkg_query=f"installed {DEB_VERSION}")
+
+    assert result.returncode == 0, result.stderr
+    calls = [line.split(" ", 1)[0] + " " + line.split(" ", 2)[1] for line in log.splitlines()]
+    assert "dpkg --configure" in calls, log
+    configure = calls.index("dpkg --configure")
+    assert configure < calls.index("apt update"), log
+    assert configure < next(i for i, c in enumerate(calls) if c.startswith("apt-get ")), log

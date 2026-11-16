@@ -14,7 +14,7 @@ import tarfile
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.models.ws_events import SatelliteAppVerdict
@@ -830,15 +830,21 @@ class SatelliteUpdateService:
             satellite["app_update_failure"] = failures.get(satellite["mac_id"])
         return satellites
 
-    async def push_client_app_to_fleet(self) -> list[str]:
+    async def push_client_app_to_fleet(
+        self, on_push: Optional[Callable[[str, int, int], Awaitable[None]]] = None,
+    ) -> list[str]:
         """Bring every satellite to the `milo-client/` tree this server now has.
 
         A Milō update replaces that tree, so the whole fleet goes stale at once
         and deterministically. Pushing it here is the same sequence as the
         validated dependency set: one press updates the appliance, not the
-        appliance and then N speakers one screen at a time. It costs no extra
-        silence either — the update reboots the unit on the next step, so the
-        satellites restart inside a window that is already quiet.
+        appliance and then N speakers one screen at a time. It runs once the
+        new release has held (`UpdateService.run_post_commit`), so a release
+        the server puts back has never reached a speaker.
+
+        `on_push(name, index, total)` is awaited before each push, `total`
+        counting the satellites this call means to push; a satellite held back
+        by an earlier one's failure is never announced.
 
         One satellite at a time, and the first that rolls back or does not come
         back stops the push: a release that breaks one room breaks them all, and
@@ -876,6 +882,14 @@ class SatelliteUpdateService:
             }
             failures = await self._reconcile_app_failures(list(reachable.values()), payload)
             halted_by: Optional[str] = None
+            total = sum(
+                1 for mac in remote
+                if mac in reachable
+                and reachable[mac].get("app_payload") != payload
+                and not self._rolled_back_before(payload, failures.get(mac),
+                                                 reachable[mac].get("app_last_update"))
+            )
+            index = 0
 
             for mac, client in remote.items():
                 name = client.name or mac
@@ -911,6 +925,12 @@ class SatelliteUpdateService:
                     continue
 
                 self.logger.info(f"{name}: pushing client app {payload} with the Milo update")
+                index += 1
+                if on_push is not None:
+                    try:
+                        await on_push(name, index, total)
+                    except Exception as e:
+                        self.logger.error(f"{name}: client app push not announced: {e}")
                 result = await self.update_satellite_app(mac)
                 if not result.get("success"):
                     left_behind.append(name)

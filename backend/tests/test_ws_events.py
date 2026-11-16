@@ -21,6 +21,7 @@ fails here instead of reaching a client.
 import ast
 import inspect
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -39,8 +40,10 @@ from backend.core.models.ws_events import (
     EqualizerLevels,
     MultiroomPendingClientChanged,
     MultiroomZoneChanged,
+    MiloUpdatePhase,
     NetworkStatusChanged,
     ProgramUpdateComplete,
+    ProgramUpdateProgress,
     RadioFavoriteAdded,
     RoutingMultiroomError,
     SatelliteUpdateProgress,
@@ -57,6 +60,8 @@ from backend.core.models.ws_events import (
     VolumeStartupConfig,
 )
 from backend.tests.contracts.emission_sites import emitted_in_backend
+
+REPO = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
@@ -136,6 +141,25 @@ CASES = [
          "origin": "satellite_update",
          "data": {"source": "satellite_update", "mac_id": "aa:bb:cc:dd:ee:ff",
                   "status": "updating"}},
+    ),
+    (
+        # Every other program's progress carries the Milō fields as nulls.
+        ProgramUpdateProgress(program="go-librespot"),
+        {"category": "programs", "type": "program_update_progress",
+         "origin": "program_update",
+         "data": {"source": "program_update", "program": "go-librespot",
+                  "status": "updating", "phase": None, "from_version": None,
+                  "to_version": None, "item": None, "index": None, "total": None}},
+    ),
+    (
+        ProgramUpdateProgress(program="milo", phase="dependencies", from_version="v0.1.4",
+                              to_version="v0.1.5", item="Spotify Connect", index=1, total=3),
+        {"category": "programs", "type": "program_update_progress",
+         "origin": "program_update",
+         "data": {"source": "program_update", "program": "milo",
+                  "status": "updating", "phase": "dependencies", "from_version": "v0.1.4",
+                  "to_version": "v0.1.5", "item": "Spotify Connect", "index": 1,
+                  "total": 3}},
     ),
     (
         ProgramUpdateComplete(program="go-librespot", success=True),
@@ -385,3 +409,38 @@ def test_every_settings_config_model_is_shared_not_redeclared():
         f"move it to core/models/settings_config.py and import it, so /bulk and "
         f"the event cannot describe different shapes."
     )
+
+
+def test_every_phase_the_update_service_announces_is_one_the_event_carries():
+    """A phase the model refuses fails inside the update service's listener,
+    which logs it and drops the event: the update screen then sits on the step
+    before, with nothing on the wire to say why. Read from the source, both
+    the phases the install and the post-commit announce and the ones a
+    restarted process rebuilds from the journal."""
+    source = (REPO / "backend" / "core" / "updates" / "update.py").read_text()
+    tree = ast.parse(source)
+    announced = {
+        node.args[0].value for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_milo_progress"
+        and node.args and isinstance(node.args[0], ast.Constant)
+    }
+    state = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "milo_update_state"
+    )
+    # Every string the function assigns to `phase`, conditional branches included.
+    rebuilt = {
+        constant.value
+        for node in ast.walk(state)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "phase" for target in node.targets)
+        for constant in ast.walk(node.value)
+        if isinstance(constant, ast.Constant) and isinstance(constant.value, str)
+    }
+    assert len(announced) >= 5, f"the _milo_progress extraction looks broken: {announced}"
+    assert {"verify", "dependencies", "restart"} <= rebuilt, (
+        f"the milo_update_state extraction looks broken: {rebuilt}"
+    )
+    unknown = (announced | rebuilt) - set(get_args(MiloUpdatePhase))
+    assert not unknown, f"phases ProgramUpdateProgress refuses: {sorted(unknown)}"

@@ -1070,6 +1070,8 @@ class Systemd:
         self.stop_held: Optional[asyncio.Event] = None
         self.probes = 0
         self.asked = []
+        # Units with a job queued (a start held behind a Type=notify backend).
+        self.queued = set()
 
     def _state(self, name: str):
         return self.units.get(name, ("inactive", "success"))
@@ -1108,6 +1110,11 @@ class Systemd:
     async def unit_state(self, name: str):
         self.asked.append(name)
         return self._state(name)
+
+    async def sweep_state(self, name: str):
+        self.asked.append(name)
+        state = self._state(name)
+        return None if state is None else (state[0], name in self.queued)
 
 
 def unit_source(systemd: Systemd, unit: str):
@@ -2069,6 +2076,21 @@ class TestLingeringUnitSweep:
         systemd = Systemd()
         systemd.units = {RADIO_UNIT: state}
         machine = self._machine(systemd, RADIO_UNIT)
+
+        await machine.stop_lingering_units(systemd)
+
+        assert systemd.calls == [f"stop {RADIO_UNIT}"]
+
+    async def test_a_unit_whose_start_is_still_queued_is_stopped(self):
+        """The sweep runs right after READY=1, which releases the starts systemd
+        held behind the Type=notify backend (milo-bluealsa at boot, every source
+        unit after a backend restart). One not dispatched yet reads `inactive`;
+        spared, it comes up a moment later and holds hw:Loopback,0,0 against the
+        first pick. The stop cancels the queued start."""
+        systemd = Systemd()
+        systemd.units = {RADIO_UNIT: ("inactive", "success")}
+        systemd.queued = {RADIO_UNIT}
+        machine = self._machine(systemd, RADIO_UNIT, SPOTIFY_UNIT)
 
         await machine.stop_lingering_units(systemd)
 

@@ -5,6 +5,14 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # build-image.yml runs these checks on the tree it is about to build, and its
+  # build job needs them: a release is published only from a tree they passed on.
+  workflow_call:
+    inputs:
+      ref:
+        description: 'The branch, tag or commit being built'
+        required: true
+        type: string
   # Weekly backstop for the milo-mac-freshness job (it also runs on every push to
   # main). Off the top of the hour: GitHub drops on-the-hour scheduled runs under
   # load, which is why this job used to never fire.
@@ -12,13 +20,23 @@ on:
     - cron: '17 6 * * 1'
   workflow_dispatch:
 
+# The checks need nothing more. Said here because build-image.yml grants the
+# call `issues: write` for milo-mac-freshness, and a job declaring nothing
+# would inherit it.
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: Backend + satellite (ruff + pytest)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      # `inputs.ref` is set only when build-image.yml calls this file; empty,
+      # the checkout takes the event's own commit, as before.
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -54,6 +72,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
@@ -87,8 +107,10 @@ jobs:
     # human to refresh the snapshot. On drift it opens/updates a tracking issue (a
     # durable signal, unlike a scrolling annotation); when back in sync it closes it.
     # Runs on every push to main + a weekly cron backstop, never on PRs, and never
-    # blocks: a network hiccup or an upstream refactor can't gate a merge.
-    if: github.event_name != 'pull_request'
+    # blocks: a network hiccup or an upstream refactor can't gate a merge. Nor
+    # when build-image.yml calls this file (`inputs.ref` set): an image build
+    # has nothing to learn from it.
+    if: github.event_name != 'pull_request' && !inputs.ref
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # Never block a merge or redden the run: a network/repo hiccup or an upstream

@@ -520,7 +520,25 @@
     "installingVersion": "{version} इंस्टॉल हो रहा है…",
     "failureRolledBack": "पिछले संस्करण पर लौट गया",
     "failureDidNotReturn": "जवाब नहीं दे रहा",
-    "failureRejected": "अपडेट अस्वीकार कर दिया"
+    "failureRejected": "अपडेट अस्वीकार कर दिया",
+    "failureRollbackFailed": "पिछले संस्करण पर नहीं लौट सका"
+  },
+  "miloUpdate": {
+    "title": "Milō अपडेट हो रहा है",
+    "stepDownload": "डाउनलोड",
+    "stepInstall": "इंस्टॉलेशन",
+    "stepRestart": "रीस्टार्ट",
+    "stepVerify": "जाँच",
+    "doNotUnplug": "प्लग न निकालें",
+    "dependenciesTitle": "प्रोग्राम अपडेट हो रहे हैं",
+    "dependenciesDetail": "{program} · {total} में से {index}",
+    "satellitesTitle": "स्पीकर अपडेट हो रहे हैं",
+    "satellitesDetail": "{room} · {total} में से {index}। इस कमरे की आवाज़ एक पल के लिए रुकेगी।",
+    "rolledBackTitle": "अपडेट रद्द हुआ",
+    "rolledBackDetail": "संस्करण {target} का अपडेट विफल रहा: Milō संस्करण {origin} पर लौट आया। विवरण सेटिंग्स › अपडेट में देखें।",
+    "rollbackFailedTitle": "अपडेट विफल रहा",
+    "rollbackFailedDetail": "संस्करण {target} का अपडेट विफल रहा और Milō संस्करण {origin} पर नहीं लौट सका। विवरण सेटिंग्स › अपडेट में देखें।",
+    "rollbackFailedDetailUnnamed": "Milō का एक अपडेट विफल रहा और पिछला संस्करण वापस नहीं लाया जा सका। विवरण सेटिंग्स › अपडेट में देखें।"
   },
   "info": {
     "temperature": "तापमान",

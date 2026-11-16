@@ -13,6 +13,7 @@ from time import monotonic
 from typing import Optional, TYPE_CHECKING
 
 from backend.api.models import DevicePasswordRequest, SshRequest, TimezoneRequest
+from backend.api.programs import refuse_while_milo_updates
 from backend.api.route_helpers import api_error_handler
 from backend.core.models.ws_events import SystemTimezoneChanged
 from backend.core.system.localtime import current_timezone
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
     from backend.core.systemd import SystemdServiceManager
+    from backend.core.updates.update import UpdateService
     from backend.hardware.service import HardwareService
 
 
@@ -87,12 +89,14 @@ def create_system_router(
     diagnostic_service: Optional["DiagnosticService"] = None,
     state_machine: Optional["AudioStateMachine"] = None,
     satellite_timezone_service: Optional["SatelliteTimezoneService"] = None,
+    update_service: Optional["UpdateService"] = None,
 ):
     router = APIRouter()
 
     @router.post("/restart")
     async def restart_system(background_tasks: BackgroundTasks):
         """Reboot the Raspberry Pi."""
+        refuse_while_milo_updates(update_service, "restart")
         logger.info("System restart requested")
         # 2s delay lets the HTTP response flush before the box goes down.
         background_tasks.add_task(systemd_manager.power, "reboot", 2.0)
@@ -101,6 +105,7 @@ def create_system_router(
     @router.post("/shutdown")
     async def shutdown_system(background_tasks: BackgroundTasks):
         """Shut down the Raspberry Pi."""
+        refuse_while_milo_updates(update_service, "shutdown")
         logger.info("System shutdown requested")
         background_tasks.add_task(systemd_manager.power, "poweroff", 2.0)
         return {"status": "success"}
@@ -383,6 +388,9 @@ def create_system_router(
         Durable user data — radio favourites, podcast subscriptions, shares,
         hardware.json — is untouched. This resets the *setup*, and says so.
         """
+        # Before the marker: a refused reset must leave nothing for the next
+        # boot to act on.
+        refuse_while_milo_updates(update_service, "setup reset")
         async with api_error_handler("Error scheduling the setup reset", logger):
             RESET_SETUP_MARKER.parent.mkdir(parents=True, exist_ok=True)
             RESET_SETUP_MARKER.touch()

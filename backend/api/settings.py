@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING, get_args
 from backend.core.models.audio_state import AudioSource
 from backend.api.middleware import client_address
+from backend.api.programs import refuse_while_milo_updates
 from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.api.responses import BulkSettingsResponse
 from backend.config.constants import (
@@ -102,6 +103,7 @@ if TYPE_CHECKING:
     from backend.core.settings import SettingsService
     from backend.core.state import AudioStateMachine
     from backend.core.systemd import SystemdServiceManager
+    from backend.core.updates.update import UpdateService
     from backend.core.volume.service import VolumeService
     from backend.hardware.screen import ScreenController
     from backend.hardware.service import HardwareService
@@ -119,6 +121,7 @@ def create_settings_router(
     settings_service: "SettingsService",
     multiroom_equalizer_service: "MultiroomEqualizerService",
     mac_link_calibration: "MacLinkCalibrationService",
+    update_service: Optional["UpdateService"] = None,
 ):
     """Settings router with proper app deactivation"""
     router = APIRouter()
@@ -856,6 +859,9 @@ def create_settings_router(
         """
         from backend.hardware.registry import SCREENS, audio_config
 
+        # Before anything is written: config.txt and the EEPROM are staged for
+        # the reboot this would trigger.
+        refuse_while_milo_updates(update_service, "hardware change")
         async with api_error_handler("Error setting hardware config", logger):
             screen = SCREENS[payload.screen.type]
 

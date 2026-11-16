@@ -520,7 +520,25 @@
     "installingVersion": "Instalando {version}…",
     "failureRolledBack": "Ha vuelto a la versión anterior",
     "failureDidNotReturn": "No responde",
-    "failureRejected": "Ha rechazado la actualización"
+    "failureRejected": "Ha rechazado la actualización",
+    "failureRollbackFailed": "No ha podido volver a la versión anterior"
+  },
+  "miloUpdate": {
+    "title": "Actualización de Milō",
+    "stepDownload": "Descarga",
+    "stepInstall": "Instalación",
+    "stepRestart": "Reinicio",
+    "stepVerify": "Verificación",
+    "doNotUnplug": "No desenchufar",
+    "dependenciesTitle": "Actualización de los programas",
+    "dependenciesDetail": "{program} · {index} de {total}",
+    "satellitesTitle": "Actualización de los altavoces",
+    "satellitesDetail": "{room} · {index} de {total}. El sonido de esta sala se corta un instante.",
+    "rolledBackTitle": "Actualización cancelada",
+    "rolledBackDetail": "La actualización a la versión {target} ha fallado: Milō ha vuelto a la versión {origin}. Detalles en Ajustes › Actualizaciones.",
+    "rollbackFailedTitle": "Error de actualización",
+    "rollbackFailedDetail": "La actualización a la versión {target} ha fallado y Milō no ha podido volver a la versión {origin}. Detalles en Ajustes › Actualizaciones.",
+    "rollbackFailedDetailUnnamed": "Una actualización de Milō ha fallado y no se ha podido restaurar la versión anterior. Detalles en Ajustes › Actualizaciones."
   },
   "info": {
     "temperature": "Temperatura",

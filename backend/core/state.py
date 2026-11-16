@@ -902,10 +902,13 @@ class AudioStateMachine:
         selects a source, and its unit is up on purpose. Under the transition
         lock, so a press landing during the sweep starts its source after it.
 
-        A unit is spared only when it is known down (`inactive`, `failed`): an
-        unreadable state or one `activating` between two runs of `Restart=`
-        is stopped, since a stop of a unit already down costs one spawn and a
-        unit left up stays castable behind a UI showing no source.
+        A unit is spared only when it is known down (`inactive`, `failed`) with
+        no job queued: an unreadable state, one `activating` between two runs
+        of `Restart=`, or a start still queued behind READY=1 (main.py runs
+        this right after it, and systemd dispatches the held starts a moment
+        later) is stopped, since a stop of a unit already down costs one spawn,
+        a stop cancels a queued start, and a unit left up stays castable behind
+        a UI showing no source.
         """
         async with self._transition_lock:
             active = self.system_state.active_source
@@ -913,10 +916,10 @@ class AudioStateMachine:
                 instance.service_name for source, instance in self.sources.items()
                 if source != active and instance and instance.service_name
             ]
-            states = await asyncio.gather(*[systemd_manager.unit_state(unit) for unit in units])
+            states = await asyncio.gather(*[systemd_manager.sweep_state(unit) for unit in units])
             lingering = [
                 unit for unit, state in zip(units, states)
-                if state is None or state[0] not in ("inactive", "failed")
+                if state is None or state[0] not in ("inactive", "failed") or state[1]
             ]
             if lingering:
                 logger.info("Stopping lingering source services: %s", lingering)

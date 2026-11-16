@@ -125,6 +125,18 @@ describe('WS payload semantics', () => {
     }).success).toBe(true);
   });
 
+  it('programs.program_update_progress keeps every other program\'s event as it was', () => {
+    // The update fields are Milō's alone: required, they would refuse every
+    // dependency update's progress, and its button would never spin.
+    const schema = wsEventRegistry['programs.program_update_progress'];
+
+    expect(schema.safeParse({ program: 'shairport-sync', status: 'updating' }).success).toBe(true);
+    expect(schema.safeParse({
+      program: 'milo', status: 'updating', phase: 'satellites', from_version: 'v0.1.4', to_version: 'v0.1.5',
+      item: 'Canapé', index: 1, total: 2,
+    }).success).toBe(true);
+  });
+
   it('multiroom.equalizer_changed rejects an unknown target_type', () => {
     const schema = wsEventRegistry['multiroom.equalizer_changed'];
 

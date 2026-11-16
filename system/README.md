@@ -9,9 +9,17 @@ This directory contains all systemd service files for the Milo Audio System. The
 #### milo-backend.service
 - **Role**: FastAPI backend server (Python)
 - **Port**: 8000
+- **Type**: notify — started once `main.py` sends `READY=1`, when uvicorn listens; a start not ready within `TimeoutStartSec=180` fails
 - **Dependencies**: NetworkManager.service, network-online.target, avahi-daemon.service; ordered `After=` milo-camilladsp, milo-snapserver-multiroom and milo-snapclient-multiroom (ordering only, it pulls none of them in)
 - **Startup**: Enabled at boot
-- **Notes**: Main application logic, WebSocket server, REST API
+- **Notes**: Main application logic, WebSocket server, REST API. `ExecStartPre=-/usr/local/bin/milo-update-guard start` runs before every start (as `milo`): it judges a Milō app update from its journal (`backend/core/updates/milo_journal.py`) — an install cut before its reboot is put back at once, a release on trial gets two starts and the third runs the previous release, put back by the guard (checkout, venv, frontend, versioned data, then `milo-deploy-update sync-system-files`). With no journal it does nothing. Its time counts against `TimeoutStartSec`. A unit ordered `After=` this one must never be started with a blocking `systemctl start` before `READY=1`: the start would wait for the backend that issued it
+
+#### milo-update-inhibit.service
+- **Role**: Holds a logind block inhibitor (`shutdown:handle-power-key`) while a Milō app update installs
+- **Runs as**: root (logind grants a shutdown block only to root or an active session)
+- **Dependencies**: `BindsTo=milo-backend.service` (a backend that dies mid-update releases it), no `After=`: ordered after a `Type=notify` backend, a start issued before its `READY=1` would wait for it forever
+- **Startup**: Not enabled (no `[Install]`) — started by the updater once its journal is open, stopped just before the update's reboot; `RuntimeMaxSec=30min` if nothing stops it
+- **Notes**: While it runs, logind refuses every shutdown and reboot, root's included (systemd ≥ 257, unless `-i`/`--force`), and the power key does nothing; the update stops it before its own reboot and before any restart of the backend (`BindsTo=` restarts it along with one). The backend's power routes also refuse with 409, which names the update, for as long as a journal is open
 
 #### milo-readiness.service
 - **Role**: Waits for backend and nginx to be ready before dismissing Plymouth splash
@@ -192,6 +200,7 @@ graphical.target
 
 multi-user.target
   ├─ milo-backend.service
+  │    └─ milo-update-inhibit.service (BindsTo=, started by the updater only)
   ├─ milo-camilladsp.service
   ├─ milo-navidrome.service
   │    └─ milo-navidrome-config.service (Wants=, reconciles TOML before each start)

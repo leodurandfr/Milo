@@ -29,10 +29,23 @@ error_exit() { echo "ERROR: $1" >&2; exit 1; }
 # overwrite this avoids.
 install_self() {
     local rel_path="$1"
-    cp "$REPO_PATH/rootfs/$rel_path" "/$rel_path.new"
-    chmod +x "/$rel_path.new"
-    mv -f "/$rel_path.new" "/$rel_path"
+    install_atomic "$REPO_PATH/rootfs/$rel_path" "/$rel_path" +x
     echo "  Installed /$rel_path (renamed into place)"
+}
+
+# Every other file goes in by the same rename: written beside its destination,
+# then swapped in, so a power cut leaves the old file or the new one, never a
+# truncated unit or helper — a rollback (milo-update-guard) runs this script
+# from the backend's next start, where a unit cut in half is a backend that
+# never starts. `.new` is a name the directories written here do not read as
+# config: systemd wants a unit suffix, udev `.rules`, sysctl.d and conf.d
+# `.conf`. Same shape as the satellite's milo-client-deploy-update.
+install_atomic() {
+    # $1 source, $2 destination, then optionally $3 a chmod mode, $4 a chown owner
+    cp "$1" "$2.new"
+    [ -z "${3:-}" ] || chmod "$3" "$2.new"
+    [ -z "${4:-}" ] || chown "$4" "$2.new"
+    mv -f "$2.new" "$2"
 }
 
 # A sudoers policy is validated before it can take effect, and swapped in by
@@ -73,8 +86,7 @@ install_sshd_dropin() {
 
     mkdir -p "$(dirname "$target")"
     [ -f "$target" ] && cp -p "$target" "$target.previous"
-    cp "$REPO_PATH/rootfs/$rel_path" "$target"
-    chmod 0644 "$target"
+    install_atomic "$REPO_PATH/rootfs/$rel_path" "$target" 0644
     if command -v sshd >/dev/null && ! sshd -t; then
         if [ -f "$target.previous" ]; then mv -f "$target.previous" "$target"; else rm -f "$target"; fi
         error_exit "sshd rejects $rel_path -- not installed"
@@ -110,32 +122,18 @@ validate_not_symlink() {
 
 cmd_sync_system_files() {
     # Sync system/*.service and rootfs/** from the repo to their system destinations.
-    # Hardcoded repo path — no arguments needed.
+    # Hardcoded repo path — no arguments needed. Run by the updater after its
+    # checkout, and by milo-update-guard after a checkout back: it installs the
+    # tree's set over what is there and removes nothing.
     local synced_udev=false
     local synced_nm_conf=false
     local synced_sshd=false
     local sysctl_files=()
 
-    # 1. Deploy systemd service files
-    echo "Deploying systemd service files..."
-    for service_file in "$REPO_PATH"/system/*.service; do
-        [ -f "$service_file" ] || continue
-        cp "$service_file" /etc/systemd/system/
-        echo "  Installed $(basename "$service_file")"
-    done
-
-    # Deploy avahi-daemon override if present
-    if [ -f "$REPO_PATH/system/avahi-daemon-override.conf" ]; then
-        mkdir -p /etc/systemd/system/avahi-daemon.service.d/
-        cp "$REPO_PATH/system/avahi-daemon-override.conf" \
-            /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
-        echo "  Installed avahi-daemon override"
-    fi
-
-    systemctl daemon-reload
-    echo "  systemctl daemon-reload done"
-
-    # 2. Deploy rootfs files (preserving directory structure)
+    # 1. Deploy rootfs files (preserving directory structure). Before the units:
+    # a unit names its helpers (ExecStartPre= of milo-backend.service is
+    # milo-update-guard), and a unit reloaded ahead of a helper it names fails
+    # to start in the window between.
     echo "Deploying rootfs files..."
     cd "$REPO_PATH/rootfs"
 
@@ -152,25 +150,21 @@ cmd_sync_system_files() {
         esac
 
         target="/$rel_path"
-        target_dir=$(dirname "$target")
+        mkdir -p "$(dirname "$target")"
 
-        mkdir -p "$target_dir"
-        cp "$REPO_PATH/rootfs/$rel_path" "$target"
+        # Executable for scripts and dispatcher hooks, ownership for the files
+        # the milo user owns on the image — set on the copy, so the file is
+        # final the moment it is swapped in.
+        mode=""
+        owner=""
+        case "$target" in
+            /usr/local/bin/*|*/dispatcher.d/*|*.sh) mode=+x ;;
+        esac
+        case "$target" in
+            /home/milo/*|/var/lib/milo/*) owner=milo:milo ;;
+        esac
+        install_atomic "$REPO_PATH/rootfs/$rel_path" "$target" "$mode" "$owner"
         echo "  Installed $target"
-
-        # Set executable for scripts and dispatcher hooks
-        case "$target" in
-            /usr/local/bin/*|*/dispatcher.d/*|*.sh)
-                chmod +x "$target"
-                ;;
-        esac
-
-        # Set ownership for the files the milo user owns on the image
-        case "$target" in
-            /home/milo/*|/var/lib/milo/*)
-                chown milo:milo "$target"
-                ;;
-        esac
 
         # Track what needs its daemon or the kernel told
         case "$rel_path" in
@@ -179,6 +173,25 @@ cmd_sync_system_files() {
             etc/NetworkManager/conf.d/*) synced_nm_conf=true ;;
         esac
     done < <(find . -type f)
+
+    # 2. Deploy systemd service files
+    echo "Deploying systemd service files..."
+    for service_file in "$REPO_PATH"/system/*.service; do
+        [ -f "$service_file" ] || continue
+        install_atomic "$service_file" "/etc/systemd/system/$(basename "$service_file")"
+        echo "  Installed $(basename "$service_file")"
+    done
+
+    # Deploy avahi-daemon override if present
+    if [ -f "$REPO_PATH/system/avahi-daemon-override.conf" ]; then
+        mkdir -p /etc/systemd/system/avahi-daemon.service.d/
+        install_atomic "$REPO_PATH/system/avahi-daemon-override.conf" \
+            /etc/systemd/system/avahi-daemon.service.d/milo-override.conf
+        echo "  Installed avahi-daemon override"
+    fi
+
+    systemctl daemon-reload
+    echo "  systemctl daemon-reload done"
 
     # 3. Reload udev rules if any were synced
     if [ "$synced_udev" = true ]; then
@@ -207,6 +220,10 @@ cmd_sync_system_files() {
         systemctl try-reload-or-restart ssh.service
         echo "  sshd configuration reloaded"
     fi
+
+    # The updater moves its journal forward, and the guard closes its rollback,
+    # on this exit: what was renamed into place must be on the card by then.
+    sync
 
     echo "System files sync complete"
 }
@@ -265,6 +282,14 @@ cmd_install_deb() {
     export DEBCONF_NONINTERACTIVE_SEEN=true
     export APT_LISTCHANGES_FRONTEND=none
 
+    # An install cut by a power loss leaves dpkg "interrupted", and apt-get then
+    # refuses every install until this runs; nothing else ever runs it. A no-op
+    # on a healthy system. Not fatal here: what it could not finish, apt-get
+    # reports below in words.
+    echo "Finishing any interrupted dpkg run..."
+    dpkg --configure -a --force-confdef --force-confold \
+        || echo "WARNING: dpkg --configure -a failed; apt-get decides below" >&2
+
     echo "Updating APT package list..."
     apt update -qq
 
@@ -283,17 +308,6 @@ cmd_install_deb() {
         || error_exit "$pkg reads '$state' after apt, expected $ver"
 
     echo "OK: $pkg $ver installed"
-}
-
-cmd_daemon_reload() {
-    systemctl daemon-reload
-    echo "OK: systemctl daemon-reload done"
-}
-
-cmd_reload_udev() {
-    udevadm control --reload-rules
-    udevadm trigger
-    echo "OK: udev rules reloaded"
 }
 
 cmd_write_config() {
@@ -339,8 +353,6 @@ case "$subcommand" in
     sync-system-files) cmd_sync_system_files "$@" ;;
     install-binary)    cmd_install_binary "$@" ;;
     install-deb)       cmd_install_deb "$@" ;;
-    daemon-reload)     cmd_daemon_reload "$@" ;;
-    reload-udev)       cmd_reload_udev "$@" ;;
     write-config)      cmd_write_config "$@" ;;
     reboot)            cmd_reboot "$@" ;;
     *) error_exit "Unknown subcommand: $subcommand" ;;

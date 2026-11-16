@@ -8,9 +8,11 @@ run. Four things live only there:
   earlier serves the first HTTP request over a half-wired graph.
 * **the lingering-unit sweep's place.** Source units carry `BindsTo=milo-backend`,
   so systemd restarts them *with* the backend, and a unit left running holds
-  `hw:Loopback,0,0` against the first source the user picks. The sweep runs after
-  the join — by then the IR listener is live and a MENU press may have selected
-  a source, whose unit it must leave up; what it stops is tested on the machine.
+  `hw:Loopback,0,0` against the first source the user picks. The backend is
+  Type=notify and those units are ordered after it, so their starts are held
+  until READY=1: the sweep runs once READY=1 is out, not in the lifespan, and
+  a MENU press during init selects a source whose unit it must leave up; what
+  it stops is tested on the machine.
 * **the shutdown table's ORDER**, whose reasoning is a paragraph of comment in
   `main.py` and was asserted nowhere: the registry's producer is silenced first,
   then the two entries that WRITE, and only then CamillaDSP — the entry most
@@ -33,6 +35,7 @@ import backend.main as main
 from backend.core.models.audio_state import AudioSource
 from backend.core.state import AudioStateMachine
 from backend.tests.architecture.test_service_wiring import hardware_controllers_with_cleanup
+from backend.tests.golden.harness import settle
 from backend.tests.test_audio_state_machine import Systemd, unit_source
 
 
@@ -107,6 +110,14 @@ def boot(monkeypatch):
     monkeypatch.setattr(main, "network_service", network)
     monkeypatch.setattr(main, "settings_service", MagicMock())
     monkeypatch.setattr(main, "_ws_log_handler", ws_log_handler)
+    # Read once the socket listens: no journal, nothing to commit or resume.
+    updates = MagicMock()
+    updates.milo_update_state = MagicMock(return_value=None)
+    updates.run_post_commit = AsyncMock()
+    updates.release_stale_inhibitor = AsyncMock()
+    monkeypatch.setattr(main, "update_service", updates)
+    ready = []
+    monkeypatch.setattr(main, "_sd_notify", lambda message: ready.append(message) or True)
 
     by_service_name = {
         "pending_clients_service": _torn_down("pending_clients"),
@@ -133,6 +144,8 @@ def boot(monkeypatch):
         "ws_log_handler": ws_log_handler,
         "named": named,
         "satellites": satellites,
+        "updates": updates,
+        "ready": ready,
         "monkeypatch": monkeypatch,
     }
 
@@ -184,53 +197,73 @@ class TestStartup:
         Swept with the rest, the screen said Spotify while the speaker was gone
         from the phone's Connect list, and re-selecting Spotify answered
         "Already on source" — only another source brought it back.
+
+        Its start is held until READY=1, as systemd holds a start ordered
+        After= a Type=notify unit still starting. Swept inside the lifespan,
+        the sweep waited for the transition lock that start sits in, and the
+        lifespan for the sweep: READY=1 never came before the start's own
+        timeout failed the source.
         """
         systemd = Systemd(up={"milo-radio.service"})
+        systemd.start_held = asyncio.Event()
         machine = AudioStateMachine()
         machine.register_source(AudioSource.RADIO, unit_source(systemd, "milo-radio.service"))
         machine.register_source(AudioSource.SPOTIFY, unit_source(systemd, "milo-spotify.service"))
         boot["monkeypatch"].setattr(main, "state_machine", machine)
         boot["monkeypatch"].setattr(main, "systemd_manager", systemd)
+        boot["monkeypatch"].setattr(
+            main, "_sd_notify", lambda message: systemd.start_held.set() or True
+        )
 
         async def _menu_press_during_init():
+            await asyncio.sleep(0)
             await machine.transition_to_source(AudioSource.SPOTIFY)
 
-        task = asyncio.create_task(_menu_press_during_init())
-        boot["monkeypatch"].setattr(main, "get_init_task", lambda: task)
+        menu = asyncio.create_task(_menu_press_during_init())
+        await asyncio.sleep(0)  # the press is in, its start held
+        boot["monkeypatch"].setattr(main, "get_init_task", lambda: None)
 
-        async with main.lifespan(MagicMock()):
-            assert systemd.calls == [
-                "start milo-spotify.service", "stop milo-radio.service",
-            ]
-            assert systemd.active["milo-spotify.service"] is True
-            assert machine.system_state.active_source == AudioSource.SPOTIFY
+        lifespan = main.lifespan(MagicMock())
+        entered = asyncio.create_task(lifespan.__aenter__())
+        await settle()
+        assert entered.done(), "the lifespan waited on a start held until READY=1"
+        await entered
 
-    async def test_the_sweep_runs_between_the_init_join_and_the_banner(self, boot):
-        """After the join, before the banner is armed — where it has always run.
-        Moved before the join, it would race milo-bluealsa, which systemd starts
-        at boot right after the backend: a race never measured.
+        main.mark_listening()
+        await settle()
+        await menu
+        assert systemd.calls == [
+            "start milo-spotify.service", "stop milo-radio.service",
+        ]
+        assert systemd.active["milo-spotify.service"] is True
+        assert machine.system_state.active_source == AudioSource.SPOTIFY
+        await lifespan.__aexit__(None, None, None)
+
+    async def test_the_sweep_runs_once_ready_was_sent(self, boot):
+        """Not before READY=1: milo-bluealsa and milo-bluealsa-aplay, which
+        systemd starts at boot, and a source unit a backend restart brings
+        back, are ordered after the backend, so until READY=1 they are down
+        with their start queued. A sweep then reads them `inactive`, spares
+        them, and they come up a moment later holding the loopback.
 
         What the sweep stops is the machine's to answer
         (`test_audio_state_machine.py::TestLingeringUnitSweep`).
         """
         steps = []
-
-        async def _init_task_body():
-            await asyncio.sleep(0)
-            steps.append("init")
-
-        task = asyncio.create_task(_init_task_body())
-        boot["monkeypatch"].setattr(main, "get_init_task", lambda: task)
+        boot["monkeypatch"].setattr(
+            main, "_sd_notify", lambda message: steps.append(message) or True
+        )
         boot["state_machine"].stop_lingering_units = AsyncMock(
             side_effect=lambda _systemd: steps.append("sweep")
         )
-        boot["ws_log_handler"].set_state_machine = MagicMock(
-            side_effect=lambda _machine: steps.append("banner")
-        )
 
-        await _run_lifespan(boot)
+        async with main.lifespan(MagicMock()):
+            await settle()
+            assert steps == [], "READY=1 and the sweep wait for the socket to listen"
+            main.mark_listening()
+            await settle()
 
-        assert steps == ["init", "sweep", "banner"]
+        assert steps == [b"READY=1", "sweep"]
         boot["state_machine"].stop_lingering_units.assert_awaited_once_with(boot["systemd"])
 
     async def test_the_error_banner_is_armed_with_the_state_machine(self, boot):

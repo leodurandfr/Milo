@@ -43,6 +43,16 @@
                             <span class="version-new">> {{ stripTagPrefix(localPrograms.milo.latest?.tag_name) }}</span>
                           </template>
                         </span>
+                        <!-- The last update, put back by the unit itself: drawn
+                             as a satellite's failed push is. -->
+                        <div v-if="miloFailureShown" class="program-failure">
+                          <span v-if="miloFailureCause" class="text-body-small failure-cause">
+                            {{ miloFailureCause }}
+                          </span>
+                          <span v-if="miloUpdateFailure.detail" class="text-mono-small failure-detail">
+                            {{ miloUpdateFailure.detail }}
+                          </span>
+                        </div>
                       </div>
 
                       <div class="program-actions">
@@ -53,7 +63,7 @@
                             :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()">
                             {{ miloButtonLabel }}
                           </Button>
-                          <IconButton :icon="localPrograms.milo.latest?.withdrawn ? 'clockCounterClockwise' : 'downloadSimple'" variant="brand" size="small"
+                          <IconButton :icon="miloButtonIcon" variant="brand" size="small"
                             class="action-compact row-icon-button" :aria-label="miloButtonLabel"
                             :loading="isLocalUpdating('milo') || debugForceUpdating"
                             @click="startLocalUpdate('milo')"
@@ -403,7 +413,7 @@ const updatesStore = useUpdatesStore();
 // registered centrally in App.vue); this component only renders store state.
 const {
   localPrograms, localProgramsLoading, localProgramsError,
-  satellites, satellitesError, satelliteByMacId,
+  satellites, satellitesError, satelliteByMacId, miloUpdateFailure, rollbackNotice,
 } = storeToRefs(updatesStore);
 const {
   loadLocalPrograms, loadSatellites,
@@ -434,7 +444,13 @@ const miloButtonLabel = computed(() => {
   if (isLocalUpdating('milo') || debugForceUpdating.value) {
     return withdrawn ? t('updates.revertingTo', { version }) : t('updates.updating');
   }
-  return withdrawn ? t('updates.revertTo', { version }) : t('updates.update');
+  if (withdrawn) return t('updates.revertTo', { version });
+  return miloRetry.value ? t('updates.retry') : t('updates.update');
+});
+
+const miloButtonIcon = computed(() => {
+  if (localPrograms.value.milo?.latest?.withdrawn) return 'clockCounterClockwise';
+  return miloRetry.value ? 'arrowClockwise' : 'downloadSimple';
 });
 
 // Non-local satellites: online clients, plus those an update took offline —
@@ -464,8 +480,11 @@ function isSatelliteLoading(macId) {
     || isSatelliteCamillaUpdating(macId);
 }
 
+// A satellite's verdict, and the outcome of the server's own last update: the
+// two trials end the same ways, and `rollback_failed` is the server's alone.
 const APP_FAILURE_CAUSES = {
   rolled_back: 'updates.failureRolledBack',
+  rollback_failed: 'updates.failureRollbackFailed',
   did_not_return: 'updates.failureDidNotReturn',
   rejected: 'updates.failureRejected'
 };
@@ -474,6 +493,26 @@ const APP_FAILURE_CAUSES = {
 function appFailureShown(macId) {
   return !!satelliteAppFailure(macId) && !isSatelliteAppUpdating(macId) && !debugForceUpdating.value;
 }
+
+// The release on offer is the one that was put back: a press is a retry. With
+// another one on offer (the fix, published since), a press is an update, and
+// the failure of a release no longer offered is not this row's to show — once
+// its banner, which sends the reader here for the details, is closed. A record
+// that names no release (a journal the card could not read) is never stale.
+const miloFailureOffered = computed(() => !!miloUpdateFailure.value
+  && miloUpdateFailure.value.to_version === localPrograms.value.milo?.latest?.tag_name);
+
+const miloFailureShown = computed(() =>
+  !!miloUpdateFailure.value && !isLocalUpdating('milo') && !debugForceUpdating.value
+  && (miloFailureOffered.value || miloAction.value !== 'update'
+    || !!rollbackNotice.value || !miloUpdateFailure.value.to_version));
+
+const miloRetry = computed(() => miloFailureShown.value && miloFailureOffered.value);
+
+const miloFailureCause = computed(() => {
+  const key = APP_FAILURE_CAUSES[miloUpdateFailure.value?.outcome];
+  return key ? t(key) : null;
+});
 
 function appFailureCause(macId) {
   const key = APP_FAILURE_CAUSES[satelliteAppFailure(macId)?.verdict];

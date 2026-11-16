@@ -1,9 +1,12 @@
 # backend/core/updates/helpers.py
 """
-Shared version utilities for update services.
+Shared utilities for the update services: versions, requirements, durable writes.
 """
+import json
 import logging
+import os
 import re
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -59,3 +62,41 @@ def compare_versions(current: Optional[str], latest: Optional[str]) -> bool:
     except Exception as e:
         logger.warning(f"Version comparison failed ({current!r} vs {latest!r}): {e}")
         return False
+
+
+def requirements_moved_up(before: str, after: str) -> bool:
+    """Whether the requirements file `after` adds a line to `before` or changes one.
+
+    `pip install -r` never uninstalls, so a release that only drops a line
+    needs no pip at all, and neither does one that only edits a comment. A
+    changed line counts whichever way its floor moved: a lowered floor is the
+    one case where pip then runs for nothing, and telling it from a raise would
+    mean parsing specifiers to save a venv copy on a rare release.
+    """
+    def requirements(text: str) -> set[str]:
+        return {re.sub(r"\s+", "", line.split("#", 1)[0]) for line in text.splitlines()} - {""}
+
+    return bool(requirements(after) - requirements(before))
+
+
+def fsync_directory(directory: Path) -> None:
+    """Make a rename or an unlink inside `directory` survive a power cut."""
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def write_json_durably(path: Path, data: dict) -> None:
+    """Replace `path` with `data`: a reader, or a power cut, sees the old file
+    or the new one, never half of either. Blocking."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    fsync_directory(path.parent)

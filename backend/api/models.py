@@ -838,6 +838,13 @@ class ProgramUpdateRequest(BaseModel):
         return self
 
 
+class LastUpdatePatch(BaseModel):
+    """`PATCH /api/programs/milo/last-update`: the part of the last Milō
+    update's outcome a client may change, its banner, closed for every screen.
+    A client never opens it again; the next outcome is a new record."""
+    dismissed: Literal[True]
+
+
 # =============================================================================
 # SYSTEM (Settings > Appareil > Système)
 # =============================================================================

@@ -4,10 +4,11 @@ API routes for program management — Full version with satellites
 """
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Callable, Optional
-from fastapi import APIRouter, BackgroundTasks
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import (
+    MiloUpdateNoticeDismissed,
     ProgramsCompleteEvent,
     ProgramsProgressEvent,
     ProgramUpdateComplete,
@@ -19,7 +20,7 @@ from backend.core.models.ws_events import (
     SatelliteUpdateComplete,
     SatelliteUpdateProgress,
 )
-from backend.api.models import ProgramUpdateRequest
+from backend.api.models import LastUpdatePatch, ProgramUpdateRequest
 
 if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
@@ -37,6 +38,32 @@ PROGRAM_TO_AUDIO_SOURCE = {
     # Stopping Navidrome mid-update kills the localhost stream mpv is playing.
     'navidrome': AudioSource.MUSIC_LIBRARY,
 }
+
+
+def refuse_while_milo_updates(update_service: Optional["UpdateService"], action: str) -> None:
+    """HTTP 409 for a reboot or a power-off asked while a Milō update holds the unit.
+
+    The update survives being cut — the guard puts the previous release back
+    at the next start — but cutting it is never what the press meant: during
+    the install it throws the update away, during the trial it counts as a
+    failed start of the new release. The shutdown inhibitor the update holds
+    (milo-update-inhibit.service) is gone once the update reboots, while the
+    trial and the post-commit phase still hold the unit, and while it holds,
+    logind refuses with an error that names nothing.
+    """
+    if update_service is None or not update_service.milo_update_active:
+        return
+    state = update_service.milo_update_state() or {}
+    versions = " → ".join(v for v in (state.get("from_version"), state.get("to_version")) if v)
+    update = f"a Milō update ({versions})" if versions else "a Milō update"
+    # Warning, not error: the refusal is the route working, and an error
+    # would raise the backend-error banner over the update screen.
+    logger.warning(f"Refusing the {action}: {update} is in progress")
+    raise HTTPException(
+        status_code=409,
+        detail=f"The {action} is refused while {update} is in progress; it must finish first",
+    )
+
 
 def create_programs_router(
     update_service: "UpdateService",
@@ -63,6 +90,14 @@ def create_programs_router(
     # longest prefix first: a MAC never contains "app_" or "camilladsp_", but
     # the bare "satellite_" would swallow both.
     satellite_key_prefixes = ("satellite_app_", "satellite_camilladsp_", "satellite_")
+
+    def _running() -> set[str]:
+        """The in-flight keys, `milo` included while the update service says a
+        Milō update holds the unit: its journal outlives this process, and the
+        release that arrives inherits the claim with it."""
+        if update_service.milo_update_active:
+            return active_updates | {"milo"}
+        return set(active_updates)
 
     def _scope(update_key: str) -> str:
         """"local", or the satellite this key drives."""
@@ -97,7 +132,7 @@ def create_programs_router(
         Returns None once the key is claimed.
         """
         scope = _scope(update_key)
-        for running in active_updates:
+        for running in _running():
             if "milo" in (running, update_key) or _scope(running) == scope:
                 return running
             if running.startswith("satellite_app_") and update_key.startswith("satellite_app_"):
@@ -150,6 +185,12 @@ def create_programs_router(
                 result = await update_fn()
                 active_updates.discard(update_key)
 
+                if result.get("pending"):
+                    # A Milō update handed the unit to a restart: the release
+                    # that starts next decides how it ended, and announces it
+                    # (or GET /api/programs' `last_update` says so).
+                    return
+
                 if not result["success"]:
                     logger.error(f"Update {update_key} failed: {result.get('error', 'Update failed')}")
 
@@ -167,6 +208,25 @@ def create_programs_router(
 
         return do_update
 
+    async def _announce_milo_progress(state: Dict[str, Any]) -> None:
+        await state_machine.broadcast(ProgramUpdateProgress(
+            program="milo",
+            phase=state["phase"],
+            from_version=state["from_version"],
+            to_version=state["to_version"],
+            item=state["item"],
+            index=state["index"],
+            total=state["total"],
+        ))
+
+    async def _announce_milo_complete(success: bool) -> None:
+        await state_machine.broadcast(ProgramUpdateComplete(program="milo", success=success))
+
+    # The install, the reboot and the post-commit phase run in two processes,
+    # so a Milō update's progress cannot ride on the background task the route
+    # starts: the update service announces it, and this is where it is heard.
+    update_service.set_milo_update_listener(_announce_milo_progress, _announce_milo_complete)
+
     # === SPECIFIC ROUTES (must come BEFORE generic routes) ===
 
     @router.get("")
@@ -178,8 +238,14 @@ def create_programs_router(
         # backend restarted mid-update (e.g. a milo self-update). Read after the
         # version probes, never before: an update claimed or finished during
         # that await would otherwise be listed as it stood when the read began.
-        def _local_active() -> list[str]:
-            return [k for k in active_updates if not k.startswith("satellite_")]
+        # `milo_update` is where a Milō update stands (the shape of
+        # program_update_progress), `last_update` how the last one ended.
+        def _in_flight() -> dict:
+            return {
+                "active_updates": sorted(k for k in _running() if not k.startswith("satellite_")),
+                "milo_update": update_service.milo_update_state(),
+                "last_update": update_service.last_update_record(),
+            }
 
         try:
             results = await update_service.get_all_program_status()
@@ -187,7 +253,7 @@ def create_programs_router(
                 "status": "success",
                 "programs": results,
                 "count": len(results),
-                "active_updates": _local_active()
+                **_in_flight(),
             }
         except Exception as e:
             # HTTP 200 + status:error is the documented resilience pattern for a
@@ -200,8 +266,36 @@ def create_programs_router(
                 "message": str(e),
                 "programs": {},
                 "count": 0,
-                "active_updates": _local_active()
+                **_in_flight(),
             }
+
+    @router.get("/milo/update")
+    async def get_milo_update():
+        """Where an update of Milō itself stands (`milo_update`), and how the last one ended (`last_update`).
+
+        The two keys GET /api/programs carries, without its version probes and
+        GitHub reads: a client reads this at every resync, and before the first
+        frame after its boot screen, which must already be the update screen
+        while one runs.
+        """
+        return {
+            "status": "success",
+            "milo_update": update_service.milo_update_state(),
+            "last_update": update_service.last_update_record(),
+        }
+
+    @router.patch("/milo/last-update")
+    async def patch_milo_last_update(payload: LastUpdatePatch):
+        """Close the last Milō update's banner for every screen (`{"dismissed": true}`).
+
+        The outcome is read with GET /api/programs/milo/update (`last_update`).
+        Idempotent: with no outcome to close, one already closed, or an update
+        running (it replaces the outcome itself), nothing changes. Answers the
+        outcome as it now stands.
+        """
+        if await update_service.dismiss_last_update():
+            await state_machine.broadcast(MiloUpdateNoticeDismissed())
+        return {"status": "success", "last_update": update_service.last_update_record()}
 
     # === SATELLITE ROUTES (specific, before generic routes) ===
 

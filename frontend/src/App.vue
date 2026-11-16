@@ -9,8 +9,17 @@
       @dismiss="dismissNotification"
     />
 
-    <!-- Hostname conflict takes priority over everything (incl. setup wizard) -->
-    <HostnameConflictView v-if="isBootComplete && systemStore.hostnameConflict" />
+    <!-- Milō replacing itself takes priority over everything: nothing behind it
+         can be used until the new release has held, or the old one is back. -->
+    <UpdateInProgressView
+      v-if="isBootComplete && updatesStore.miloUpdateScreenPhase"
+      :phase="updatesStore.miloUpdateScreenPhase"
+      :from-version="updatesStore.miloUpdate.from_version"
+      :to-version="updatesStore.miloUpdate.to_version"
+    />
+
+    <!-- Hostname conflict takes priority over the rest (incl. setup wizard) -->
+    <HostnameConflictView v-else-if="isBootComplete && systemStore.hostnameConflict" />
 
     <!-- Setup Wizard (blocks entire UI when setup not completed) -->
     <SetupWizard v-else-if="settingsStore.setupCompleted === false" />
@@ -76,6 +85,9 @@ import VolumeBar from '@/components/ui/VolumeBar.vue';
 import Dock from '@/components/ui/Dock.vue';
 import Modal from '@/components/ui/Modal.vue';
 import NotificationBanner from '@/components/ui/NotificationBanner.vue';
+// Not a lazy chunk: it is on screen while the update swaps dist/, after which
+// a chunk the running bundle never loaded is gone.
+import UpdateInProgressView from '@/components/system/UpdateInProgressView.vue';
 
 const EqualizerModal = defineAsyncComponent(() =>
   import('@/components/equalizer/EqualizerModal.vue')
@@ -132,6 +144,7 @@ import { handleNetworkStatusChanged, preloadNetworkStatus } from '@/composables/
 import { adoptBrowserTimezone } from '@/composables/useTimezone';
 import { createServerSync } from '@/services/serverSync';
 import { isBackendRestart, isStaleBuild } from '@/utils/serverInstance';
+import { stripTagPrefix } from '@/utils/miloRelease';
 
 // === Constants ===
 const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when attempt 2 starts)
@@ -149,8 +162,8 @@ const LOGO_FADE_DELAY = hasBootLogo ? 400 : 0;
 const SCREEN_FADE_DELAY = hasBootLogo ? 500 : 100;
 // The kiosk keeps its boot screen until the settings and the panel's pitch have
 // answered, so the bezel inset is in place on the first frame instead of moving
-// it — for this long past the initial state at most, so a route that fails
-// cannot hold the screen.
+// it, and every client until the state of a Milō update has — for this long
+// past the initial state at most, so a route that fails cannot hold the screen.
 const BOOT_INSET_WAIT_MS = 1500;
 
 const { t } = useI18n();
@@ -347,11 +360,54 @@ const sourceLabel = (id) => {
 // visibility listener the delay has to agree with. Left here is what the
 // service cannot know: the banner has nothing to say before boot, and the setup
 // wizard runs over an HTTP fallback that needs no WebSocket at all.
+// A socket lost under the update screen is the update's own restart, which the
+// screen already says.
 const showConnectionLost = computed(() =>
   showDisconnectedBanner.value
   && isBootComplete.value
   && settingsStore.setupCompleted !== false
+  && !updatesStore.miloUpdateScreenPhase
 );
+
+watch(showDisconnectedBanner, (lost) => {
+  if (lost) updatesStore.handleBackendLost();
+});
+
+// What a Milō update says once it has left the screen: the dependency set and
+// the satellites the arriving release finishes with, or the release that did
+// not hold and was put back. Nothing when it went well.
+const miloUpdateNotice = computed(() => {
+  const banner = updatesStore.miloUpdateBanner;
+  if (banner?.phase === 'dependencies') {
+    return {
+      title: t('miloUpdate.dependenciesTitle'),
+      detail: t('miloUpdate.dependenciesDetail', { program: banner.item, index: banner.index, total: banner.total }),
+      dismissable: false,
+    };
+  }
+  if (banner?.phase === 'satellites') {
+    return {
+      title: t('miloUpdate.satellitesTitle'),
+      detail: t('miloUpdate.satellitesDetail', { room: banner.item, index: banner.index, total: banner.total }),
+      dismissable: false,
+    };
+  }
+  const record = updatesStore.rollbackNotice;
+  if (record) {
+    const restored = record.outcome === 'rolled_back';
+    // A journal the card could not read names no release: said without them.
+    const named = record.to_version && record.from_version;
+    const versions = { target: stripTagPrefix(record.to_version), origin: stripTagPrefix(record.from_version) };
+    let detail = 'miloUpdate.rollbackFailedDetailUnnamed';
+    if (named) detail = restored ? 'miloUpdate.rolledBackDetail' : 'miloUpdate.rollbackFailedDetail';
+    return {
+      title: t(restored ? 'miloUpdate.rolledBackTitle' : 'miloUpdate.rollbackFailedTitle'),
+      detail: t(detail, versions),
+      dismissable: true,
+    };
+  }
+  return null;
+});
 
 // Connectivity is deliberately absent from this banner. A missing link is only
 // worth telling the user about when it blocks the source they selected, and
@@ -365,7 +421,9 @@ const notificationTitle = computed(() => {
   }
   // Priority 2: transient system/source errors
   if (currentError.value?.title) return currentError.value.title;
-  // Priority 3: the configured audio card is not there. Last because it is the
+  // Priority 3: a Milō update finishing, or put back
+  if (miloUpdateNotice.value) return miloUpdateNotice.value.title;
+  // Priority 4: the configured audio card is not there. Last because it is the
   // only one that does not go away: a wrong pick in the wizard is a unit with
   // no sound and nothing anywhere saying why, and the banner is what turns
   // that into a sentence naming the card and the page that fixes it.
@@ -380,6 +438,9 @@ const notificationDetail = computed(() => {
     return t('notification.connectionLostDescription');
   }
   if (currentError.value?.detail) return currentError.value.detail;
+  // A transient error without a detail must not borrow the update's.
+  if (currentError.value) return null;
+  if (miloUpdateNotice.value) return miloUpdateNotice.value.detail;
   if (systemStore.audioCardMissing) {
     return t('notification.audioCardMissingDescription', { card: systemStore.audioCardMissing });
   }
@@ -391,8 +452,11 @@ const notificationDetail = computed(() => {
 // card, which the user may well have chosen on purpose while waiting for a
 // board to arrive.
 const isNotificationDismissable = computed(() => {
-  return !showConnectionLost.value &&
-    (currentError.value !== null || !!systemStore.audioCardMissing);
+  if (showConnectionLost.value) return false;
+  if (currentError.value !== null) return true;
+  // The update's progress ends by itself; its rollback is closed once read.
+  if (miloUpdateNotice.value) return miloUpdateNotice.value.dismissable;
+  return !!systemStore.audioCardMissing;
 });
 
 // One button for whichever banner is drawn: closing a transient error must not
@@ -400,6 +464,8 @@ const isNotificationDismissable = computed(() => {
 function dismissNotification() {
   if (currentError.value !== null) {
     currentError.value = null;
+  } else if (miloUpdateNotice.value) {
+    updatesStore.dismissRollbackNotice();
   } else {
     systemStore.dismissAudioCardMissing();
   }
@@ -484,8 +550,11 @@ function adoptTimezoneOnceReady() {
   else watch(isReady, adopt, { once: true });
 }
 
-// Watch isReady → trigger boot screen fade and dock auto-show
-watch(() => isReady.value && (isInsetKnown.value || isInsetWaitOver.value), (ready) => {
+// Watch isReady → trigger boot screen fade and dock auto-show. It also waits for
+// where a Milō update stands, so that while one runs the first frame after the
+// boot screen is the update screen, never the app it covers.
+watch(() => isReady.value
+  && ((isInsetKnown.value && updatesStore.miloUpdateKnown) || isInsetWaitOver.value), (ready) => {
   if (ready && bootScreenEl) {
     clearBootTimeout();
     hideBootMessage();
@@ -641,6 +710,8 @@ const RAW_EVENTS = [
   ['source', 'storages_changed', musicLibraryStore.handleStoragesEvent],
   // The Spotify accounts Milō keeps: one kept, described or forgotten.
   ['source', 'profiles_changed', spotifyStore.applyProfiles],
+  // The last Milō update's banner, closed on another screen.
+  ['programs', 'milo_update_notice_dismissed', updatesStore.markLastUpdateDismissed],
 ];
 
 /**

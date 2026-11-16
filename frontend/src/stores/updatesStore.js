@@ -5,12 +5,26 @@
  * Owns the program inventories and the in-flight/completed update tracking
  * fed by the `programs/*` WS events (validated and registered centrally in
  * App.vue via parsedOn), so progress survives UpdateManager unmounts and the
- * component only reacts to store state.
+ * component only reacts to store state. It also holds where an update of Milō
+ * itself stands, which the whole app draws (the update screen, the banners).
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useMultiroomStore } from '@/stores/multiroomStore';
+
+// The phases of a Milō update that take the whole screen: the release that is
+// leaving installs the new one and reboots into it, and the new one is on
+// trial until it has held. After that the arriving release reconciles the
+// dependency set and pushes the satellites, behind a banner.
+const SCREEN_PHASES = new Set(['download', 'install', 'restart', 'verify']);
+const BANNER_PHASES = new Set(['dependencies', 'satellites']);
+// A last-update record the user is told about: the new release was put back.
+const FAILED_OUTCOMES = new Set(['rolled_back', 'rollback_failed']);
+// The banner closed, on the update clock beside the programs' ids but never one
+// of them: a close holds back the record a read sent before it carried, and
+// nothing else — not where the update stands, not the in-flight set.
+const NOTICE_CLOSED = 'milo:notice-closed';
 
 export const useUpdatesStore = defineStore('updates', () => {
   const multiroomStore = useMultiroomStore();
@@ -21,6 +35,19 @@ export const useUpdatesStore = defineStore('updates', () => {
   const localProgramsError = ref(false);
   // True from the first loadLocalPrograms() onwards (gates resync, see below)
   const hasEverLoaded = ref(false);
+
+  // The Milō update in progress, {phase, from_version, to_version, item, index,
+  // total}, or null: read from GET /api/programs (rebuilt from the update's
+  // journal after a reboot) and moved by the `milo` progress events.
+  const miloUpdate = ref(null);
+  // How the last Milō update ended, {from_version, to_version, outcome, detail,
+  // step, dismissed}, or null — kept by the server until the next update
+  // begins. `dismissed` is the banner closed on any screen: kept on the server,
+  // since the kiosk's private profile forgets what a browser keeps.
+  const lastUpdate = ref(null);
+  // True once the server has said where a Milō update stands: the boot screen
+  // waits for it (bounded), so its first frame after is already the right one.
+  const miloUpdateKnown = ref(false);
 
   const satellites = ref(null); // null = not loaded, [] = loaded empty
   const satellitesError = ref(false);
@@ -54,6 +81,30 @@ export const useUpdatesStore = defineStore('updates', () => {
       map[sat.mac_id] = sat;
     }
     return map;
+  });
+
+  // The phase the update screen names, or null when it is not drawn.
+  const miloUpdateScreenPhase = computed(() => {
+    const phase = miloUpdate.value?.phase;
+    return SCREEN_PHASES.has(phase) ? phase : null;
+  });
+
+  // The post-commit phase the banner describes, or null. Only while it is
+  // installing something: the reads that find nothing to install, the common
+  // case, are an update going well, and that shows nothing.
+  const miloUpdateBanner = computed(() =>
+    BANNER_PHASES.has(miloUpdate.value?.phase) && miloUpdate.value.item ? miloUpdate.value : null);
+
+  // The last update put back, which the Milō row describes until the next one.
+  const miloUpdateFailure = computed(() =>
+    FAILED_OUTCOMES.has(lastUpdate.value?.outcome) ? lastUpdate.value : null);
+
+  // The same record as a banner, until a screen closed it — and never over an
+  // update already running again.
+  const rollbackNotice = computed(() => {
+    const record = miloUpdateFailure.value;
+    if (!record || record.dismissed || miloUpdate.value || isMiloUpdating()) return null;
+    return record;
   });
 
   // === API CALLS ===
@@ -102,9 +153,53 @@ export const useUpdatesStore = defineStore('updates', () => {
   const satAppClock = makeDeltaClock();
   const satCamillaClock = makeDeltaClock();
 
+  function applyMiloUpdate(value) {
+    miloUpdate.value = value;
+  }
+
+  // Two reads say where a Milō update stands (its own, and the inventory's):
+  // the one sent last wins, and neither moves it back past a progress event
+  // that landed while it was in flight.
+  let miloReadSeq = 0;
+  function startMiloRead() {
+    return { seq: ++miloReadSeq, seen: localClock.now() };
+  }
+  // Whenever the answer carries them, the error envelope included: where the
+  // Milō update stands does not depend on the version probes that failed. A
+  // request that never reached the server says nothing, so it changes nothing —
+  // a backend rebooting into the new release keeps its screen.
+  // A banner closed while the read was in flight was closed on the record that
+  // read carries: it is applied closed.
+  function applyMiloRead(read, data) {
+    if (read.seq !== miloReadSeq) return;
+    const moved = localClock.movedSince(read.seen);
+    if (moved.has('milo')) return;
+    if (data?.milo_update !== undefined) applyMiloUpdate(data.milo_update);
+    if (data?.last_update !== undefined) {
+      lastUpdate.value = moved.has(NOTICE_CLOSED) && data.last_update
+        ? { ...data.last_update, dismissed: true }
+        : data.last_update;
+    }
+  }
+
+  async function loadMiloUpdate() {
+    const read = startMiloRead();
+    const result = await apiCall.get('/api/programs/milo/update', {
+      category: 'updates',
+      message: 'Error reading the Milō update',
+      checkStatus: true
+    });
+    if (result.ok) {
+      applyMiloRead(read, result.data);
+      miloUpdateKnown.value = true;
+    }
+    return result.ok;
+  }
+
   async function loadLocalPrograms() {
     const seq = ++localLoadSeq;
     const deltasSeen = localClock.now();
+    const miloRead = startMiloRead();
     hasEverLoaded.value = true;
     localProgramsLoading.value = true;
     localProgramsError.value = false;
@@ -113,10 +208,11 @@ export const useUpdatesStore = defineStore('updates', () => {
       message: 'Error loading programs',
       checkStatus: true
     });
+    applyMiloRead(miloRead, result.data);
     if (seq !== localLoadSeq) return result.ok;
+    const newer = localClock.movedSince(deltasSeen);
     if (result.ok) {
       localPrograms.value = result.data.programs || {};
-      const newer = localClock.movedSince(deltasSeen);
       reconcileActiveUpdates(localUpdateStates, result.data.active_updates || [], newer);
       // "Completed" means an update finished and this list had not caught up
       // yet — it suppresses one stale frame, nothing more. Kept past the
@@ -282,6 +378,36 @@ export const useUpdatesStore = defineStore('updates', () => {
     return satelliteAppFailures.value[macId] || null;
   }
 
+  // Closed at once here, then for every screen by the server, which announces
+  // it to the others. A read in flight answers from before the close, so it is
+  // not applied over it.
+  async function dismissRollbackNotice() {
+    if (!rollbackNotice.value) return;
+    markLastUpdateDismissed();
+    const result = await apiCall.patch('/api/programs/milo/last-update', { dismissed: true }, {
+      category: 'updates',
+      message: 'Error closing the Milō update notice',
+      checkStatus: true
+    });
+    if (result.ok && result.data?.last_update !== undefined) lastUpdate.value = result.data.last_update;
+  }
+
+  // programs/milo_update_notice_dismissed: another screen closed the banner.
+  // Noted even over a record this screen has not caught up with: the server's
+  // own record is the one closed, and a read in flight is about to bring it.
+  function markLastUpdateDismissed() {
+    touchLocal(NOTICE_CLOSED);
+    if (!lastUpdate.value || lastUpdate.value.dismissed) return;
+    lastUpdate.value = { ...lastUpdate.value, dismissed: true };
+  }
+
+  // The socket dropped while the update screen was up: the backend is the
+  // thing being replaced, so whatever step it last named, it is restarting —
+  // until it answers again and says where it stands.
+  function handleBackendLost() {
+    if (miloUpdateScreenPhase.value) miloUpdate.value = { ...miloUpdate.value, phase: 'restart' };
+  }
+
   // What a running update must block, and no more. The app update blocks
   // everything: it reconciles the whole dependency set, pushes the client app
   // to the fleet and reboots. Local programs block each other because they
@@ -376,8 +502,33 @@ export const useUpdatesStore = defineStore('updates', () => {
     }
   }
 
-  const handleProgramUpdateProgress = makeProgressHandler(localUpdateStates, 'program', touchLocal);
-  const handleProgramUpdateComplete = makeCompleteHandler(localUpdateStates, localCompletedUpdates, 'program', loadLocalPrograms, touchLocal);
+  const trackProgramUpdateProgress = makeProgressHandler(localUpdateStates, 'program', touchLocal);
+  const completeProgramUpdate = makeCompleteHandler(localUpdateStates, localCompletedUpdates, 'program', loadLocalPrograms, touchLocal);
+  // A `milo` progress event naming a phase says where the whole update stands,
+  // so it replaces the record rather than patching it.
+  function handleProgramUpdateProgress(payload) {
+    if (payload.program === 'milo' && payload.phase) {
+      applyMiloUpdate({
+        phase: payload.phase,
+        from_version: payload.from_version ?? null,
+        to_version: payload.to_version ?? null,
+        item: payload.item ?? null,
+        index: payload.index ?? null,
+        total: payload.total ?? null,
+      });
+      touchLocal('milo');
+    }
+    trackProgramUpdateProgress(payload);
+  }
+  // Sent once the arriving release has finished its satellites, or when the
+  // leaving one refused before anything moved. Never before the reboot.
+  function handleProgramUpdateComplete(payload) {
+    if (payload.program === 'milo') {
+      applyMiloUpdate(null);
+      touchLocal('milo');
+    }
+    completeProgramUpdate(payload);
+  }
   const handleSatelliteUpdateProgress = makeProgressHandler(satelliteUpdateStates, 'mac_id', satClock.touch);
   const handleSatelliteUpdateComplete = makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', awaitSatelliteReturn, satClock.touch);
   const handleSatelliteAppUpdateProgress = makeProgressHandler(satelliteAppUpdateStates, 'mac_id', satAppClock.touch);
@@ -400,16 +551,19 @@ export const useUpdatesStore = defineStore('updates', () => {
   const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', awaitSatelliteReturn, satCamillaClock.touch);
 
   // Reconciles in-flight update flags so "updating" survives a reconnect/foreground.
-  // Lazily loaded: UpdateManager calls loadLocalPrograms() when it opens, and the
-  // call costs an installed-version probe per program — same gate as radioStore.
+  // Where a Milō update stands is read on every resync, the boot's included:
+  // every screen draws it — a kiosk coming back from the update's reboot, a
+  // phone opened halfway through one — and its read costs nothing. The program
+  // list costs an installed-version probe per program (and a GitHub read), so
+  // it is only refetched once a view has loaded it.
   //
   // Satellites carry the same delta-only in-flight flags and need the same heal,
   // but they only exist while multiroom is on. `satellites !== null` is that gate:
   // it means UpdateManager already fetched them, which it only does when multiroom
   // is enabled — no second copy of the condition to keep in step.
   async function resync() {
-    if (!hasEverLoaded.value) return true;
-    const tasks = [loadLocalPrograms()];
+    const tasks = [loadMiloUpdate()];
+    if (hasEverLoaded.value) tasks.push(loadLocalPrograms());
     if (satellites.value !== null) tasks.push(loadSatellites());
     return (await Promise.all(tasks)).every(Boolean);
   }
@@ -422,18 +576,29 @@ export const useUpdatesStore = defineStore('updates', () => {
     localProgramsError,
     satellites,
     satellitesError,
+    miloUpdate,
+    lastUpdate,
+    miloUpdateKnown,
 
     // Computed
     satelliteByMacId,
+    miloUpdateScreenPhase,
+    miloUpdateBanner,
+    miloUpdateFailure,
+    rollbackNotice,
 
     // Actions
     loadLocalPrograms,
+    loadMiloUpdate,
     loadSatellites,
     canUpdateLocal,
     startLocalUpdate,
     startSatelliteUpdate,
     startSatelliteAppUpdate,
     startSatelliteCamillaUpdate,
+    dismissRollbackNotice,
+    markLastUpdateDismissed,
+    handleBackendLost,
 
     // Read helpers
     isLocalUpdating,

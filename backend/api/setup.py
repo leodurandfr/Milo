@@ -18,10 +18,11 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from backend.api.models import validate_configurable_audio_id
+from backend.api.programs import refuse_while_milo_updates
 from backend.config.constants import MILO_DATA_DIR
 from backend.core.multiroom.models import SpeakerType
 
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from backend.core.network.service import NetworkService
     from backend.core.settings import SettingsService
     from backend.core.systemd import SystemdServiceManager
+    from backend.core.updates.update import UpdateService
     from backend.hardware.service import HardwareService
 
 
@@ -98,7 +100,8 @@ def create_setup_router(
     settings_service: "SettingsService",
     hardware_service: "HardwareService",
     network_service: "NetworkService",
-    systemd_manager: "SystemdServiceManager"
+    systemd_manager: "SystemdServiceManager",
+    update_service: Optional["UpdateService"] = None,
 ):
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -121,6 +124,8 @@ def create_setup_router(
         nonlocal completing
         from backend.hardware.registry import AUDIO_CARDS, SCREENS, audio_config, reserved_pins
         from backend.core.settings import VALID_LANGUAGES
+
+        refuse_while_milo_updates(update_service, "setup completion")
 
         # Idempotency guard — a second device pressing Finish (the kiosk and a
         # phone) must not run a second milo-apply-hardware over config.txt nor
@@ -265,6 +270,7 @@ def create_setup_router(
         """
         from backend.hardware.registry import audio_config
 
+        refuse_while_milo_updates(update_service, "client adoption")
         async with _become_client_lock:
             if not FIRST_BOOT_HELPER.is_file():
                 logger.error(

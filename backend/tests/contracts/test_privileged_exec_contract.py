@@ -93,12 +93,37 @@ SUDO_SPELLINGS = ("sudo", "/usr/bin/sudo")
 # Side A: the argv the code builds.
 # --------------------------------------------------------------------------- #
 
+def _is_python_program(path: Path) -> bool:
+    try:
+        with open(path, "rb") as f:
+            head = f.readline(200)
+    except OSError:
+        return False
+    return head.startswith(b"#!") and b"python" in head
+
+
+def _rootfs_programs(tree_name: str) -> list[Path]:
+    """The Python programs the tree's rootfs ships, read like its modules.
+
+    `milo-update-guard` runs as `milo` from milo-backend.service's
+    ExecStartPre and puts the previous release's system files back through
+    `sudo -n milo-deploy-update sync-system-files`: a call outside `backend/`
+    that the same policy must grant. The rootfs's other programs run as root or
+    shell no sudo, so reading them all costs nothing and catches the next one.
+    """
+    bin_dir = TREES[tree_name]["rootfs"] / "usr" / "local" / "bin"
+    return sorted(p for p in bin_dir.iterdir() if p.is_file() and _is_python_program(p))
+
+
 def _modules(tree_name: str) -> list[Path]:
     return sorted(
-        p
-        for root in TREES[tree_name]["sources"]
-        for p in root.rglob("*.py")
-        if "__pycache__" not in p.parts and "tests" not in p.parts
+        [
+            p
+            for root in TREES[tree_name]["sources"]
+            for p in root.rglob("*.py")
+            if "__pycache__" not in p.parts and "tests" not in p.parts
+        ]
+        + _rootfs_programs(tree_name)
     )
 
 
@@ -387,6 +412,18 @@ def test_extractors_see_a_real_surface(tree_name):
     assert len(issued) >= 5, f"{tree_name}: only {len(issued)} sudo call(s) extracted"
     assert len(granted) >= 5, f"{tree_name}: only {len(granted)} NOPASSWD grant(s) parsed"
     assert all(argv for _, argv in issued), f"{tree_name}: an empty argv was extracted"
+
+
+def test_the_update_guard_privileged_call_is_read():
+    """The rollback's one privileged call lives in a rootfs program, not in
+    backend/: unread, a grant moved under it would surface as a rollback that
+    leaves the new release's units and helpers in place."""
+    guard_calls = [
+        argv for where, argv in _issued_argvs("backend")
+        if where == "rootfs/usr/local/bin/milo-update-guard"
+    ]
+
+    assert guard_calls == [("/usr/local/bin/milo-deploy-update", "sync-system-files")]
 
 
 def test_argument_scoped_grants_stay_argument_scoped():

@@ -4,15 +4,33 @@ Wants=NetworkManager.service network-online.target avahi-daemon.service
 After=NetworkManager.service network-online.target avahi-daemon.service milo-camilladsp.service milo-snapserver-multiroom.service milo-snapclient-multiroom.service
 
 [Service]
-Type=simple
+# Started once main.py sends READY=1, which it does when uvicorn listens: a
+# release that hangs before it fails its start on TimeoutStartSec, and the
+# guard below counts that start like a crash.
+Type=notify
+NotifyAccess=main
 User=milo
 Group=milo
 WorkingDirectory=/home/milo/milo
 Environment=MILO_LOG_LEVEL=INFO
+# The trial of a Milō app update (backend/core/updates/milo_journal.py): an
+# install cut before its reboot is put back at once, and a release on trial
+# gets two starts, the third running the previous one. "-" so the guard can
+# never keep the backend down. As milo, never root: git as root would leave
+# root-owned files in the checkout.
+ExecStartPre=-/usr/local/bin/milo-update-guard start
 ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
 
 Restart=always
 RestartSec=10
+# The guard and the lifespan up to READY=1, together. Measured on the server's
+# card: a checkout between two releases plus a full sync, ~1 s warm; the
+# lifespan, 3 s warm and 10 s at boot. The rest of a rollback is two renames, a
+# few small copies and sync-system-files (~50 files, a daemon-reload). 180 s is
+# a cold boot on an SD card that stalls, many times over. Not more: a release
+# that hangs is detected only here, and two hung starts are what a stranger
+# watches the update screen through before the previous release comes back.
+TimeoutStartSec=180
 TimeoutStopSec=10
 
 StateDirectory=milo

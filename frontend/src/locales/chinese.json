@@ -520,7 +520,25 @@
     "installingVersion": "正在安装 {version}…",
     "failureRolledBack": "已回到上一个版本",
     "failureDidNotReturn": "无响应",
-    "failureRejected": "已拒绝更新"
+    "failureRejected": "已拒绝更新",
+    "failureRollbackFailed": "无法回到上一个版本"
+  },
+  "miloUpdate": {
+    "title": "正在更新 Milō",
+    "stepDownload": "下载",
+    "stepInstall": "安装",
+    "stepRestart": "重启",
+    "stepVerify": "检查",
+    "doNotUnplug": "请勿断开电源",
+    "dependenciesTitle": "正在更新程序",
+    "dependenciesDetail": "{program} · 第 {index} 个，共 {total} 个",
+    "satellitesTitle": "正在更新扬声器",
+    "satellitesDetail": "{room} · 第 {index} 台，共 {total} 台。该房间的声音会短暂中断。",
+    "rolledBackTitle": "更新已取消",
+    "rolledBackDetail": "更新到版本 {target} 失败：Milō 已回到版本 {origin}。详情请见“设置 › 更新”。",
+    "rollbackFailedTitle": "更新失败",
+    "rollbackFailedDetail": "更新到版本 {target} 失败，Milō 也无法回到版本 {origin}。详情请见“设置 › 更新”。",
+    "rollbackFailedDetailUnnamed": "Milō 的一次更新失败，且无法恢复到之前的版本。详情请见“设置 › 更新”。"
   },
   "info": {
     "temperature": "温度",

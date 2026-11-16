@@ -2,6 +2,8 @@
 Manager for systemd services.
 """
 import asyncio
+import os
+import signal
 import logging
 from typing import Dict, Any, Optional, Tuple
 
@@ -107,14 +109,21 @@ class SystemdServiceManager:
             self.logger.error(f"Error checking whether {service} is enabled: {e}")
             return False
 
-    async def restart_self(self, service: str) -> None:
-        """Fire-and-forget restart of the unit hosting THIS process (milo-backend).
+    async def restart_self(self, service: str) -> bool:
+        """Fire-and-forget restart of the unit hosting THIS process (milo-backend);
+        True once the restart is on its way.
 
         Restarting our own unit makes systemd tear this process down mid-call, so
         the settling loop in _control_service can never observe the result. Use
         --no-block to enqueue the job and return immediately; systemd carries out
         the restart after this client exits. Failure to even enqueue (e.g. broken
-        sudoers) is logged — fail-loud.
+        sudoers, a bus too slow to answer) is logged — fail-loud — and, when this
+        process is the unit's main process, it then ends itself: the unit's
+        `Restart=always` brings it back through the same start, its
+        `ExecStartPre=` guard included, which is what the Milō updater restarts
+        for. Left running instead, an update handed to its guard would hold the
+        update screen on "Restarting" until someone pulled the plug. Run by hand
+        (not the unit's main process), nothing would bring it back, so it stays.
         """
         self.logger.info(f"Self-restart (fire-and-forget) of {service}")
         proc = None
@@ -125,15 +134,23 @@ class SystemdServiceManager:
                 stderr=asyncio.subprocess.PIPE
             )
             _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
-            if proc.returncode != 0:
-                error_msg = stderr.decode().strip() if stderr else "No error details"
-                self.logger.error(f"Failed to enqueue self-restart of {service}: {error_msg}")
+            if proc.returncode == 0:
+                return True
+            error_msg = stderr.decode().strip() if stderr else "No error details"
+            self.logger.error(f"Failed to enqueue self-restart of {service}: {error_msg}")
         except asyncio.TimeoutError:
             if proc:
                 proc.kill()
             self.logger.error(f"Timeout enqueuing self-restart of {service}")
         except Exception as e:
             self.logger.error(f"Self-restart of {service} failed: {e}")
+        main = await self.main_pid_and_restarts(service)
+        if main is None or main[0] != os.getpid():
+            return False
+        self.logger.error(f"Ending this process so that Restart= brings {service} back")
+        # uvicorn's handler: the lifespan teardown runs, then the process exits.
+        os.kill(os.getpid(), signal.SIGTERM)
+        return True
 
     async def power(self, action: str, delay: float = 0.0) -> bool:
         """Reboot or power off the machine (action ∈ {"reboot", "poweroff"}).
@@ -259,6 +276,31 @@ class SystemdServiceManager:
         if values is _NOT_LOADED:
             return "inactive", "success"
         return None if values is None else (values[0], values[1])
+
+    async def sweep_state(self, service: str) -> Optional[Tuple[str, bool]]:
+        """The unit's ActiveState and whether a job is queued on it, or None
+        when they cannot be read.
+
+        What the boot's lingering sweep asks. The backend is Type=notify, so
+        the start of every unit ordered After= it is held until READY=1, then
+        dispatched from systemd's queue: a unit not dispatched yet reads
+        `inactive` with its start queued (Job id ≠ 0) and is up a moment later.
+        A unit that is not loaded has neither.
+
+        The Job first: the two are separate reads, and a start dispatched
+        between them must still be seen. Read after it, a Job of 0 means the
+        start has run, and the state read next says so; read the other way, a
+        unit could read `inactive` and then no job, and be spared up.
+        """
+        values = await self._unit_properties(
+            service, (("Unit", "Job"), ("Unit", "ActiveState")), "the state",
+        )
+        if values is _NOT_LOADED:
+            return "inactive", False
+        if values is None:
+            return None
+        job_id, _job_path = values[0]
+        return values[1], job_id != 0
 
     async def main_pid_and_restarts(self, service: str) -> Optional[Tuple[int, int]]:
         """The unit's (MainPID, NRestarts), or None when they cannot be read or

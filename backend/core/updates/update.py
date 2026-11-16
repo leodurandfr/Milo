@@ -5,19 +5,52 @@ Update service - installs a new version of each program Milo ships.
 import asyncio
 import aiohttp
 import aiofiles
-import copy
+import contextlib
 import hashlib
+import json
 import shutil
 import tempfile
 import logging
 import os
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 from backend.core.updates.version import VersionService
-from backend.core.updates.dependency_versions import (
-    apply_validated_versions,
-    load_dependency_versions,
+from backend.core.updates.data_snapshot import take_snapshot
+from backend.core.updates.helpers import (
+    fsync_directory,
+    requirements_moved_up,
+    write_json_durably,
+)
+from backend.core.updates.milo_journal import (
+    ATTEMPTS_NAME,
+    COMMITTED_STEP,
+    DATA_SNAPSHOT_NAME,
+    DISCARD_NAME,
+    GIT_LOCKS,
+    JOURNAL_NAME,
+    KEPT_DIST_NAME,
+    KEPT_VENV_NAME,
+    KEPT_VENV_PARTIAL_NAME,
+    KEY_DETAIL,
+    KEY_DISMISSED,
+    KEY_FAILURE,
+    KEY_FROM,
+    KEY_GUARD_RETRY_BOOT,
+    KEY_ORIGIN_COMMIT,
+    KEY_ORIGIN_TAG,
+    KEY_OUTCOME,
+    KEY_POST_COMMIT_AT,
+    KEY_POST_COMMIT_RUNS,
+    KEY_STEP,
+    KEY_TARGET_COMMIT,
+    KEY_TARGET_TAG,
+    KEY_TO,
+    KEY_VENV_KEPT,
+    LAST_UPDATE_NAME,
+    MAX_ATTEMPTS,
+    STEPS,
+    TRIAL_STEP,
 )
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
@@ -37,6 +70,89 @@ CAP_NET_BIND_SERVICE = 10
 # NQPTP opens its ports within milliseconds of starting, and exits if it cannot.
 NQPTP_SETTLE_S = 1.0
 
+# What a Milō update needs on the card beyond the copies it measures: pip's
+# downloads into the venv, the fetched packs, the journal.
+MILO_UPDATE_MARGIN_BYTES = 256 * 1024 * 1024
+MILO_PIP_TIMEOUT_S = 600
+MILO_IMPORT_CHECK_TIMEOUT_S = 120
+
+# Run by the new release's venv python, -I, with the checkout as argv[1]: every
+# backend module the new release will import at start, imported now, while the
+# release that runs can still refuse it. main.py itself builds the app, so it
+# is only compiled.
+_IMPORT_CHECK = """
+import importlib, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(root))
+for path in sorted((root / "backend").rglob("*.py")):
+    parts = path.relative_to(root).with_suffix("").parts
+    if parts[1] == "tests" or parts == ("backend", "main"):
+        continue
+    importlib.import_module(".".join(parts[:-1] if parts[-1] == "__init__" else parts))
+main = root / "backend" / "main.py"
+compile(main.read_text(), str(main), "exec")
+"""
+
+# Not read from disk yet: the journal and the last outcome are read once, on
+# first use, then kept in step with every write this process makes.
+_UNREAD = object()
+
+# What a previous update left in the backup directory, emptied when a journal
+# opens: a rollback's discard holds a whole venv until then.
+_CLEARED_BACKUPS = (
+    KEPT_VENV_NAME, KEPT_VENV_PARTIAL_NAME, KEPT_DIST_NAME, DATA_SNAPSHOT_NAME, DISCARD_NAME,
+)
+
+# Which boot this is, for what a backend may do once per boot.
+BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
+
+# The phases the arriving release runs once its trial committed.
+_POST_COMMIT_PHASES = ("dependencies", "satellites")
+
+MiloProgressListener = Callable[[Dict[str, Any]], Awaitable[None]]
+MiloCompleteListener = Callable[[bool], Awaitable[None]]
+
+
+def _read_json(path: Path) -> Optional[dict]:
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as e:
+        logging.getLogger(__name__).error(f"Cannot read {path}: {e}")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _tree_size(root: Path) -> int:
+    total = 0
+    for directory, _subdirs, files in os.walk(root):
+        for name in files:
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(directory, name)).st_size
+    return total
+
+
+def _last_line(output: str) -> str:
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    return lines[-1] if lines else ""
+
+
+def _boot_id() -> Optional[str]:
+    try:
+        return Path(BOOT_ID_PATH).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def _before_the_trial(journal: dict) -> bool:
+    """A journal the guard puts the previous release back from at the next
+    start: the install never reached its trial, or it recorded a failure."""
+    step = journal.get(KEY_STEP)
+    return bool(journal.get(KEY_FAILURE)) or (
+        step in STEPS and STEPS.index(step) < STEPS.index(TRIAL_STEP)
+    )
+
 
 class UpdateService(VersionService):
     """Update service - Extends VersionService"""
@@ -46,6 +162,276 @@ class UpdateService(VersionService):
         self._systemd = systemd_manager
         self._satellites = satellite_update_service
         self.update_logger = logging.getLogger(f"{__name__}.update")
+
+        # The Milō update this process runs (the install, or the post-commit
+        # phase), and what it is doing now.
+        self._milo_running = False
+        self._milo_phase: Optional[Dict[str, Any]] = None
+        self._milo_versions: tuple[Optional[str], Optional[str]] = (None, None)
+        self._journal = _UNREAD
+        self._last_update = _UNREAD
+        # A committed journal whose post-commit phase ended in this process
+        # without closing it, and an open journal this process gave up handing
+        # to the guard: both stay on disk for the next start, and hold nothing
+        # until then.
+        self._post_commit_stalled = False
+        self._journal_abandoned = False
+        self._on_milo_progress: Optional[MiloProgressListener] = None
+        self._on_milo_complete: Optional[MiloCompleteListener] = None
+
+    # === The Milō update, as the rest of the backend sees it ===
+
+    def set_milo_update_listener(
+        self, on_progress: MiloProgressListener, on_complete: MiloCompleteListener,
+    ) -> None:
+        """Who hears a Milō update move.
+
+        `on_progress(state)` is awaited at every phase change and per
+        dependency or satellite, `state` being what `milo_update_state()`
+        answers then. `on_complete(success)` is awaited once, when the release
+        that arrived has finished its post-commit phase. A listener that raises
+        is logged and never stops the update.
+        """
+        self._on_milo_progress = on_progress
+        self._on_milo_complete = on_complete
+
+    @property
+    def milo_update_active(self) -> bool:
+        """Whether a Milō update holds the unit: this process runs one (the
+        install, or the post-commit phase), the new release is on trial, or its
+        post-commit phase is still to run.
+
+        Anything that would restart or power off the unit asks this first: a
+        reboot in the middle of an install is a restore at the next start, and
+        one during the trial counts as a failed start of the new release. A
+        journal the guard is to put back holds nothing — a restart is what
+        finishes it — and neither does a post-commit phase that ended in this
+        process without closing its journal, which the next start runs again.
+        Held instead, either would refuse the very restart that ends it.
+        """
+        if self._milo_running:
+            return True
+        journal = self._milo_journal()
+        if journal is None or _before_the_trial(journal):
+            return False
+        if journal.get(KEY_STEP) == COMMITTED_STEP:
+            return not self._post_commit_stalled
+        return journal.get(KEY_STEP) == TRIAL_STEP
+
+    def milo_update_state(self) -> Optional[Dict[str, Any]]:
+        """`{"phase", "from_version", "to_version", "item", "index", "total"}`,
+        or None when no Milō update is under way.
+
+        Rebuilt from the journal by a process that did not start the update:
+        the release on trial says "verify", a committed one "dependencies"
+        until its post-commit phase reports more. A journal that never reached
+        the trial is one the next start restores, so it reads as "restart".
+        None for a journal this process let go of (a post-commit phase that
+        could not close it, a guard that did not put it back): the next start
+        takes it up again. Versions are the release tags, verbatim.
+        """
+        if self._milo_phase is not None:
+            return dict(self._milo_phase)
+        journal = self._milo_journal()
+        if journal is None:
+            return None
+        if _before_the_trial(journal):
+            phase = None if self._journal_abandoned else "restart"
+        elif journal.get(KEY_STEP) == TRIAL_STEP:
+            phase = "verify"
+        elif journal.get(KEY_STEP) == COMMITTED_STEP:
+            phase = None if self._post_commit_stalled else "dependencies"
+        else:
+            phase = None
+        if phase is None:
+            return None
+        return self._phase_record(phase, journal.get(KEY_ORIGIN_TAG), journal.get(KEY_TARGET_TAG))
+
+    def last_update_record(self) -> Optional[Dict[str, Any]]:
+        """How the last Milō update ended, kept until the next one opens a
+        journal: `{"from_version", "to_version", "outcome", "detail", "step",
+        "dismissed"}`, or None. `dismissed` is whether its banner was closed,
+        on any screen."""
+        record = self._last_update_on_disk()
+        if record is None:
+            return None
+        return {
+            "from_version": record.get(KEY_FROM),
+            "to_version": record.get(KEY_TO),
+            "outcome": record.get(KEY_OUTCOME),
+            "detail": record.get(KEY_DETAIL),
+            "step": record.get(KEY_STEP),
+            "dismissed": record.get(KEY_DISMISSED) is True,
+        }
+
+    async def dismiss_last_update(self) -> bool:
+        """Close the banner of the last Milō update for every screen; True when
+        this call closed it.
+
+        Kept in the record rather than in each browser: the kiosk's private
+        profile forgets a dismissal at every restart, and showed the same
+        rollback again after each one. Nothing is written while an update runs
+        or holds its journal open: it removes the record itself, and a write
+        racing that removal would bring the previous outcome back.
+        """
+        if self._milo_running or self._milo_journal() is not None:
+            return False
+        await self._reload_milo_state()
+        record = self._last_update
+        if not isinstance(record, dict) or record.get(KEY_DISMISSED) is True:
+            return False
+        if self._milo_running or self._milo_journal() is not None:
+            return False
+        dismissed = {**record, KEY_DISMISSED: True}
+        await asyncio.to_thread(write_json_durably, self._milo_state(LAST_UPDATE_NAME), dismissed)
+        self._last_update = dismissed
+        return True
+
+    async def run_post_commit(self) -> None:
+        """Finish a Milō update whose new release held: the dependency set this
+        release declares, then the satellites, then close the journal.
+
+        Run by the release that arrived, never by the one that left: before the
+        reboot the leaving release installs the app only, so nothing outside
+        the checkout has moved if the guard has to put it back. Called once the
+        trial committed, and again at every start while the journal still says
+        so — both steps leave alone what is already where it should be, so a
+        phase cut by a restart resumes. Without a committed journal it does
+        nothing.
+
+        Each run is counted in the journal before it begins: a phase that kills
+        the backend at the same item every time (an install that runs the
+        unit out of memory) is given up after MAX_ATTEMPTS - 1 runs, the journal
+        closed as committed with a detail naming where it was cut, instead of
+        holding the unit at every start for good.
+
+        A dependency or a satellite that did not move is recorded in the
+        outcome's detail, not failed on: the app itself has committed. A phase
+        that cannot close its journal (a full card) lets go of the unit and is
+        run again at the next start.
+        """
+        if self._milo_running:
+            return
+        await self._reload_milo_state()
+        journal = self._milo_journal()
+        if journal is None or journal.get(KEY_STEP) != COMMITTED_STEP:
+            return
+
+        self._milo_running = True
+        self._post_commit_stalled = False
+        self._milo_versions = (journal.get(KEY_ORIGIN_TAG), journal.get(KEY_TARGET_TAG))
+        finished = False
+        try:
+            runs = journal.get(KEY_POST_COMMIT_RUNS)
+            runs = runs if isinstance(runs, int) and runs > 0 else 0
+            if runs >= MAX_ATTEMPTS - 1:
+                cut = (
+                    f"the dependency set and the satellites were cut {runs} times, last during "
+                    f"{journal.get(KEY_POST_COMMIT_AT) or 'their start'}: not run again"
+                )
+                self.update_logger.error(
+                    f"Milo update {journal.get(KEY_ORIGIN_TAG)} -> {journal.get(KEY_TARGET_TAG)}: {cut}"
+                )
+                await self._close_post_commit(journal, cut)
+            else:
+                await self._write_journal(**{KEY_POST_COMMIT_RUNS: runs + 1})
+                await self._close_post_commit(journal, await self._run_post_commit_phase())
+            finished = True
+        except Exception as e:
+            self._post_commit_stalled = True
+            self.update_logger.error(
+                f"Milo update {journal.get(KEY_ORIGIN_TAG)} -> {journal.get(KEY_TARGET_TAG)}: "
+                f"the post-commit phase could not finish ({e}); it runs again at the next start"
+            )
+        finally:
+            self._milo_running = False
+            self._milo_phase = None
+        await self._notify_milo_complete(finished)
+
+    async def _run_post_commit_phase(self) -> Optional[str]:
+        """The dependency set, then the satellites; what stayed behind, for the
+        outcome's detail."""
+        await self._milo_progress("dependencies")
+        dependency_failures = await self._reconcile_dependencies()
+        await self._milo_progress("satellites")
+        satellite_failures = await self._satellites.push_client_app_to_fleet(
+            on_push=lambda name, index, total: self._milo_progress(
+                "satellites", item=name, index=index, total=total,
+            ),
+        )
+        left = []
+        if dependency_failures:
+            left.append(f"dependencies not reconciled: {', '.join(dependency_failures)}")
+        if satellite_failures:
+            left.append(f"satellites left behind: {', '.join(satellite_failures)}")
+        return "; ".join(left) or None
+
+    async def _close_post_commit(self, journal: dict, detail: Optional[str]) -> None:
+        record = {
+            KEY_FROM: journal.get(KEY_ORIGIN_TAG),
+            KEY_TO: journal.get(KEY_TARGET_TAG),
+            KEY_OUTCOME: "committed",
+            KEY_DETAIL: detail,
+            KEY_STEP: COMMITTED_STEP,
+        }
+        # The outcome first: a phase cut between the two writes is run again at
+        # the next start, and only rewrites it.
+        await asyncio.to_thread(write_json_durably, self._milo_state(LAST_UPDATE_NAME), record)
+        self._last_update = record
+        await asyncio.to_thread(self._close_journal)
+        self._journal = None
+        self.update_logger.info(
+            f"Milo update {record[KEY_FROM]} -> {record[KEY_TO]} complete"
+            + (f" ({detail})" if detail else "")
+        )
+
+    async def hand_stranded_journal_to_the_guard(self) -> None:
+        """Restart into the guard when a journal it should have closed is open.
+
+        Called once the backend listens. An install that never reached its
+        trial, or one that recorded a failure, is put back by the guard before
+        the backend starts; a backend that finds one anyway started over a
+        guard that could not finish, on a tree that may be half installed, and
+        nothing else would ever act on it. It restarts once per boot so the
+        guard runs again. Found a second time in the same boot, the journal is
+        let go of instead: the unit runs what started, the update screen lifts
+        and the power routes answer, so a restart can still be asked for.
+        """
+        if self._milo_running:
+            return
+        await self._reload_milo_state()
+        journal = self._milo_journal()
+        if journal is None or not _before_the_trial(journal):
+            return
+        names = f"{journal.get(KEY_ORIGIN_TAG)} -> {journal.get(KEY_TARGET_TAG)}"
+        boot = await asyncio.to_thread(_boot_id)
+        if boot is not None and journal.get(KEY_GUARD_RETRY_BOOT) != boot:
+            try:
+                # Recorded first: a restart that cannot be bounded is a loop.
+                await self._write_journal(**{KEY_GUARD_RETRY_BOOT: boot})
+            except Exception as e:
+                self.update_logger.error(f"The Milo update {names} could not be marked for its guard: {e}")
+            else:
+                # Warning, not error: the guard's own line says how it ended,
+                # and an error would raise the backend-error banner over the
+                # update screen.
+                self.update_logger.warning(
+                    f"The Milo update {names} was not put back before this start; "
+                    "restarting so the update guard runs again"
+                )
+                self._milo_versions = (journal.get(KEY_ORIGIN_TAG), journal.get(KEY_TARGET_TAG))
+                await self._milo_progress("restart")
+                await self._systemd.restart_self(self.programs["milo"]["service_name"])
+                return
+        self._journal_abandoned = True
+        self.update_logger.error(
+            f"The Milo update {names} is still open: its guard did not put the previous "
+            "release back, a restart into it included. Milo runs what started; restart "
+            "Milo to try the guard again."
+        )
+        await self._notify_milo_complete(False)
+
+    # === Selection and dispatch ===
 
     @classmethod
     def _select_target(
@@ -117,10 +503,10 @@ class UpdateService(VersionService):
     async def _prune_forced_versions(self) -> None:
         """Drop the overrides the manifest has caught up with.
 
-        Called once the pulled `dependencies.env` is in hand: an override the
-        set now declares is redundant, and left on disk it would hold the unit
-        below the next bump. `get_forced_versions` already reads it that way —
-        this is what makes the reading durable.
+        Called by the release that arrived, whose `dependencies.env` may now
+        declare a version an override was holding: left on disk, the entry
+        would hold the unit below the next bump. `get_forced_versions` already
+        reads it that way — this is what makes the reading durable.
         """
         stored = await self.settings_service.get_setting("updates.forced_versions")
         live = await self.get_forced_versions()
@@ -138,9 +524,16 @@ class UpdateService(VersionService):
         `target` picks the release: "validated" is the version `dependencies.env`
         declares (and, when the unit is off-pin, the return to it), "upstream"
         the one GitHub published past it — its latest, or `version` when given.
+
+        A Milō update answers `pending` when it handed the unit over to a
+        restart: its outcome is decided by the release that starts next, and
+        read from `last_update_record()`.
         """
         if program_key not in self.programs:
             return {"success": False, "error": f"Update not supported for {program_key}"}
+        await self._reload_milo_state()
+        if self.milo_update_active:
+            return {"success": False, "error": "A Milo update is in progress; it must finish first"}
 
         try:
             status = await self.get_program_full_status(program_key)
@@ -177,83 +570,34 @@ class UpdateService(VersionService):
         else:
             return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
-    async def _reconcile_dependencies(self, only: tuple[str, ...] | None = None) -> list[str]:
-        """Bring every dependency to the version the *pulled* manifest declares.
+    async def _reconcile_dependencies(self) -> list[str]:
+        """Bring every dependency to the version this release's manifest declares.
 
-        A Milō update installs the app and the dependency set validated with it,
-        as one sequence — never as one transaction, and never deferred to the
-        next boot. Deferring would put a multi-minute source compile behind a
-        dark screen with the backend down and nothing anywhere to say why; a
-        transaction would mean composing seven independent rollbacks into one,
-        whose half-applied states are worse than either end.
-
-        So each step keeps its own backup and its own rollback, and a step that
-        failed *and restored itself* is reported rather than fatal: the app still
-        reboots into the new code with the old dependency, which is the state
-        every unit is already in for any dependency nobody clicked. The caller
-        relies on this never raising — it runs past the point where the app can
-        still be rolled back.
+        Run by the release that arrived, once its trial committed: the catalog
+        it imported at start resolved its own `dependencies.env`, so what it
+        compares against is the set it was validated with. Each step keeps its
+        own backup and its own rollback, and a step that failed *and restored
+        itself* is reported rather than fatal: the unit then runs the new app
+        over the old dependency, which is the state every unit is already in
+        for any dependency nobody clicked. Never raises — the app has committed,
+        and nothing here can undo it.
 
         A dependency whose target cannot be determined is that dependency's
-        failure, never a skip and never a raise: this code is one release behind
-        the manifest it reads, so a line the pulled set dropped is a `KeyError`
-        for the one program that names it, and an offer GitHub would not give
-        (quota, outage) leaves nothing to compare against. Skipping it rebooted
-        the unit on the old dependency with nothing to say so; raising rolled a
-        good app update back on every unit.
+        failure, never a skip: an offer GitHub would not give (quota, outage)
+        leaves nothing to compare against, and skipping it said nothing.
 
-        `only` narrows the set for the one caller that runs *before* that point:
-        `_require_launcher_accepts_qobuz_proxy`, whose caller turns a failure
-        into an app rollback. It still never raises; the caller decides.
-
-        Returns the keys that failed, for the journal and for the one caller path
-        that survives to return an envelope.
+        Returns the keys that failed, for the outcome's detail.
         """
         failed: list[str] = []
-        dependencies = [
-            key for key in self.programs
-            if key != "milo" and (only is None or key in only)
-        ]
+        dependencies = [key for key in self.programs if key != "milo"]
 
-        # The pulled tree carries a new dependencies.env that this process was
-        # started before; without this the reconciliation compares against the
-        # set the unit already had, and does nothing at all. The GitHub cache
-        # holds the fetched release untouched by the pin, so it survives.
-        try:
-            versions = load_dependency_versions()
-        except (OSError, ValueError) as e:
-            self.update_logger.error(
-                f"The pulled dependencies.env cannot be read ({e}); no dependency "
-                "is reconciled and the unit keeps the versions it runs."
-            )
-            return dependencies
-
-        for program_key in dependencies:
-            # Resolved on a copy: shairport-sync's own line is written before
-            # NQPTP's is looked up, and a half-resolved pair would be offered
-            # for as long as this process runs.
-            resolved = copy.deepcopy(self.programs[program_key])
-            try:
-                apply_validated_versions({program_key: resolved}, versions)
-            except KeyError as e:
-                failed.append(program_key)
-                self.update_logger.error(
-                    f"{program_key}: the pulled dependencies.env declares no "
-                    f"{e.args[0]}; the unit keeps the version it runs."
-                )
-                continue
-            self.programs[program_key] = resolved
-
-        # After the resolution: `get_forced_versions` compares against
-        # `validated_version`, so pruning first would read the old set.
         try:
             await self._prune_forced_versions()
         except Exception as e:
             self.update_logger.error(f"updates.forced_versions could not be pruned: {e}")
 
+        to_install: list[tuple[str, Dict[str, Any]]] = []
         for program_key in dependencies:
-            if program_key in failed:
-                continue
             try:
                 status = await self.get_program_full_status(program_key)
                 if status.get("status") == "error":
@@ -281,50 +625,112 @@ class UpdateService(VersionService):
                         f"({latest.get('message')}); not reconciled."
                     )
                     continue
-
-                self.update_logger.info(
-                    f"{program_key}: installing the validated "
-                    f"{latest['version']} as part of the Milo update"
-                )
-                result = await self._dispatch_update(program_key, status)
-                if not result.get("success"):
-                    failed.append(program_key)
-                    self.update_logger.error(
-                        f"{program_key}: could not reach the validated version "
-                        f"({result.get('error', 'unknown error')}). The app update "
-                        "continues; the unit will run the previous version of it."
-                    )
+                to_install.append((program_key, status))
             except Exception as e:
                 failed.append(program_key)
                 self.update_logger.error(f"{program_key}: reconciliation failed: {e}")
 
+        # qobuz-proxy first: the launcher this release installed checks what it
+        # binds to in the venv at every start, so Qobuz cannot start until its
+        # venv has moved — and a shairport-sync compile ahead of it is minutes.
+        to_install.sort(key=lambda entry: entry[0] != "qobuz-proxy")
+
+        for index, (program_key, status) in enumerate(to_install, 1):
+            await self._milo_progress(
+                "dependencies", item=self.programs[program_key]["name"],
+                index=index, total=len(to_install),
+            )
+            self.update_logger.info(
+                f"{program_key}: installing the validated "
+                f"{status['latest']['version']} as part of the Milo update"
+            )
+            try:
+                result = await self._dispatch_update(program_key, status)
+            except Exception as e:
+                result = {"success": False, "error": str(e)}
+            if not result.get("success"):
+                failed.append(program_key)
+                self.update_logger.error(
+                    f"{program_key}: could not reach the validated version "
+                    f"({result.get('error', 'unknown error')}). The unit keeps "
+                    "the version it runs."
+                )
+
         return failed
 
-    async def _get_current_commit(self, git_path: str) -> str:
-        """Get current HEAD commit hash, or "" when it cannot be read.
+    # === The Milō update: the leaving release's half ===
 
-        The empty string is what `_update_milo_app`'s `if original_commit:`
-        guard reads as "nothing to roll back to", and it then skips the
-        automatic rollback entirely — rightly, since `git reset --hard ""`
-        would be worse. So the failure is logged at error here: an update with
-        no rollback point must say so before it starts, not disappear into an
-        update that fails quietly at the end.
-        """
-        proc = await asyncio.create_subprocess_exec(
-            "git", "-C", git_path, "rev-parse", "HEAD",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
+    def _milo_state(self, name: str) -> Path:
+        return Path(self.programs["milo"]["state_path"]) / name
 
-        if proc.returncode != 0:
-            self.update_logger.error(
-                f"Cannot read HEAD in {git_path}: {stderr.decode().strip()} - "
-                "this update will have no automatic rollback"
-            )
-            return ""
+    def _milo_backup(self, name: str) -> Path:
+        return Path(self.programs["milo"]["backup_path"]) / name
 
-        return stdout.decode().strip()
+    def _milo_journal(self) -> Optional[dict]:
+        if self._journal is _UNREAD:
+            self._journal = _read_json(self._milo_state(JOURNAL_NAME))
+        return self._journal
+
+    def _last_update_on_disk(self) -> Optional[dict]:
+        if self._last_update is _UNREAD:
+            self._last_update = _read_json(self._milo_state(LAST_UPDATE_NAME))
+        return self._last_update
+
+    async def _reload_milo_state(self) -> None:
+        """Read the journal and the last outcome again: the guard writes both
+        from another process."""
+        self._journal = await asyncio.to_thread(_read_json, self._milo_state(JOURNAL_NAME))
+        self._last_update = await asyncio.to_thread(_read_json, self._milo_state(LAST_UPDATE_NAME))
+
+    async def _write_journal(self, **changes: Any) -> None:
+        """Move the journal forward, on the card before this returns."""
+        journal = {**(self._milo_journal() or {}), **changes}
+        await asyncio.to_thread(write_json_durably, self._milo_state(JOURNAL_NAME), journal)
+        self._journal = journal
+
+    def _close_journal(self) -> None:
+        for name in (JOURNAL_NAME, ATTEMPTS_NAME):
+            self._milo_state(name).unlink(missing_ok=True)
+        fsync_directory(self._milo_state(JOURNAL_NAME).parent)
+
+    def _phase_record(
+        self, phase: str, from_version: Optional[str], to_version: Optional[str],
+        item: Optional[str] = None, index: Optional[int] = None, total: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "phase": phase, "from_version": from_version, "to_version": to_version,
+            "item": item, "index": index, "total": total,
+        }
+
+    async def _milo_progress(
+        self, phase: str, item: Optional[str] = None,
+        index: Optional[int] = None, total: Optional[int] = None,
+    ) -> None:
+        self._milo_phase = self._phase_record(phase, *self._milo_versions, item, index, total)
+        if phase in _POST_COMMIT_PHASES:
+            await self._record_post_commit_at(phase if item is None else f"{phase} ({item})")
+        if self._on_milo_progress is not None:
+            try:
+                await self._on_milo_progress(dict(self._milo_phase))
+            except Exception as e:
+                self.update_logger.error(f"Milo update progress not announced: {e}")
+
+    async def _record_post_commit_at(self, at: str) -> None:
+        """Where the post-commit phase is, for the detail of one given up."""
+        journal = self._milo_journal()
+        if journal is None or journal.get(KEY_STEP) != COMMITTED_STEP:
+            return
+        try:
+            await self._write_journal(**{KEY_POST_COMMIT_AT: at})
+        except Exception as e:
+            self.update_logger.warning(f"Where the Milo update's post-commit phase stands was not recorded: {e}")
+
+    async def _notify_milo_complete(self, success: bool) -> None:
+        if self._on_milo_complete is not None:
+            try:
+                await self._on_milo_complete(success)
+            except Exception as e:
+                self.update_logger.error(f"Milo update completion not announced: {e}")
 
     @staticmethod
     def _failure_after_rollback(error: str, rolled_back: bool) -> Dict[str, Any]:
@@ -362,12 +768,18 @@ class UpdateService(VersionService):
             "git", "-C", self.programs["milo"]["git_path"], *args, timeout=timeout
         )
 
+    async def _git_output(self, *args: str) -> str:
+        """What one git command prints, or an exception naming why it did not."""
+        ok, output = await self._run_git(*args)
+        if not ok:
+            raise Exception(f"git {' '.join(args)} failed: {output}")
+        return output
+
     def _frontend_paths(self) -> tuple[Path, Path]:
-        """Where the running frontend lives, and where the previous one is moved aside."""
-        config = self.programs["milo"]
+        """Where the running frontend lives, and where the previous one is kept."""
         return (
-            Path(config["git_path"]) / "frontend" / "dist",
-            Path(config["backup_path"]) / "dist",
+            Path(self.programs["milo"]["git_path"]) / "frontend" / "dist",
+            self._milo_backup(KEPT_DIST_NAME),
         )
 
     @staticmethod
@@ -413,8 +825,9 @@ class UpdateService(VersionService):
 
         The checksum is the reason the sidecar exists: a truncated download
         extracts into a tree that is *almost* a frontend, which nginx then
-        serves. Raises on every failure, staging removed, so the caller turns it
-        into a rolled-back update.
+        serves. Raises on every failure, staging removed. It reads nothing from
+        the new release's tree, so the update runs it before anything moves and
+        a failure here is a refusal.
 
         The release is staged in `frontend/`, beside `dist`, because only on the
         same filesystem is the swap two renames. Staged in /tmp — a tmpfs on the
@@ -469,287 +882,357 @@ class UpdateService(VersionService):
         """Put the frontend `_stage_release_frontend` staged in place of the
         running one, and remove the staging.
 
-        All or nothing: if the new tree cannot be renamed in, the old one is put
-        back before this raises, and the error says so when it could not be.
+        The previous one is moved to the backup rather than deleted:
+        `frontend/dist` is not in git, so it is the one part of the app a
+        checkout back cannot restore. A rename that fails raises with the
+        previous one possibly still aside: the guard puts it back whenever the
+        live one is missing.
         """
-        dist, backup = self._frontend_paths()
+        dist, kept = self._frontend_paths()
         try:
-            # The previous one is moved aside rather than deleted: `frontend/dist`
-            # is not in git, so it is the one part of the app a checkout back
-            # cannot restore.
-            backup.parent.mkdir(parents=True, exist_ok=True)
-            shutil.rmtree(backup, ignore_errors=True)
-            moved_aside = dist.exists()
-            if moved_aside:
-                os.rename(dist, backup)
-            try:
-                os.rename(staging / "staged" / "dist", dist)
-            except OSError as swap_error:
-                if moved_aside:
-                    try:
-                        self._restore_release_frontend()
-                    except Exception as restore_error:
-                        raise Exception(
-                            f"{swap_error}; previous frontend not restored: {restore_error}"
-                        ) from swap_error
-                raise
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            if dist.exists():
+                os.rename(dist, kept)
+            os.rename(staging / "staged" / "dist", dist)
             self.update_logger.info(f"Frontend {tag} installed from the release asset")
         finally:
             await self._cleanup_temp_files(str(staging))
 
-    def _restore_release_frontend(self) -> None:
-        """Put the backed-up frontend back, for a swap that could not rename
-        the new one in."""
-        dist, backup = self._frontend_paths()
-        if not backup.is_dir():
-            raise Exception("No frontend backup to restore")
-        shutil.rmtree(dist, ignore_errors=True)
-        shutil.move(str(backup), str(dist))
-        self.update_logger.info("Previous frontend restored")
-
     async def _install_python_dependencies(self) -> None:
         """Install requirements.txt into the app venv. Raises on failure.
 
-        The forward path and the rollback share it: both land a different
-        `requirements.txt` and both must act on it, and an unbounded or
-        unchecked pip on either side produces the same silent outcome — a
-        backend restarted against dependencies it does not have.
+        `--no-cache-dir`: pip's cache under the milo HOME is SD card space no
+        later update reads back, and the update is the one moment that space is
+        counted.
         """
         git_path = Path(self.programs["milo"]["git_path"])
         success, output = await self._run_local(
             str(git_path / "venv" / "bin" / "pip3"),
-            "install", "-r", str(git_path / "requirements.txt"),
-            timeout=600,
+            "install", "--no-cache-dir", "-r", str(git_path / "requirements.txt"),
+            timeout=MILO_PIP_TIMEOUT_S,
         )
         if not success:
             raise Exception(f"pip install failed: {output}")
 
-    async def _rollback_milo_to_commit(self, commit_hash: str) -> bool:
-        """Put the unit back on the commit it was running.
+    async def _check_the_new_release_imports(self) -> None:
+        """Import the new release with the venv it will run in. Raises on failure.
 
-        The frontend is not touched, and need not be: the built frontend is not
-        in git, but the forward path swaps the release's in only as its last
-        step, and a swap that fails puts the previous one back before this
-        runs, so a rollback finds it still in `dist`.
+        A module the venv lacks, a syntax error, an import cycle: each is a
+        backend that exits at its first start, found here while the release
+        that runs can still hand the unit back, rather than by the trial two
+        starts later. `pip check` then catches what an import does not reach,
+        a dependency installed at a version its dependent refuses.
         """
-        try:
-            self.update_logger.info(f"Rolling back Milo to commit {commit_hash[:8]}...")
+        git_path = self.programs["milo"]["git_path"]
+        python = str(Path(git_path) / "venv" / "bin" / "python")
+        ok, output = await self._run_local(
+            python, "-I", "-c", _IMPORT_CHECK, git_path, timeout=MILO_IMPORT_CHECK_TIMEOUT_S,
+        )
+        if not ok:
+            raise Exception(f"The new release does not import: {_last_line(output) or output}")
+        ok, output = await self._run_local(python, "-I", "-m", "pip", "check", timeout=60)
+        if not ok:
+            raise Exception(f"pip check failed: {output}")
 
-            success, output = await self._run_git("checkout", "--force", commit_hash)
-            if not success:
-                self.update_logger.error(f"Git checkout failed: {output}")
-                return False
+    def _measure_free_space(self) -> tuple[int, int]:
+        """(bytes the update needs, bytes free or freed before the first copy).
+        Blocking."""
+        config = self.programs["milo"]
+        git_path = Path(config["git_path"])
+        dist, _ = self._frontend_paths()
+        # The venv is counted whether or not requirements.txt moves: that is
+        # only known once the release is fetched, after this check.
+        needed = (
+            _tree_size(git_path / "venv")
+            + 3 * _tree_size(dist)
+            + sum(Path(p).stat().st_size for p in config["data_files"] if Path(p).is_file())
+            + MILO_UPDATE_MARGIN_BYTES
+        )
+        reclaimed = sum(_tree_size(self._milo_backup(name)) for name in _CLEARED_BACKUPS)
+        return needed, shutil.disk_usage(git_path).free + reclaimed
 
-            await self._install_python_dependencies()
-            await self._sync_system_files()
+    def _clear_milo_backups(self) -> None:
+        """Empty what the previous update kept aside, so a copy found there
+        means "this update replaced it". Blocking; raises when one stays."""
+        for name in _CLEARED_BACKUPS:
+            path = self._milo_backup(name)
+            if path.exists() or path.is_symlink():
+                shutil.rmtree(path)
+        self._milo_backup("").mkdir(parents=True, exist_ok=True)
 
-            # Restart services. Kiosk first (observable); milo-backend LAST and
-            # fire-and-forget — restarting our own unit tears this process down
-            # mid-call, so anything after it would not run. Only an enabled
-            # kiosk, as in screen.py: a disabled one is a unit with no screen,
-            # and a restart would start it.
-            if (await self._systemd.is_enabled("milo-kiosk.service")
-                    and not await self._restart_service("milo-kiosk.service")):
-                # Logged, not fatal: the tree is back on the previous commit and
-                # the backend restart below is what puts it back in service. A
-                # kiosk that stayed down is a black screen the owner has to be
-                # told about, not a reason to call the rollback failed.
-                self.update_logger.error("Kiosk failed to restart after the rollback")
-            await self._systemd.restart_self(self.programs["milo"]["service_name"])
+    def _keep_venv(self) -> None:
+        """Copy the venv aside before pip changes it. Blocking.
 
-            self.update_logger.info("Milo rollback completed successfully")
-            return True
-
-        except Exception as e:
-            self.update_logger.error(f"Milo rollback failed: {e}")
-            return False
+        A copy, not a move: pip installs into the live path, which every script
+        in the venv names in its shebang. Renamed into its kept name only once
+        complete and on the card, so the guard never puts back half a venv.
+        """
+        venv = Path(self.programs["milo"]["git_path"]) / "venv"
+        partial = self._milo_backup(KEPT_VENV_PARTIAL_NAME)
+        shutil.rmtree(partial, ignore_errors=True)
+        shutil.copytree(venv, partial, symlinks=True)
+        os.sync()
+        os.rename(partial, self._milo_backup(KEPT_VENV_NAME))
+        fsync_directory(partial.parent)
 
     async def _update_milo_app(self, status: Dict[str, Any]) -> Dict[str, Any]:
-        """Move the unit to the release `status` names, rolling back on failure.
+        """Install the release `status` names, then hand the unit to a reboot
+        that tries it.
 
-        A release, not a branch. The offer is built from the repo's
+        A release, not a branch: the offer is built from the repo's
         `releases/latest` and the install checks out *that release's tag*, so
         what was offered is what lands. `git pull origin main` installed
-        whatever main happened to be at the moment of the click — a tree nobody
-        tagged, tested or published, and a different one for every unit that
-        pressed the button on a different day. It also meant a bad version could
-        not be withheld: there was nothing to withhold, main was always the
-        offer.
+        whatever main was at the moment of the click — a tree nobody tagged,
+        tested or published, and impossible to withhold.
 
-        The release's frontend is staged early and swapped in last, just before
-        the reboot. The assets are named by content hash and nginx answers 404
-        for a name it does not hold, so a `dist` swapped before pip, the sync,
-        the reconciliation and the fleet push left every open UI unable to load
-        a view it had not shown yet, for minutes, against a backend still
-        running the previous release.
+        This process only installs; it never judges. Everything it changes is
+        named in the journal before it changes it, and the guard that runs
+        before every start of the backend (`milo-update-guard`) restores the
+        previous release from it when the install did not finish, when this
+        process recorded a failure, or when the new release does not hold
+        through its trial. So there is one rollback, and it works the same
+        after a failure here, a crash, a power cut or a release that does not
+        start. The dependency set and the satellites move only once the new
+        release has held (`run_post_commit`), so a rollback has nothing outside
+        the checkout to undo.
+
+        Until the journal opens nothing has moved, and a failure is a plain
+        refusal. After it, a failure is recorded and the backend restarts into
+        the guard. Either way that hands over, the answer is `pending`: the
+        outcome belongs to the release that starts next.
+
+        The release's frontend is swapped in last, just before the reboot. Its
+        assets are named by content hash and nginx answers 404 for a name it
+        does not hold, so a `dist` swapped earlier left every open UI unable to
+        load a view it had not shown yet, against a backend still running the
+        previous release.
         """
         config = self.programs["milo"]
+        git_path = Path(config["git_path"])
         tag = status["latest"]["tag_name"]
-        original_commit = None
-        staging = None
+        origin_tag = status["installed"].get("release_tag")
 
-        try:
-            git_dir = Path(config["git_path"]) / ".git"
-            if not git_dir.exists():
-                return {"success": False, "error": "Not a git repository"}
-
-            original_commit = await self._get_current_commit(config["git_path"])
-            if original_commit:
-                self.update_logger.info(f"Current commit before update: {original_commit[:8]}")
-
-            # `--tags` adds `refs/tags/*:refs/tags/*` to the fetch, and that is
-            # what brings the new release's tag object in at all: a clone's
-            # configured refspec need not mention tags. This very checkout's is
-            # `+refs/heads/main:refs/remotes/origin/main` — measured — and the
-            # tag-built images pi-gen used to produce were narrower still.
-            success, output = await self._run_git("fetch", "origin", "--tags", "--force", timeout=120)
-            if not success:
-                return {"success": False, "error": f"Git fetch failed: {output}"}
-
-            # An unread exit code makes a failed status indistinguishable from a
-            # clean tree: both give empty stdout, and the checkout would proceed.
-            success, output = await self._run_git("status", "--porcelain")
-            if not success:
-                return {"success": False, "error": f"Git status failed: {output}"}
-            if output:
-                return {"success": False, "error": "Local changes detected. Please commit or stash them first."}
-
-            success, output = await self._run_git("checkout", "--force", tag, timeout=120)
-            if not success:
-                raise Exception(f"Git checkout of {tag} failed: {output}")
-
-            staging = await self._stage_release_frontend(tag)
-
-            await self._install_python_dependencies()
-
-            # Sync system files (services, rootfs)
-            await self._sync_system_files()
-
-            # The one dependency the synced tree can refuse outright, asked
-            # while the app can still roll back: see the method.
-            await self._require_launcher_accepts_qobuz_proxy()
-
-            # Install the dependency set the released commit validated.
-            # Deliberately *after* the app is installed and synced: everything
-            # above this line can still roll the app back, and rolling back with
-            # the dependencies already moved would leave the two out of step.
-            # Below it, only a frontend swap that fails rolls back; the reboot
-            # reports its failure instead — which is why
-            # _reconcile_dependencies never raises.
-            dependency_failures = await self._reconcile_dependencies()
-
-            # Push the same release's client app to the satellites. The tarball
-            # is built from the tree the checkout just replaced, so the fleet is
-            # stale from this line on — leaving it there means the appliance
-            # updates and the speakers do not, until someone finds their rows.
-            # Below the dependency set for the same reason as it (a rollback
-            # with the satellites already moved leaves them ahead of the server
-            # that drives them), and after it rather than before so the local
-            # snapserver has finished whatever the reconciliation did to it —
-            # a satellite is discovered through it. Never raises, same rule.
-            satellite_failures = await self._satellites.push_client_app_to_fleet()
-
-            # The swap puts the previous frontend back if it cannot complete,
-            # and the tree goes back with it although the dependencies and the
-            # fleet have moved. Left on the new tag under the previous frontend,
-            # the unit restarts into a backend its frontend does not match, and
-            # is offered nothing again — the tree sits exactly on the published
-            # tag — so only SSH gets it out. Back on the previous commit it is
-            # coherent and offered the release again, and what moved ahead shows
-            # on its own rows: installed above validated, a stale payload.
-            try:
-                await self._swap_release_frontend(staging, tag)
-            except Exception as e:
-                self.update_logger.error(f"Frontend swap failed after the dependencies and the fleet moved: {e}")
-                rollback_success = (
-                    await self._rollback_milo_to_commit(original_commit) if original_commit else False
-                )
-                return {
-                    **self._failure_after_rollback(
-                        f"Update failed: the new frontend could not be put in place ({e}); "
-                        "the dependencies and the satellites stay on the new release.",
-                        rollback_success,
-                    ),
-                    "dependency_failures": dependency_failures,
-                    "satellite_failures": satellite_failures,
-                }
-
-            # Reboot to reload all services and configs. Small delay so the
-            # WebSocket message goes out first.
-            await asyncio.sleep(1)
-
-            rebooting, reboot_output = await self._run_deploy("reboot")
-            if not rebooting:
-                # No rollback: the new release is checked out, installed and
-                # synced — it is the *restart* that did not happen, and undoing
-                # a good update over that would be worse. Report it so the owner
-                # reboots.
-                self.update_logger.error(f"Reboot refused after a successful update: {reboot_output}")
-                return {
-                    "success": False,
-                    "error": f"Update applied but the reboot failed ({reboot_output}). Reboot to complete it.",
-                    "dependency_failures": dependency_failures,
-                    "satellite_failures": satellite_failures,
-                }
-
-            # The process will be killed by the reboot, but return success in case it somehow continues.
-            # A dependency that failed is reported here and in the journal; after the reboot it is
-            # visible for as long as it lasts, as installed != validated on the dependency rows.
+        if self.milo_update_active:
+            return {"success": False, "error": "A Milo update is already in progress"}
+        if self._milo_journal() is not None:
+            # Let go of but still open: what it kept aside is the only way
+            # back, and a new journal would clear it.
             return {
-                "success": True,
-                "dependency_failures": dependency_failures,
-                "satellite_failures": satellite_failures,
+                "success": False,
+                "error": "The previous Milo update is not closed yet; restarting Milo finishes it",
             }
+        if not (git_path / ".git").exists():
+            return {"success": False, "error": "Not a git repository"}
+        if not origin_tag:
+            return {"success": False, "error": "This checkout is not on a release tag"}
 
-        except Exception as e:
-            self.update_logger.error(f"Milo app update failed: {e}")
+        self._milo_running = True
+        self._milo_versions = (origin_tag, tag)
+        staging = None
+        journal_open = False
+        handed_over = False
+        try:
+            try:
+                await self._milo_progress("download")
+                needed, free = await asyncio.to_thread(self._measure_free_space)
+                if needed > free:
+                    raise Exception(
+                        f"Not enough free space: the update needs {needed >> 20} MB, "
+                        f"{free >> 20} MB are free"
+                    )
 
-            # Automatic rollback if we have an original commit
-            if original_commit:
-                self.update_logger.info("Initiating automatic rollback...")
-                rollback_success = await self._rollback_milo_to_commit(original_commit)
+                staging = await self._stage_release_frontend(tag)
 
-                return self._failure_after_rollback(f"Update failed: {e}.", rollback_success)
+                # Before the fetch, and by hash: tags have been re-cut, so the
+                # name of the release this unit runs is no way back to it.
+                origin_commit = await self._git_output("rev-parse", "HEAD")
+                # An unread exit code makes a failed status indistinguishable
+                # from a clean tree: both give empty stdout. Before the fetch,
+                # which writes no working file, so a tree someone works in is
+                # refused before its locks are looked at.
+                success, output = await self._run_git("status", "--porcelain")
+                if not success:
+                    raise Exception(f"Git status failed: {output}")
+                if output:
+                    raise Exception("Local changes detected. Please commit or stash them first.")
+                await asyncio.to_thread(self._remove_stale_git_locks)
+                # `--tags` adds `refs/tags/*:refs/tags/*` to the fetch, and that
+                # is what brings the new release's tag object in at all: this
+                # checkout's configured refspec is
+                # `+refs/heads/main:refs/remotes/origin/main` — measured.
+                success, output = await self._run_git(
+                    "fetch", "origin", "--tags", "--force", timeout=120
+                )
+                if not success:
+                    raise Exception(f"Git fetch failed: {output}")
+                target_commit = await self._git_output("rev-parse", f"{tag}^{{commit}}")
+                requirements_moved = requirements_moved_up(
+                    await self._git_output("show", f"{origin_commit}:requirements.txt"),
+                    await self._git_output("show", f"{target_commit}:requirements.txt"),
+                )
 
-            return {"success": False, "error": str(e)}
+                await self._milo_progress("install")
+                await asyncio.to_thread(self._clear_milo_backups)
+                await asyncio.to_thread(
+                    take_snapshot, config["data_files"], self._milo_backup(DATA_SNAPSHOT_NAME)
+                )
+                await self._write_journal(**{
+                    KEY_ORIGIN_COMMIT: origin_commit,
+                    KEY_ORIGIN_TAG: origin_tag,
+                    KEY_TARGET_TAG: tag,
+                    KEY_TARGET_COMMIT: target_commit,
+                    KEY_STEP: "started",
+                    KEY_FAILURE: None,
+                    KEY_VENV_KEPT: False,
+                })
+                journal_open = True
+                self._last_update = None
+                await asyncio.to_thread(self._forget_last_update)
+
+                if not await self._systemd.start(config["inhibit_service_name"]):
+                    self.update_logger.error(
+                        "The shutdown inhibitor did not start; a power key or a "
+                        "shutdown from outside Milo can now cut the install"
+                    )
+
+                success, output = await self._run_git("checkout", "--force", tag, timeout=120)
+                if not success:
+                    raise Exception(f"Git checkout of {tag} failed: {output}")
+                await self._record_step("checked_out")
+
+                if requirements_moved:
+                    await asyncio.to_thread(self._keep_venv)
+                    await self._write_journal(**{KEY_VENV_KEPT: True})
+                    await self._install_python_dependencies()
+                await self._check_the_new_release_imports()
+                await self._record_step("installed")
+
+                await self._sync_system_files()
+                await self._record_step("synced")
+
+                swapping, staging = staging, None
+                await self._swap_release_frontend(swapping, tag)
+                await self._record_step("swapped")
+
+                await self._milo_progress("restart")
+                await self._write_journal(**{KEY_STEP: TRIAL_STEP})
+            except Exception as e:
+                if not journal_open:
+                    self.update_logger.info(f"Milo update to {tag} refused: {e}")
+                    return {"success": False, "error": str(e)}
+                handed_over = True
+                return await self._hand_over_to_the_guard(tag, origin_tag, str(e))
+
+            handed_over = True
+            await self._reboot_into_the_trial()
+            return {"success": True, "pending": True}
 
         finally:
+            self._milo_running = False
+            if not handed_over:
+                self._milo_phase = None
             # The swap removes its own staging; this catches a step that
             # failed, or was cancelled, before it.
             if staging is not None:
                 await self._cleanup_temp_files(str(staging))
 
-    async def _require_launcher_accepts_qobuz_proxy(self) -> None:
-        """Raise unless the `milo-qobuz` just synced accepts the venv it will run.
+    def _remove_stale_git_locks(self) -> None:
+        """Remove the lock files a git command cut by a power loss left behind.
+        Blocking.
 
-        The launcher checks what it binds to at every start and exits 1 when a
-        binding is missing, under `Restart=always`. So for qobuz-proxy "the new
-        app over the previous dependency" — what `_reconcile_dependencies`
-        leaves after a failed, restored step — is not a state that works when
-        the release moved a binding along with the pin: it is a sidecar that
-        restarts forever while the journal reports a clean rollback. Settled
-        here instead, before the rest of the set moves: the launcher refuses →
-        qobuz-proxy is reconciled now → still refused, the caller rolls the app
-        back, which puts the previous launcher back over the venv a failed pip
-        already restored. Installed is asked as the reconciliation asks it: a
-        venv it would skip cannot be brought to a version here either, and
-        gating on it would refuse every update of that unit.
+        Before the journal opens nothing else does: the guard only cleans a
+        tree it is putting back. A fetch cut while it wrote a ref left
+        `refs/tags/<tag>.lock`, and every later fetch refused on it; a cut
+        `git status` left `index.lock`, and the checkout refused after the
+        journal had opened, rolling back an update that had changed nothing.
         """
-        installed = await self.get_installed_version("qobuz-proxy")
-        if self.installed_version({"installed": installed}) is None:
-            return
-        python = f"{self.programs['qobuz-proxy']['venv_path']}/bin/python"
-        ok, out = await self._run_local(python, QOBUZ_ADAPTER, "--check", timeout=60)
-        if ok:
-            return
-        self.update_logger.info(
-            f"The new milo-qobuz refuses the installed qobuz-proxy ({out}); reconciling it first"
+        git_dir = Path(self.programs["milo"]["git_path"]) / ".git"
+        locks = [git_dir / name for name in GIT_LOCKS]
+        refs = git_dir / "refs"
+        if refs.is_dir():
+            locks += sorted(refs.rglob("*.lock"))
+        for lock in locks:
+            if lock.is_file():
+                lock.unlink()
+                self.update_logger.warning(f"Removed a stale git lock: {lock.relative_to(git_dir)}")
+
+    async def _record_step(self, step: str) -> None:
+        """Record a finished install step, once what it wrote is on the card."""
+        await asyncio.to_thread(os.sync)
+        await self._write_journal(**{KEY_STEP: step})
+
+    def _forget_last_update(self) -> None:
+        """The previous outcome goes when a journal opens; so does a start count
+        a crashed guard may have left."""
+        for name in (LAST_UPDATE_NAME, ATTEMPTS_NAME):
+            self._milo_state(name).unlink(missing_ok=True)
+        fsync_directory(self._milo_state(LAST_UPDATE_NAME).parent)
+
+    async def _hand_over_to_the_guard(self, tag: str, origin_tag: str, error: str) -> Dict[str, Any]:
+        """Record why the install stopped, and restart into the guard that puts
+        the previous release back. The restart is the same path as a crash or a
+        power cut: there is one rollback, and it is the guard's."""
+        detail = " ".join(error.split())[:500]
+        # Warning, not error: the guard records how it ended, and the row and
+        # the rollback banner say it in the reader's language, where an error
+        # would raise the backend-error banner, behind the update screen and
+        # first in line once it lifts.
+        self.update_logger.warning(
+            f"Milo update to {tag} failed: {detail}. Restarting the backend: "
+            f"the update guard puts {origin_tag} back."
         )
-        if await self._reconcile_dependencies(only=("qobuz-proxy",)):
-            raise Exception(f"qobuz-proxy could not reach a version the new milo-qobuz accepts: {out}")
-        ok, out = await self._run_local(python, QOBUZ_ADAPTER, "--check", timeout=60)
-        if not ok:
-            raise Exception(f"The new milo-qobuz refuses the installed qobuz-proxy: {out}")
+        try:
+            await self._write_journal(**{KEY_FAILURE: detail})
+        except Exception as e:
+            # The step it stopped at, short of the trial, makes the guard
+            # restore all the same; only the reason is lost.
+            self.update_logger.error(f"The failure could not be recorded in the journal: {e}")
+        await self._milo_progress("restart")
+        # Stopped first: it is BindsTo= the backend, which restarts it along
+        # with the backend, and left up it would keep the power key dead, and
+        # logind refusing every reboot, long after the guard has closed the
+        # journal the 409s read.
+        await self._stop_inhibitor()
+        await self._systemd.restart_self(self.programs["milo"]["service_name"])
+        return {"success": False, "pending": True, "error": f"Update failed: {detail}"}
+
+    async def _stop_inhibitor(self) -> None:
+        if not await self._systemd.stop(self.programs["milo"]["inhibit_service_name"]):
+            self.update_logger.error("The shutdown inhibitor did not stop")
+
+    async def release_stale_inhibitor(self) -> None:
+        """Stop a shutdown inhibitor no install holds any more.
+
+        Only the process running an install holds it, and a backend that has
+        just started runs none: one still up was left by a backend that died
+        mid-install, and would keep the power key dead, and logind refusing
+        every reboot, until its RuntimeMaxSec. Called once the backend listens.
+        """
+        if self._milo_running:
+            return
+        unit = self.programs["milo"]["inhibit_service_name"]
+        state = await self._systemd.unit_state(unit)
+        if state is not None and state[0] in ("inactive", "failed"):
+            return
+        self.update_logger.warning(f"{unit} was left up by a backend that is gone; stopping it")
+        await self._stop_inhibitor()
+
+    async def _reboot_into_the_trial(self) -> None:
+        """Reboot into the installed release; the guard counts its starts from here.
+
+        A refused reboot restarts the backend instead, so the trial runs in this
+        boot: the release is installed and its start is what decides now.
+        """
+        config = self.programs["milo"]
+        # logind refuses a reboot while it holds, root's included (systemd 257).
+        await self._stop_inhibitor()
+        rebooting, output = await self._run_deploy("reboot")
+        if not rebooting:
+            self.update_logger.error(
+                f"Reboot refused after the install ({output}); restarting the "
+                "backend instead, so the new release is tried in this boot"
+            )
+            await self._systemd.restart_self(config["service_name"])
 
     async def _run_deploy(self, *args, warn_after: float = 120) -> tuple[bool, str]:
         """Run a milo-deploy-update subcommand via sudo and return its real exit.
@@ -784,17 +1267,14 @@ class UpdateService(VersionService):
     async def _sync_system_files(self) -> None:
         """Sync system/ and rootfs/ files to their system destinations.
 
-        Delegates to milo-deploy-update sync-system-files which handles:
-        - Copying system/*.service to /etc/systemd/system/
-        - systemctl daemon-reload
-        - Copying rootfs/** preserving directory structure
-        - Setting executable/ownership permissions
-        - Reloading udev rules if needed
+        Delegates to `milo-deploy-update sync-system-files`, which installs
+        system/*.service and rootfs/** in place, each through a rename, and
+        reloads what reads them.
 
         Raises on failure rather than warning: the units and the rootfs helpers
         this copies are what the new code expects to find on the next boot, so a
         sync that did not happen is an update that did not happen. The caller
-        turns it into a failed update and a rollback.
+        hands the unit to the guard, which syncs the previous release's back.
         """
         success, output = await self._run_deploy("sync-system-files", warn_after=60)
         if not success:
@@ -1847,8 +2327,7 @@ class UpdateService(VersionService):
             if service_was_active and not await self._start_service(service):
                 # No rollback: the venv is upgraded and verified — it is the
                 # restart that did not happen, and undoing a good update over
-                # that would be worse. Same call as the refused reboot in
-                # _update_milo_app, and the backup is kept for the same reason.
+                # that would be worse; the backup is kept for the same reason.
                 self.update_logger.error("qobuz-proxy updated but its service did not restart")
                 return {
                     "success": False,
@@ -2061,10 +2540,6 @@ class UpdateService(VersionService):
         """Starts a systemd service."""
         return await self._systemd.start(service_name)
 
-    async def _restart_service(self, service_name: str) -> bool:
-        """Restarts a systemd service."""
-        return await self._systemd.restart(service_name)
-
 
     async def _cleanup_temp_files(self, temp_dir: Optional[str]) -> None:
         """Cleans up temporary files"""
@@ -2080,6 +2555,9 @@ class UpdateService(VersionService):
         """Checks if a program can be installed at the requested target"""
         if program_key not in self.programs:
             return {"can_update": False, "reason": "Update not supported"}
+        await self._reload_milo_state()
+        if self.milo_update_active:
+            return {"can_update": False, "reason": "A Milo update is in progress; it must finish first"}
 
         # Verify the deploy wrapper is reachable via sudo NOPASSWD
         success, _ = await self._run_deploy("check", warn_after=5)

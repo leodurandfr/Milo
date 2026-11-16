@@ -213,7 +213,10 @@ function wireModels() {
 
 /** Enum options declared by a Zod schema field, or null. */
 export function zodEnumOptions(schema) {
-  const unwrapped = schema?.def?.innerType ?? schema;
+  // Every wrapper off: an optional field the backend may also send as null is
+  // `.nullable().optional()`, two layers deep.
+  let unwrapped = schema;
+  while (unwrapped?.def?.innerType) unwrapped = unwrapped.def.innerType;
   return unwrapped?.def?.type === 'enum' ? unwrapped.options : null;
 }
 

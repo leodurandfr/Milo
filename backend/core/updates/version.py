@@ -301,8 +301,7 @@ class VersionService:
                         # What the release actually carries. Milo's offer has to
                         # know: a tag whose build never attached the frontend is
                         # a release that cannot be installed, and offering it
-                        # sends the unit through a checkout and a 404 before the
-                        # rollback puts it back.
+                        # draws a button whose every press is refused.
                         asset_names = [
                             asset.get("name") for asset in data.get("assets") or []
                         ]
@@ -550,10 +549,9 @@ class VersionService:
         # The offer's contract is that what it names can be *installed*, and half
         # of that is an artefact, not a ref. A tag pushed without CI, a build
         # that died after publishing, a release predating this channel — each
-        # gives a checkout that works and a frontend download that 404s, so the
-        # unit reboots into nothing but its own rollback. Measured on v0.0.1,
-        # the one release this repo carried before the channel existed: offered,
-        # and carrying no asset at all.
+        # gives a frontend download that 404s, an update refused at every
+        # press. Measured on v0.0.1, the one release this repo carried before
+        # the channel existed: offered, and carrying no asset at all.
         wanted = self.programs["milo"]["frontend_asset_url"].format(
             tag=published
         ).rsplit("/", 1)[-1]

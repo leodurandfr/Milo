@@ -8,14 +8,19 @@ slowest await in the router sitting inside the window. The frontend store
 blocks a same-client double click; it cannot block a second device.
 """
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+import json
+import logging
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import BackgroundTasks
 
-from backend.api.models import ProgramUpdateRequest
+from backend.api.models import LastUpdatePatch, ProgramUpdateRequest
 from backend.api.programs import create_programs_router
+from backend.core.updates import milo_journal as mj
+from backend.core.updates.update import UpdateService
 from backend.core.models.ws_events import (
+    MiloUpdateNoticeDismissed,
     ProgramUpdateComplete,
     ProgramUpdateProgress,
     SatelliteAppUpdateComplete,
@@ -35,9 +40,18 @@ def _endpoint(router, path: str, method: str = "POST"):
     raise AssertionError(f"no {method} {path} in the router")
 
 
+def idle_milo(update_service):
+    """The Milō-update surface of an update service with no journal open; a
+    bare MagicMock answers a truthy `milo_update_active`, which claims `milo`."""
+    update_service.milo_update_active = False
+    update_service.milo_update_state = MagicMock(return_value=None)
+    update_service.last_update_record = MagicMock(return_value=None)
+    return update_service
+
+
 @pytest.fixture
 def router():
-    update_service = MagicMock()
+    update_service = idle_milo(MagicMock())
     update_service.can_update_program = AsyncMock(
         return_value={"can_update": True, "available_version": "1.2.3"}
     )
@@ -357,3 +371,162 @@ async def test_an_app_push_that_raised_still_names_a_verdict(router):
     assert complete[0].success is False
     assert complete[0].verdict == "did_not_return"
     assert complete[0].detail.startswith("TimeoutError")
+
+
+# --------------------------------------------------------------------------- #
+# The Milō update: an outcome decided by the release that starts next.
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("result", [
+    {"success": True, "pending": True},
+    {"success": False, "pending": True, "error": "Update failed: pip install failed"},
+], ids=["installed", "handed-to-the-guard"])
+async def test_a_milo_update_handed_to_a_restart_announces_no_outcome(router, result, caplog):
+    """Both hand the unit to a restart: the reboot into the trial, or the guard
+    putting the previous release back. A completion sent now would tell every
+    client the update ended — the spinner off, the update screen gone — while
+    the unit is about to go dark, and a failure would raise the error banner
+    for a rollback that has not happened yet. The release that starts next
+    says how it ended."""
+    router.update_service.update_program = AsyncMock(return_value=result)
+    endpoint = _endpoint(router, "/api/programs/{program_key}/update")
+    tasks = BackgroundTasks()
+
+    with caplog.at_level(logging.ERROR, logger="backend.api.programs"):
+        assert (await endpoint("milo", VALIDATED, tasks))["status"] == "success"
+        await tasks()
+
+    events = [c.args[0] for c in router.state_machine.broadcast.await_args_list]
+    assert not [e for e in events if isinstance(e, ProgramUpdateComplete)]
+    assert not caplog.records
+
+
+def _milo_unit(tmp_path, mock_settings_service, step):
+    """A real update service over a journal the previous release left at `step`."""
+    state = tmp_path / "app-update"
+    state.mkdir()
+    (state / mj.JOURNAL_NAME).write_text(json.dumps({
+        mj.KEY_ORIGIN_COMMIT: "a" * 40, mj.KEY_ORIGIN_TAG: "v0.1.4",
+        mj.KEY_TARGET_TAG: "v0.1.5", mj.KEY_TARGET_COMMIT: "b" * 40,
+        mj.KEY_STEP: step, mj.KEY_FAILURE: None, mj.KEY_VENV_KEPT: False,
+    }))
+    with patch.dict("os.environ", {}, clear=True):
+        service = UpdateService(
+            systemd_manager=MagicMock(), satellite_update_service=MagicMock(),
+            settings_service=mock_settings_service,
+        )
+    service.programs["milo"]["state_path"] = str(state)
+    service.programs["milo"]["backup_path"] = str(tmp_path / "backups")
+    return service
+
+
+@pytest.mark.parametrize("step", [mj.TRIAL_STEP, mj.COMMITTED_STEP])
+async def test_the_release_that_arrives_inherits_the_milo_claim(tmp_path, mock_settings_service, step):
+    """The claim set is memory, and the reboot empties it. During the trial and
+    the post-commit phase the journal is the claim: a program update started
+    then would be installed beside the dependency set the post-commit phase
+    reconciles, and a satellite push would collide with the fleet push."""
+    service = _milo_unit(tmp_path, mock_settings_service, step)
+    service.can_update_program = AsyncMock(return_value={"can_update": True})
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(service, MagicMock(), state_machine)
+
+    program = _endpoint(r, "/api/programs/{program_key}/update")
+    for key in ("go-librespot", "milo"):
+        refused = await program(key, VALIDATED, BackgroundTasks())
+        assert refused["status"] == "error"
+        assert "milo" in refused["message"]
+    refused = await _endpoint(r, "/api/programs/satellites/{mac_id}/update-app")(
+        "aa:bb:cc:dd:ee:ff", BackgroundTasks()
+    )
+    assert refused["status"] == "error"
+    service.can_update_program.assert_not_awaited()
+
+
+async def test_the_program_list_says_where_a_milo_update_stands_when_github_fails(
+    tmp_path, mock_settings_service,
+):
+    """The kiosk, rebooted into the trial, draws the update screen from this
+    read alone — it saw none of the progress events, which the release that
+    left sent. A GitHub outage answering the inventory must not cost it."""
+    service = _milo_unit(tmp_path, mock_settings_service, mj.TRIAL_STEP)
+    service.get_all_program_status = AsyncMock(side_effect=RuntimeError("api.github.com timed out"))
+    r = create_programs_router(service, MagicMock(), MagicMock())
+
+    body = await _endpoint(r, "/api/programs", "GET")()
+
+    assert body["status"] == "error"
+    assert body["active_updates"] == ["milo"]
+    assert body["milo_update"]["phase"] == "verify"
+    assert (body["milo_update"]["from_version"], body["milo_update"]["to_version"]) == (
+        "v0.1.4", "v0.1.5",
+    )
+    assert "last_update" in body
+
+
+async def test_where_a_milo_update_stands_is_read_without_the_inventory(tmp_path, mock_settings_service):
+    """Every client reads it at each resync and before its first frame: it
+    must answer from the journal without one version probe or GitHub read,
+    which on a freshly rebooted unit take seconds."""
+    service = _milo_unit(tmp_path, mock_settings_service, mj.TRIAL_STEP)
+    service.get_all_program_status = AsyncMock(side_effect=AssertionError("the inventory was probed"))
+    service.get_latest_github_version = AsyncMock(side_effect=AssertionError("GitHub was read"))
+    r = create_programs_router(service, MagicMock(), MagicMock())
+
+    body = await _endpoint(r, "/api/programs/milo/update", "GET")()
+
+    assert body["status"] == "success"
+    assert body["milo_update"] == service.milo_update_state()
+    assert body["milo_update"]["phase"] == "verify"
+    assert body["last_update"] is None
+
+
+async def test_a_banner_closed_on_one_screen_leaves_the_others(tmp_path, mock_settings_service):
+    """The kiosk and a phone show the same rollback: closed on one, it is
+    announced once so the other drops it too, and a second close, from a
+    screen that had not heard yet, announces nothing."""
+    service = _milo_unit(tmp_path, mock_settings_service, mj.TRIAL_STEP)
+    state = tmp_path / "app-update"
+    (state / mj.JOURNAL_NAME).unlink()
+    (state / mj.LAST_UPDATE_NAME).write_text(json.dumps({
+        mj.KEY_FROM: "v0.1.4", mj.KEY_TO: "v0.1.5", mj.KEY_OUTCOME: "rolled_back",
+        mj.KEY_DETAIL: "RuntimeError: boom", mj.KEY_STEP: mj.TRIAL_STEP,
+    }))
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(service, MagicMock(), state_machine)
+    close = _endpoint(r, "/api/programs/milo/last-update", "PATCH")
+
+    first = await close(LastUpdatePatch(dismissed=True))
+    second = await close(LastUpdatePatch(dismissed=True))
+
+    assert first["last_update"]["dismissed"] is True
+    assert second["last_update"]["dismissed"] is True
+    sent = [call.args[0] for call in state_machine.broadcast.await_args_list]
+    assert [type(event) for event in sent] == [MiloUpdateNoticeDismissed]
+
+
+async def test_a_milo_update_is_announced_through_the_update_service(router):
+    """The install, the reboot and the post-commit phase span two processes,
+    so their progress cannot ride on the route's background task: the router
+    registers the listener the update service announces through. Unregistered,
+    no client would see a phase change, and the update screen would never
+    leave the step it was loaded on."""
+    router.update_service.set_milo_update_listener.assert_called_once()
+    on_progress, on_complete = router.update_service.set_milo_update_listener.call_args.args
+
+    await on_progress({
+        "phase": "satellites", "from_version": "v0.1.4", "to_version": "v0.1.5",
+        "item": "Canapé", "index": 1, "total": 2,
+    })
+    await on_complete(True)
+
+    progress, complete = [c.args[0] for c in router.state_machine.broadcast.await_args_list]
+    assert progress.to_envelope()["data"] == {
+        "source": "program_update", "status": "updating", "program": "milo",
+        "phase": "satellites", "from_version": "v0.1.4", "to_version": "v0.1.5",
+        "item": "Canapé", "index": 1, "total": 2,
+    }
+    assert isinstance(complete, ProgramUpdateComplete)
+    assert (complete.program, complete.success) == ("milo", True)

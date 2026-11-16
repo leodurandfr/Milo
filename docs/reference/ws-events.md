@@ -5,7 +5,7 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-70 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+71 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
@@ -79,6 +79,7 @@ Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`.
 | [`programs/satellite_update_complete`](#programssatellite_update_complete) | internal |
 | [`programs/satellite_app_update_complete`](#programssatellite_app_update_complete) | internal |
 | [`programs/satellite_camilladsp_update_complete`](#programssatellite_camilladsp_update_complete) | internal |
+| [`programs/milo_update_notice_dismissed`](#programsmilo_update_notice_dismissed) | internal |
 
 ## system
 
@@ -731,13 +732,19 @@ The network status changed: Wi-Fi on or off, and the state of the Ethernet and W
 
 ### programs/program_update_progress
 
-An update of `program` on this unit is running.
+An update of `program` on this unit is running. For `milo`, `phase` says where it stands, `from_version` and `to_version` name the two releases, and during `dependencies` and `satellites` `item` names the program or the room being updated, `index` (from 1) and `total` count them; every one of them is null for any other program.
 
 | Field | Type |
 |---|---|
 | `status` | "updating" |
 | `source` | "program_update" |
 | `program` | string |
+| `phase` | "download" \| "install" \| "restart" \| "verify" \| "dependencies" \| "satellites" \| null |
+| `from_version` | string \| null |
+| `to_version` | string \| null |
+| `item` | string \| null |
+| `index` | integer \| null |
+| `total` | integer \| null |
 
 ### programs/satellite_update_progress
 
@@ -810,6 +817,14 @@ An update of a satellite's CamillaDSP finished; `success` says whether it worked
 | `success` | boolean |
 | `source` | "satellite_update" |
 | `mac_id` | string |
+
+### programs/milo_update_notice_dismissed
+
+The banner of the last Milō update was closed, for every screen (PATCH /api/programs/milo/last-update): the outcome stays in GET /api/programs/milo/update's `last_update`, now with `dismissed` true.
+
+| Field | Type |
+|---|---|
+| `source` | "program_update" |
 
 ## Models
 

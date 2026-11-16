@@ -27,11 +27,7 @@ _ENTRY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=(\S+)$", re.MULTILINE)
 
 
 def load_dependency_versions(path: Path | None = None) -> dict[str, str]:
-    """Parse `dependencies.env` into {SHELL_VAR_NAME: version}.
-
-    Resolved at call time, not bound at import: `UpdateService` re-reads the
-    file after a `git pull` has replaced it under the running process.
-    """
+    """Parse `dependencies.env` into {SHELL_VAR_NAME: version}."""
     path = path if path is not None else MANIFEST_PATH
     if not path.is_file():
         raise FileNotFoundError(f"dependency manifest missing: {path}")
@@ -48,12 +44,9 @@ def load_dependency_versions(path: Path | None = None) -> dict[str, str]:
 def apply_validated_versions(programs: dict, versions: dict[str, str] | None = None) -> dict:
     """Fill each program's `validated_version` from its `validated_version_key`.
 
-    Two callers, and the second is the reason the association and the number are
-    separate keys. `catalog.py` calls it once at import; `UpdateService` calls it
-    again *after* a `git pull`, because the pulled tree carries a new manifest
-    that the running process imported minutes ago and cannot see. The key is a
-    constant a pull never changes, so re-reading the file is enough — reloading
-    the module would not be.
+    `catalog.py` calls it once, at import. A Milō update reconciles the set only
+    once the new release has started and held (`UpdateService.run_post_commit`),
+    so the manifest that process imported is already the new release's own.
 
     A key the manifest does not declare raises `KeyError`: a dependency whose
     version silently vanished would fall back to "whatever GitHub's

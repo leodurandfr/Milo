@@ -42,6 +42,7 @@ from backend.tests.architecture.test_dependency_manifest import _strip_comments
 REPO_ROOT = Path(__file__).resolve().parents[3]
 UPDATE_SERVICE = REPO_ROOT / "backend" / "core" / "updates" / "update.py"
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "build-image.yml"
+LINT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "lint.yml"
 STAGE_DIR = REPO_ROOT / "pi-gen" / "stage-milo"
 LOCAL_BUILDER = REPO_ROOT / "pi-gen" / "build.sh"
 
@@ -293,8 +294,34 @@ def test_the_frontend_is_built_once_in_ci_from_the_lockfile(workflow):
     assert "sha256sum" in steps, "the artefact is published without a checksum"
 
     # And the image consumes that artefact rather than making its own.
-    assert workflow["build"]["needs"] == ["vars", "frontend"], workflow["build"]["needs"]
+    assert "frontend" in workflow["build"]["needs"], workflow["build"]["needs"]
     assert "download-artifact" in _steps(workflow["build"])
+
+
+def test_a_release_is_built_only_from_a_tree_the_ci_checks_passed_on(workflow):
+    """A unit judges a release only once it has installed it; the CI suite is
+    the one check a release meets before any unit is offered it. If this fails,
+    a tag cut on a commit CI fails is built and published.
+    """
+    lint = yaml.safe_load(LINT_WORKFLOW.read_text())
+    triggers = lint.get("on", lint.get(True))  # PyYAML reads the bare key `on` as True
+    assert "workflow_call" in triggers, "lint.yml cannot be called by another workflow"
+    assert {"backend", "frontend"} <= set(lint["jobs"]), list(lint["jobs"])
+
+    callers = [name for name, job in workflow.items()
+               if job.get("uses") == "./.github/workflows/lint.yml"]
+    assert callers, "build-image.yml never runs the CI checks"
+    assert set(callers) <= set(workflow["build"]["needs"]), workflow["build"]["needs"]
+    for name in callers:
+        assert workflow[name]["with"]["ref"] == "${{ needs.vars.outputs.milo_ref }}", name
+    # The checks run on the tree being built, not on the commit that triggered
+    # the run: the two differ on a manual dispatch of another ref.
+    for job in ("backend", "frontend"):
+        checkout = next(
+            step for step in lint["jobs"][job]["steps"]
+            if step.get("uses", "").startswith("actions/checkout")
+        )
+        assert checkout.get("with", {}).get("ref") == "${{ inputs.ref }}", job
 
 
 def test_the_image_stage_installs_the_frontend_instead_of_building_it(stage_scripts):

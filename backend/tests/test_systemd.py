@@ -65,13 +65,20 @@ class TestPower:
         log_error.assert_called_once()
 
 
+def _not_the_units_process(manager):
+    """systemd naming another process as the unit's main one (a backend run by
+    hand), so a failed enqueue never reaches the self-exit: read for real, the
+    answer would depend on the host the suite runs on."""
+    return patch.object(manager, "main_pid_and_restarts", AsyncMock(return_value=None))
+
+
 class TestRestartSelf:
     @pytest.mark.asyncio
     async def test_restart_self_enqueues_with_no_block(self, manager):
         proc = _make_mock_proc(returncode=0)
         with patch("asyncio.create_subprocess_exec", return_value=proc) as exec_mock:
             with patch.object(manager.logger, "error") as log_error:
-                await manager.restart_self("milo-backend.service")
+                assert await manager.restart_self("milo-backend.service") is True
         args = exec_mock.call_args.args
         assert args == ("sudo", "systemctl", "restart", "--no-block", "milo-backend.service")
         log_error.assert_not_called()
@@ -79,10 +86,40 @@ class TestRestartSelf:
     @pytest.mark.asyncio
     async def test_restart_self_enqueue_failure_is_loud(self, manager):
         proc = _make_mock_proc(returncode=1, stderr=b"unit not found")
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
+        with patch("asyncio.create_subprocess_exec", return_value=proc), _not_the_units_process(manager):
             with patch.object(manager.logger, "error") as log_error:
-                await manager.restart_self("milo-backend.service")
+                assert await manager.restart_self("milo-backend.service") is False
         log_error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_restart_that_cannot_be_queued_ends_the_units_own_process(self, manager):
+        """The Milō updater restarts into the guard that puts the previous
+        release back. Queued by nothing, the backend kept running the old code
+        over a half-installed tree, the update screen held on "Restarting" and
+        the guard never ran. Ending the process is a restart too: Restart=always
+        runs the unit's whole start again, ExecStartPre= included, with no
+        sudo."""
+        import os
+        import signal
+        proc = _make_mock_proc(returncode=1, stderr=b"sudo: a password is required")
+        main = AsyncMock(return_value=(os.getpid(), 0))
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+                patch.object(manager, "main_pid_and_restarts", main), \
+                patch("backend.core.systemd.os.kill") as kill:
+            assert await manager.restart_self("milo-backend.service") is True
+        main.assert_awaited_once_with("milo-backend.service")
+        kill.assert_called_once_with(os.getpid(), signal.SIGTERM)
+
+    @pytest.mark.asyncio
+    async def test_a_backend_run_by_hand_is_never_ended(self, manager):
+        """Not the unit's main process: nothing would bring it back."""
+        import os
+        proc = _make_mock_proc(returncode=1)
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+                patch.object(manager, "main_pid_and_restarts", AsyncMock(return_value=(os.getpid() + 1, 0))), \
+                patch("backend.core.systemd.os.kill") as kill:
+            assert await manager.restart_self("milo-backend.service") is False
+        kill.assert_not_called()
 
 
 # ============================================================================
@@ -549,7 +586,7 @@ class TestRestartSelfFailureArms:
         """
         _short_wait_for(monkeypatch)
         proc = _hanging_proc()
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
+        with patch("asyncio.create_subprocess_exec", return_value=proc), _not_the_units_process(manager):
             with caplog.at_level(logging.ERROR):
                 await manager.restart_self("milo-backend")
 
@@ -560,7 +597,8 @@ class TestRestartSelfFailureArms:
     async def test_a_spawn_that_raises_is_loud(self, manager, caplog):
         """This is the update path's last step. Silent, the operator sees an
         update that "succeeded" and a unit still running the old code."""
-        with patch("asyncio.create_subprocess_exec", side_effect=OSError("no sudo")):
+        with patch("asyncio.create_subprocess_exec", side_effect=OSError("no sudo")), \
+                _not_the_units_process(manager):
             with caplog.at_level(logging.ERROR):
                 await manager.restart_self("milo-backend")
 
@@ -708,6 +746,28 @@ class TestUnitState:
         assert calls[1] == ("Get", ["org.freedesktop.systemd1.Unit", "ActiveState"])
         assert calls[2] == ("Get", ["org.freedesktop.systemd1.Service", "Result"])
         assert calls[-1][0] == "disconnect"
+
+    @pytest.mark.parametrize("job, queued", [((0, "/"), False), ((4711, "/org/freedesktop/systemd1/job/4711"), True)])
+    async def test_the_sweep_asks_the_queued_job_then_the_state(self, manager, monkeypatch, job, queued):
+        """A start held behind READY=1 reads `inactive`: only the unit's Job
+        (`(uo)`, id 0 for none, as busctl shows it) says it is about to run.
+        The Job is read first: a start dispatched between the two reads is
+        then seen by the state read, where the other order would read
+        `inactive` and no job, and spare a unit that is up."""
+        from dbus_next import Variant
+        calls = self._bus(
+            monkeypatch,
+            self._Reply(["/org/freedesktop/systemd1/unit/milo_2dradio_2eservice"]),
+            self._Reply([Variant("(uo)", list(job))]),
+            self._Reply([Variant("s", "inactive")]),
+        )
+        assert await manager.sweep_state("milo-radio.service") == ("inactive", queued)
+        assert calls[1] == ("Get", ["org.freedesktop.systemd1.Unit", "Job"])
+        assert calls[2] == ("Get", ["org.freedesktop.systemd1.Unit", "ActiveState"])
+
+    async def test_a_unit_that_is_not_loaded_is_swept_as_down(self, manager, monkeypatch):
+        self._bus(monkeypatch, self._Reply(error="org.freedesktop.systemd1.NoSuchUnit"))
+        assert await manager.sweep_state("milo-radio.service") == ("inactive", False)
 
     async def test_the_unit_is_asked_its_main_process_and_its_restart_count(self, manager, monkeypatch):
         """What tells a restart someone asked for from Restart= after a crash:

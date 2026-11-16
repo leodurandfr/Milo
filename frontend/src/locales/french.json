@@ -520,7 +520,25 @@
     "installingVersion": "Installation de {version}…",
     "failureRolledBack": "Revenu à la version précédente",
     "failureDidNotReturn": "Ne répond pas",
-    "failureRejected": "A refusé la mise à jour"
+    "failureRejected": "A refusé la mise à jour",
+    "failureRollbackFailed": "N'a pas pu revenir à la version précédente"
+  },
+  "miloUpdate": {
+    "title": "Mise à jour de Milō",
+    "stepDownload": "Téléchargement",
+    "stepInstall": "Installation",
+    "stepRestart": "Redémarrage",
+    "stepVerify": "Vérification",
+    "doNotUnplug": "Ne pas débrancher",
+    "dependenciesTitle": "Mise à jour des programmes",
+    "dependenciesDetail": "{program} · {index} sur {total}",
+    "satellitesTitle": "Mise à jour des enceintes",
+    "satellitesDetail": "{room} · {index} sur {total}. Le son de cette pièce se coupe un instant.",
+    "rolledBackTitle": "Mise à jour annulée",
+    "rolledBackDetail": "La mise à jour vers la version {target} a échoué : Milō est revenu à la version {origin}. Détails dans Paramètres › Mises à jour.",
+    "rollbackFailedTitle": "Échec de la mise à jour",
+    "rollbackFailedDetail": "La mise à jour vers la version {target} a échoué et Milō n'a pas pu revenir à la version {origin}. Détails dans Paramètres › Mises à jour.",
+    "rollbackFailedDetailUnnamed": "Une mise à jour de Milō a échoué et la version précédente n'a pas pu être remise. Détails dans Paramètres › Mises à jour."
   },
   "info": {
     "temperature": "Température",

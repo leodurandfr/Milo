@@ -542,6 +542,60 @@ def test_sync_system_files_skips_no_static_config():
     assert not skipped, f"sync-system-files leaves these rootfs paths out: {skipped}"
 
 
+# The functions a sync runs, and how a copy may name its destination there: a
+# staging name beside it, or the sshd drop-in's fallback copy.
+SYNC_FUNCTIONS = ("cmd_sync_system_files", "install_self", "install_atomic", "install_sudoers", "install_sshd_dropin")
+CP_CALL_RE = re.compile(r'(?:^|&&|\|\||;)\s*cp\s+(?:-\w+\s+)*"[^"]+"\s+"([^"]+)"\s*$')
+STAGED_SUFFIXES = (".new", ".previous")
+
+
+def _deploy_functions() -> dict[str, str]:
+    text = SERVER_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    return {name: body for name, body in SHELL_FUNC_RE.findall(text) if name in SYNC_FUNCTIONS}
+
+
+def test_sync_system_files_installs_every_file_by_rename():
+    """A file the sync writes in place is a truncated unit or helper after a
+    power cut, and the rollback that would repair it runs that same sync from
+    the backend's next start. Fails when a copy in the sync's functions writes
+    its destination directly instead of a `.new` beside it renamed over it, or
+    when the sync returns before a top-level `sync` has put the renames on the
+    card. Consumers: UpdateService (the forward sync) and milo-update-guard
+    (the sync back), both through the milo-backend grant of milo-deploy-update.
+    """
+    functions = _deploy_functions()
+    assert set(functions) == set(SYNC_FUNCTIONS), f"functions not extracted: {sorted(functions)}"
+
+    copies = [
+        (name, line.strip(), CP_CALL_RE.search(line))
+        for name, body in functions.items()
+        for line in body.splitlines()
+        if re.search(r"\bcp\s", line) and not line.lstrip().startswith("#")
+    ]
+    assert len(copies) >= 3, f"copies not extracted: {copies}"
+    unread = [f"{name}: {line}" for name, line, match in copies if match is None]
+    assert not unread, "copies whose destination this test cannot read:\n" + "\n".join(unread)
+    in_place = [
+        f"{name}: {line}" for name, line, match in copies if not match.group(1).endswith(STAGED_SUFFIXES)
+    ]
+    assert not in_place, "copies onto their destination:\n" + "\n".join(in_place)
+
+    body = functions["cmd_sync_system_files"].splitlines()
+    assert "    sync" in body, "sync-system-files returns before a top-level `sync`"
+
+
+def test_sync_system_files_installs_helpers_before_the_units_that_name_them():
+    """milo-backend.service runs milo-update-guard before every start: a unit
+    reloaded ahead of a helper it names fails to start in the window between."""
+    body = _deploy_functions()["cmd_sync_system_files"]
+    marks = [body.find(mark) for mark in (
+        'echo "Deploying rootfs files..."', 'echo "Deploying systemd service files..."', "systemctl daemon-reload",
+    )]
+    assert -1 not in marks, f"sync-system-files not read: {marks}"
+
+    assert marks == sorted(marks)
+
+
 def _satellite_synced_trees() -> set[str]:
     """`SYNCED_TREES`, the trees the satellite app installs itself, read from source."""
     tree = ast.parse(CLIENT_APP_UPDATE.read_text(encoding="utf-8"))

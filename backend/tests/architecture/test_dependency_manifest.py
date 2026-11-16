@@ -28,9 +28,6 @@ Two trees, two ways of reading the same file:
   * `backend/core/updates/catalog.py` names the line each program uses
     (`"validated_version_key"`) and `apply_validated_versions` resolves it into
     `"validated_version"`, which is what the update flow offers and installs.
-    The association and the number are separate keys on purpose: `UpdateService`
-    re-resolves after a `git pull`, when the process holds the old numbers and
-    the disk holds the new ones.
 
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on

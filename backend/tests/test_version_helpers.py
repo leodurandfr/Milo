@@ -1,9 +1,12 @@
 # backend/tests/test_version_helpers.py
 """
-Tests for version helper utilities (compare_versions).
+Tests for the update helpers: compare_versions, requirements_moved_up.
 """
+from pathlib import Path
 
-from backend.core.updates.helpers import compare_versions
+from backend.core.updates.helpers import compare_versions, requirements_moved_up
+
+REQUIREMENTS = (Path(__file__).resolve().parents[2] / "requirements.txt").read_text()
 
 
 class TestCompareVersions:
@@ -73,3 +76,35 @@ class TestCompareVersions:
         # Only first 3 parts are used
         assert compare_versions("1.0.0.1", "1.0.0.2") is False
 
+
+class TestRequirementsMovedUp:
+    """Whether a Milō update runs pip, and keeps a venv copy for the guard.
+
+    Read against the repo's own requirements.txt, so the comment and marker
+    shapes it really carries are the ones parsed.
+    """
+
+    def test_the_same_file_needs_no_pip(self):
+        assert REQUIREMENTS.strip(), "requirements.txt not read"
+        assert requirements_moved_up(REQUIREMENTS, REQUIREMENTS) is False
+
+    def test_a_requirement_added_needs_pip(self):
+        assert requirements_moved_up(REQUIREMENTS, REQUIREMENTS + "\nnewpackage>=1.0\n") is True
+
+    def test_a_floor_raised_needs_pip(self):
+        first = next(line for line in REQUIREMENTS.splitlines() if ">=" in line)
+        name, floor = first.split("#")[0].strip().split(">=")
+        raised = REQUIREMENTS.replace(first, f"{name}>={floor}.1")
+        assert requirements_moved_up(REQUIREMENTS, raised) is True
+
+    def test_a_requirement_dropped_needs_no_pip(self):
+        """pip install -r never uninstalls: the dropped package stays, unused."""
+        dropped = "\n".join(REQUIREMENTS.splitlines()[1:])
+        assert requirements_moved_up(REQUIREMENTS, dropped) is False
+
+    def test_a_comment_or_spacing_edit_needs_no_pip(self):
+        commented = "\n".join(
+            line.replace(">=", " >= ") + "  # reworded" if line and not line.startswith("#") else line
+            for line in REQUIREMENTS.splitlines()
+        )
+        assert requirements_moved_up(REQUIREMENTS, commented) is False

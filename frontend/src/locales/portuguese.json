@@ -520,7 +520,25 @@
     "installingVersion": "A instalar {version}…",
     "failureRolledBack": "Voltou à versão anterior",
     "failureDidNotReturn": "Não responde",
-    "failureRejected": "Recusou a atualização"
+    "failureRejected": "Recusou a atualização",
+    "failureRollbackFailed": "Não conseguiu voltar à versão anterior"
+  },
+  "miloUpdate": {
+    "title": "Atualização do Milō",
+    "stepDownload": "Transferência",
+    "stepInstall": "Instalação",
+    "stepRestart": "Reinício",
+    "stepVerify": "Verificação",
+    "doNotUnplug": "Não desligar da corrente",
+    "dependenciesTitle": "Atualização dos programas",
+    "dependenciesDetail": "{program} · {index} de {total}",
+    "satellitesTitle": "Atualização dos altifalantes",
+    "satellitesDetail": "{room} · {index} de {total}. O som desta divisão é interrompido por um instante.",
+    "rolledBackTitle": "Atualização cancelada",
+    "rolledBackDetail": "A atualização para a versão {target} falhou: o Milō voltou à versão {origin}. Detalhes em Configurações › Atualizações.",
+    "rollbackFailedTitle": "Falha na atualização",
+    "rollbackFailedDetail": "A atualização para a versão {target} falhou e o Milō não conseguiu voltar à versão {origin}. Detalhes em Configurações › Atualizações.",
+    "rollbackFailedDetailUnnamed": "Uma atualização do Milō falhou e não foi possível repor a versão anterior. Detalhes em Configurações › Atualizações."
   },
   "info": {
     "temperature": "Temperatura",

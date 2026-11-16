@@ -39,6 +39,7 @@ from backend.api.routing import create_routing_router
 from backend.api.volume import create_volume_router
 from backend.core.models.audio_state import AudioSource
 from backend.core.multiroom.models import Client
+from backend.tests.test_programs_routes import idle_milo
 
 
 # The payload every one of these calls carries: they exercise the in-flight
@@ -59,7 +60,7 @@ class TestTheProgramsReads:
 
     @pytest.fixture
     def router(self):
-        update_service = MagicMock()
+        update_service = idle_milo(MagicMock())
         satellite_service = MagicMock()
         state_machine = MagicMock()
         state_machine.broadcast = AsyncMock()
@@ -164,7 +165,7 @@ class TestTheBackgroundUpdate:
 
     @pytest.fixture
     def router(self):
-        update_service = MagicMock()
+        update_service = idle_milo(MagicMock())
         update_service.can_update_program = AsyncMock(
             return_value={"can_update": True, "available_version": "1.2.3"}
         )

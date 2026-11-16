@@ -520,7 +520,25 @@
     "installingVersion": "Installing {version}…",
     "failureRolledBack": "Went back to the previous version",
     "failureDidNotReturn": "Not responding",
-    "failureRejected": "Refused the update"
+    "failureRejected": "Refused the update",
+    "failureRollbackFailed": "Could not go back to the previous version"
+  },
+  "miloUpdate": {
+    "title": "Updating Milō",
+    "stepDownload": "Downloading",
+    "stepInstall": "Installing",
+    "stepRestart": "Restarting",
+    "stepVerify": "Checking",
+    "doNotUnplug": "Do not unplug",
+    "dependenciesTitle": "Updating the programs",
+    "dependenciesDetail": "{program} · {index} of {total}",
+    "satellitesTitle": "Updating the speakers",
+    "satellitesDetail": "{room} · {index} of {total}. The sound in this room cuts out for a moment.",
+    "rolledBackTitle": "Update canceled",
+    "rolledBackDetail": "The update to version {target} failed: Milō went back to version {origin}. Details in Settings › Updates.",
+    "rollbackFailedTitle": "Update failed",
+    "rollbackFailedDetail": "The update to version {target} failed, and Milō could not go back to version {origin}. Details in Settings › Updates.",
+    "rollbackFailedDetailUnnamed": "An update of Milō failed, and the previous version could not be put back. Details in Settings › Updates."
   },
   "info": {
     "temperature": "Temperature",

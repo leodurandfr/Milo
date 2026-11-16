@@ -993,14 +993,32 @@ class ProgramsCompleteEvent(WsEvent):
     success: bool
 
 
-class ProgramUpdateProgress(ProgramsProgressEvent):
-    """An update of `program` on this unit is running.
+# Where an update of Milō itself stands. The first four belong to the install
+# and its trial, while the unit is out of reach; the last two run once the new
+# release has held, beside a usable unit.
+MiloUpdatePhase = Literal["download", "install", "restart", "verify", "dependencies", "satellites"]
 
-    Zod programs.program_update_progress → App.vue update spinner.
+
+class ProgramUpdateProgress(ProgramsProgressEvent):
+    """An update of `program` on this unit is running. For `milo`, `phase`
+    says where it stands, `from_version` and `to_version` name the two
+    releases, and during `dependencies` and `satellites` `item` names the
+    program or the room being updated, `index` (from 1) and `total` count
+    them; every one of them is null for any other program.
+
+    Zod programs.program_update_progress → App.vue update spinner, and
+    updatesStore's `miloUpdate` (the update screen, the post-commit banner) —
+    the same shape as GET /api/programs' `milo_update`.
     """
     TYPE = "program_update_progress"
     source: Literal["program_update"] = "program_update"
     program: str
+    phase: Optional[MiloUpdatePhase] = None
+    from_version: Optional[str] = None
+    to_version: Optional[str] = None
+    item: Optional[str] = None
+    index: Optional[int] = None
+    total: Optional[int] = None
 
 
 class ProgramUpdateComplete(ProgramsCompleteEvent):
@@ -1012,6 +1030,19 @@ class ProgramUpdateComplete(ProgramsCompleteEvent):
     TYPE = "program_update_complete"
     source: Literal["program_update"] = "program_update"
     program: str
+
+
+class MiloUpdateNoticeDismissed(WsEvent):
+    """The banner of the last Milō update was closed, for every screen
+    (PATCH /api/programs/milo/last-update): the outcome stays in GET
+    /api/programs/milo/update's `last_update`, now with `dismissed` true.
+
+    App.vue → updatesStore.markLastUpdateDismissed (the banner leaves the
+    screens that did not close it).
+    """
+    CATEGORY = "programs"
+    TYPE = "milo_update_notice_dismissed"
+    source: Literal["program_update"] = "program_update"
 
 
 class SatelliteUpdateProgress(ProgramsProgressEvent):

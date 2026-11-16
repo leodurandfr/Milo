@@ -3,21 +3,22 @@
  * updatesStore mirrors program/satellite update state, fed by `programs.*` WS
  * deltas and reconciled from GET /api/programs.
  *
- * Two things are pinned here. The resync gate: App.vue resyncs every delta
- * store on reconnect and on every tab return, and this one is loaded lazily by
- * UpdateManager. Each refetch costs an installed-version probe per program on
- * the Pi, so resyncing a store no view has opened is pure cost. And what
- * happens to a satellite between the moment it reports an update finished and
- * the moment its own API answers again — the window that left a row showing a
- * skeleton for a fetch nobody would ever make. Plus the two pieces of update
- * state the row reads back: how long "completed" lasts, and which release an
- * in-flight install is putting on.
+ * Pinned here: the resync gate — App.vue resyncs every delta store on
+ * reconnect and on every tab return; where a Milō update stands is read every
+ * time, through a read that probes nothing, while the program list (a version
+ * probe per program) and the satellites only once a view has opened them. What happens to a satellite
+ * between the moment it reports an update finished and the moment its own API
+ * answers again — the window that left a row showing a skeleton for a fetch
+ * nobody would ever make. The pieces of update state the rows read back: how
+ * long "completed" lasts, and which release an in-flight install is putting
+ * on. And where an update of Milō itself stands, which the whole app draws.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { setActivePinia, createPinia } from 'pinia';
 import { useUpdatesStore } from '@/stores/updatesStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { apiCall } from '@/services/apiCall';
-import { resetApiCallMock, ok } from '../helpers/apiCallMock';
+import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
@@ -29,10 +30,29 @@ describe('updatesStore resync gate', () => {
     store = useUpdatesStore();
   });
 
-  it('does nothing before the store has ever loaded', async () => {
+  it('reads where a Milō update stands on every resync, the boot\'s included', async () => {
+    // Gated on Settings having been opened, a kiosk back from the update's
+    // reboot, or a phone opened halfway through one, would draw the app over
+    // an update.
+    apiCall.get.mockResolvedValue(ok({ milo_update: null, last_update: null }));
+
+    await store.resync();
     await store.resync();
 
-    expect(apiCall.get).not.toHaveBeenCalled();
+    const reads = apiCall.get.mock.calls.filter(([url]) => url === '/api/programs/milo/update');
+    expect(reads).toHaveLength(2);
+    expect(store.miloUpdateKnown).toBe(true);
+  });
+
+  it('leaves the program list alone until a view has loaded it', async () => {
+    // Every program's installed version is probed per read: on every phone
+    // unlock and every reconnect of every client, on a box whose multiroom
+    // stutters when it runs short of CPU.
+    apiCall.get.mockResolvedValue(ok({ milo_update: null, last_update: null }));
+
+    await store.resync();
+
+    expect(apiCall.get).not.toHaveBeenCalledWith('/api/programs', expect.anything());
   });
 
   it('refetches once the store has been loaded', async () => {
@@ -531,5 +551,231 @@ describe('updatesStore satellite app push failure', () => {
     await load;
 
     expect(store.satelliteAppFailure(MAC)).toEqual({ verdict: 'rolled_back', detail: null });
+  });
+});
+
+
+describe('updatesStore Milō update', () => {
+  let store;
+
+  const update = (phase, extra = {}) => ({
+    phase, from_version: 'v0.1.4', to_version: 'v0.1.5', item: null, index: null, total: null, ...extra,
+  });
+  const progress = (phase, extra = {}) => ({ program: 'milo', status: 'updating', ...update(phase), ...extra });
+  const programs = (fields = {}) => ok({ programs: {}, active_updates: [], milo_update: null, last_update: null, ...fields });
+  const record = (outcome, extra = {}) => ({
+    from_version: 'v0.1.4', to_version: 'v0.1.5', outcome, detail: 'ImportError: no module named x', step: 'rebooting',
+    ...extra,
+  });
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useUpdatesStore();
+  });
+
+  it('takes the screen for the leaving release\'s phases and the trial, a banner after', () => {
+    // The screen over the dependency set or the satellites would block the
+    // whole app for minutes after the new release already held; a banner over
+    // the install would let the unit be used while its checkout moves.
+    for (const phase of ['download', 'install', 'restart', 'verify']) {
+      store.handleProgramUpdateProgress(progress(phase));
+      expect([store.miloUpdateScreenPhase, store.miloUpdateBanner]).toEqual([phase, null]);
+    }
+    for (const phase of ['dependencies', 'satellites']) {
+      store.handleProgramUpdateProgress(progress(phase, { item: 'Canapé', index: 1, total: 2 }));
+      expect(store.miloUpdateScreenPhase).toBeNull();
+      expect(store.miloUpdateBanner?.phase).toBe(phase);
+    }
+  });
+
+  it('draws no banner while the post-commit phase has nothing to install', () => {
+    // Reading nine versions and finding every speaker current is an update
+    // going well, which shows nothing.
+    for (const phase of ['dependencies', 'satellites']) {
+      store.handleProgramUpdateProgress(progress(phase));
+      expect(store.miloUpdateBanner).toBeNull();
+    }
+  });
+
+  it('leaves the screen alone on another program\'s progress', () => {
+    // A dependency update carries no phase: read as Milō's, it would clear or
+    // replace the screen of an update that is still running.
+    store.handleProgramUpdateProgress(progress('install'));
+
+    store.handleProgramUpdateProgress({ program: 'shairport-sync', status: 'updating' });
+
+    expect(store.miloUpdateScreenPhase).toBe('install');
+  });
+
+  it('draws the screen for an update this client never saw start', async () => {
+    // A kiosk reloading after the reboot learns of the trial from this read
+    // alone: no event announced it to the new page.
+    apiCall.get.mockResolvedValue(programs({ milo_update: update('verify'), active_updates: ['milo'] }));
+
+    await store.resync();
+
+    expect(store.miloUpdateScreenPhase).toBe('verify');
+  });
+
+  it('applies only the last of its two reads sent', async () => {
+    // The inventory answers seconds after the read that probes nothing: sent
+    // first and answered last, it would put back a step the update has left.
+    let inventory;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { inventory = resolve; }));
+    const load = store.loadLocalPrograms();
+    apiCall.get.mockResolvedValueOnce(ok({ milo_update: update('verify'), last_update: null }));
+    await store.loadMiloUpdate();
+
+    inventory(programs({ milo_update: update('restart') }));
+    await load;
+
+    expect(store.miloUpdateScreenPhase).toBe('verify');
+  });
+
+  it('ends the screen on the completion, and on a read that no longer lists the update', async () => {
+    // The completion may be missed by a tab in the background; the read after
+    // a rollback is the only word of it the origin release gives.
+    store.handleProgramUpdateProgress(progress('install'));
+    store.handleProgramUpdateComplete({ program: 'milo', success: false });
+    expect(store.miloUpdateScreenPhase).toBeNull();
+
+    store.handleProgramUpdateProgress(progress('restart'));
+    apiCall.get.mockResolvedValue(programs({ last_update: record('rolled_back') }));
+    await store.resync();
+    expect(store.miloUpdateScreenPhase).toBeNull();
+  });
+
+  it('names a lost backend under the screen a restart, until it answers again', async () => {
+    // The release being replaced is the one serving the socket: whatever step
+    // it named last, its going away is the restart, and a read that cannot
+    // reach it changes nothing — the screen must not fall back to the app.
+    store.handleProgramUpdateProgress(progress('install'));
+
+    store.handleBackendLost();
+    apiCall.get.mockResolvedValue(fail('Network Error', 0));
+    await store.resync();
+    expect(store.miloUpdateScreenPhase).toBe('restart');
+
+    apiCall.get.mockResolvedValue(programs({ milo_update: update('verify') }));
+    await store.resync();
+    expect(store.miloUpdateScreenPhase).toBe('verify');
+  });
+
+  it('a lost backend outside the screen changes nothing', () => {
+    // During the satellites the server is up and running the push: a dropped
+    // socket there is a phone's, and a screen raised over it would never end.
+    store.handleBackendLost();
+    expect(store.miloUpdateScreenPhase).toBeNull();
+
+    store.handleProgramUpdateProgress(progress('satellites', { item: 'Canapé', index: 1, total: 2 }));
+    store.handleBackendLost();
+    expect(store.miloUpdateScreenPhase).toBeNull();
+  });
+
+  it('does not move the update back on a read sent before a progress event', async () => {
+    // The answer was read before the event: applied, it puts the screen back
+    // on a step the update already left.
+    let answer;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    const load = store.loadLocalPrograms();
+
+    store.handleProgramUpdateProgress(progress('install'));
+    answer(programs({ milo_update: update('download'), active_updates: ['milo'] }));
+    await load;
+
+    expect(store.miloUpdateScreenPhase).toBe('install');
+  });
+
+  it.each([
+    ['rolled_back', true],
+    ['rollback_failed', true],
+    ['committed', false],
+  ])('describes a %s record on the Milō row and in a banner: %s', async (outcome, told) => {
+    // Nothing on success; a release put back is said once, in words, and the
+    // row keeps the cause until the next update.
+    apiCall.get.mockResolvedValue(programs({ last_update: record(outcome) }));
+
+    await store.loadLocalPrograms();
+
+    expect(!!store.miloUpdateFailure).toBe(told);
+    expect(!!store.rollbackNotice).toBe(told);
+  });
+
+  it('closes the rollback banner for every screen through the server', async () => {
+    // Kept in the browser, the kiosk's private profile forgot the close at
+    // every restart and told the same rollback again; the server keeps it, and
+    // the row keeps the cause.
+    apiCall.get.mockResolvedValue(programs({ last_update: record('rolled_back') }));
+    await store.loadLocalPrograms();
+    apiCall.patch.mockResolvedValue(ok({ status: 'success', last_update: record('rolled_back', { dismissed: true }) }));
+
+    await store.dismissRollbackNotice();
+
+    expect(apiCall.patch).toHaveBeenCalledWith('/api/programs/milo/last-update', { dismissed: true }, expect.anything());
+    expect(store.rollbackNotice).toBeNull();
+    expect(store.miloUpdateFailure).not.toBeNull();
+  });
+
+  it('follows the server: a closed record stays closed, a new one is told', async () => {
+    // A screen that starts after the close (the kiosk at boot) reads it
+    // closed; the next outcome is a new record, which nothing here may hide.
+    apiCall.get.mockResolvedValue(programs({ last_update: record('rolled_back', { dismissed: true }) }));
+    await store.loadLocalPrograms();
+    expect(store.rollbackNotice).toBeNull();
+    expect(store.miloUpdateFailure).not.toBeNull();
+
+    apiCall.get.mockResolvedValue(programs({ last_update: record('rolled_back', { dismissed: false }) }));
+    await store.resync();
+
+    expect(store.rollbackNotice).not.toBeNull();
+  });
+
+  it('drops a banner another screen closed, past a read sent before', async () => {
+    // The phone closed it while this screen's read was in flight: that answer
+    // predates the close and would raise the banner again.
+    apiCall.get.mockResolvedValue(programs({ last_update: record('rolled_back') }));
+    await store.loadLocalPrograms();
+    let answer;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    const load = store.loadLocalPrograms();
+
+    store.markLastUpdateDismissed();
+    answer(programs({ last_update: record('rolled_back') }));
+    await load;
+
+    expect(store.rollbackNotice).toBeNull();
+    expect(store.miloUpdateFailure).not.toBeNull();
+  });
+
+  it('lets a close heard during a read end a stale update screen', async () => {
+    // The install failed before its reboot and the guard put the previous
+    // release back: only a read ends this screen's "Restarting". A close from
+    // another screen landing meanwhile is about the banner alone; held as an
+    // update move, it dropped that read and left "Do not unplug" up for good.
+    store.handleProgramUpdateProgress(progress('restart'));
+    let answer;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    const load = store.loadLocalPrograms();
+
+    store.markLastUpdateDismissed();
+    answer(programs({ milo_update: null, active_updates: [], last_update: record('rolled_back') }));
+    await load;
+
+    expect(store.miloUpdateScreenPhase).toBeNull();
+    expect(store.isLocalUpdating('milo')).toBe(false);
+    expect(store.rollbackNotice).toBeNull();
+    expect(store.miloUpdateFailure).not.toBeNull();
+  });
+
+  it('holds the rollback banner back while an update runs again', async () => {
+    // A retry pressed from the row: the banner about the previous attempt
+    // would sit over the one in progress.
+    apiCall.get.mockResolvedValue(programs({ programs: { milo: {} }, last_update: record('rolled_back') }));
+    await store.loadLocalPrograms();
+    apiCall.post.mockResolvedValue(ok({ status: 'success' }));
+
+    await store.startLocalUpdate('milo');
+
+    expect(store.rollbackNotice).toBeNull();
   });
 });

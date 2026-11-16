@@ -40,13 +40,22 @@ Keys, per program:
                       release, "{tag}" substituted. The unit installs that
                       artefact instead of building one, so what a release was
                       tested with is what every unit runs.
+    state_path        `milo` alone: where the update journal and the
+                      outcome of the last update live (milo_journal.STATE_DIR).
+    data_files        `milo` alone: the versioned user data the update keeps a
+                      copy of (data_snapshot.VERSIONED_DATA_FILES).
+    inhibit_service_name
+                      `milo` alone: the unit holding a logind shutdown
+                      inhibitor while the app update installs.
     tar_member        extract only this member (tarballs shipping docs).
     always_on         stop and restart the service unconditionally instead of
                       preserving whatever state it was in.
     config_path       config file backed up alongside the binary.
 """
 from backend.config.constants import NAVIDROME_SERVICE
+from backend.core.updates.data_snapshot import VERSIONED_DATA_FILES
 from backend.core.updates.dependency_versions import apply_validated_versions
+from backend.core.updates.milo_journal import BACKUP_DIR, STATE_DIR
 
 PROGRAMS = {
     "milo": {
@@ -59,7 +68,10 @@ PROGRAMS = {
         "version_regex": r"v?(\d+\.\d+\.\d+)",
         "git_path": "/home/milo/milo",
         "service_name": "milo-backend.service",
-        "backup_path": "/var/lib/milo/backups/milo-app",
+        "backup_path": BACKUP_DIR,
+        "state_path": STATE_DIR,
+        "data_files": tuple(VERSIONED_DATA_FILES.values()),
+        "inhibit_service_name": "milo-update-inhibit.service",
         # The frontend the release was built with, published beside the image by
         # .github/workflows/build-image.yml. "{tag}" is the release tag, not the
         # bare version: it is what `git checkout` is given, so one spelling
@@ -190,6 +202,5 @@ PROGRAMS = {
 
 # Resolve every "validated_version_key" against dependencies.env. Kept out of the
 # literals above so the association (which line) and the value (which version)
-# stay separate: UpdateService re-runs this after a `git pull` to pick up a
-# manifest the running process was started before.
+# stay separate: the line a program reads is code, the number is the manifest's.
 apply_validated_versions(PROGRAMS)

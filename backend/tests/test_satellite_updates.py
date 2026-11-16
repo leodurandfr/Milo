@@ -1089,6 +1089,36 @@ class TestFleetPush:
         assert left_behind == [
             "Canapé", f"Bureau: held back, Canapé did not take {SERVER_PAYLOAD}"]
 
+    async def test_each_push_is_announced_with_the_count_of_the_pushes_meant(self, fleet):
+        """The banner names the room about to go quiet, and "k of n" counts the
+        speakers this push means to restart — not the one already on the tree,
+        and not one held back by an earlier failure, which restarts nothing."""
+        announced = []
+
+        async def on_push(name, index, total):
+            announced.append((name, index, total))
+
+        async def push_with(statuses, **results):
+            fleet.pushed.clear()
+            announced.clear()
+            fleet.push_results = results
+            with patch("backend.core.updates.satellite.aiohttp.ClientSession",
+                       return_value=_FakeFleet(statuses)), \
+                    patch("backend.core.updates.satellite.asyncio.create_subprocess_exec",
+                          _fake_git()):
+                await fleet.push_client_app_to_fleet(on_push=on_push)
+
+        behind = self._status("0ae3872", "v0.1.0")
+        await push_with({"192.168.1.153": behind, "192.168.1.60": self._status(SERVER_PAYLOAD)})
+        assert announced == [("Canapé", 1, 1)]
+
+        await push_with({"192.168.1.153": behind, "192.168.1.60": behind})
+        assert announced == [("Canapé", 1, 2), ("Bureau", 2, 2)]
+
+        await push_with({"192.168.1.153": behind, "192.168.1.60": behind}, **{
+            "dc:a6:32:7e:d3:43": {"success": False, "verdict": "rolled_back", "error": "x"}})
+        assert announced == [("Canapé", 1, 2)]
+
     async def test_a_satellite_that_already_went_back_from_this_payload_is_not_pushed_it(
             self, fleet):
         """Pushed again, it would cut its room for the same crash; the server's

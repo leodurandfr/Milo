@@ -111,8 +111,25 @@ jobs:
             ${{ needs.vars.outputs.frontend_asset }}.sha256
           retention-days: 14
 
+  # The CI checks (lint.yml), run on the tree being built: the build needs them,
+  # so a tag cut on a commit they fail publishes nothing. The units that take a
+  # release judge it only once it is installed, and the CI suite is the one
+  # check that runs before any unit is offered it.
+  checks:
+    name: CI checks
+    needs: vars
+    uses: ./.github/workflows/lint.yml
+    with:
+      ref: ${{ needs.vars.outputs.milo_ref }}
+    # A called workflow may only narrow what its caller grants, and GitHub
+    # refuses the whole run when a nested job declares more — milo-mac-freshness
+    # declares issues: write, though it is skipped when called.
+    permissions:
+      contents: read
+      issues: write
+
   build:
-    needs: [vars, frontend]
+    needs: [vars, checks, frontend]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
 

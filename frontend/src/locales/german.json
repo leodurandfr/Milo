@@ -520,7 +520,25 @@
     "installingVersion": "{version} wird installiert…",
     "failureRolledBack": "Zur vorherigen Version zurückgekehrt",
     "failureDidNotReturn": "Antwortet nicht",
-    "failureRejected": "Aktualisierung abgelehnt"
+    "failureRejected": "Aktualisierung abgelehnt",
+    "failureRollbackFailed": "Rückkehr zur vorherigen Version fehlgeschlagen"
+  },
+  "miloUpdate": {
+    "title": "Milō wird aktualisiert",
+    "stepDownload": "Herunterladen",
+    "stepInstall": "Installation",
+    "stepRestart": "Neustart",
+    "stepVerify": "Überprüfung",
+    "doNotUnplug": "Nicht vom Strom trennen",
+    "dependenciesTitle": "Programme werden aktualisiert",
+    "dependenciesDetail": "{program} · {index} von {total}",
+    "satellitesTitle": "Lautsprecher werden aktualisiert",
+    "satellitesDetail": "{room} · {index} von {total}. Der Ton in diesem Raum setzt kurz aus.",
+    "rolledBackTitle": "Aktualisierung abgebrochen",
+    "rolledBackDetail": "Die Aktualisierung auf Version {target} ist fehlgeschlagen: Milō ist zu Version {origin} zurückgekehrt. Details unter Einstellungen › Aktualisierungen.",
+    "rollbackFailedTitle": "Aktualisierung fehlgeschlagen",
+    "rollbackFailedDetail": "Die Aktualisierung auf Version {target} ist fehlgeschlagen, und Milō konnte nicht zu Version {origin} zurückkehren. Details unter Einstellungen › Aktualisierungen.",
+    "rollbackFailedDetailUnnamed": "Eine Aktualisierung von Milō ist fehlgeschlagen, und die vorherige Version konnte nicht wiederhergestellt werden. Details unter Einstellungen › Aktualisierungen."
   },
   "info": {
     "temperature": "Temperatur",

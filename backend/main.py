@@ -8,9 +8,12 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
+import contextlib
 import logging
+import socket
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.dependencies import get_service, initialize_services, get_init_task
@@ -44,6 +47,8 @@ from backend.api.lyrics import create_lyrics_router
 from backend.api.push import create_push_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
+from backend.core.updates.milo_journal import GUARD, HOLD_S
+from backend.shared.background import BackgroundTaskSet
 
 # Configurable log level via MILO_LOG_LEVEL environment variable
 # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: WARNING)
@@ -104,11 +109,137 @@ equalizer_router_service = get_service("equalizer_router")
 levels_monitor = get_service("levels_monitor")
 network_service = get_service("network_service")
 wifi_adoption_service = get_service("wifi_adoption_service")
+update_service = get_service("update_service")
 ws_manager = get_service("websocket_manager")
 websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service, network_service)
 
 # Per-entry ceiling for the shutdown teardown below
 CLEANUP_TIMEOUT_S = 3.0
+
+# `milo-update-guard commit` drops what an update kept aside, a venv among it,
+# on an SD card. Past this the guard is killed; it resumes a cut commit.
+GUARD_TIMEOUT_S = 60.0
+# A commit that failed is tried again while the trial is open: left open over a
+# release that held, it would roll that release back two restarts later.
+COMMIT_RETRY_S = 60.0
+
+
+def _sd_notify(message: bytes) -> bool:
+    """One datagram to systemd's notify socket (no external dependency);
+    False when not run by systemd."""
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return False
+    if addr[0] == "@":
+        addr = "\0" + addr[1:]
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+        sock.sendto(message, addr)
+    return True
+
+
+# Set once uvicorn's socket accepts connections (`_Server.startup`).
+_listening: asyncio.Event | None = None
+_after_listening = BackgroundTaskSet(logger, "after_listening")
+
+
+def mark_listening() -> None:
+    if _listening is not None:
+        _listening.set()
+
+
+async def _commit_milo_trial() -> bool:
+    """`milo-update-guard commit`, as milo like the guard's every run (no sudo:
+    the journal is this account's own state). True once the guard has nothing
+    left to do — committed now, or no trial to commit."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            GUARD, "commit",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as e:
+        logger.error(f"milo-update-guard commit could not run: {e}")
+        return False
+    try:
+        _, stderr = await asyncio.wait_for(proc.communicate(), GUARD_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        logger.error(f"milo-update-guard commit did not finish within {GUARD_TIMEOUT_S:.0f} s")
+        return False
+    if proc.returncode != 0:
+        lines = [line.strip() for line in stderr.decode(errors="replace").splitlines() if line.strip()]
+        logger.error(
+            "milo-update-guard commit failed: "
+            + (lines[-1] if lines else f"exit code {proc.returncode}")
+        )
+        return False
+    return True
+
+
+async def _finish_milo_update() -> None:
+    """End the trial of the release this process runs once it has held, then
+    let the update service run what the update left for the arriving release.
+
+    Dying before HOLD_S is the failure the trial exists for: the guard counts
+    the next start, and puts the previous release back at the last one. The
+    hold is `asyncio.sleep`, on the loop's monotonic clock: the wall clock
+    steps during boot. `run_post_commit` does nothing unless a committed
+    journal is open — found so at start when a post-commit phase was cut. A
+    journal the guard should have put back before this start is handed back
+    to it first.
+    """
+    await update_service.hand_stranded_journal_to_the_guard()
+    state = update_service.milo_update_state()
+    if state is not None and state["phase"] == "verify":
+        logger.info(
+            f"Milo {state['to_version']} is on trial: committed if it holds {HOLD_S} s"
+        )
+        await asyncio.sleep(HOLD_S)
+        while not await _commit_milo_trial():
+            await asyncio.sleep(COMMIT_RETRY_S)
+    await update_service.run_post_commit()
+
+
+async def _once_listening(listening: asyncio.Event) -> None:
+    """READY=1 and what follows it, once :8000 actually answers.
+
+    Not at the lifespan's end: uvicorn binds after the lifespan startup
+    returns, so READY=1 from there would let systemd call the unit started
+    before it could answer, and a release on trial would count its hold from
+    before it served anything.
+
+    milo-backend.service is Type=notify, and every unit ordered After= it — the
+    source units, milo-navidrome, and milo-bluealsa(-aplay), which systemd
+    starts at boot — has its start job held until READY=1, and dispatched a
+    moment after it. So the lingering sweep runs here, and reads each unit's
+    queued job as well as its state (`sweep_state`): a start not dispatched yet
+    reads `inactive`, and spared it would be up a moment later; stopped, it is
+    cancelled. Here rather than in the lifespan, it also never waits behind a
+    transition whose unit start is itself held until READY=1 (a MENU press
+    during init).
+    Two starts the backend issues itself during init are still held that way,
+    bounded by their own timeout rather than waited on: the catalog's
+    milo-navidrome (`MusicLibrarySource`, spawned, not awaited) and the unit of
+    a source selected before READY=1.
+    """
+    await listening.wait()
+    try:
+        if _sd_notify(b"READY=1"):
+            logger.info("READY=1 sent to systemd")
+    except OSError as e:
+        # The start then fails on TimeoutStartSec, which the update guard counts.
+        logger.error(f"READY=1 could not be sent to systemd: {e}")
+    try:
+        await state_machine.stop_lingering_units(systemd_manager)
+    except Exception as e:
+        logger.error(f"Lingering source units not swept: {e}")
+    try:
+        await update_service.release_stale_inhibitor()
+    except Exception as e:
+        logger.error(f"The update's shutdown inhibitor not checked: {e}")
+    await _finish_milo_update()
 
 
 async def run_teardown(entries, timeout: float = CLEANUP_TIMEOUT_S) -> None:
@@ -131,6 +262,7 @@ async def run_teardown(entries, timeout: float = CLEANUP_TIMEOUT_S) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management with async service initialization."""
+    global _listening
     try:
         # First, before any source can start: the kernel reports a clock step
         # once, to a timerfd that exists when it lands, and timesyncd's boot
@@ -153,12 +285,6 @@ async def lifespan(app: FastAPI):
             await init_task
         logger.info("Services initialization completed")
 
-        # Stop source units systemd brought back with us (BindsTo), the selected
-        # source's aside: the IR listener is already live. Kept after the join:
-        # moved earlier, it would race milo-bluealsa, which systemd starts at
-        # boot right after us (a race never measured).
-        await state_machine.stop_lingering_units(systemd_manager)
-
         # Enable WebSocket broadcasting for backend errors/warnings
         _ws_log_handler.set_state_machine(state_machine)
 
@@ -174,6 +300,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Application startup failed: {e}")
         raise
+
+    _listening = asyncio.Event()
+    _after_listening.spawn(_once_listening(_listening), label="once_listening")
 
     yield
 
@@ -192,6 +321,10 @@ async def lifespan(app: FastAPI):
     # cutting a flush is survivable because both write through os.replace — an
     # interrupted one leaves the previous file, never a truncated one.
     teardown = [
+        # First: a post-commit phase still running would start and stop the
+        # units the entries below are tearing down. Cut, it resumes at the next
+        # start.
+        ("after_listening", _after_listening.cancel_all),
         ("snapcast_websocket", snapcast_websocket_service.cleanup),
         ("client_registry", client_registry_service.cleanup),
         ("volume", volume_service.cleanup),
@@ -332,6 +465,7 @@ settings_router = create_settings_router(
     settings_service,
     get_service("multiroom_equalizer_service"),
     get_service("mac_link_calibration_service"),
+    update_service=update_service,
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
@@ -342,11 +476,12 @@ system_router = create_system_router(
     diagnostic_service=get_service("diagnostic_service"),
     state_machine=state_machine,
     satellite_timezone_service=get_service("satellite_timezone_service"),
+    update_service=update_service,
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 
 programs_router = create_programs_router(
-    update_service=get_service("update_service"),
+    update_service=update_service,
     satellite_update_service=get_service("satellite_update_service"),
     state_machine=state_machine
 )
@@ -376,7 +511,10 @@ app.include_router(ir_remote_router)
 fan_router = create_fan_router(fan_controller, settings_service)
 app.include_router(fan_router)
 
-setup_router = create_setup_router(settings_service, hardware_service, network_service, systemd_manager)
+setup_router = create_setup_router(
+    settings_service, hardware_service, network_service, systemd_manager,
+    update_service=update_service,
+)
 app.include_router(setup_router)
 
 network_router = create_network_router(network_service)
@@ -398,11 +536,18 @@ app.include_router(create_push_router(
 
 app.add_api_websocket_route("/ws", websocket_server.websocket_endpoint)
 
-if __name__ == "__main__":
-    import uvicorn
+class _Server(uvicorn.Server):
+    """uvicorn's server, telling the app when its socket is bound."""
 
+    async def startup(self, sockets=None):
+        await super().startup(sockets=sockets)
+        if self.started:
+            mark_listening()
+
+
+if __name__ == "__main__":
     # Suppress noisy uvicorn WebSocket connection logs
-    # Must set before uvicorn.run() to affect internal loggers
+    # Must set before uvicorn.Config() to affect internal loggers
     for logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
 
@@ -412,7 +557,9 @@ if __name__ == "__main__":
     # runs twice in the one process — both log handlers attached twice, so every
     # warning landed in errors.log as two identical lines. Passing the object
     # keeps one import. (reload/workers, which need the string form, are off.)
-    uvicorn.run(
+    # A second import would also leave the lifespan waiting on an event this
+    # module's server never sets.
+    server = _Server(uvicorn.Config(
         app,
         host="0.0.0.0",
         port=8000,
@@ -422,4 +569,9 @@ if __name__ == "__main__":
         # Only nginx, on loopback, may name the client in X-Forwarded-For. Pinned so
         # FORWARDED_ALLOW_IPS cannot widen it: the recovery-AP guard reads the result.
         forwarded_allow_ips="127.0.0.1",
-    )
+    ))
+    server.run()
+    # uvicorn.run's own exit for a startup that failed (lifespan or bind), so
+    # systemd records a failure rather than a clean stop.
+    if not server.started:
+        sys.exit(3)

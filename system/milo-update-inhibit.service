@@ -1,0 +1,25 @@
+[Unit]
+Description=Milo update in progress (holds off shutdown and the power key)
+# Started by the Milō updater once its journal is open, stopped before the
+# update's reboot, and before any restart of the backend: bound to it, it is
+# stopped by a backend that dies mid-update, but restarted along with one that
+# is restarted. No After=: the backend starts this unit itself, and ordered
+# after a Type=notify backend, a start issued before READY=1 would wait for it
+# forever. No [Install]: nothing else may start it.
+BindsTo=milo-backend.service
+
+[Service]
+# Root: logind grants a block inhibitor on shutdown to root or to an active
+# session, and the backend runs in neither. Since systemd 257 logind obeys a
+# block inhibitor whoever asks, root included (`-i`/`--force` aside): the power
+# key, a reboot typed in a shell and the backend's own `systemctl reboot` are
+# all refused while it holds — which is why the update stops it before its
+# reboot, and before any restart of the backend.
+ExecStart=/usr/bin/systemd-inhibit --what=shutdown:handle-power-key --mode=block --who=Milo "--why=A Milo update is being installed" /usr/bin/sleep infinity
+# An update never takes this long. Past it, the updater died without stopping
+# it, and the power key must not stay dead for good.
+RuntimeMaxSec=30min
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

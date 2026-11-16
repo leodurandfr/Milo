@@ -1069,6 +1069,7 @@ The `audio` block is built by one function, `hardware/registry.py::audio_config`
 **music_library_data.json** (`schema_version` 3) - Music Library storage config, three keys: `shares` — SMB/NFS non-secret metadata only (id/type/host/path/name/`has_credentials`); `known_usb` — every USB key ever mounted, keyed by filesystem UUID, each `{name, label, mountpoint, last_seen}`; `playlist_storages` — which storage space each Milō-created playlist belongs to, keyed by playlist id and valued by *storage* id (not a Navidrome library id, which is reassigned whenever a key comes back). Share passwords never land here — they live in root-only cred files written by `milo-mount`. A USB key's mountpoint is persisted because it is what keeps its Navidrome library — and therefore its index — alive while it is unplugged and across a backend restart. Mounts themselves appear under `/media/milo/`, which is a mount root, not persisted data — and note it is **not** the Navidrome `MusicFolder` (see Music Library above). The 2→3 bump (`usb_names` → `known_usb`) is fail-loud like every other: an already-deployed unit stops at boot with the reset banner, and deleting the file loses the configured shares (their passwords too — the orphaned cred files are dropped by `milo-mount --forget` only on a share deletion), so they have to be re-added.
 **shares/** - Root-only (0700, `root:root`) credential store for network (SMB/NFS) shares, one `<id>.cred` file (0600) per share, written/read/removed exclusively by the privileged `milo-mount`/`milo-umount` helpers — the backend process never reads these directly. Durable for any share that has credentials; losing it just means re-entering them on the next mount attempt.
 **avahi-interface** - One-line cache of which physical interface (`eth0`/`wlan0`) Avahi should bind mDNS to, written by the NetworkManager dispatcher on every link up/down or IPv4 lease change (and reset to `eth0` by `milo-first-boot` while setup is incomplete), read by `milo-apply-avahi-iface` before avahi-daemon starts. Regenerable — defaults to `eth0` if absent. Exists to avoid the `milo.local` → `milo-2.local` self-loop rename bug. A satellite runs the same mechanism from its own tree — `/var/lib/milo-client/avahi-interface` + `milo-client-apply-avahi-iface` — because re-applying persisted intent is the only shape that survives the avahi restart the dispatcher itself issues: a drop-in that reset the interface to a hardcoded `eth0` undid the WiFi fallback it had just been asked to publish.
+**app-update/** - The state of a Milō app update (see [App updates on the server](#app-updates-on-the-server)), under the names `backend/core/updates/milo_journal.py` declares: `journal.json` while an update is open (written by the updater, moved by the guard and the arriving backend, removed when it ends), `attempts` (the starts its trial counted), `rolling-back.json` (a rollback under way or cut), and `last-update.json`, how the last update ended (`committed`, `rolled_back` or `rollback_failed`), kept until the next one opens a journal and read by the Milō row in Settings › Updates. No `schema_version`: the names are frozen across releases instead. Never delete the journal by hand: it is the only record of what a cut update moved, and without it the next start puts nothing back.
 **shairport-sync-version** - Last successfully-installed shairport-sync version, written by the updater after a verified update. Best-effort cache: `version.py` falls back to invoking `shairport-sync --version` if the file is missing. Works around 4.3.7's version string not being reliably parseable post-update.
 **apns/** - APNs provider signing key, exactly one `AuthKey_<KEYID>.p8` (`milo:milo`, 0600, directory 0700). **Provisioned per device and deliberately absent from the image**: one `.p8` signs for every app in the Apple team, so baking it into pi-gen would ship that credential on every card. The Key ID is read from the filename — Apple's own naming, and the only copy of it, so there is no second place for it to drift from. Owned by `milo` rather than `root` because the backend must read it to mint provider tokens, and a root-only key would need a new privileged `milo-*` helper for nothing. Absent on a unit that never enabled push: `ApnsClient` logs once and reports every send as skipped, so a dev host runs with no Apple account at all. Not regenerable — Apple serves the key once, and a lost one is revoked and replaced.
 **push_tokens.json** - APNs device tokens, one record per token, keyed by the token string because that is the only identifier APNs names a dead token by. Each record carries its `kind` (widget / push-to-start / Now Playing session), the `environment` that issued it (sandbox vs production — a Debug build's token is only valid against `api.sandbox.push.apple.com`, and the wrong host answers `BadDeviceToken`, a 400 that looks exactly like a malformed token), the install's `device_id`, and `registered_at`, which is what lets a 410 Unregistered be refused when the token has been registered again since. Durable (`schema_version: 1`), but cheap to lose: the iOS app re-registers on launch. Written only by `core/push/token_registry.py`; the `.p8` signing key it is used with is **not** here and is never baked into the image.
@@ -1096,7 +1097,13 @@ Automatic binary backups during updates:
 ```
 One directory per program, holding what its last update replaced — the binary and its config
 (`go-librespot.backup`, `config.yml.backup`), shairport-sync with its NQPTP, the qobuz-proxy
-venv, the previous frontend `dist/` — so a failed update can roll back.
+venv — so a failed update can roll back.
+
+`milo-app/` is Milō's own, and what the open app update kept aside for its guard: `data/` (the
+versioned JSON files and the `manifest.json` naming where each goes back), `dist/` (the previous
+frontend), `venv/` (the previous venv, only when the update ran pip). It is emptied when an update
+opens its journal and when a trial commits. After a rollback, `discard/` holds what the rollback
+renamed aside, and `data/` the snapshot it copied back, until the next update empties them.
 
 There is no whole-tree backup/restore feature today; the appliance's durable state simply lives
 under `/var/lib/milo/`. Everything there — including the Navidrome library DB (`navidrome/navidrome.db`)
@@ -1241,6 +1248,7 @@ milo-kiosk                # Chromium kiosk (touchscreen)
 milo-readiness            # Boot splash: drives the Plymouth progress bar, quits it when the UI can take over
 milo-first-boot           # Boot oneshot: first-boot/role setup (consumes pending_client_role.json)
 milo-cpu-governor         # Boot oneshot: pin the CPU governor
+milo-update-inhibit       # Root, while a Milō update installs: logind block inhibitor on shutdown + the power key
 nqptp                     # NQPTP, the AirPlay 2 clock milo-airplay requires
 ```
 
@@ -1256,9 +1264,177 @@ The list above is the whole of `system/` — `ls system/*.service` is the author
   them (Navidrome is `After=` the backend instead, which starts it).
 - `milo-navidrome` and the two Snapcast units have no `WantedBy`: the backend starts and stops
   them (Navidrome while the dock enables Music Library, Snapcast with the multiroom mode).
+- `milo-backend` is `Type=notify`: systemd counts it started once `main.py` sends `READY=1`,
+  which it does when uvicorn's socket listens, and a start that never gets there fails on
+  `TimeoutStartSec` (see [App updates on the server](#app-updates-on-the-server), the reason
+  for both). Every unit ordered `After=` it — the source units, `milo-navidrome`,
+  `milo-bluealsa` — has its start job held until then, so a *blocking* `systemctl start` of
+  one, issued before `READY=1`, waits for the backend that issued it. That is why the
+  lingering-unit sweep runs after `READY=1` (`main.py::_once_listening`), not in the lifespan.
+  Two starts the backend issues during init are held that way, bounded by their own timeout
+  rather than awaited by the lifespan: the catalog's `milo-navidrome` (`MusicLibrarySource`), and
+  the unit of a source selected before `READY=1`.
+- `milo-update-inhibit` has no `[Install]`: only the updater starts it, and it is
+  `BindsTo=milo-backend.service`, so a backend stopped mid-update releases the power key, and
+  a backend that starts stops one still up
 - Automatic restart on error
 
 **Multiroom lifecycle:** Snapserver and snapclient units do **not** auto-start at boot. `AudioRoutingService._sync_snapcast_state` is the only writer: it reads `settings.routing.multiroom_enabled` and reconciles both units accordingly during backend init and after every multiroom toggle. This avoids the desync class where snapcast could run while the backend believed it was in direct mode (which holds `hw:Loopback,0,0` and produces `Device or resource busy` on other sources).
+
+## App updates on the server
+
+An update of Milō on the server is a **trial**, built like a satellite's (see *How a satellite
+takes an app update* under Multiroom): the release that is leaving installs the new one, and the
+release that arrives decides whether it stays. Everything the update moves is named, before it
+moves, in a journal (`/var/lib/milo/app-update/journal.json`) that both sides read.
+[backend/core/updates/milo_journal.py](https://github.com/leodurandfr/Milo/blob/main/backend/core/updates/milo_journal.py)
+declares every name the update leaves on disk, the steps in order, the outcomes and the trial's
+numbers; read it rather than a copy. Those names cross a release boundary in both directions —
+the journal one release writes is read by the guard and the backend of the next, and the outcome
+that guard records is read by the previous release once it is back — so they are frozen and
+append-only. The guard restates them, and `backend/tests/architecture/test_server_update_trial.py`
+holds the two copies equal.
+
+**The leaving release installs the app, and only the app** (`UpdateService._update_milo_app`):
+
+1. **Refusals, before anything moves.** Free space for a copy of the venv, three frontends and the
+   data snapshot; the release's frontend downloaded, checked against its `sha256` and staged
+   beside `frontend/dist`; `HEAD` read by hash *before* the fetch (tags have been re-cut, so a tag
+   name is no way back to the release a unit runs); a clean `git status`; the stale git locks a
+   cut git command left (`milo_journal.GIT_LOCKS` and `refs/**/*.lock`) removed, since a ref lock
+   refuses every later fetch and an index lock fails the checkout after the journal has opened;
+   the tags fetched; the tag resolved to its commit. A failure here answers an error and has
+   changed nothing. So does a journal still open (one the guard did not close, or a post-commit
+   phase that could not): what it kept aside is its only way back, and a restart finishes it.
+2. **What can be put back is kept aside** under `/var/lib/milo/backups/milo-app/`, emptied first
+   so that a copy found there is always this update's. Every versioned JSON file is copied to
+   `data/`, with a manifest written last (the set is `data_snapshot.VERSIONED_DATA_FILES`, held
+   equal to the classes declaring a `SCHEMA_VERSION` by `test_update_data_snapshot.py`: a
+   release that bumps a schema rewrites its file, and the release a rollback puts back would
+   refuse it at every start). Then the journal opens, and `milo-update-inhibit.service` starts.
+3. **The install**, each step recorded in the journal once what it wrote is on the card:
+   `git checkout --force <tag>`; a copy of the venv and a `pip install` only when
+   `requirements.txt` gained or raised a requirement, then an import of every backend module but
+   `main` with the venv's python, a compile of `main.py` and `pip check`;
+   `milo-deploy-update sync-system-files`, which renames every file into place and syncs; the
+   frontend swapped in, the previous one kept as `dist/`.
+4. **The reboot**: the journal at `rebooting`, the inhibitor stopped, the unit rebooted. A refused
+   reboot restarts the backend instead, and the trial runs in the same boot.
+
+A failure once the journal is open is recorded in it, and the backend restarts. The rollback is
+never done in process: there is one implementation, the guard's, and it runs the same after a
+failure here, a crash, a power cut or a release that does not start. The route answers `pending`, so no
+completion event is broadcast before the reboot: the release that starts next says how it ended.
+
+**The guard** (`rootfs/usr/local/bin/milo-update-guard`) runs before every start of
+milo-backend.service (`ExecStartPre=-`, so it can never keep the backend down), as `milo` — git as
+root would leave root-owned files in the checkout — with the system python and the standard
+library alone, since the venv may be the broken part. With no journal it does nothing. A journal
+naming neither side of `HEAD` (a hand checkout since, a development tree) is closed and the tree
+left as it is, so a development checkout, which never has one, is never touched. A `HEAD` git
+cannot read (a card that stalls past the read's timeout) skips only that check: the restore
+checks the origin out by hash, and a trial start is still counted. An install that
+never reached `rebooting`, or a failure the updater recorded, is put back at once. On trial, each
+start is counted (`attempts`), and the start that reaches `MAX_ATTEMPTS` puts the previous release
+back before the app runs (two real starts, the third runs the previous release), as does a start
+that cannot be counted. Putting back runs `RESTORE_STEPS` in order, each idempotent, under a marker
+written before the first (`rolling-back.json`), so a restore cut by a power loss or by
+`TimeoutStartSec` is resumed by the next start rather than decided afresh:
+
+- stale git lock files removed (by explicit name, and only under an open journal), then
+  `git checkout --force <origin commit>` — a checkout that fails ends the rollback there;
+- `git clean -fd`, never `-x`: `venv/` and `frontend/dist` are ignored and must stay;
+- the kept venv and frontend renamed back, what they replace renamed into `discard/` (deleting a
+  venv on an SD card can outlast the start timeout);
+- the data copied back from the snapshot, and a file that did not exist when the update began
+  removed, since the new release may have created it in a schema the previous one refuses;
+- the previous release's system files installed again through
+  `sudo -n milo-deploy-update sync-system-files`, the backend's own grant. Files the new release
+  added stay: nothing is removed.
+
+The outcome goes to `last-update.json` — `rolled_back`, or `rollback_failed` naming the first step
+that failed — and the journal is closed, so a release is rolled back once and its starts are no
+longer counted. A restore cut `MAX_ATTEMPTS` times is given up as `rollback_failed` rather than
+looped, and the unit then runs whatever starts. Every failure is a stderr line beginning
+`ERROR: milo-update-guard:` (stderr reaches the journal at priority 6 whatever it says).
+
+A backend that starts anyway over a journal its guard should have put back — the guard failed —
+finds it once it listens (`UpdateService.hand_stranded_journal_to_the_guard`) and restarts once,
+so the guard runs again; the boot it did so in is written into the journal
+(`guard_retry_boot`). Found again in the same boot, the journal is let go of: the update screen
+lifts, the power routes answer, an error says so, and the next restart tries the guard again.
+
+**The arriving release is started once it listens.** `READY=1` is sent once uvicorn's socket
+accepts connections. A release that dies is restarted (`Restart=always`) and counted; one that
+hangs before `READY=1` fails its start on `TimeoutStartSec` and is counted the same, which is the
+whole reason for `Type=notify` — there is no watchdog. Once it has stayed up `HOLD_S` after
+listening (on the monotonic clock: there is no RTC, and the wall clock steps during boot), the
+backend runs `milo-update-guard commit`, which moves the journal to `committed` and drops what was
+kept aside. A commit that fails is retried every minute: left open over a release that held, the
+trial would roll it back two restarts later.
+
+**Then the post-commit phase** (`UpdateService.run_post_commit`), run by the release that arrived
+and never by the one that left: the dependency set it declares (`_reconcile_dependencies`,
+qobuz-proxy first, because `milo-qobuz` checks its bindings at every start and Qobuz cannot start
+before its venv has moved), then the satellites (`push_client_app_to_fleet`, which stops at the
+first satellite that rolls back or does not return). Neither can undo the app: a dependency or a
+satellite left behind is written into the outcome's `detail`, and the outcome is `committed`. A
+phase cut by a restart runs again at the next start, since the journal still says `committed`,
+but each run is counted in the journal before it begins (`post_commit_runs`, with
+`post_commit_at` naming the dependency or room it reached): a phase that kills the backend at the
+same item every time — a compile that runs its cgroup out of memory — is given up after
+`MAX_ATTEMPTS - 1` runs, the journal closed as `committed` with a detail naming where it was cut.
+A phase that cannot close its journal (a full card) lets go of the unit and runs again at the
+next start.
+Until it has run, the new release runs over the previous dependency set — the state any unit is
+in for a dependency nobody updated. Moving them after the trial is what keeps the rollback inside
+the checkout: before it, nothing outside has moved.
+
+**While an update holds the unit** — this process runs one, the new release is on trial, or its
+post-commit phase is still to run (`UpdateService.milo_update_active`) — the six routes that reboot or power off
+answer 409 naming it: restart, shutdown, setup reset, hardware apply, setup completion and client
+adoption. A reboot during the install throws the install away, and one during the trial counts as
+a failed start of the new release. `milo-update-inhibit.service` covers what does not go through
+the API, the power key and a reboot typed in a shell: it runs as root (logind grants a block
+inhibitor on shutdown to root or to an active session, and the backend is neither), from the
+journal's opening until just before the update's reboot. Since systemd 257 logind obeys a block
+inhibitor whoever asks, root included, so the backend's own `systemctl reboot` is refused too while
+it holds: the updater stops it before its reboot, and before the restart that hands a failed
+install to the guard — `BindsTo=milo-backend.service` restarts it along with the backend. A
+backend that dies mid-update may leave it up, so every backend stops one it finds running once it
+listens (`UpdateService.release_stale_inhibitor`), and `RuntimeMaxSec` bounds it. The routes refuse
+on their own all the same: the inhibitor is gone once the update reboots, while the trial and the
+post-commit phase still hold the unit, and only the route's refusal names the update. A journal
+the guard is to put back holds nothing, and neither does one a post-commit phase let go of: a
+restart is what ends each, and refusing it would keep the unit as it is.
+
+**What a stranger sees.** Through the download, the install, the restart and the trial, every
+client draws a full-screen view over the whole app (`components/system/UpdateInProgressView.vue`,
+dark in both themes): the title, the two versions, a moving bar, the step — Downloading,
+Installing, Restarting, Checking — and *Do not unplug* at the bottom, where the boot screen writes
+its message. While the backend is away the view stays on *Restarting* rather than reporting a lost
+connection; the kiosk, which reloads after the reboot, shows its boot screen and then the view at
+*Checking* until the trial commits, `HOLD_S` after the backend listens. Every client reads where
+the update stands at each resync through `GET /api/programs/milo/update`, which probes nothing
+(`GET /api/programs` carries the same two keys behind its version probes), and its boot screen
+waits for that read, bounded, so the first frame after it is the view rather than the app it
+covers. The post-commit phase is a banner that cannot be dismissed (*Updating the programs*, then
+*Updating the speakers*, each with its item and *k of n*), drawn only while it installs
+something: reading the set and finding the speakers current is an update going well. A success
+shows nothing. A rollback shows a banner that can be dismissed, once for every screen: the close
+is kept in the record on the server (`PATCH /api/programs/milo/last-update`, announced as
+`programs/milo_update_notice_dismissed` so the other screens drop it), since the kiosk's private
+profile forgets anything a browser keeps at every restart. The next outcome is a new record, shown
+again. The Milō row in Settings › Updates renders the record like a
+satellite's failure: the cause, the raw detail and Retry. The offer itself does not change, so
+trying again is always a press.
+
+**The first release that carries the guard is installed unprotected.** It is installed by the
+updater it replaces, which writes no journal: that update runs the previous flow — dependencies
+and satellites before the reboot, its own rollback for a failure before it — and the release it
+installs is not on trial, so one that fails at start is not put back. Its `sync-system-files`
+installs the guard, the `Type=notify` unit and the inhibitor all the same, and the update after it
+is the first trial. A satellite took its guard the same way.
 
 ## Security
 
@@ -1424,7 +1600,7 @@ Allowed methods: `GET POST PUT PATCH DELETE OPTIONS`. Allowed headers: `Content-
 
 ### Permissions
 - Backend runs as `milo` user, and on the server that user is **root by construction**: the `milo-backend` policy grants a bare `systemctl` (any argv), `milo-deploy-update` (installs, as root, a checkout `milo` can write) and `milo-set-password` (no old password asked). Scoping one of them closes nothing while the others stand. The boundary is the LAN — nothing on the API authenticates, see `set_ssh_state` in `backend/api/system.py` — plus `NoNewPrivileges=true` on every other unit running as `milo`, so a compromised daemon cannot reach those grants (`backend/tests/architecture/test_unit_hardening.py`), and `ProtectHome=read-only` on the source daemons, so none can rewrite the checkout systemd runs as the backend (a daemon that needs a writable HOME gets one under `/var/lib/milo`, as qobuz-proxy does). Known limits: a process of the same uid can still ptrace the backend, and the units without `ProtectHome` (kiosk, snapserver, snapclient, camilladsp, navidrome) can still write the checkout that the backend and the root oneshot `milo-navidrome-config` run. The satellite's policy is argument-scoped: a grant names the exact argv (`systemctl stop milo-client-snapclient.service`), or `""` — no argument at all — for a helper that takes its input on stdin and validates it itself (`milo-client-set-timezone`, `milo-client-join-wifi`, `milo-set-password`). Each of them also refuses an argument itself — on the server, whose grant of the `milo-set-password` twin stays bare since scoping it would close nothing, that refusal is the only one — and `test_privileged_exec_contract.py` holds the satellite helpers that refuse an argument and the `""` grants equal. That scoping keeps each call in step with its grant; it is not a privilege boundary, because `milo-client` is **root by construction too**. Its policy grants `milo-client-deploy-update` bare, and that helper installs as root whatever tree under `/tmp` it is handed — unit files, `/usr/local/bin`, `/etc/sudoers.d` included, which `visudo -c` checks for syntax only — while `POST /app/update`, which hands it the uploaded tarball, authenticates nobody, like every other route on the LAN. So the `""` grants are hygiene, an argv kept away from helpers that never read one, and they close nothing while that grant stands.
-- Privileged exec is centralized: systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. PolicyKit covers only NetworkManager, and only for the `milo` user inside `milo-backend.service` (`subject.system_unit` in `rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules`, polkit ≥ 124): every Milō daemon runs as `milo` and so does an SSH login, and none of them holds an NM right. From an SSH session, an `nmcli` write therefore needs `sudo`; reads are unaffected.
+- Privileged exec is centralized: systemd + power actions via `SystemdServiceManager` (`sudo systemctl …`), file deploys via pinned `/usr/local/bin/milo-*` sudoers helpers — all `NOPASSWD` for the `milo` user. One call comes from outside the backend's code: `milo-update-guard`, run as `milo` before each backend start, puts a release's system files back through the same `milo-deploy-update sync-system-files` grant, and `test_privileged_exec_contract.py` reads the rootfs's Python programs to see it. `milo-update-inhibit.service`, which runs `systemd-inhibit` as root, is started and stopped through the bare `systemctl` grant. PolicyKit covers only NetworkManager, and only for the `milo` user inside `milo-backend.service` (`subject.system_unit` in `rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules`, polkit ≥ 124): every Milō daemon runs as `milo` and so does an SSH login, and none of them holds an NM right. From an SSH session, an `nmcli` write therefore needs `sudo`; reads are unaffected.
 - Each policy file is authored once under `rootfs/etc/sudoers.d/` (satellite: `milo-client/rootfs/`) and copied verbatim by `pi-gen/`, the only provisioning path, so no second spelling of a grant set exists. `backend/tests/contracts/test_privileged_exec_contract.py` compares the granted commands against the argv the code builds, in both directions.
 - The scoping only means something because each policy's first rule withdraws the blanket `NOPASSWD: ALL` Raspberry Pi OS grants the image's first user (`/etc/sudoers.d/010_pi-nopasswd`, shipped by `raspberrypi-sys-mods`, its username rewritten on first boot by `userconf-pi`). Any unit whose appliance account is also that first user held unrestricted passwordless root until then — measured on a satellite. sudo reads `/etc/sudoers.d` in lexical order and applies the *last* matching rule, so `milo-*` is read after `010_*` and the withdrawal must sit above the grants, never below them.
 
