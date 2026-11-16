@@ -17,10 +17,10 @@ import { ref, unref, onMounted, onBeforeUnmount } from 'vue';
  *
  * @param {import('vue').Ref<HTMLElement|null>} scrollElRef - The scroll container (also the observer root).
  * @param {Object} [options]
- * @param {number} [options.screens=2] - Scrolled screenfuls before the button shows.
+ * @param {number} [options.screens=0.75] - Scrolled screenfuls before the button shows.
  * @returns {{ sentinelRef: import('vue').Ref<HTMLElement|null>, isVisible: import('vue').Ref<boolean>, scrollToTop: () => void }}
  */
-export function useScrollToTop(scrollElRef, { screens = 2 } = {}) {
+export function useScrollToTop(scrollElRef, { screens = 0.75 } = {}) {
   const sentinelRef = ref(null);
   const isVisible = ref(false);
   let observer = null;

@@ -326,9 +326,9 @@ onBeforeUpdate(() => {
   }
 })
 
-// Back to top: shown once two screenfuls have been scrolled past, which is
-// exactly the point where flicking back up stops being reasonable. Every view
-// hosted here gets it, so no source view opts in.
+// Back to top: shown once three quarters of a screenful have been scrolled
+// past — a fixed distance for a given screen, never a share of the page's
+// length. Every view hosted here gets it, so no source view opts in.
 const { sentinelRef: scrollSentinel, isVisible: scrollTopVisible, scrollToTop } = useScrollToTop(layoutRef)
 
 // Mobile detection for padding-bottom
