@@ -195,6 +195,30 @@ def fail_when_a_test_reaches_off_this_host():
         )
 
 
+FIXTURE_LOCAL_MAC = "02:00:00:00:00:01"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def a_local_interface_that_does_not_depend_on_the_host(tmp_path_factory):
+    """Give the local client one eth0, whatever machine runs the suite.
+
+    The local client's identity is the MAC read from sysfs. A CI runner has no
+    eth0 or wlan0, so every test that admits the local client failed there while
+    passing on a Pi — red on main with nothing changed in the code.
+    """
+    from backend.core.multiroom import identity
+
+    sysfs = tmp_path_factory.mktemp("sys-class-net")
+    (sysfs / "eth0").mkdir()
+    (sysfs / "eth0" / "address").write_text(FIXTURE_LOCAL_MAC + "\n")
+    real = identity.SYSFS_NET
+    identity.SYSFS_NET = str(sysfs)
+    try:
+        yield
+    finally:
+        identity.SYSFS_NET = real
+
+
 _APPLIANCE_WRITES: list = []
 
 

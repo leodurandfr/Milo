@@ -12,12 +12,15 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Where the kernel lists the interfaces; the test suite points it at a fixture tree.
+SYSFS_NET = "/sys/class/net"
+
 
 def get_local_mac() -> Optional[str]:
     """MAC of the snapclient's primary interface (eth0 → wlan0 fallback), matching the --hostID flag."""
     for iface in ('eth0', 'wlan0'):
         try:
-            with open(f'/sys/class/net/{iface}/address') as f:
+            with open(f'{SYSFS_NET}/{iface}/address') as f:
                 return f.read().strip()
         except FileNotFoundError:
             continue
