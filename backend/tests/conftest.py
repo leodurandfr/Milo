@@ -211,12 +211,9 @@ def a_local_interface_that_does_not_depend_on_the_host(tmp_path_factory):
     sysfs = tmp_path_factory.mktemp("sys-class-net")
     (sysfs / "eth0").mkdir()
     (sysfs / "eth0" / "address").write_text(FIXTURE_LOCAL_MAC + "\n")
-    real = identity.SYSFS_NET
-    identity.SYSFS_NET = str(sysfs)
-    try:
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(identity, "SYSFS_NET", str(sysfs))
         yield
-    finally:
-        identity.SYSFS_NET = real
 
 
 _APPLIANCE_WRITES: list = []
