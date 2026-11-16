@@ -196,8 +196,8 @@ watch(() => store.account, (now, before) => {
 .profile-button {
   --avatar-size: 48px;
   display: flex;
-  /* Set apart from the buttons: --space-04 in all, over the row's gap. */
-  margin-left: calc(var(--space-04) - var(--space-02));
+  /* Set apart from the buttons: --space-03 in all, over the row's --space-02 gap. */
+  margin-left: calc(var(--space-03) - var(--space-02));
   padding: 0;
   border: none;
   border-radius: var(--radius-full);
