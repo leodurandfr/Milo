@@ -12,15 +12,15 @@ the browser reads as "signing in" or "cast from your phone", never as a fault.
 import asyncio
 import contextlib
 import logging
-from typing import Annotated, Any, Dict, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import RedirectResponse
 
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.spotify.catalog import (
-    SEARCH_TYPES, artist_page, artist_shelf_seeds, head_artist_shelves, home_shelves, is_mine,
-    library_sections, liked_songs_uri, normalize_playlist, search_results,
+    SEARCH_TYPES, artist_page, artist_shelf_seeds, followed_artists, head_artist_shelves, home_shelves, is_mine,
+    library_sections, liked_songs_uri, normalize_playlist, saved_albums, search_results,
 )
 from backend.sources.spotify.library import SpotifyLibraryError, SpotifyNoSession, SpotifyUnavailable
 from backend.sources.spotify.models import ITEM_URI, ActiveProfileRequest, AddTracksRequest
@@ -118,6 +118,23 @@ async def _spotify_home(source: SpotifySource, locale: str):
         return None
 
 
+async def _library_listing(read, what: str) -> List[Dict[str, Any]]:
+    """Saved albums or followed artists, or nothing when the daemon refused
+    them or did not finish reading them: the rest of the home is still worth a
+    page, and a daemon that is really gone fails it through the playlists. A
+    go-librespot before 0.10.6 has no such route (404): a version, not a
+    failure, so it never reaches the error banner."""
+    try:
+        return await read
+    except SpotifyLibraryError as exc:
+        log = logger.debug if exc.status == 404 else logger.warning
+        log(f"Spotify home: {exc}; no {what} shown")
+        return []
+    except SpotifyUnavailable as exc:
+        logger.warning(f"Spotify home: {exc} while reading the {what}; none shown")
+        return []
+
+
 # The language Spotify titles its home and an artist's page in.
 Locale = Annotated[str, Query(pattern=r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,4})?$",
                               description="The language Spotify titles its sections in")]
@@ -129,7 +146,8 @@ async def get_home(
     source: SpotifySource = Depends(get_source),
 ):
     """Spotify's home for the signed-in account — its shortcuts and its
-    shelves, as its apps draw them — then the account's own playlists."""
+    shelves, as its apps draw them — then the account's library: its saved
+    albums, the artists it follows and its playlists."""
     account = source.account
     if account is None:
         logger.warning("Spotify home: nobody is signed in")
@@ -137,10 +155,13 @@ async def get_home(
     async with _library_errors("Spotify home"):
         # Both read at once, and both awaited to the end: a failure of one must
         # not leave the other running with nobody to collect its own.
-        items, home = await asyncio.gather(
-            source.library.playlists(), _spotify_home(source, locale), return_exceptions=True,
+        items, home, albums, artists = await asyncio.gather(
+            source.library.playlists(), _spotify_home(source, locale),
+            _library_listing(source.library.saved_albums(), "saved albums"),
+            _library_listing(source.library.followed_artists(), "followed artists"),
+            return_exceptions=True,
         )
-        for result in (items, home):
+        for result in (items, home, albums, artists):
             if isinstance(result, BaseException):
                 raise result
         shortcuts, shelves = home or ([], [])
@@ -150,6 +171,8 @@ async def get_home(
             "liked_songs_uri": liked_songs_uri(account),
             "shortcuts": shortcuts,
             "shelves": shelves,
+            "albums": saved_albums(albums),
+            "artists": followed_artists(artists),
             "playlists": library_sections(items, account),
         }
 

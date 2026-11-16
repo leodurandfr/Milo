@@ -140,9 +140,21 @@ class SpotifyLibrary:
 
     async def playlists(self) -> List[Dict[str, Any]]:
         """The whole rootlist, in library order."""
+        return await self._whole("/library/playlists")
+
+    async def saved_albums(self) -> List[Dict[str, Any]]:
+        """Every album the account saved, most recently saved first."""
+        return await self._whole("/library/albums")
+
+    async def followed_artists(self) -> List[Dict[str, Any]]:
+        """Every artist the account follows, most recently followed first."""
+        return await self._whole("/library/artists")
+
+    async def _whole(self, path: str) -> List[Dict[str, Any]]:
+        """A paged library listing, read to its end."""
         items: List[Dict[str, Any]] = []
         while True:
-            page = await self._request("GET", "/library/playlists", params={"offset": len(items), "limit": PAGE})
+            page = await self._request("GET", path, params={"offset": len(items), "limit": PAGE})
             batch = page.get("items") or []
             items.extend(batch)
             if not batch or len(items) >= (page.get("total") or 0):

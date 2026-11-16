@@ -524,6 +524,21 @@ const SPOTIFY_HOME = {
       ]
     }
   ],
+  albums: [
+    spotifyCard('album', 'currents', 'Currents', 'Tame Impala'),
+    spotifyCard('album', 'feel', 'feel', 'Kokoroko'),
+    spotifyCard('album', 'fragments', 'Fragments', 'Bonobo'),
+    spotifyCard('album', 'mordechai', 'Mordechai', 'Khruangbin'),
+    spotifyCard('album', 'heaven', 'Heaven', 'Cleo Sol'),
+    spotifyCard('album', 'galore', 'Galore', 'Oklou')
+  ],
+  artists: [
+    spotifyCard('artist', 'khr', 'Khruangbin'),
+    spotifyCard('artist', 'erika', 'Erika de Casier'),
+    spotifyCard('artist', 'oklou', 'Oklou'),
+    spotifyCard('artist', 'cleo', 'Cleo Sol'),
+    spotifyCard('artist', 'bonobo', 'Bonobo')
+  ],
   playlists: {
     mine: [spotifyPlaylist('chill', 'Chill appart', 'owner'), spotifyPlaylist('jazz', 'Jazz', 'owner'), spotifyPlaylist('trip', 'Trip hop', 'owner'), spotifyPlaylist('house', 'House', 'owner')],
     followed: [spotifyPlaylist('funk', "Funk à l'ancienne!", 'furkan_93'), spotifyPlaylist('khr', 'Khruangbin Radio', 'spotify')]

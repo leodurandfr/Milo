@@ -43,11 +43,15 @@
             <SpotifyShelfRow :items="shelf.items" @select="$emit('select', $event)" />
           </section>
 
+          <!-- The account's library: its saved albums and followed artists as
+               shelves, then its playlists as grids. -->
+          <section v-for="shelf in libraryShelves" :key="shelf.id" class="section">
+            <SpotifySectionTitle :title="shelf.title" :overline="t('spotify.libraryOverline')" library
+              :linked="shelf.items.length >= columns" @open="$emit('show-section', shelf)" />
+            <SpotifyShelfRow :items="shelf.items.slice(0, SHELF_ITEMS)" @select="$emit('select', $event)" />
+          </section>
           <section v-for="section in librarySections" :key="section.key" class="section">
-            <header class="section-header">
-              <span class="section-overline text-body-small">{{ t('spotify.libraryOverline') }}</span>
-              <h2 class="section-title heading-2">{{ section.title }}</h2>
-            </header>
+            <SpotifySectionTitle :title="section.title" :overline="t('spotify.libraryOverline')" library />
             <SpotifyPlaylistGrid :items="section.items" :state-key="`rows:${section.key}`"
               @select="$emit('select', { ...$event, kind: 'playlist' })" />
           </section>
@@ -87,8 +91,17 @@ const shortcuts = computed(() => {
   return [{ uri: h.liked_songs_uri, kind: 'liked' }];
 });
 
-// The account's own playlists, after Spotify's shelves: the home lists only a
-// few of them. An empty section is left out.
+// The account's saved albums and followed artists, after Spotify's shelves: as
+// many cards as one of Spotify's shelves holds, the whole list behind the title.
+// An empty one is left out.
+const SHELF_ITEMS = 10;
+const libraryShelves = computed(() => [
+  { id: 'library:albums', title: t('spotify.savedAlbums'), items: home.value.albums },
+  { id: 'library:artists', title: t('spotify.followedArtists'), items: home.value.artists },
+].filter((shelf) => shelf.items.length > 0));
+
+// The account's own playlists, after them: the home lists only a few of them.
+// An empty section is left out.
 const librarySections = computed(() => {
   const p = home.value.playlists;
   return [
@@ -123,21 +136,6 @@ watch(() => (store.signingIn ? null : store.account), (signedIn) => {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
-}
-
-.section-header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-.section-overline {
-  color: var(--color-brand);
-}
-
-.section-title {
-  color: var(--color-text);
-  margin: 0;
 }
 
 .shortcuts-grid {

@@ -25,16 +25,18 @@ export const RENDER_CHUNK = 12;
  * @param {import('vue').MaybeRefOrGetter<Array>} items - The whole list
  * @param {Object} [options]
  * @param {string} [options.key] - Name of the count in the entry, for a view with two lists
+ * @param {import('vue').MaybeRefOrGetter<number>} [options.chunk] - Items per step: a grid's
+ *   is a whole number of its rows, so no step leaves its last row short
  */
-export function useRenderWindow(items, { key = 'rendered' } = {}) {
+export function useRenderWindow(items, { key = 'rendered', chunk = RENDER_CHUNK } = {}) {
   const state = inject(NAVIGATION_ENTRY_STATE, null)?.() ?? reactive({});
-  const count = computed(() => state[key] ?? RENDER_CHUNK);
+  const count = computed(() => state[key] ?? toValue(chunk));
   const visible = computed(() => toValue(items).slice(0, count.value));
   const hasMore = computed(() => count.value < toValue(items).length);
 
   const { sentinelRef, recheck } = useInfiniteScroll({
     onLoadMore: async () => {
-      state[key] = Math.min(count.value + RENDER_CHUNK, toValue(items).length);
+      state[key] = Math.min(count.value + toValue(chunk), toValue(items).length);
       await nextTick();
       recheck();
     },

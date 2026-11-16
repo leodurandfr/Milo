@@ -6,8 +6,9 @@ browser. Pure functions.
 The home is Spotify's own, the one its apps draw (spclient homeview, measured
 2026-10-04): its shelves in its order, titled in the language asked for, each
 card a playlist, an album, an artist or Liked Songs. The account's own
-playlists follow it, read from the library — the home lists only a few of
-them, and the apps keep the rest under their library tab, which Milō has not.
+playlists, its saved albums and the artists it follows come after it, read
+from the library — the home lists only a few of them, and the apps keep the
+rest under their library tab, which Milō has not.
 
 A playlist nobody gave a picture has no image in the library at all: the
 Spotify apps draw it as a mosaic of its first four albums, which mosaic.scdn.co
@@ -58,6 +59,7 @@ _HOME_LIKED_SONGS = re.compile(r"^spotify:user:[^:]+:collection$")
 # 1e02 (300 px), 4851 (64 px). The three are served for every cover (measured).
 _ALBUM_COVER = re.compile(r"^(https://i\.scdn\.co/image/ab67616d0000)(b273|1e02|4851)(\w+)$")
 THUMBNAIL_SIZE = "4851"
+CARD_COVER_SIZE = "1e02"
 MOSAIC_URL = "https://mosaic.scdn.co/300/{}"
 MOSAIC_TILES = 4
 _IMAGE_URI = "spotify:image:"
@@ -72,15 +74,20 @@ def spotify_gid(base62_id: str) -> str:
     return f"{number:032x}"
 
 
-def thumbnail_url(url: Optional[str]) -> Optional[str]:
-    """The 64 px version of an album cover, for a track row; any other image as
-    it is."""
+def _album_cover(url: Optional[str], size: str) -> Optional[str]:
+    """An album cover at another of its sizes; any other image as it is."""
     if not url:
         return None
     match = _ALBUM_COVER.match(url)
     if match is None:
         return url
-    return f"{match.group(1)}{THUMBNAIL_SIZE}{match.group(3)}"
+    return f"{match.group(1)}{size}{match.group(3)}"
+
+
+def thumbnail_url(url: Optional[str]) -> Optional[str]:
+    """The 64 px version of an album cover, for a track row; any other image as
+    it is."""
+    return _album_cover(url, THUMBNAIL_SIZE)
 
 
 def liked_songs_uri(account: str) -> str:
@@ -253,6 +260,33 @@ def library_sections(items: List[Dict[str, Any]], account: Optional[str]) -> Dic
         playlist = normalize_playlist(item)
         sections["mine" if is_mine(playlist, account) else "followed"].append(playlist)
     return sections
+
+
+def saved_albums(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The albums the account saved, most recently saved first, as home cards:
+    an album's byline is its artists, as in a search, and its cover the 300 px
+    one where the library names the 640 px. An album go-librespot could not
+    describe (no name) is left out: nothing would title its card or its page."""
+    return [
+        {
+            "uri": item["uri"],
+            "kind": "album",
+            "name": item["name"],
+            "subtitle": ", ".join(name for name in item.get("artist_names") or [] if name) or None,
+            "image": _album_cover(item.get("image_url"), CARD_COVER_SIZE),
+        }
+        for item in items if item.get("name")
+    ]
+
+
+def followed_artists(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The artists the account follows, most recently followed first, as home
+    cards; one go-librespot could not describe (no name) is left out."""
+    return [
+        {"uri": item["uri"], "kind": "artist", "name": item["name"], "subtitle": None,
+         "image": _artist_photo(item.get("image_url"))}
+        for item in items if item.get("name")
+    ]
 
 
 def _card_line(card: Dict[str, Any], section: str) -> Optional[str]:

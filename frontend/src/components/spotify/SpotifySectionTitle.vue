@@ -5,7 +5,7 @@
        word, never the widest line, and never sits alone on a line. A shelf
        about an artist is headed as the apps head it: the artist's photo, and
        what the title says around the name over the name itself. -->
-  <div class="section-heading">
+  <div class="section-heading" :class="{ 'section-heading--library': library }">
     <LazyImage v-if="image" :src="image" :fallback="musicPlaceholder" alt="" class="section-avatar" />
     <div class="section-heading-text">
       <p v-if="overline" class="section-overline text-body-small">{{ overline }}</p>
@@ -41,6 +41,12 @@ const props = defineProps({
   image: {
     type: String,
     default: '',
+  },
+  // A section of the account's own library: its overline in the brand color,
+  // set a little apart from the title.
+  library: {
+    type: Boolean,
+    default: false,
   },
 });
 
@@ -85,6 +91,14 @@ const lastWord = computed(() => props.title.trimEnd().slice(split.value));
 .section-overline {
   margin: 0;
   color: var(--color-text-secondary);
+}
+
+.section-heading--library .section-heading-text {
+  gap: var(--space-01);
+}
+
+.section-heading--library .section-overline {
+  color: var(--color-brand);
 }
 
 .section-title {

@@ -369,6 +369,12 @@ class Librespot:
         self.playlists: List[Dict[str, Any]] = []
         self.listings: Dict[str, List[Dict[str, Any]]] = {}   # uri -> tracks
         self.liked: set = set()                                # Liked Songs' track uris
+        # Saved albums and followed artists (/library/albums, /library/artists,
+        # 0.10.6), most recent first; None answers 404, as a go-librespot
+        # before 0.10.6 does.
+        self.saved_albums: Optional[List[Dict[str, Any]]] = []
+        self.followed_artists: Optional[List[Dict[str, Any]]] = []
+        self.listings_time_out: set = set()                    # those two paths never answer
         # Every write to the library (0.10.5's routes), as (path, body).
         self.library_writes: List[Tuple[str, Dict[str, Any]]] = []
         self.contains_refused: set = set()                     # playlists /contains answers 503 for
@@ -644,6 +650,16 @@ class Librespot:
             return _Exchange(_Response(200, {
                 "items": self.playlists[offset:offset + limit], "total": len(self.playlists),
                 "offset": offset, "limit": limit,
+            }))
+        if path in ("/library/albums", "/library/artists"):
+            listing = self.saved_albums if path == "/library/albums" else self.followed_artists
+            if path in self.listings_time_out:
+                return _Exchange(error=asyncio.TimeoutError())
+            if listing is None:
+                return _Exchange(_Response(404))
+            offset, limit = int(params.get("offset", 0)), int(params.get("limit", 50))
+            return _Exchange(_Response(200, {
+                "items": listing[offset:offset + limit], "total": len(listing), "offset": offset, "limit": limit,
             }))
         if path == "/context/tracks":
             uri = params["uri"]
