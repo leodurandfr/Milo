@@ -16,7 +16,8 @@
               <div v-for="i in 8" :key="`shortcut-${i}`" class="shortcut-skeleton shimmer" />
             </div>
           </section>
-          <section class="section">
+          <!-- Two shelves: one leaves the lower half of a phone in portrait empty. -->
+          <section v-for="i in 2" :key="`shelf-${i}`" class="section">
             <span class="section-skeleton-line heading-2">
               <span class="skeleton-text-line section-skeleton-title shimmer"></span>&#8203;
             </span>
