@@ -48,7 +48,7 @@
                 class="player-button"
                 :class="control.id === 'main' ? 'player-button--primary transport-primary' : 'transport-secondary player-extra'"
                 :aria-label="control.live ? t(LIVE_LABEL_KEYS[control.command]) : undefined"
-                :loading="control.id === 'main' && waiting(control)" :disabled="!control.enabled"
+                :loading="control.id === 'main' && (waiting(control) || mainInFlight)" :disabled="!control.enabled"
                 @click="press(control)" />
             </template>
           </span>
@@ -70,6 +70,7 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useIsMobile } from '@/composables/useIsMobile';
 import { useTimer } from '@/composables/useTimer';
+import { useDelayedFlag } from '@/composables/useDelayedFlag';
 import { usePlayerState } from '@/composables/usePlayerState';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -167,10 +168,20 @@ function toggleLabel(control) {
   return t('player.shuffle');
 }
 
-// A labelled command spins until the source stops listing it (a take-over:
-// until the session it brings arrives), until it is refused, or until it is
-// given up on.
+// A labelled command and the main button's spin until the source stops
+// listing what was pressed (a take-over: until the session it brings arrives;
+// a pause: until `resume` replaces it), until it is refused, or until it is
+// given up on. The glyph itself only ever shows what the source confirmed.
 const PENDING_TIMEOUT_MS = 10000;
+// A pause or a play is given up on sooner: a remote sender may take it and do
+// nothing (AirPlay's commands are fire-and-forget), and the button must not
+// refuse presses for long over it. An AirPlay Mac answers in 1.05-1.1 s
+// (measured 2026-11-16).
+const TOGGLE_TIMEOUT_MS = 3000;
+// The main button spins only past this, so a local player that confirms at
+// once shows nothing; WAIT_INDICATOR_DELAY_MS would leave the Mac's wait
+// unmarked until a flash at its very end.
+const PRESS_FEEDBACK_DELAY_MS = 100;
 const timer = useTimer();
 const pending = ref(null);
 let pendingTimer = null;
@@ -185,20 +196,31 @@ watch(controls, (listed) => {
   if (pending.value && !listed.includes(pending.value)) clearPending();
 });
 
+const mainCommand = computed(() => transportControls.value.find(control => control.id === 'main')?.command);
+// The glyph moved: whatever was awaited, the button now offers something else.
+watch(mainCommand, (_, before) => {
+  if (pending.value && pending.value === before) clearPending();
+});
+const mainInFlight = useDelayedFlag(
+  () => pending.value !== null && pending.value === mainCommand.value, PRESS_FEEDBACK_DELAY_MS
+);
+
 async function press(control) {
   if (control.command === 'skip') {
     if (controls.value.includes('skip')) emit('skip', control.seconds);
     return;
   }
-  // A labelled command and a live stream's main button wait for the source
-  // before taking another press: a second tap would tune the stream twice.
-  if (!isLabelled(control) && !control.live) {
+  // A labelled command and the main button wait for the source before taking
+  // another press on this button: a second tap would tune a stream twice, or
+  // send a sender that has not answered yet the same pause again.
+  if (!isLabelled(control) && control.id !== 'main') {
     sendSourceCommand(control.command, control.params);
     return;
   }
   if (pending.value) return;
   pending.value = control.command;
-  pendingTimer = timer.setTimeout(clearPending, PENDING_TIMEOUT_MS);
+  const toggle = control.id === 'main' && !control.live && !isLabelled(control);
+  pendingTimer = timer.setTimeout(clearPending, toggle ? TOGGLE_TIMEOUT_MS : PENDING_TIMEOUT_MS);
   if (!await sendSourceCommand(control.command, control.params)) clearPending();
 }
 </script>
