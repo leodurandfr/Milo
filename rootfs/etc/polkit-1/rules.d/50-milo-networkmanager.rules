@@ -1,18 +1,20 @@
 // Let the backend manage NetworkManager from its system unit, which holds no
 // local active session for the distribution's rule to match.
 //
-// Bound to the unit, not only to the user: every daemon Milō runs is `milo` too,
-// and so is an SSH login, while only the backend calls NetworkManager — on a
-// user-wide rule, any of them could raise or rewrite the recovery access point.
-// A process cannot leave its unit's cgroup for another without root.
+// Granted to the `milo` user, which every daemon Milō runs and every SSH login
+// share. Binding it to the backend's unit instead (`subject.system_unit ===
+// "milo-backend.service"`) was measured on 2026-11-16 to refuse the backend
+// itself, with NetworkManager 1.52.1 and polkit 126: "Not authorized to recheck
+// connectivity" at every start, so the recovery access point could not have
+// been raised either. Narrowing the grant to the backend is still wanted; it
+// needs a condition measured on a unit first.
 //
 // The whole NetworkManager prefix, not a list of actions: an action missing
 // from a list would be refused in silence, and the recovery AP is the one path
 // that has to work with nothing else up.
 polkit.addRule(function(action, subject) {
     if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 &&
-        subject.user === "milo" &&
-        subject.system_unit === "milo-backend.service") {
+        subject.user === "milo") {
         return polkit.Result.YES;
     }
 });

@@ -5,8 +5,9 @@ radio range can join it. The backend's request gate refuses such a client its
 writes; three files outside the backend carry the rest, and each is read only by
 a daemon CI never runs:
 
-  * the polkit rule, which grants NetworkManager to the backend's unit and to no
-    other `milo` process — every daemon Milō runs, and every SSH login, is `milo`;
+  * the polkit rule, which grants NetworkManager to the backend's user and to no
+    one else — though every daemon Milō runs, and every SSH login, is that user
+    too: bound to the backend's unit, it refused the backend itself (measured);
   * the sshd drop-in, which refuses a connection made to the AP's address;
   * the nginx site, whose `X-Forwarded-For` is how the gate learns who is asking —
     a proxied path without it hands the backend nginx's loopback address.
@@ -49,13 +50,18 @@ def _polkit_grants() -> list[tuple[str, dict[str, str]]]:
     return grants
 
 
-def test_networkmanager_is_granted_to_the_backend_unit_only():
-    """Every YES the rule answers names the backend's unit, not just its user.
+def test_networkmanager_is_granted_to_the_backend_user_only():
+    """Every YES the rule answers names NetworkManager and the backend's user.
 
-    Fails when the `subject.system_unit` condition is dropped or renamed away
-    from the unit the backend runs in: the grant then reaches go-librespot,
-    shairport-sync, the kiosk's Chromium and an SSH session alike, any of which
-    could raise the AP, rewrite the home network or read its key back.
+    Fails when a grant reaches another user, another action family, or rides a
+    disjunction. Fails too when a `subject.system_unit` condition comes back:
+    bound to the backend's unit, the rule refused the backend itself on
+    NetworkManager 1.52.1 and polkit 126 (2026-11-16: "Not authorized to
+    recheck connectivity" at every start, and no recovery AP), which CI cannot
+    see. Narrowing the grant to the backend is still wanted — the user also
+    covers go-librespot, shairport-sync, the kiosk's Chromium and an SSH
+    session — but only with a condition measured on a unit, and this test
+    rewritten with it.
     """
     grants = _polkit_grants()
     assert grants, f"{POLKIT_RULE.name} grants nothing at all: the backend loses NetworkManager"
@@ -63,7 +69,7 @@ def test_networkmanager_is_granted_to_the_backend_unit_only():
     assert unit_user, f"no User= read from {BACKEND_UNIT.name}"
     for cond, pinned in grants:
         assert 'action.id.indexOf("org.freedesktop.NetworkManager.") === 0' in cond, cond
-        assert pinned.get("system_unit") == BACKEND_UNIT.name, f"not bound to {BACKEND_UNIT.name}: {cond}"
+        assert "system_unit" not in pinned, f"bound to a unit, which refused the backend itself: {cond}"
         assert pinned.get("user") == unit_user.group(1), f"not bound to the unit's user: {cond}"
         # An `||` lets one side of the condition grant alone.
         assert "||" not in cond, f"a disjunction in the grant: {cond}"
