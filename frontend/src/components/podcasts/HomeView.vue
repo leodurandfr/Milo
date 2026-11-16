@@ -126,8 +126,6 @@ const loadingSubscriptions = ref(true)
 const topCharts = ref([])
 const topChartsApiError = ref(false)
 
-// True while the tapped iTunes chart entry is being resolved to a feedId.
-
 // Two whole rows of the chart, whatever the screen lays out — a fixed count
 // would leave orphans on every column count but the one it was written for.
 const { columns } = useCardGridColumns()

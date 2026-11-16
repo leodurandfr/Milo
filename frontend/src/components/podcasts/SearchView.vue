@@ -74,8 +74,6 @@ const emit = defineEmits(['select-podcast'])
 const podcastStore = usePodcastStore()
 const { t } = useI18n()
 
-// True while the tapped iTunes search hit is being resolved to a feedId.
-
 // Get reactive refs from store (persisted across navigation)
 const {
   searchTerm,
