@@ -313,8 +313,8 @@ class AirPlaySession(Session):
     pause_asked_at: float = 0.0         # Milō's last pause
     track_wait_over: bool = False       # a new track at rate 0 outlived its wait
     now_playing: Optional[NowPlaying] = None
-    track_id: Optional[int | str] = None      # the item whose playhead is anchored
-    played_track: Optional[int | str] = None  # the last item seen moving
+    track_id: Optional[int | str | tuple] = None  # the item whose playhead is anchored
+    played_track: Optional[int | str | tuple] = None  # the last item seen moving
     cover: Optional[Cover] = None
     item_gone: bool = False             # the sender emptied its item (an app quit)
     volume_synced: bool = False         # Milō's level was pushed to this sender

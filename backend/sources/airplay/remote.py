@@ -91,7 +91,7 @@ class NowPlaying:
     elapsed_ms: Optional[int]
     at: Optional[float]
     rate: float
-    track_id: Optional[int | str]
+    track_id: Optional[int | str | tuple]
     artwork_id: Optional[str]
     artwork_path: Optional[str]
 
@@ -114,9 +114,7 @@ class NowPlaying:
             elapsed_ms=seconds_ms("ElapsedTime"),
             at=_epoch(info.get(_NPI + "Timestamp")),
             rate=float(info.get(_NPI + "PlaybackRate") or 0.0),
-            # Some items carry no UniqueIdentifier, only the ContentItemIdentifier
-            # (a Mac, measured 2026-10-23).
-            track_id=_first_present(info, "UniqueIdentifier", "ContentItemIdentifier"),
+            track_id=_track_identity(info),
             artwork_id=info.get(_NPI + "ArtworkIdentifier") or None,
             artwork_path=path.removeprefix("file://") if isinstance(path, str) else None,
         )
@@ -140,9 +138,16 @@ class RemoteUpdate:
     value: Any
 
 
-def _first_present(info: dict, *keys: str):
-    """The first of `keys` the item carries, a 0 included."""
-    return next((info[_NPI + k] for k in keys if info.get(_NPI + k) is not None), None)
+def _track_identity(info: dict):
+    """What names the track: the sender's UniqueIdentifier (a 0 included),
+    else what the item says of it. A Mac sends no UniqueIdentifier, and its
+    ContentItemIdentifier is no identity: it changes at every play and pause
+    of the same track (measured 2026-11-16, shairport-sync 5.6.3), so read as
+    one, each pause looked like a new track loading."""
+    unique = info.get(_NPI + "UniqueIdentifier")
+    if unique is not None:
+        return unique
+    return tuple(info.get(_NPI + k) for k in ("Title", "Artist", "Album", "Duration"))
 
 
 def _epoch(stamp) -> Optional[float]:

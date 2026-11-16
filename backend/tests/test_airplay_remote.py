@@ -8,7 +8,7 @@ string, not a date), leaves the source with an item it cannot read — no title,
 no playhead — with no error anywhere.
 """
 from datetime import datetime, timezone
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import pytest
 from dbus_next import Message, MessageType, Variant
@@ -55,15 +55,37 @@ def test_the_item_carries_the_track():
     assert item.track_id == 9811617133902594685
 
 
-def test_an_item_without_a_unique_identifier_is_named_by_its_content_item():
-    """Measured 2026-10-23 (a Mac, shairport-sync 5.6.1): some items carry no
-    UniqueIdentifier, only a ContentItemIdentifier. Without an identity every
-    track read as the same one, and the first one never got a playhead."""
-    keys = {k: v for k, v in IPHONE_ITEM.value.items() if k != "kMRMediaRemoteNowPlayingInfoUniqueIdentifier"}
-    keys["kMRMediaRemoteNowPlayingInfoContentItemIdentifier"] = Variant(
-        "s", "76F86BD5-2542-44CE-8AD5-AD4481AF5ECA")
-    item = _update(CLIENT_IFACE, "NowPlayingInformation", Variant("a{sv}", keys)).value
-    assert item.track_id == "76F86BD5-2542-44CE-8AD5-AD4481AF5ECA"
+def _mac_item(content_item: str, rate: Optional[float], **changes: str) -> Any:
+    """A Mac's item: no UniqueIdentifier, a ContentItemIdentifier of its own
+    at every update, and no PlaybackRate while paused."""
+    keys = {k: v for k, v in IPHONE_ITEM.value.items()
+            if k not in ("kMRMediaRemoteNowPlayingInfoUniqueIdentifier", "kMRMediaRemoteNowPlayingInfoPlaybackRate")}
+    keys["kMRMediaRemoteNowPlayingInfoContentItemIdentifier"] = Variant("s", content_item)
+    if rate is not None:
+        keys["kMRMediaRemoteNowPlayingInfoPlaybackRate"] = Variant("d", rate)
+    for key, value in changes.items():
+        keys[f"kMRMediaRemoteNowPlayingInfo{key}"] = Variant("s", value)
+    return _update(CLIENT_IFACE, "NowPlayingInformation", Variant("a{sv}", keys)).value
+
+
+def test_a_mac_track_keeps_its_identity_across_play_and_pause():
+    """Measured 2026-11-16 (a Mac, shairport-sync 5.6.3): the same track went
+    A9E6… paused, 8E20… playing, C4AD… paused again. Read as the track's
+    identity, each pause from Milō was a new track at rate 0 — LOADING for
+    SKIP_LOADING_S, a spinner on the main button, before PAUSED."""
+    paused = _mac_item("A9E65246-97FB-4E2A-AB0F-318BF4BD4C2C", None)
+    playing = _mac_item("8E20833F-C089-4FA5-A061-C4CA2B488AC4", 1.0)
+    paused_again = _mac_item("C4AD6027-BABE-4335-85BD-25F0DB1DB568", None)
+    assert paused.rate == 0.0 and playing.rate == 1.0
+    assert paused.track_id == playing.track_id == paused_again.track_id
+
+
+def test_two_mac_tracks_are_told_apart():
+    """Measured 2026-10-23: with no identity at all every Mac track read as
+    the same one, and the first one never got a playhead."""
+    one = _mac_item("8E20833F-C089-4FA5-A061-C4CA2B488AC4", 1.0)
+    other = _mac_item("8E20833F-C089-4FA5-A061-C4CA2B488AC4", 1.0, Title="L.A.D.Y")
+    assert one.track_id is not None and one.track_id != other.track_id
 
 
 def test_a_unique_identifier_of_zero_is_still_the_identity():
