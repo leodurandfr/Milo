@@ -435,11 +435,11 @@ class TestResources:
     ):
         """Two `/proc/net/dev` snapshots shaped like this host's (captured
         2026-09-26), 0.5 s apart. Only eth0 and wlan0 have a `device` link in
-        the fake sysfs: `lo` and `tailscale0` carry large deltas that would
+        the fake sysfs: `lo` and `wg0` carry large deltas that would
         dominate the answer if they were counted — the tunnel's bytes already
         crossed eth0, so counting it doubles the rate the screen prints.
 
-        `tailscale0:71070984` has no space after the colon, as the kernel
+        `wg0:71070984` has no space after the colon, as the kernel
         writes it once the counter is wide enough.
 
         eth0 +1000 rx / +400 tx, wlan0 +500 rx / +100 tx over 0.5 s →
@@ -455,7 +455,7 @@ class TestResources:
                 f"    lo: {lo} 1 0 0 0 0 0 0 {lo} 1 0 0 0 0 0 0\n"
                 f"  eth0: {eth[0]} 1 0 0 0 0 0 0 {eth[1]} 1 0 0 0 0 0 0\n"
                 f" wlan0: {wlan[0]} 1 0 0 0 0 0 0 {wlan[1]} 1 0 0 0 0 0 0\n"
-                f"tailscale0:{ts} 1 0 0 0 0 0 0 {ts} 1 0 0 0 0 0 0\n"
+                f"wg0:{ts} 1 0 0 0 0 0 0 {ts} 1 0 0 0 0 0 0\n"
             )
 
         snapshots = iter([
@@ -465,9 +465,9 @@ class TestResources:
         clock = iter([100.0, 100.5])
         for name in ("eth0", "wlan0"):
             (tmp_path / name / "device").mkdir(parents=True)
-        for name in ("lo", "tailscale0"):
+        for name in ("lo", "wg0"):
             (tmp_path / name).mkdir()
-        monkeypatch.setattr(api_system, "SYSFS_NET", str(tmp_path))
+        monkeypatch.setattr(api_system.constants, "SYSFS_NET", str(tmp_path))
         monkeypatch.setattr(api_system, "monotonic", lambda: next(clock))
 
         real_open = builtins.open

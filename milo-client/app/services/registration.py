@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 HARDWARE_FILE = "/var/lib/milo-client/hardware.json"
 IDENTITY_FILE = "/var/lib/milo-client/identity.json"
 ASOUND_CARDS_FILE = "/proc/asound/cards"
+# Where the kernel lists the network interfaces; tests point it at a fixture tree.
+SYSFS_NET = "/sys/class/net"
 MILO_PRINCIPAL_HOST = "milo.local"
 MILO_PRINCIPAL_PORT = 8000
 REGISTER_ENDPOINT = "/api/multiroom/register-client"
@@ -51,17 +53,44 @@ def known_server_addresses() -> tuple[str, ...]:
     return _server_addresses
 
 
+UNSET_MAC = "00:00:00:00:00:00"
+
+
+def _usable_mac(name: str) -> str | None:
+    try:
+        with open(os.path.join(SYSFS_NET, name, "address")) as f:
+            mac = f.read().strip()
+    except OSError:
+        return None
+    return mac if mac and mac != UNSET_MAC else None
+
+
 def _get_mac_address() -> str:
-    """Read MAC address from eth0, fallback to wlan0."""
-    for iface in ("eth0", "wlan0"):
-        try:
-            with open(f"/sys/class/net/{iface}/address") as f:
-                mac = f.read().strip()
-                if mac and mac != "00:00:00:00:00:00":
-                    return mac
-        except FileNotFoundError:
-            continue
-    raise RuntimeError("No MAC address found on eth0 or wlan0")
+    """This unit's identity, by the rule `milo-host-id` prints for the snapclient's --hostID.
+
+    eth0, then wlan0, then every other physical interface (one with a `device`
+    link) in name order; an address that cannot be read, is empty or is all
+    zeros is skipped. The registration must announce the id the snapclient
+    passes, or the server keys one speaker twice. Held equal to the script by
+    milo-client/app/tests/test_host_id.py.
+    """
+    primary = ("eth0", "wlan0")
+    for name in primary:
+        mac = _usable_mac(name)
+        if mac:
+            return mac
+    try:
+        others = sorted(
+            name for name in os.listdir(SYSFS_NET)
+            if name not in primary and os.path.exists(os.path.join(SYSFS_NET, name, "device"))
+        )
+    except OSError:
+        others = []
+    for name in others:
+        mac = _usable_mac(name)
+        if mac:
+            return mac
+    raise RuntimeError("No usable MAC address on any physical interface")
 
 
 def local_ip_towards(remote_ip: str, remote_port: int) -> str:

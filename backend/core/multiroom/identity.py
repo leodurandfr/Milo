@@ -8,23 +8,66 @@ of them should have to reach through ClientRegistryService (or take a lazy
 import to dodge a cycle) to get it.
 """
 import logging
+import os
 from typing import Optional
+
+from backend.config import constants
 
 logger = logging.getLogger(__name__)
 
-# Where the kernel lists the interfaces; the test suite points it at a fixture tree.
-SYSFS_NET = "/sys/class/net"
+# The interfaces tried first, in this order, whatever else the unit has: every
+# unit in the field is keyed on one of them, so no other rule may come before.
+PRIMARY_INTERFACES = ("eth0", "wlan0")
+UNSET_MAC = "00:00:00:00:00:00"
+
+
+def _usable_mac(sysfs_net: str, name: str) -> Optional[str]:
+    try:
+        with open(os.path.join(sysfs_net, name, "address")) as f:
+            mac = f.read().strip()
+    except OSError:
+        return None
+    return mac if mac and mac != UNSET_MAC else None
+
+
+def read_host_id(sysfs_net: str) -> Optional[str]:
+    """The unit's multiroom identity as `milo-host-id` prints it, from one sysfs root.
+
+    eth0, then wlan0, then every other physical interface (one with a `device`
+    link, so not lo or a tunnel) in name order — a Pi whose wired port is named
+    `end0` keeps an identity. An address that cannot be read, is empty, or is
+    all zeros is skipped. Both snapclient launchers and the satellite's
+    registration apply this same rule, held equal by
+    tests/architecture/test_host_id_rule.py.
+    """
+    for name in PRIMARY_INTERFACES:
+        mac = _usable_mac(sysfs_net, name)
+        if mac:
+            return mac
+    try:
+        others = sorted(
+            name for name in os.listdir(sysfs_net)
+            if name not in PRIMARY_INTERFACES
+            and os.path.exists(os.path.join(sysfs_net, name, "device"))
+        )
+    except OSError:
+        return None
+    for name in others:
+        mac = _usable_mac(sysfs_net, name)
+        if mac:
+            return mac
+    return None
 
 
 def get_local_mac() -> Optional[str]:
-    """MAC of the snapclient's primary interface (eth0 → wlan0 fallback), matching the --hostID flag."""
-    for iface in ('eth0', 'wlan0'):
-        try:
-            with open(f'{SYSFS_NET}/{iface}/address') as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            continue
-    return None
+    """MAC of the snapclient's primary interface, matching its --hostID (see `read_host_id`).
+
+    Read afresh on every call, never kept: the snapclient runs `milo-host-id`
+    again each time it starts, so an identity cached here would outlive the one
+    it passes once an interface comes up late. Only the local client asks (at
+    most twice per sweep), and sysfs is kernel memory, not the card.
+    """
+    return read_host_id(constants.SYSFS_NET)
 
 
 def is_stale_local_client(client_id: str, ip: str) -> bool:
@@ -38,12 +81,12 @@ def is_stale_local_client(client_id: str, ip: str) -> bool:
 def compute_mac_id(hostname: str, ip: str, host_id: str = "") -> str:
     """
     Return the identity Milō keys a client by: the MAC of its primary
-    interface, eth0 first and wlan0 as fallback.
+    interface, chosen by the rule `read_host_id` states.
 
     That identity has exactly one producer — the `--hostID` every snapclient
-    launcher passes — and every other component derives it the same way:
-    `milo-client`'s registration POST reads eth0-then-wlan0 from /sys, and so
-    does this function for the local client. Snapcast's `host.mac` is NOT that
+    launcher passes, printed by `milo-host-id` — and every other component
+    derives it the same way: `milo-client`'s registration POST applies the same
+    rule, and so does this function for the local client. Snapcast's `host.mac` is NOT that
     identity: it reports the interface the client actually connected through,
     so a wifi-only client (eth0 present but unused) announces its wlan0 MAC
     while registering under its eth0 one. Keying on `host.mac` therefore split
@@ -70,7 +113,7 @@ def compute_mac_id(hostname: str, ip: str, host_id: str = "") -> str:
             raise RuntimeError("Cannot determine local MAC address")
         return local_mac
 
-    if host_id and host_id != "00:00:00:00:00:00":
+    if host_id and host_id != UNSET_MAC:
         return host_id
 
     raise ValueError(f"No client id for {hostname} at {ip}")

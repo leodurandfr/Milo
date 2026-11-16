@@ -18,6 +18,7 @@ from backend.api.route_helpers import api_error_handler
 from backend.core.models.ws_events import SystemTimezoneChanged
 from backend.core.system.localtime import current_timezone
 from backend.core.system.zone_coordinates import read_zone_coordinates
+from backend.config import constants
 from backend.config.constants import (
     PASSWORD_CHANGED_MARKER,
     RESET_SETUP_MARKER,
@@ -38,7 +39,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SSH_UNIT = "ssh.service"
-SYSFS_NET = "/sys/class/net"
 
 # The zone the image ships. Not a location, and never offered (it is outside
 # PLACE_AREAS), so no choice can produce it: it means "nobody has told us yet",
@@ -270,7 +270,7 @@ def create_system_router(
             for line in lines:
                 name, _, counters = line.partition(":")
                 name = name.strip()
-                if not os.path.exists(os.path.join(SYSFS_NET, name, "device")):
+                if not os.path.exists(os.path.join(constants.SYSFS_NET, name, "device")):
                     continue
                 fields = counters.split()
                 rx += int(fields[0])

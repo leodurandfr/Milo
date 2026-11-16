@@ -877,8 +877,8 @@ class TestTheNameChangedResolution:
         127.0.0.1, and `host_id` is the `id` the frame already carried — so the
         walk through groups → clients recomputes the value it started from. For
         the local client the two agree too: `milo-snapclient-multiroom.service`
-        passes `--hostID $(cat /sys/class/net/eth0/address)`, which is the same
-        read `get_local_mac()` does.
+        passes `--hostID $(milo-host-id)`, the rule `get_local_mac()` applies
+        (held equal by tests/architecture/test_host_id_rule.py).
 
         This is not a claim about today's data, it is the guardrail for the
         identity rule itself: it goes red the day `compute_mac_id` keys a remote

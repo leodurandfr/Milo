@@ -204,15 +204,17 @@ def a_local_interface_that_does_not_depend_on_the_host(tmp_path_factory):
 
     The local client's identity is the MAC read from sysfs. A CI runner has no
     eth0 or wlan0, so every test that admits the local client failed there while
-    passing on a Pi — red on main with nothing changed in the code.
+    passing on a Pi — red on main with nothing changed in the code. Every sysfs
+    read in the backend goes through `constants.SYSFS_NET`, so this one tree
+    also stands in for the interfaces the system routes count.
     """
-    from backend.core.multiroom import identity
+    from backend.config import constants
 
     sysfs = tmp_path_factory.mktemp("sys-class-net")
-    (sysfs / "eth0").mkdir()
+    (sysfs / "eth0" / "device").mkdir(parents=True)
     (sysfs / "eth0" / "address").write_text(FIXTURE_LOCAL_MAC + "\n")
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(identity, "SYSFS_NET", str(sysfs))
+        mp.setattr(constants, "SYSFS_NET", str(sysfs))
         yield
 
 

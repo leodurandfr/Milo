@@ -589,7 +589,7 @@ class TestClientRegistryService:
 
     def test_compute_mac_id_local(self):
         """Test computing mac_id for local client reads from system interface."""
-        # Local client (127.0.0.1) reads MAC from eth0 or wlan0
+        # Local client (127.0.0.1) is keyed on this unit's MAC (identity.read_host_id)
         mac_id = compute_mac_id("milo", "127.0.0.1")
         # Should be a valid MAC address format
         assert ":" in mac_id
@@ -1563,7 +1563,7 @@ class TestStandaloneEqualizerSync:
 
     def test_compute_mac_id_localhost_returns_mac(self):
         """Local client (127.0.0.1) reads MAC from system interface."""
-        # localhost IP reads MAC from system interface (eth0 or wlan0)
+        # localhost is keyed on this unit's MAC (identity.read_host_id)
         mac_id = compute_mac_id("milo", "127.0.0.1")
         assert ":" in mac_id  # Returns MAC address format
         assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
@@ -2144,28 +2144,17 @@ class TestSnapcastClientDetection:
 
     # === compute_mac_id Tests for Snapcast Integration ===
 
-    def test_compute_mac_id_for_local_client(self):
-        """Test compute_mac_id reads MAC from system interface for localhost."""
-        from unittest.mock import mock_open, patch
-        mock_file = mock_open(read_data="aa:bb:cc:dd:ee:ff\n")
-        with patch("builtins.open", mock_file):
-            mac_id = compute_mac_id("milo", "127.0.0.1")
-        assert mac_id == "aa:bb:cc:dd:ee:ff"
+    def test_compute_mac_id_for_local_client(self, tmp_path, monkeypatch):
+        """The client at 127.0.0.1 is keyed on this unit's own MAC, read from sysfs."""
+        from backend.config import constants
+        (tmp_path / "eth0" / "device").mkdir(parents=True)
+        (tmp_path / "eth0" / "address").write_text("aa:bb:cc:dd:ee:ff\n")
+        monkeypatch.setattr(constants, "SYSFS_NET", str(tmp_path))
+        assert compute_mac_id("milo", "127.0.0.1") == "aa:bb:cc:dd:ee:ff"
 
     def test_compute_mac_id_for_milo_client(self):
         """Test compute_mac_id returns MAC address for remote clients."""
         mac_id = compute_mac_id("milo-client-kitchen", "192.168.1.100", "aa:bb:cc:dd:ee:ff")
-        assert mac_id == "aa:bb:cc:dd:ee:ff"
-
-    def test_compute_mac_id_strips_ipv6_prefix(self):
-        """Test compute_mac_id handles IPv6-mapped IPv4 addresses for localhost."""
-        from unittest.mock import mock_open, patch
-        # Snapcast sometimes returns ::ffff:192.168.1.100 format
-        # The websocket.py code strips this: .replace("::ffff:", "")
-        ip = "::ffff:127.0.0.1".replace("::ffff:", "")
-        mock_file = mock_open(read_data="aa:bb:cc:dd:ee:ff\n")
-        with patch("builtins.open", mock_file):
-            mac_id = compute_mac_id("milo", ip)
         assert mac_id == "aa:bb:cc:dd:ee:ff"
 
     # === Event Timing is tested via integration tests ===

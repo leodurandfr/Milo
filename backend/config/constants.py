@@ -37,6 +37,11 @@ CD_DATA_FILE = MILO_DATA_DIR / "cd_data.json"
 CD_COVERS_DIR = MILO_DATA_DIR / "cd_covers"
 CD_DEVICE = "/dev/sr0"
 
+# Where the kernel lists the network interfaces. Read at call time
+# (`constants.SYSFS_NET`), never imported by value: the test suite points it at
+# a fixture tree so that nothing depends on the interfaces of the host it runs on.
+SYSFS_NET = "/sys/class/net"
+
 # =============================================================================
 # MUSIC LIBRARY / NAVIDROME (catalog engine sidecar)
 # =============================================================================

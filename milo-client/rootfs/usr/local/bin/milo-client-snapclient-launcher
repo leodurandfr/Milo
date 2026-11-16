@@ -97,13 +97,8 @@ case "$server" in
         ;;
 esac
 
-# Build hostID from primary interface MAC (eth0 preferred, wlan0 fallback)
-eth_mac=$(cat /sys/class/net/eth0/address 2>/dev/null || true)
-if [ -n "$eth_mac" ] && [ "$eth_mac" != "00:00:00:00:00:00" ]; then
-    host_id="$eth_mac"
-else
-    host_id=$(cat /sys/class/net/wlan0/address 2>/dev/null || echo "milo-client")
-fi
+# The hostID is this unit's identity, the one its registration announces too.
+host_id=$(/usr/local/bin/milo-host-id) || host_id="milo-client"
 
 exec /usr/bin/snapclient \
     -h "$server" \

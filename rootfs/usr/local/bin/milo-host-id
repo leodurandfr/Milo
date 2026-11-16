@@ -1,0 +1,35 @@
+#!/bin/bash
+# milo-host-id — the multiroom identity of this unit.
+#
+# Twin of milo-client/rootfs/usr/local/bin/milo-host-id — server and
+# satellite are deployed from separate trees, same rule on both.
+#
+# Prints this unit's multiroom identity, the --hostID its snapclient passes:
+# the MAC of eth0, else wlan0, else of the first other physical interface (one
+# with a `device` link) in name order. An address that cannot be read, is empty
+# or is all zeros is skipped. Prints nothing and exits 1 when no interface has
+# one. The backend (core/multiroom/identity.py) and the satellite's registration
+# apply the same rule: tests/architecture/test_host_id_rule.py holds all of them
+# equal. MILO_SYSFS_NET exists for that test only.
+
+set -u
+export LC_ALL=C
+root="${MILO_SYSFS_NET:-/sys/class/net}"
+
+usable() {
+    local mac
+    mac=$(cat "$root/$1/address" 2>/dev/null) || return 1
+    [[ -n "$mac" && "$mac" != "00:00:00:00:00:00" ]] || return 1
+    printf "%s\n" "$mac"
+}
+
+for name in eth0 wlan0; do
+    usable "$name" && exit 0
+done
+for dir in "$root"/*; do
+    name=${dir##*/}
+    [[ "$name" == eth0 || "$name" == wlan0 ]] && continue
+    [[ -e "$dir/device" ]] || continue
+    usable "$name" && exit 0
+done
+exit 1
