@@ -2,20 +2,18 @@
 Milō's podcast catalogue: Apple for discovery, the publisher's feed for content.
 
 Apple's iTunes RSS charts give the exact Apple Podcasts top lists per country
-and genre, and the iTunes Search API backs term search — Podcast Index's own
-/search/byterm cannot reach titles with glued punctuation ("Underscore_" is
-unreachable from "underscore"). Both hand over an `itunes_id` and nothing else.
+and genre, and the iTunes Search API backs term search; it reaches titles with
+glued punctuation ("Underscore_" from "underscore"). Both hand over an
+`itunes_id` and nothing else.
 
 Everything past discovery — a podcast's details, its episode list, one episode's
 audio URL — is read from the RSS feed its publisher serves, resolved by
-`feed_resolver` and parsed by `rss_parser`. Podcast Index used to sit in that
-position and is gone: it built its own `itunesId` index by matching the feed URL
-Apple publishes, so for the publishers who withhold that URL (Radio France, FIP,
-franceinfo) it had no mapping at all and answered "no feeds match this itunes
-id" — 77 of the 454 podcasts in the French charts, measured 2026-09-09. Asking
-Apple directly and reading the feed removes the middleman and the failure with
-it. It is also what every comparable client does: AntennaPod, podgrab, Poddr,
-kima-hub and Anytime all use a directory for discovery only.
+`feed_resolver` and parsed by `rss_parser`, never from a third-party index of
+it. Such an index matches on the feed URL Apple publishes, so for the publishers
+who withhold that URL (Radio France, FIP, franceinfo) it has no mapping at all —
+77 of the 454 podcasts in the French charts, measured 2026-09-09. It is also
+what every comparable client does: AntennaPod, podgrab, Poddr, kima-hub and
+Anytime all use a directory for discovery only.
 
 `uuid` is therefore the `itunes_id` for a series, and `{itunes_id}:{guid hash}`
 for an episode — see `rss_parser`. Nothing is resolved lazily on open any more.

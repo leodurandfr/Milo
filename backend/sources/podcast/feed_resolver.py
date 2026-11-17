@@ -3,11 +3,10 @@ Resolve an Apple podcast id to the RSS feed URL its publisher serves.
 
 Apple's charts and search hand over an `itunes_id` and nothing else, while every
 episode Milō plays comes from the publisher's own feed. This module is the join
-between the two, and it is the whole reason the Podcast Index round-trip could
-be dropped: Podcast Index built its own `itunesId` mapping by matching the very
-`feedUrl` resolved here, so asking Apple directly removes a middleman that was
-answering "no feeds match this itunes id" for 77 of the 454 podcasts in the
-French charts.
+between the two. It asks Apple directly because a third-party index is built by
+matching the very `feedUrl` resolved here: for the publishers who withhold it,
+such an index has no mapping at all — 77 of the 454 podcasts in the French
+charts.
 
 Two tiers, official first:
 

@@ -579,8 +579,7 @@ class TestLatestEpisodes:
 
     def test_each_subscription_is_fanned_out_to_by_its_apple_id(self, client, source):
         """No stored name or artwork travels with it any more: each feed names
-        and illustrates itself, which is what removed the fallback that existed
-        only because Podcast Index items could omit `feedTitle`."""
+        and illustrates itself, so no stored copy is needed as a fallback."""
         source.podcast_data.get_subscriptions.return_value = [
             {"uuid": "111", "name": "One", "image_url": "http://img/1.jpg"},
         ]

@@ -36,8 +36,8 @@ class PodcastDataService:
     """
 
     # v3: a podcast is keyed by its Apple id and an episode by
-    # `{itunes_id}:{guid hash}`. v2 files hold Podcast Index feedIds and episode
-    # ids, which name nothing here, so they must be reset (fail-loud protocol).
+    # `{itunes_id}:{guid hash}`. v2 files hold the ids of the catalogue Milō used
+    # before, which name nothing here, so they must be reset (fail-loud protocol).
     SCHEMA_VERSION: int = 3
 
     def __init__(self, state_machine=None):

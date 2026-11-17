@@ -16,9 +16,8 @@ failure pair:
   hits costs one upstream call per screen; a cache that never evicts grows for
   the life of the process.
 
-The feed half replaced Podcast Index entirely: `TestOpeningAPodcast` and
-`TestFindingOneEpisode` below stand where the Podcast Index resolution and
-content tests stood. The parsing itself is not retested here — that is
+The feed half is `TestOpeningAPodcast` and `TestFindingOneEpisode` below. The
+parsing itself is not retested here — that is
 `test_podcast_rss_parser.py`; what these assert is what the *client* does with
 it, which is caching, copying and failing.
 
@@ -589,7 +588,7 @@ class TestFindingOneEpisode:
         assert await api.get_episode(make_episode_id("152249110", "gone")) is None
 
     async def test_something_that_is_not_an_identifier_never_reaches_apple(self, api):
-        """A bare Podcast Index id, or junk. Sending it upstream turns a local
+        """An id from another catalogue, or junk. Sending it upstream turns a local
         bug into an upstream error nobody attributes correctly."""
         session = _answers_with(api, _lookup())
 

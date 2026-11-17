@@ -335,7 +335,7 @@ describe('component gallery catalogue', () => {
    * stylesheet, while these are written by hand, component by component. So the
    * failure they allow is a value that looks right and is not — and it happened:
    * every GenreCard tile on the Variants tab rendered with no artwork at all,
-   * because the demo passed `true_crime` where the Podcast Index vocabulary says
+   * because the demo passed `true_crime` where the genre vocabulary says
    * `PODCASTSERIES_TRUE_CRIME`. Nothing disagreed. The playground next door had
    * the same bug and it was caught, because the playground borrows its select
    * from the constant.

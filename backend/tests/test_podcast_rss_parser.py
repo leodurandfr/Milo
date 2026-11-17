@@ -1,9 +1,9 @@
 # backend/tests/test_podcast_rss_parser.py
 """
-`rss_parser` — the normalizers that replaced Podcast Index's.
+`rss_parser` — the normalizers of real podcast feeds.
 
-Podcast Index used to absorb the variety of real feeds on Milō's behalf. It no
-longer does, so a field this parser reads wrongly is a field that renders empty
+Nothing upstream absorbs the variety of real feeds on Milō's behalf, so a field
+this parser reads wrongly is a field that renders empty
 on the appliance with nothing in the log. The three shapes pinned hardest below
 are the three that were measured going wrong on live feeds:
 
@@ -180,8 +180,8 @@ class TestWhatIsNotAnEpisode:
         assert series["total_episodes"] == 0
 
     def test_a_feed_with_no_items_is_an_empty_podcast_not_a_failure(self):
-        """`Bliss Stories` serves a channel and no items; Podcast Index reports
-        episodeCount 0 for the same URL. The screen shows an empty podcast."""
+        """`Bliss Stories` serves a channel and no items. The screen shows an
+        empty podcast."""
         series = parse_feed(feed(), "1365837531")
 
         assert series is not None

@@ -1,10 +1,9 @@
 """
 Parse a podcast RSS feed into the series and episode shapes Milō already reads.
 
-This replaced the Podcast Index normalizers, and it inherits their contract: the
-keys produced here are the ones `routes.py`, the Pinia store and the two shared
-players consume, unchanged. What changed is where they come from — the
-publisher's own feed instead of a third party's copy of it.
+The keys produced here are the ones `routes.py`, the Pinia store and the two
+shared players consume. They come from the publisher's own feed, never from a
+third party's copy of it.
 
 Three things learned from the feeds themselves, each of which silently emptied a
 field when got wrong:
@@ -15,13 +14,12 @@ field when got wrong:
   France episodes. Everything here matches on the *local* tag name instead.
 - **Duration comes in three shapes**: `00:12:08`, `57:11`, and bare seconds.
 - **An item without an enclosure is not an episode.** Two of the Spanish top-30
-  feeds carry exactly one such item each; Podcast Index counted them too. A
+  feeds carry exactly one such item each. A
   missing `<guid>`, on the other hand, is not disqualifying: it is optional in
   RSS, so the enclosure URL stands in as the episode's identity.
 
 `season`, `episode` and per-item artwork are simply absent from many feeds —
-Radio France publishes none of the three. That is not a parse failure, and
-Podcast Index reported them empty for the same feeds.
+Radio France publishes none of the three. That is not a parse failure.
 
 Episode identity is `{itunes_id}:{sha1(guid)[:16]}`. The hash is not decoration:
 of 16 091 real guids, 9.6% contain `/` — which breaks a URL path segment — and

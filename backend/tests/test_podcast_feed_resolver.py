@@ -1,6 +1,6 @@
 # backend/tests/test_podcast_feed_resolver.py
 """
-`FeedUrlResolver` — the join that replaced the Podcast Index round-trip.
+`FeedUrlResolver` — the join from an Apple id to the publisher's feed.
 
 Every episode Milō plays comes from the feed URL resolved here, so a resolver
 that answers the wrong URL plays the wrong podcast, and one that answers None

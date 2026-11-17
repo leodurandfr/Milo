@@ -438,12 +438,11 @@ Shazam; `RadioSource._resolve_track` is the one place that orders them):
   publishers who withhold the URL from the API), and `rss_parser.py` reads the
   feed. An episode is addressed by `{itunes_id}:{sha1(guid)[:16]}`.
 - Search is **podcasts-only** (there is no cross-podcast episode search)
-- Podcast Index used to serve the episode layer and was removed 2026-09-09: it
-  indexed feeds by the very URL Apple withholds, so it had no mapping for Radio
-  France, FIP and franceinfo and answered "no feeds match this itunes id" for 77
-  of the 454 podcasts in the French charts. Reading the publisher's feed removes
-  the middleman and the failure with it, and is what AntennaPod, podgrab, Poddr,
-  kima-hub and Anytime all do.
+- The episode layer reads the publisher's feed, never a third-party index of
+  it: an index built on the feed URL Apple withholds has no mapping for Radio
+  France, FIP and franceinfo — 77 of the 454 podcasts in the French charts.
+  Reading the feed is also what AntennaPod, podgrab, Poddr, kima-hub and Anytime
+  all do.
 - Responses are cached in-memory (120min TTL)
 - Playback progress is saved every 10s and resumed on next launch (if > 10s in)
 - Seek and the −15 / +30 s skip supported; every episode plays at 1x

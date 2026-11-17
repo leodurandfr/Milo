@@ -4,9 +4,7 @@
 # Installs Navidrome, the always-on catalog engine behind the Music Library
 # source (Family C). Navidrome indexes whatever is mounted under /media/milo and
 # exposes a localhost Subsonic API; the music_library source browses it and mpv
-# streams `stream?id=…&format=raw` over localhost — the exact shape as the
-# Podcast source, with Navidrome standing in for Podcast Index. See
-# docs/architecture.md.
+# streams `stream?id=…&format=raw` over localhost. See docs/architecture.md.
 #
 # Navidrome ships as a single static Go binary (~35 MB), installed the same way
 # as go-librespot / camilladsp: download the pinned arm64 release into
