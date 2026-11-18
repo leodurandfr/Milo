@@ -649,6 +649,9 @@ function handleClientMuteToggle(clientMacId, muted) {
 }
 
 /* Real name content */
+/* A name cut by its column fades out over its last few characters (from about
+   the 15th, the column holding at most NAME_MAX_CHARS — MultiroomControl)
+   rather than ending on an ellipsis. */
 .client-name {
   display: flex;
   flex-direction: column;
@@ -661,6 +664,23 @@ function handleClientMuteToggle(clientMacId, muted) {
   transition: opacity var(--transition-fast), color var(--transition-fast);
 }
 
+/* Only a name that overflows: the element's own scroll timeline is active only
+   when it has something to scroll, and an inactive timeline applies no
+   keyframe — so a name that fits is never faded. Where scroll-driven
+   animations are missing, a cut name is clipped plain. */
+.client-name,
+.client-row-name {
+  animation: fadeOverflowingName linear both;
+  animation-timeline: scroll(self inline);
+}
+
+@keyframes fadeOverflowingName {
+  from,
+  to {
+    mask-image: linear-gradient(to right, black calc(100% - var(--space-07)), transparent);
+  }
+}
+
 .client-name.visible {
   opacity: 1;
 }
@@ -671,10 +691,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 }
 
 .item-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  width: 100%;
 }
 
 /* === VOLUME WRAPPER === */
@@ -831,7 +848,6 @@ function handleClientMuteToggle(clientMacId, muted) {
 .client-row-name {
   color: var(--color-text);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 100px;
   transition: color var(--transition-fast);

@@ -7,7 +7,7 @@
       <InputText
         v-model="zoneName"
         :placeholder="t('equalizer.zones.zoneNamePlaceholder')"
-        :maxlength="15"
+        :maxlength="24"
         @blur="saveZoneName"
       />
     </SectionCard>

@@ -221,7 +221,7 @@ SPEAKER_TYPES = list(get_args(SpeakerType))
 DEFAULT_SPEAKER_TYPE: SpeakerType = 'bookshelf'
 
 # Zone constants (validation happens in API layer Pydantic models)
-MAX_ZONE_NAME_LENGTH = 15
+MAX_ZONE_NAME_LENGTH = 24
 
 # Default crossover frequencies (highpass) per speaker type in Hz
 DEFAULT_CROSSOVER_FREQUENCIES = {
@@ -481,7 +481,7 @@ class Zone:
 
     Attributes:
         id: Unique zone identifier (UUID v4, auto-generated if not provided)
-        name: Display name for UI (max 15 characters, validated at API boundary)
+        name: Display name for UI (max MAX_ZONE_NAME_LENGTH characters, validated at API boundary)
         client_ids: List of mac_ids belonging to this zone
         crossover_frequency: Crossover frequency in Hz, or None for auto — the
             frequency the members' own speaker types imply

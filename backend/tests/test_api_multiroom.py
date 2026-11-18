@@ -871,7 +871,7 @@ class TestZoneCreate:
         assert len(zone.client_ids) == 2
 
     def test_zone_create_name_max_length(self):
-        """Name must not exceed MAX_ZONE_NAME_LENGTH (15) characters."""
+        """Name must not exceed MAX_ZONE_NAME_LENGTH characters."""
         # Exactly 15 chars should work
         zone = ZoneCreate(
             name="A" * MAX_ZONE_NAME_LENGTH,
@@ -1217,11 +1217,11 @@ class TestCreateZone:
         assert "not found" in response.json()["detail"].lower()
 
     def test_create_zone_name_max_length_enforced(self, zone_client, mock_zone_registry_service):
-        """Zone name max length (15) is enforced."""
+        """Zone name max length is enforced at the route."""
         response = zone_client.post(
             "/api/multiroom/zones",
             json={
-                "name": "A" * 16,  # 16 chars, exceeds max
+                "name": "A" * (MAX_ZONE_NAME_LENGTH + 1),
                 "client_ids": ["local", "dc:a6:32:7e:d3:43"]
             }
         )

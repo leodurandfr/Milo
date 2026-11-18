@@ -261,10 +261,15 @@ const displayStructure = computed(() => JSON.stringify(
 ));
 
 // === NAME WIDTH SYNCHRONIZATION ===
-// Align all name columns to the widest name (max 200px)
-function updateNameWidth() {
+// Align all name columns to the widest name, cut at its first NAME_MAX_CHARS
+// characters: a longer one fades out over its last few (MultiroomItem).
+const NAME_MAX_CHARS = 20;
+let nameWidthRun = 0;
+
+async function updateNameWidth() {
   const wrapper = clientsWrapperRef.value;
   if (!wrapper || shouldShowLoading.value) return;
+  const run = ++nameWidthRun;
 
   // Collect all visible names from data
   const allNames = [];
@@ -283,16 +288,26 @@ function updateNameWidth() {
   measure.className = 'heading-3';
   measure.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;pointer-events:none';
   wrapper.appendChild(measure);
+  // A face not loaded yet is measured with the fallback's metrics.
+  await document.fonts.load(getComputedStyle(measure).font, allNames.join(''));
+  if (run !== nameWidthRun || !measure.isConnected) {
+    measure.remove();
+    return;
+  }
 
+  // offsetWidth rounds to the nearest pixel — "Living room" (103.125px) got a
+  // 103px column and lost its last letter — so one pixel covers the half lost.
+  // getBoundingClientRect is fractional but read through the modal's opening
+  // transform.
   let maxWidth = 0;
   for (const name of allNames) {
-    measure.textContent = name;
-    maxWidth = Math.max(maxWidth, measure.offsetWidth);
+    measure.textContent = Array.from(name).slice(0, NAME_MAX_CHARS).join('');
+    maxWidth = Math.max(maxWidth, measure.offsetWidth + 1);
   }
   measure.remove();
 
-  if (maxWidth > 0) {
-    wrapper.style.setProperty('--name-width', `${Math.min(maxWidth, 200)}px`);
+  if (maxWidth > 1) {
+    wrapper.style.setProperty('--name-width', `${maxWidth}px`);
   }
 }
 
