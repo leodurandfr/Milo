@@ -4,6 +4,7 @@
     <!-- Auto-stop on pause (applies to every eligible source) -->
     <ToggleSection
       :title="t('audioPlayback.autoStop')"
+      :description="appliesTo('auto_stop')"
       :enabled="autoStopEnabled"
       @change="toggleAutoStop"
     >
@@ -17,6 +18,7 @@
     <!-- What a source left behind, shown again when it is selected back in time -->
     <ToggleSection
       :title="t('audioPlayback.resume')"
+      :description="appliesTo('resume')"
       :enabled="resumeEnabled"
       @change="toggleResume"
     >
@@ -34,11 +36,13 @@ import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
+import PLAYBACK_SETTINGS_SOURCES from '@/constants/playbackSettingsSources.json';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
-const { t, formatDuration } = useI18n();
+const { t, formatDuration, formatList } = useI18n();
 const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
@@ -90,6 +94,22 @@ const {
 const {
   enabled: resumeEnabled, shown: resumeShown, set: setResume, toggle: toggleResume
 } = offableSetting('resume_window', 'audio-resume', 600);
+
+/**
+ * The sources a setting acts on, among those the Dock shows, in its order:
+ * a source switched off in the Dock is not one anybody plays.
+ *
+ * @param {'auto_stop'|'resume'} setting - a key of playbackSettingsSources.json
+ */
+function appliesTo(setting) {
+  const acted = PLAYBACK_SETTINGS_SOURCES[setting];
+  const names = settingsStore.sourceOrder
+    .filter(source => settingsStore.dockApps[source] && acted.includes(source))
+    .map(source => t(AUDIO_SOURCE_LABEL_KEYS[source]));
+  return names.length
+    ? t('audioPlayback.appliesTo', { sources: formatList(names) })
+    : t('audioPlayback.appliesToNone');
+}
 
 const durationSteps = (values) => values.map(value => ({ value, label: formatDuration(value) }));
 

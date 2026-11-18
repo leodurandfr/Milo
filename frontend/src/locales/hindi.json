@@ -354,7 +354,9 @@
     "autoStopHint": "विराम के बाद ऑडियो बंद करें:",
     "resume": "पिछला प्लेबैक फिर से शुरू करें",
     "resumeHint": "स्रोत छोड़ने के बाद अंतिम ट्रैक इतनी देर रखें:",
-    "resumeForever": "हमेशा"
+    "resumeForever": "हमेशा",
+    "appliesTo": "इन पर लागू: {sources}",
+    "appliesToNone": "Dock के किसी भी स्रोत पर लागू नहीं"
   },
   "macSettings": {
     "receiver": "रिसेप्शन (Milō)",

@@ -354,7 +354,9 @@
     "autoStopHint": "Audio bei Pause stoppen nach:",
     "resume": "Letzte Wiedergabe fortsetzen",
     "resumeHint": "Letzten Titel nach Verlassen einer Quelle behalten für:",
-    "resumeForever": "Unbegrenzt"
+    "resumeForever": "Unbegrenzt",
+    "appliesTo": "Gilt für: {sources}",
+    "appliesToNone": "Gilt für keine der Quellen im Dock"
   },
   "macSettings": {
     "receiver": "Empfang (Milō)",

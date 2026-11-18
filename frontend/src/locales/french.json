@@ -354,7 +354,9 @@
     "autoStopHint": "Arrêter la lecture après une pause ou un silence de :",
     "resume": "Reprendre la dernière lecture",
     "resumeHint": "Conserver le dernier morceau après avoir quitté une source pendant :",
-    "resumeForever": "Infini"
+    "resumeForever": "Infini",
+    "appliesTo": "S'applique à : {sources}",
+    "appliesToNone": "Ne s'applique à aucune des sources du Dock"
   },
   "macSettings": {
     "receiver": "Réception (Milō)",

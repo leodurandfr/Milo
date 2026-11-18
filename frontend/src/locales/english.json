@@ -354,7 +354,9 @@
     "autoStopHint": "Stop audio when paused for:",
     "resume": "Resume last playback",
     "resumeHint": "Keep the last track after leaving a source for:",
-    "resumeForever": "Forever"
+    "resumeForever": "Forever",
+    "appliesTo": "Applies to: {sources}",
+    "appliesToNone": "Applies to none of the sources in the Dock"
   },
   "macSettings": {
     "receiver": "Reception (Milō)",

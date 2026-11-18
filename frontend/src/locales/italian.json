@@ -354,7 +354,9 @@
     "autoStopHint": "Interrompere l'audio dopo una pausa di:",
     "resume": "Riprendi l'ultima riproduzione",
     "resumeHint": "Conservare l'ultimo brano dopo aver lasciato una sorgente per:",
-    "resumeForever": "Per sempre"
+    "resumeForever": "Per sempre",
+    "appliesTo": "Si applica a: {sources}",
+    "appliesToNone": "Non si applica a nessuna delle sorgenti del Dock"
   },
   "macSettings": {
     "receiver": "Ricezione (Milō)",
