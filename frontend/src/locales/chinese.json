@@ -351,7 +351,10 @@
   },
   "audioPlayback": {
     "autoStop": "暂停时自动停止",
-    "autoStopHint": "暂停后停止音频:"
+    "autoStopHint": "暂停后停止音频:",
+    "resume": "恢复上次播放",
+    "resumeHint": "离开音源后保留最后一首曲目:",
+    "resumeForever": "永久"
   },
   "macSettings": {
     "receiver": "接收（Milō）",

@@ -20,6 +20,7 @@ from backend.core.models.audio_wire import AudioState, PositionAnchor
 from backend.core.models.session import EndReason
 from backend.core.network.models import NetworkStatus
 from backend.core.models.settings_config import (
+    AudioResumeConfig,
     AudioStopConfig,
     BtRemoteConfig,
     BtRemoteStepsConfig,
@@ -495,6 +496,15 @@ class AudioStopChanged(SettingsEvent):
     """
     TYPE = "audio_stop_changed"
     config: AudioStopConfig
+
+
+class AudioResumeChanged(SettingsEvent):
+    """How long a source left with something to resume keeps it changed.
+
+    App.vue settings listener.
+    """
+    TYPE = "audio_resume_changed"
+    config: AudioResumeConfig
 
 
 class ScreenTimeoutChanged(SettingsEvent):

@@ -5,7 +5,7 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-71 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+72 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
@@ -34,6 +34,7 @@ Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`.
 | [`settings/dock_apps_changed`](#settingsdock_apps_changed) | contracted |
 | [`settings/dock_volume_changed`](#settingsdock_volume_changed) | internal |
 | [`settings/audio_stop_changed`](#settingsaudio_stop_changed) | internal |
+| [`settings/audio_resume_changed`](#settingsaudio_resume_changed) | internal |
 | [`settings/screen_timeout_changed`](#settingsscreen_timeout_changed) | internal |
 | [`settings/screen_brightness_changed`](#settingsscreen_brightness_changed) | internal |
 | [`settings/screen_auto_player_changed`](#settingsscreen_auto_player_changed) | internal |
@@ -348,6 +349,15 @@ The delay after which a paused source is stopped changed.
 |---|---|
 | `source` | "settings" |
 | `config` | [AudioStopConfig](#audiostopconfig) |
+
+### settings/audio_resume_changed
+
+How long a source left with something to resume keeps it changed.
+
+| Field | Type |
+|---|---|
+| `source` | "settings" |
+| `config` | [AudioResumeConfig](#audioresumeconfig) |
 
 ### settings/screen_timeout_changed
 
@@ -886,6 +896,12 @@ The banner of the last Milō update was closed, for every screen (PATCH /api/pro
 | Field | Type |
 |---|---|
 | `auto_stop_delay` | number |
+
+### AudioResumeConfig
+
+| Field | Type |
+|---|---|
+| `resume_window` | number \| null |
 
 ### ScreenTimeoutConfig
 

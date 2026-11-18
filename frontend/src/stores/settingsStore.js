@@ -69,8 +69,12 @@ export const useSettingsStore = defineStore('settings', () => {
   // === AUDIO PLAYBACK ===
   // Global behavior applied to every eligible audio source:
   // - auto_stop_delay: stop a paused (or silent) source after N seconds (0 = disabled)
+  // - resume_window: how long a source left with something to resume keeps it,
+  //   in seconds (0 = nothing kept past the departure)
+  // Two categories on the wire (audio_stop, audio_resume), one panel here.
   const audioPlayback = ref({
-    auto_stop_delay: 120.0
+    auto_stop_delay: 120.0,
+    resume_window: 600.0
   });
 
   // === RADIO ===
@@ -246,7 +250,7 @@ export const useSettingsStore = defineStore('settings', () => {
         syncDockOrders(enabledApps);
         setIfChanged(dockVolume, d.dock_volume);
 
-        setIfChanged(audioPlayback, d.audio_stop);
+        setIfChanged(audioPlayback, { ...d.audio_stop, ...d.audio_resume });
         setIfChanged(screenTimeout, d.screen_timeout);
         setIfChanged(screenBrightness, d.screen_brightness);
         setIfChanged(screenAutoPlayer, d.screen_auto_player);

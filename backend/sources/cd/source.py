@@ -292,9 +292,10 @@ class CdSource(MpvAudioSource):
 
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
-        """Keep the track and second to resume (SOURCE_SWITCH), release the
-        drive and mpv. A disc inserted under CD and not played yet is, on
-        the next open, a disc already in the slot: preloaded paused."""
+        """Keep the track to resume (SOURCE_SWITCH; at 0:00 once the source
+        is left, see _mark_resume_point_left), release the drive and mpv. A disc
+        inserted under CD and not played yet is, on the next open, a disc
+        already in the slot: preloaded paused."""
         self._play_on_ready = False
         await self._end_with_position(EndReason.SOURCE_SWITCH)
         await self._cleanup()
@@ -763,6 +764,14 @@ class CdSource(MpvAudioSource):
         if isinstance(session, CdSession):
             return session.track, session.track_position
         return self._resume_track()
+
+    def _mark_resume_point_left(self) -> None:
+        """Left for another source, a disc is picked up again from the start
+        of the track it was on — the track still on screen, at 0:00."""
+        super()._mark_resume_point_left()
+        point = self._resume_point
+        if point is not None and point.position_ms:
+            self._set_resume_point(replace(point, position_ms=0))
 
     def _resume_content(self, session: CdSession):
         return (

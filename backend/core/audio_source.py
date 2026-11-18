@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 import asyncio
 import logging
@@ -681,12 +681,19 @@ class BaseAudioSource(ABC):
         if isinstance(message, Command):
             return await self._run_command(message.name, message.params)
         if isinstance(message, Lifecycle):
+            # RELEASE and ACQUIRE are a multiroom reroute of the source that
+            # stays selected, whose resume point carries the session across it:
+            # only START and STOP can be a selection changing.
             if message.step is LifecycleStep.START:
+                await self._expire_resume_point()
                 self._started = bool(await self._run_start())
                 return self._started
             if message.step is LifecycleStep.STOP:
                 self._started = False
-                return await self._run_stop()
+                stopped = await self._run_stop()
+                if not self._is_selected():
+                    self._mark_resume_point_left()
+                return stopped
             if message.step is LifecycleStep.RELEASE:
                 self._started = False
                 return await self._do_release()
@@ -1154,9 +1161,66 @@ class BaseAudioSource(ABC):
         """Hook: what a source releases when a session ends (Radio: Shazam)."""
 
     def _set_resume_point(self, point: Optional[ResumePoint]) -> None:
-        """Replace the resume point. It has no expiry: what was listened stays
-        until a session replaces it or an end in `forget_on` drops it."""
+        """Replace the resume point. While the source stays selected it has no
+        expiry: what was listened stays until a session replaces it or an end
+        in `forget_on` drops it. Once the source is left, it outlives the
+        departure only for `audio.resume_window` (_expire_resume_point)."""
         self._resume_point = point
+
+    RESUME_WINDOW_SETTINGS_KEY = "audio.resume_window"
+
+    def _is_selected(self) -> bool:
+        """Whether this source is the one selected. A switch selects the next
+        source before it stops this one, so a STOP that finds it still selected
+        is not a departure: the stop that settles a start which failed (its
+        Retry starts it again), a backend shutting down."""
+        return (
+            self.state_machine is not None
+            and self.state_machine.system_state.active_source.value == self.source_id
+        )
+
+    def _mark_resume_point_left(self) -> None:
+        """The source was left with what it would resume. Stamped once —
+        a second STOP with no START between them (a teardown retried) is the
+        same departure, and must not move its start. A source that leaves
+        something other than what it ended on extends it (CD: 0:00)."""
+        point = self._resume_point
+        if point is not None and point.left_at is None:
+            self._set_resume_point(replace(point, left_at=monotonic()))
+
+    async def _expire_resume_point(self) -> None:
+        """START: what was left behind is shown again only when the source is
+        selected back within `audio.resume_window` seconds of leaving it — 0
+        keeps nothing past a departure, null keeps it for good. Before
+        `_do_start`, so a source that restores its point at start
+        (`restore_on_start`) never restores an expired one. An unreadable
+        setting keeps the point: forgetting what someone listened to on a read
+        failure is the worse error."""
+        point = self._resume_point
+        if point is None or point.left_at is None:
+            return
+        window = await self._resume_window()
+        away = monotonic() - point.left_at
+        if window is not None and (window == 0 or away > window):
+            self._logger.info(
+                f"Forgetting the resume point: left {away:.0f}s ago, "
+                f"past the {window:.0f}s resume window"
+            )
+            self._set_resume_point(None)
+            return
+        self._set_resume_point(replace(point, left_at=None))
+
+    async def _resume_window(self) -> Optional[float]:
+        """`audio.resume_window` in seconds, or None for no limit — stored as
+        null, or a setting that cannot be read."""
+        if not self._settings_service:
+            return None
+        try:
+            window = await self._settings_service.get_setting(self.RESUME_WINDOW_SETTINGS_KEY)
+        except Exception as e:
+            self._logger.error(f"Reading the resume window failed, keeping the resume point: {e}")
+            return None
+        return None if window is None else float(window)
 
     # === Sessions a daemon holds (docs: source architecture, "reconcile") ===
     #

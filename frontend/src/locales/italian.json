@@ -351,7 +351,10 @@
   },
   "audioPlayback": {
     "autoStop": "Stop automatico in pausa",
-    "autoStopHint": "Interrompere l'audio dopo una pausa di:"
+    "autoStopHint": "Interrompere l'audio dopo una pausa di:",
+    "resume": "Riprendi l'ultima riproduzione",
+    "resumeHint": "Conservare l'ultimo brano dopo aver lasciato una sorgente per:",
+    "resumeForever": "Per sempre"
   },
   "macSettings": {
     "receiver": "Ricezione (Milō)",

@@ -263,6 +263,24 @@ class TestSettingsService:
         })
         assert result['audio']['auto_stop_delay'] == 120.0
 
+    def test_validate_and_merge_resume_window_keeps_null_as_no_limit(self, service):
+        """null is the slider's last stop, "forever": read as a missing value
+        it would come back as the default, and the choice would undo itself."""
+        result = service._validate_and_merge({'audio': {'resume_window': None}})
+        assert result['audio']['resume_window'] is None
+
+    def test_validate_and_merge_resume_window_clamps_like_a_delay(self, service):
+        """0 is off, a value under a second is a second, past a day is a day,
+        and anything that is not a number is the default."""
+        merged = lambda raw: service._validate_and_merge({'audio': {'resume_window': raw}})['audio']['resume_window']
+        assert merged(0) == 0.0
+        assert merged(0.5) == 1.0
+        assert merged(10 ** 6) == 86400.0
+        assert merged('broken') == service.defaults['audio']['resume_window']
+        assert service._validate_and_merge({'audio': {}})['audio']['resume_window'] == (
+            service.defaults['audio']['resume_window']
+        )
+
     def test_validate_and_merge_dock_apps(self, service):
         """Dock apps validation test"""
         # Valid apps

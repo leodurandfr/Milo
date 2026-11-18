@@ -474,17 +474,33 @@ async def test_leaving_the_source_lets_mpv_go_before_the_reader_is_joined(world)
     assert w.log.index("mpv.stop") < w.log.index("reader.stop")
 
 
-async def test_leaving_and_coming_back_resumes_the_track_paused(world):
-    """SOURCE_SWITCH keeps the resume point: back on the CD, the track and
-    second are loaded, parked — never played."""
+async def test_leaving_and_coming_back_resumes_the_track_paused_at_its_start(world):
+    """SOURCE_SWITCH keeps the resume point: back on the CD, the track it was
+    on is loaded from 0:00 (owner, 2026-11-18), parked — never played."""
     w = await world()
     await _playing_track(w, 3, 20)
     await w.leave()
     assert not w.reader.running
     await w.select()
 
-    assert w.reader.starts[-1][0] == kernel_lba(3, 20)
+    assert w.reader.starts[-1][0] == kernel_lba(3, 0)
+    assert w.track() == 3
     assert w.phase() == "paused"
+
+
+async def test_back_past_the_resume_window_the_disc_starts_over(world, monkeypatch):
+    """The track left is offered only within `audio.resume_window`; past it a
+    disc still in the drive is what any READY disc is: track 1 at 0:00."""
+    from backend.core import audio_source
+    w = await world(settings={"audio.resume_window": 300})
+    monkeypatch.setattr(audio_source, "monotonic", lambda: w.clock.now)
+    await _playing_track(w, 3, 20)
+    await w.leave()
+    await w.advance(301)
+    await w.select()
+
+    assert w.track() == 1
+    assert w.reader.starts[-1][0] == kernel_lba(1, 0)
 
 
 async def test_the_auto_stop_releases_the_drive_and_keeps_the_point(world):

@@ -351,7 +351,10 @@
   },
   "audioPlayback": {
     "autoStop": "विराम पर स्वतः बंद",
-    "autoStopHint": "विराम के बाद ऑडियो बंद करें:"
+    "autoStopHint": "विराम के बाद ऑडियो बंद करें:",
+    "resume": "पिछला प्लेबैक फिर से शुरू करें",
+    "resumeHint": "स्रोत छोड़ने के बाद अंतिम ट्रैक इतनी देर रखें:",
+    "resumeForever": "हमेशा"
   },
   "macSettings": {
     "receiver": "रिसेप्शन (Milō)",

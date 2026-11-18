@@ -65,6 +65,7 @@ SETTINGS_ALLOWED = frozenset({
     "screen.edge_inset_mm",
     "screen.theme",
     "audio.auto_stop_delay",
+    "audio.resume_window",
     "routing.multiroom_enabled",
     "routing.equalizer_effects_enabled",
     "dock.enabled_apps",

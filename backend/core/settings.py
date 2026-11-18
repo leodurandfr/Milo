@@ -10,7 +10,7 @@ import re
 import aiofiles
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, Iterable, get_args
+from typing import Any, Dict, Iterable, Optional, get_args
 
 from backend.config.constants import (
     ALLOWED_FRAME_LENGTHS,
@@ -103,6 +103,10 @@ class SettingsService:
             },
             "audio": {
                 "auto_stop_delay": 120.0,
+                # How long a source left with something to resume keeps it
+                # (seconds); 0 keeps nothing past the departure, null keeps it
+                # for good.
+                "resume_window": 600.0,
             },
             "routing": {
                 "multiroom_enabled": False,
@@ -394,15 +398,14 @@ class SettingsService:
             'packet_interleaving': bool(mac_input.get('packet_interleaving', mac_d['packet_interleaving'])),
         }
 
-        # Audio (auto-stop on pause)
+        # Audio (auto-stop on pause, the resume window)
         audio_input = settings.get('audio', {})
-        try:
-            stop_raw = float(audio_input.get('auto_stop_delay', d['audio']['auto_stop_delay']))
-        except (TypeError, ValueError):
-            stop_raw = d['audio']['auto_stop_delay']
         validated['audio'] = {
-            # 0 = disabled, otherwise clamp to [1.0, 9999.0]
-            'auto_stop_delay': 0.0 if stop_raw == 0.0 else max(1.0, min(9999.0, stop_raw))
+            'auto_stop_delay': self._seconds_or_off(audio_input, 'auto_stop_delay', d['audio'], upper=9999.0),
+            # null is no limit: what was left is kept for good.
+            'resume_window': self._seconds_or_off(
+                audio_input, 'resume_window', d['audio'], upper=86400.0, unlimited=True,
+            ),
         }
 
         # Radio settings
@@ -574,6 +577,22 @@ class SettingsService:
     def invalidate_cache(self) -> None:
         """Invalidates cache to force a reload"""
         self._cache = None
+
+    @staticmethod
+    def _seconds_or_off(
+        section: Dict[str, Any], key: str, defaults: Dict[str, Any], upper: float,
+        unlimited: bool = False,
+    ) -> Optional[float]:
+        """A delay in seconds where 0 is the switch off: 0, or clamped to
+        [1, upper]; anything that is not a number is the default. `unlimited`:
+        a stored null is a choice (no limit), kept as null."""
+        if unlimited and key in section and section[key] is None:
+            return None
+        try:
+            raw = float(section.get(key, defaults[key]))
+        except (TypeError, ValueError):
+            raw = float(defaults[key])
+        return 0.0 if raw == 0.0 else max(1.0, min(upper, raw))
 
     @staticmethod
     def _lookup(settings: Dict[str, Any], key_path: str) -> Any:

@@ -6,6 +6,8 @@ what the wire says (`details.spotify`, the session) and what Milō sent the
 daemon — the browser's play button is the only way a session starts without a
 phone, so a play sent twice, or sent to nobody, is a bug only a unit shows.
 """
+import json
+
 import pytest
 
 from backend.sources.spotify.source import repeat_mode, repeat_posts
@@ -204,3 +206,108 @@ async def test_a_late_silent_signin_is_read_without_a_client(monkeypatch, tmp_pa
         assert len(w.restarts) == 1
     finally:
         await w.source.shutdown()
+
+
+# === The resume point: what a session left, played again with no phone ===
+
+@pytest.fixture
+async def resuming(monkeypatch, tmp_path):
+    """A stored account, with CLOCK_MONOTONIC on the scenario's clock (the
+    resume window is timed on it)."""
+    from backend.core import audio_source
+    w = SpotifyWorld(
+        monkeypatch, tmp_path, stored=ACCOUNT, settings={"audio.resume_window": 300},
+    )
+    monkeypatch.setattr(audio_source, "monotonic", lambda: w.clock.now)
+    await w.select()
+    yield w
+    await w.source.shutdown()
+
+
+async def _left_after(world, seconds: float):
+    """A context played `seconds` into its track, then another source selected
+    (go-librespot stopped with it), then Spotify selected back."""
+    await world.command("play_context", {"uri": PLAYLIST, "skip_to_uri": TRACK})
+    await world.advance(seconds)
+    await world.leave()
+    await world.select()
+
+
+async def test_back_on_spotify_the_track_left_is_offered_paused(resuming):
+    """go-librespot keeps nothing across its exit: without a resume point the
+    bar came back empty after any other source was played."""
+    await _left_after(resuming, 30)
+
+    state = resuming.state()
+    assert resuming.session() is None
+    assert state["resume"]["title"]
+    assert state["resume"]["position_ms"] > 0
+    assert state["controls"] == ["resume"]
+    assert details(resuming)["context_uri"] == PLAYLIST
+    assert details(resuming)["track_uri"] == TRACK
+
+
+async def test_resume_plays_the_context_from_its_track_at_its_second(resuming):
+    """One press, one play — the context, the track it lists, the second it
+    was left at: go-librespot loads it paused and seeks before it plays."""
+    await _left_after(resuming, 30)
+    left_at = resuming.state()["resume"]["position_ms"]
+    resuming.daemon.posted.clear()
+
+    result = await resuming.command("resume")
+
+    assert result["success"] is True
+    assert resuming.daemon.posted == [
+        ("play", {"uri": PLAYLIST, "position": left_at, "skip_to_uri": TRACK}),
+    ]
+    assert resuming.playing()
+
+
+async def test_the_hardware_toggle_resumes_it_too(resuming):
+    """The knob and the remotes send `playpause`: with no session it is the
+    same press as the bar's play button, not a refusal."""
+    await _left_after(resuming, 30)
+    resuming.daemon.posted.clear()
+
+    await resuming.command("playpause")
+
+    assert [command for command, _ in resuming.daemon.posted] == ["play"]
+
+
+async def test_another_accounts_track_is_not_offered(resuming):
+    """A friend cast, then the daemon signs back in as the stored account:
+    the friend's playlist may not open on it, so nothing is offered."""
+    await resuming.cast_from("friend-account")
+    await resuming.advance(10)
+    resuming.daemon.stored = ACCOUNT
+    resuming.state_file.write_text(json.dumps({
+        "device_id": "0123456789abcdef0123456789abcdef01234567", "event_manager": None,
+        "credentials": {"username": ACCOUNT, "data": "c3RvcmVkLWJsb2I="}, "last_volume": 42,
+    }))
+    await resuming.leave()
+    await resuming.select()
+
+    assert details(resuming)["account"] == ACCOUNT
+    assert resuming.state()["resume"] is None
+    assert resuming.state()["controls"] == []
+
+
+async def test_what_plays_on_another_device_comes_before_the_track_left(resuming):
+    """The account playing elsewhere is newer than what Milō left: the bar
+    offers to take it over, not to resume."""
+    await _left_after(resuming, 30)
+
+    await resuming.plays_elsewhere()
+
+    assert resuming.state()["resume"] is None
+    assert resuming.state()["controls"] == ["take_over"]
+
+
+async def test_past_the_window_nothing_is_offered(resuming):
+    await resuming.command("play_context", {"uri": PLAYLIST, "skip_to_uri": TRACK})
+    await resuming.leave()
+    await resuming.advance(301)
+    await resuming.select()
+
+    assert resuming.state()["resume"] is None
+    assert resuming.state()["controls"] == []

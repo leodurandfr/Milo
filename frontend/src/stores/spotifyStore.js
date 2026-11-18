@@ -48,10 +48,11 @@ export const useSpotifyStore = defineStore('spotify', () => {
   const currentTrackUri = computed(() => details.value?.track_uri ?? null);
   const currentContextUri = computed(() => details.value?.context_uri ?? null);
 
-  // The track a session plays. Spotify keeps no resume point of its own (the
-  // daemon keeps its context), so nothing shows once the session has ended.
+  // The track a session plays, else what `resume` plays again: the resume
+  // point, which the backend publishes only while it can be played (the same
+  // account, no other device of it active) and the details then name.
   const nowPlaying = computed(() => {
-    const live = session.value;
+    const live = session.value ?? selected.value?.resume ?? null;
     const d = details.value;
     if (!live || !d) return null;
     return {

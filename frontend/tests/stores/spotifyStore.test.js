@@ -73,6 +73,29 @@ describe('spotifyStore', () => {
     });
   });
 
+  it('describes the track left behind when no session plays, so the bar comes back with it', () => {
+    publish({
+      session: null,
+      resume: {
+        title: 'Says', artist: 'Nils Frahm', album: 'Spaces', artwork: null,
+        duration_ms: 523000, position_ms: 30000,
+      },
+      details: details({ context_uri: PLAYLIST, track_uri: TRACK, album_uri: 'spotify:album:spaces' }),
+    });
+
+    expect(store.nowPlaying).toMatchObject({
+      title: 'Says', artist: 'Nils Frahm', trackUri: TRACK, contextUri: PLAYLIST,
+      albumUri: 'spotify:album:spaces',
+    });
+    expect(store.isPlaying).toBe(false);
+  });
+
+  it('describes nothing with neither a session nor a resume point', () => {
+    publish({ session: null, resume: null, details: details() });
+
+    expect(store.nowPlaying).toBeNull();
+  });
+
   it('drops what it loaded for one account when another signs in', async () => {
     publish({ details: details() });
     apiCall.get.mockResolvedValueOnce(ok(HOME));

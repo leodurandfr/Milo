@@ -61,6 +61,11 @@ class AudioStopConfig(BaseModel):
     auto_stop_delay: float
 
 
+class AudioResumeConfig(BaseModel):
+    # Seconds; 0 keeps nothing past a departure, null keeps it for good.
+    resume_window: Optional[float]
+
+
 class ScreenTimeoutConfig(BaseModel):
     screen_timeout_enabled: bool
     screen_timeout_seconds: int

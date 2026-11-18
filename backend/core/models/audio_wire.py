@@ -263,7 +263,9 @@ class SpotifyDetails(BaseModel):
     account: Optional[str]
     # Stored credentials handed to the daemon, no account confirmed yet.
     signing_in: bool
-    # What plays now; all four null with no session.
+    # What plays now, or with no session what `resume` plays again (the
+    # resume point, while it can be: the same account, no other device
+    # active); all four null otherwise.
     context_uri: Optional[str]
     context_name: Optional[str]
     # The entry playing, by the uri its context lists — a listing row's

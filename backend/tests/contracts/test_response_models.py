@@ -280,6 +280,7 @@ def test_bulk_settings_full_key_set():
         "dock_volume": {"milo_screen": True, "desktop_browser": True, "phone_browser": True,
                         "ios_app": False},
         "audio_stop": {"auto_stop_delay": 120.0},
+        "audio_resume": {"resume_window": 600.0},
         "screen_timeout": {"screen_timeout_enabled": True, "screen_timeout_seconds": 30},
         "screen_brightness": {"brightness_on": 6},
         "screen_ui_scale": {"ui_scale": 1.15},

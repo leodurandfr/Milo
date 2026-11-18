@@ -26,8 +26,8 @@ When:
 | Command | When | Parameters | Stability |
 |---|---|---|---|
 | `pause` | session | — | contracted |
-| `resume` | session | — | contracted |
-| `playpause` | session | — | contracted |
+| `resume` | resume | — | contracted |
+| `playpause` | resume | — | contracted |
 | `seek` | session | `position_ms`: number | contracted |
 | `skip` | session | `seconds`: number | contracted |
 | `next` | session | `uri`: string \| null (optional) | contracted |

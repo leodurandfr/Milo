@@ -5,20 +5,32 @@
     <ToggleSection
       :title="t('audioPlayback.autoStop')"
       :enabled="autoStopEnabled"
-      @change="handleAutoStopToggle"
+      @change="toggleAutoStop"
     >
-      <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
       <RangeSlider :label="t('audioPlayback.autoStopHint')"
-        :model-value="autoStopEnabled ? config.auto_stop_delay : lastAutoStop"
+        :model-value="autoStopShown"
         :steps="autoStopSteps"
-        @change="setAutoStopDelay"
+        @change="setAutoStop"
+      />
+    </ToggleSection>
+
+    <!-- What a source left behind, shown again when it is selected back in time -->
+    <ToggleSection
+      :title="t('audioPlayback.resume')"
+      :enabled="resumeEnabled"
+      @change="toggleResume"
+    >
+      <RangeSlider :label="t('audioPlayback.resumeHint')"
+        :model-value="resumeShown ?? FOREVER"
+        :steps="resumeSteps"
+        @change="(value) => setResume(value === FOREVER ? null : value)"
       />
     </ToggleSection>
   </SectionStack>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -30,50 +42,61 @@ const { t, formatDuration } = useI18n();
 const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
-// Local state for instant responsiveness
-const config = ref({
-  auto_stop_delay: 120
-});
+// The resume window's last stop: stored as null (no limit), which a slider
+// cannot hold. Past every duration, so a stored value off the grid snaps to the
+// nearest duration (RangeSlider) and never to "forever".
+const FOREVER = Number.MAX_SAFE_INTEGER;
 
-// Remember last non-zero value so toggling OFF then ON restores the user choice
-const lastAutoStop = ref(120);
+/**
+ * One section of this panel: a switch whose off is stored as 0, over a slider
+ * of durations. Off keeps the last value, so switching back on restores it
+ * and the section collapses on it rather than on the first stop.
+ *
+ * @param {string} key - the setting in settingsStore.audioPlayback
+ * @param {string} endpoint - its PUT /api/settings/<endpoint>
+ * @param {number} onValue - what switching on picks when the setting was
+ *   already off as the panel opened, so there is no last value to restore
+ */
+function offableSetting(key, endpoint, onValue) {
+  const stored = settingsStore.audioPlayback[key];
+  const value = ref(stored);
+  const last = ref(stored !== 0 ? stored : onValue);
+  const enabled = computed(() => value.value !== 0);
+  const shown = computed(() => (enabled.value ? value.value : last.value));
 
-const autoStopEnabled = computed(() => config.value.auto_stop_delay !== 0);
-
-const autoStopSteps = computed(() => [30, 60, 120, 300, 600, 1200, 1800, 3600, 7200]
-  .map(value => ({ value, label: formatDuration(value) })));
-
-function syncFromStore() {
-  const playback = settingsStore.audioPlayback;
-  config.value.auto_stop_delay = playback.auto_stop_delay;
-  if (playback.auto_stop_delay > 0) {
-    lastAutoStop.value = playback.auto_stop_delay;
+  function sync(stored) {
+    value.value = stored;
+    if (stored !== 0) last.value = stored;
   }
+
+  function set(next) {
+    sync(next);
+    settingsStore.updateAudioPlayback({ [key]: next });
+    updateSetting(endpoint, { [key]: next });
+  }
+
+  function toggle(on) {
+    set(on ? last.value : 0);
+  }
+
+  watch(() => settingsStore.audioPlayback[key], sync);
+
+  return { enabled, shown, set, toggle };
 }
 
-function handleAutoStopToggle(enabled) {
-  const next = enabled ? lastAutoStop.value : 0;
-  if (!enabled && config.value.auto_stop_delay > 0) {
-    lastAutoStop.value = config.value.auto_stop_delay;
-  }
-  config.value.auto_stop_delay = next;
-  settingsStore.updateAudioPlayback({ auto_stop_delay: next });
-  updateSetting('audio-stop', { auto_stop_delay: next });
-}
+const {
+  enabled: autoStopEnabled, shown: autoStopShown, set: setAutoStop, toggle: toggleAutoStop
+} = offableSetting('auto_stop_delay', 'audio-stop', 120);
+const {
+  enabled: resumeEnabled, shown: resumeShown, set: setResume, toggle: toggleResume
+} = offableSetting('resume_window', 'audio-resume', 600);
 
-function setAutoStopDelay(value) {
-  if (value > 0) {
-    lastAutoStop.value = value;
-  }
-  config.value.auto_stop_delay = value;
-  settingsStore.updateAudioPlayback({ auto_stop_delay: value });
-  updateSetting('audio-stop', { auto_stop_delay: value });
-}
+const durationSteps = (values) => values.map(value => ({ value, label: formatDuration(value) }));
 
-// Re-sync when the store changes (e.g. WS event from another device)
-watch(() => settingsStore.audioPlayback, syncFromStore, { deep: true });
+const autoStopSteps = computed(() => durationSteps([30, 60, 120, 300, 600, 1200, 1800, 3600, 7200]));
 
-onMounted(() => {
-  syncFromStore();
-});
+const resumeSteps = computed(() => [
+  ...durationSteps([15, 30, 60, 120, 300, 600, 1800, 3600, 7200, 21600, 86400]),
+  { value: FOREVER, label: t('audioPlayback.resumeForever') },
+]);
 </script>

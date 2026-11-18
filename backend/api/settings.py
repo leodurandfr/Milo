@@ -31,6 +31,7 @@ from backend.api.models import (
     IrRemoteStepsRequest,
     DockAppsRequest,
     DockVolumeRequest,
+    AudioResumeRequest,
     AudioStopRequest,
     ScreenTimeoutRequest,
     ScreenBrightnessRequest,
@@ -47,6 +48,8 @@ from backend.api.models import (
     HardwareConfigRequest,
 )
 from backend.core.models.ws_events import (
+    AudioResumeChanged,
+    AudioResumeConfig,
     AudioStopChanged,
     AudioStopConfig,
     BtRemoteStepsChanged,
@@ -263,6 +266,7 @@ def create_settings_router(
             "dock_apps": {"enabled_apps": all_settings['dock']['enabled_apps']},
             "dock_volume": all_settings['dock']['volume'],
             "audio_stop": {"auto_stop_delay": all_settings['audio']['auto_stop_delay']},
+            "audio_resume": {"resume_window": all_settings['audio']['resume_window']},
             "screen_timeout": {
                 "screen_timeout_enabled": timeout_seconds != 0,
                 "screen_timeout_seconds": timeout_seconds
@@ -617,8 +621,24 @@ def create_settings_router(
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('audio.auto_stop_delay', delay),
             section='audio',
-            build_event=lambda audio: AudioStopChanged(config=AudioStopConfig(**audio)),
+            build_event=lambda audio: AudioStopChanged(
+                config=AudioStopConfig(auto_stop_delay=audio['auto_stop_delay'])
+            ),
             reload_callback=state_machine.reload_auto_stop_for_all_sources
+        )
+
+    # How long a source left with something to resume keeps it. Read by each
+    # source when it is selected again, so nothing live needs reloading.
+    @router.put("/audio-resume")
+    async def set_audio_resume(payload: AudioResumeRequest):
+        window = payload.resume_window
+
+        return await _handle_setting_update(
+            setter=lambda: settings.set_setting('audio.resume_window', window),
+            section='audio',
+            build_event=lambda audio: AudioResumeChanged(
+                config=AudioResumeConfig(resume_window=audio['resume_window'])
+            ),
         )
 
     # Screen timeout

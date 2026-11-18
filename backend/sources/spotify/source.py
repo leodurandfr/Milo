@@ -143,7 +143,9 @@ from pydantic import BaseModel
 from backend.core import audio_source
 from backend.core.audio_source import POSITION_TOLERANCE_MS, BaseAudioSource, Result
 from backend.core.models.audio_state import NetworkRequirement
-from backend.core.models.audio_wire import PositionAnchor, SpotifyDetails, SpotifyJam, SpotifyJamMember, SpotifyRemote
+from backend.core.models.audio_wire import (
+    PositionAnchor, ResumeView, SpotifyDetails, SpotifyJam, SpotifyJamMember, SpotifyRemote,
+)
 from backend.core.models.session import (
     Anchor, CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
     Session,
@@ -448,6 +450,21 @@ class SpotifySession(Session):
     queue_index: Optional[int] = None
 
 
+@dataclass(frozen=True)
+class SpotifyResume:
+    """What a session leaves behind (the resume point's content): enough to
+    draw the track and to play it again, from its context, on the account
+    that played it. Not the play order: go-librespot rebuilds it from the
+    context, and the user's own queue does not survive the daemon's exit."""
+    account: Optional[str]
+    track: Dict[str, Any]
+    listed_uri: Optional[str]
+    context_uri: Optional[str]
+    context_name: Optional[str]
+    album_uri: Optional[str]
+    artists: List[Dict[str, Optional[str]]]
+
+
 class SpotifySource(BaseAudioSource):
     """
     Spotify audio source using go-librespot.
@@ -463,9 +480,24 @@ class SpotifySource(BaseAudioSource):
     # go-librespot reopens its output in place (POST /player/output): a
     # multiroom toggle moves the writer and keeps the session.
     REROUTE = ReroutePolicy.KEEP_SESSION
-    # Milō starts a session too (play_context, on the account the daemon is
-    # signed in as), but go-librespot keeps the context itself: nothing is kept.
-    RESUME_POLICY = ResumePolicy(capture_on=frozenset(), forget_on=frozenset(EndReason))
+    # Leaving Spotify stops go-librespot, which keeps nothing across its exit:
+    # what played is kept here, and `resume` plays it again (_resume_from_point).
+    # Every end Milō or the daemon's process causes keeps it the same way — a
+    # long pause (REQUEST_END), a restart for a setting or a profile (USER_STOP;
+    # another account's point is kept but not offered, see _resumable), a
+    # reroute that had to stop the daemon.
+    RESUME_POLICY = ResumePolicy(
+        capture_on=frozenset({
+            EndReason.SOURCE_SWITCH, EndReason.IDLE_TIMEOUT, EndReason.USER_STOP,
+            EndReason.REROUTE, EndReason.DAEMON_DIED, EndReason.STREAM_LOST,
+            EndReason.LOAD_FAILED,
+        }),
+        # The sender let go: a phone took the session back or picked another
+        # output, and what plays is there now (the bar shows it as another
+        # device's). EOF and STORAGE_GONE cannot happen (autoplay never lets a
+        # context end).
+        forget_on=frozenset({EndReason.SENDER_LEFT, EndReason.EOF, EndReason.STORAGE_GONE}),
+    )
     SESSION_DAEMON = True
 
     # The four go-librespot config keys Milō owns: crossfade_duration (from
@@ -1032,6 +1064,9 @@ class SpotifySource(BaseAudioSource):
     }
     COMMAND_SCOPES = {
         **{name: CommandScope.SESSION for name in COMMANDS},
+        # With no session, both play the resume point again.
+        "resume": CommandScope.RESUME,
+        "playpause": CommandScope.RESUME,
         "play_context": CommandScope.CONTENT,
         "take_over": CommandScope.CONTENT,
     }
@@ -1048,6 +1083,9 @@ class SpotifySource(BaseAudioSource):
 
         if cmd == "skip":
             return await self._handle_skip(params)
+
+        if cmd in ("resume", "playpause") and self._session is None:
+            return await self._resume_from_point()
 
         if cmd in ["pause", "resume", "playpause"]:
             return await self._send_api_command(cmd)
@@ -1123,6 +1161,30 @@ class SpotifySource(BaseAudioSource):
         result = await self._send_api_command("shuffle_context", {"shuffle_context": False})
         if not result.get("success"):
             return result
+        return await self._send_api_command("play", payload)
+
+    async def _resume_from_point(self) -> Dict[str, Any]:
+        """Play again what the last session left: its context from its track,
+        at its position. go-librespot (0.10.3+) loads a play that has a
+        position paused and seeks before it plays, so nothing sounds from
+        0:00. The session that follows is the daemon's, as after play_context.
+
+        A track its context does not list (autoplay, past the end of an album)
+        is not found by `skip_to_uri`: go-librespot 0.10.6 then starts the
+        context from its first track, at that position (read in its code, not
+        measured).
+
+        Shuffle and repeat are not brought back: a play with no session starts
+        from a fresh state (measured 2026-10-04), and go-librespot answers the
+        play before the context's tracks are loaded, so a mode sent after it would
+        land on a context that is not there yet."""
+        resume = self._resumable()
+        if resume is None:
+            return self.error_response("Nothing to resume")
+        point = self._resume_point
+        payload: Dict[str, Any] = {"uri": resume.context_uri or point.identity, "position": point.position_ms}
+        if resume.context_uri:
+            payload["skip_to_uri"] = point.identity
         return await self._send_api_command("play", payload)
 
     async def _seek_to(self, position_ms: int) -> Dict[str, Any]:
@@ -2736,16 +2798,64 @@ class SpotifySource(BaseAudioSource):
         # The account is an identity, not a name to show: `senders` stays empty.
         return dict(session.track)
 
+    def _resume_content(self, session: SpotifySession):
+        identity = session.listed_uri or session.uri
+        if identity is None:
+            # Nothing `play` could name: no point to offer.
+            return None
+        resume = SpotifyResume(
+            # The session's sender is the account /status names.
+            account=session.sender,
+            track=dict(session.track),
+            listed_uri=identity,
+            context_uri=session.context_uri,
+            context_name=session.context_name,
+            album_uri=session.album_uri,
+            artists=list(session.artists),
+        )
+        return identity, self._position_now(session) or 0, resume
+
+    def _resumable(self) -> Optional[SpotifyResume]:
+        """The resume point, while it can be played again: on the account it
+        was played on, signed in now (another one's playlist may not open on
+        this one; with nobody signed in, go-librespot answers a play 204), and
+        not while another device of the account plays — what plays there is
+        newer, and the bar offers it instead (`take_over`)."""
+        point = self._resume_point
+        if point is None or self._remote is not None:
+            return None
+        resume = point.content
+        if (
+            not isinstance(resume, SpotifyResume)
+            or self._account is None or resume.account != self._account
+        ):
+            return None
+        return resume
+
+    def _resume_view(self) -> Optional[ResumeView]:
+        resume = self._resumable()
+        if resume is None:
+            return None
+        track = resume.track
+        return ResumeView(
+            title=track.get("title"), artist=track.get("artist"), album=track.get("album"),
+            artwork=track.get("artwork"), duration_ms=track.get("duration_ms"),
+            position_ms=self._resume_point.position_ms,
+        )
+
     def _details(self) -> SpotifyDetails:
         session = self._session if isinstance(self._session, SpotifySession) else None
+        # With no session, what the resume point names: the browser opens its
+        # album and artists, and marks its row, as it does a playing track's.
+        shown = session or self._resumable()
         return SpotifyDetails(
             account=self._account,
             signing_in=self._signing_in,
-            context_uri=session.context_uri if session else None,
-            context_name=session.context_name if session else None,
-            track_uri=session.listed_uri if session else None,
-            album_uri=session.album_uri if session else None,
-            artists=session.artists if session else [],
+            context_uri=shown.context_uri if shown else None,
+            context_name=shown.context_name if shown else None,
+            track_uri=shown.listed_uri if shown else None,
+            album_uri=shown.album_uri if shown else None,
+            artists=shown.artists if shown else [],
             queue=session.queue if session else [],
             queue_index=session.queue_index if session else None,
             shuffle=self._shuffle,
@@ -2757,7 +2867,9 @@ class SpotifySource(BaseAudioSource):
     def _controls(self) -> List[str]:
         session = self._session
         if session is None:
-            return ["take_over"] if self._remote is not None else []
+            if self._remote is not None:
+                return ["take_over"]
+            return ["resume"] if self._resumable() is not None else []
         if session.phase is Phase.LOADING:
             return ["pause", "next", "prev", "set_shuffle", "set_repeat"]
         if session.phase is Phase.PAUSED:

@@ -2,7 +2,7 @@
 """
 Pydantic models for API request validation
 """
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 from typing import Annotated, Optional, Dict, Any, List, Literal
 
 from backend.config.constants import (
@@ -338,17 +338,25 @@ class DockVolumeRequest(StrictModel):
 # SETTINGS - AUDIO AUTO-STOP
 # =============================================================================
 
+def _off_or_at_least_one_second(v: Optional[float]) -> Optional[float]:
+    """A delay whose 0 is the switch off: anything else is at least 1 s."""
+    if v is not None and v != 0 and v < 1.0:
+        raise ValueError('Must be 0 (off) or >= 1.0 seconds')
+    return v
+
+
 class AudioStopRequest(StrictModel):
     """Global audio auto-stop delay request (applies to all sources)"""
-    auto_stop_delay: float = Field(..., ge=0, le=9999)
+    auto_stop_delay: Annotated[float, AfterValidator(_off_or_at_least_one_second)] = Field(..., ge=0, le=9999)
 
-    @field_validator('auto_stop_delay')
-    @classmethod
-    def validate_delay(cls, v: float) -> float:
-        # 0 means disabled, otherwise must be >= 1.0
-        if v != 0 and v < 1.0:
-            raise ValueError('Delay must be 0 (disabled) or >= 1.0 seconds')
-        return v
+
+class AudioResumeRequest(StrictModel):
+    """How long a source left with something to resume keeps it, in seconds
+    (applies to all sources); 0 keeps nothing past the departure, null keeps
+    it for good."""
+    resume_window: Annotated[Optional[float], AfterValidator(_off_or_at_least_one_second)] = Field(
+        ..., ge=0, le=86400,
+    )
 
 
 # =============================================================================

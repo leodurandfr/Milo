@@ -235,12 +235,17 @@ class ResumePoint:
 
     `phase` is the phase the session had when it ended: a multiroom reroute
     restores it (playing stays playing), every other restore lands paused.
+
+    `left_at` is when the source was left with this point (CLOCK_MONOTONIC
+    seconds), None while it stays selected: the point outlives a departure
+    only for `audio.resume_window` (BaseAudioSource._expire_resume_point).
     """
     identity: str
     position_ms: int
     reason: EndReason
     content: Any = None
     phase: Phase = Phase.PAUSED
+    left_at: Optional[float] = None
 
 
 class IdlePolicy(str, Enum):
