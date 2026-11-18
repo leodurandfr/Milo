@@ -148,7 +148,7 @@ async def test_sender_stops_and_disconnects(airplay):
     check_recording("airplay", "sender_stops_and_disconnects", airplay.wire)
 
 
-async def test_a_music_pause_is_ended_by_the_daemon(monkeypatch, tmp_path):
+async def test_a_music_pause_is_kept_with_its_phone(monkeypatch, tmp_path):
     airplay = AirPlay(monkeypatch, tmp_path, settings={"audio.auto_stop_delay": 30})
     await airplay.select()
     await _music_starts_track_a(airplay)
@@ -156,10 +156,10 @@ async def test_a_music_pause_is_ended_by_the_daemon(monkeypatch, tmp_path):
     await airplay.seconds_pass()
     await airplay.tears_the_stream_down()        # the phone drops its stream, connected
     await airplay.wire.snapshot_rest()
-    await airplay.seconds_pass(2)                # the 30 s timeout asks for DropSession
+    await airplay.seconds_pass(2)                # past the auto-stop delay: nothing ends
     await airplay.wire.snapshot_rest()
     await airplay.leave()
-    check_recording("airplay", "a_music_pause_is_ended_by_the_daemon", airplay.wire)
+    check_recording("airplay", "a_music_pause_is_kept_with_its_phone", airplay.wire)
 
 
 async def test_daemon_dies_under_the_session(airplay):

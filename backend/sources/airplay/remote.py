@@ -342,6 +342,3 @@ class ShairportRemote:
         reply = await self._call(PROPERTIES_IFACE, "Set", "ssv", [interface, name, value])
         return reply is not None
 
-    async def drop_session(self) -> bool:
-        """Ask shairport-sync to end its session. True when it took the request."""
-        return await self._call(BUS_NAME, "DropSession") is not None

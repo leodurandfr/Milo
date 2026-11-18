@@ -35,8 +35,10 @@ the unit (2026-09-24, a Mac's Tidal app, strace on the controller socket):
     audio format.
   - There is no end-of-session command: `interrupt` only notifies, `stop`
     pauses at 0, `stopService` withdraws nothing. A restart of the daemon is
-    what makes the sender let go (the speaker is back at once), so it is the
-    idle timeout's REQUEST_END.
+    what makes the sender let go (the speaker is back at once): what the
+    watchdog does to a track that never sounds (`_request_end`). A long pause
+    ends nothing (KEEP_WHILE_LINKED, owner decision 2026-11-19): Milō cannot
+    start a Tidal session again once it has ended one.
   - There is no status query and no seek: `tidal::media::MediaPlayer::seekTo`
     exists inside the daemon but the controller protocol exposes no command for
     it, so the progress bar is read-only (`:seekable="false"` on the player)
@@ -133,7 +135,11 @@ class TidalSource(BaseAudioSource):
 
     NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
 
-    IDLE_POLICY = IdlePolicy.REQUEST_END
+    # A sender's pause is its own: Milō never hangs up on it, as for Bluetooth
+    # (owner decision, 2026-11-19). Ending the session would hand the output
+    # back to the phone, and nothing here can start it again.
+    AUTO_STOP_SUPPORTED = False
+    IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
     # The daemon writes to the output it was started on: a multiroom toggle
     # restarts it, and the sender has to pick the speaker again.
     REROUTE = ReroutePolicy.END_SESSION
@@ -231,9 +237,9 @@ class TidalSource(BaseAudioSource):
         return await self._stop_service()
 
     async def _request_end(self, session: Session) -> bool:
-        """REQUEST_END: restart the daemon — the only thing, measured, that
-        makes a sender let go. Its exit ends the session under the reason asked
-        for. The controller reattaches now rather than after its reconnect
+        """Restart the daemon — the only thing, measured, that makes a sender
+        let go; the watchdog's end of a track that never sounds. Its exit ends
+        the session under the reason asked for. The controller reattaches now rather than after its reconnect
         delay: the new daemon advertises at once, and a phone it accepts before
         `startService` wedges it (see _do_start)."""
         if not await self._restart_service_and_wait():

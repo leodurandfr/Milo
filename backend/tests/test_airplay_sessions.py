@@ -43,29 +43,29 @@ async def test_a_music_pause_is_published(world):
     assert world.playing()
 
 
-async def test_a_paused_session_is_ended_by_asking_the_sender_to_leave(world):
-    """E15/E55: a pause now times out, and the end is asked of the daemon
-    (DropSession) rather than done by restarting it under the sender. The
-    phone then falls back to its own speaker, as measured."""
+async def test_a_long_pause_keeps_the_sender(world):
+    """Owner decision 2026-11-19: a sender's pause is its own, as for
+    Bluetooth. Ending the session sent the phone back to its own speaker (its
+    play button then played there), and Milō cannot start AirPlay again."""
     await _phone_plays(world)
     await world.pauses()
-    await world.advance(DELAY + 1)
-    assert world.drops, "DropSession was never asked"
+    await world.advance(10 * DELAY)
+    assert world.active() and world.phase() == "paused"
     assert world.restarts == []
-    assert not world.active()
-    assert world.errors() == []
+    await world.resumes()
+    assert world.playing()
 
 
-async def test_a_pause_whose_stream_was_torn_down_still_times_out(world):
+async def test_a_pause_whose_stream_was_torn_down_is_still_kept(world):
     """A paused phone drops its stream after 29-184 s and stays connected:
-    still a pause, still ended by the idle timeout."""
+    still a pause, and still the phone's."""
     await _phone_plays(world)
     await world.pauses()
     await world.advance(30)
     await world.tears_the_stream_down()
     assert world.active() and not world.playing()
-    await world.advance(DELAY)
-    assert world.drops and not world.active()
+    await world.advance(10 * DELAY)
+    assert world.active() and world.phase() == "paused"
 
 
 async def test_resuming_after_the_stream_was_torn_down_plays(world):
@@ -75,7 +75,7 @@ async def test_resuming_after_the_stream_was_torn_down_plays(world):
     await world.restarts_the_stream()
     assert world.playing()
     await world.advance(DELAY + 1)
-    assert world.drops == [] and world.playing()
+    assert world.playing()
 
 
 async def test_a_skip_is_not_left_as_a_pause(world):
@@ -86,7 +86,7 @@ async def test_a_skip_is_not_left_as_a_pause(world):
     assert world.playing()
     assert world.session()["title"] == "L.A.D.Y"
     await world.advance(DELAY + 1)
-    assert world.drops == [] and world.restarts == [] and world.playing()
+    assert world.restarts == [] and world.playing()
 
 
 async def test_a_flush_is_not_a_pause(world):
@@ -96,7 +96,7 @@ async def test_a_flush_is_not_a_pause(world):
     await world.send(ssnc("pfls", b"12345"))
     assert world.playing()
     await world.advance(DELAY + 1)
-    assert world.restarts == [] and world.drops == [] and world.playing()
+    assert world.restarts == [] and world.playing()
 
 
 # === iPhone Music's late pause report (5.6) ===
@@ -126,7 +126,7 @@ async def test_a_realtime_sender_with_an_item_is_playing(world):
     assert world.phase() == "playing"
     await world.advance(3 * DELAY)
     assert world.playing()
-    assert world.drops == [] and world.restarts == []
+    assert world.restarts == []
 
 
 async def test_system_audio_with_no_item_never_times_out(world):
@@ -138,10 +138,10 @@ async def test_system_audio_with_no_item_never_times_out(world):
     assert world.phase() == "connected"
     await world.advance(3 * DELAY)
     assert world.active()
-    assert world.drops == [] and world.restarts == []
+    assert world.restarts == []
 
 
-async def test_a_mac_pause_is_published_and_times_out(world):
+async def test_a_mac_pause_is_published_and_kept(world):
     """The Mac's stream goes on carrying silence through a pause; its item
     says rate 0 at once, which is the only sign of it."""
     await world.connects(MAC, "Mac mini de Léo", MAC_COMMANDS)
@@ -151,21 +151,21 @@ async def test_a_mac_pause_is_published_and_times_out(world):
     await world.realtime_resumes()
     assert world.playing()
     await world.realtime_pauses()
-    await world.advance(DELAY + 1)
-    assert world.drops and not world.active()
+    await world.advance(10 * DELAY)
+    assert world.active() and world.phase() == "paused"
 
 
-async def test_a_sender_that_stops_sending_times_out(world):
+async def test_a_sender_that_stops_sending_stays_paused(world):
     """Spotify on the iPhone says rate 0, then tears its Realtime stream down
-    1 s after a pause and stays connected: a pause, ended by asking the daemon."""
+    1 s after a pause and stays connected: a pause, kept as the phone's."""
     await world.connects(PHONE, "iPhone de Léo", SPOTIFY_COMMANDS)
     await world.realtime_plays("oh my love")
     await world.realtime_pauses()
     await world.advance(1)
     await world.tears_the_stream_down()
     assert world.active() and world.phase() == "paused"
-    await world.advance(DELAY + 1)
-    assert world.drops and not world.active()
+    await world.advance(10 * DELAY)
+    assert world.active() and world.phase() == "paused"
 
 
 # === One session per sender ===
@@ -233,34 +233,6 @@ async def test_a_session_on_the_restarted_daemon_is_not_cut(world):
     assert world.session()["title"] == "Soul Officer"
 
 
-async def test_a_daemon_that_does_not_answer_is_restarted(world):
-    """DropSession failing leaves one lever, the restart the auto-stop used to
-    do. The end is still an idle timeout: no banner."""
-    world.drop_answers = False
-    await _phone_plays(world)
-    await world.pauses()
-    await world.advance(DELAY + 1)
-    assert world.drops and world.restarts
-    assert not world.active()
-    assert world.errors() == []
-
-
-async def test_a_failed_restart_still_hears_the_sender(world):
-    """E22: a restart that failed left the last ACTIVE on screen with the pipe
-    reader already torn down, so nothing the sender did afterwards was heard.
-    The daemon still holds the session: it stays, and a resume is seen."""
-    world.drop_answers = False
-    world.restart_ok = False
-    await _phone_plays(world)
-    await world.pauses()
-    await world.tears_the_stream_down()
-    await world.advance(DELAY + 1)
-    assert world.restarts
-    assert world.active() and not world.playing()
-    await world.restarts_the_stream()
-    assert world.playing()
-
-
 # === Milō's own ends ===
 
 async def test_a_source_switch_ends_the_session(world):
@@ -296,7 +268,7 @@ async def test_a_new_stream_after_a_pause_is_not_paused(world):
     await world.realtime_plays("Spotify track")
     assert world.playing()
     await world.advance(DELAY + 1)
-    assert world.drops == [] and world.active()
+    assert world.active()
 
 
 async def test_announcements_left_over_from_a_stopped_source_are_not_replayed(world):

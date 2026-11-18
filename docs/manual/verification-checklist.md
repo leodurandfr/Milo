@@ -216,6 +216,7 @@ These are shared by every source; they break for all of them at once.
 | Artwork under fast skips | Three `next` about 1 s apart over tracks from different albums: after each, the `session.artwork` URL of `GET /api/audio/state` answers exactly the bytes of the file shairport-sync wrote (sha256 of the `ArtworkPath` in `NowPlayingInformation`) with `immutable`; the previous step's URL answers 404, never another cover; the bare `/api/airplay/artwork` answers `no-store`. The kiosk and the lock screen show the cover of the track on screen | targeted |
 | Only shairport-sync is listened to | During a session, a well-formed `PropertiesChanged` of `Client.NowPlayingInformation` emitted from another connection (`gdbus emit --system --object-path /org/gnome/ShairportSync --signal org.freedesktop.DBus.Properties.PropertiesChanged …`) naming `/var/lib/milo/settings.json` as its picture changes nothing: the title, the artist and the cover's `v` stay, and `/api/airplay/artwork` still answers shairport-sync's file. The covers shairport-sync wrote sit in `/tmp/shairport-sync/.cache/coverart` (`COVER_ART_DIR`), the only directory a cover is read from: one anywhere else is logged `AirPlay artwork unreadable` and never shown | targeted |
 | Device name | The sender's name ("Léo's iPhone") is shown | targeted |
+| Long pause kept | Auto-stop delay set short, iPhone Music paused well past it: the paused player stays, the iPhone keeps Milō as its output, and play on the iPhone resumes on Milō. Note how long a paused iPhone stays connected when left alone (never measured: the timer always ended it first) | targeted |
 | Controls | Pause, resume, next and prev from Milō act on the iPhone and on a Mac; the main button never flashes play during a next/prev; shuffle and repeat follow both ways | targeted |
 | Volume | The iPhone's volume moves Milō's, and Milō's moves the iPhone's slider; muting Milō does not drop the house to its floor | targeted |
 | Volume under a fast turn | Six knob steps up in under a second, then the sender's slider moved while the knob turns (iPhone or Mac): the level never steps back during the climb, the kiosk bar and the sender's slider settle on the last gesture and nothing moves 2 s later — no back-and-forth. Each step shairport-sync writes back once it has answered, so an earlier step's write-back lands after the next one | targeted |
@@ -234,7 +235,7 @@ These are shared by every source; they break for all of them at once.
 | Web UI gate | With Qobuz selected, Settings > Qobuz > Connect completes the sign-in on `milo.local:8689`; `curl -s -o /dev/null -w '%{http_code}' -H 'Origin: http://evil.example' -X POST http://localhost:8689/api/speakers -d x` and `curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://localhost:8689/api/status` both answer 403 (never probe `/api/auth/logout`: without the gate it signs the account out) | targeted |
 | Discovery | Milō appears in the Qobuz app's device list | targeted |
 | Playback + metadata | Audio plays; artwork, title, artist, album shown; progress advances; no transport buttons | targeted |
-| Pause auto-stop | Auto-stop delay set short, cast from the Qobuz app and paused past the delay: the app lets go of Milō (the sidecar is restarted: no request ends a session), no banner, and the journal records an idle end, never `exited under the session`. Once more, play pressed in the app about 1 s before the deadline: the music continues and the sidecar is not restarted. Put the delay back afterwards | targeted |
+| Long pause kept | Auto-stop delay set short, cast from the Qobuz app and paused well past the delay: the paused player stays, the sidecar is not restarted, and play in the app resumes on Milō. Put the delay back afterwards | targeted |
 
 ### Tidal Connect (C)
 
@@ -248,7 +249,7 @@ hand on the sender); the phone app needs a paid one.
 | Transport | Pause/resume and prev/next from Milō act on the audio and the Tidal app follows | targeted |
 | No seek | The progress bar cannot be dragged (the protocol exposes none) | targeted |
 | Session recovery | Restarting milo-tidal, then casting again from the phone, starts a session — the daemon wedges for good if `startService` was missed | targeted |
-| Pause auto-stop | Paused past the configured delay, the sender lets go of Milō (the daemon is restarted: no tisoc command ends a session), no banner | targeted |
+| Long pause kept | Auto-stop delay set short, paused well past it: the paused player stays, the daemon is not restarted, and Milō's play button resumes it. Also note whether a session left paused survives the app being closed on the phone (never measured) | targeted |
 | Daemon death | `kill -9` of the daemon mid-play: the card leaves "playing" at once with a banner | targeted |
 
 ### Bluetooth (C — active player)

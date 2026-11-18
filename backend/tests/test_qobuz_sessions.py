@@ -214,31 +214,28 @@ async def test_a_new_track_is_not_followed_by_a_repeated_playhead(world):
 
 # === Ends ===
 
-async def test_a_pause_asks_the_sidecar_to_end_the_session(world):
-    """E15: a paused Qobuz session stayed ACTIVE for good. No request ends one
-    (measured: releasing ownership leaves the app on Milō), a restart does:
-    after the delay the sidecar is restarted once, the session ends with no
-    banner, and the app has let go."""
+async def test_a_long_pause_keeps_the_session(world):
+    """Owner decision 2026-11-19: a sender's pause is its own, as for
+    Bluetooth. The only end Milō has is a restart of the sidecar, which hands
+    the output back to the app, and Milō has no play button for Qobuz."""
     await world.app_plays(ON_AND_ON)
     await world.app_pauses()
-    await world.advance(DELAY - 2)
-    assert world.active() and world.restarts == []
-    await world.advance(3)
-    assert not world.active()
-    assert len(world.restarts) == 1
-    assert world.errors() == []
-    await world.advance(DELAY + 1)
-    assert len(world.restarts) == 1
+    await world.advance(10 * DELAY)
+    assert world.active() and world.phase() == "paused"
+    assert world.restarts == []
+    await world.app_resumes()
+    assert world.playing()
 
 
 async def test_a_restart_milo_asked_for_logs_no_outage(world, caplog):
     """The sidecar refuses connections for ~0.45 s after it starts (measured),
-    and every idle timeout now restarts it: a warning per auto-stop would be a
-    fault reported for Milō's own request."""
+    and the volume lock restarts it: a warning there would be a fault reported
+    for Milō's own request."""
+    world.volume_flag.write_text("1")
     await world.app_plays(ON_AND_ON)
-    await world.app_pauses()
     with caplog.at_level("WARNING", logger="source.qobuz.monitor"):
-        await world.advance(DELAY + 3)
+        assert await world.source.on_allow_app_volume_changed(False)
+        await world.advance(3)
     assert len(world.restarts) == 1 and not world.active()
     assert [r for r in caplog.records if r.name == "source.qobuz.monitor"] == []
 
@@ -251,60 +248,6 @@ async def test_a_sidecar_that_dies_is_one_warning(world, caplog):
         await world.systemd_restarts_it()
         await world.advance(3)
     assert [r.levelname for r in caplog.records if r.name == "source.qobuz.monitor"] == ["WARNING"]
-
-
-async def test_a_resume_withdraws_the_end_request(world):
-    await world.app_plays(ON_AND_ON)
-    await world.app_pauses()
-    await world.advance(DELAY / 2)
-    await world.app_resumes()
-    await world.advance(DELAY)
-    assert world.playing() and world.restarts == []
-
-
-async def test_a_resume_the_poll_has_not_shown_yet_is_not_cut(world):
-    """The pause timer decided on the last poll, up to an interval old: a play
-    pressed in the app within that interval was cut by the restart, the music
-    that had just come back stopping in the room."""
-    await world.app_plays(ON_AND_ON)
-    await world.app_pauses()
-    await world.advance(DELAY - 1)
-    world.sidecar.player_state = "playing"
-    await world.advance(1.5)
-    assert world.restarts == []
-    assert world.playing()
-    assert world.session_ends() == []
-
-
-async def test_an_idle_end_the_old_sidecar_answers_after_stays_an_idle_end(world):
-    """A play the old sidecar reported while the restart was under way, handled
-    after it, withdrew a request already carried out: the exit Milō ordered read
-    as a death, with its banner."""
-    await world.app_plays(ON_AND_ON)
-    await world.app_pauses()
-    world.poll_lands_during_restart = True
-    world.app_resumes_during_restart = True
-    await world.advance(DELAY + 3)
-    assert len(world.restarts) == 1
-    assert world.session_ends() == ["idle_timeout"]
-    assert world.errors() == []
-
-
-async def test_a_poll_the_old_sidecar_answers_opens_nothing_after_an_idle_end(world):
-    """An answer the old sidecar gave before it exited, handled after the end,
-    reopened the session it described — a paused phantom between two idle
-    states, and a second session_ended."""
-    await world.app_plays(ON_AND_ON)
-    await world.app_pauses()
-    world.poll_lands_during_restart = True
-    world.old_answer_lands_after_exit = True
-    await world.advance(DELAY - 1)
-    before = len(world.published())
-    await world.advance(4)
-    after = world.published()[before:]
-    assert len(world.restarts) == 1
-    assert after and all(p["session"] is None for p in after)
-    assert world.session_ends() == ["idle_timeout"]
 
 
 async def test_the_app_picking_another_output_ends_the_session_at_once(world):
@@ -414,6 +357,22 @@ async def test_a_volume_lock_whose_restart_failed_is_retried(world):
     assert world.volume_flag.read_text() == "0"
 
 
+async def test_an_answer_the_old_sidecar_gave_opens_nothing_once_it_has_exited(world):
+    """The same answer, reaching Milō only once the old process has exited (a
+    backend loop busy across the stop): it described the session the lock
+    ended, and reopened it — a paused phantom and a second session_ended."""
+    world.volume_flag.write_text("1")
+    await world.app_plays(ON_AND_ON)
+    world.poll_lands_during_restart = True
+    world.old_answer_lands_after_exit = True
+    before = len(world.published())
+    assert await world.source.on_allow_app_volume_changed(False)
+    await world.advance(3)
+    after = world.published()[before:]
+    assert after and all(p["session"] is None for p in after)
+    assert world.session_ends() == ["user_stop"]
+
+
 async def test_a_poll_the_old_sidecar_answers_opens_nothing_after_a_lock(world):
     """The poll keeps running across the volume-lock restart: an answer the old
     sidecar gave in that window, handled after the session ended, reopened it
@@ -521,13 +480,13 @@ async def test_a_logout_from_the_settings_screen_is_published(world):
 
 async def test_a_starting_sidecar_does_not_flash_the_login_prompt(world):
     """Measured: a sidecar coming up answers `authenticated: false` for ~0.3 s
-    before its credentials load — and every idle timeout now restarts it. One
-    poll landing there drew the "connect your account" card for a second at
+    before its credentials load — and the volume lock restarts it. One poll
+    landing there drew the "connect your account" card for a second at
     someone who is logged in."""
-    for _ in range(2):                      # two idle timeouts, two restarts
+    world.volume_flag.write_text("1")
+    for allowed in (False, True):           # the lock and back, two restarts
         await world.app_plays(ON_AND_ON)
-        await world.app_pauses()
-        await world.advance(DELAY + 1)
+        assert await world.source.on_allow_app_volume_changed(allowed)
         world.sidecar.authenticated = False     # the poll lands in the window
         await world.advance(1)
         world.sidecar.authenticated = True

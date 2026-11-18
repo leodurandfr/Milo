@@ -17,7 +17,6 @@ The pipe — the session (5.5.1, 2026-09-23, iPhone and Mac; unchanged in 5.6):
 - Leaving while playing: `pend`, `disc` 110 ms later. A second sender taking
   over: the first one's `pend` + `disc`, then the newcomer's `conn` — or, as
   measured 2026-09-03, the goodbye a minute late.
-- `DropSession`: `pend` if a stream is up, then `disc` at once.
 - The daemon killed outright: no goodbye at all; systemd's Restart= brings up a
   new process, which announces nothing.
 
@@ -163,14 +162,6 @@ class FakeRemote:
             world.later(RemoteUpdate("volume", airplay_db))
         return True
 
-    async def drop_session(self) -> bool:
-        world = self.world
-        world.drops.append(world.clock.now)
-        if not world.drop_answers:
-            return False
-        # As measured: the goodbye follows the reply at once.
-        asyncio.ensure_future(world._dropped())
-        return True
 
 
 class AirPlayWorld(WireReader):
@@ -185,11 +176,8 @@ class AirPlayWorld(WireReader):
         self.live_pids: set = set()
         self.pid: Optional[int] = None
         self.watches: List[Tuple[int, Callable[[], None]]] = []
-        self.drops: List[float] = []
-        self.drop_answers = True     # the daemon answers DropSession
         self.restarts: List[float] = []
         self.restart_ok = True
-        self.stream_up = False       # a stream is flowing (for DropSession's `pend`)
         self.sender: Optional[str] = None
         self.reader: Optional[MetadataReader] = None
         self.remote: Optional[FakeRemote] = None
@@ -285,7 +273,6 @@ class AirPlayWorld(WireReader):
         if pid is None:
             return
         self.live_pids.discard(pid)
-        self.stream_up = False
         self.sender = None
         self.now_playing, self.commands = None, frozenset()
         for watched, on_exit in list(self.watches):
@@ -322,14 +309,6 @@ class AirPlayWorld(WireReader):
         self._spawn()
         await settle()
 
-    async def _dropped(self) -> None:
-        items = []
-        if self.stream_up:
-            items.append(ssnc("pend"))
-        if self.sender is not None:
-            items.append(ssnc("disc", self.sender.encode()))
-        await self._write(*items)
-
     # === the pipe ===
 
     async def send(self, *items: Item) -> None:
@@ -339,11 +318,7 @@ class AirPlayWorld(WireReader):
 
     async def _write(self, *items: Item) -> None:
         for kind, code, payload in items:
-            if code == "pbeg":
-                self.stream_up = True
-            elif code == "pend":
-                self.stream_up = False
-            elif code == "conn":
+            if code == "conn":
                 self.sender = payload.decode() if payload else None
             elif code == "disc" and payload and payload.decode() == self.sender:
                 self.sender = None

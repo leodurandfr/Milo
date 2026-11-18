@@ -33,10 +33,11 @@ Measured on shairport-sync 5.5.1 (2026-09-23, an iPhone and a Mac) and 5.6
 - A sender that played and then sends nothing while still connected is
   PAUSED: a paused iPhone tears its stream down after 29-184 s, Spotify 1 s
   after a pause, and neither says goodbye.
-- The idle timeout asks the daemon to end the session (`DropSession`,
-  REQUEST_END): the sender gets a `disc` at once and falls back to its own
-  speaker. A killed daemon says nothing at all; its session ends when its
-  process does (the base's pidfd watch).
+- A long pause ends nothing (KEEP_WHILE_LINKED, owner decision 2026-11-19):
+  the session stays as long as the sender keeps Milō as its output. Ending it
+  (`DropSession`) was measured to send the phone back to its own speaker, so
+  its play button then played there. A killed daemon says nothing at all; its
+  session ends when its process does (the base's pidfd watch).
 
 The commands go to the sender (Mac, iPhone Music and Spotify all obeyed each),
 and `controls` lists those it says it takes (`CommandInformation`). There is no
@@ -326,7 +327,11 @@ class AirPlaySource(BaseAudioSource):
 
     NETWORK_REQUIREMENT = NetworkRequirement.LAN
 
-    IDLE_POLICY = IdlePolicy.REQUEST_END
+    # A sender's pause is its own: Milō never hangs up on it, as for Bluetooth
+    # (owner decision, 2026-11-19). Ending the session would hand the output
+    # back to the phone, and nothing here can start it again.
+    AUTO_STOP_SUPPORTED = False
+    IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
     # shairport-sync writes to the output it was started on: a multiroom toggle
     # restarts it, and the sender has to reconnect.
     REROUTE = ReroutePolicy.END_SESSION
@@ -445,9 +450,6 @@ class AirPlaySource(BaseAudioSource):
         # next one starts from nothing.
         self._discard_feed()
         self._reset_daemon_mirror()
-
-    async def _request_end(self, session: Session) -> bool:
-        return self._remote is not None and await self._remote.drop_session()
 
     # === The feeds ===
 

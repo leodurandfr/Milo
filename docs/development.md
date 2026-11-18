@@ -309,9 +309,12 @@ open or end it: after each burst of what the daemon announced, hand
 `reconcile(DaemonSnapshot(sender, phase))` where the daemon says the session stands — or
 `reconcile(None)` when it holds none — and publish if anything moved (`_publish_changes()`).
 Declare `SESSION_DAEMON = True` so the base watches the daemon's process (a pidfd; a daemon killed
-without a goodbye ends the session `DAEMON_DIED`), and `IDLE_POLICY = IdlePolicy.REQUEST_END` with a
-`_request_end()` that asks the daemon for the end: the end comes back through `reconcile`, recorded
-as the idle timeout. Open no session before the daemon names a track. `airplay/` is the reference
+without a goodbye ends the session `DAEMON_DIED`). For a long pause, the question is whether Milō
+can start the source again once it has ended it: if it can (Spotify), declare
+`IDLE_POLICY = IdlePolicy.REQUEST_END` with a `_request_end()` that asks the daemon for the end — it
+comes back through `reconcile`, recorded as the idle timeout; if only the sender can (AirPlay, Tidal,
+Qobuz, Bluetooth), declare `IdlePolicy.KEEP_WHILE_LINKED` and `AUTO_STOP_SUPPORTED = False`: the
+pause is the sender's. Open no session before the daemon names a track. `airplay/` is the reference
 for a daemon that only announces; `spotify/` for one that can also be asked where it stands (read
 that answer once per burst and let it alone decide the phase — a failed read changes nothing);
 `tidal/` for one whose feed carries the playhead too (each reading goes to `_observe_position()`,

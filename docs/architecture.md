@@ -482,9 +482,10 @@ Shazam; `RadioSource._resolve_track` is the one place that orders them):
   (`reconcile`). A pause is a Buffered stream's `paus` (iPhone Music) or the
   item's PlaybackRate 0 (a Mac, Spotify); a track change is loading, not a
   pause; a Realtime stream with no item (a Mac's system audio) is shown as
-  connected. A long pause is ended by asking the daemon (D-Bus
-  `DropSession`), which hands the sender back its own speaker; a daemon killed
-  outright ends the session when its process exits (pidfd)
+  connected. A long pause ends nothing: the session stays as long as the
+  sender keeps Milō as its output (ending it, D-Bus `DropSession`, hands the
+  sender back its own speaker, and nothing here can start AirPlay again); a
+  daemon killed outright ends the session when its process exits (pidfd)
 
 **Configuration:**
 - Service: milo-airplay.service (shairport-sync)
@@ -557,10 +558,10 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   ends the moment the app picks another output. The poll doubles as the
   progress feed (a correction every 10 s, the frontend interpolates) and the
   bar is read-only — seeking belongs to the Qobuz app
-- A pause past `audio.auto_stop_delay` ends the session the only way that
-  works: a restart of the sidecar, after which the app falls back to its own
-  output (measured 2026-09-24; releasing ownership locally leaves the app on
-  Milō)
+- A long pause ends nothing: the only end that works is a restart of the
+  sidecar, after which the app falls back to its own output (measured
+  2026-09-24; releasing ownership locally leaves the app on Milō), and Milō
+  has no play button for Qobuz to bring it back
 - Artwork is a plain Qobuz CDN URL loaded directly by the kiosk — no binary
   artwork route
 - A **one-time Qobuz account login** is required (unlike Spotify's zeroconf) or

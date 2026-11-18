@@ -1,5 +1,17 @@
 {
   "_about": "The sources each setting of Settings > Audio playback acts on, named on that page. What decides it is each source's class in the backend (AUTO_STOP_SUPPORTED and IDLE_POLICY; a RESUME_POLICY that keeps the point across a source switch); backend/tests/architecture/test_playback_settings_sources.py holds this file equal to it. JSON so that test reads it exactly.",
-  "auto_stop": ["spotify", "airplay", "music_library", "radio", "cd", "qobuz", "tidal", "podcast"],
-  "resume": ["spotify", "music_library", "radio", "cd", "podcast"]
+  "auto_stop": [
+    "spotify",
+    "music_library",
+    "radio",
+    "cd",
+    "podcast"
+  ],
+  "resume": [
+    "spotify",
+    "music_library",
+    "radio",
+    "cd",
+    "podcast"
+  ]
 }

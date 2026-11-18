@@ -129,40 +129,19 @@ async def test_a_sender_that_leaves_ends_the_session(world):
     assert world.errors() == []
 
 
-# === A pause ends, as everywhere ===
+# === A pause is the sender's ===
 
-async def test_a_pause_ends_the_session_by_restarting_the_daemon(world):
-    """E15 (Tidal, measured: still ACTIVE 60 s into a pause with a 30 s delay).
-    No tisoc command ends a session (interrupt, stop and stopService were
-    measured), and a restart of the daemon is what makes the sender let go;
-    the speaker is back at once, and nothing is reported as a failure."""
+async def test_a_long_pause_keeps_the_session(world):
+    """Owner decision 2026-11-19: a sender's pause is its own, as for
+    Bluetooth. The only end Milō has is a restart of the daemon, which hands
+    the output back to the phone, and nothing here starts Tidal again."""
     await world.mac_plays(STILL_DRE)
     await world.mac_pauses()
-    await world.advance(DELAY + 1)
-    assert len(world.restarts) == 1
-    assert not world.active()
-    assert world.errors() == []
-    await world.advance(1.1)
-    assert world.daemon.received.count("startService") == 2
-
-
-async def test_a_resume_before_the_delay_keeps_the_session(world):
-    await world.mac_plays(STILL_DRE)
-    await world.mac_pauses()
-    await world.advance(DELAY - 1)
-    await world.mac_resumes()
-    await world.advance(DELAY)
+    await world.advance(10 * DELAY)
+    assert world.active() and world.phase() == "paused"
     assert world.restarts == []
+    await world.mac_resumes()
     assert world.playing()
-
-
-async def test_a_skip_while_paused_does_not_restart_the_delay(world):
-    await world.mac_plays(STILL_DRE)
-    await world.mac_pauses()
-    await world.advance(DELAY - 10)
-    await world.mac_skips_to(KEEP_IT_THORO)
-    await world.advance(11)
-    assert len(world.restarts) == 1
 
 
 # === Errors and the daemon ===
@@ -300,12 +279,12 @@ async def test_an_error_followed_by_play_in_one_burst_raises_no_banner(world):
 
 
 async def test_the_controller_reattaches_at_once_after_the_end_request(world):
-    """The restart that ends a paused session puts up a daemon that advertises
-    at once; one that a phone reaches before the controller's `startService`
-    rejects it and wedges — so the controller does not wait its reconnect delay."""
-    await world.mac_plays(STILL_DRE)
-    await world.mac_pauses()
-    await world.advance(DELAY + 0.5)       # the timer fires at DELAY
+    """The restart that ends a silent track's session puts up a daemon that
+    advertises at once; one that a phone reaches before the controller's
+    `startService` rejects it and wedges — so the controller does not wait its
+    reconnect delay."""
+    await world.mac_plays(STILL_DRE, silent=True)
+    await world.plays_on(SOUND_TIMEOUT_S + 1)
     assert len(world.restarts) == 1
     assert world.daemon.connections == 2
 

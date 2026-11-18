@@ -185,9 +185,6 @@ class QobuzWorld(WireReader):
         # A poll the old sidecar answers between Milō asking for the restart
         # and systemd stopping it (the restart takes ~0.5-1 s).
         self.poll_lands_during_restart = False
-        # The app pressing play while that restart is under way, after Milō
-        # read the sidecar one last time.
-        self.app_resumes_during_restart = False
         # That answer reaching Milō only once the old process has exited (a
         # backend loop busy across the stop).
         self.old_answer_lands_after_exit = False
@@ -283,8 +280,6 @@ class QobuzWorld(WireReader):
 
     async def _unit_restart(self, *_: Any) -> bool:
         self.restarts.append(self.clock.now)
-        if self.app_resumes_during_restart:
-            self.sidecar.player_state = "playing"
         payload = None
         if self.poll_lands_during_restart:
             async with self.sidecar.get("status") as response:

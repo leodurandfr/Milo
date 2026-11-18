@@ -28,12 +28,12 @@ free account):
     until the next command.
   - No request ends a session: releasing ownership locally leaves the app on
     Milō. A restart of the sidecar is what makes the app let go (it falls back
-    to its own output), so it is the idle timeout's REQUEST_END — as for Tidal.
+    to its own output) — which is why a long pause ends nothing here
+    (KEEP_WHILE_LINKED, owner decision 2026-11-19): Milō has no play button for
+    Qobuz, so a session it ended could only come back from the app.
 """
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
-
-import aiohttp
 
 from backend.config.constants import MILO_DATA_DIR
 from backend.core import audio_source
@@ -44,7 +44,7 @@ from backend.core.models.session import (
 )
 from backend.sources.qobuz.account import is_connected, read_credentials
 from backend.core.models.ws_events import SourceErrorReason
-from backend.sources.qobuz.monitor import QobuzMonitor, StatusUnanswered
+from backend.sources.qobuz.monitor import QobuzMonitor
 
 # One-byte volume-policy flag the patched qobuz-proxy stream reads
 # ($QOBUZPROXY_DATA_DIR/allow_app_volume): "1" → honor the Qobuz app's volume
@@ -94,7 +94,11 @@ class QobuzSource(BaseAudioSource):
 
     NETWORK_REQUIREMENT = NetworkRequirement.INTERNET
 
-    IDLE_POLICY = IdlePolicy.REQUEST_END
+    # A sender's pause is its own: Milō never hangs up on it, as for Bluetooth
+    # (owner decision, 2026-11-19). Ending the session would hand the output
+    # back to the app, and nothing here can start it again.
+    AUTO_STOP_SUPPORTED = False
+    IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
     # The sidecar writes to the output it was started on: a multiroom toggle
     # restarts it, and the app has to pick the speaker again.
     REROUTE = ReroutePolicy.END_SESSION
@@ -206,39 +210,14 @@ class QobuzSource(BaseAudioSource):
         await self._cleanup()
         return await self._stop_service()
 
-    async def _request_end(self, session: Session) -> bool:
-        """REQUEST_END: restart the sidecar — the only thing, measured, that
-        makes the app let go. Its exit ends the session under the reason asked
-        for."""
-        return await self._restart_sidecar()
-
     async def _restart_sidecar(self) -> bool:
         """Restart the sidecar under a session Milō is ending."""
         restarted = await self._restart_service_and_wait()
         # The poll kept running across the restart: an answer the old sidecar
         # gave meanwhile describes the session just ended — a track would
-        # reopen it, a play would withdraw an idle end already carried out.
+        # reopen it.
         self._discard_feed()
         return restarted
-
-    async def _still_idle(self, session: Session) -> bool:
-        """The phase is a poll up to an interval old: read the sidecar once more,
-        through the feed, so a play pressed since moves the session (and the
-        pause timer) as any poll would. A sidecar that does not answer is what
-        the restart is for."""
-        if self._monitor is None:
-            return True
-        try:
-            snapshot = await self._monitor.fetch_once()
-        except (aiohttp.ClientError, OSError, ValueError, StatusUnanswered) as e:
-            self._logger.warning(f"Could not read the sidecar before ending the session: {e}")
-            return True
-        # Polls answered since the timer fired are older than this read: they
-        # go first, or one of them would put the pause back over the play.
-        events = [*self._feed_pending, snapshot]
-        self._discard_feed()
-        await self._handle_feed(events)
-        return self._session is session and session.phase is Phase.PAUSED
 
     # ------------------------------------------------------------------
     # Volume policy (allow the mobile app to control volume, or pin unity)
