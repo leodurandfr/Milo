@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Status: in development, unpublished
+
+Milō is **in development**. It is not published anywhere, and its owner is its **only user**: there is no installed base, every unit is reflashed before any public release. That is why work is committed straight to `main` (see [Git](#git)), why the conversation follows the owner's language, and why no compatibility or migration code is ever owed to a unit already in the field. **These rules will change at publication**: from then on a contributor reads this file, and the maintainer-only rules move out of it.
+
 ## Project
 
 Milō is a **multiroom audio appliance** for Raspberry Pi: Spotify Connect, Qobuz Connect, Tidal Connect, AirPlay 2, Bluetooth, Internet Radio, Podcasts, CD, a local Music Library, and Mac streaming over ROC. FastAPI (Python 3.13) backend + Vue 3 frontend, **ALSA only** — no PipeWire/PulseAudio (HiFiBerry compatibility).
