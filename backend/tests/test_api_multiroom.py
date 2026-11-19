@@ -711,7 +711,8 @@ async def dac_return(tmp_path, monkeypatch):
     app.include_router(create_multiroom_router(
         registry, None, None, None, None, eq_router, volume
     ))
-    transport = httpx.ASGITransport(app=app)
+    # From the satellite's own address, so its heartbeat passes the origin gate.
+    transport = httpx.ASGITransport(app=app, client=(BUREAU_IP, 41000))
     with patch("backend.api.multiroom.aiohttp.ClientSession", return_value=satellite):
         async with httpx.AsyncClient(transport=transport, base_url="http://milo") as client:
             yield client, registry, satellite, volume
@@ -792,6 +793,137 @@ class TestHandingTheLevelBackToMilo:
         satellite.wire.clear()
 
         resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
+
+        assert resp.status_code == 200
+        assert satellite.wire == []
+
+
+def _fader(satellite):
+    """What reached the satellite's fader and mute, in order."""
+    return [(p, b) for _, _, p, b in satellite.wire if p in ("/equalizer/volume", "/equalizer/mute")]
+
+
+def _heartbeat(volume_control):
+    return {
+        "mac_id": BUREAU, "ip": BUREAU_IP, "hardware_configured": True,
+        "audio_id": "hifiberry_amp2", "volume_control": volume_control,
+    }
+
+
+class TestTheFaderFollowsTheFlag:
+    """Every flip of a satellite's volume_control sends its fader what it now owes.
+
+    No level move targets a DAC client, so a flip that sends nothing leaves the
+    fader on the wrong side until the next admission: handed to its amp, the
+    speaker kept -51.47 dB, its owner turned the amp up over a quiet room, and
+    the admission's unity landed +51 dB at once; handed back (by its heartbeat,
+    which the WiFi adoption sends ~5 s after the admission), it played at unity.
+    """
+
+    async def _managed(self, client, satellite):
+        """Bureau handed back to Milō, at its stored -51.47 dB."""
+        resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": True})
+        assert resp.status_code == 200
+        assert _fader(satellite)[0] == ("/equalizer/volume", {"volume": -51.47}), \
+            "the setup did not leave Bureau managed at its stored level"
+        satellite.wire.clear()
+
+    async def test_handing_the_level_to_an_amp_sends_unity_at_once(self, dac_return):
+        client, registry, satellite, volume = dac_return
+        await self._managed(client, satellite)
+
+        resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": False})
+
+        assert resp.status_code == 200
+        assert registry.get_client(BUREAU).volume_control is False
+        assert [(m, p) for _, m, p, _ in satellite.wire][:2] == [
+            ("GET", "/api/hardware"), ("PUT", "/api/hardware/audio"),
+        ], "the fader moved before the satellite's own flag said DAC"
+        assert _fader(satellite) == [
+            ("/equalizer/volume", {"volume": 0.0}),
+            ("/equalizer/mute", {"muted": False}),
+        ]
+        assert volume.state_store.get_client_volume(BUREAU) == -51.47, \
+            "the stored level is what every screen shows, and what a flip back sends"
+
+    async def test_a_fader_that_stays_attenuated_is_reported(self, dac_return, caplog):
+        """The flag has moved, so the answer stays 200; the banner says the room
+        is still attenuated, under an amp the owner may turn up."""
+        client, registry, satellite, _ = dac_return
+        await self._managed(client, satellite)
+        original = satellite.proxy_request
+
+        async def refuse_the_level(ip, method, path, body=None):
+            if path == "/equalizer/volume":
+                raise SatelliteUnreachable(ip, "Client error: 400", status_code=400)
+            return await original(ip, method, path, body)
+
+        satellite.proxy_request = refuse_the_level
+        with caplog.at_level(logging.ERROR, logger="backend.api.multiroom"):
+            resp = await client.patch(f"/api/multiroom/clients/{BUREAU}", json={"volume_control": False})
+
+        assert resp.status_code == 200
+        assert registry.get_client(BUREAU).volume_control is False
+        errors = [r.getMessage() for r in caplog.records
+                  if r.levelno >= logging.ERROR and r.name == "backend.api.multiroom"]
+        assert errors and "Bureau" in errors[0] and "-51.47 dB" in errors[0]
+
+    async def test_a_heartbeat_leaving_dac_sends_the_stored_level(self, dac_return):
+        client, registry, satellite, _ = dac_return
+
+        resp = await client.post("/api/multiroom/register-client", json=_heartbeat(True))
+
+        assert resp.status_code == 200
+        assert registry.get_client(BUREAU).volume_control is True
+        assert _fader(satellite) == [
+            ("/equalizer/volume", {"volume": -51.47}),
+            ("/equalizer/mute", {"muted": False}),
+        ]
+
+    async def test_a_heartbeat_turning_dac_sends_unity(self, dac_return):
+        client, registry, satellite, _ = dac_return
+        await self._managed(client, satellite)
+
+        resp = await client.post("/api/multiroom/register-client", json=_heartbeat(False))
+
+        assert resp.status_code == 200
+        assert registry.get_client(BUREAU).volume_control is False
+        assert _fader(satellite) == [
+            ("/equalizer/volume", {"volume": 0.0}),
+            ("/equalizer/mute", {"muted": False}),
+        ]
+
+    async def test_a_speaker_not_admitted_yet_raises_no_banner(self, dac_return, caplog):
+        """A heartbeat can arrive ahead of its snapclient and its CamillaDSP
+        (a reboot after hardware.json moved): the fader refuses for that
+        reason alone, and the admission that follows reads the flag just
+        written. An error here would be a banner for nothing."""
+        client, registry, satellite, _ = dac_return
+        await registry.set_client_online(BUREAU, False)
+        original = satellite.proxy_request
+
+        async def dsp_not_up_yet(ip, method, path, body=None):
+            if path.startswith("/equalizer/"):
+                raise SatelliteUnreachable(ip, "Client error: 400", status_code=400)
+            return await original(ip, method, path, body)
+
+        satellite.proxy_request = dsp_not_up_yet
+        with caplog.at_level(logging.WARNING, logger="backend.api.multiroom"):
+            resp = await client.post("/api/multiroom/register-client", json=_heartbeat(True))
+
+        assert resp.status_code == 200
+        assert registry.get_client(BUREAU).volume_control is True
+        mine = [r for r in caplog.records if r.name == "backend.api.multiroom"]
+        assert not [r for r in mine if r.levelno >= logging.ERROR]
+        assert any("not admitted" in r.getMessage() for r in mine if r.levelno == logging.WARNING), \
+            "the refused send was not attempted or not reported at all"
+
+    async def test_a_heartbeat_with_an_unchanged_flag_sends_nothing(self, dac_return):
+        """Every 15 s for as long as it lives: a level here at each one would
+        undo the level the owner is moving at that moment."""
+        client, _, satellite, _ = dac_return
+
+        resp = await client.post("/api/multiroom/register-client", json=_heartbeat(False))
 
         assert resp.status_code == 200
         assert satellite.wire == []

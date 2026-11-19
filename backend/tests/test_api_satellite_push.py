@@ -311,15 +311,18 @@ class TestHardwareRead:
 
         assert body == {"audio": {"id": "hifiberry_amp4"}}
 
-    def test_an_unreachable_satellite_is_marked_offline_and_answers_502(
-        self, client, registry, monkeypatch
-    ):
-        _Satellite({"/api/hardware": asyncio.TimeoutError()}).install(monkeypatch)
+    def test_a_refusal_is_relayed_with_the_satellite_reason(self, client, registry, monkeypatch):
+        """"Client returned an error" told the owner nothing the satellite had
+        said; and an answered refusal is a satellite that is there."""
+        _Satellite({
+            "/api/hardware": {"status": 500, "json": {"detail": "hardware.json is unreadable"}},
+        }).install(monkeypatch)
 
         response = client.get(f"/api/multiroom/clients/{MAC}/hardware")
 
         assert response.status_code == 502
-        registry.set_client_online.assert_awaited_once_with(MAC, False)
+        assert "hardware.json is unreadable" in response.json()["detail"]
+        registry.set_client_online.assert_not_awaited()
 
     def test_an_unknown_client_is_a_404_before_any_request_goes_out(
         self, client, registry, monkeypatch
@@ -331,6 +334,62 @@ class TestHardwareRead:
 
         assert response.status_code == 404
         assert satellite.sent == []
+
+
+# =============================================================================
+# The two ways a relay fails
+# =============================================================================
+
+# The three relays, each with the request whose failure is staged.
+RELAYS = {
+    "hardware read": (
+        "/api/hardware", lambda c: c.get(f"/api/multiroom/clients/{MAC}/hardware"),
+    ),
+    "volume_control push": (
+        "/api/hardware", lambda c: c.patch(f"/api/multiroom/clients/{MAC}", json={"volume_control": False}),
+    ),
+    "card change": (
+        "/api/hardware/audio",
+        lambda c: c.put(f"/api/multiroom/clients/{MAC}/audio", json={"audio_id": "hifiberry_amp2"}),
+    ),
+}
+
+
+class TestARelayTellsSlowFromGone:
+    """No answer in time is a satellite that is there, not one that is gone.
+
+    The guard of the SSH, password and network routes held that rule while the
+    three older relays marked a slow satellite offline: a loaded Pi that took
+    more than 5 s over GET /api/hardware — opening its page, changing who owns
+    its level — vanished from Settings › Multiroom while it played, until the
+    next sweep, and a PUT it may have applied was answered "Cannot reach".
+    """
+
+    @pytest.mark.parametrize("relay", RELAYS)
+    def test_a_slow_satellite_stays_online_and_answers_504(
+        self, client, registry, monkeypatch, relay
+    ):
+        path, call = RELAYS[relay]
+        _Satellite({path: asyncio.TimeoutError()}).install(monkeypatch)
+
+        response = call(client)
+
+        assert response.status_code == 504
+        registry.set_client_online.assert_not_awaited()
+        registry.update_client.assert_not_awaited()
+
+    @pytest.mark.parametrize("relay", RELAYS)
+    def test_a_satellite_that_cannot_be_reached_is_marked_offline_and_answers_502(
+        self, client, registry, monkeypatch, relay
+    ):
+        path, call = RELAYS[relay]
+        _Satellite({path: aiohttp.ClientConnectionError("no route")}).install(monkeypatch)
+
+        response = call(client)
+
+        assert response.status_code == 502
+        registry.set_client_online.assert_awaited_once_with(MAC, False)
+        registry.update_client.assert_not_awaited()
 
 
 class TestDeleteAndPendingList:

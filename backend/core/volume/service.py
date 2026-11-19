@@ -796,12 +796,16 @@ class VolumeService:
     async def reapply_client_volume(self, mac_id: str) -> bool:
         """Send a satellite its stored level and mute again; False if either was not taken.
 
-        The way back from DAC mode, where the router held its fader at unity:
-        the flag flips in hardware.json and in the registry, the stored level
-        never moved, and nothing else sends it until the next admission or the
-        next level change. Called after the registry flag says managed, since
-        the router reads it when each command leaves. `force`, as for an
-        admission: the satellite has just answered, whatever `online` says.
+        What follows every flip of a satellite's volume_control (the PATCH, the
+        heartbeat), in both directions, since nothing else sends it: no level
+        move targets a DAC client, and the stored level never moved. Called
+        after the registry write, because the router reads the flag there when
+        each command leaves and picks for itself — unity for a DAC (the amp now
+        owns the level; left at the stored attenuation, the fader jumped to unity
+        at the next admission, over an amp turned up meanwhile), the stored level
+        for a managed one (left at unity, it played full scale until the next
+        level change). `force`, as for an admission: the satellite has just
+        answered, whatever `online` says.
         """
         level = self._state_store.get_client_volume(mac_id)
         if level is None:

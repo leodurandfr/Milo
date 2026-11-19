@@ -1063,7 +1063,9 @@ def _json_read_path(node, bindings, resp_var):
 
     Resolves the three forms the backend uses, through any depth of chaining:
     the root itself, `.get("k")` (with or without a default) and `["k"]`. So
-    `data.get("app", {}).get("payload")` reads as `app.payload`.
+    `data.get("app", {}).get("payload")` reads as `app.payload`. The root is
+    `await <resp_var>.json()` or `await _satellite_reply(<resp_var>, …)`, which
+    is that JSON once the satellite's refusal has been told apart from it.
     """
     if isinstance(node, ast.Await):
         call = node.value
@@ -1071,6 +1073,11 @@ def _json_read_path(node, bindings, resp_var):
                 and call.func.attr == "json"
                 and isinstance(call.func.value, ast.Name)
                 and call.func.value.id == resp_var):
+            return ""
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                and call.func.id == "_satellite_reply" and call.args
+                and isinstance(call.args[0], ast.Name)
+                and call.args[0].id == resp_var):
             return ""
         return None
     if isinstance(node, ast.Name):
@@ -1095,8 +1102,9 @@ def _reads_in_block(block, resp_var) -> set[str]:
 
     Bindings are resolved to a fixed point first: the payload is bound to a local
     once (`data = await response.json()`) or twice (`audio = (await
-    resp.json()).get("audio", {})`), and only reads on THAT local count — which
-    is what keeps a nested block's own payload from being attributed here.
+    _satellite_reply(resp, mac_id)).get("audio", {})`), and only reads on THAT
+    local count — which is what keeps a nested block's own payload from being
+    attributed here.
     """
     bindings = {}
     for _ in range(3):

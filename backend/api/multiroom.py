@@ -20,7 +20,7 @@ import uuid
 
 import aiohttp
 from typing import Optional, TYPE_CHECKING
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from backend.api.route_helpers import CONTRACTED, api_error_handler
 from backend.api.models import (
@@ -71,8 +71,9 @@ async def _mark_unreachable(registry_service, mac_id: str, client_ip: str, exc: 
 
     Logged at warning, not error: an unplugged speaker is an expected state, and
     WebSocketLogHandler (level=ERROR) would turn it into a backend-error banner.
-    A false negative costs nothing — the same sweep puts the client back online
-    once its volume applies again.
+    Called for a connection that failed only, never for a slow answer
+    (`_reaching_satellite`): a speaker that is playing and shown offline loses
+    its controls until the sweep puts it back.
     """
     logger.warning(f"Client {mac_id} unreachable at {client_ip}, marking offline: {exc}")
     if registry_service:
@@ -132,6 +133,8 @@ async def _reaching_satellite(registry_service, mac_id: str, client_ip: str):
     No connection is a satellite that is gone: recorded offline, 502. No answer
     in time is a satellite that is there but slow — a `systemctl` on a loaded Pi —
     and may have applied the change, so it stays online and the caller hears 504.
+    Every relay in this file goes through it, so the two failures read the same
+    whichever route met them.
     """
     try:
         yield
@@ -155,13 +158,10 @@ async def _push_volume_control(
     the flag at runtime, it only declares who drives the volume.
     """
     timeout = aiohttp.ClientTimeout(total=5)
-    try:
+    async with _reaching_satellite(registry_service, mac_id, client_ip):
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware") as resp:
-                if resp.status != 200:
-                    logger.error(f"Client {mac_id} returned {resp.status} for its hardware config")
-                    raise HTTPException(status_code=502, detail="Client returned an error")
-                audio = (await resp.json()).get("audio", {})
+                audio = (await _satellite_reply(resp, mac_id)).get("audio", {})
 
             audio_id = audio.get("id", "none")
             if audio_id == "none":
@@ -185,9 +185,6 @@ async def _push_volume_control(
                         status_code=502,
                         detail=f"Client rejected volume management change: {resp.status}",
                     )
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        await _mark_unreachable(registry_service, mac_id, client_ip, e)
-        raise HTTPException(status_code=502, detail=f"Cannot reach client at {client_ip}")
 
 
 async def _send_audio_config_and_reboot(
@@ -197,11 +194,11 @@ async def _send_audio_config_and_reboot(
     """Send audio config to a milo-client and reboot it. Raises HTTPException on failure.
 
     ``registry_service`` is passed only for an already-registered client, so an
-    unreachable satellite can be marked offline instead of surfacing as an error
-    (see _mark_unreachable). A pending client has no registry entry yet.
+    unreachable satellite is also marked offline (see _mark_unreachable). A
+    pending client has no registry entry yet.
     """
     timeout = aiohttp.ClientTimeout(total=10)
-    try:
+    async with _reaching_satellite(registry_service, mac_id, client_ip):
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # Step 1: Write audio config
             async with session.put(
@@ -235,9 +232,6 @@ async def _send_audio_config_and_reboot(
                         )
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(f"Reboot request to {mac_id} failed (may already be rebooting): {e}")
-    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        await _mark_unreachable(registry_service, mac_id, client_ip, e)
-        raise HTTPException(status_code=502, detail=f"Cannot reach client at {client_ip}")
 
 
 def create_multiroom_router(
@@ -295,6 +289,45 @@ def create_multiroom_router(
                     detail="The speaker did not drop its level trim; its volume management was not changed",
                 )
         await registry_service.set_client_gain(mac_id, 0.0)
+
+    async def _send_level_for_flag(mac_id: str, managed: bool) -> None:
+        """Send a satellite whose volume_control just flipped what its fader now owes.
+
+        Called after the registry write, since the router reads the flag there
+        when the level leaves and picks between unity (DAC) and the stored level
+        (managed). Nothing else would: no level move targets a DAC client, so a
+        speaker handed to its amp kept the stored attenuation — the owner turns
+        the amp up over a quiet room — until its next admission sent unity, +40 dB
+        at once; and one handed back kept unity until its next level change. The
+        flag has moved either way, so a refusal is reported, not answered as an
+        error — at error only for an admitted speaker: one not yet admitted (a
+        heartbeat can arrive ahead of its snapclient and its CamillaDSP) refuses
+        for that reason alone, and its admission, which reads the flag just
+        written, sends what it owes.
+        """
+        if not volume_service:
+            return
+        if await volume_service.reapply_client_volume(mac_id):
+            return
+        client = registry_service.get_client(mac_id)
+        name = (client.name if client else None) or mac_id
+        level = volume_service.state_store.get_client_volume(mac_id)
+        if not (client and client.online):
+            logger.warning(
+                f"{name} is not admitted yet and did not take what its new volume management "
+                f"owes its fader; its admission sends it"
+            )
+            return
+        if managed:
+            logger.error(
+                f"{name} is volume-managed again but did not take its stored level ({level} dB) "
+                f"or mute; its next level change or admission sends them again"
+            )
+        else:
+            logger.error(
+                f"{name} is handed to its amp but its fader did not leave {level} dB for unity; "
+                f"its next admission sends unity"
+            )
 
     # === STATE ENDPOINT ===
 
@@ -362,21 +395,18 @@ def create_multiroom_router(
 
             if request.volume_control is False:
                 await _drop_trim_before_dac(mac_id, client)
-            leaving_dac = (
-                request.volume_control is True
-                and not client.volume_control
+            # Read before the registry write, which moves the record's flag.
+            flag_flips = (
+                request.volume_control is not None
                 and not client.is_local
+                and request.volume_control != client.volume_control
             )
 
             # A remote client's volume_control lives on the satellite; push it
             # there first, or its heartbeat reverts the registry (see
             # _push_volume_control). A failure must surface, not be written
             # locally and undone seconds later.
-            if (
-                request.volume_control is not None
-                and not client.is_local
-                and request.volume_control != client.volume_control
-            ):
+            if flag_flips:
                 await _push_volume_control(
                     mac_id, client.ip, request.volume_control,
                     registry_service=registry_service,
@@ -389,19 +419,8 @@ def create_multiroom_router(
                 volume_control=request.volume_control
             )
 
-            # Its fader was held at unity while DAC, and the stored level is
-            # what every screen shows. After the registry write: the router
-            # reads the flag there when the level leaves. The flag has moved
-            # either way, so a refusal is reported, not answered as an error
-            # (the next admission or level change sends it again).
-            if leaving_dac and volume_service:
-                if not await volume_service.reapply_client_volume(mac_id):
-                    level = volume_service.state_store.get_client_volume(mac_id)
-                    logger.error(
-                        f"{updated_client.name or mac_id} is volume-managed again but did not "
-                        f"take its stored level ({level} dB) or mute; its next level change "
-                        f"or admission sends them again"
-                    )
+            if flag_flips:
+                await _send_level_for_flag(mac_id, request.volume_control)
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 
@@ -607,16 +626,10 @@ def create_multiroom_router(
                 raise HTTPException(status_code=404, detail=f"Client '{mac_id}' not found")
             _require_satellite(client)
 
-            timeout = aiohttp.ClientTimeout(total=5)
-            try:
-                async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with _reaching_satellite(registry_service, mac_id, client.ip):
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                     async with session.get(f"http://{client.ip}:{CLIENT_API_PORT}/api/hardware") as resp:
-                        if resp.status != 200:
-                            raise HTTPException(status_code=502, detail="Client returned an error")
-                        return await resp.json()
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                await _mark_unreachable(registry_service, mac_id, client.ip, e)
-                raise HTTPException(status_code=502, detail=f"Cannot reach client at {client.ip}")
+                        return await _satellite_reply(resp, mac_id)
 
     @router.put("/clients/{mac_id}/audio", response_model=MultiroomMessageResponse)
     async def configure_client_audio(mac_id: str, request: ConfigureClientAudioRequest):
@@ -978,7 +991,9 @@ def create_multiroom_router(
     # === PENDING CLIENT ENDPOINTS ===
 
     @router.post("/register-client", response_model=RegisterClientResponse, response_model_exclude_none=True)
-    async def register_client(request: RegisterClientRequest, raw_request: Request):
+    async def register_client(
+        request: RegisterClientRequest, raw_request: Request, background_tasks: BackgroundTasks,
+    ):
         """
         Register a milo-client as a pending speaker.
 
@@ -988,9 +1003,10 @@ def create_multiroom_router(
           the old entry is removed so the client appears fresh.
         - hardware_configured=true, unknown → stage the identity it carries
           (wifi-adopted, heartbeat ahead of snapclient).
-        - hardware_configured=true, known → sync volume_control, and apply the
-          identity it carries if the record still holds the fallback name
-          (wifi-adopted, snapclient admitted ahead of the heartbeat).
+        - hardware_configured=true, known → sync volume_control (and send the
+          fader what the new flag owes it), and apply the identity it carries
+          if the record still holds the fallback name (wifi-adopted, snapclient
+          admitted ahead of the heartbeat).
         """
         async with api_error_handler("Error registering client", logger):
             # Validate that the declared IP matches the actual request origin
@@ -1025,6 +1041,14 @@ def create_multiroom_router(
                         else:
                             await registry_service.update_client(request.mac_id, volume_control=request.volume_control)
                             logger.info(f"Client {request.mac_id} volume_control updated to {request.volume_control}")
+                            # An admission that ran on the old flag sent its
+                            # fader unity or the stored level, the wrong one
+                            # now — a satellite adopted over WiFi is admitted
+                            # ~5 s before this first heartbeat. After the
+                            # response: the satellite waits 10 s for it.
+                            background_tasks.add_task(
+                                _send_level_for_flag, request.mac_id, request.volume_control
+                            )
                     await registry_service.set_client_audio_card_missing(
                         request.mac_id, missing_card_label(request.audio_id, request.alsa_cards)
                     )
