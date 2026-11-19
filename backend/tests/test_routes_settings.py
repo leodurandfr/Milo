@@ -436,6 +436,54 @@ class TestSettingsRoutes:
         assert response.status_code == 422
 
     # ===================
+    # AUDIO NORMALIZATION
+    # ===================
+
+    NORMALIZATION_BODY = {"radio": False, "podcast": True, "cd": True, "music_library": False}
+
+    def test_set_audio_normalization_reaches_each_source_after_the_write(self, client):
+        """Each source sets its mpv from settings.json, so it must be told
+        once the value is stored, not before — a reload read ahead of the
+        write would put the old filter back in a running mpv."""
+        stored_when_told = {}
+        sources = {}
+
+        def source_for(audio_source):
+            async def reload():
+                stored_when_told[audio_source.value] = await client._mock_settings.get_setting(
+                    f"audio.normalization.{audio_source.value}")
+                return True
+            sources[audio_source.value] = Mock(reload_normalization=AsyncMock(side_effect=reload))
+            return sources[audio_source.value]
+
+        client._mock_state_machine.get_source = Mock(side_effect=source_for)
+        response = client.put("/api/settings/audio-normalization", json=self.NORMALIZATION_BODY)
+
+        assert response.status_code == 200
+        assert response.json()["reload_success"] is True
+        assert stored_when_told == self.NORMALIZATION_BODY
+        event = client._mock_state_machine.broadcast.await_args.args[0]
+        assert event.TYPE == "audio_normalization_changed"
+        assert event.config.model_dump() == self.NORMALIZATION_BODY
+
+    def test_set_audio_normalization_reports_a_source_whose_mpv_refused(self, client):
+        refused = Mock(reload_normalization=AsyncMock(return_value=False))
+        took = Mock(reload_normalization=AsyncMock(return_value=True))
+        client._mock_state_machine.get_source = Mock(
+            side_effect=lambda source: refused if source is AudioSource.CD else took)
+
+        response = client.put("/api/settings/audio-normalization", json=self.NORMALIZATION_BODY)
+
+        assert response.status_code == 200
+        assert response.json()["reload_success"] is False
+        refused.reload_normalization.assert_awaited_once()
+
+    def test_set_audio_normalization_refuses_a_source_it_does_not_know(self, client):
+        response = client.put("/api/settings/audio-normalization",
+                              json={**self.NORMALIZATION_BODY, "spotify": True})
+        assert response.status_code == 422
+
+    # ===================
     # SCREEN TESTS
     # ===================
 

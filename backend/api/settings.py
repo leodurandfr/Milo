@@ -31,6 +31,7 @@ from backend.api.models import (
     IrRemoteStepsRequest,
     DockAppsRequest,
     DockVolumeRequest,
+    AudioNormalizationRequest,
     AudioResumeRequest,
     AudioStopRequest,
     ScreenTimeoutRequest,
@@ -48,6 +49,8 @@ from backend.api.models import (
     HardwareConfigRequest,
 )
 from backend.core.models.ws_events import (
+    AudioNormalizationChanged,
+    AudioNormalizationConfig,
     AudioResumeChanged,
     AudioResumeConfig,
     AudioStopChanged,
@@ -267,6 +270,7 @@ def create_settings_router(
             "dock_volume": all_settings['dock']['volume'],
             "audio_stop": {"auto_stop_delay": all_settings['audio']['auto_stop_delay']},
             "audio_resume": {"resume_window": all_settings['audio']['resume_window']},
+            "audio_normalization": all_settings['audio']['normalization'],
             "screen_timeout": {
                 "screen_timeout_enabled": timeout_seconds != 0,
                 "screen_timeout_seconds": timeout_seconds
@@ -639,6 +643,29 @@ def create_settings_router(
             build_event=lambda audio: AudioResumeChanged(
                 config=AudioResumeConfig(resume_window=audio['resume_window'])
             ),
+        )
+
+    # Which mpv sources the loudness filter evens out. Applied to the mpv each
+    # one runs now, and read again by every load after.
+    @router.put("/audio-normalization")
+    async def set_audio_normalization(payload: AudioNormalizationRequest):
+        async def reapply() -> bool:
+            # Every source the setting names, started or not: one that is not
+            # has no mpv and applies it at its next load.
+            applied = True
+            for source_id in await settings.get_setting('audio.normalization'):
+                source = state_machine.get_source(AudioSource(source_id))
+                if source is not None and not await source.reload_normalization():
+                    applied = False
+            return applied
+
+        return await _handle_setting_update(
+            setter=lambda: settings.set_setting('audio.normalization', payload.model_dump()),
+            section='audio',
+            build_event=lambda audio: AudioNormalizationChanged(
+                config=AudioNormalizationConfig(**audio['normalization'])
+            ),
+            reload_callback=reapply,
         )
 
     # Screen timeout

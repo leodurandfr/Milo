@@ -8,13 +8,17 @@ playback-restart, pause, paused-for-cache, end-file with its reason and entry
 id — and the one-second loop only reads the playhead while sound plays,
 handing each reading to the position axis (BaseAudioSource._observe_position),
 which publishes only a discontinuity.
+
+It also owns the one audio filter Milō puts in mpv, the loudness
+normalization: a per-source setting, applied over IPC rather than written into
+the units (`_apply_normalization`).
 """
 import asyncio
 from dataclasses import dataclass
 from backend.core.models.ws_events import SourceErrorReason
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
-from backend.core.audio_source import BaseAudioSource, SourceNotStarted
+from backend.core.audio_source import BaseAudioSource, Result, SourceNotStarted
 from backend.core.models.commands import skip_target
 from backend.core.models.session import (
     EndReason, IdlePolicy, Phase, PhaseEvent, Session,
@@ -71,6 +75,12 @@ class MpvAudioSource(BaseAudioSource):
     #   source's own playhead plus the skip.
     SETTLES_PLAYHEAD = False
 
+    # The loudness filter the normalization setting switches, as mpv's `af`
+    # takes it: EBU R128 integrated loudness at -14 LUFS, true peak under
+    # -1 dBTP. It used to sit in the radio, podcast and CD units' ExecStart,
+    # where no setting reached it.
+    NORMALIZATION_FILTER = "loudnorm=I=-14:TP=-1:LRA=11"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._mpv_socket = self._config.get(
@@ -87,6 +97,10 @@ class MpvAudioSource(BaseAudioSource):
         self._mpv_stalled = False
         self._position_task: Optional[asyncio.Task] = None
         self._tick_posted = False
+        # The `af` this source last set, and on which link: mpv forgets it
+        # with its process, so a new link (systemd's restart after a crash, a
+        # reroute) is set again, and an unchanged one is not reset.
+        self._filter_applied: Optional[Tuple[Any, str]] = None
 
     async def _attach_mpv(self) -> bool:
         """Build this source's mpv controller and open its IPC link.
@@ -236,8 +250,58 @@ class MpvAudioSource(BaseAudioSource):
     async def _mpv_ready(self) -> bool:
         """Re-attach before a load: systemd puts a new mpv on the same socket a
         few seconds after a crash, and every command on the dead link would be
-        dropped — starting playback is the act that picks it back up."""
-        return self._mpv is not None and await self._mpv.ensure_connected()
+        dropped — starting playback is the act that picks it back up.
+
+        Every load goes through here, so it is also where the normalization
+        reaches an mpv that has not had it yet. A filter mpv refused does not
+        refuse the load: the sound plays unfiltered, and the next load asks
+        again."""
+        if self._mpv is None or not await self._mpv.ensure_connected():
+            return False
+        await self._apply_normalization()
+        return True
+
+    # === Loudness normalization ===
+
+    async def reload_normalization(self) -> bool:
+        """The normalization setting changed: put it in the mpv this source
+        runs now, in the actor, after whatever it is handling. Returns False
+        only when mpv refused it (the setting is stored all the same, and the
+        next load asks again).
+
+        A reload that a stop, a release or a shutdown cut before it ran is
+        not a refusal: the actor answers it False like any interrupted
+        Result, but whatever mpv comes next takes the stored value through
+        `_mpv_ready`. So the Result answers whether mpv *refused*, and only
+        that answer is a failure."""
+        async def refused() -> bool:
+            return not await self._apply_normalization()
+
+        return await self._submit(Result(refused)) is not True
+
+    async def _apply_normalization(self) -> bool:
+        """Set mpv's `af` to what `audio.normalization.<source>` says: the
+        filter, or none. Once per link and value; no mpv attached is nothing
+        to do, since the next load comes through `_mpv_ready`."""
+        link = self._mpv.link if self._mpv is not None else None
+        if link is None:
+            return True
+        enabled = await self._settings_service.get_setting(
+            f"audio.normalization.{self.source_id}"
+        )
+        wanted = self.NORMALIZATION_FILTER if enabled else ""
+        applied = self._filter_applied
+        if applied is not None and applied[0] is link and applied[1] == wanted:
+            return True
+        if not await self._mpv.set_property("af", wanted):
+            self._logger.warning(
+                "mpv did not take the loudness normalization (%s); asked again at the next load",
+                "on" if enabled else "off",
+            )
+            return False
+        self._filter_applied = (link, wanted)
+        self._logger.info("Loudness normalization %s", "on" if enabled else "off")
+        return True
 
     async def _attempt(self, step: Callable[[], Awaitable[Any]]) -> Any:
         """Run the mpv part of a load; an exception reads as a refusal (None).

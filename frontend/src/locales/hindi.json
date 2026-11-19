@@ -356,7 +356,9 @@
     "resumeHint": "स्रोत छोड़ने के बाद अंतिम ट्रैक इतनी देर रखें:",
     "resumeForever": "हमेशा",
     "appliesTo": "इन पर लागू: {sources}",
-    "appliesToNone": "Dock के किसी भी स्रोत पर लागू नहीं"
+    "appliesToNone": "Dock के किसी भी स्रोत पर लागू नहीं",
+    "normalization": "वॉल्यूम सामान्यीकरण",
+    "normalizationDescription": "एक स्टेशन, एपिसोड या ट्रैक से अगले तक आवाज़ का स्तर एक समान रखता है।"
   },
   "macSettings": {
     "receiver": "रिसेप्शन (Milō)",

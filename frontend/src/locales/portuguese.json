@@ -356,7 +356,9 @@
     "resumeHint": "Manter a última faixa depois de sair de uma fonte durante:",
     "resumeForever": "Para sempre",
     "appliesTo": "Aplica-se a: {sources}",
-    "appliesToNone": "Não se aplica a nenhuma das fontes do Dock"
+    "appliesToNone": "Não se aplica a nenhuma das fontes do Dock",
+    "normalization": "Normalização do volume",
+    "normalizationDescription": "Uniformiza o volume de uma estação, episódio ou faixa para a seguinte."
   },
   "macSettings": {
     "receiver": "Receção (Milō)",

@@ -13,34 +13,114 @@ Data is persisted to /var/lib/milo/cd_data.json
 Cover art is stored in /var/lib/milo/cd_covers/
 """
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import time
+import urllib.request
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiofiles
 
 from backend.config.constants import CD_COVERS_DIR, CD_DATA_FILE, CD_DEVICE
+from backend.core.updates.catalog import PROGRAMS
 from backend.sources.cd.models import DiscInfo, TrackInfo
 from backend.shared.decorators import handle_errors
 
 logger = logging.getLogger("source.cd.data")
 
+# Who MusicBrainz is told is asking, as its policy requires: the application,
+# its version and a contact it can reach before it blocks a client. The
+# version is the string the server shows for itself (the update catalog's
+# command for Milō), read at initialize.
+MUSICBRAINZ_APP = "Milo"
+MUSICBRAINZ_CONTACT = "https://milo-audio.com"
+MILO_VERSION_COMMAND = PROGRAMS["milo"]["commands"]["main"]
+MILO_VERSION_TIMEOUT_S = 5.0
+
+# How long one MusicBrainz or Cover Art Archive socket may stay silent before
+# that try fails. musicbrainzngs hands urllib no timeout, so a connection the
+# other end stopped answering held its thread for good — with the library's
+# rate-limit lock, so every later lookup queued behind it, and with
+# `_lookup_inflight`, so every later disc played unnamed until the backend
+# restarted. Its own retries still apply (8 tries, 56 s of sleeps): a server
+# that never answers ends a request within ~140 s.
+MUSICBRAINZ_SOCKET_TIMEOUT_S = 10.0
+
 # How long a caller waits for a jacket before treating the archive as
-# unreachable. Its own retries last ~100 s in an outage (8 tries, 56 s of
-# sleeps), and musicbrainzngs sets no socket timeout: a stalled connection
-# would otherwise never answer, and the player would veil its placeholder
-# for as long as the source stays open.
+# unreachable. The download itself ends within ~140 s (above); this bounds a
+# server that trickles, and the player veils its placeholder until then.
 COVER_FETCH_TIMEOUT_S = 150.0
 
 # How long an in-flight lookup is awaited before its caller is answered
 # unnamed (the lookup goes on and names the disc when it ends); the source
-# already plays the disc unnamed after IDENTIFY_GRACE_S. Past the ~100 s its
-# retries last in an outage, for the same missing socket timeout. Only one
-# lookup is ever in flight: musicbrainzngs holds its rate-limit lock for the
-# whole request, so a second thread would only queue behind a stalled one.
+# already plays the disc unnamed after IDENTIFY_GRACE_S. Only one lookup is
+# ever in flight: musicbrainzngs holds its rate-limit lock for the whole
+# request, so a second thread would only queue behind a stalled one — which
+# is why that one has to end (MUSICBRAINZ_SOCKET_TIMEOUT_S).
 LOOKUP_TIMEOUT_S = 120.0
+
+
+def _opener_with_timeout(*handlers: Any) -> urllib.request.OpenerDirector:
+    """musicbrainzngs' `compat.build_opener`, with a socket timeout on every
+    request it opens: both its calls (`opener.open(req)` and
+    `opener.open(req, body)`) go through here, for MusicBrainz and the Cover
+    Art Archive alike."""
+    opener = urllib.request.build_opener(*handlers)
+    open_without_timeout = opener.open
+
+    def open_with_timeout(request: Any, data: Any = None) -> Any:
+        return open_without_timeout(request, data, timeout=MUSICBRAINZ_SOCKET_TIMEOUT_S)
+
+    opener.open = open_with_timeout
+    return opener
+
+
+def _archive_failure(error: BaseException) -> bool:
+    """Whether a cover download failed because the archive could not answer
+    (network, 5xx, redirect loop), rather than for a fault of Milō's own."""
+    try:
+        import musicbrainzngs
+    except ImportError:
+        return False
+    return isinstance(error, musicbrainzngs.WebServiceError)
+
+
+async def _milo_version() -> str:
+    """The version Milō shows for itself, or "unknown" when git cannot say.
+
+    Bounded like VersionService's run of the same command: this one runs in
+    the CD source's initialize, inside the parallel async init."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *MILO_VERSION_COMMAND,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as e:
+        logger.warning(f"Could not read Milō's version for MusicBrainz: {e}")
+        return "unknown"
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), MILO_VERSION_TIMEOUT_S)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        logger.warning(
+            f"Could not read Milō's version for MusicBrainz: git did not answer "
+            f"within {MILO_VERSION_TIMEOUT_S:.0f} s"
+        )
+        return "unknown"
+    version = stdout.decode().strip()
+    if proc.returncode != 0 or not version:
+        logger.warning(
+            f"Could not read Milō's version for MusicBrainz: {stderr.decode().strip()}"
+        )
+        return "unknown"
+    return version
+
 
 # What lookup_metadata writes into every cache entry. An entry missing one was
 # written by an earlier release and is dropped on load — its disc is simply
@@ -71,17 +151,26 @@ class CdDataService:
         self._cover_downloads: Dict[str, asyncio.Future] = {}
         self._lookup_inflight: Optional[Tuple[str, asyncio.Future]] = None
 
-        # Configure MusicBrainz user agent (module-level, idempotent)
-        try:
-            import musicbrainzngs
-            musicbrainzngs.set_useragent("Milo", "1.0", "https://music.milo.audio")
-        except ImportError:
-            logger.warning("musicbrainzngs not installed, metadata lookup disabled")
-
     async def initialize(self) -> None:
-        """Load cached data from disk and ensure directories exist."""
+        """Configure musicbrainzngs, load cached data from disk and ensure
+        directories exist."""
+        await self._configure_musicbrainz()
         os.makedirs(self._covers_dir, exist_ok=True)
         await self._load_data()
+
+    async def _configure_musicbrainz(self) -> None:
+        """Identify Milō to MusicBrainz and bound every socket the library
+        opens. Both are module-level in musicbrainzngs, and idempotent."""
+        try:
+            import musicbrainzngs
+            from musicbrainzngs import compat
+        except ImportError:
+            logger.warning("musicbrainzngs not installed, metadata lookup disabled")
+            return
+        compat.build_opener = _opener_with_timeout
+        musicbrainzngs.set_useragent(
+            MUSICBRAINZ_APP, await _milo_version(), MUSICBRAINZ_CONTACT
+        )
 
     # =========================================================================
     # DISC TOC READING
@@ -391,11 +480,15 @@ class CdDataService:
                 # to finish for whoever asks next.
                 image_data = await asyncio.wait_for(
                     asyncio.shield(download), COVER_FETCH_TIMEOUT_S)
-            except Exception as e:
+            except TimeoutError:
                 logger.warning(
-                    f"Cover art for disc {disc_id} unreachable, "
-                    f"will retry on the next load: {e}"
+                    f"The Cover Art Archive did not answer for disc {disc_id} within "
+                    f"{COVER_FETCH_TIMEOUT_S:.0f} s; asked again on the next load"
                 )
+                return None
+            except Exception:
+                # The download's own failure: said once, by _forget_download,
+                # whether or not anyone still waits on it.
                 return None
 
             if image_data is None:
@@ -419,10 +512,23 @@ class CdDataService:
     def _forget_download(self, disc_id: str, done: asyncio.Future) -> None:
         if self._cover_downloads.get(disc_id) is done:
             del self._cover_downloads[disc_id]
-        if not done.cancelled() and done.exception() is not None:
-            # Retrieved here, since its caller may be gone; said, since then
-            # nobody else would.
-            logger.error(f"MusicBrainz lookup could not be completed: {done.exception()}")
+        if done.cancelled() or done.exception() is None:
+            return
+        # Retrieved here, since its caller may be gone; said once, here,
+        # whoever still waits.
+        error = done.exception()
+        if _archive_failure(error):
+            # A warning: the archive is a third party whose outage costs a
+            # jacket, and the disc is named all the same (MusicBrainz
+            # answered — it is not the one to blame).
+            logger.warning(
+                f"Cover art for disc {disc_id} unreachable at the Cover Art "
+                f"Archive, asked again on the next load: {error}"
+            )
+        else:
+            # Not an answer from the archive: a fault of this code (or of the
+            # library's use), which neither service is to blame for.
+            logger.error(f"Cover download for disc {disc_id} failed: {error!r}")
 
     def cover_fetchable(self, disc_id: str) -> bool:
         """Whether fetch_cover could still bring a jacket for this disc.
@@ -443,8 +549,9 @@ class CdDataService:
 
         Three outcomes, and fetch_cover treats each differently: the image
         bytes; None when the archive answered that neither has one; an
-        exception when it could not answer (network, 5xx, redirect loop) —
-        a missing musicbrainzngs included, which is no answer from the archive.
+        exception when it could not answer (network, 5xx, redirect loop:
+        musicbrainzngs' WebServiceError, reported as the archive's outage) or
+        for any other reason (reported as a fault of Milō's own).
         """
         import musicbrainzngs
 

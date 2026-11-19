@@ -5,7 +5,7 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-72 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+73 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
@@ -35,6 +35,7 @@ Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`.
 | [`settings/dock_volume_changed`](#settingsdock_volume_changed) | internal |
 | [`settings/audio_stop_changed`](#settingsaudio_stop_changed) | internal |
 | [`settings/audio_resume_changed`](#settingsaudio_resume_changed) | internal |
+| [`settings/audio_normalization_changed`](#settingsaudio_normalization_changed) | internal |
 | [`settings/screen_timeout_changed`](#settingsscreen_timeout_changed) | internal |
 | [`settings/screen_brightness_changed`](#settingsscreen_brightness_changed) | internal |
 | [`settings/screen_auto_player_changed`](#settingsscreen_auto_player_changed) | internal |
@@ -358,6 +359,15 @@ How long a source left with something to resume keeps it changed.
 |---|---|
 | `source` | "settings" |
 | `config` | [AudioResumeConfig](#audioresumeconfig) |
+
+### settings/audio_normalization_changed
+
+Which sources mpv's loudness filter evens out changed; `config` is the `audio_normalization` key of `GET /api/settings/bulk`.
+
+| Field | Type |
+|---|---|
+| `source` | "settings" |
+| `config` | [AudioNormalizationConfig](#audionormalizationconfig) |
 
 ### settings/screen_timeout_changed
 
@@ -902,6 +912,17 @@ The banner of the last Milō update was closed, for every screen (PATCH /api/pro
 | Field | Type |
 |---|---|
 | `resume_window` | number \| null |
+
+### AudioNormalizationConfig
+
+Whether mpv's loudness filter evens out what each mpv source plays.
+
+| Field | Type |
+|---|---|
+| `radio` | boolean |
+| `podcast` | boolean |
+| `cd` | boolean |
+| `music_library` | boolean |
 
 ### ScreenTimeoutConfig
 

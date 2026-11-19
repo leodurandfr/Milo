@@ -359,6 +359,15 @@ class AudioResumeRequest(StrictModel):
     )
 
 
+class AudioNormalizationRequest(StrictModel):
+    """Whether mpv's loudness filter evens out what each mpv source plays:
+    one switch per source, all four sent together."""
+    radio: bool
+    podcast: bool
+    cd: bool
+    music_library: bool
+
+
 # =============================================================================
 # SETTINGS - SCREEN
 # =============================================================================

@@ -28,6 +28,24 @@
         @change="(value) => setResume(value === FOREVER ? null : value)"
       />
     </ToggleSection>
+
+    <!-- The loudness filter, switched source by source -->
+    <SectionCard
+      :title="t('audioPlayback.normalization')"
+      :description="t('audioPlayback.normalizationDescription')"
+    >
+      <div v-if="normalizedSources.length" class="source-list">
+        <ListItemButton
+          v-for="source in normalizedSources"
+          :key="source"
+          :title="t(AUDIO_SOURCE_LABEL_KEYS[source])"
+          action="toggle"
+          :model-value="settingsStore.audioNormalization[source]"
+          @update:model-value="(value) => setNormalization(source, value)"
+        />
+      </div>
+      <p v-else class="none text-body-medium">{{ t('audioPlayback.appliesToNone') }}</p>
+    </SectionCard>
   </SectionStack>
 </template>
 
@@ -38,12 +56,14 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import PLAYBACK_SETTINGS_SOURCES from '@/constants/playbackSettingsSources.json';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 
 const { t, formatDuration, formatList } = useI18n();
-const { updateSetting } = useSettingsAPI();
+const { updateSetting, debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 // The resume window's last stop: stored as null (no limit), which a slider
@@ -111,6 +131,24 @@ function appliesTo(setting) {
     : t('audioPlayback.appliesToNone');
 }
 
+/**
+ * The sources the normalization has a switch for, among those the Dock shows,
+ * in its order. Which sources have one is the stored setting's to say: its
+ * keys are the sources that play through mpv.
+ */
+const normalizedSources = computed(() => settingsStore.sourceOrder.filter(
+  source => settingsStore.dockApps[source] && source in settingsStore.audioNormalization
+));
+
+function setNormalization(source, value) {
+  settingsStore.updateAudioNormalization({ [source]: value });
+  // The switch moved before the request: a rejected write is undone by
+  // reading the stored switches back.
+  debouncedUpdate('audio-normalization', 'audio-normalization', { ...settingsStore.audioNormalization }, 300, {
+    onError: () => settingsStore.loadAllSettings()
+  });
+}
+
 const durationSteps = (values) => values.map(value => ({ value, label: formatDuration(value) }));
 
 const autoStopSteps = computed(() => durationSteps([30, 60, 120, 300, 600, 1200, 1800, 3600, 7200]));
@@ -120,3 +158,23 @@ const resumeSteps = computed(() => [
   { value: FOREVER, label: t('audioPlayback.resumeForever') },
 ]);
 </script>
+
+<style scoped>
+.source-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
+}
+
+.none {
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+@media (max-aspect-ratio: 4/3) and (max-width: 1023px) {
+  .source-list {
+    display: flex;
+    flex-direction: column;
+  }
+}
+</style>

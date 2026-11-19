@@ -62,6 +62,12 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **ALSA Device**: milo_roc (dynamic routing via routing.env)
 - **Managed By**: MacPlugin
 
+The four mpv units (radio, podcast, CD, music library) carry no audio filter.
+The loudness normalization (`loudnorm`) is a per-source setting,
+`audio.normalization` — on for radio and podcasts, off for CD and the music
+library by default — which `MpvAudioSource` sets as mpv's `af` over IPC before
+every load and whenever the setting changes.
+
 #### milo-radio.service
 - **Role**: Internet radio player via mpv
 - **IPC Socket**: /run/milo/radio-ipc.sock
@@ -103,7 +109,7 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Dependencies**: sound.target, milo-backend.service, milo-camilladsp.service
 - **ALSA Device**: milo_music_library (dynamic routing via routing.env)
 - **Managed By**: MusicLibrarySource
-- **Notes**: `--gapless-audio=yes`, no `loudnorm` (bit-perfect; volume/EQ handled downstream by CamillaDSP). Depends on milo-navidrome.service being up to browse/stream, but has no unit-level dependency on it — the backend only reaches Navidrome lazily when the source activates.
+- **Notes**: `--gapless-audio=yes`. Volume/EQ handled downstream by CamillaDSP. Depends on milo-navidrome.service being up to browse/stream, but has no unit-level dependency on it — the backend only reaches Navidrome lazily when the source activates.
 
 #### milo-qobuz.service
 - **Role**: Qobuz Connect via the qobuz-proxy sidecar

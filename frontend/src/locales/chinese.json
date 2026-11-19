@@ -356,7 +356,9 @@
     "resumeHint": "离开音源后保留最后一首曲目:",
     "resumeForever": "永久",
     "appliesTo": "适用于：{sources}",
-    "appliesToNone": "不适用于 Dock 中的任何音源"
+    "appliesToNone": "不适用于 Dock 中的任何音源",
+    "normalization": "音量标准化",
+    "normalizationDescription": "让不同电台、节目和曲目之间的音量保持一致。"
   },
   "macSettings": {
     "receiver": "接收（Milō）",

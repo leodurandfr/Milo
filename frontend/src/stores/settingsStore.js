@@ -77,6 +77,16 @@ export const useSettingsStore = defineStore('settings', () => {
     resume_window: 600.0
   });
 
+  // Whether mpv's loudness filter evens out what each mpv source plays:
+  // {source: bool}, one key per source that plays through mpv. The settings
+  // page lists the keys /bulk sends.
+  const audioNormalization = ref({
+    radio: true,
+    podcast: true,
+    cd: false,
+    music_library: false
+  });
+
   // === RADIO ===
   const radioSettings = ref({
     shazam_enabled: true
@@ -251,6 +261,7 @@ export const useSettingsStore = defineStore('settings', () => {
         setIfChanged(dockVolume, d.dock_volume);
 
         setIfChanged(audioPlayback, { ...d.audio_stop, ...d.audio_resume });
+        setIfChanged(audioNormalization, d.audio_normalization);
         setIfChanged(screenTimeout, d.screen_timeout);
         setIfChanged(screenBrightness, d.screen_brightness);
         setIfChanged(screenAutoPlayer, d.screen_auto_player);
@@ -334,6 +345,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   const updateAudioPlayback = makeUpdater(audioPlayback);
+  const updateAudioNormalization = makeUpdater(audioNormalization);
 
   // === BT REMOTE ACTIONS ===
 
@@ -603,6 +615,7 @@ export const useSettingsStore = defineStore('settings', () => {
     featureOrder,
     dockVolume,
     audioPlayback,
+    audioNormalization,
     radioSettings,
     musicLibrarySettings,
     qobuzSettings,
@@ -634,6 +647,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateFeatureOrder,
     buildEnabledAppsArray,
     updateAudioPlayback,
+    updateAudioNormalization,
     updateRadioSettings,
     updateMusicLibrarySettings,
     updateQobuzSettings,

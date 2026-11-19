@@ -859,3 +859,212 @@ class TestTheDiscCacheOnDisk:
 
         await service.initialize()
         assert covers.is_dir()
+
+
+class TestAgainstASimulatedMusicBrainz:
+    """musicbrainzngs for real, against a MusicBrainz served on the loopback:
+    what the library sends and how long it waits are the library's, and only
+    a socket can show them. Its pacing is the one thing taken out: the retry
+    back-off (56 s of sleeps) and the one-request-a-second rate limit.
+    """
+
+    DISC_XML = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<metadata xmlns="http://musicbrainz.org/ns/mmd-2.0#">'
+        '<disc id="{disc_id}"><release-list count="1"><release id="rel-1">'
+        '<title>Spaces</title><date>2013-11-15</date>'
+        '<artist-credit><name-credit><artist id="a-1"><name>Nils Frahm</name></artist>'
+        '</name-credit></artist-credit>'
+        '<release-group id="rg-1"><title>Spaces</title></release-group>'
+        '<medium-list count="1"><medium><position>1</position><track-list count="2">'
+        '<track id="t-1"><position>1</position><recording id="r-1">'
+        '<title>An Aborted Beginning</title><length>83000</length></recording></track>'
+        '<track id="t-2"><position>2</position><recording id="r-2">'
+        '<title>Says</title><length>521000</length></recording></track>'
+        '</track-list></medium></medium-list>'
+        '</release></release-list></disc></metadata>'
+    )
+
+    TOC = [{"number": 1, "duration": 200, "offset": 150},
+           {"number": 2, "duration": 150, "offset": 20000}]
+
+    class World:
+        """The server's side: `stalls` reads a request and never answers,
+        as over a half-open connection; otherwise it names the disc."""
+
+        def __init__(self):
+            self.stalls = False
+            self.user_agents = []
+            self.connections = []
+            self.server = None
+
+        async def serve(self, reader, writer):
+            self.connections.append(writer)
+            head = (await reader.readuntil(b"\r\n\r\n")).decode()
+            for line in head.split("\r\n"):
+                if line.lower().startswith("user-agent:"):
+                    self.user_agents.append(line.split(":", 1)[1].strip())
+            if self.stalls:
+                await reader.read()   # until the client hangs up
+                return
+            disc_id = head.split(" ", 2)[1].split("/discid/", 1)[1].split("?", 1)[0]
+            body = TestAgainstASimulatedMusicBrainz.DISC_XML.format(disc_id=disc_id).encode()
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/xml\r\n"
+                + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+                + body
+            )
+            await writer.drain()
+            writer.close()
+
+    @pytest.fixture
+    async def world(self, monkeypatch):
+        import time as real_time
+        from types import SimpleNamespace
+        import musicbrainzngs.musicbrainz as mb
+
+        world = self.World()
+        world.server = await asyncio.start_server(world.serve, "127.0.0.1", 0)
+        port = world.server.sockets[0].getsockname()[1]
+        monkeypatch.setattr(mb, "hostname", f"127.0.0.1:{port}")
+        monkeypatch.setattr(mb, "https", False)
+        monkeypatch.setattr(mb, "time", SimpleNamespace(time=real_time.time, sleep=lambda s: None))
+        monkeypatch.setattr(mb, "do_rate_limit", False)
+        try:
+            yield world
+        finally:
+            for writer in world.connections:
+                writer.close()
+            world.server.close()
+            await world.server.wait_closed()
+
+    @pytest.fixture
+    async def configured(self, service, monkeypatch):
+        import backend.sources.cd.data as data_module
+        monkeypatch.setattr(data_module, "MILO_VERSION_COMMAND", ["echo", "v0.4.2-3-gdeadbee"])
+        await service.initialize()
+        return service
+
+    async def test_a_silent_socket_ends_the_lookup_and_frees_the_next_disc(
+            self, world, configured, monkeypatch):
+        """Before the socket had a timeout, a lookup over a connection that
+        stopped answering never ended: it held `_lookup_inflight`, and every
+        disc inserted after it played unnamed until the backend restarted.
+        The caller's own wait (LOOKUP_TIMEOUT_S, two minutes) is left as it
+        is: what is proven is that the lookup ends by itself."""
+        import backend.sources.cd.data as data_module
+        monkeypatch.setattr(data_module, "MUSICBRAINZ_SOCKET_TIMEOUT_S", 0.05)
+        world.stalls = True
+
+        first = await asyncio.wait_for(configured.lookup_metadata("d1", "toc", self.TOC), 5.0)
+        assert first.album is None and first.track_count == 2
+
+        world.stalls = False
+        second = await asyncio.wait_for(configured.lookup_metadata("d2", "toc", self.TOC), 5.0)
+        assert second.album == "Spaces", "the disc after a silent lookup stayed unnamed"
+        assert [t.title for t in second.tracks] == ["An Aborted Beginning", "Says"]
+
+    async def test_musicbrainz_is_told_the_running_version_and_a_contact(self, world, configured):
+        """MusicBrainz's policy asks for a contact it can reach before it
+        blocks a client; the one sent was a domain the project never owned,
+        and the version was a fixed "1.0"."""
+        import backend.sources.cd.data as data_module
+        info = await asyncio.wait_for(configured.lookup_metadata("d1", "toc", self.TOC), 5.0)
+
+        assert info.album == "Spaces"
+        (agent,) = set(world.user_agents)
+        assert agent.startswith(f"{data_module.MUSICBRAINZ_APP}/v0.4.2-3-gdeadbee ")
+        assert f"( {data_module.MUSICBRAINZ_CONTACT} )" in agent
+
+    async def test_a_version_git_cannot_give_still_identifies_milo(self, world, service, monkeypatch):
+        """A tree git does not know (a dev host, a broken checkout) must not
+        cost the disc its name: musicbrainzngs refuses an empty version."""
+        import backend.sources.cd.data as data_module
+        monkeypatch.setattr(data_module, "MILO_VERSION_COMMAND", ["false"])
+        await service.initialize()
+
+        info = await asyncio.wait_for(service.lookup_metadata("d1", "toc", self.TOC), 5.0)
+        assert info.album == "Spaces"
+        assert world.user_agents[0].startswith(f"{data_module.MUSICBRAINZ_APP}/unknown ")
+
+    async def test_a_git_that_never_answers_does_not_hold_the_init(self, world, service, monkeypatch):
+        """The version is read inside the parallel async init: a git that
+        hangs (a lock, a slow card) would hold the CD source's initialize."""
+        import backend.sources.cd.data as data_module
+        monkeypatch.setattr(data_module, "MILO_VERSION_COMMAND", ["sleep", "30"])
+        monkeypatch.setattr(data_module, "MILO_VERSION_TIMEOUT_S", 0.05)
+        await asyncio.wait_for(service.initialize(), 2.0)
+
+        info = await asyncio.wait_for(service.lookup_metadata("d1", "toc", self.TOC), 5.0)
+        assert info.album == "Spaces"
+        assert world.user_agents[0].startswith(f"{data_module.MUSICBRAINZ_APP}/unknown ")
+
+
+class TestACoverArchiveOutageIsReportedOnce:
+    """An outage of the Cover Art Archive was logged at ERROR as "MusicBrainz
+    lookup could not be completed" — on a disc MusicBrainz had just named —
+    then again at WARNING by the caller. Triage looked on the wrong side, and
+    one outage read as two failures."""
+
+    async def test_one_warning_naming_the_archive(self, service, monkeypatch, caplog):
+        import logging
+        _known(service, "d1")
+        monkeypatch.setattr(musicbrainzngs, "get_image_front",
+                            Mock(side_effect=musicbrainzngs.NetworkError("retried 8 times")))
+        caplog.set_level(logging.DEBUG, logger="source.cd.data")
+
+        assert await service.fetch_cover("d1") is None
+        await asyncio.sleep(0)
+
+        records = [r for r in caplog.records if r.name == "source.cd.data" and r.levelno >= logging.WARNING]
+        assert [r.levelno for r in records] == [logging.WARNING], [r.getMessage() for r in records]
+        assert "Cover Art Archive" in records[0].getMessage()
+        assert "MusicBrainz" not in records[0].getMessage().replace("Cover Art Archive", "")
+
+    async def test_a_fault_of_milos_own_is_not_blamed_on_the_archive(self, service, monkeypatch, caplog):
+        """Only the archive's own failure to answer is its outage. A bug in
+        the download read as a third party down, at WARNING, and nobody
+        would look for it here."""
+        import logging
+        _known(service, "d1")
+        monkeypatch.setattr(musicbrainzngs, "get_image_front",
+                            Mock(side_effect=TypeError("unexpected keyword 'size'")))
+        caplog.set_level(logging.DEBUG, logger="source.cd.data")
+
+        assert await service.fetch_cover("d1") is None
+        await asyncio.sleep(0)
+
+        records = [r for r in caplog.records if r.name == "source.cd.data" and r.levelno >= logging.WARNING]
+        assert [r.levelno for r in records] == [logging.ERROR], [r.getMessage() for r in records]
+        assert "Cover Art Archive" not in records[0].getMessage()
+        assert "TypeError" in records[0].getMessage()
+
+    async def test_a_caller_that_gave_up_still_hears_of_the_failure(self, service, monkeypatch, caplog):
+        """The wait ending first is its own event; the download failing later
+        is still said, by the download, once."""
+        import logging
+        import threading
+        import backend.sources.cd.data as data_module
+        monkeypatch.setattr(data_module, "COVER_FETCH_TIMEOUT_S", 0.05)
+        release = threading.Event()
+
+        def late_failure(mbid, size="500"):
+            release.wait(5)
+            raise musicbrainzngs.NetworkError("retried 8 times")
+
+        monkeypatch.setattr(musicbrainzngs, "get_image_front", late_failure)
+        _known(service, "d1")
+        caplog.set_level(logging.DEBUG, logger="source.cd.data")
+
+        assert await asyncio.wait_for(service.fetch_cover("d1"), 2.0) is None
+        release.set()
+        for _ in range(200):
+            if "d1" not in service._cover_downloads:
+                break
+            await asyncio.sleep(0.01)
+
+        messages = [r.getMessage() for r in caplog.records
+                    if r.name == "source.cd.data" and r.levelno >= logging.WARNING]
+        assert len(messages) == 2, messages
+        assert all("Cover Art Archive" in m for m in messages)
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]

@@ -356,7 +356,9 @@
     "resumeHint": "Conservar la última pista tras salir de una fuente durante:",
     "resumeForever": "Para siempre",
     "appliesTo": "Se aplica a: {sources}",
-    "appliesToNone": "No se aplica a ninguna de las fuentes del Dock"
+    "appliesToNone": "No se aplica a ninguna de las fuentes del Dock",
+    "normalization": "Normalización del volumen",
+    "normalizationDescription": "Iguala el volumen de una emisora, un episodio o una pista a la siguiente."
   },
   "macSettings": {
     "receiver": "Recepción (Milō)",

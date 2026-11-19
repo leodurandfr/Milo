@@ -356,7 +356,9 @@
     "resumeHint": "Keep the last track after leaving a source for:",
     "resumeForever": "Forever",
     "appliesTo": "Applies to: {sources}",
-    "appliesToNone": "Applies to none of the sources in the Dock"
+    "appliesToNone": "Applies to none of the sources in the Dock",
+    "normalization": "Volume normalization",
+    "normalizationDescription": "Evens out the loudness from one station, episode or track to the next."
   },
   "macSettings": {
     "receiver": "Reception (Milō)",

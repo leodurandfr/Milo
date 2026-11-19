@@ -107,6 +107,16 @@ class SettingsService:
                 # (seconds); 0 keeps nothing past the departure, null keeps it
                 # for good.
                 "resume_window": 600.0,
+                # Whether mpv's loudness filter evens out what each mpv source
+                # plays, per source (MpvAudioSource applies it). On where the
+                # level jumps from one station or show to the next; off where
+                # the record is played as it was mastered.
+                "normalization": {
+                    "radio": True,
+                    "podcast": True,
+                    "cd": False,
+                    "music_library": False,
+                },
             },
             "routing": {
                 "multiroom_enabled": False,
@@ -398,14 +408,21 @@ class SettingsService:
             'packet_interleaving': bool(mac_input.get('packet_interleaving', mac_d['packet_interleaving'])),
         }
 
-        # Audio (auto-stop on pause, the resume window)
+        # Audio (auto-stop on pause, the resume window, the normalization)
         audio_input = settings.get('audio', {})
+        normalization_input = audio_input.get('normalization', {})
+        if not isinstance(normalization_input, dict):
+            normalization_input = {}
         validated['audio'] = {
             'auto_stop_delay': self._seconds_or_off(audio_input, 'auto_stop_delay', d['audio'], upper=9999.0),
             # null is no limit: what was left is kept for good.
             'resume_window': self._seconds_or_off(
                 audio_input, 'resume_window', d['audio'], upper=86400.0, unlimited=True,
             ),
+            'normalization': {
+                source: bool(normalization_input.get(source, default))
+                for source, default in d['audio']['normalization'].items()
+            },
         }
 
         # Radio settings

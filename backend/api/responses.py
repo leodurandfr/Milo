@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.core.models.settings_config import (
+    AudioNormalizationConfig,
     AudioResumeConfig,
     AudioStopConfig,
     BtRemoteStepsConfig,
@@ -227,6 +228,7 @@ class BulkSettingsResponse(BaseModel):
     dock_volume: DockVolumeConfig
     audio_stop: AudioStopConfig
     audio_resume: AudioResumeConfig
+    audio_normalization: AudioNormalizationConfig
     screen_timeout: ScreenTimeoutConfig
     screen_brightness: ScreenBrightnessConfig
     screen_ui_scale: ScreenUiScaleConfig

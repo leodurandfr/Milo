@@ -356,7 +356,9 @@
     "resumeHint": "Letzten Titel nach Verlassen einer Quelle behalten für:",
     "resumeForever": "Unbegrenzt",
     "appliesTo": "Gilt für: {sources}",
-    "appliesToNone": "Gilt für keine der Quellen im Dock"
+    "appliesToNone": "Gilt für keine der Quellen im Dock",
+    "normalization": "Lautstärkenormalisierung",
+    "normalizationDescription": "Gleicht die Lautstärke von einem Sender, einer Folge oder einem Titel zum nächsten an."
   },
   "macSettings": {
     "receiver": "Empfang (Milō)",

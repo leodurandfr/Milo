@@ -20,6 +20,7 @@ from backend.core.models.audio_wire import AudioState, PositionAnchor
 from backend.core.models.session import EndReason
 from backend.core.network.models import NetworkStatus
 from backend.core.models.settings_config import (
+    AudioNormalizationConfig,
     AudioResumeConfig,
     AudioStopConfig,
     BtRemoteConfig,
@@ -505,6 +506,16 @@ class AudioResumeChanged(SettingsEvent):
     """
     TYPE = "audio_resume_changed"
     config: AudioResumeConfig
+
+
+class AudioNormalizationChanged(SettingsEvent):
+    """Which sources mpv's loudness filter evens out changed; `config` is the
+    `audio_normalization` key of `GET /api/settings/bulk`.
+
+    App.vue settings listener → settingsStore.updateAudioNormalization.
+    """
+    TYPE = "audio_normalization_changed"
+    config: AudioNormalizationConfig
 
 
 class ScreenTimeoutChanged(SettingsEvent):

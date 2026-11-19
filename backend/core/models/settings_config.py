@@ -66,6 +66,20 @@ class AudioResumeConfig(BaseModel):
     resume_window: Optional[float]
 
 
+class AudioNormalizationConfig(BaseModel):
+    """Whether mpv's loudness filter evens out what each mpv source plays.
+
+    One switch per source that plays through mpv: the four sources are the
+    keys of `SettingsService.defaults["audio"]["normalization"]`, held equal
+    to these fields and to the MpvAudioSource subclasses by
+    `tests/architecture/test_audio_normalization.py`.
+    """
+    radio: bool
+    podcast: bool
+    cd: bool
+    music_library: bool
+
+
 class ScreenTimeoutConfig(BaseModel):
     screen_timeout_enabled: bool
     screen_timeout_seconds: int

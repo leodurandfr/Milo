@@ -356,7 +356,9 @@
     "resumeHint": "Conserver le dernier morceau après avoir quitté une source pendant :",
     "resumeForever": "Infini",
     "appliesTo": "S'applique à : {sources}",
-    "appliesToNone": "Ne s'applique à aucune des sources du Dock"
+    "appliesToNone": "Ne s'applique à aucune des sources du Dock",
+    "normalization": "Normalisation du volume",
+    "normalizationDescription": "Égalise le volume d'une station, d'un épisode ou d'un morceau à l'autre."
   },
   "macSettings": {
     "receiver": "Réception (Milō)",

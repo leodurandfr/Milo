@@ -301,7 +301,13 @@ declared policies, `_attach_mpv()` then `_listen_to_mpv()` in `_do_start`, and t
 `_on_playing_tick` hooks. The phase comes from mpv's events and the one-second tick only reads the
 playhead while sound plays; never hand-roll a monitor loop. A source with hardware of its own
 (the CD's drive) keeps that device state apart from the session and tags the work on it with a
-`DeviceToken`, which a stop neither voids nor cuts.
+`DeviceToken`, which a stop neither voids nor cuts. Every mpv source also gets its own
+loudness-normalization switch, applied by the base before each load: an `audio.normalization.<id>`
+default in `SettingsService.defaults`, a field in `AudioNormalizationConfig`
+(`core/models/settings_config.py`) and in `AudioNormalizationRequest` (`api/models.py`), the
+placeholder key in `frontend/src/stores/settingsStore.js`, and the `SETTINGS_ALLOWED` path in
+`core/system/diagnostic/whitelist.py`. The default and the two models are held equal to the
+`MpvAudioSource` subclasses by `tests/architecture/test_audio_normalization.py`.
 
 **If a daemon holds the session** (a sender on shairport-sync, a phone on go-librespot or on the
 Tidal daemon, an app on qobuz-proxy, the Macs on roc-recv, a device on BlueALSA), Milō does not

@@ -281,6 +281,22 @@ class TestSettingsService:
             service.defaults['audio']['resume_window']
         )
 
+    def test_validate_and_merge_normalization_keeps_one_switch_per_declared_source(self, service):
+        """Every mpv source reads `audio.normalization.<source>` before each
+        load: a switch the file lost answers None there, which plays
+        unfiltered whatever the default says. A switch nobody declares is
+        dropped rather than kept."""
+        defaults = service.defaults['audio']['normalization']
+        some = next(iter(defaults))
+        merged = service._validate_and_merge(
+            {'audio': {'normalization': {some: not defaults[some], 'spotify': True}}}
+        )['audio']['normalization']
+        assert merged == {**defaults, some: not defaults[some]}
+
+        for broken in (None, 'on', ['radio']):
+            stored = {'audio': {'normalization': broken}}
+            assert service._validate_and_merge(stored)['audio']['normalization'] == defaults
+
     def test_validate_and_merge_dock_apps(self, service):
         """Dock apps validation test"""
         # Valid apps

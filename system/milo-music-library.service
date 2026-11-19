@@ -24,8 +24,10 @@ ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE}"'
 
 # Launch mpv in daemon mode with IPC socket.
 # --gapless-audio=yes → true gapless across the queue (album/live/classical).
-# No loudnorm filter: a local library is played bit-perfect (Navidrome streams
-# format=raw); volume/EQ live downstream in CamillaDSP.
+# No audio filter here: the loudness normalization is a per-source setting,
+# off by default for the library (Navidrome streams format=raw, played as
+# mastered), set over IPC by MpvAudioSource; volume/EQ live downstream in
+# CamillaDSP.
 ExecStart=/usr/bin/mpv \
     --no-video \
     --audio-device=alsa/milo_music_library \

@@ -356,7 +356,9 @@
     "resumeHint": "Conservare l'ultimo brano dopo aver lasciato una sorgente per:",
     "resumeForever": "Per sempre",
     "appliesTo": "Si applica a: {sources}",
-    "appliesToNone": "Non si applica a nessuna delle sorgenti del Dock"
+    "appliesToNone": "Non si applica a nessuna delle sorgenti del Dock",
+    "normalization": "Normalizzazione del volume",
+    "normalizationDescription": "Uniforma il volume da una stazione, un episodio o un brano all'altro."
   },
   "macSettings": {
     "receiver": "Ricezione (Milō)",

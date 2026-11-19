@@ -29,7 +29,6 @@ ExecStart=/usr/bin/mpv \
     --audio-device=alsa/milo_radio \
     --input-ipc-server=/run/milo/radio-ipc.sock \
     --idle=yes \
-    --af=loudnorm=I=-14:TP=-1:LRA=11 \
     --cache=yes \
     --demuxer-max-bytes=50MiB \
     --demuxer-max-back-bytes=5MiB \
