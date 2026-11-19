@@ -95,7 +95,7 @@
       <!-- Only with a satellite named: an absent macId would mean the server's own password. -->
       <SystemPasswordSettings v-else-if="currentView === 'multiroom-client-password' && macIdToEdit"
         key="multiroom-client-password"
-        class="view-content" :mac-id="macIdToEdit" />
+        class="view-content" :mac-id="macIdToEdit" @back="back" />
 
       <!-- Multiroom configure pending speaker view -->
       <ConfigureSystem v-else-if="currentView === 'multiroom-configure-system'" key="multiroom-configure-system"
@@ -146,7 +146,8 @@
       <SystemSettings v-else-if="currentView === 'system'" key="system" class="view-content"
         @open-password="push('system-password')" />
 
-      <SystemPasswordSettings v-else-if="currentView === 'system-password'" key="system-password" class="view-content" />
+      <SystemPasswordSettings v-else-if="currentView === 'system-password'" key="system-password" class="view-content"
+        @back="back" />
 
     </Transition>
     </div>

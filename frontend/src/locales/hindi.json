@@ -604,7 +604,9 @@
     "back": "वापस",
     "expandPlayer": "प्लेयर बड़ा करें",
     "selectOption": "एक विकल्प चुनें",
-    "loading": "लोड हो रहा है…"
+    "loading": "लोड हो रहा है…",
+    "showPassword": "पासवर्ड दिखाएँ",
+    "hidePassword": "पासवर्ड छिपाएँ"
   },
   "player": {
     "repeatContext": "सूची दोहराएं",
@@ -949,7 +951,9 @@
       "newPlaceholder": "नया पासवर्ड",
       "confirmPlaceholder": "पासवर्ड की पुष्टि करें",
       "save": "सहेजें",
-      "saved": "सहेजा गया",
+      "changedTitle": "पासवर्ड बदल दिया गया",
+      "changedDetails": "यह {name} पर अगले SSH लॉगिन से लागू होगा।",
+      "done": "पूर्ण",
       "mismatch": "दोनों पासवर्ड मेल नहीं खाते।",
       "tooShort": "पासवर्ड में कम से कम {n} वर्ण होने चाहिए।"
     },

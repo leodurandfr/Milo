@@ -604,7 +604,9 @@
     "back": "Back",
     "expandPlayer": "Expand the player",
     "selectOption": "Select an option",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "player": {
     "repeatContext": "Repeat the list",
@@ -949,7 +951,9 @@
       "newPlaceholder": "New password",
       "confirmPlaceholder": "Confirm password",
       "save": "Save",
-      "saved": "Saved",
+      "changedTitle": "Password changed",
+      "changedDetails": "It applies from the next SSH login to {name}.",
+      "done": "Done",
       "mismatch": "The two passwords do not match.",
       "tooShort": "The password must be at least {n} characters."
     },

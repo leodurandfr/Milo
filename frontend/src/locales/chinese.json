@@ -604,7 +604,9 @@
     "back": "返回",
     "expandPlayer": "展开播放器",
     "selectOption": "选择一个选项",
-    "loading": "正在加载…"
+    "loading": "正在加载…",
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码"
   },
   "player": {
     "repeatContext": "列表循环",
@@ -949,7 +951,9 @@
       "newPlaceholder": "新密码",
       "confirmPlaceholder": "确认密码",
       "save": "保存",
-      "saved": "已保存",
+      "changedTitle": "密码已更改",
+      "changedDetails": "下次通过 SSH 登录 {name} 时生效。",
+      "done": "完成",
       "mismatch": "两次输入的密码不一致。",
       "tooShort": "密码至少需要 {n} 个字符。"
     },

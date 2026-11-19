@@ -604,7 +604,9 @@
     "back": "Volver",
     "expandPlayer": "Ampliar el reproductor",
     "selectOption": "Seleccionar una opción",
-    "loading": "Cargando…"
+    "loading": "Cargando…",
+    "showPassword": "Mostrar contraseña",
+    "hidePassword": "Ocultar contraseña"
   },
   "player": {
     "repeatContext": "Repetir la lista",
@@ -949,7 +951,9 @@
       "newPlaceholder": "Nueva contraseña",
       "confirmPlaceholder": "Confirmar contraseña",
       "save": "Guardar",
-      "saved": "Guardado",
+      "changedTitle": "Contraseña cambiada",
+      "changedDetails": "Se aplica a partir del próximo inicio de sesión SSH en {name}.",
+      "done": "Listo",
       "mismatch": "Las dos contraseñas no coinciden.",
       "tooShort": "La contraseña debe tener al menos {n} caracteres."
     },

@@ -2,18 +2,29 @@
 <template>
   <div class="input-wrapper">
     <div v-press="type !== 'password'" class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
-      <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
+      <input ref="inputRef" :type="inputType" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
         :maxlength="maxlength" class="heading-4" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" @keydown.enter="handleSubmit" />
-      <SvgIcon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
+      <!-- A password can always be read back: inside the container, so a tap
+           on it keeps the virtual keyboard open, and stopped there, so it
+           never opens the keyboard. Chrome moves the focus on mousedown even
+           when pointerdown is cancelled, so it is mousedown that keeps the
+           focus (and a phone's keyboard) in the field. -->
+      <IconButton v-if="isPassword" class="input-reveal" variant="ghost" size="small"
+        :icon="revealed ? 'eyeSlash' : 'eye'" :disabled="disabled"
+        :aria-label="revealed ? t('common.hidePassword') : t('common.showPassword')"
+        @mousedown.prevent @click.stop="revealed = !revealed" />
+      <SvgIcon v-else-if="icon" :name="icon" :size="iconSize" class="input-icon" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
+import { useI18n } from '@/services/i18n';
 import { useVirtualKeyboard, useKeyboardAvailability } from '@/composables/useVirtualKeyboard';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 
 const props = defineProps({
   modelValue: {
@@ -55,12 +66,19 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'blur', 'submit']);
 
+const { t } = useI18n();
 const inputRef = ref(null);
 const keyboard = useVirtualKeyboard();
 const { shouldShowKeyboard } = useKeyboardAvailability();
 
 // Track if the virtual keyboard is active for THIS specific input
 const isKeyboardActiveForThis = ref(false);
+
+// A password starts masked, and its eye shows it in clear. The ref itself is
+// handed to the virtual keyboard, whose display and eye follow and write it.
+const isPassword = computed(() => props.type === 'password');
+const revealed = ref(false);
+const inputType = computed(() => (isPassword.value && revealed.value ? 'text' : props.type));
 
 function handleInput(event) {
   emit('update:modelValue', event.target.value);
@@ -87,7 +105,8 @@ function openKeyboard() {
     value: props.modelValue,
     placeholder: props.placeholder,
     maxlength: props.maxlength,
-    secret: props.type === 'password',
+    secret: isPassword.value,
+    revealed,
     suggestions: props.suggestions,
     originElement: inputRef.value,
     onChange: (newValue) => {
@@ -191,6 +210,12 @@ input::placeholder {
 
 input:disabled {
   cursor: not-allowed;
+}
+
+.input-reveal {
+  flex-shrink: 0;
+  margin-right: calc(-1 * var(--space-02));
+  color: var(--color-text-secondary);
 }
 
 .input-icon {

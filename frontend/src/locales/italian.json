@@ -604,7 +604,9 @@
     "back": "Indietro",
     "expandPlayer": "Espandi il lettore",
     "selectOption": "Seleziona un'opzione",
-    "loading": "Caricamento…"
+    "loading": "Caricamento…",
+    "showPassword": "Mostra password",
+    "hidePassword": "Nascondi password"
   },
   "player": {
     "repeatContext": "Ripeti l'elenco",
@@ -949,7 +951,9 @@
       "newPlaceholder": "Nuova password",
       "confirmPlaceholder": "Conferma password",
       "save": "Salva",
-      "saved": "Salvato",
+      "changedTitle": "Password modificata",
+      "changedDetails": "Vale dal prossimo accesso SSH a {name}.",
+      "done": "Fatto",
       "mismatch": "Le due password non coincidono.",
       "tooShort": "La password deve contenere almeno {n} caratteri."
     },

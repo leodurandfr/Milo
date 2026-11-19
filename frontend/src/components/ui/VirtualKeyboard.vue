@@ -19,10 +19,16 @@
 
         <!-- Header: Input display + Backspace -->
         <div class="keyboard-header">
-          <div class="keyboard-input-display">
-            <input ref="displayInput" :type="isSecret ? 'password' : 'text'" v-model="keyboardValue"
+          <div class="keyboard-input-display" :class="{ 'has-reveal': isSecret }">
+            <input ref="displayInput" :type="isMasked ? 'password' : 'text'" v-model="keyboardValue"
               :placeholder="keyboardPlaceholder" :autocomplete="isSecret ? 'new-password' : undefined"
               class="keyboard-display-input heading-3" inputmode="none" />
+            <!-- The field's own eye may sit under the keyboard: this one is
+                 always in reach, and both drive the same state. -->
+            <IconButton v-if="isSecret" class="keyboard-reveal" variant="ghost" size="small"
+              :icon="isMasked ? 'eye' : 'eyeSlash'"
+              :aria-label="isMasked ? t('common.showPassword') : t('common.hidePassword')"
+              @pointerdown.prevent @click="keyboardState.toggleRevealed()" />
           </div>
           <button class="keyboard-key key-backspace"
             @pointerdown.prevent="startBackspaceRepeat"
@@ -142,11 +148,12 @@ import { useI18n } from '@/services/i18n';
 import { useVirtualKeyboard, useKeyboardAvailability } from '@/composables/useVirtualKeyboard';
 import { useTimer } from '@/composables/useTimer';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import { keyLayout, accentVariants } from './keyboard/layouts';
 import { pressPopupPlacement, accentPopupPlacement, accentIndexAt } from './keyboard/geometry';
 import { useScreenInset } from '@/composables/useScreenInset';
 
-const { getCurrentLanguage } = useI18n();
+const { t, getCurrentLanguage } = useI18n();
 const timer = useTimer();
 const keyboardState = useVirtualKeyboard();
 const { shouldShowKeyboard } = useKeyboardAvailability();
@@ -162,6 +169,7 @@ const keyboardValue = computed({
 });
 const keyboardPlaceholder = computed(() => keyboardState.placeholder.value);
 const isSecret = computed(() => keyboardState.secret.value);
+const isMasked = computed(() => isSecret.value && !keyboardState.revealed.value?.value);
 // At most three, side by side, as a phone's keyboard shows them.
 const MAX_SUGGESTIONS = 3;
 const shownSuggestions = computed(() => (keyboardState.suggestions.value ?? []).slice(0, MAX_SUGGESTIONS));
@@ -269,7 +277,7 @@ function handleSuggestion(text) {
 // ===== KEY PRESS POPUP =====
 function showPressPopup(event, key) {
   // An enlarged echo of each key would spell out a masked value
-  if (isSecret.value || !keyboardRef.value) return;
+  if (isMasked.value || !keyboardRef.value) return;
 
   const { left, bottom, width } = pressPopupPlacement(
     event.target.getBoundingClientRect(),
@@ -543,7 +551,21 @@ onUnmounted(() => {
 }
 
 .keyboard-input-display {
+  position: relative;
   grid-column: span 9;
+}
+
+.keyboard-reveal {
+  position: absolute;
+  top: 50%;
+  right: var(--space-02);
+  transform: translateY(-50%);
+  color: var(--color-text-secondary);
+}
+
+/* The eye's room on both sides, so the centered value stays centered. */
+.keyboard-input-display.has-reveal .keyboard-display-input {
+  padding-inline: var(--space-07);
 }
 
 .keyboard-display-input {

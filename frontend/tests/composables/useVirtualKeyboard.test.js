@@ -11,6 +11,10 @@
  * password (SSH and sudo), a Wi-Fi key or a share's password in clear on the
  * living-room screen while the field itself stays masked.
  *
+ * Its eye shows that secret in clear, and so does the keyboard's own eye, there
+ * because the keyboard can cover the field: both write the field's one ref, so
+ * if this fails the two eyes disagree, or a field opened next starts in clear.
+ *
  * The bound is driven through the composable alone: its state is module-level
  * and the only outside world is the field's callback. The secret is read from
  * the real producer, an InputText mounted as a host; nothing about the DOM is
@@ -96,6 +100,7 @@ describe('useVirtualKeyboard — secret fields', () => {
     });
     wrappers.push(wrapper);
     await wrapper.find('input').trigger('focus');
+    return wrapper;
   }
 
   it('a password field opens the keyboard secret, a text field does not', async () => {
@@ -110,17 +115,33 @@ describe('useVirtualKeyboard — secret fields', () => {
     expect(keyboard.secret.value).toBe(false);
   });
 
-  it('close() and submit() clear the secret', async () => {
+  it('close() and submit() clear the secret and drop the field it revealed', async () => {
     const keyboard = useVirtualKeyboard();
 
     await tapField('password');
     expect(keyboard.secret.value).toBe(true);
+    keyboard.toggleRevealed();
     keyboard.close();
     expect(keyboard.secret.value).toBe(false);
+    expect(keyboard.revealed.value).toBe(null);
 
     await tapField('password');
     expect(keyboard.secret.value).toBe(true);
+    expect(keyboard.revealed.value.value).toBe(false);
+    keyboard.toggleRevealed();
     keyboard.submit();
     expect(keyboard.secret.value).toBe(false);
+    expect(keyboard.revealed.value).toBe(null);
+  });
+
+  it("the keyboard's eye and the field's eye write one state", async () => {
+    const keyboard = useVirtualKeyboard();
+    const field = await tapField('password');
+
+    keyboard.toggleRevealed();
+    expect(keyboard.revealed.value.value).toBe(true);
+
+    await field.find('.input-reveal').trigger('click');
+    expect(keyboard.revealed.value.value).toBe(false);
   });
 });

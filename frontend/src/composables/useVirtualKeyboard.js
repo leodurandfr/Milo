@@ -1,5 +1,5 @@
 // frontend/src/composables/useVirtualKeyboard.js
-import { ref, computed } from 'vue';
+import { ref, shallowRef, computed } from 'vue';
 import { isKiosk } from '@/utils/kiosk';
 
 /**
@@ -30,6 +30,9 @@ const onChangeCallback = ref(null);
 const originElement = ref(null);
 const maxLength = ref(null);
 const secret = ref(false);
+// The field's own "shown in clear" ref, held as is rather than copied: its eye
+// and the keyboard's write one state. null for a field with nothing to reveal.
+const revealed = shallowRef(null);
 // What the field suggests completing its value into, drawn above it in the
 // keyboard while there are some: null for a field that suggests nothing.
 const suggestions = ref(null);
@@ -42,6 +45,20 @@ function bounded(value) {
   const limit = Math.max(maxLength.value, Array.from(currentValue.value).length);
   const chars = Array.from(value);
   return chars.length > limit ? chars.slice(0, limit).join('') : value;
+}
+
+// What one field handed open(), dropped when it closes or submits, so none of
+// it leaks into the next field's session.
+function endSession() {
+  isVisible.value = false;
+  onSubmitCallback.value = null;
+  onCloseCallback.value = null;
+  onChangeCallback.value = null;
+  originElement.value = null;
+  maxLength.value = null;
+  secret.value = false;
+  revealed.value = null;
+  suggestions.value = null;
 }
 
 export function useVirtualKeyboard() {
@@ -58,6 +75,8 @@ export function useVirtualKeyboard() {
    *   into its `<input>`
    * @param {boolean} [options.secret] - Mask what the keys type, as the field's
    *   own `type="password"` masks nothing on the keyboard's display
+   * @param {import('vue').Ref<boolean>} [options.revealed] - The field's ref
+   *   saying its secret is shown in clear (see toggleRevealed)
    * @param {string[]|null} [options.suggestions] - What the field suggests
    *   completing its value into; null for none (see setSuggestions)
    */
@@ -75,6 +94,7 @@ export function useVirtualKeyboard() {
     originElement.value = options.originElement || null;
     maxLength.value = options.maxlength ?? null;
     secret.value = !!options.secret;
+    revealed.value = options.revealed ?? null;
     suggestions.value = options.suggestions ?? null;
     isVisible.value = true;
   }
@@ -86,15 +106,7 @@ export function useVirtualKeyboard() {
     if (onCloseCallback.value) {
       onCloseCallback.value(currentValue.value);
     }
-    isVisible.value = false;
-    // Reset callbacks
-    onSubmitCallback.value = null;
-    onCloseCallback.value = null;
-    onChangeCallback.value = null;
-    originElement.value = null;
-    maxLength.value = null;
-    secret.value = false;
-    suggestions.value = null;
+    endSession();
   }
 
   /**
@@ -104,15 +116,7 @@ export function useVirtualKeyboard() {
     if (onSubmitCallback.value) {
       onSubmitCallback.value(currentValue.value);
     }
-    isVisible.value = false;
-    // Reset callbacks
-    onSubmitCallback.value = null;
-    onCloseCallback.value = null;
-    onChangeCallback.value = null;
-    originElement.value = null;
-    maxLength.value = null;
-    secret.value = false;
-    suggestions.value = null;
+    endSession();
   }
 
   /**
@@ -121,6 +125,14 @@ export function useVirtualKeyboard() {
    */
   function setSuggestions(list) {
     if (isVisible.value) suggestions.value = list ?? null;
+  }
+
+  /**
+   * The keyboard's own eye: show or mask the secret of the field it is open
+   * for, by writing that field's ref (none once it is closed).
+   */
+  function toggleRevealed() {
+    if (revealed.value) revealed.value.value = !revealed.value.value;
   }
 
   /**
@@ -150,6 +162,7 @@ export function useVirtualKeyboard() {
     placeholder,
     originElement,
     secret,
+    revealed,
     suggestions,
 
     // Methods
@@ -158,6 +171,7 @@ export function useVirtualKeyboard() {
     submit,
     updateValue,
     setSuggestions,
+    toggleRevealed,
     pickSuggestion
   };
 }

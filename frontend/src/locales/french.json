@@ -604,7 +604,9 @@
     "back": "Retour",
     "expandPlayer": "Agrandir le lecteur",
     "selectOption": "Sélectionner une option",
-    "loading": "Chargement…"
+    "loading": "Chargement…",
+    "showPassword": "Afficher le mot de passe",
+    "hidePassword": "Masquer le mot de passe"
   },
   "player": {
     "repeatContext": "Répéter la liste",
@@ -949,7 +951,9 @@
       "newPlaceholder": "Nouveau mot de passe",
       "confirmPlaceholder": "Confirmer le mot de passe",
       "save": "Enregistrer",
-      "saved": "Enregistré",
+      "changedTitle": "Mot de passe modifié",
+      "changedDetails": "Il s'applique dès la prochaine connexion SSH à {name}.",
+      "done": "Terminé",
       "mismatch": "Les deux mots de passe ne correspondent pas.",
       "tooShort": "Le mot de passe doit contenir au moins {n} caractères."
     },

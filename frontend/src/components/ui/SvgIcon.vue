@@ -39,6 +39,8 @@ import powerIcon from '@/assets/icons/power.svg?raw'
 import podcastIcon from '@/assets/icons/podcast.svg?raw'
 import queueIcon from '@/assets/icons/queue.svg?raw'
 import checkIcon from '@/assets/icons/check.svg?raw'
+import eyeIcon from '@/assets/icons/eye.svg?raw'
+import eyeSlashIcon from '@/assets/icons/eye-slash.svg?raw'
 import clockCounterClockwiseIcon from '@/assets/icons/clock-counter-clockwise.svg?raw'
 import downloadSimpleIcon from '@/assets/icons/download-simple.svg?raw'
 import bookmarkSimpleIcon from '@/assets/icons/bookmark-simple.svg?raw'
@@ -106,6 +108,8 @@ const icons = {
   podcast: podcastIcon,
   queue: queueIcon,
   check: checkIcon,
+  eye: eyeIcon,
+  eyeSlash: eyeSlashIcon,
   clockCounterClockwise: clockCounterClockwiseIcon,
   downloadSimple: downloadSimpleIcon,
   bookmarkSimple: bookmarkSimpleIcon,
