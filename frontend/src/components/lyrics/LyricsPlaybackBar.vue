@@ -13,10 +13,9 @@
      edge to show again (useSwipeVisibility — the same gesture the Dock would
      normally own, freed up because useDockDrag ignores .lyrics-view). The
      arrow hint doubles as a tap toggle and as a swipe handle in both
-     directions. Shown, the bar's transparent top lets the lyrics scroll under
-     it; below it, the row of title, progress and transport is the hide zone,
-     where a swipe down hides the bar (the progress bar and the buttons keep
-     their own touches). -->
+     directions. Shown, the whole bar, its top band around the arrow included,
+     is the hide zone: a swipe down anywhere on it hides the bar (the progress
+     bar and the buttons keep their own touches). -->
 
 <template>
   <!-- Same inert reveal band as the Dock's (shared .swipe-reveal-band utility) —
@@ -49,10 +48,11 @@
          false: Vue renders inert="false" verbatim, and any value at all makes
          the subtree inert. -->
     <div class="lyrics-bar" :class="{ 'is-hidden': !isVisible }" :inert="isVisible ? undefined : true">
-      <!-- The band where a swipe down hides the shown bar: the content row,
-           full width, down to the glass. Painted under the progress bar and
-           the transport, so they keep their touches; a swipe only, the arrow
-           being the tap toggle (a tap on the title should not close the bar). -->
+      <!-- The band where a swipe down hides the shown bar: the whole bar,
+           arrow band included, down to the glass. Painted under the progress
+           bar and the transport, so they keep their touches; a swipe only, the
+           arrow being the tap toggle (a tap on the title should not close the
+           bar). -->
       <div ref="hideZone" class="lyrics-bar-hide-zone" aria-hidden="true"></div>
       <div class="lyrics-bar-content">
         <PlayerInfoText variant="single" class="lyrics-bar-track" :title="identity.title"
@@ -197,17 +197,15 @@ function onHintClick(event) {
 .lyrics-bar {
   /* The hide zone's containing block. */
   position: relative;
-  /* The scrim's transparent top lets the lyrics scroll through. */
+  /* Only the hide zone and the controls below take touches. */
   pointer-events: none;
   background: linear-gradient(to bottom, transparent 0%, var(--color-image-scrim) 100%);
   display: flex;
   align-items: center;
   gap: var(--space-06);
   /* The scrim is the bar's own background, so it still reaches the glass. */
-  /* Read by the hide zone, whose top is this padding's bottom edge. */
-  --lyrics-bar-top: var(--space-09);
   padding:
-    var(--lyrics-bar-top)
+    var(--space-09)
     calc(var(--space-07) + var(--screen-inset))
     calc(max(var(--space-06), env(safe-area-inset-bottom, 0px)) + var(--screen-inset));
   transition: transform var(--transition-normal), opacity var(--transition-normal);
@@ -218,13 +216,12 @@ function onHintClick(event) {
   opacity: 0;
 }
 
-/* The content row, full width, down to the glass. */
+/* The whole bar, from its top edge (the arrow's band, where a swipe down is
+   most likely to start) to the glass. A swipe started over the bar never
+   scrolls the lyrics under it. */
 .lyrics-bar-hide-zone {
   position: absolute;
-  top: var(--lyrics-bar-top);
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   /* A swipe down here is the bar's, never a pan of anything beneath. */
   touch-action: none;
 }
