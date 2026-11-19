@@ -6,7 +6,7 @@
      uninterrupted message instead of two swapping mid-wait. -->
 <template>
   <div class="lyrics-content">
-    <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced, 'is-ready': ready }"
+    <div ref="scrollRef" class="lyrics-scroll" :class="{ 'is-plain': !isSynced, 'is-ready': ready, 'is-jumping': isJumping }"
       @scroll="handleScroll" @touchstart.passive="onTouchStart" @touchmove.passive="onTouchMove"
       @touchend="onTouchEnd" @touchcancel="onTouchEnd" @wheel.passive="onWheel">
       <template v-if="isSynced">
@@ -126,9 +126,22 @@ const scrollKey = computed(() => `${lyricsStore.trackArtist}|||${lyricsStore.tra
 // together, which is what ties them; they need not end together.
 const SCROLL_DURATION_MS = 1200;
 
+// A jump — a seek, a skip, anything but the next line — is not that gesture.
+// Given the line's 1200ms glide it crawls over a distance it was never shaped
+// for, the following line restarts it mid-trip from a standstill, and every
+// line it crosses runs its own dissolve. So it takes a short ease-out instead:
+// the page leaves at speed and settles, and the lines take their new states
+// at once (`isJumping` below).
+const JUMP_DURATION_MS = 450;
+
 // Matches --easeInOutCubic in the design system (cubic-bezier(0.65, 0, 0.35, 1)).
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - ((-2 * t + 2) ** 3) / 2;
+}
+
+// Matches --easeOutCubic in the design system (cubic-bezier(0.33, 1, 0.68, 1)).
+function easeOutCubic(t) {
+  return 1 - (1 - t) ** 3;
 }
 
 // Anchors are measured, so they cost a layout read. Measuring the whole track in
@@ -179,8 +192,8 @@ function stepTween(now) {
     rafId = null;
     return;
   }
-  const progress = Math.min(1, (now - tween.startedAt) / SCROLL_DURATION_MS);
-  container.scrollTop = tween.from + (tween.to - tween.from) * easeInOutCubic(progress);
+  const progress = Math.min(1, (now - tween.startedAt) / tween.duration);
+  container.scrollTop = tween.from + (tween.to - tween.from) * tween.ease(progress);
   rafId = progress < 1 ? requestAnimationFrame(stepTween) : null;
   if (rafId === null) tween = null;
 }
@@ -214,10 +227,21 @@ function scrollToActiveLine(framesLeft = 10) {
   // From wherever the page currently is, not from the previous line's anchor: a
   // line landing mid-glide continues the trip instead of restarting it, and a
   // hand-scrolled page is recovered from where the hand left it.
-  tween = { from: container.scrollTop, to, startedAt: performance.now() };
+  const [duration, ease] = isJumping.value
+    ? [JUMP_DURATION_MS, easeOutCubic]
+    : [SCROLL_DURATION_MS, easeInOutCubic];
+  tween = { from: container.scrollTop, to, startedAt: performance.now(), duration, ease };
   if (rafId === null) rafId = requestAnimationFrame(stepTween);
 }
 
+// Whether the last line change was a jump rather than the next line. Decided
+// from the shape of the change alone — no "a seek is in flight" flag, which
+// would have to guess how long the backend takes to answer it. Set before the
+// render that carries the new line states (flush 'pre'), so the lines switch
+// with their transitions already off; the next change sets it again, which is
+// why nothing has to clear it.
+const isJumping = ref(false);
+watch(activeIndex, (i, prev) => { isJumping.value = i !== prev + 1; });
 watch(activeIndex, () => scrollToActiveLine(), { flush: 'post' });
 
 // === Hand scrolling ===
@@ -411,6 +435,11 @@ watch(scrollKey, restoreScroll, { flush: 'post' });
      same brightness-per-second: 0.9 / (0.55 / 800ms). Re-derive it if either
      opacity above moves, or the pair stops reading as one dissolve. */
   transition-duration: 1300ms;
+}
+
+/* A jump hands the lines their new states at once (see JUMP_DURATION_MS). */
+.lyrics-scroll.is-jumping .lyrics-line {
+  transition: none;
 }
 
 .lyrics-line.is-plain-line {
