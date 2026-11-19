@@ -132,7 +132,7 @@ import re
 import time
 import yaml
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
@@ -312,6 +312,18 @@ class PlayOrder:
     def surrounds(self, uri: Optional[str]) -> bool:
         return uri is not None and uri == self.current
 
+    def context_neighbors(self) -> Tuple[Optional[str], Optional[str]]:
+        """The nearest track before and after the current one that its
+        context lists — the ones `skip_to_uri` finds in it again once the
+        daemon has exited. The user's queue does not outlive the daemon, and
+        an autoplay track belongs to no context."""
+        def nearest(entries) -> Optional[str]:
+            return next(
+                (item.get("uri") for item in entries if item.get("provider") == "context" and item.get("uri")),
+                None,
+            )
+        return nearest(reversed(self.prev_tracks)), nearest(self.next_tracks)
+
 
 def play_order(data: Dict[str, Any]) -> PlayOrder:
     current = data.get("track") if isinstance(data.get("track"), dict) else {}
@@ -441,6 +453,11 @@ class SpotifySession(Session):
     # The play order around the track (queue_entry), and the track's place in it.
     queue: List[Dict[str, Any]] = field(default_factory=list)
     queue_index: Optional[int] = None
+    # The context's tracks on either side of it (context_neighbors), once a
+    # play order that surrounds the track was read.
+    order_read: bool = False
+    prev_uri: Optional[str] = None
+    next_uri: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -448,7 +465,9 @@ class SpotifyResume:
     """What a session leaves behind (the resume point's content): enough to
     draw the track and to play it again, from its context, on the account
     that played it. Not the play order: go-librespot rebuilds it from the
-    context, and the user's own queue does not survive the daemon's exit."""
+    context, and the user's own queue does not survive the daemon's exit —
+    only the context's tracks on either side, which `prev`/`next` play, and
+    the shuffle and repeat it played in, put back once it plays again."""
     account: Optional[str]
     track: Dict[str, Any]
     uri: Optional[str]
@@ -456,6 +475,32 @@ class SpotifyResume:
     context_name: Optional[str]
     album_uri: Optional[str]
     artists: List[Dict[str, Optional[str]]]
+    order_read: bool = False
+    prev_uri: Optional[str] = None
+    next_uri: Optional[str] = None
+    shuffle: bool = False
+    repeat: str = "off"
+
+    def wraps(self) -> bool:
+        """Whether `next` goes back to the context's first track: go-librespot
+        lists nothing past a context's last one, repeat or not."""
+        return (
+            self.order_read and self.next_uri is None
+            and self.repeat == "context" and self.context_uri is not None
+        )
+
+
+@dataclass
+class PendingModes:
+    """A play from the resume point owes the session it starts the point's
+    shuffle and repeat as they stand once its track has loaded (a toggle
+    pressed while it loads sets the point: no session is open yet, E14) —
+    until `until` (wall time), and each only until the session's own toggle
+    sets it."""
+    played: str
+    until: float
+    shuffle_owed: bool = True
+    repeat_owed: bool = True
 
 
 class SpotifySource(BaseAudioSource):
@@ -657,6 +702,9 @@ class SpotifySource(BaseAudioSource):
         self._signin_restarted = False
         self._shuffle = False
         self._repeat = "off"
+        self._modes_to_restore: Optional[PendingModes] = None
+        # When `_arriving` last turned on (wall time).
+        self._arriving_since = 0.0
         self._remote: Optional[RemotePlayback] = None
         # Until when the remote is kept while nothing names it (0: no hold
         # since the last release) — see TAKE_OVER_HOLD.
@@ -1057,22 +1105,27 @@ class SpotifySource(BaseAudioSource):
     }
     COMMAND_SCOPES = {
         **{name: CommandScope.SESSION for name in COMMANDS},
-        # With no session, both play the resume point again.
+        # With no session, both play the resume point again, the steps play
+        # its neighbors, and a seek or a mode changes it.
         "resume": CommandScope.RESUME,
         "playpause": CommandScope.RESUME,
+        "seek": CommandScope.RESUME,
+        "next": CommandScope.RESUME,
+        "prev": CommandScope.RESUME,
+        "set_shuffle": CommandScope.RESUME,
+        "set_repeat": CommandScope.RESUME,
         "play_context": CommandScope.CONTENT,
         "take_over": CommandScope.CONTENT,
     }
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """Handle Spotify-specific commands."""
+        if self._session is None and cmd in ("seek", "next", "prev", "set_shuffle", "set_repeat"):
+            return await self._step_from_point(cmd, params)
+
         if cmd == "seek":
-            duration = self._session.track.get("duration_ms") or 0
-            if duration > 0 and params.position_ms > duration:
-                return self.error_response(
-                    f"position_ms ({params.position_ms}) exceeds duration ({duration}ms)"
-                )
-            return await self._seek_to(int(params.position_ms))
+            refusal = self._past_the_end(int(params.position_ms), self._session.track)
+            return refusal or await self._seek_to(int(params.position_ms))
 
         if cmd == "skip":
             return await self._handle_skip(params)
@@ -1096,9 +1149,13 @@ class SpotifySource(BaseAudioSource):
             return await self._take_over()
 
         if cmd == "set_shuffle":
+            if self._modes_to_restore is not None:
+                self._modes_to_restore.shuffle_owed = False
             return await self._send_api_command("shuffle_context", {"shuffle_context": params.shuffle})
 
         if cmd == "set_repeat":
+            if self._modes_to_restore is not None:
+                self._modes_to_restore.repeat_owed = False
             for command, payload in repeat_posts(params.mode):
                 result = await self._send_api_command(command, payload)
                 if not result.get("success"):
@@ -1167,18 +1224,131 @@ class SpotifySource(BaseAudioSource):
         context from its first track, at that position (read in its code, not
         measured).
 
-        Shuffle and repeat are not brought back: a play with no session starts
-        from a fresh state (measured 2026-10-04), and go-librespot answers the
-        play before the context's tracks are loaded, so a mode sent after it would
-        land on a context that is not there yet."""
+        Shuffle and repeat come back after the play, not with it: a play with
+        no session starts from a fresh state (measured 2026-10-04), and
+        go-librespot answers the play before the context's tracks are loaded,
+        so a mode sent at once would land on a context that is not there yet
+        (_restore_modes)."""
         resume = self._resumable()
         if resume is None:
             return self.error_response("Nothing to resume")
         point = self._resume_point
-        payload: Dict[str, Any] = {"uri": resume.context_uri or point.identity, "position": point.position_ms}
-        if resume.context_uri:
-            payload["skip_to_uri"] = point.identity
-        return await self._send_api_command("play", payload)
+        return await self._play_from_point(resume, point.identity, point.position_ms)
+
+    # How long a session on its way here holds off a play over the resume
+    # point: a transfer lands in ~0.25 s, a play 1-2 s after a daemon restart
+    # (measured 2026-11-05). Past it, the load is stuck, and a press sends the
+    # play again.
+    ARRIVAL_HOLD = 10.0
+
+    # How long a play from the resume point waits for its session before its
+    # modes are owed to nobody: a load waits on Spotify up to a minute while
+    # spclient hangs (measured 2026-11-05).
+    MODES_RESTORE_HOLD = 60.0
+
+    async def _play_from_point(self, resume: SpotifyResume, uri: Optional[str], position_ms: int) -> Dict[str, Any]:
+        """Play the point's context from `uri` (None: from its first track).
+        Not while a session is on its way here — a cast, or the play a press
+        on the point already sent: that session wins, as in _take_over."""
+        if self._arriving and audio_source.wall_time() - self._arriving_since < self.ARRIVAL_HOLD:
+            return self.success_response()
+        played = resume.context_uri or uri
+        payload: Dict[str, Any] = {"uri": played, "position": position_ms}
+        if resume.context_uri and uri:
+            payload["skip_to_uri"] = uri
+        self._modes_to_restore = None
+        result = await self._send_api_command("play", payload)
+        if result.get("success"):
+            self._modes_to_restore = PendingModes(played, audio_source.wall_time() + self.MODES_RESTORE_HOLD)
+        return result
+
+    async def _restore_modes(self) -> None:
+        """The shuffle and repeat of a resume point, sent once the session its
+        play started has loaded its track — the moment a press on the player's
+        own toggle would reach it. Only to that play's context, and only in
+        time: a phone that cast something else meanwhile keeps its own modes."""
+        session = self._session
+        pending = self._modes_to_restore
+        if pending is None or not isinstance(session, SpotifySession):
+            return
+        if session.phase is Phase.LOADING:
+            return
+        self._modes_to_restore = None
+        resume = self._resume_point.content if self._resume_point else None
+        if (
+            not isinstance(resume, SpotifyResume)
+            or audio_source.wall_time() >= pending.until
+            or (session.context_uri or session.uri) != pending.played
+        ):
+            return
+        # A play with no session starts with both off (measured 2026-10-04).
+        posts = [("shuffle_context", {"shuffle_context": True})] if pending.shuffle_owed and resume.shuffle else []
+        if pending.repeat_owed and resume.repeat != "off":
+            posts += repeat_posts(resume.repeat)
+        for command, payload in posts:
+            result = await self._send_api_command(command, payload)
+            if not result.get("success"):
+                self._logger.warning(f"Spotify resumed without its {command}: {result.get('error')}")
+                break
+        if posts:
+            # The read this status burst published carries the modes from
+            # before the posts: without a read, the toggles would show them
+            # off until go-librespot's own mode event.
+            status = await self._read_status()
+            if isinstance(status, LibrespotStatus):
+                self._shuffle, self._repeat = status.shuffle, status.repeat
+
+    # A track played past this is rewound by `prev` rather than left, as
+    # Spotify (and go-librespot's own prev) does.
+    PREV_REWINDS_PAST_MS = 3000
+
+    async def _step_from_point(self, cmd: str, params: BaseModel) -> Dict[str, Any]:
+        """The transport over the resume point, with no session. A seek or a
+        mode changes it and plays nothing — `resume` plays it from there, as
+        an episode's. The steps play: there is no player to move a track in until a play
+        starts one, and the context's neighbors are all that is kept of the
+        play order (SpotifyResume). `next` past the context's last track goes
+        back to its first under repeat. `prev` rewinds a track left past its
+        first three seconds, and with no track before it — unless asked never
+        to rewind (`allow_seeking` false)."""
+        resume = self._resumable()
+        if resume is None:
+            return self.error_response("Nothing to resume")
+        point = self._resume_point
+        # A change of the point is published by the net after the message
+        # (_republish_if_moved).
+        if cmd == "seek":
+            position = int(params.position_ms)
+            refusal = self._past_the_end(position, resume.track)
+            if refusal is None:
+                self._set_resume_point(replace(point, position_ms=position))
+            return refusal or self.success_response()
+        if cmd in ("set_shuffle", "set_repeat"):
+            modes = {"shuffle": params.shuffle} if cmd == "set_shuffle" else {"repeat": params.mode}
+            self._set_resume_point(replace(point, content=replace(resume, **modes)))
+            return self.success_response()
+        if cmd == "next":
+            if params.uri and params.uri != resume.next_uri:
+                # Only the context's own next track is kept: the user's queue
+                # did not outlive the daemon, and skip_to_uri finds nothing else.
+                return self.error_response("Only the track after the one left can be played next")
+            if resume.next_uri is None and not resume.wraps():
+                return self.error_response("No track after the one left")
+            return await self._play_from_point(resume, resume.next_uri, 0)
+        if not params.allow_seeking:
+            if resume.prev_uri is None:
+                return self.error_response("No track before the one left")
+            return await self._play_from_point(resume, resume.prev_uri, 0)
+        if point.position_ms > self.PREV_REWINDS_PAST_MS or resume.prev_uri is None:
+            return await self._play_from_point(resume, point.identity, 0)
+        return await self._play_from_point(resume, resume.prev_uri, 0)
+
+    def _past_the_end(self, position_ms: int, track: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The refusal of a seek past `track`'s end, None within it."""
+        duration = track.get("duration_ms") or 0
+        if duration > 0 and position_ms > duration:
+            return self.error_response(f"position_ms ({position_ms}) exceeds duration ({duration}ms)")
+        return None
 
     async def _seek_to(self, position_ms: int) -> Dict[str, Any]:
         """Seek, and move the anchor as soon as go-librespot took it: its own
@@ -1729,11 +1899,17 @@ class SpotifySource(BaseAudioSource):
             await self.reconcile(None)
         else:
             self._device_id = status.device_id or self._device_id
-            self._arriving = bool(status.buffering and not (status.track and status.track.get("name")))
+            arriving = bool(status.buffering and not (status.track and status.track.get("name")))
+            if arriving and not self._arriving:
+                self._arriving_since = audio_source.wall_time()
+            self._arriving = arriving
             await self._apply_session(status)
             await self._resume_taken_over()
             followed = await self._follow_app_volume(status)
         await self._follow_account(status)
+        if status is not None:
+            # After the account's read, which carries the modes from before.
+            await self._restore_modes()
         await self._follow_elsewhere(status is not None, announced)
         self._list_started_tracks()
         await self._follow_jam()
@@ -1815,7 +1991,9 @@ class SpotifySource(BaseAudioSource):
             if self._order_stale or not self._order.surrounds(uri):
                 await self._read_order()
             order = self._order
-            if order.surrounds(uri) and (order.prev_tracks or order.next_tracks):
+            session.order_read = order.surrounds(uri)
+            session.prev_uri, session.next_uri = order.context_neighbors() if session.order_read else (None, None)
+            if session.order_read and (order.prev_tracks or order.next_tracks):
                 session.queue = [
                     *(queue_entry(item.get("uri"), item.get("track")) for item in order.prev_tracks),
                     queue_entry(uri, track),
@@ -2731,6 +2909,7 @@ class SpotifySource(BaseAudioSource):
         self._naming_retry_at.clear()
         self._announced_here = None
         self._take_over_until = 0.0
+        self._modes_to_restore = None
         self._arriving = self._devices_retried = False
         self._order, self._order_stale, self._order_route = PlayOrder(), True, True
         self._order_retried = False
@@ -2794,6 +2973,13 @@ class SpotifySource(BaseAudioSource):
             context_name=session.context_name,
             album_uri=session.album_uri,
             artists=list(session.artists),
+            order_read=session.order_read,
+            prev_uri=session.prev_uri,
+            next_uri=session.next_uri,
+            # Still the session's: the daemon's modes are reset only after the
+            # end that captures this.
+            shuffle=self._shuffle,
+            repeat=self._repeat,
         )
         return identity, self._position_now(session) or 0, resume
 
@@ -2840,8 +3026,8 @@ class SpotifySource(BaseAudioSource):
             artists=shown.artists if shown else [],
             queue=session.queue if session else [],
             queue_index=session.queue_index if session else None,
-            shuffle=self._shuffle,
-            repeat=self._repeat,
+            shuffle=shown.shuffle if isinstance(shown, SpotifyResume) else self._shuffle,
+            repeat=shown.repeat if isinstance(shown, SpotifyResume) else self._repeat,
             remote=self._remote_view(),
             jam=self._jam,
         )
@@ -2851,7 +3037,13 @@ class SpotifySource(BaseAudioSource):
         if session is None:
             if self._remote is not None:
                 return ["take_over"]
-            return ["resume"] if self._resumable() is not None else []
+            resume = self._resumable()
+            if resume is None:
+                return []
+            # The row the player had: the modes are kept with the point
+            # and put back once it plays (_restore_modes).
+            steps = ["prev", "next"] if resume.next_uri or resume.wraps() else ["prev"]
+            return ["resume", "seek", *steps, "set_shuffle", "set_repeat"]
         if session.phase is Phase.LOADING:
             return ["pause", "next", "prev", "set_shuffle", "set_repeat"]
         if session.phase is Phase.PAUSED:

@@ -28,13 +28,13 @@ When:
 | `pause` | session | — | contracted |
 | `resume` | resume | — | contracted |
 | `playpause` | resume | — | contracted |
-| `seek` | session | `position_ms`: number | contracted |
+| `seek` | resume | `position_ms`: number | contracted |
 | `skip` | session | `seconds`: number | contracted |
-| `next` | session | `uri`: string \| null (optional) | contracted |
-| `prev` | session | `allow_seeking`: boolean (optional) | contracted |
+| `next` | resume | `uri`: string \| null (optional) | contracted |
+| `prev` | resume | `allow_seeking`: boolean (optional) | contracted |
 | `play_context` | content | `uri`: string<br>`skip_to_uri`: string \| null (optional) | contracted |
-| `set_shuffle` | session | `shuffle`: boolean | internal |
-| `set_repeat` | session | `mode`: [RepeatMode](#repeatmode) | internal |
+| `set_shuffle` | resume | `shuffle`: boolean | internal |
+| `set_repeat` | resume | `mode`: [RepeatMode](#repeatmode) | internal |
 | `take_over` | content | — | internal |
 
 ## bluetooth

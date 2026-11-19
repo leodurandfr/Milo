@@ -11,7 +11,7 @@ import json
 import pytest
 
 from backend.sources.spotify.source import repeat_mode, repeat_posts
-from backend.tests.spotify_world import ACCOUNT, SpotifyWorld
+from backend.tests.spotify_world import ACCOUNT, SpotifyWorld, track
 
 DELAY = 120   # make_settings' audio.auto_stop_delay
 PLAYLIST = "spotify:playlist:3G1Qd5iTuEjDBCgpqciOpv"
@@ -242,7 +242,7 @@ async def test_back_on_spotify_the_track_left_is_offered_paused(resuming):
     assert resuming.session() is None
     assert state["resume"]["title"]
     assert state["resume"]["position_ms"] > 0
-    assert state["controls"] == ["resume"]
+    assert state["controls"] == ["resume", "seek", "prev", "set_shuffle", "set_repeat"]
     assert details(resuming)["context_uri"] == PLAYLIST
     assert details(resuming)["track_uri"] == TRACK
 
@@ -272,6 +272,328 @@ async def test_the_hardware_toggle_resumes_it_too(resuming):
     await resuming.command("playpause")
 
     assert [command for command, _ in resuming.daemon.posted] == ["play"]
+
+
+BEFORE = "spotify:track:before"
+AFTER = "spotify:track:after"
+QUEUED = "spotify:track:queued"
+
+
+def _listed(uri, provider="context"):
+    """An entry of go-librespot's GET /player/queue."""
+    return {"uri": uri, "uid": None, "provider": provider, "track": {**track("x"), "uri": uri}}
+
+
+async def _left_between_neighbors(world, seconds: float):
+    """As _left_after, the play order listing a context track on either side
+    and, next, the user's queue ahead of the context's own."""
+    world.daemon.prev_tracks = [_listed(BEFORE)]
+    world.daemon.next_tracks = [_listed(QUEUED, provider="queue"), _listed(AFTER)]
+    await _left_after(world, seconds)
+
+
+async def test_the_track_left_keeps_the_players_transport(resuming):
+    """The full player drew a lone play button over the track left
+    (playerControls draws a button iff its command is listed): the row it
+    had while playing comes back with it, but the relative skip, which would
+    replace the steps."""
+    await _left_between_neighbors(resuming, 30)
+
+    assert resuming.state()["controls"] == [
+        "resume", "seek", "prev", "next", "set_shuffle", "set_repeat",
+    ]
+
+
+async def _left_with_modes(world):
+    await world.command("play_context", {"uri": PLAYLIST, "skip_to_uri": TRACK})
+    await world.command("set_shuffle", {"shuffle": True})
+    await world.command("set_repeat", {"mode": "context"})
+    await world.advance(30)
+    await world.leave()
+    await world.select()
+
+
+async def test_the_track_left_shows_the_modes_it_played_in(resuming):
+    """go-librespot comes back with both modes off: the toggles show what
+    the session had, which a resume puts back."""
+    await _left_with_modes(resuming)
+
+    assert details(resuming)["shuffle"] is True
+    assert details(resuming)["repeat"] == "context"
+
+
+async def test_a_mode_set_over_the_track_left_sends_nothing(resuming):
+    """No daemon session to send it to: the point keeps it."""
+    await _left_after(resuming, 30)
+    resuming.daemon.posted.clear()
+
+    await resuming.command("set_shuffle", {"shuffle": True})
+    await resuming.command("set_repeat", {"mode": "track"})
+
+    assert resuming.daemon.posted == []
+    assert details(resuming)["shuffle"] is True
+    assert details(resuming)["repeat"] == "track"
+
+
+async def test_resume_puts_the_modes_back_once_the_track_has_loaded(resuming):
+    """A mode sent with the play lands on a context not loaded yet and is
+    lost (go-librespot answers the play first): it follows the session's
+    first loaded state, as the player's own toggle would."""
+    await _left_with_modes(resuming)
+    resuming.daemon.posted.clear()
+    published = len(resuming.published())
+
+    await resuming.command("resume")
+
+    # The toggles never blink off between the point and the session.
+    assert all(
+        (state["details"]["shuffle"], state["details"]["repeat"]) == (True, "context")
+        for state in resuming.published()[published:]
+    )
+    assert [command for command, _ in resuming.daemon.posted] == [
+        "play", "shuffle_context", "repeat_track", "repeat_context",
+    ]
+    assert resuming.daemon.shuffle is True
+    assert repeat_mode(resuming.daemon.repeat_context, resuming.daemon.repeat_track) == "context"
+    assert details(resuming)["shuffle"] is True
+    assert details(resuming)["repeat"] == "context"
+
+
+def _plays_slowly(world, monkeypatch) -> list:
+    """go-librespot answers the play; its track loads when the test says
+    (_load_starts, _load_ends)."""
+    plays: list = []
+    monkeypatch.setattr(world.daemon, "_plays", plays.append)
+    return plays
+
+
+async def _load_starts(world, body):
+    d = world.daemon
+    song = {**track("Loaded"), "uri": body.get("skip_to_uri") or f"{body['uri']}:first"}
+    # A play with no session starts from a fresh state (measured 2026-10-04).
+    d.shuffle = d.repeat_context = d.repeat_track = False
+    d.session, d.account, d.context = True, d.stored, (body["uri"], "Chill appart")
+    d.track, d.buffering, d.loading, d.paused = None, True, song, False
+    await world._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
+    await world.advance(0.07)
+
+
+async def _load_ends(world):
+    d = world.daemon
+    d.track, d.buffering, d.loading = d.loading, False, None
+    await world._says(d.metadata(), d.playing())
+
+
+async def test_a_mode_set_while_the_track_loads_is_kept(resuming, monkeypatch):
+    """The point's toggles stay up while the resumed track loads (no session
+    opens before its track is named, E14): a press there is the newer
+    choice, and is what the loaded session gets."""
+    await _left_with_modes(resuming)
+    plays = _plays_slowly(resuming, monkeypatch)
+    await resuming.command("resume")
+    await _load_starts(resuming, plays[0])
+    assert resuming.session() is None
+
+    await resuming.command("set_repeat", {"mode": "off"})
+    resuming.daemon.posted.clear()
+    await _load_ends(resuming)
+
+    assert resuming.playing()
+    assert [command for command, _ in resuming.daemon.posted] == ["shuffle_context"]
+    assert details(resuming)["repeat"] == "off"
+
+
+async def test_modes_turned_off_are_not_put_back_by_an_older_play(resuming, monkeypatch):
+    """A first resume that never loaded owed shuffle; the second, made after
+    shuffle was turned off, owes nothing."""
+    await _left_with_modes(resuming)
+    plays = _plays_slowly(resuming, monkeypatch)
+    await resuming.command("resume")
+    await resuming.command("set_shuffle", {"shuffle": False})
+    await resuming.command("set_repeat", {"mode": "off"})
+    await resuming.command("resume")
+    resuming.daemon.posted.clear()
+
+    await _load_starts(resuming, plays[-1])
+    await _load_ends(resuming)
+
+    assert resuming.playing()
+    assert not any(c in ("shuffle_context", "repeat_context", "repeat_track") for c, _ in resuming.daemon.posted)
+
+
+async def test_modes_owed_by_a_play_that_never_loaded_expire(resuming, monkeypatch):
+    """The same context cast from a phone long after is the phone's."""
+    await _left_with_modes(resuming)
+    plays = _plays_slowly(resuming, monkeypatch)
+    await resuming.command("resume")
+    await resuming.advance(resuming.source.MODES_RESTORE_HOLD + 1)
+    resuming.daemon.posted.clear()
+
+    await _load_starts(resuming, plays[0])
+    await _load_ends(resuming)
+
+    assert resuming.playing()
+    assert not any(c in ("shuffle_context", "repeat_context", "repeat_track") for c, _ in resuming.daemon.posted)
+
+
+async def test_modes_are_put_back_on_the_resumed_context_only(resuming, monkeypatch):
+    """A phone that cast something else before the resumed play loaded keeps
+    its own modes."""
+    await _left_with_modes(resuming)
+    d = resuming.daemon
+    monkeypatch.setattr(d, "_plays", lambda body: None)   # answered, never loads
+    await resuming.command("resume")
+    d.context = None
+    d.posted.clear()
+
+    await resuming.phone_plays()
+
+    assert resuming.playing()
+    assert not any(c in ("shuffle_context", "repeat_context", "repeat_track") for c, _ in d.posted)
+
+
+async def test_a_seek_moves_the_track_left_and_plays_nothing(resuming):
+    """As an episode's: the bar is dragged with nothing playing, and play
+    starts from where it was dropped."""
+    await _left_after(resuming, 30)
+    resuming.daemon.posted.clear()
+
+    result = await resuming.command("seek", {"position_ms": 90_000})
+
+    assert result["success"] is True
+    assert resuming.daemon.posted == []
+    assert resuming.state()["resume"]["position_ms"] == 90_000
+    await resuming.command("resume")
+    assert resuming.daemon.posted == [
+        ("play", {"uri": PLAYLIST, "position": 90_000, "skip_to_uri": TRACK}),
+    ]
+
+
+async def test_a_seek_past_the_track_left_is_refused(resuming):
+    await _left_after(resuming, 30)
+    left_at = resuming.state()["resume"]["position_ms"]
+
+    result = await resuming.command("seek", {"position_ms": 10_000_000})
+
+    assert result["success"] is False
+    assert resuming.state()["resume"]["position_ms"] == left_at
+
+
+async def test_next_plays_the_contexts_following_track(resuming):
+    """The user's queue does not outlive the daemon, and skip_to_uri finds
+    only what the context lists: next is the context's own next track."""
+    await _left_between_neighbors(resuming, 30)
+    resuming.daemon.posted.clear()
+
+    await resuming.command("next")
+
+    assert resuming.daemon.posted == [
+        ("play", {"uri": PLAYLIST, "position": 0, "skip_to_uri": AFTER}),
+    ]
+    assert resuming.playing()
+
+
+async def test_with_no_track_after_next_is_not_offered_and_refused(resuming):
+    await _left_after(resuming, 30)
+    resuming.daemon.posted.clear()
+
+    result = await resuming.command("next")
+
+    assert "next" not in resuming.state()["controls"]
+    assert result["success"] is False
+    assert resuming.daemon.posted == []
+
+
+async def test_next_past_the_last_track_wraps_under_repeat(resuming):
+    """go-librespot lists nothing past a context's last track, repeat or not:
+    under repeat, next is the context from its first track."""
+    resuming.daemon.prev_tracks = [_listed(BEFORE)]
+    await _left_after(resuming, 30)
+    assert "next" not in resuming.state()["controls"]
+    await resuming.command("set_repeat", {"mode": "context"})
+    resuming.daemon.posted.clear()
+
+    assert "next" in resuming.state()["controls"]
+    await resuming.command("next")
+
+    assert resuming.daemon.posted[0] == ("play", {"uri": PLAYLIST, "position": 0})
+
+
+async def test_a_next_naming_another_track_than_the_next_is_refused(resuming):
+    """skip_to_uri finds only what the context lists, and the user's queue
+    did not outlive the daemon: go-librespot would start the context from its
+    first track instead."""
+    await _left_between_neighbors(resuming, 30)
+    resuming.daemon.posted.clear()
+
+    result = await resuming.command("next", {"uri": QUEUED})
+
+    assert result["success"] is False
+    assert resuming.daemon.posted == []
+
+
+async def test_with_an_unread_order_next_never_wraps(resuming):
+    """No play order read is no last track: under repeat, next would restart
+    the context from its first track instead of moving on."""
+    resuming.daemon.queue_answers = False
+    await _left_after(resuming, 30)
+    await resuming.command("set_repeat", {"mode": "context"})
+
+    assert "next" not in resuming.state()["controls"]
+
+
+async def test_a_prev_that_may_not_rewind_goes_back_a_track_or_is_refused(resuming):
+    """The mini-bar's swipe (allow_seeking false) already slid the previous
+    title in: it never restarts the track left."""
+    await _left_after(resuming, 30)
+    resuming.daemon.posted.clear()
+
+    result = await resuming.command("prev", {"allow_seeking": False})
+
+    assert result["success"] is False
+    assert resuming.daemon.posted == []
+
+
+async def test_a_press_while_a_cast_arrives_leaves_it_alone(resuming):
+    """A phone's transfer opens no session before its track is named (E14):
+    a play over the point would replace what the phone just sent."""
+    await _left_between_neighbors(resuming, 30)
+    d = resuming.daemon
+    d.session, d.account, d.track, d.loading, d.buffering, d.paused = True, ACCOUNT, None, None, True, False
+    await resuming._says({"type": "active"})
+    d.posted.clear()
+
+    await resuming.command("next")
+    await resuming.command("resume")
+    assert d.posted == []
+
+    # Still loading past the hold: the load is stuck, and a press plays.
+    await resuming.advance(resuming.source.ARRIVAL_HOLD + 1)
+    await resuming.command("resume")
+    assert [command for command, _ in d.posted] == ["play"]
+
+
+async def test_prev_rewinds_a_track_left_past_its_start(resuming):
+    await _left_between_neighbors(resuming, 30)
+    resuming.daemon.posted.clear()
+
+    await resuming.command("prev")
+
+    assert resuming.daemon.posted == [
+        ("play", {"uri": PLAYLIST, "position": 0, "skip_to_uri": TRACK}),
+    ]
+
+
+async def test_prev_near_the_start_plays_the_track_before(resuming):
+    await _left_between_neighbors(resuming, 30)
+    await resuming.command("seek", {"position_ms": 1_000})
+    resuming.daemon.posted.clear()
+
+    await resuming.command("prev")
+
+    assert resuming.daemon.posted == [
+        ("play", {"uri": PLAYLIST, "position": 0, "skip_to_uri": BEFORE}),
+    ]
 
 
 async def test_another_accounts_track_is_not_offered(resuming):
