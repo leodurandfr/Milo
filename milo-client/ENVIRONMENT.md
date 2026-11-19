@@ -1,14 +1,17 @@
 # Milo Client — the satellite environment file
 
-`/var/lib/milo-client/env` is the `EnvironmentFile=` of the three satellite units
-(`milo-client`, `milo-client-snapclient`, `milo-client-camilladsp`). It is
-**written by `milo-first-boot`** when a flashed card detects a Milō server on the
-network and converts itself into a satellite — there is no installer to run.
+`/var/lib/milo-client/env` is the `EnvironmentFile=` of two satellite units,
+`milo-client` and `milo-client-snapclient` (`milo-client-camilladsp` reads none:
+its configuration is `hardware.json` and its own `config.yml`). It is **written
+by `milo-first-boot`** when a flashed card detects a Milō server on the network
+and converts itself into a satellite — there is no installer to run — and holds
+one line then:
 
 ```bash
 MILO_PRINCIPAL_IP=milo.local
-MILO_CLIENT_DSP_ENABLED=false
 ```
+
+The server adds the snapclient keys below the first time it pushes them.
 
 ## The keys
 
@@ -17,24 +20,15 @@ MILO_CLIENT_DSP_ENABLED=false
 `milo-first-boot` writes the string `milo.local`, on purpose: the satellite then
 survives the server moving between Ethernet and WiFi, which a baked IP would not.
 `milo-client-snapclient-launcher` resolves it at every service start, and
-`services/registration.py` accepts either form.
-
-**Replace it with a literal IPv4 address on a LAN where mDNS does not work** —
-that is the one edit an operator makes here by hand:
-
-```bash
-sudo sed -i 's/^MILO_PRINCIPAL_IP=.*/MILO_PRINCIPAL_IP=192.168.1.73/' /var/lib/milo-client/env
-sudo systemctl restart milo-client-snapclient milo-client
-```
-
+`services/registration.py` accepts a hostname or a literal IPv4 address alike.
 A unit with no entry at all falls back to mDNS.
 
-### `MILO_SNAPCLIENT_BUFFER_TIME` / `MILO_SNAPCLIENT_FRAGMENTS` — do not edit
+### `MILO_SNAPCLIENT_BUFFER_TIME` / `MILO_SNAPCLIENT_FRAGMENTS` — the server's
 
 The **server owns these**. It pushes them over `PUT /snapclient/config` on the
 satellite's API (port 8001), which rewrites this file and restarts snapclient
-only when a value actually changed. Hand-editing them works until the next push
-and then silently reverts.
+only when a value actually changed. A value written here by hand is replaced at
+the next push.
 
 They may be absent, in which case `milo-client-snapclient-launcher` applies its
 own defaults — `buffer_time=80`, `fragments=4`, chosen for WiFi. Lower means
@@ -54,5 +48,6 @@ ping milo.local
 sudo journalctl -u milo-client -f
 ```
 
-The satellite has no log surface in the UI. From the Milō server, `sat logs`,
-`sat audio` and `sat sync` read all of this over SSH.
+The satellite has no log surface in the UI: these are read over SSH, which a
+satellite ships with off and the server opens from the satellite's panel under
+Settings › Multiroom.

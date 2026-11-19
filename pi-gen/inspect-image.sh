@@ -413,8 +413,9 @@ if [[ "$ROOT" == "/" ]]; then
 else
     check "hardware.json NOT seeded" "! [ -f '${ROOT%/}/var/lib/milo/hardware.json' ]"
 fi
-# Content, not presence: the rule's unit condition is what keeps every other
-# `milo` process off NetworkManager.
+# Content, not presence: the rule grants NetworkManager to the `milo` user, so
+# every Milō daemon holds it, and a stale copy could grant more or refuse the
+# backend (the unit condition it once carried was measured to do exactly that).
 check "polkit rule deployed"        "cmp -s '$REPO/rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules' '${ROOT%/}/etc/polkit-1/rules.d/50-milo-networkmanager.rules'"
 check "journald drop-in deployed"   "[ -f '${ROOT%/}/etc/systemd/journald.conf.d/99-milo-journald.conf' ]"
 check "persistent journal dir"      "[ -d '${ROOT%/}/var/log/journal' ]"

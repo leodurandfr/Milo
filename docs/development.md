@@ -1187,10 +1187,13 @@ sudo systemctl edit milo-backend           # on a unit: a drop-in, kept across u
 #   Environment=MILO_LOG_LEVEL=DEBUG
 ```
 
-**NetworkManager from a shell:** the polkit rule grants NM to `milo-backend.service` alone, so an
-`nmcli` write from an SSH session as `milo` (`connection up`, `radio wifi off`…) is refused or
-asks for a password: run it with `sudo`. Reads (`nmcli connection show`, `device status`) need
-nothing.
+**NetworkManager from a shell:** the polkit rule
+(`rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules`) grants NetworkManager to the `milo`
+user (`subject.user === "milo"`), so an `nmcli` write from an SSH session as `milo`
+(`connection up`, `radio wifi off`…) goes through without `sudo`. So does one from any daemon
+running as `milo` (go-librespot, shairport-sync, the kiosk's Chromium): binding the rule to
+`milo-backend.service` was measured to refuse the backend itself, and the narrower grant waits for a
+condition measured on a unit. Reads (`nmcli connection show`, `device status`) need nothing.
 
 **Breakpoints (pdb):**
 ```python

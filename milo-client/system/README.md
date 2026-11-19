@@ -23,15 +23,20 @@ This directory contains systemd service files for Milo Client satellites. These 
 - **Startup**: Enabled at boot
 - **Notes**: Receives audio stream from main Milo's snapserver
 
+### milo-client-camilladsp.service
+- **Role**: CamillaDSP, the satellite's only volume stage and its EQ/DSP pipeline, driven by
+  milo-client over its WebSocket (`127.0.0.1:1234`)
+- **Dependencies**: `BindsTo=milo-client.service`, so it goes down and comes back with every app
+  restart
+- **Startup**: Enabled at boot; exits cleanly while `hardware.json` names no audio card
+- **Notes**: Starts muted at the `--gain` floor until milo-client pushes the real level
+
 ## Environment File
 
-The `milo-client.service` uses an environment file at `/var/lib/milo-client/env` for dynamic configuration:
-
-```bash
-MILO_PRINCIPAL_IP=milo.local  # hostname or IP of the main Milo
-```
-
-This file is created by `milo-first-boot` when a flashed card is adopted as a satellite.
+`milo-client.service` and `milo-client-snapclient.service` read `/var/lib/milo-client/env`
+(`EnvironmentFile=`); `milo-client-camilladsp.service` reads none. What the file holds, who writes
+each key and which one is the server's is described once, in
+[../ENVIRONMENT.md](../ENVIRONMENT.md).
 
 ## Directory Structure
 
@@ -59,6 +64,7 @@ sudo systemctl daemon-reload
 # Services are enabled at boot:
 sudo systemctl enable milo-client.service
 sudo systemctl enable milo-client-snapclient.service
+sudo systemctl enable milo-client-camilladsp.service
 ```
 
 ## Manual Service Control
@@ -79,7 +85,7 @@ sudo systemctl status milo-client-snapclient
 
 ## Configuration
 
-- `/var/lib/milo-client/env` - Environment variables (MILO_PRINCIPAL_IP)
+- `/var/lib/milo-client/env` - Environment variables (see [../ENVIRONMENT.md](../ENVIRONMENT.md))
 - `/etc/asound.conf` - ALSA configuration for HiFiBerry
 
 ## Troubleshooting

@@ -86,7 +86,7 @@ def create_hardware_router() -> APIRouter:
         Update the audio card configuration.
 
         Writes hardware.json with the provided audio_id and overlay.
-        Does NOT reboot — call POST /api/reboot separately.
+        Does NOT reboot — call POST /api/hardware/reboot separately.
         """
         try:
             config = _read_hardware_json()

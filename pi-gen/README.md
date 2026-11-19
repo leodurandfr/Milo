@@ -24,9 +24,9 @@ This uses [pi-gen](https://github.com/RPi-Distro/pi-gen), the official Raspberry
 
 | Stage | Purpose |
 |---|---|
-| `00-install-deps` | APT packages, Node.js upgrade, PulseAudio removal |
+| `00-install-deps` | APT packages, Chromium, the `milo` user's device groups (PulseAudio is removed later, in `01-install-audio`, once roc-toolkit no longer needs `libpulse-dev`) |
 | `01-install-audio` | Pre-compiled binaries (go-librespot, CamillaDSP, Snapcast) + compiled audio software (shairport-sync, NQPTP, bluez-alsa, roc-toolkit), then cloud-init purged |
-| `02-install-milo` | Clone repo, Python venv, frontend build, deploy configs (ALSA, Nginx, Avahi, systemd services) |
+| `02-install-milo` | Clone repo, Python venvs, install the prebuilt frontend artifact (never built in the stage), deploy configs (ALSA, Nginx, Avahi, systemd services) |
 | `03-configure` | Plymouth splash, boot params, fan control, udev rules, sudoers, kiosk mode, service enablement |
 
 ## Build Options
@@ -73,13 +73,16 @@ pi-gen checkout, often in Docker, which cannot reach the Milō repo.
 
 The numbers are deliberately not repeated here, nor in the scripts. Read
 `dependencies.env`. A version declared in a stage script instead of there fails
-CI (`backend/tests/architecture/test_dependency_manifest.py`), which is what a
-script-installed unit and a flashed one drifting apart used to look like:
-nothing, until a reinstall landed behind the fleet.
+CI (`backend/tests/architecture/test_dependency_manifest.py`). Before the
+manifest, the provisioning tree and the in-app updates each pinned their own
+versions, and a freshly flashed card landed behind every unit that had updated
+— silently.
 
 ## Output
 
-The image is a universal image supporting both **Milo** (server) and **Milo Client** (satellite) modes. On first boot, the setup wizard at `http://milo.local` lets the user choose the mode and configure hardware.
+The image is a universal image supporting both **Milo** (server) and **Milo Client** (satellite) modes. Nobody chooses the mode: on first boot `milo-first-boot` probes the network for `milo.local`, and a card that finds one becomes a satellite (see **Hostname** below), driven from the server's Settings › Multiroom. A card that finds none stays the server, and its setup wizard at `http://milo.local` configures language, network, audio and screen.
+
+The frontend is built before the stage runs — by `build-image.yml` for a release, the artifact the release publishes; by `build.sh` on the host for a local build — and travels inside `stage-milo/`, at its root beside the sub-stages, as `frontend-dist.tar.gz`. `02-install-milo` installs it and fails when it is missing: the stage never builds one, so an image and a unit updated to the same release serve the same bytes.
 
 ### Image Configuration
 

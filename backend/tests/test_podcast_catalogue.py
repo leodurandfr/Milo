@@ -1,9 +1,9 @@
 # backend/tests/test_podcast_catalogue.py
 """`podcast_catalog.py` — the client's Apple half, and its feed half.
 
-The Apple half (charts, search, caches) is unchanged by the move off Podcast
-Index and so is its coverage here. What it never ran is the other half of each
-failure pair:
+The Apple half (charts, search, caches) did not change when the episode layer
+moved to the publisher's feed, and neither did its coverage here. What it
+never ran is the other half of each failure pair:
 
 * **the successful iTunes Search parse.** Lines 429-437 had never executed, so
   the podcast search screen's entire data path — read as text because Apple

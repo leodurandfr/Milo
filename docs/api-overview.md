@@ -74,8 +74,11 @@ cover-art proxy, storage spaces, share wizard).
   responses alike.
 - **Verbs:** `GET` reads, `PUT` replaces (settings, routing), `PATCH` updates part of a resource
   (volume, zone, client), `POST` runs an action or creates, `DELETE` removes.
-- **Success** answers carry `"status": "success"`. A real failure is an HTTP error status with
-  FastAPI's `{"detail": …}` body (422 for a body that does not validate).
+- **Success:** a write answers `"status": "success"` when it worked. A read returns its object or
+  its list, mostly with no `status` key (`GET /api/audio/state`, `GET /api/radio/countries`), so a
+  client does not look for one there. A real failure is an HTTP error status with FastAPI's
+  `{"detail": …}` body (422 for a body that does not validate); a few status reads answer a failure
+  as HTTP 200 with `"status": "error"` (see [Errors](integration.md#errors)).
 - Music Library is the one router that keeps **Subsonic's** naming (`/album/{id}`, `star`,
   `unstar`), so it reads against the Subsonic documentation.
 

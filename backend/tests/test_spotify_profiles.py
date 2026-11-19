@@ -511,15 +511,23 @@ async def test_refused_stored_credentials_hand_the_daemon_to_the_profile_left(wo
 
 
 async def test_a_refusal_heard_twice_moves_the_daemon_once(world):
-    """go-librespot can log the refusal again before Milō has moved it on (a
-    Restart= in between): the second one must not take the next profile out
-    or restart the daemon that just signed in."""
+    """go-librespot can log the refusal twice from the same run before Milō
+    has moved it on: the second line must not take the next profile out or
+    restart the daemon that just signed in.
+
+    Both lines sit in journald's queue before Milō reads either, so the
+    second is read while the first is still in hand, whatever the host's
+    speed; each names the run that refused, as journald stamps them."""
     await world.cast_from(GUEST)
     await world.idle()
     world.systemd.stop.reset_mock()
+    refused_run = world.runs[-1]
 
-    await world.journal_says(REFUSED)
-    await world.journal_says(REFUSED)
+    for _ in range(2):
+        world.journal.put_nowait(json.dumps({
+            "MESSAGE": REFUSED, "_SYSTEMD_INVOCATION_ID": refused_run,
+        }))
+    await settle()
     await world.advance(2.1)
     await world.idle()
 

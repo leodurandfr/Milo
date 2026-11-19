@@ -538,8 +538,9 @@ class SpotifySource(BaseAudioSource):
     )
     SESSION_DAEMON = True
 
-    # The four go-librespot config keys Milō owns: crossfade_duration (from
-    # settings), external_volume, credentials and metadata (constant, below).
+    # The five go-librespot config keys Milō owns: crossfade_duration (from
+    # settings), external_volume, credentials, metadata and search (constant,
+    # MANAGED_CONSTANT_CONFIG below).
     # Every other key in config.yml (device_name, zeroconf_backend, server) is
     # written once by provisioning/go-librespot.sh and never touched here.
     #

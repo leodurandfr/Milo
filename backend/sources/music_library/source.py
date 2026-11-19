@@ -2,8 +2,8 @@
 """Music Library audio source (Family C — active player).
 
 Plays the user's own music, indexed by a Navidrome sidecar and streamed to mpv
-over localhost HTTP (mirrors the Podcast source, which streams from Podcast
-Index). Controlled from Milō's UI, with rich metadata (artwork/title/artist).
+over localhost HTTP. Controlled from Milō's UI, with rich metadata
+(artwork/title/artist).
 
 Playback model (P1-6): a queue is built from any context (album / genre /
 playlist / search) — the frontend hands the ordered Subsonic song dicts to the

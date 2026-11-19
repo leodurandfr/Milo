@@ -3205,7 +3205,7 @@ async def test_a_link_nothing_can_read_is_unknown(service, wired):
     with with_nm(nm), patcher:
         await service.initialize()
         await settle()
-        assert await service.read_link("tailscale0") is None
+        assert await service.read_link("unmanaged0") is None
 
 
 @pytest.mark.asyncio
