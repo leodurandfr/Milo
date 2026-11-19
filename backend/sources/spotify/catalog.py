@@ -176,11 +176,9 @@ def queue_entry(uri: Optional[str], track: Optional[Dict[str, Any]]) -> Dict[str
 def history_entry(track: Dict[str, Any], playing: Dict[str, Any], played_at: int) -> Dict[str, Any]:
     """A history entry from go-librespot's `metadata` (the track loaded) and
     the `playing` that started it. `uri` is the one the context lists, which
-    skip_to_uri finds there to play it again; `track_uri` is the track's own,
-    the one /status names (they differ for a relinked track)."""
+    skip_to_uri finds there to play it again."""
     return {
         **queue_entry(playing.get("uri") or track.get("uri"), track),
-        "track_uri": track.get("uri") or None,
         "context_uri": playing.get("context_uri") or None,
         "played_at": played_at,
     }
@@ -188,16 +186,15 @@ def history_entry(track: Dict[str, Any], playing: Dict[str, Any], played_at: int
 
 def normalize_track(entry: Dict[str, Any], position: int) -> Optional[Dict[str, Any]]:
     """One /context/tracks entry, at `position` in the listing; None while its
-    metadata is not cached yet. `listed_uri` and `position` name the entry as
-    the playlist holds it, which is what a removal must name: the track's own
-    uri differs for a relinked track, and a playlist may hold it twice."""
+    metadata is not cached yet. `uri` and `position` name the entry as the
+    playlist holds it, which is what a removal must name: a playlist may hold
+    a track twice."""
     track = entry.get("track")
     if not track:
         return None
     artwork = track.get("album_cover_url") or None
     return {
-        "uri": track.get("uri") or entry.get("uri"),
-        "listed_uri": entry.get("uri") or track.get("uri"),
+        "uri": entry.get("uri") or track.get("uri"),
         "position": position,
         "title": track.get("name"),
         "artists": artists_of(track),
@@ -639,7 +636,6 @@ def search_track(entity: Dict[str, Any]) -> Dict[str, Any]:
     artwork = search_image(entity.get("images") or [], width=None)
     return {
         "uri": entity["uri"],
-        "listed_uri": entity["uri"],
         "title": entity.get("name") or None,
         "artists": [{"name": a.get("name") or None, "uri": a.get("uri") or None} for a in entity.get("artists") or []],
         "album": {"name": album.get("name") or None, "uri": album.get("uri") or None},

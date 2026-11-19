@@ -298,22 +298,19 @@ def repeat_posts(mode: str) -> List[tuple]:
 class PlayOrder:
     """What GET /player/queue said: the entries ({uri, uid, provider, track})
     before the current one oldest first, the ones after it nearest first, the
-    uris that name the current one (its own, and its track's if relinked), and
-    the current one's track — during a load, the track loading, which /status
-    does not name yet (null until its metadata is cached).
+    uri of the current one, and its track — during a load, the track loading,
+    which /status does not name yet (null until its metadata is cached).
 
-    `listed` is the current entry's uri as its context lists it: go-librespot
-    builds the entry from the context and never rewrites it, while a relink
-    to a market alternative rewrites the track's uri when the stream loads —
-    the uri /status names from then on."""
-    current: frozenset = frozenset()
-    listed: Optional[str] = None
+    A track Spotify relinks to a market alternative is named by the uri its
+    context lists here, in /status and in a listing alike (go-librespot 0.10.7,
+    measured 2026-11-19 on "Like This" in Liked Songs), so one uri compares."""
+    current: Optional[str] = None
     prev_tracks: Tuple[Dict[str, Any], ...] = ()
     next_tracks: Tuple[Dict[str, Any], ...] = ()
     track: Optional[Dict[str, Any]] = None
 
     def surrounds(self, uri: Optional[str]) -> bool:
-        return uri is not None and uri in self.current
+        return uri is not None and uri == self.current
 
 
 def play_order(data: Dict[str, Any]) -> PlayOrder:
@@ -324,8 +321,7 @@ def play_order(data: Dict[str, Any]) -> PlayOrder:
         return tuple(item for item in data.get(key) or () if isinstance(item, dict))
 
     return PlayOrder(
-        current=frozenset(uri for uri in (current.get("uri"), track.get("uri")) if uri),
-        listed=current.get("uri") or track.get("uri") or None,
+        current=current.get("uri") or track.get("uri") or None,
         prev_tracks=entries("prev_tracks"),
         next_tracks=entries("next_tracks"),
         track=track or None,
@@ -435,12 +431,9 @@ class SpotifySession(Session):
     """One Connect session: the track on screen (its playhead is the
     session's anchor) and the context it plays from."""
     track: Dict[str, Any] = field(default_factory=dict)
-    # The track's own uri, the one /status names (a relinked track's is its
-    # market alternative's): what a read of the daemon is compared with.
+    # The entry playing, by the uri /status, the play order and its context's
+    # listing all name it by.
     uri: Optional[str] = None
-    # The uri the context lists for the entry playing, which is what the wire
-    # names: a listing's row is this entry whether or not a relink happened.
-    listed_uri: Optional[str] = None
     context_uri: Optional[str] = None
     context_name: Optional[str] = None
     album_uri: Optional[str] = None
@@ -458,7 +451,7 @@ class SpotifyResume:
     context, and the user's own queue does not survive the daemon's exit."""
     account: Optional[str]
     track: Dict[str, Any]
-    listed_uri: Optional[str]
+    uri: Optional[str]
     context_uri: Optional[str]
     context_name: Optional[str]
     album_uri: Optional[str]
@@ -1822,13 +1815,10 @@ class SpotifySource(BaseAudioSource):
             if self._order_stale or not self._order.surrounds(uri):
                 await self._read_order()
             order = self._order
-            # With no order that names the track, nothing lists it otherwise:
-            # a track that was not relinked is listed by its own uri.
-            session.listed_uri = order.listed if order.surrounds(uri) else uri
             if order.surrounds(uri) and (order.prev_tracks or order.next_tracks):
                 session.queue = [
                     *(queue_entry(item.get("uri"), item.get("track")) for item in order.prev_tracks),
-                    queue_entry(session.listed_uri, track),
+                    queue_entry(uri, track),
                     *(queue_entry(item.get("uri"), item.get("track")) for item in order.next_tracks),
                 ]
                 session.queue_index = len(order.prev_tracks)
@@ -1847,17 +1837,9 @@ class SpotifySource(BaseAudioSource):
         start and standing still there (go-librespot #421) — 0 for a skip,
         the transferred position for a transfer — which is where a new track
         is anchored. The order is read again only when a `queue` said it
-        moved. None when
-        nothing names a new one (a stock go-librespot, metadata not cached, a
-        read that failed): the track on screen stands, nothing cleared.
-
-        A track relinked to a market alternative, on its first load, is named
-        here by the uri its context lists and by the alternative's once /status
-        names it: the relink is decided when the stream loads, after this read.
-        The session's own `uri` moves once inside the same track, and the order
-        is read again at that move (the one read during the load names only the
-        listed uri); the wire does not move, since it names the entry by the
-        uri its context lists (`listed_uri`), which a relink never rewrites."""
+        moved. None when nothing names a new one (a stock go-librespot,
+        metadata not cached, a read that failed): the track on screen stands,
+        nothing cleared."""
         if not status.buffering:
             return None
         if self._order_stale:
@@ -2799,7 +2781,7 @@ class SpotifySource(BaseAudioSource):
         return dict(session.track)
 
     def _resume_content(self, session: SpotifySession):
-        identity = session.listed_uri or session.uri
+        identity = session.uri
         if identity is None:
             # Nothing `play` could name: no point to offer.
             return None
@@ -2807,7 +2789,7 @@ class SpotifySource(BaseAudioSource):
             # The session's sender is the account /status names.
             account=session.sender,
             track=dict(session.track),
-            listed_uri=identity,
+            uri=identity,
             context_uri=session.context_uri,
             context_name=session.context_name,
             album_uri=session.album_uri,
@@ -2853,7 +2835,7 @@ class SpotifySource(BaseAudioSource):
             signing_in=self._signing_in,
             context_uri=shown.context_uri if shown else None,
             context_name=shown.context_name if shown else None,
-            track_uri=shown.listed_uri if shown else None,
+            track_uri=shown.uri if shown else None,
             album_uri=shown.album_uri if shown else None,
             artists=shown.artists if shown else [],
             queue=session.queue if session else [],

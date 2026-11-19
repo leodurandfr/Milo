@@ -372,20 +372,17 @@ def test_a_track_not_described_yet_ends_the_listing_until_it_is_complete():
 
 
 def test_a_track_names_the_entry_the_playlist_holds():
-    """A removal names the entry by its place in the listing and its listed
-    uri. A row counted on screen is off by every entry left out before it, and
-    a relinked track's own uri is not the one the playlist holds: either way
-    go-librespot answers 409, or removes another copy of the same track."""
-    relinked = {"uri": "spotify:track:listed", "track": {"uri": "spotify:track:played", "name": "c"}}
+    """A removal names the entry by its uri and its place in the listing. A
+    row counted on screen is off by every entry left out before it: go-librespot
+    then answers 409, or removes another copy of the same track."""
     listing = [
         {"uri": "spotify:track:a", "track": {"uri": "spotify:track:a", "name": "a"}},
         {"uri": "spotify:track:gap", "track": None},
-        relinked,
+        {"uri": "spotify:track:c", "track": {"uri": "spotify:track:c", "name": "c"}},
     ]
 
     last = described_tracks(listing, complete=True)[-1]
-    assert (last["listed_uri"], last["position"]) == ("spotify:track:listed", 2)
-    assert last["uri"] == "spotify:track:played"
+    assert (last["uri"], last["position"]) == ("spotify:track:c", 2)
 
 
 # === Artist page ===

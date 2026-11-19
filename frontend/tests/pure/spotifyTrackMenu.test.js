@@ -50,15 +50,14 @@ describe('trackMenuActions', () => {
 
 describe('trackEditActions', () => {
   const PLAYLIST = 'spotify:playlist:1mineabcdefghijklmnopq';
-  const ROW = { ...TRACK, listed_uri: TRACK.uri };
 
   it('offers to add any track, and to remove it only from a list the account may edit', () => {
-    expect(trackEditActions(ROW)).toEqual(['addToPlaylist']);
-    expect(trackEditActions(ROW, PLAYLIST)).toEqual(['addToPlaylist', 'removeFromPlaylist']);
+    expect(trackEditActions(TRACK)).toEqual(['addToPlaylist']);
+    expect(trackEditActions(TRACK, PLAYLIST)).toEqual(['addToPlaylist', 'removeFromPlaylist']);
   });
 
   it('never offers a local file, which go-librespot cannot add or remove', () => {
-    const local = { uri: 'spotify:local:Artist:Album:Title:200', listed_uri: 'spotify:local:Artist:Album:Title:200' };
+    const local = { uri: 'spotify:local:Artist:Album:Title:200' };
     expect(trackEditActions(local, PLAYLIST)).toEqual([]);
   });
 });

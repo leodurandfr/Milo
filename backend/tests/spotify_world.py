@@ -68,13 +68,10 @@ its metadata is cached, described at its load's start and standing still there
 read in its player_queue.go, not measured): /status names no track until it
 has streamed.
 
-A track Spotify relinks to a market alternative (measured 2026-11-09, a Liked
-Songs entry): the entry keeps the uri its context lists, at the top level of
-GET /player/queue's current entry, while the track's own uri — nested in it,
-and the one /status names — is the alternative's once the stream has loaded.
-Before the first stream go-librespot describes the entry by the listed uri; it
-then keeps the alternative's metadata under both, so a later load describes it
-by the alternative's from the start.
+A track Spotify relinks to a market alternative is named by the uri its
+context lists everywhere — /status, GET /player/queue, the events and a
+listing (go-librespot 0.10.7, measured 2026-11-19) — so the world names every
+track by one uri.
 
 Time is a VirtualClock the scenario advances; the daemon's death is heard
 through the same pidfd watch the source opens (patched here, as for AirPlay).
@@ -292,10 +289,6 @@ class Librespot:
         # cached; `loading_known` False: not cached, a null track.
         self.loading: Optional[Dict[str, Any]] = None
         self.loading_known = True
-        # The uri the context lists for the current entry, when Spotify
-        # relinked it to the alternative `track` / `loading` names (cleared by
-        # every play the world starts itself).
-        self.listed: Optional[str] = None
         # The play order GET /player/queue lists around the track, as
         # {uri, uid, provider, track} entries (track None until its metadata
         # is cached). Any change of that answer raises `queue` ahead of the
@@ -536,11 +529,11 @@ class Librespot:
         """What GET /player/queue answers now."""
         current = None
         if self.session and self.track:
-            current = {"uri": self.listed or self.track["uri"], "uid": None, "provider": "context",
+            current = {"uri": self.track["uri"], "uid": None, "provider": "context",
                        "track": copy.deepcopy(self.track)}
         elif self.session and self.loading:
             described = copy.deepcopy(self.loading) if self.loading_known else None
-            current = {"uri": self.listed or self.loading["uri"], "uid": None, "provider": "context",
+            current = {"uri": self.loading["uri"], "uid": None, "provider": "context",
                        "track": described}
         return {"prev_tracks": copy.deepcopy(self.prev_tracks), "track": current,
                 "next_tracks": copy.deepcopy(self.next_tracks)}
@@ -782,7 +775,7 @@ class Librespot:
         if not self.session:
             # A play with no session starts from a fresh state (measured).
             self.shuffle = False
-        self.session, self.account, self.listed = True, self.stored, None
+        self.session, self.account = True, self.stored
         self.context = (body["uri"], "Chill appart")
         self.track, self.paused, self.buffering = song, False, False
         self._later({"type": "will_play", "uri": uri})
@@ -800,7 +793,7 @@ class Librespot:
         when it loaded paused, as a transfer does)."""
         context_uri, _ = self.context or ("", None)
         return {"type": "playing", "data": {
-            "context_uri": context_uri, "uri": self.listed or self.track["uri"], "resume": resume,
+            "context_uri": context_uri, "uri": self.track["uri"], "resume": resume,
             "play_origin": "go-librespot",
         }}
 
@@ -1242,7 +1235,7 @@ class SpotifyWorld(WireReader):
         """A phone moves its playback here: it loads paused, then plays 1.6 s later."""
         d = self.daemon
         d.session, d.account, d.track, d.paused, d.buffering = True, ACCOUNT, None, True, True
-        d.loading, d.listed = {**copy.deepcopy(song), "position": at_ms}, None
+        d.loading = {**copy.deepcopy(song), "position": at_ms}
         await self._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
         d.track, d.buffering, d.loading = {**copy.deepcopy(song), "position": at_ms}, False, None
         await self._says(d.metadata(), {"type": "paused"})
@@ -1254,7 +1247,7 @@ class SpotifyWorld(WireReader):
         """A phone starts a track here from the top."""
         d = self.daemon
         d.session, d.account, d.track, d.paused, d.buffering = True, account, None, False, True
-        d.loading, d.listed = song, None
+        d.loading = song
         await self._says({"type": "active"}, {"type": "will_play", "uri": song["uri"]})
         await self.advance(0.07)
         d.track, d.buffering, d.loading = copy.deepcopy(song), False, None

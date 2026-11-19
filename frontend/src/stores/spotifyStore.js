@@ -318,7 +318,7 @@ export const useSpotifyStore = defineStore('spotify', () => {
   // the playlists about.
   async function addToPlaylist(playlistUri, track) {
     const result = await apiCall.post(`${BASE}/contexts/${encodeURIComponent(playlistUri)}/tracks`, {
-      uris: [track.listed_uri ?? track.uri],
+      uris: [track.uri],
     }, {
       category: 'spotify',
       message: 'Error adding a track to a Spotify playlist',
@@ -330,12 +330,11 @@ export const useSpotifyStore = defineStore('spotify', () => {
   /**
    * Remove a track from a playlist or Liked Songs. From its row (`row`), the
    * entry that row is — a playlist may hold a track twice; from the picker,
-   * the first copy. Either way the item is named as the playlist lists it,
-   * which a relinked track's own uri is not. A row moved meanwhile (409:
-   * edited on another device) removes nothing, and the listing is read again.
+   * the first copy. A row moved meanwhile (409: edited on another device)
+   * removes nothing, and the listing is read again.
    */
   async function removeFromPlaylist(playlistUri, track, { row = false } = {}) {
-    const item = track.listed_uri ?? track.uri;
+    const item = track.uri;
     const result = await apiCall.delete(
       `${BASE}/contexts/${encodeURIComponent(playlistUri)}/tracks/${encodeURIComponent(item)}`, {
         params: row ? { position: track.position } : undefined,

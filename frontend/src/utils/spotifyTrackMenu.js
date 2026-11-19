@@ -27,14 +27,14 @@ function isPlaylistItem(uri) {
  * opens: add the track to one, and remove its row from the list on screen
  * when that list is the account's to edit (`editableUri`, null otherwise).
  *
- * @param {{ uri: string, listed_uri?: string }} track
+ * @param {{ uri: string }} track
  * @param {string|null} editableUri
  * @returns {Array<'addToPlaylist'|'removeFromPlaylist'>}
  */
 export function trackEditActions(track, editableUri = null) {
   const actions = [];
   if (isPlaylistItem(track.uri)) actions.push('addToPlaylist');
-  if (editableUri && isPlaylistItem(track.listed_uri)) actions.push('removeFromPlaylist');
+  if (editableUri && isPlaylistItem(track.uri)) actions.push('removeFromPlaylist');
   return actions;
 }
 

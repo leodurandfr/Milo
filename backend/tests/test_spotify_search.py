@@ -68,7 +68,6 @@ def test_a_track_result_is_a_listing_row_with_its_album_and_a_thumbnail():
     row = search_track(DA_FUNK)
     assert row == {
         "uri": DA_FUNK["uri"],
-        "listed_uri": DA_FUNK["uri"],
         "title": "Da Funk",
         "artists": [{"name": "Daft Punk", "uri": "spotify:artist:4tZwfgrHOc3mvqYlEYSvVi"}],
         "album": {"name": "Homework", "uri": "spotify:album:5uRdvUR7xCnHmUW8n64n9y"},

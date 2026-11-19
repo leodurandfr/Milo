@@ -84,12 +84,10 @@ const queueRows = computed(() => {
 });
 
 // The history lists a track as it starts: the one playing is the queue's.
-// Both name it by the uri its context lists; with no play order to read that
-// from, the state names the track's own uri, which the history keeps as
-// `track_uri`. Only while a session plays: the track a resume point names is
-// in no queue, so the history is the one list left to show it.
+// Only while a session plays: the track a resume point names is in no queue,
+// so the history is the one list left to show it.
 const playingNow = (track) =>
-  !!store.session && !!store.currentTrackUri && [track.uri, track.track_uri].includes(store.currentTrackUri);
+  !!store.session && !!store.currentTrackUri && track.uri === store.currentTrackUri;
 const historyRows = computed(() => store.history
   .filter((track, idx) => !(idx === 0 && playingNow(track)))
   .map((track) => ({

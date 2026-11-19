@@ -84,8 +84,7 @@ let opening = 0;
 // `keep`: the rows stay drawn while they are read again.
 async function load({ keep = false } = {}) {
   const asked = ++opening;
-  // As the playlists list it: a relinked track's own uri is not in them.
-  const uri = track.value?.listed_uri ?? track.value?.uri;
+  const uri = track.value?.uri;
   if (!keep) answer.value = null;
   failed.value = false;
   if (!uri) return;
