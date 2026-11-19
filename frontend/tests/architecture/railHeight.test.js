@@ -44,6 +44,7 @@ const RAIL_BOXES = [
   ['components/ui/DoubleRangeSlider.vue', '.double-range-slider', '--track-thickness'],
   ['components/ui/DoubleRangeSlider.vue', '.slider-rail', 'height'],
   ['components/ui/DoubleRangeSlider.vue', '.slider-value', 'height'],
+  ['components/ui/LevelSlider.vue', '.level-slider', 'height'],
   ['components/multiroom/MultiroomItem.vue', '.volume-skeleton', 'height'],
   ['components/multiroom/MultiroomItem.vue', '.client-offline', 'height'],
   ['components/multiroom/MultiroomItem.vue', '.client-external-volume', 'height'],

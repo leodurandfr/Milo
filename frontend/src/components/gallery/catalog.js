@@ -194,6 +194,12 @@ export const ENTRIES = [
     summary: 'Single-value slider, horizontal or vertical. Emits drag-start/drag-end so a caller can throttle writes to the value and commit once. With steps ([{ value, label }]) it snaps between evenly spaced stops, marks each on the track and shows the stop\'s label; ticks does the same at every step from min to max, for a setting chosen among a few levels.',
   },
   {
+    id: 'LevelSlider',
+    group: 'controls',
+    file: 'components/ui/LevelSlider.vue',
+    summary: 'A level as one thick bar filled from the left, with no knob (the multiroom volumes). The finger moves the level by how far it travels, never to where it lands; held, the bar swells; pulled past an end, it stretches and springs back. A speaker at its start shows a wave per third of the level reached (a cross when muted), the value sits at its end. Same events as RangeSlider.',
+  },
+  {
     id: 'DoubleRangeSlider',
     group: 'controls',
     file: 'components/ui/DoubleRangeSlider.vue',

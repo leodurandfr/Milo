@@ -67,6 +67,7 @@ import InputText from '@/components/ui/InputText.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
+import LevelSlider from '@/components/ui/LevelSlider.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import Badge from '@/components/ui/Badge.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
@@ -524,6 +525,12 @@ export const REGISTRY = {
           .map(value => ({ value, label: formatDuration(value, 'english') }))
       }
     }
+  },
+
+  LevelSlider: {
+    component: LevelSlider,
+    args: { modelValue: -24, min: -60, max: 0, unit: 'dB', label: 'Living room', class: 'canvas-column' },
+    overrides: { unit: UNIT_OPTIONS }
   },
 
   DoubleRangeSlider: {

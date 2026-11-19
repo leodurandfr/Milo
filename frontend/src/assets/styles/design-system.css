@@ -130,6 +130,9 @@
        empty track (slider, progress, meter, step indicator), a menu row under
        the finger, a placeholder waiting for its content. */
     --color-fill-faint: light-dark(var(--gray-950-a6), var(--gray-100-a10));
+    /* The faint fill under a finger: a track held (a multiroom volume),
+       one step up on each theme. */
+    --color-fill-faint-held: light-dark(var(--gray-950-a10), var(--gray-100-a14));
     /* The highlight a placeholder's shimmer sweeps across --color-fill-faint. */
     --color-shimmer: light-dark(var(--gray-950-a2), var(--gray-100-a14));
     /* The thumb of a ButtonGroup, over its fill-faint track: white in light;
@@ -157,6 +160,9 @@
        glyph, a track, a disabled control, a value muted on purpose. */
     --color-text: light-dark(var(--gray-950), var(--gray-100));
     --color-text-secondary: light-dark(var(--gray-600), var(--gray-400));
+    /* Ink at full contrast over the secondary tone used as a fill (a
+       multiroom volume's speaker and value on its level). */
+    --color-text-on-secondary: light-dark(var(--gray-0), var(--gray-950));
     --color-text-tertiary: light-dark(var(--gray-300), var(--gray-600));
 
     /* === GLASS === */

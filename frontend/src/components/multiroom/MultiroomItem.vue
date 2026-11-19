@@ -93,15 +93,15 @@
           class="volume-control"
           :class="{ 'visible': !isLoading }"
         >
-          <RangeSlider
+          <LevelSlider
             :model-value="displayVolume"
             :min="sliderMin"
             :max="sliderMax"
             :step="1"
             :disabled="isLoading"
             :muted="client.equalizerMuted"
-            show-value
             unit="dB"
+            :label="client.name"
             @input="handleVolumeInput"
             @drag-end="handleVolumeRelease"
           />
@@ -176,15 +176,15 @@
 
           <!-- Client volume slider (when online) -->
           <div v-else class="client-volume">
-            <RangeSlider
+            <LevelSlider
               :model-value="getClientDisplayVolume(zoneClient.mac_id, zoneClient.equalizerVolume)"
               :min="sliderMin"
               :max="sliderMax"
               :step="1"
               :disabled="isLoading"
               :muted="zoneClient.equalizerMuted"
-              show-value
               unit="dB"
+              :label="zoneClient.name"
               @input="(v) => handleClientVolumeInput(zoneClient.mac_id, v)"
               @drag-end="handleClientVolumeRelease(zoneClient.mac_id)"
             />
@@ -207,7 +207,7 @@
 
 <script setup>
 import { ref, computed, watch, inject } from 'vue';
-import RangeSlider from '@/components/ui/RangeSlider.vue';
+import LevelSlider from '@/components/ui/LevelSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -491,9 +491,9 @@ function handleClientVolumeRelease(clientMacId) {
 }
 
 // A client's local value leaves once the server's level has caught up with it
-// — or at once when its slider is gone (offline, DAC, out of the zone): an
-// unmounted RangeSlider emits no `drag-end`, and the value left would be shown
-// against every echo when the slider comes back.
+// — or at once when its slider is gone (offline, DAC, out of the zone): a
+// slider that leaves while nobody holds it sends no `drag-end` to clear it,
+// and the value left would be shown against every echo when it comes back.
 watch(
   () => props.zoneClientDetails,
   (details, previous) => {
@@ -864,7 +864,7 @@ function handleClientMuteToggle(clientMacId, muted) {
 
 /* The slider's stand-ins — the skeleton while loading, the offline and
    external-volume labels — take its rail's box: the rail's own height token
-   (one value per viewport, shared with RangeSlider) and its pill ends. */
+   (one value per viewport, shared with LevelSlider) and its pill ends. */
 .volume-skeleton,
 .client-offline,
 .client-external-volume {
