@@ -33,7 +33,8 @@
           <button class="keyboard-key key-backspace"
             @pointerdown.prevent="startBackspaceRepeat"
             @pointerup.prevent="stopBackspaceRepeat"
-            @pointerleave="stopBackspaceRepeat">
+            @pointerleave="stopBackspaceRepeat"
+            @pointercancel="stopBackspaceRepeat">
             <SvgIcon name="keyboardDelete" :size="24" />
           </button>
         </div>
@@ -44,8 +45,9 @@
             <button v-for="key in currentRow1" :key="'r1-' + key"
               class="keyboard-key text-body-medium"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
-              @pointerup.prevent="onKeyPointerUp($event, key)"
-              @pointerleave="onKeyPointerLeave">
+              @pointerup.prevent="onKeyPointerUp($event)"
+              @pointerleave="onKeyPointerLeave"
+              @pointercancel="onKeyPointerCancel">
               {{ key }}
             </button>
           </div>
@@ -55,8 +57,9 @@
             <button v-for="key in currentRow2" :key="'r2-' + key"
               class="keyboard-key text-body-medium"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
-              @pointerup.prevent="onKeyPointerUp($event, key)"
-              @pointerleave="onKeyPointerLeave">
+              @pointerup.prevent="onKeyPointerUp($event)"
+              @pointerleave="onKeyPointerLeave"
+              @pointercancel="onKeyPointerCancel">
               {{ key }}
             </button>
           </div>
@@ -77,8 +80,9 @@
             <button v-for="key in currentRow3" :key="'r3-' + key"
               class="keyboard-key text-body-medium"
               @pointerdown.prevent="onKeyPointerDown($event, key)"
-              @pointerup.prevent="onKeyPointerUp($event, key)"
-              @pointerleave="onKeyPointerLeave">
+              @pointerup.prevent="onKeyPointerUp($event)"
+              @pointerleave="onKeyPointerLeave"
+              @pointercancel="onKeyPointerCancel">
               {{ key }}
             </button>
 
@@ -109,8 +113,9 @@
             </button>
             <button class="keyboard-key key-dot text-body-medium"
               @pointerdown.prevent="onKeyPointerDown($event, '.')"
-              @pointerup.prevent="onKeyPointerUp($event, '.')"
-              @pointerleave="onKeyPointerLeave">
+              @pointerup.prevent="onKeyPointerUp($event)"
+              @pointerleave="onKeyPointerLeave"
+              @pointercancel="onKeyPointerCancel">
               .
             </button>
             <button class="keyboard-key key-dismiss"
@@ -201,7 +206,6 @@ const modeToggleLabel = computed(() => {
 // ===== POPUP STATE =====
 const pressPopup = reactive({ visible: false, char: '', style: {} });
 const accentPopup = reactive({ visible: false, variants: [], selectedIndex: -1, style: {} });
-let longPressTimer = null;
 const LONG_PRESS_DURATION = 500;
 
 // ===== BACKSPACE REPEAT STATE =====
@@ -251,10 +255,7 @@ function resetState() {
   keyboardMode.value = 'abc';
   isCapsLock.value = false;
   isShiftHeld.value = false;
-  pressPopup.visible = false;
-  cleanupAccentListeners();
-  timer.clear(longPressTimer);
-  timer.clear(backspaceInterval);
+  releaseAllPresses();
 }
 
 function handleSubmit() {
@@ -275,12 +276,12 @@ function handleSuggestion(text) {
 }
 
 // ===== KEY PRESS POPUP =====
-function showPressPopup(event, key) {
+function showPressPopup(keyEl, key) {
   // An enlarged echo of each key would spell out a masked value
   if (isMasked.value || !keyboardRef.value) return;
 
   const { left, bottom, width } = pressPopupPlacement(
-    event.target.getBoundingClientRect(),
+    keyEl.getBoundingClientRect(),
     keyboardRef.value.getBoundingClientRect()
   );
 
@@ -294,16 +295,16 @@ function showPressPopup(event, key) {
 }
 
 // ===== ACCENT POPUP =====
-function showAccentPopup(event, key) {
+function showAccentPopup(keyEl, key) {
   const variants = accentMap.value[key.toLowerCase()];
-  if (!variants || variants.length === 0 || !keyboardRef.value) return;
+  if (!variants || variants.length === 0 || !keyboardRef.value) return false;
 
   const mappedVariants = isUppercase.value
     ? variants.map(v => v.toUpperCase())
     : [...variants];
 
   const { left, bottom } = accentPopupPlacement(
-    event.target.getBoundingClientRect(),
+    keyEl.getBoundingClientRect(),
     keyboardRef.value.getBoundingClientRect(),
     mappedVariants.length,
     insetPx.value
@@ -317,19 +318,64 @@ function showAccentPopup(event, key) {
   };
   accentPopup.visible = true;
   pressPopup.visible = false;
+  return true;
 }
 
 // ===== POINTER EVENT HANDLERS =====
-let activeKey = null;
+// One press per finger, keyed by pointerId: the kiosk's screen is multi-touch,
+// and a second finger landing before the first lifts is ordinary fast typing.
+// Each press keeps the key it went down on and its own long-press timer, so a
+// finger types its own key when it lifts, and a timer is never orphaned by the
+// next press. The accent popup belongs to the one finger whose long press
+// opened it; the others go on typing their keys.
+const presses = new Map(); // pointerId → { key, el, longPressTimer }
+let accentOwner = null; // pointerId of the finger the accent popup follows
+let pressPopupOwner = null; // pointerId of the finger the press popup echoes
+
+function clearLongPress(press) {
+  if (press?.longPressTimer) {
+    timer.clear(press.longPressTimer);
+    press.longPressTimer = null;
+  }
+}
+
+function releasePress(pointerId) {
+  clearLongPress(presses.get(pointerId));
+  presses.delete(pointerId);
+  if (pressPopupOwner === pointerId) {
+    pressPopup.visible = false;
+    pressPopupOwner = null;
+  }
+}
+
+function releaseAllPresses() {
+  [...presses.keys()].forEach(releasePress);
+  pressPopup.visible = false;
+  pressPopupOwner = null;
+  cleanupAccentListeners();
+  stopBackspaceRepeat();
+}
 
 function onKeyPointerDown(event, key) {
-  activeKey = key;
-  showPressPopup(event, key);
+  const pointerId = event.pointerId;
+  // A pointer id comes back (the mouse's is always the same): a press it
+  // left without a release on a key is dropped, not typed — and so is the
+  // accent popup it may still hold.
+  if (pointerId === accentOwner) cleanupAccentListeners();
+  releasePress(pointerId);
+  const press = { key, el: event.currentTarget, longPressTimer: null };
+  presses.set(pointerId, press);
+  pressPopupOwner = pointerId;
+  showPressPopup(press.el, key);
 
-  const lowerKey = key.toLowerCase();
-  if (accentMap.value[lowerKey]) {
-    longPressTimer = timer.setTimeout(() => {
-      showAccentPopup(event, key);
+  if (accentMap.value[key.toLowerCase()]) {
+    press.longPressTimer = timer.setTimeout(() => {
+      press.longPressTimer = null;
+      // One accent popup at a time: another finger already holds it.
+      if (accentPopup.visible) return;
+      if (!showAccentPopup(press.el, press.key)) return;
+      accentOwner = pointerId;
+      pressPopupOwner = null; // showAccentPopup hid the echo, whoever's it was
       // Once accent popup is shown, listen on document for slide-to-select
       document.addEventListener('pointermove', onDocumentPointerMove);
       document.addEventListener('pointerup', onDocumentPointerUp);
@@ -338,29 +384,43 @@ function onKeyPointerDown(event, key) {
   }
 }
 
-function onKeyPointerUp(event, key) {
-  timer.clear(longPressTimer);
-  longPressTimer = null;
+function onKeyPointerUp(event) {
+  const pointerId = event.pointerId;
+  // The finger the accent popup follows: the document-level handler picks
+  // the accent it slid to.
+  if (pointerId === accentOwner) return;
 
-  // If accent popup is visible, let the document-level handler manage selection
-  if (accentPopup.visible) return;
-
-  addChar(activeKey || key);
-  pressPopup.visible = false;
-  activeKey = null;
+  // Only a press that went down on a key and was not dropped since (a
+  // cancel, the window losing focus) types.
+  const press = presses.get(pointerId);
+  if (!press) return;
+  releasePress(pointerId);
+  addChar(press.key);
 }
 
-function onKeyPointerLeave() {
+function onKeyPointerLeave(event) {
   // Don't cancel if accent popup is active (finger sliding to popup)
-  if (accentPopup.visible) return;
+  if (event.pointerId === accentOwner) return;
 
-  timer.clear(longPressTimer);
-  longPressTimer = null;
-  pressPopup.visible = false;
+  // The press stays, so the key it went down on is still the one typed
+  // where it is released; only its long press and its echo end.
+  clearLongPress(presses.get(event.pointerId));
+  if (pressPopupOwner === event.pointerId) {
+    pressPopup.visible = false;
+    pressPopupOwner = null;
+  }
+}
+
+// A press the browser took back (a gesture, the window losing the pointer)
+// types nothing.
+function onKeyPointerCancel(event) {
+  if (event.pointerId === accentOwner) return;
+  releasePress(event.pointerId);
 }
 
 function onDocumentPointerMove(event) {
   if (!accentPopup.visible || !keyboardRef.value) return;
+  if (event.pointerId !== accentOwner) return;
 
   accentPopup.selectedIndex = accentIndexAt(
     event.clientX,
@@ -370,28 +430,33 @@ function onDocumentPointerMove(event) {
   );
 }
 
-function onDocumentPointerUp() {
-  if (!accentPopup.visible) return;
+function onDocumentPointerUp(event) {
+  if (!accentPopup.visible || event.pointerId !== accentOwner) return;
 
-  // Only insert if user has slid to an accent (selectedIndex >= 0)
-  if (accentPopup.selectedIndex >= 0) {
+  // Only insert if user has slid to an accent (selectedIndex >= 0), and
+  // never on a cancel
+  if (event.type === 'pointerup' && accentPopup.selectedIndex >= 0) {
     const selected = accentPopup.variants[accentPopup.selectedIndex];
     if (selected) addChar(selected);
   }
   cleanupAccentListeners();
-  pressPopup.visible = false;
-  activeKey = null;
+  releasePress(event.pointerId);
 }
 
 function cleanupAccentListeners() {
   accentPopup.visible = false;
+  accentOwner = null;
   document.removeEventListener('pointermove', onDocumentPointerMove);
   document.removeEventListener('pointerup', onDocumentPointerUp);
   document.removeEventListener('pointercancel', onDocumentPointerUp);
 }
 
 // ===== BACKSPACE REPEAT =====
+// One repeat at a time, stopped by the release, a cancel, the window losing
+// focus, or the keyboard going away: the component is mounted once for the
+// app's life, so a repeat nothing stops would erase every field opened next.
 function startBackspaceRepeat() {
+  stopBackspaceRepeat();
   backspace();
   backspaceInterval = timer.setInterval(backspace, 100);
 }
@@ -457,20 +522,26 @@ watch(isKeyboardVisible, (visible) => {
   if (visible) {
     startOriginCheck();
     focusDisplayInput();
+    window.addEventListener('blur', releaseAllPresses);
     timer.setTimeout(() => {
       document.addEventListener('pointerdown', handleOutsideClick);
     }, 0);
   } else {
     stopOriginCheck();
+    window.removeEventListener('blur', releaseAllPresses);
     document.removeEventListener('pointerdown', handleOutsideClick);
+    // Closed from outside (the field unmounted, a modal closing) as well as
+    // by its own keys: no press, repeat or popup outlives the keyboard.
+    resetState();
   }
 });
 
 onUnmounted(() => {
   stopOriginCheck();
+  window.removeEventListener('blur', releaseAllPresses);
   document.removeEventListener('pointerdown', handleOutsideClick);
   cleanupAccentListeners();
-  // longPressTimer / backspaceInterval are auto-cleared by useTimer.
+  // Long-press timers / backspaceInterval are auto-cleared by useTimer.
 });
 </script>
 

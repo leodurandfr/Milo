@@ -95,11 +95,13 @@ async function load({ keep = false } = {}) {
   answer.value = data;
 }
 
+// Immediate: the store keeps the track while the source view is unmounted and
+// mounted again, so the picker can be born open and must read its rows then.
 watch(track, (now) => {
   busy.value = false;
   if (now) load();
   else opening += 1;
-});
+}, { immediate: true });
 
 async function toggle(uri, holds) {
   if (busy.value || !track.value) return;

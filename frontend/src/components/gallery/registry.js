@@ -653,10 +653,8 @@ export const REGISTRY = {
 
   Modal: {
     component: Modal,
-    // Closed on purpose. `isVisible` starts false and the watcher on `isOpen`
-    // has no `immediate`, so a modal mounted already-open never opens — the app
-    // never does that (every call site keeps it mounted and flips the prop), and
-    // opening it from the panel is also the only way to see its entrance.
+    // Closed on purpose: a modal mounted already open opens too, but ticking
+    // `isOpen` from the panel is what plays its entrance under the reader's eye.
     args: { isOpen: false },
     notes: { isOpen: 'Mounted closed: the modal opens on the prop changing, so tick this to play its entrance.' },
     slots: { default: 'Modal content. It springs to the height of what it holds.' }

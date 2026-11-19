@@ -151,7 +151,9 @@ async function refreshAddedIds() {
   checkingExisting.value = false;
 }
 
-// Fresh state + a current playlist list each time the picker opens.
+// Fresh state + a current playlist list each time the picker opens — at mount
+// too: the store keeps its songs while the source view is unmounted and mounted
+// again, and a picker born open with no membership read would add them twice.
 watch(() => props.isOpen, async (open) => {
   if (!open) return;
   newName.value = '';
@@ -162,7 +164,7 @@ watch(() => props.isOpen, async (open) => {
   addedIds.value = new Set();
   await Promise.all([store.loadPlaylists(), store.loadLikedSongs()]);
   await refreshAddedIds();
-});
+}, { immediate: true });
 
 async function toggleIn(pl) {
   if (busy.value) return;

@@ -336,8 +336,11 @@ function handleKeydown(event) {
   }
 }
 
-// Block body scroll when modal is open
+// Block body scroll when modal is open. `holdsScrollLock` says whether this
+// instance set it, so an unmount clears only its own lock, never an open one's.
+let holdsScrollLock = false;
 function toggleBodyScroll(isOpen) {
+  holdsScrollLock = isOpen;
   if (isOpen) {
     document.body.style.overflow = 'hidden';
   } else {
@@ -345,26 +348,33 @@ function toggleBodyScroll(isOpen) {
   }
 }
 
-// Add user activity listeners (pointerdown/touchstart sufficient for 120s auto-close)
-function addActivityListeners() {
-  if (!modalOverlay.value) return;
+// What counts as activity is heard on the whole document, not on the veil: the
+// virtual keyboard (App-level, above every modal) and a Dropdown's menu
+// (teleported to <body>) both sit outside it, and a phone's own keyboard types
+// without a pointer at all. While a modal is open, the veil covers everything
+// else, so whatever the document hears is someone using this modal: a key, a
+// tap on the virtual keyboard, a character input.
+const ACTIVITY_EVENTS = ['pointerdown', 'wheel', 'touchstart', 'keydown', 'input'];
 
-  modalOverlay.value.addEventListener('pointerdown', handleUserActivity, { passive: true });
-  modalOverlay.value.addEventListener('wheel', handleUserActivity, { passive: true });
-  modalOverlay.value.addEventListener('touchstart', handleUserActivity, { passive: true });
+function addActivityListeners() {
+  ACTIVITY_EVENTS.forEach((type) =>
+    document.addEventListener(type, handleUserActivity, { capture: true, passive: true }));
 }
 
 function removeActivityListeners() {
-  if (!modalOverlay.value) return;
-
-  modalOverlay.value.removeEventListener('pointerdown', handleUserActivity);
-  modalOverlay.value.removeEventListener('wheel', handleUserActivity);
-  modalOverlay.value.removeEventListener('touchstart', handleUserActivity);
+  ACTIVITY_EVENTS.forEach((type) =>
+    document.removeEventListener(type, handleUserActivity, { capture: true }));
 }
 
 const presence = useModalPresence();
 
-watch(() => props.isOpen, async (newValue) => {
+// Immediate: a Modal can be mounted already open — a picker whose store kept
+// its track while the source view was unmounted and mounted again — and would
+// otherwise stay invisible until isOpen went false and back.
+watch(() => props.isOpen, async (newValue, oldValue) => {
+  // Mounted closed: there is nothing to close, and the page's scroll lock, if
+  // any, is another modal's.
+  if (!newValue && oldValue === undefined) return;
   presence.setOpen(newValue);
   if (newValue) {
     toggleBodyScroll(true);
@@ -373,7 +383,7 @@ watch(() => props.isOpen, async (newValue) => {
     await closeModal();
     toggleBodyScroll(false);
   }
-});
+}, { immediate: true });
 
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown, { passive: true });
@@ -381,7 +391,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown);
-  document.body.style.overflow = '';
+  if (holdsScrollLock) toggleBodyScroll(false);
   // Pending animation timeouts and the inactivity timer are auto-cleared by useTimer.
   removeActivityListeners();
   disarmSnapWindowRelease();

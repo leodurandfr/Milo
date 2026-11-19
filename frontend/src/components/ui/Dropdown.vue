@@ -19,14 +19,19 @@
       <Transition name="dropdown-menu">
         <div v-if="isOpen" ref="menuRef" class="dropdown-menu glass-menu"
           :class="[`dropdown-menu--${size}`, { 'icons-start': iconPlacement === 'start', 'has-check': hasCheck, 'open-upward': openUpward, 'open-leftward': openLeftward }]"
-          :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width, maxHeight: menuPosition.maxHeight }">
+          :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }">
           <!-- The list scrolls inside the glass, never the glass itself: its rim
-               is an absolutely placed layer that would scroll away with it. -->
-          <div class="dropdown-list" @scroll.stop>
+               is an absolutely placed layer that would scroll away with it. So
+               the list carries the height cap too — on the glass, it would only
+               crop a list that keeps its own height and never scrolls. -->
+          <div ref="listRef" class="dropdown-list" :style="{ maxHeight: menuPosition.maxHeight }" @scroll.stop>
             <div v-if="title" class="dropdown-title text-body-small">{{ title }}</div>
-            <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
-              :class="['text-body-medium', { 'is-selected': option.value === modelValue }]"
-              @click="selectOption(option.value)">
+            <!-- Keyed by position: two options may share a value (a heading
+                 and the "loading…" line under it both stand for none). -->
+            <div v-for="(option, index) in options" :key="index" class="dropdown-item"
+              :class="['text-body-medium', { 'is-selected': isSelected(option), 'is-disabled': option.disabled }]"
+              :aria-disabled="option.disabled ? 'true' : null"
+              @click="selectOption(option)">
               <SvgIcon v-if="hasCheck" name="check" :size="20" class="dropdown-item-check" />
               <span class="dropdown-item-label">{{ option.label }}</span>
               <span v-if="option.icon" class="dropdown-item-icon" :role="option.iconLabel ? 'img' : null"
@@ -45,6 +50,7 @@
 import { ref, computed, nextTick, watch, onBeforeUnmount } from 'vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useScreenInset } from '@/composables/useScreenInset';
+import { useI18n } from '@/services/i18n';
 
 const props = defineProps({
   modelValue: {
@@ -56,11 +62,14 @@ const props = defineProps({
     required: true,
     // Expected format: [{ label: 'Label', value: 'value' }, ...], plus an
     // optional `icon` beside the label (`iconPlacement`) and the `iconLabel` a
-    // screen reader says — without one, the icon is decorative and hidden.
+    // screen reader says — without one, the icon is decorative and hidden —
+    // and `disabled: true` for a line that is shown but cannot be picked
+    // (a "loading…" line), as ButtonGroup's options take it.
   },
+  // What the trigger says while no option is picked; null: common.selectOption.
   placeholder: {
     type: String,
-    default: 'Select an option'
+    default: null
   },
   disabled: {
     type: Boolean,
@@ -99,25 +108,34 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'change']);
 
+const { t } = useI18n();
+
 const dropdownRef = ref(null);
 const menuRef = ref(null);
+const listRef = ref(null);
 const isOpen = ref(false);
 const openUpward = ref(false);
 const openLeftward = ref(false);
 const menuPosition = ref({ top: '0px', left: '0px', width: '0px', maxHeight: null });
 const { insetPx } = useScreenInset();
 
+// A disabled option is never the picked one, even when it carries the value:
+// it stands beside the option that does (a "loading…" line under a heading).
+function isSelected(option) {
+  return !option.disabled && option.value === props.modelValue;
+}
+
 // The check's column is kept only while one option holds it: a menu of
 // actions (no `modelValue`, or one none of its options carries) would
 // otherwise indent every label by an empty 20 px.
 const hasCheck = computed(() =>
-  props.iconPlacement === 'end' && props.options.some(opt => opt.value === props.modelValue)
+  props.iconPlacement === 'end' && props.options.some(isSelected)
 );
 
 const selectedLabel = computed(() => {
   if (props.displayOverride) return props.displayOverride;
-  const selected = props.options.find(opt => opt.value === props.modelValue);
-  return selected ? selected.label : props.placeholder;
+  const selected = props.options.find(isSelected);
+  return selected ? selected.label : (props.placeholder ?? t('common.selectOption'));
 });
 
 /**
@@ -157,18 +175,20 @@ function calculateDropdownDirection() {
   // The menu is teleported to <body> and placed in viewport px: the strip the
   // kiosk's bezel hides is out of the viewport it may use.
   const hidden = insetPx.value;
-  const MENU_MAX_HEIGHT = 340; // Max height of dropdown menu (CSS max-height)
+  const MENU_MAX_HEIGHT = 340; // Max height of the list (.dropdown-list's CSS max-height)
 
   const triggerRect = getTriggerRestRect();
   if (!triggerRect) return;
 
   const GAP = 4; // 4px gap below the trigger
 
-  // The menu's own height once rendered (its content's, so a cap set by an
-  // earlier opening does not stick), otherwise the CSS max.
+  // The menu's own height once rendered — its list's content, so a cap set
+  // by an earlier opening does not stick, plus whatever the glass adds around
+  // it —, otherwise the CSS max.
   const menu = menuRef.value;
-  const actualMenuHeight = menu?.offsetHeight
-    ? Math.min(MENU_MAX_HEIGHT, menu.scrollHeight + menu.offsetHeight - menu.clientHeight)
+  const list = listRef.value;
+  const actualMenuHeight = menu?.offsetHeight && list
+    ? Math.min(MENU_MAX_HEIGHT, list.scrollHeight) + menu.offsetHeight - list.offsetHeight
     : MENU_MAX_HEIGHT;
 
   // Horizontal: the preferred edge, unless the menu would leave the viewport.
@@ -201,18 +221,20 @@ function calculateDropdownDirection() {
     ? spaceAbove >= needed || spaceAbove > spaceBelow
     : spaceBelow < needed && spaceAbove > spaceBelow;
 
-  // Upward with less room than the menu needs: it ends above the trigger
-  // anyway and scrolls inside, rather than covering the trigger or rising
-  // under the bezel.
-  const roomAbove = triggerRect.top - GAP - hidden;
-  const capped = openUpward.value && roomAbove < actualMenuHeight;
+  // With less room than the menu needs on the side it opens to, it stops at
+  // the viewport's edge anyway and its list scrolls inside, rather than
+  // covering the trigger or running under the bezel or off the screen.
+  const room = openUpward.value
+    ? triggerRect.top - GAP - hidden
+    : window.innerHeight - hidden - triggerRect.bottom - GAP;
+  const capped = room < actualMenuHeight;
   menuPosition.value = {
     top: `${openUpward.value
       ? (capped ? hidden : triggerRect.top - actualMenuHeight - GAP)
       : triggerRect.bottom + GAP}px`,
     left: `${openLeftward.value ? triggerRect.right - menuWidth : triggerRect.left}px`,
     width: `${triggerRect.width}px`,
-    maxHeight: capped ? `${Math.max(0, roomAbove)}px` : null,
+    maxHeight: capped ? `${Math.max(0, room)}px` : null,
   };
 }
 
@@ -253,13 +275,17 @@ async function toggleDropdown() {
   }
 }
 
-function selectOption(value) {
-  emit('update:modelValue', value);
-  emit('change', value);
+function selectOption(option) {
+  if (option.disabled) return;
+  emit('update:modelValue', option.value);
+  emit('change', option.value);
   isOpen.value = false;
 }
 
+// The menu is teleported out of the wrapper, so a click inside it (its title,
+// a disabled line) is not outside.
 function handleClickOutside(event) {
+  if (menuRef.value?.contains(event.target)) return;
   if (dropdownRef.value && !dropdownRef.value.contains(event.target)) {
     isOpen.value = false;
   }
@@ -470,6 +496,13 @@ onBeforeUnmount(() => {
   .dropdown-item:hover {
     background: var(--color-fill-faint);
   }
+}
+
+/* Shown, not pickable: dimmed as ButtonGroup's disabled option, and no press. */
+.dropdown-item.is-disabled {
+  opacity: var(--opacity-disabled);
+  background: none;
+  cursor: default;
 }
 
 /* Open: fades in and settles from the trigger on the spring; close: fades
