@@ -185,10 +185,13 @@
       }
     },
     "systemOffline": "“{name}” is offline",
-    "systemOfflineDescription": "This audio system is not currently connected to Milō.<br>IP: {ip}",
+    "systemOfflineDescription": "This audio system is not currently connected to Milō. If it is on WiFi, plug it into Ethernet for a moment: if Milō is on WiFi itself, it gives the speaker that network again; otherwise, keep it on Ethernet.<br>IP: {ip}",
     "audioCardMissing": "{card} is configured but this audio system does not detect it. Check that the board is properly seated, or pick another card.",
     "deleteSystem": "Delete this audio system",
+    "confirmDeleteSystem": "Confirm deletion",
+    "deleteSystemDetails": "Its equalizer, its delay and its place in its zone are erased with it. This cannot be undone.",
     "offline": "Offline",
+    "defaultSpeakerName": "Speaker",
     "externalVolume": "Volume not managed by Milō"
   },
   "equalizer": {
@@ -522,6 +525,7 @@
     "updating": "Updating…",
     "errorDetectingSatellites": "Error detecting satellites",
     "upToDate": "Up to date",
+    "checkFailed": "Could not check for updates",
     "developmentBuild": "Development build",
     "dependenciesHint": "Installs the app and the program versions validated with it.",
     "clientsHint": "The Milō Clients receive it too.",
@@ -560,7 +564,8 @@
     "ram": "RAM",
     "disk": "Disk",
     "network": "Network",
-    "designedBy": "Milō app designed by"
+    "designedBy": "Milō app designed by",
+    "version": "Version {version}"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -611,6 +616,7 @@
     "expandPlayer": "Expand the player",
     "selectOption": "Select an option",
     "loading": "Loading…",
+    "unknown": "Unknown",
     "showPassword": "Show password",
     "hidePassword": "Hide password"
   },

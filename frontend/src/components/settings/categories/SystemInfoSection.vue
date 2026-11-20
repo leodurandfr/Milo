@@ -11,7 +11,7 @@
         <span class="info-version text-mono-medium">
           <Transition name="reveal">
             <span v-if="showVersionSkeleton" class="skeleton-line shimmer" style="width: 96px"></span>
-            <span v-else-if="miloVersion !== null">Version {{ miloVersion }}</span>
+            <span v-else-if="miloVersion !== null">{{ t('info.version', { version: miloVersion }) }}</span>
             <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
           </Transition>
         </span>

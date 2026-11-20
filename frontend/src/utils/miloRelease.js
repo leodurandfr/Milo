@@ -31,11 +31,14 @@ export function miloVersionLabel(installed) {
 /**
  * What the Milō row offers, from its `/api/programs` entry. A development build
  * is outside the channel and offered nothing, which is not the same as being
- * up to date.
+ * up to date — and neither is a check that never reached GitHub (a rate limit,
+ * no network): `update_available` is false there too, because nobody asked.
+ * Up to date is the answer only once the check succeeded.
  *
- * @returns {'update' | 'upToDate' | 'developmentBuild'}
+ * @returns {'update' | 'upToDate' | 'developmentBuild' | 'checkFailed'}
  */
 export function miloRowAction(milo) {
   if (milo?.development_build) return 'developmentBuild';
-  return milo?.update_available ? 'update' : 'upToDate';
+  if (milo?.update_available) return 'update';
+  return milo?.check_failed ? 'checkFailed' : 'upToDate';
 }

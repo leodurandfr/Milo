@@ -229,9 +229,8 @@ def create_programs_router(
 
     # === SPECIFIC ROUTES (must come BEFORE generic routes) ===
 
-    @router.get("")
-    async def get_all_programs():
-        """Retrieve the status of all local programs (installed + GitHub)"""
+    async def _all_programs() -> dict:
+        """The body of GET /api/programs and of POST /api/programs/recheck."""
         # In-flight local update keys (satellite keys are prefixed, excluded here).
         # Lets a freshly loaded client reconstruct "updating" state it never saw the
         # WS progress deltas for — after a reload, on a second device, or when the
@@ -268,6 +267,26 @@ def create_programs_router(
                 "count": 0,
                 **_in_flight(),
             }
+
+    @router.get("")
+    async def get_all_programs():
+        """Retrieve the status of all local programs (installed + GitHub).
+
+        A row whose GitHub read failed carries `check_failed: true`.
+        """
+        return await _all_programs()
+
+    @router.post("/recheck")
+    async def recheck_programs():
+        """Ask GitHub again for every row whose check failed, and answer the GET's body.
+
+        The screen's Retry on such a row: the failure is otherwise remembered
+        for its retry delay, and a read answered from that memory would repeat
+        it. An action — it drops the failures the next reads would have
+        answered, the satellites' screen included — hence a POST, not a GET flag.
+        """
+        update_service.forget_failed_checks()
+        return await _all_programs()
 
     @router.get("/milo/update")
     async def get_milo_update():

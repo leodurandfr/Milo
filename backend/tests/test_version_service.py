@@ -836,6 +836,39 @@ class TestSharedGitHubReads:
         assert github.count("/releases/latest") == 2
 
 
+class TestRecheck:
+    """The Updates screen's Retry, on a row whose check failed.
+
+    A failed read is remembered for `RELEASES_RETRY_S` so that opening the
+    screen does not cost a timeout each time; a Retry answered from that memory
+    would print the same failure it was pressed to get past.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_recheck_asks_github_again_at_once(self, version_service):
+        github = _GatedGitHub(latest_status=403)
+        github.open()
+        with github.patch():
+            await version_service.get_latest_github_version("navidrome")
+            version_service.forget_failed_checks()
+            await version_service.get_latest_github_version("navidrome")
+
+        assert github.count("/releases/latest") == 2
+
+    @pytest.mark.asyncio
+    async def test_a_recheck_keeps_the_answers_github_gave(self, version_service):
+        """A retry is about the rows that failed: asking again for the ones that
+        answered spends the anonymous rate limit the failed ones need."""
+        github = _GatedGitHub(latest_tag="v0.35.0", releases=[_release("v0.35.0")])
+        github.open()
+        with github.patch():
+            await version_service.get_latest_github_version("multiroom")
+            version_service.forget_failed_checks()
+            await version_service.get_latest_github_version("multiroom")
+
+        assert github.count("/releases/latest") == 1
+
+
 class TestOffPinByAccident:
     """A unit running a version ABOVE the pin, with nothing recording a trial.
 
@@ -1033,6 +1066,35 @@ class TestGetProgramFullStatus:
         assert result["update_available"] is False
 
     @pytest.mark.asyncio
+    async def test_a_dependency_github_did_not_answer_is_a_failed_check(self, version_service):
+        """`update_available` False alone reads "up to date" on the Updates
+        screen, and a rate-limited or offline unit kept saying it for as long
+        as GitHub did not answer. The row has to say the question went
+        unanswered."""
+        github = _GatedGitHub(latest_status=403)
+        github.open()
+        with patch.object(version_service, "get_installed_version", return_value={
+            "status": "installed", "versions": {"main": "0.28.0"}, "errors": [],
+        }), github.patch():
+            result = await version_service.get_program_full_status("multiroom")
+
+        assert result["latest"]["status"] == "error"
+        assert result["update_available"] is False
+        assert result["check_failed"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_dependency_github_answered_is_not_a_failed_check(self, version_service):
+        github = _GatedGitHub(latest_tag="v0.35.0", releases=[_release("v0.35.0")])
+        github.open()
+        with patch.object(version_service, "get_installed_version", return_value={
+            "status": "installed", "versions": {"main": "0.35.0"}, "errors": [],
+        }), github.patch():
+            result = await version_service.get_program_full_status("multiroom")
+
+        assert result["latest"]["status"] == "success"
+        assert result["check_failed"] is False
+
+    @pytest.mark.asyncio
     async def test_installed_error_handled(self, version_service):
         with patch.object(version_service, "get_installed_version",
                           side_effect=Exception("subprocess error")):
@@ -1188,6 +1250,10 @@ class TestVersionDetectionResidue:
         assert result["status"] == "error"
         assert "invalid literal" in result["message"]
         assert result["name"] == version_service.programs["multiroom"]["name"]
+        # Undecided, so said as a failed check — an absent `update_available`
+        # is what the screen reads as "up to date".
+        assert result["update_available"] is False
+        assert result["check_failed"] is True
 
 
 class TestTheMiloReleaseOffer:
@@ -1406,6 +1472,14 @@ class TestTheMiloReleaseOffer:
         assert row["update_available"] is False
         assert row["development_build"] is False
         assert row["installed"]["release_tag"] == "v0.2.0"
+        # Offered nothing is not up to date: the screen says the check failed.
+        assert row["check_failed"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_unit_on_the_published_release_did_not_fail_its_check(self, version_service):
+        row = await self._row(version_service, exact="v0.2.0", published="v0.2.0")
+
+        assert row["check_failed"] is False
 
     @pytest.mark.asyncio
     async def test_a_development_build_says_so_without_github(self, version_service):
@@ -1416,3 +1490,5 @@ class TestTheMiloReleaseOffer:
 
         assert row["update_available"] is False
         assert row["development_build"] is True
+        # Outside the channel there was nothing to ask GitHub about.
+        assert row["check_failed"] is False

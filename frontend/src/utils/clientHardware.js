@@ -9,3 +9,17 @@
 export function needsHardwareRead({ reachable, cardsLoaded, savedAudioId, inFlight }) {
   return reachable && !inFlight && (!cardsLoaded || !savedAudioId);
 }
+
+/**
+ * The volume management a card pick shows, on the main unit (Hardware) and on
+ * a speaker (ClientEdit) alike. Back on the saved card — picked again from the
+ * list, which answers even for the card already chosen — it is the saved one:
+ * the dirty check compares the card alone, so the category default would show
+ * a value the unit does not hold, with no Apply to send it, and hide the level
+ * trim it gates. Any other card starts from its category's default: a DAC's
+ * level belongs to the amp after it.
+ */
+export function volumeControlForCard({ audioId, card, savedAudioId, savedVolumeControl }) {
+  if (savedAudioId && audioId === savedAudioId) return savedVolumeControl;
+  return card?.category !== 'dac';
+}

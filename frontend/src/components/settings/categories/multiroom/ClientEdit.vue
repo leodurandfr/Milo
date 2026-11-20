@@ -17,8 +17,9 @@
       v-else-if="isOffline"
       icon="multiroom"
       :title="t('multiroom.systemOffline', { name: clientDisplayName })"
-      :subtitle="t('multiroom.systemOfflineDescription', { ip: client?.ip || 'Unknown' })"
-      :cta-label="deleting ? t('common.deleting') : t('multiroom.deleteSystem')"
+      :subtitle="t('multiroom.systemOfflineDescription', { ip: client?.ip || t('common.unknown') })"
+      :details="deleteState === 'idle' ? null : t('multiroom.deleteSystemDetails')"
+      :cta-label="deleteLabel"
       cta-variant="important"
       :cta-click="handleDelete"
     />
@@ -173,7 +174,7 @@
           </div>
           <div class="info-item">
             <span class="info-label text-mono-medium">{{ t('clientDetails.ipAddress') }}</span>
-            <span class="info-value text-mono-medium">{{ client?.ip || 'Unknown' }}</span>
+            <span class="info-value text-mono-medium">{{ client?.ip || t('common.unknown') }}</span>
           </div>
         </div>
       </SectionCard>
@@ -204,7 +205,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
-import { needsHardwareRead } from '@/utils/clientHardware';
+import { needsHardwareRead, volumeControlForCard } from '@/utils/clientHardware';
 import { logger } from '@/services/logger';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -257,7 +258,10 @@ const gainEnabled = ref(false);
 // non-zero value so toggling OFF then ON restores the user's choice.
 const DEFAULT_DELAY_MS = 20;
 const lastDelay = ref(DEFAULT_DELAY_MS);
-const deleting = ref(false);
+// 'idle' → 'confirming' → 'deleting': two steps, like a zone's delete — the
+// offline screen also shows for the seconds a speaker restarts, and a delete
+// takes its equalizer, its delay and its place in its zone with it.
+const deleteState = ref('idle');
 const crossoverFrequency = ref(80);
 // null until the satellite answered; a satellite whose app predates the route
 // answers with an error that says to update it, shown in place of the switch.
@@ -310,7 +314,7 @@ const isOffline = computed(() => {
 
 // Display name for offline message
 const clientDisplayName = computed(() =>
-  client.value?.name || client.value?.host || 'Unknown'
+  client.value?.name || client.value?.host || t('common.unknown')
 );
 
 const clientZone = computed(() => {
@@ -432,9 +436,14 @@ function selectAudioCard(audioId) {
   selectedAudioId.value = audioId;
   confirmReboot.value = false;
   audioError.value = '';
-  // Default volume_control based on card category (user can override via toggle)
-  const card = audioCards.value.find(c => c.value === audioId);
-  volumeControl.value = card?.category !== 'dac';
+  // The record's value is the saved one: with no card change pending, the
+  // toggle writes it at once.
+  volumeControl.value = volumeControlForCard({
+    audioId,
+    card: audioCards.value.find(c => c.value === audioId),
+    savedAudioId: savedAudioId.value,
+    savedVolumeControl: client.value?.volume_control !== false,
+  });
 }
 
 async function toggleVolumeControl() {
@@ -602,10 +611,26 @@ async function saveClientName() {
   }
 }
 
-async function handleDelete() {
-  if (deleting.value) return;
+const deleteLabel = computed(() => {
+  if (deleteState.value === 'confirming') return t('multiroom.confirmDeleteSystem');
+  if (deleteState.value === 'deleting') return t('common.deleting');
+  return t('multiroom.deleteSystem');
+});
 
-  deleting.value = true;
+// A speaker that comes back mid-confirmation leaves the offline screen: the
+// confirmation does not wait for its next absence.
+watch(isOffline, () => {
+  if (deleteState.value === 'confirming') deleteState.value = 'idle';
+});
+
+async function handleDelete() {
+  if (deleteState.value === 'deleting') return;
+  if (deleteState.value === 'idle') {
+    deleteState.value = 'confirming';
+    return;
+  }
+
+  deleteState.value = 'deleting';
   try {
     const success = await multiroomClientStore.deleteClient(props.macId);
     if (success) {
@@ -614,7 +639,7 @@ async function handleDelete() {
   } catch (error) {
     logger.error('multiroom', 'Error deleting client', error);
   } finally {
-    deleting.value = false;
+    deleteState.value = 'idle';
   }
 }
 

@@ -2,7 +2,7 @@
 <template>
   <SectionStack>
     <MessageContent v-if="localProgramsError" icon="downloadSimple" :title="t('updates.errorTitle')"
-      :details="t('updates.error')" :cta-label="t('updates.retry')" :cta-click="loadLocalPrograms" />
+      :details="t('updates.error')" :cta-label="t('updates.retry')" :cta-click="() => loadLocalPrograms()" />
 
     <template v-else>
       <!-- The operating system and the individual programs share one card:
@@ -43,6 +43,11 @@
                             <span class="version-new">> {{ stripTagPrefix(localPrograms.milo.latest?.tag_name) }}</span>
                           </template>
                         </span>
+                        <!-- GitHub was not reached: nothing is offered because
+                             nothing was asked, which is not up to date. -->
+                        <div v-if="miloAction === 'checkFailed'" class="program-failure">
+                          <span class="text-body-small failure-cause">{{ t('updates.checkFailed') }}</span>
+                        </div>
                         <!-- The last update, put back by the unit itself: drawn
                              as a satellite's failed push is. -->
                         <div v-if="miloFailureShown" class="program-failure">
@@ -68,6 +73,15 @@
                             :loading="isLocalUpdating('milo') || debugForceUpdating"
                             @click="startLocalUpdate('milo')"
                             :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()" />
+                        </template>
+                        <template v-else-if="miloAction === 'checkFailed'">
+                          <Button size="small" variant="control" class="program-button action-wide"
+                            :loading="rechecking" :disabled="rechecking" @click="recheck">
+                            {{ t('updates.retry') }}
+                          </Button>
+                          <IconButton icon="arrowClockwise" variant="control" size="small"
+                            class="action-compact row-icon-button" :aria-label="t('updates.retry')"
+                            :loading="rechecking" :disabled="rechecking" @click="recheck" />
                         </template>
                         <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                           {{ miloAction === 'developmentBuild' ? t('updates.developmentBuild') : t('updates.upToDate') }}
@@ -106,6 +120,9 @@
                           {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || t('updates.notAvailable') }}
                           <span v-if="rows[key].update" class="version-new">> {{ rows[key].update.version }}</span>
                         </span>
+                        <div v-if="rows[key].checkFailed" class="program-failure">
+                          <span class="text-body-small failure-cause">{{ t('updates.checkFailed') }}</span>
+                        </div>
                       </div>
 
                       <div class="program-actions">
@@ -154,7 +171,18 @@
                               @click="startLocalUpdate(key, rows[key].update.target)"
                               :disabled="isLocalUpdateBusy()" />
                           </template>
-                          <Button v-if="!rows[key].update"
+                          <!-- Up to date is an answer GitHub gave: a check that
+                               did not reach it offers the check again instead. -->
+                          <template v-if="!rows[key].update && rows[key].checkFailed">
+                            <Button size="small" variant="control" class="program-button action-wide"
+                              :loading="rechecking" :disabled="rechecking" @click="recheck">
+                              {{ t('updates.retry') }}
+                            </Button>
+                            <IconButton icon="arrowClockwise" variant="control" size="small"
+                              class="action-compact row-icon-button" :aria-label="t('updates.retry')"
+                              :loading="rechecking" :disabled="rechecking" @click="recheck" />
+                          </template>
+                          <Button v-else-if="!rows[key].update"
                             size="small" variant="control" class="program-button btn-up-to-date" disabled>
                             {{ t('updates.upToDate') }}
                           </Button>
@@ -272,7 +300,7 @@
                 <div v-if="satelliteByMacId[client.mac_id].online" class="program-item">
                   <div class="program-info">
                     <AppIcon name="multiroom" :size="48" class="program-icon" />
-                    <span class="program-name heading-4">Multiroom Client</span>
+                    <span class="program-name heading-4">{{ t('audioSources.multiroom') }}</span>
                     <span class="program-version text-mono-medium">
                       snapclient {{ satelliteByMacId[client.mac_id].snapclient_version || t('updates.notAvailable') }}
                       <template
@@ -433,6 +461,18 @@ const miloVersion = computed(() =>
   miloVersionLabel(localPrograms.value.milo?.installed) || t('updates.notAvailable'));
 
 const miloAction = computed(() => miloRowAction(localPrograms.value.milo));
+
+// A row's Retry after its check failed: the rows stay drawn while it runs.
+const rechecking = ref(false);
+async function recheck() {
+  if (rechecking.value) return;
+  rechecking.value = true;
+  try {
+    await loadLocalPrograms({ recheck: true });
+  } finally {
+    rechecking.value = false;
+  }
+}
 
 // The offer points both ways. A release GitHub stops publishing — withdrawn
 // because it turned out bad — is offered back to every unit that took it, and
@@ -630,7 +670,8 @@ const rows = computed(() => {
     // No "validated" update while a trial is recorded: that target is the
     // return, and it installs the manifest's version — which is not the one
     // this row would print beside it. It lives in the menu instead.
-    out[key] = { update, choices, validated };
+    // Nothing offered because GitHub was not asked is not up to date.
+    out[key] = { update, choices, validated, checkFailed: program.check_failed === true };
   }
   return out;
 });

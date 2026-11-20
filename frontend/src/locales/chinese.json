@@ -185,10 +185,13 @@
       }
     },
     "systemOffline": "「{name}」已离线",
-    "systemOfflineDescription": "此音频系统当前未连接到Milō。<br>IP：{ip}",
+    "systemOfflineDescription": "此音频系统当前未连接到Milō。如果它使用 WiFi，请将其暂时接入以太网：若 Milō 本身也连接着 WiFi，会重新为它提供该网络；否则，请让它保持以太网连接。<br>IP：{ip}",
     "audioCardMissing": "已配置 {card}，但此音频系统未检测到。请检查扩展板是否插紧，或选择其他声卡。",
     "deleteSystem": "删除此音频系统",
+    "confirmDeleteSystem": "确认删除",
+    "deleteSystemDetails": "它的均衡器、延迟以及它在区域中的位置将一并删除。此操作无法撤销。",
     "offline": "离线",
+    "defaultSpeakerName": "音箱",
     "externalVolume": "音量未由 Milō 管理"
   },
   "equalizer": {
@@ -522,6 +525,7 @@
     "updating": "更新中…",
     "errorDetectingSatellites": "检测 Milō Client 时出错",
     "upToDate": "已是最新",
+    "checkFailed": "无法检查更新",
     "developmentBuild": "开发版本",
     "dependenciesHint": "安装应用及与之一同验证的程序版本。",
     "clientsHint": "Milō Clients 也会一并更新。",
@@ -560,7 +564,8 @@
     "ram": "RAM",
     "disk": "磁盘",
     "network": "网络",
-    "designedBy": "Milō 应用设计者"
+    "designedBy": "Milō 应用设计者",
+    "version": "版本 {version}"
   },
   "network": {
     "ethernet": "以太网",
@@ -611,6 +616,7 @@
     "expandPlayer": "展开播放器",
     "selectOption": "选择一个选项",
     "loading": "正在加载…",
+    "unknown": "未知",
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码"
   },

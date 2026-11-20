@@ -196,18 +196,21 @@ export const useUpdatesStore = defineStore('updates', () => {
     return result.ok;
   }
 
-  async function loadLocalPrograms() {
+  // `recheck` is a row's Retry after its check failed: the backend asks GitHub
+  // again at once (POST /recheck) instead of answering the failure it
+  // remembers, and the rows stay drawn — the pressed button is what waits, not
+  // the whole list.
+  async function loadLocalPrograms({ recheck = false } = {}) {
     const seq = ++localLoadSeq;
     const deltasSeen = localClock.now();
     const miloRead = startMiloRead();
     hasEverLoaded.value = true;
-    localProgramsLoading.value = true;
+    if (!recheck) localProgramsLoading.value = true;
     localProgramsError.value = false;
-    const result = await apiCall.get('/api/programs', {
-      category: 'updates',
-      message: 'Error loading programs',
-      checkStatus: true
-    });
+    const options = { category: 'updates', message: 'Error loading programs', checkStatus: true };
+    const result = recheck
+      ? await apiCall.post('/api/programs/recheck', null, options)
+      : await apiCall.get('/api/programs', options);
     applyMiloRead(miloRead, result.data);
     if (seq !== localLoadSeq) return result.ok;
     const newer = localClock.movedSince(deltasSeen);

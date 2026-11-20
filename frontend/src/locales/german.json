@@ -185,10 +185,13 @@
       }
     },
     "systemOffline": "„{name}“ ist offline",
-    "systemOfflineDescription": "Dieses Audiosystem ist derzeit nicht mit Milō verbunden.<br>IP: {ip}",
+    "systemOfflineDescription": "Dieses Audiosystem ist derzeit nicht mit Milō verbunden. Wenn es über WLAN verbunden war, schließen Sie es kurz per Ethernet an: Ist Milō selbst im WLAN, gibt es ihm dieses Netz erneut; andernfalls lassen Sie es per Ethernet verbunden.<br>IP: {ip}",
     "audioCardMissing": "{card} ist konfiguriert, wird von diesem Audiosystem aber nicht erkannt. Prüfen Sie den Sitz der Platine oder wählen Sie eine andere Karte.",
     "deleteSystem": "Dieses Audiosystem löschen",
+    "confirmDeleteSystem": "Löschen bestätigen",
+    "deleteSystemDetails": "Sein Equalizer, seine Verzögerung und sein Platz in seiner Zone werden mit ihm gelöscht. Dies kann nicht rückgängig gemacht werden.",
     "offline": "Offline",
+    "defaultSpeakerName": "Lautsprecher",
     "externalVolume": "Lautstärke nicht von Milō gesteuert"
   },
   "equalizer": {
@@ -244,7 +247,7 @@
       "hip_hop": "Hip-Hop",
       "jazz": "Jazz",
       "latin": "Latino",
-      "loudness": "Lautstärke",
+      "loudness": "Loudness",
       "lounge": "Lounge",
       "piano": "Piano",
       "pop": "Pop",
@@ -522,6 +525,7 @@
     "updating": "Aktualisierung…",
     "errorDetectingSatellites": "Fehler beim Erkennen von Satelliten",
     "upToDate": "Aktuell",
+    "checkFailed": "Prüfung nicht möglich",
     "developmentBuild": "Entwicklungsversion",
     "dependenciesHint": "Installiert die App und die damit validierten Programmversionen.",
     "clientsHint": "Die Milō Clients erhalten sie ebenfalls.",
@@ -560,7 +564,8 @@
     "ram": "RAM",
     "disk": "Speicher",
     "network": "Netzwerk",
-    "designedBy": "Milō App entworfen von"
+    "designedBy": "Milō App entworfen von",
+    "version": "Version {version}"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -611,6 +616,7 @@
     "expandPlayer": "Player vergrößern",
     "selectOption": "Option auswählen",
     "loading": "Wird geladen…",
+    "unknown": "Unbekannt",
     "showPassword": "Passwort anzeigen",
     "hidePassword": "Passwort ausblenden"
   },

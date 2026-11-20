@@ -4,7 +4,8 @@
  * row and Settings › Info print, and the action the Updates row offers. If
  * these break, a pre-release reads as the stable release it is a candidate
  * for, the two screens disagree about the running version, and a development
- * checkout claims to be up to date while the channel offers it nothing.
+ * checkout — or a unit GitHub did not answer — claims to be up to date while
+ * nobody checked.
  */
 import { describe, it, expect } from 'vitest';
 import { stripTagPrefix, miloVersionLabel, miloRowAction } from '@/utils/miloRelease';
@@ -48,5 +49,21 @@ describe('miloRowAction', () => {
 
   it('offers the update the backend offers', () => {
     expect(miloRowAction({ development_build: false, update_available: true })).toBe('update');
+  });
+
+  it('says the check failed rather than up to date when GitHub was not reached', () => {
+    // The shape of a unit on a tag whose releases/latest read failed (rate
+    // limit, no network): nothing offered, because nothing was asked.
+    const milo = {
+      development_build: false,
+      update_available: false,
+      check_failed: true,
+      latest: { status: 'error', message: 'API rate limit exceeded' },
+    };
+    expect(miloRowAction(milo)).toBe('checkFailed');
+  });
+
+  it('is up to date only once the check succeeded', () => {
+    expect(miloRowAction({ development_build: false, update_available: false, check_failed: false })).toBe('upToDate');
   });
 });

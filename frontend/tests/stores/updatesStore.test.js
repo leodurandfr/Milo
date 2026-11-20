@@ -22,6 +22,39 @@ import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
+describe('updatesStore recheck', () => {
+  let store;
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useUpdatesStore();
+  });
+
+  it('a Retry after a failed check asks the backend to ask GitHub again, and keeps the rows drawn', async () => {
+    // Without the recheck the backend answers the failure it remembers for five
+    // minutes, and the Retry repeats what it was pressed to get past; flipping
+    // the loading flag would put the whole list back to skeletons for it.
+    apiCall.get.mockResolvedValue(ok({ programs: { milo: { check_failed: true } }, active_updates: [] }));
+    apiCall.post.mockResolvedValue(ok({ programs: {}, active_updates: [] }));
+    await store.loadLocalPrograms();
+    apiCall.get.mockClear();
+
+    const load = store.loadLocalPrograms({ recheck: true });
+    expect(store.localProgramsLoading).toBe(false);
+    await load;
+
+    expect(apiCall.post.mock.calls.map(([url]) => url)).toEqual(['/api/programs/recheck']);
+    expect(apiCall.get).not.toHaveBeenCalled();
+  });
+
+  it('an ordinary read does not ask GitHub again', async () => {
+    apiCall.get.mockResolvedValue(ok({ programs: {}, active_updates: [] }));
+    await store.loadLocalPrograms();
+
+    expect(apiCall.post).not.toHaveBeenCalled();
+  });
+});
+
 describe('updatesStore resync gate', () => {
   let store;
 

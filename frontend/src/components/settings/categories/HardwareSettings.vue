@@ -149,6 +149,7 @@ import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
 import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 import { nextRebootStep } from '@/utils/rebootPoll';
+import { volumeControlForCard } from '@/utils/clientHardware';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -293,15 +294,12 @@ function handleApply() {
 function onAudioChange(value) {
   config.value.audio_id = value;
   confirmReboot.value = false;
-  // Back on the saved card: its saved volume management, which isDirty does not
-  // compare — the category default would show a value hardware.json does not hold.
-  if (savedConfig.value && value === savedConfig.value.audio_id) {
-    config.value.volume_control = savedConfig.value.volume_control;
-    return;
-  }
-  // Default volume_control based on card category (user can override via toggle)
-  const card = audioCardOptions.value.find(c => c.value === value);
-  config.value.volume_control = card?.category !== 'dac';
+  config.value.volume_control = volumeControlForCard({
+    audioId: value,
+    card: audioCardOptions.value.find(c => c.value === value),
+    savedAudioId: savedConfig.value?.audio_id,
+    savedVolumeControl: savedConfig.value?.volume_control,
+  });
 }
 
 async function toggleVolumeControl() {

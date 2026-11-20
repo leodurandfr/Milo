@@ -530,3 +530,28 @@ async def test_a_milo_update_is_announced_through_the_update_service(router):
     }
     assert isinstance(complete, ProgramUpdateComplete)
     assert (complete.program, complete.success) == ("milo", True)
+
+
+async def test_the_retry_forgets_the_failed_checks_before_it_reads_and_a_plain_read_never_does(router):
+    """A recheck that read before forgetting would answer the failure it was pressed to get past.
+
+    The screen's Retry on a row whose GitHub read failed is POST /recheck; the
+    GET every opening of the screen sends must keep the remembered failure, or
+    each opening offline would wait out a fresh GitHub timeout.
+    """
+    calls = []
+    router.update_service.forget_failed_checks = MagicMock(side_effect=lambda: calls.append("forget"))
+
+    async def read():
+        calls.append("read")
+        return {}
+
+    router.update_service.get_all_program_status = AsyncMock(side_effect=read)
+
+    await _endpoint(router, "/api/programs", "GET")()
+    assert calls == ["read"]
+
+    calls.clear()
+    body = await _endpoint(router, "/api/programs/recheck")()
+    assert calls == ["forget", "read"]
+    assert body["status"] == "success"

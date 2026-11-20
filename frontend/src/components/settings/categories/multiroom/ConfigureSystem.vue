@@ -102,7 +102,7 @@
       <SectionCard v-if="mode === 'ethernet'" :title="t('multiroom.systemInfo')">
         <div class="info-item">
           <span class="info-label text-mono-medium">{{ t('clientDetails.ipAddress') }}</span>
-          <span class="info-value text-mono-medium">{{ pendingClient?.ip || 'Unknown' }}</span>
+          <span class="info-value text-mono-medium">{{ pendingClient?.ip || t('common.unknown') }}</span>
         </div>
       </SectionCard>
 
@@ -287,7 +287,9 @@ async function applyConfiguration() {
       await discoveryStore.adoptSpeaker({
         ssid: props.hotspotSsid,
         audio_id: selectedAudioId.value,
-        speaker_name: speakerName.value.trim() || 'Speaker',
+        // The adoption needs a name (the satellite is told it before it
+        // ever reaches the LAN), so an empty field sends the word for one.
+        speaker_name: speakerName.value.trim() || t('multiroom.defaultSpeakerName'),
         speaker_type: selectedSpeakerType.value,
       }, typedWifi);
       // Server returns once the device has accepted the config and is rebooting.

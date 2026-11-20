@@ -185,10 +185,13 @@
       }
     },
     "systemOffline": "\"{name}\" ऑफ़लाइन है",
-    "systemOfflineDescription": "यह ऑडियो सिस्टम वर्तमान में Milō से कनेक्ट नहीं है।<br>IP: {ip}",
+    "systemOfflineDescription": "यह ऑडियो सिस्टम वर्तमान में Milō से कनेक्ट नहीं है। यदि यह WiFi पर है, तो इसे कुछ देर के लिए ईथरनेट से जोड़ें: यदि Milō स्वयं WiFi पर है, तो वह इसे फिर से वही नेटवर्क दे देगा; अन्यथा, इसे ईथरनेट से जुड़ा रहने दें।<br>IP: {ip}",
     "audioCardMissing": "{card} कॉन्फ़िगर है लेकिन यह ऑडियो सिस्टम इसे पहचान नहीं रहा। जाँचें कि बोर्ड ठीक से लगा है, या दूसरा कार्ड चुनें।",
     "deleteSystem": "इस ऑडियो सिस्टम को हटाएं",
+    "confirmDeleteSystem": "हटाने की पुष्टि करें",
+    "deleteSystemDetails": "इसका इक्वलाइज़र, इसकी देरी और ज़ोन में इसकी जगह इसके साथ मिट जाएगी। इसे पूर्ववत नहीं किया जा सकता।",
     "offline": "ऑफ़लाइन",
+    "defaultSpeakerName": "स्पीकर",
     "externalVolume": "वॉल्यूम Milō द्वारा प्रबंधित नहीं"
   },
   "equalizer": {
@@ -522,6 +525,7 @@
     "updating": "अपडेट हो रहा है…",
     "errorDetectingSatellites": "सैटेलाइट का पता लगाने में त्रुटि",
     "upToDate": "अप टू डेट",
+    "checkFailed": "अपडेट की जाँच नहीं हो सकी",
     "developmentBuild": "डेवलपमेंट बिल्ड",
     "dependenciesHint": "ऐप और उसके साथ मान्य किए गए प्रोग्राम संस्करण इंस्टॉल करता है।",
     "clientsHint": "Milō Clients को भी यह मिलता है।",
@@ -560,7 +564,8 @@
     "ram": "RAM",
     "disk": "डिस्क",
     "network": "नेटवर्क",
-    "designedBy": "Milō ऐप की डिज़ाइन:"
+    "designedBy": "Milō ऐप की डिज़ाइन:",
+    "version": "संस्करण {version}"
   },
   "network": {
     "ethernet": "ईथरनेट",
@@ -611,6 +616,7 @@
     "expandPlayer": "प्लेयर बड़ा करें",
     "selectOption": "एक विकल्प चुनें",
     "loading": "लोड हो रहा है…",
+    "unknown": "अज्ञात",
     "showPassword": "पासवर्ड दिखाएँ",
     "hidePassword": "पासवर्ड छिपाएँ"
   },

@@ -342,6 +342,22 @@ class VersionService:
         self._last_github_fetch[cache_key] = current_time - self._cache_timeout + RELEASES_RETRY_S
         return error
 
+    def forget_failed_checks(self) -> None:
+        """Drop every failed latest-release read, so the next status read asks again.
+
+        What a press of "Retry" on a row that says the check failed means: the
+        failure is otherwise remembered for `RELEASES_RETRY_S`, and a retry
+        answered from that memory would repeat the failure it was pressed to
+        get past. Successes stay cached — a retry is about the rows that failed,
+        not a reason to spend the anonymous rate limit on the rows that did not.
+        """
+        for program_key in self.programs:
+            cache_key = f"github_{program_key}"
+            cached = self._github_cache.get(cache_key)
+            if cached is not None and cached.get("status") != "success":
+                del self._github_cache[cache_key]
+                self._last_github_fetch.pop(cache_key, None)
+
     async def _fetch_releases(self, program_key: str) -> List[Dict[str, Any]]:
         """The program's recent stable releases, newest first, cached for an hour.
 
@@ -418,7 +434,9 @@ class VersionService:
             if isinstance(program_results[i], Exception):
                 results[program_key] = {
                     "status": "error",
-                    "message": str(program_results[i])
+                    "message": str(program_results[i]),
+                    "update_available": False,
+                    "check_failed": True,
                 }
             else:
                 results[program_key] = program_results[i]
@@ -539,7 +557,12 @@ class VersionService:
         tag = await self._exact_release_tag()
         result["development_build"] = tag is None
         result["installed"]["release_tag"] = tag
-        if tag is None or latest.get("status") != "success":
+        if tag is None:
+            return
+        if latest.get("status") != "success":
+            # A unit in the channel whose question went unanswered. Not "up to
+            # date": nobody asked GitHub what it publishes.
+            result["check_failed"] = True
             return
 
         published = latest.get("tag_name")
@@ -594,12 +617,18 @@ class VersionService:
                 if canonical_version:
                     installed_result["versions"] = {"main": canonical_version}
 
+            # `update_available` False answers two different things — "asked,
+            # nothing newer" and "could not ask" — so the second carries
+            # `check_failed`. A GitHub rate limit or a unit offline otherwise
+            # reads "up to date" for as long as it lasts, which is the one
+            # answer nobody checked.
             result = {
                 "name": self.programs[program_key]["name"],
                 "description": self.programs[program_key]["description"],
                 "installed": installed_result,
                 "latest": github_result,
-                "update_available": False
+                "update_available": False,
+                "check_failed": False,
             }
 
             # Determine if an update is available. Milo answers a different
@@ -607,8 +636,9 @@ class VersionService:
             # — so it takes the whole branch rather than a clause inside it.
             if program_key == "milo":
                 await self._apply_milo_offer(result, github_result)
-            elif (installed_result.get("status") == "installed" and
-                  github_result.get("status") == "success"):
+            elif github_result.get("status") != "success":
+                result["check_failed"] = True
+            elif installed_result.get("status") == "installed":
 
                 installed_version = self.installed_version(result)
                 latest_version = github_result.get("version")
@@ -623,9 +653,15 @@ class VersionService:
             return result
 
         except Exception as e:
+            # A row that could not be decided is a check that failed, and
+            # says so like one rather than leaving `update_available` absent —
+            # which a screen reads as "up to date".
+            self.logger.error(f"Status of {program_key} could not be decided: {e}")
             return {
                 "name": self.programs[program_key]["name"],
                 "description": self.programs[program_key]["description"],
                 "status": "error",
-                "message": str(e)
+                "message": str(e),
+                "update_available": False,
+                "check_failed": True,
             }

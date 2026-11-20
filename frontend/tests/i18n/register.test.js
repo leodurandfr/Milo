@@ -40,7 +40,8 @@ const ADDRESS = {
     'éteins', 'choisis', 'prends', 'viens', 'reviens', 'fais', 'mets', 'sais',
   ],
   spanish: [
-    'tú', 'tu', 'tus', 'ti', 'tuyo', 'tuya', 'tuyos', 'tuyas',
+    // `te` is tú's clitic (`Te damos la bienvenida`); usted's is `le`.
+    'tú', 'tu', 'tus', 'ti', 'te', 'tuyo', 'tuya', 'tuyos', 'tuyas',
     'puedes', 'quieres', 'tienes', 'hayas', 'conectes',
     'inténtalo', 'conéctate', 'déjalo', 'actívala', 'actívalo', 'desactívalo',
     'suscríbete', 'asegúrate',

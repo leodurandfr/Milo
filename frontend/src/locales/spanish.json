@@ -185,10 +185,13 @@
       }
     },
     "systemOffline": "«{name}» está desconectado",
-    "systemOfflineDescription": "Este sistema de audio no está conectado actualmente a Milō.<br>IP: {ip}",
+    "systemOfflineDescription": "Este sistema de audio no está conectado actualmente a Milō. Si usa WiFi, conéctelo un momento por Ethernet: si Milō también usa WiFi, le vuelve a dar esa red; si no, déjelo conectado por Ethernet.<br>IP: {ip}",
     "audioCardMissing": "{card} está configurada pero este sistema de audio no la detecta. Compruebe que la placa esté bien encajada o elija otra tarjeta.",
     "deleteSystem": "Eliminar este sistema de audio",
+    "confirmDeleteSystem": "Confirmar eliminación",
+    "deleteSystemDetails": "Su ecualizador, su retardo y su lugar en su zona se borran con él. Esta acción no se puede deshacer.",
     "offline": "Desconectado",
+    "defaultSpeakerName": "Altavoz",
     "externalVolume": "Volumen no gestionado por Milō"
   },
   "equalizer": {
@@ -244,7 +247,7 @@
       "hip_hop": "Hip-Hop",
       "jazz": "Jazz",
       "latin": "Latino",
-      "loudness": "Nivel sonoro",
+      "loudness": "Loudness",
       "lounge": "Lounge",
       "piano": "Piano",
       "pop": "Pop",
@@ -522,6 +525,7 @@
     "updating": "Actualizando…",
     "errorDetectingSatellites": "Error al detectar satélites",
     "upToDate": "Actualizado",
+    "checkFailed": "No se pudo comprobar",
     "developmentBuild": "Versión de desarrollo",
     "dependenciesHint": "Instala la aplicación y las versiones de los programas validadas con ella.",
     "clientsHint": "Los Milō Clients también la reciben.",
@@ -560,7 +564,8 @@
     "ram": "RAM",
     "disk": "Disco",
     "network": "Red",
-    "designedBy": "Aplicación Milō diseñada por"
+    "designedBy": "Aplicación Milō diseñada por",
+    "version": "Versión {version}"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -611,6 +616,7 @@
     "expandPlayer": "Ampliar el reproductor",
     "selectOption": "Seleccionar una opción",
     "loading": "Cargando…",
+    "unknown": "Desconocido",
     "showPassword": "Mostrar contraseña",
     "hidePassword": "Ocultar contraseña"
   },
@@ -898,7 +904,7 @@
     "back": "Volver",
     "continue": "Continuar",
     "welcome": {
-      "title": "Te damos la bienvenida a Milō",
+      "title": "Le damos la bienvenida a Milō",
       "subtitle": "¡Configuremos su sistema de audio!",
       "getStarted": "Comenzar"
     },

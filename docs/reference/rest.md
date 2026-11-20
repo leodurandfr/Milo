@@ -3,7 +3,7 @@
 
 # REST operations
 
-The 218 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
+The 219 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
 
 **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
@@ -203,6 +203,7 @@ The 218 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | Method | Path | Request | Response | Stability |
 |---|---|---|---|---|
 | `GET` | `/api/programs` |  | untyped JSON | internal |
+| `POST` | `/api/programs/recheck` |  | untyped JSON | internal |
 | `GET` | `/api/programs/milo/update` |  | untyped JSON | internal |
 | `PATCH` | `/api/programs/milo/last-update` | LastUpdatePatch | untyped JSON | internal |
 | `GET` | `/api/programs/satellites` |  | untyped JSON | internal |

@@ -185,10 +185,13 @@
       }
     },
     "systemOffline": "«{name}» è offline",
-    "systemOfflineDescription": "Questo sistema audio non è attualmente connesso a Milō.<br>IP: {ip}",
+    "systemOfflineDescription": "Questo sistema audio non è attualmente connesso a Milō. Se è connesso in WiFi, lo colleghi un attimo via Ethernet: se Milō è anch'esso in WiFi, gli restituisce quella rete; altrimenti, lo lasci collegato via Ethernet.<br>IP: {ip}",
     "audioCardMissing": "{card} è configurata ma questo sistema audio non la rileva. Verifichi che la scheda sia inserita correttamente, oppure ne scelga un'altra.",
     "deleteSystem": "Elimina questo sistema audio",
+    "confirmDeleteSystem": "Conferma eliminazione",
+    "deleteSystemDetails": "Il suo equalizzatore, il suo ritardo e il suo posto nella zona vengono cancellati con esso. L'operazione non può essere annullata.",
     "offline": "Offline",
+    "defaultSpeakerName": "Altoparlante",
     "externalVolume": "Volume non gestito da Milō"
   },
   "equalizer": {
@@ -244,7 +247,7 @@
       "hip_hop": "Hip-Hop",
       "jazz": "Jazz",
       "latin": "Latino",
-      "loudness": "Livello sonoro",
+      "loudness": "Loudness",
       "lounge": "Lounge",
       "piano": "Piano",
       "pop": "Pop",
@@ -522,6 +525,7 @@
     "updating": "Aggiornamento…",
     "errorDetectingSatellites": "Errore durante il rilevamento dei satelliti",
     "upToDate": "Aggiornato",
+    "checkFailed": "Verifica non riuscita",
     "developmentBuild": "Versione di sviluppo",
     "dependenciesHint": "Installa l'app e le versioni dei programmi validate con essa.",
     "clientsHint": "Anche i Milō Clients la ricevono.",
@@ -560,7 +564,8 @@
     "ram": "RAM",
     "disk": "Disco",
     "network": "Rete",
-    "designedBy": "App Milō progettata da"
+    "designedBy": "App Milō progettata da",
+    "version": "Versione {version}"
   },
   "network": {
     "ethernet": "Ethernet",
@@ -611,6 +616,7 @@
     "expandPlayer": "Espandi il lettore",
     "selectOption": "Seleziona un'opzione",
     "loading": "Caricamento…",
+    "unknown": "Sconosciuto",
     "showPassword": "Mostra password",
     "hidePassword": "Nascondi password"
   },
