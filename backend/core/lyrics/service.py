@@ -54,7 +54,7 @@ import aiohttp
 
 from backend.shared.network import retry_after
 
-logger = logging.getLogger("core.lyrics")
+logger = logging.getLogger(__name__)
 
 _LRCLIB_BASE = "https://lrclib.net/api"
 _MIN_INTERVAL = 0.3  # polite spacing between LRCLIB calls (serialised by lock)

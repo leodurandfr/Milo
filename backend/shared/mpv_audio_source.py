@@ -21,7 +21,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from backend.core.audio_source import BaseAudioSource, Result, SourceNotStarted
 from backend.core.models.commands import skip_target
 from backend.core.models.session import (
-    EndReason, IdlePolicy, Phase, PhaseEvent, Session,
+    EndReason, Phase, PhaseEvent, Session,
 )
 from backend.shared.mpv import LINK_LOST, MpvController
 
@@ -88,9 +88,6 @@ class MpvAudioSource(BaseAudioSource):
         )
         self._mpv: Optional[MpvController] = None
 
-        # Auto-stop on mpv pause (effective enable controlled by
-        # the global delay: 0 means disabled, see _load_auto_stop_config).
-        self.auto_stop_enabled = True
         # What mpv last announced of its two global properties the phase is
         # computed from (observed; mpv sends the current value on observe).
         self._mpv_paused = False
@@ -214,14 +211,11 @@ class MpvAudioSource(BaseAudioSource):
         self._on_phase_changed(session, before)
 
     def _on_phase_changed(self, session: MpvSession, before: Phase) -> None:
-        """Timers follow the phase: PAUSED arms the idle timeout, LOADING the
-        loading watchdog; leaving either disarms it."""
+        """Timers follow the phase: PAUSED arms the idle timeout (the base's
+        `_idle_follows_phase`), LOADING the loading watchdog; leaving either
+        disarms it."""
         phase = session.phase
-        if phase is Phase.PAUSED and self.IDLE_POLICY is IdlePolicy.AUTO_STOP:
-            if self.auto_stop_enabled:
-                self._arm_timer("idle", self.auto_stop_delay, session)
-        elif before is Phase.PAUSED:
-            self._disarm_timer("idle")
+        self._idle_follows_phase(session, before)
         if phase is Phase.LOADING:
             self._arm_timer("stall", self.STALL_TIMEOUT_S, session)
         elif before is Phase.LOADING:

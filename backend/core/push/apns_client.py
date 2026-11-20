@@ -35,7 +35,7 @@ import jwt
 from backend.config.constants import APNS_KEY_DIR, APNS_TEAM_ID, IOS_APP_BUNDLE_ID
 from backend.core.push.models import ApnsEnvironment, PushToken
 
-logger = logging.getLogger("core.push.apns")
+logger = logging.getLogger(__name__)
 
 HOSTS = {
     ApnsEnvironment.SANDBOX: "https://api.sandbox.push.apple.com",

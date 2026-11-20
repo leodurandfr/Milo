@@ -63,7 +63,7 @@ from backend.core.push.payloads import (
 )
 from backend.shared.background import BackgroundTaskSet
 
-logger = logging.getLogger("core.push.service")
+logger = logging.getLogger(__name__)
 
 # A track as the card names it: its source, `currentTrack.id`, artist, album.
 Track = Tuple[str, str, Optional[str], Optional[str]]

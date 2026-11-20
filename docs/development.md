@@ -259,9 +259,17 @@ Besides the steps below, a new source touches:
 message to the source's actor (one mailbox, one task: `core/audio_source.py`), which is what
 serializes a source's lifecycle, commands, pause timer and state reads; `command()` validates against
 `COMMANDS` before posting. What you implement are the hooks the handlers call: `_do_start` (the only
-`@abstractmethod`), plus `_do_stop`, `_handle_command`, `_cleanup`, `_do_restart`,
-`_do_release`/`_do_acquire` (what the source does across a multiroom reroute) and
-`refresh_metadata` as needed.
+`@abstractmethod`), plus `_do_stop`, `_handle_command`, `_cleanup` and `refresh_metadata` as
+needed. A multiroom reroute is what `REROUTE` declares, run by the base: `END_SESSION` and
+`RESTART_AND_RESTORE` end the session as a reroute (`_end_with_position`, overridden where the
+player knows the playhead better) and let go of the device as a stop does (`_release_device`,
+overridden only where the teardown differs), then start again — the two differ only in whether
+`RESUME_POLICY` keeps a `REROUTE` end; `KEEP_SESSION` moves only the writer, which only the source
+knows, so it implements `_do_release`/`_do_acquire` itself. `test_session_sources.py` holds the
+declaration equal to the code. The pause timer follows `IDLE_POLICY` alone: the base loads the
+global delay at each start, arms the timer when the phase enters PAUSED (`_idle_follows_phase`,
+which a source with its own feed calls after each phase move, as the mpv and daemon paths do) and
+ends the session on expiry.
 
 **What the source publishes is its view** (`SourceView`), which the base composes from four pure
 hooks: `_session_fields(session)` (title, artist, album, artwork, senders, duration_ms),
@@ -319,8 +327,8 @@ without a goodbye ends the session `DAEMON_DIED`). For a long pause, the questio
 can start the source again once it has ended it: if it can (Spotify), declare
 `IDLE_POLICY = IdlePolicy.REQUEST_END` with a `_request_end()` that asks the daemon for the end — it
 comes back through `reconcile`, recorded as the idle timeout; if only the sender can (AirPlay, Tidal,
-Qobuz, Bluetooth), declare `IdlePolicy.KEEP_WHILE_LINKED` and `AUTO_STOP_SUPPORTED = False`: the
-pause is the sender's. Open no session before the daemon names a track. `airplay/` is the reference
+Qobuz, Bluetooth), declare `IdlePolicy.KEEP_WHILE_LINKED` (so `AUTO_STOP_SUPPORTED`, which follows
+from it, is False): the pause is the sender's. Open no session before the daemon names a track. `airplay/` is the reference
 for a daemon that only announces; `spotify/` for one that can also be asked where it stands (read
 that answer once per burst and let it alone decide the phase — a failed read changes nothing);
 `tidal/` for one whose feed carries the playhead too (each reading goes to `_observe_position()`,

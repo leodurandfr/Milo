@@ -51,7 +51,6 @@ class Probe(BaseAudioSource):
     def __init__(self, unit: Unit) -> None:
         super().__init__(source_id="radio", service_name="milo-probe.service",
                          systemd_manager=unit)
-        self.auto_stop_enabled = True
         self.auto_stop_delay = 0.0
         self.log: List[str] = []
         self.heard: List[Any] = []
@@ -68,9 +67,15 @@ class Probe(BaseAudioSource):
         if cmd == "play":
             self._cancel_pause_timer()
         if cmd == "pause":
-            self._start_pause_timer()
+            self._arm_timer("idle", self.auto_stop_delay)
         self.log.append(f"{cmd} end")
         return self.success_response(cmd)
+
+    async def _on_auto_stop(self) -> None:
+        # An auto-stop that works on the unit, as one restarting its daemon
+        # would: what it does is then visible to the systemd double.
+        if await self.stop():
+            await self.start()
 
     async def refresh_metadata(self) -> bool:
         self.reads += 1
@@ -165,7 +170,7 @@ async def test_a_stop_whose_caller_gave_up_still_finishes():
 
 
 async def test_an_auto_stop_cut_by_a_stop_does_not_bring_the_unit_back():
-    """The pause timer restarts the source (stop + start); a transition that
+    """An auto-stop that restarts the source (stop + start); a transition that
     stops it meanwhile must be the last word. Before, the timer's restart went
     on after the transition's stop and left the daemon running next to the
     next source."""
@@ -201,7 +206,7 @@ async def test_a_timer_that_expired_behind_a_play_is_dropped(probe):
     play = asyncio.ensure_future(probe.command("play", None))
     for _ in range(20):
         await asyncio.sleep(0)                       # play is queued
-    probe._start_pause_timer()                      # the pause that was in effect
+    probe._arm_timer("idle", probe.auto_stop_delay)  # the pause that was in effect
     for _ in range(20):
         await asyncio.sleep(0)                       # 0 s: expires now, behind play
     probe.gate.set()

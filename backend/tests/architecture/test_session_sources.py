@@ -1,11 +1,12 @@
 """A source on the session model declares its policies and owns no playback flag.
 
-Arms as each source migrates (docs: source architecture, phases 1-4): a module
-that defines a `Session` subclass has moved its playback truth onto that
-session, so it must say how a pause ends it (IDLE_POLICY), what a multiroom
-toggle does to it (REROUTE), what survives it (RESUME_POLICY) and whether a
-daemon holds it (SESSION_DAEMON) — and it may no longer write the booleans the
-session replaces, which is where two writers used to disagree.
+Every source is on it (docs: source architecture): a module that defines a
+`Session` subclass has moved its playback truth onto that session, so it must
+say how a pause ends it (IDLE_POLICY), what a multiroom toggle does to it
+(REROUTE), what survives it (RESUME_POLICY) and whether a daemon holds it
+(SESSION_DAEMON) — and it may no longer write the booleans the session
+replaces, which is where two writers used to disagree. A declaration the base
+does not act on alone is held equal to the code that does (REROUTE, below).
 """
 import ast
 from pathlib import Path
@@ -173,6 +174,97 @@ def test_every_end_reason_is_decided(cls):
     assert policy is not None
     assert not policy.capture_on & policy.forget_on
     assert set(EndReason) - (policy.capture_on | policy.forget_on) == set()
+
+
+def reroute_violations(cls) -> list[str]:
+    """Where `cls`'s REROUTE disagrees with what a multiroom toggle does to it.
+
+    The base's `_do_release` reads REROUTE: END_SESSION and RESTART_AND_RESTORE
+    end the session as a reroute there, and a source whose teardown differs
+    overrides `_release_device`, never `_do_release` — an override would run
+    in place of the declaration. KEEP_SESSION is the one the base cannot do,
+    so the source implements `_do_release`. The two ending policies differ
+    only in what RESUME_POLICY keeps of a reroute's end: the point the
+    reacquiring start restores, or nothing.
+    """
+    from backend.core.audio_source import BaseAudioSource
+    from backend.core.models.session import EndReason, ReroutePolicy
+    policy = cls.REROUTE
+    if not isinstance(policy, ReroutePolicy):
+        return [f"{cls.__name__}.REROUTE is {policy!r}, not a ReroutePolicy"]
+    overrides = cls._do_release is not BaseAudioSource._do_release
+    kept = cls.RESUME_POLICY is not None and EndReason.REROUTE in cls.RESUME_POLICY.capture_on
+    problems = []
+    if policy is ReroutePolicy.KEEP_SESSION and not overrides:
+        problems.append(f"{cls.__name__} keeps its session across a reroute but does not "
+                        f"implement _do_release: the base refuses the release")
+    if policy is not ReroutePolicy.KEEP_SESSION and overrides:
+        problems.append(f"{cls.__name__} overrides _do_release: REROUTE = {policy.name} is the "
+                        f"base's to run (override _release_device for the teardown)")
+    if policy is ReroutePolicy.RESTART_AND_RESTORE and not kept:
+        problems.append(f"{cls.__name__} restarts and restores across a reroute but its "
+                        f"RESUME_POLICY forgets a REROUTE end: nothing is restored")
+    if policy is ReroutePolicy.END_SESSION and kept:
+        problems.append(f"{cls.__name__} ends its session across a reroute but its "
+                        f"RESUME_POLICY keeps it: that is RESTART_AND_RESTORE")
+    return problems
+
+
+def test_the_reroute_scan_sees_all_three_policies():
+    """Non-trivial first: the ten sources cover the three policies."""
+    from backend.core.models.session import ReroutePolicy
+    assert {cls.REROUTE for cls in _migrated_classes()} == set(ReroutePolicy)
+
+
+@pytest.mark.parametrize("cls", _migrated_classes(), ids=lambda c: c.__name__)
+def test_the_declared_reroute_is_what_a_toggle_does(cls):
+    assert reroute_violations(cls) == []
+
+
+def _drifted(reroute, capture, release=None):
+    """A source class as a drift would leave it."""
+    from backend.core.audio_source import BaseAudioSource
+    from backend.core.models.session import EndReason, ResumePolicy
+    body = {
+        "REROUTE": reroute,
+        "RESUME_POLICY": ResumePolicy(
+            capture_on=frozenset(capture), forget_on=frozenset(EndReason) - frozenset(capture),
+        ),
+        "_do_start": lambda self: None,
+    }
+    if release is not None:
+        body["_do_release"] = release
+    return type("DriftedSource", (BaseAudioSource,), body)
+
+
+async def _keep(self):
+    return True
+
+
+@pytest.mark.parametrize("reroute,capture,release,expected", [
+    ("KEEP_SESSION", (), None, "does not implement _do_release"),
+    ("END_SESSION", (), _keep, "overrides _do_release"),
+    ("RESTART_AND_RESTORE", (), None, "nothing is restored"),
+    ("END_SESSION", ("REROUTE",), None, "that is RESTART_AND_RESTORE"),
+])
+def test_the_reroute_rule_bites(reroute, capture, release, expected):
+    from backend.core.models.session import EndReason, ReroutePolicy
+    cls = _drifted(ReroutePolicy[reroute], [EndReason[c] for c in capture], release)
+    problems = reroute_violations(cls)
+    assert len(problems) == 1 and expected in problems[0], problems
+
+
+def test_auto_stop_is_never_declared_beside_the_idle_policy():
+    """AUTO_STOP_SUPPORTED follows from IDLE_POLICY (BaseAudioSource
+    .__init_subclass__). Declared, it was a second answer to the same
+    question, and three sources gave the other one in their constructors."""
+    from backend.core.audio_source import BaseAudioSource
+    from backend.core.models.session import IdlePolicy
+
+    with pytest.raises(TypeError, match="AUTO_STOP_SUPPORTED"):
+        type("DeclaresBoth", (BaseAudioSource,), {
+            "IDLE_POLICY": IdlePolicy.KEEP_WHILE_LINKED, "AUTO_STOP_SUPPORTED": False,
+        })
 
 
 @pytest.mark.parametrize("cls", _migrated_classes(), ids=lambda c: c.__name__)

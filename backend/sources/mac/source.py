@@ -70,7 +70,6 @@ class MacSource(BaseAudioSource):
 
     # No pause is visible (see the module docstring): the global auto-stop
     # delay does not apply, and a CONNECTED session has no idle timeout.
-    AUTO_STOP_SUPPORTED = False
     IDLE_POLICY = IdlePolicy.NONE
     # roc-recv writes to the output it was started on: a multiroom toggle
     # restarts it, and each Mac still streaming reattaches by itself.
@@ -131,11 +130,6 @@ class MacSource(BaseAudioSource):
 
     async def _do_stop(self) -> bool:
         await self.end_session(EndReason.SOURCE_SWITCH)
-        await self._cleanup()
-        return await self._stop_service()
-
-    async def _do_release(self) -> bool:
-        await self.end_session(EndReason.REROUTE)
         await self._cleanup()
         return await self._stop_service()
 

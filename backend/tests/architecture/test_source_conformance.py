@@ -225,6 +225,65 @@ def test_logger_namespaces(source_id, filename, arg):
     )
 
 
+BACKEND_ROOT = SOURCES_ROOT.parent
+# The modules outside sources/ that name a logger other than their own, each
+# with its reason. Everything else logs under `__name__` (or a child of it).
+NAMED_LOGGERS = {
+    "main.py": "configures the hierarchies by name (the banner's `backend`, "
+               "`source`'s level, httpx, uvicorn) and logs under __name__",
+    "core/audio_source.py": "BaseAudioSource owns `source.{id}`, the hierarchy every "
+                            "source's sub-modules hang under",
+    "api/errors.py": "`frontend`: the browser's own error reports, kept off the banner "
+                     "that would show the browser what it just reported",
+    "shared/decorators.py": "handle_errors logs under the decorated function's module "
+                            "(`func.__module__`), which is that module's __name__",
+}
+
+
+def backend_logger_declarations():
+    """Every getLogger() call outside sources/ and tests/, as (file, arg)."""
+    found = []
+    for path in sorted(BACKEND_ROOT.rglob("*.py")):
+        rel = path.relative_to(BACKEND_ROOT)
+        if rel.parts[0] in ("sources", "tests") or "__pycache__" in rel.parts:
+            continue
+        for raw in re.findall(r"getLogger\(\s*([^)]*?)\s*\)", path.read_text()):
+            found.append((str(rel), raw.strip()))
+    assert len(found) >= 80, (
+        f"only {len(found)} getLogger calls found outside sources/ — the extractor is broken"
+    )
+    return found
+
+
+def _under_its_module(arg: str) -> bool:
+    return arg == "__name__" or arg.startswith(('f"{__name__}.', "f'{__name__}."))
+
+
+@pytest.mark.parametrize("filename,arg", [
+    d for d in backend_logger_declarations() if d[0] not in NAMED_LOGGERS
+])
+def test_the_rest_of_the_backend_logs_under_its_module_name(filename, arg):
+    """The banner hears the `backend` hierarchy only (main.py hangs the
+    WebSocketLogHandler there), and `__name__` is how a module joins it: a
+    logger named by hand ("core.push.apns", a class name) took the push
+    cycle's and the volume store's ERRORs to errors.log and never to a screen.
+    The source hierarchy (`source.*`) is the one deliberate exception, and
+    test_logger_namespaces holds it."""
+    assert _under_its_module(arg), (
+        f"{filename}: logging.getLogger({arg}) is outside the `backend` hierarchy "
+        f"the banner listens to — use logging.getLogger(__name__)"
+    )
+
+
+def test_the_backend_logger_rule_bites():
+    """Red on the names this rule was written against, green on the right shape."""
+    assert not _under_its_module('"core.push.apns"')
+    assert not _under_its_module("self.__class__.__name__")
+    assert _under_its_module("__name__") and _under_its_module('f"{__name__}.update"')
+    named = {f for f, _ in backend_logger_declarations()}
+    assert set(NAMED_LOGGERS) <= named, "an exemption names a file that no longer names a logger"
+
+
 def test_no_source_reintroduces_a_status_endpoint():
     """No `GET /<source>/status` and no `POST /<source>/restart`, in any router.
 

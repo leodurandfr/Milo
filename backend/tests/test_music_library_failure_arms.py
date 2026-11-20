@@ -68,7 +68,6 @@ def source():
         return_value=Mock(stream_url=lambda song_id: f"http://nav/stream/{song_id}")
     )
     src._start_service_and_wait = AsyncMock(return_value=True)
-    src._load_auto_stop_config = AsyncMock()
     src.shares.request_scan = AsyncMock()
     return src
 
@@ -132,10 +131,10 @@ class TestDoStart:
         """Without the cleanup, a half-started source keeps an mpv process and a
         monitor task alive that nothing will ever stop — and the next start
         connects to the old socket."""
-        source._load_auto_stop_config = AsyncMock(side_effect=RuntimeError("boom"))
         source._cleanup = AsyncMock()
+        mpv = _mpv(observe=AsyncMock(side_effect=RuntimeError("boom")))
 
-        with patch("backend.shared.mpv_audio_source.MpvController", return_value=_mpv()):
+        with patch("backend.shared.mpv_audio_source.MpvController", return_value=mpv):
             assert await source._do_start() is False
 
         source._cleanup.assert_awaited_once()

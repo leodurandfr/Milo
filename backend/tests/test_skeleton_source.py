@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 import pytest
 from pydantic import BaseModel, Field
 
+from backend.core import audio_source
 from backend.core.audio_source import BaseAudioSource
 from backend.core.models.audio_state import AudioSource, NetworkRequirement
 from backend.core.models.session import (
@@ -37,7 +38,7 @@ from backend.core.models.session import (
     Session,
 )
 from backend.core.state import AudioStateMachine
-from backend.tests.golden.harness import settle
+from backend.tests.golden.harness import AsyncioProxy, VirtualClock, settle
 
 
 class PlayItemParams(BaseModel):
@@ -77,7 +78,12 @@ class SkeletonSession(Session):
 
 class SkeletonSource(BaseAudioSource):
     NETWORK_REQUIREMENT = NetworkRequirement.NONE
+    # A long pause ends the session after the global delay: the base arms the
+    # pause timer when the player announces PAUSED, and ends it on expiry.
     IDLE_POLICY = IdlePolicy.AUTO_STOP
+    # A multiroom toggle ends the session as a reroute, then the source lets go
+    # of the device as a stop does, and starts again: the base does all three
+    # from this line (_do_release, _release_device, _do_acquire).
     REROUTE = ReroutePolicy.END_SESSION
     # Nothing is kept to resume: every end forgets what played.
     RESUME_POLICY = ResumePolicy(capture_on=frozenset(), forget_on=frozenset(EndReason))
@@ -104,22 +110,15 @@ class SkeletonSource(BaseAudioSource):
 
     async def _do_start(self) -> bool:
         # A source with a unit of its own starts it here:
-        # `return await self._start_service_and_wait()`.
+        # `await self._start_service_and_wait()`. Then it says what it offers:
+        # nothing yet — or, after a multiroom toggle, what the reroute's end
+        # left, whose `session_ended` goes out ahead of this state.
+        self._publish()
         return True
 
     async def _do_stop(self) -> bool:
         # Another source was picked: the state machine publishes what follows.
         await self.end_session(EndReason.SOURCE_SWITCH)
-        return True
-
-    async def _do_release(self) -> bool:
-        # A multiroom toggle moves the output: REROUTE = END_SESSION says the
-        # session ends, and for that reason, not as a switch to another source.
-        await self.end_session(EndReason.REROUTE)
-        self._publish()
-        return True
-
-    async def _do_acquire(self) -> bool:
         return True
 
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
@@ -141,8 +140,12 @@ class SkeletonSource(BaseAudioSource):
 
     async def _handle_feed(self, events: List[PhaseEvent]) -> None:
         for event in events:
-            if self._session is not None:
-                self._session.advance(event)
+            session = self._session
+            if session is not None:
+                before = session.phase
+                session.advance(event)
+                # The pause timer follows the phase; IDLE_POLICY decides the rest.
+                self._idle_follows_phase(session, before)
         self._publish_changes()
 
     def _session_fields(self, session: SkeletonSession) -> Dict[str, Any]:
@@ -226,6 +229,27 @@ async def test_pause_is_asked_of_the_player_and_the_phase_waits_for_its_answer(w
     await settle()
     state = machine.get_current_state()
     assert (state["session"]["phase"], state["controls"]) == ("paused", ["resume"])
+
+
+async def test_a_long_pause_ends_the_session(world, monkeypatch, caplog):
+    """IDLE_POLICY = AUTO_STOP: past the global delay, a paused session ends
+    for the idle timeout, and the source stays selected with nothing to play."""
+    machine, source = world
+    clock = VirtualClock()
+    monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(clock.sleep))
+    await source.command("play_item", {"title": "Blue in Green"})
+    source.player.announce(PhaseEvent.SOUND_STARTED)
+    source.player.announce(PhaseEvent.PAUSED)
+    await settle()
+
+    await clock.advance(source.auto_stop_delay)
+    await settle()
+
+    assert _sent(machine, "source", "session_ended")[-1]["reason"] == "idle_timeout"
+    state = machine.get_current_state()
+    assert (state["source"], state["session"]) == ("radio", None)
+    # The timer swallows what follows the end: an end that then raised reads the same.
+    assert not [r for r in caplog.records if "Auto-stop failed" in r.message]
 
 
 async def test_the_command_boundary_refuses_what_cannot_run(world):

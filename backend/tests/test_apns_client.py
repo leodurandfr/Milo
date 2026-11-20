@@ -15,6 +15,7 @@ import time
 import httpx
 import pytest
 
+from backend.core.push import apns_client
 from backend.core.push.apns_client import (
     ApnsClient, DEAD_TOKEN_REASONS, JWT_LIFETIME_S, MISREGISTERED_TOKEN_REASONS,
 )
@@ -183,7 +184,7 @@ class TestVerdicts:
         update. The warning names what the registration claimed."""
         stub_transport(client, lambda r: httpx.Response(400, json={"reason": reason}))
 
-        with caplog.at_level("INFO", logger="core.push.apns"):
+        with caplog.at_level("INFO", logger=apns_client.__name__):
             result = await client.send(token(ApnsEnvironment.PRODUCTION), {}, "nowplaying")
 
         assert result.dead is True
@@ -197,7 +198,7 @@ class TestVerdicts:
         fill with it."""
         stub_transport(client, lambda r: httpx.Response(410, json={"reason": reason}))
 
-        with caplog.at_level("INFO", logger="core.push.apns"):
+        with caplog.at_level("INFO", logger=apns_client.__name__):
             result = await client.send(token(), {}, "nowplaying")
 
         assert result.dead is True

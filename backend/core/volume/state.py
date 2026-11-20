@@ -67,7 +67,7 @@ class VolumeStateStore:
     STORAGE_PATH = Path("/var/lib/milo/last_volume.json")
 
     def __init__(self):
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(__name__)
 
         # Client registry reference (set via set_registry after construction)
         self._registry: Optional["ClientRegistryService"] = None

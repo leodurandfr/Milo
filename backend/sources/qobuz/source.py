@@ -101,7 +101,6 @@ class QobuzSource(BaseAudioSource):
     # A sender's pause is its own: Milō never hangs up on it, as for Bluetooth
     # (owner decision, 2026-11-19). Ending the session would hand the output
     # back to the app, and nothing here can start it again.
-    AUTO_STOP_SUPPORTED = False
     IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
     # The sidecar writes to the output it was started on: a multiroom toggle
     # restarts it, and the app has to pick the speaker again.
@@ -147,7 +146,6 @@ class QobuzSource(BaseAudioSource):
         # The running sidecar's app may still be under the volume policy before
         # the flag's: its restart was asked and did not happen.
         self._volume_policy_unapplied = False
-        self.auto_stop_enabled = True
 
     async def initialize(self) -> bool:
         self._account_cached = is_connected(await read_credentials())
@@ -177,7 +175,6 @@ class QobuzSource(BaseAudioSource):
 
             if not await self._start_service_and_wait():
                 return False
-            await self._load_auto_stop_config()
             # The cache is what the sidecar authenticates from: the first polls
             # start from it rather than flashing "connect an account".
             self._authenticated, self._unauthenticated_since = self._account_cached, None
@@ -205,8 +202,7 @@ class QobuzSource(BaseAudioSource):
         self._account_cached = is_connected(await read_credentials())
         return stopped
 
-    async def _do_release(self) -> bool:
-        await self.end_session(EndReason.REROUTE)
+    async def _release_device(self) -> bool:
         # Before _cleanup(): once the monitor is gone availability() reads the
         # cache, and a state composed during the stop carries it (a reroute's
         # states go out, unlike a transition's).

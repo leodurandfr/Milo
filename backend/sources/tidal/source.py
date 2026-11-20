@@ -139,7 +139,6 @@ class TidalSource(BaseAudioSource):
     # A sender's pause is its own: Milō never hangs up on it, as for Bluetooth
     # (owner decision, 2026-11-19). Ending the session would hand the output
     # back to the phone, and nothing here can start it again.
-    AUTO_STOP_SUPPORTED = False
     IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
     # The daemon writes to the output it was started on: a multiroom toggle
     # restarts it, and the sender has to pick the speaker again.
@@ -172,7 +171,6 @@ class TidalSource(BaseAudioSource):
         # The daemon's last request for the audio device was not granted: it
         # plays nothing, whatever its status says, until a grant goes through.
         self._ungranted = False
-        self.auto_stop_enabled = True
 
     async def _do_start(self) -> bool:
         """Start the daemon, then attach the controller before any phone can.
@@ -186,7 +184,6 @@ class TidalSource(BaseAudioSource):
         try:
             if not await self._start_service_and_wait():
                 return False
-            await self._load_auto_stop_config()
 
             self._controller = TidalControllerSocket(
                 socket_path=self._socket_path,
@@ -213,10 +210,6 @@ class TidalSource(BaseAudioSource):
 
     async def _do_stop(self) -> bool:
         await self.end_session(EndReason.SOURCE_SWITCH)
-        return await self._withdraw()
-
-    async def _do_release(self) -> bool:
-        await self.end_session(EndReason.REROUTE)
         return await self._withdraw()
 
     async def _withdraw(self) -> bool:

@@ -1514,7 +1514,6 @@ class TestRescanOnOpen:
     async def test_a_failed_start_asks_for_nothing(self, source):
         """No mpv, no library on screen — nothing to refresh for."""
         source._start_service_and_wait = AsyncMock(return_value=False)
-        source._load_auto_stop_config = AsyncMock()
         source.shares.request_scan = AsyncMock()
 
         assert await source._do_start() is False

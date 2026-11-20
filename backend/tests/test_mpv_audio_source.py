@@ -18,7 +18,6 @@ from backend.sources.radio.source import RadioSource
 @pytest.fixture
 def radio_source():
     source = RadioSource({"mpv_socket": "/tmp/test-radio-ipc.sock"})
-    source.auto_stop_enabled = True
     source.auto_stop_delay = 999.0
     return source
 
@@ -26,7 +25,6 @@ def radio_source():
 @pytest.fixture
 def podcast_source():
     source = PodcastSource({"mpv_socket": "/tmp/test-podcast-ipc.sock"})
-    source.auto_stop_enabled = True
     source.auto_stop_delay = 999.0
     return source
 

@@ -29,7 +29,7 @@ class PushTokenRegistry:
 
     def __init__(self):
         self.tokens_file: Path = PUSH_TOKENS_FILE
-        self.logger = logging.getLogger("push.tokens")
+        self.logger = logging.getLogger(__name__)
         self._file_lock = asyncio.Lock()
         self._tokens: Dict[str, PushToken] = {}
         self._lost_sessions: set[str] = set()

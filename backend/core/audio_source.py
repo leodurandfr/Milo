@@ -19,7 +19,7 @@ from backend.core.models.audio_wire import (
 )
 from backend.core.models.session import (
     Anchor, CommandScope, DaemonSnapshot, EndReason, IdlePolicy, IllegalTransition,
-    Phase, ResumePoint, ResumePolicy, Session, check_end, event_towards,
+    Phase, ReroutePolicy, ResumePoint, ResumePolicy, Session, check_end, event_towards,
 )
 from backend.core.models.ws_events import (
     SourceError,
@@ -139,6 +139,11 @@ _PREEMPTS = {
 # the session it ends (a DeviceToken's do not, and are neither voided nor cut).
 _VOIDED_BY_STOP = (Command, Timer, Query, Feed, Result)
 
+# The idle policies under which a long pause ends the session — Milō ends it
+# (AUTO_STOP) or asks the daemon to (REQUEST_END) — so the ones the global
+# auto-stop delay applies to (BaseAudioSource.AUTO_STOP_SUPPORTED).
+IDLE_ENDS_A_PAUSE = frozenset({IdlePolicy.AUTO_STOP, IdlePolicy.REQUEST_END})
+
 
 class SourceNotStarted(Exception):
     """A command reached a source that is not started.
@@ -238,16 +243,17 @@ class BaseAudioSource(ABC):
 
     Subclasses must implement:
     - _do_start(): Source-specific startup logic
-    - _do_stop(): Source-specific shutdown logic
 
     Optional overrides:
-    - _do_restart(): Custom restart logic (default: stop + start)
+    - _do_stop(): Source-specific shutdown logic (default: _cleanup(), then
+      the unit's stop)
     - _handle_command(): Source-specific commands
-    - _do_release() / _do_acquire(): lighter device release/re-acquire for a
-      multiroom MILO_MODE change (default: the whole stop / start). Override
-      only when the upstream link is held by a separate process from the ALSA
-      writer (e.g. Bluetooth: bluez/bluealsa hold the link, bluealsa-aplay is
-      the writer).
+    - _do_release() / _do_acquire(): what a multiroom MILO_MODE change does,
+      as REROUTE declares it. END_SESSION and RESTART_AND_RESTORE are the
+      base's: the session ends as a reroute and the source lets go of the
+      device as a stop does (`_release_device()`), then the whole start takes
+      it back. KEEP_SESSION is the source's own (Spotify, Bluetooth): only it
+      knows which process is the writer, so it overrides both.
 
     The actor: start(), stop(), release_for_reroute(), acquire_after_reroute(),
     command(), the pause timer's expiry and refresh_when_idle() are messages to
@@ -286,20 +292,12 @@ class BaseAudioSource(ABC):
     # it actually breaks. NONE is the safe default: it reports nothing.
     NETWORK_REQUIREMENT: NetworkRequirement = NetworkRequirement.NONE
 
-    # Whether the global auto-stop delay applies to this source at all. False
-    # for the two receivers that arm no pause timer (Bluetooth, Mac), and it has
-    # to be declared rather than left to their `auto_stop_enabled` default:
-    # reload_auto_stop_for_all_sources() fans out over *every* registered
-    # source, so editing audio.auto_stop_delay used to switch their flag back on
-    # behind the comment saying it is off. Nothing was armed by it — neither
-    # calls _start_pause_timer — which is why it could stay wrong.
-    AUTO_STOP_SUPPORTED: bool = True
-
-    # The session model (docs: source architecture). A source on it declares
+    # The session model (docs: source architecture). Every source declares
     # these four and opens/ends its sessions through open_session() and
-    # end_session(); a source not migrated yet leaves RESUME_POLICY at None.
+    # end_session().
     IDLE_POLICY: Optional[IdlePolicy] = None
-    REROUTE = None
+    # What a multiroom toggle does to the live session; read by _do_release().
+    REROUTE: Optional[ReroutePolicy] = None
     RESUME_POLICY: Optional[ResumePolicy] = None
     SESSION_DAEMON: bool = False
     # Whether the player's readings right after a discontinuity move the anchor
@@ -309,6 +307,24 @@ class BaseAudioSource(ABC):
     # command name -> CommandScope, for every command in COMMANDS. A SESSION
     # command with no session is refused here, once, for every source.
     COMMAND_SCOPES: Dict[str, CommandScope] = {}
+
+    # Whether the global auto-stop delay (audio.auto_stop_delay) applies to
+    # this source at all. Never declared: it follows from IDLE_POLICY, set on
+    # every subclass by __init_subclass__. It was declared once, beside the
+    # policy and an `auto_stop_enabled = True` in five constructors, and the
+    # three disagreed: AirPlay, Tidal and Qobuz said False here and switched
+    # the flag on anyway. Settings > Audio playback names the sources it is
+    # True for (frontend/src/constants/playbackSettingsSources.json).
+    AUTO_STOP_SUPPORTED: bool = False
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "AUTO_STOP_SUPPORTED" in vars(cls):
+            raise TypeError(
+                f"{cls.__name__} declares AUTO_STOP_SUPPORTED: it follows from "
+                f"IDLE_POLICY, declare that instead"
+            )
+        cls.AUTO_STOP_SUPPORTED = cls.IDLE_POLICY in IDLE_ENDS_A_PAUSE
 
     def __init__(
         self,
@@ -343,8 +359,10 @@ class BaseAudioSource(ABC):
         self._logger = logging.getLogger(f"source.{source_id}")
         self._bg = BackgroundTaskSet(self._logger, f"source.{source_id}")
 
-        # Auto-stop timer (opt-in, subclasses override _on_auto_stop)
-        self.auto_stop_enabled: bool = False
+        # The pause timer: on wherever the idle policy ends a long pause,
+        # until the global delay says 0 (_load_auto_stop_config, at each
+        # start). What it does on expiry is _on_auto_stop().
+        self.auto_stop_enabled: bool = self.AUTO_STOP_SUPPORTED
         self.auto_stop_delay: float = 10.0
         # Named timers: name -> (task, token). "idle" is the pause timer.
         self._timers: Dict[str, Tuple[asyncio.Task, object]] = {}
@@ -696,7 +714,7 @@ class BaseAudioSource(ABC):
                 return stopped
             if message.step is LifecycleStep.RELEASE:
                 self._started = False
-                return await self._do_release()
+                return await self._run_release()
             self._started = bool(await self._do_acquire())
             return self._started
         if isinstance(message, Timer):
@@ -743,6 +761,7 @@ class BaseAudioSource(ABC):
     async def _run_start(self) -> bool:
         self._logger.info(f"Starting {self.source_id}")
         try:
+            await self._load_auto_stop_config()
             success = await self._do_start()
         except Exception as e:
             self._logger.error(f"Error starting {self.source_id}: {e}")
@@ -773,12 +792,51 @@ class BaseAudioSource(ABC):
             self._logger.error(f"Error stopping {self.source_id}: {e}")
             return False
 
+    async def _run_release(self) -> bool:
+        # Raised, a release would cut the reroute that runs it inline (under
+        # hold_mailbox) before its ACQUIRE: the output switch is the reroute's
+        # to make whatever this answers, and a source left released is silent.
+        try:
+            return await self._do_release()
+        except Exception as e:
+            self._logger.error(f"Error releasing {self.source_id} for a reroute: {e}")
+            return False
+
     async def _do_release(self) -> bool:
-        """What RELEASE does. Default: the whole stop — correct when the
-        connection and the ALSA writer are the same process. Override when the
-        connection is held by a separate process from the writer (Bluetooth:
-        bluez/bluealsa hold the A2DP link, bluealsa-aplay is the writer)."""
-        return await self._run_stop()
+        """What RELEASE does, as REROUTE declares it.
+
+        END_SESSION and RESTART_AND_RESTORE: the session ends as a reroute
+        (`_end_with_position(EndReason.REROUTE)`) — the two differ only in
+        what RESUME_POLICY keeps of it, the point the ACQUIRE's start restores
+        or nothing — then the source lets go of the device
+        (`_release_device()`). A source whose teardown differs overrides that
+        hook, never this method, so the declaration is what runs.
+
+        KEEP_SESSION: the session survives and only the writer moves, which
+        the base cannot do — the source overrides this (Spotify parks its
+        output, Bluetooth stops bluealsa-aplay alone).
+        """
+        if self.REROUTE is ReroutePolicy.KEEP_SESSION:
+            raise NotImplementedError(
+                f"{type(self).__name__} declares REROUTE = KEEP_SESSION: "
+                f"it keeps its session across a reroute and must implement _do_release()"
+            )
+        if self.REROUTE not in (ReroutePolicy.END_SESSION, ReroutePolicy.RESTART_AND_RESTORE):
+            raise NotImplementedError(f"{type(self).__name__} declares no REROUTE policy")
+        await self._end_with_position(EndReason.REROUTE)
+        return await self._release_device()
+
+    async def _end_with_position(self, reason: EndReason) -> None:
+        """End the live session, if any, where its playhead stands. Default:
+        `end_session(reason)`. A source whose player knows the playhead better
+        than the anchor (CD, Music Library, Podcast) reads it first."""
+        await self.end_session(reason)
+
+    async def _release_device(self) -> bool:
+        """What a release lets go of once the session has ended. Default: what
+        a stop does (`_do_stop()`, whose own end then finds no session) —
+        right when the connection and the ALSA writer are the same process."""
+        return await self._do_stop()
 
     async def _do_acquire(self) -> bool:
         """What ACQUIRE does. Default: the whole start."""
@@ -1281,16 +1339,11 @@ class BaseAudioSource(ABC):
         return Session(phase=snapshot.phase, sender=snapshot.sender)
 
     def _daemon_phase_changed(self, session: Session, before: Optional[Phase]) -> None:
-        """The idle timeout follows the phase: armed in PAUSED, and leaving it
-        withdraws a request to end that has not been answered yet."""
-        if session.phase is Phase.PAUSED:
-            if (
-                before is not Phase.PAUSED and self.auto_stop_enabled
-                and self.IDLE_POLICY in (IdlePolicy.AUTO_STOP, IdlePolicy.REQUEST_END)
-            ):
-                self._arm_timer("idle", self.auto_stop_delay, session)
-        elif before is Phase.PAUSED:
-            self._disarm_timer("idle")
+        """The idle timeout follows the phase (`_idle_follows_phase`), and
+        leaving PAUSED withdraws a request to end that has not been answered
+        yet."""
+        self._idle_follows_phase(session, before)
+        if before is Phase.PAUSED and session.phase is not Phase.PAUSED:
             self._disarm_timer("end_request")
             # Only the idle end is withdrawn: an end asked for otherwise (a
             # user's disconnect) stands whatever the phase does meanwhile.
@@ -1508,24 +1561,6 @@ class BaseAudioSource(ABC):
         await self._cleanup()
         return await self._stop_service()
 
-    async def _do_restart(self) -> bool:
-        """
-        Source-specific restart implementation.
-
-        Sole entry point is the default _on_auto_stop() (auto-stop timer);
-        there is no public restart() wrapper. Default: stop + start.
-        Override for custom restart logic (e.g., preserve state).
-        A source that instead wants a different auto-stop *action* overrides
-        _on_auto_stop() (the shared MpvAudioSource); one whose
-        session a daemon holds declares IdlePolicy.REQUEST_END instead.
-
-        Returns:
-            True if restart successful
-        """
-        if not await self.stop():
-            return False
-        return await self.start()
-
     async def _handle_command(self, cmd: str, params: Optional[BaseModel]) -> Dict[str, Any]:
         """
         Source-specific command handling.
@@ -1594,28 +1629,36 @@ class BaseAudioSource(ABC):
         """Disarm the auto-stop timer."""
         self._disarm_timer("idle")
 
-    def _start_pause_timer(self) -> None:
-        """Arm the auto-stop timer after a pause.
-
-        A play handled first disarms it (E49), and a stop cuts it short if it
-        is already running (E06).
-        """
-        if not self.auto_stop_enabled:
-            return
-        self._arm_timer("idle", self.auto_stop_delay)
+    def _idle_follows_phase(self, session: Session, before: Optional[Phase]) -> None:
+        """The pause timer follows the phase, the one arming for every source:
+        entering PAUSED arms it where the idle policy ends a long pause
+        (AUTO_STOP_SUPPORTED) and the global delay is not 0; leaving PAUSED
+        disarms it. Armed on the session, so it dies with it. The player's
+        announcement moves the phase (mpv's `pause`, a daemon's snapshot), so
+        a play handled before the expiry disarms it (E49), and a stop cuts it
+        short if it is already running (E06)."""
+        if session.phase is Phase.PAUSED:
+            if before is not Phase.PAUSED and self.AUTO_STOP_SUPPORTED and self.auto_stop_enabled:
+                self._arm_timer("idle", self.auto_stop_delay, session)
+        elif before is Phase.PAUSED:
+            self._disarm_timer("idle")
 
     async def _on_auto_stop(self) -> None:
-        """
-        Called when the auto-stop timer fires.
-
-        Default: restart the source. Override for custom behavior.
-        """
-        await self._do_restart()
+        """The pause timer expired under IdlePolicy.AUTO_STOP (REQUEST_END asks
+        the daemon instead, `_request_idle_end`): the paused session ends,
+        IDLE_TIMEOUT — what RESUME_POLICY keeps of it is what play brings back —
+        and the source stays selected with no session. MpvAudioSource also
+        stops the player."""
+        if self._session is None:
+            return
+        await self.end_session(EndReason.IDLE_TIMEOUT)
+        self._publish()
 
     AUTO_STOP_SETTINGS_KEY = "audio.auto_stop_delay"
 
     async def _load_auto_stop_config(self) -> None:
-        """Load the global auto-stop delay from settings."""
+        """Load the global auto-stop delay from settings: at every start (the
+        base's, before `_do_start`), and again when the setting changes."""
         if not self._settings_service or not self.AUTO_STOP_SUPPORTED:
             return
 
@@ -1646,10 +1689,14 @@ class BaseAudioSource(ABC):
         await self._load_auto_stop_config()
 
         # Refresh a pending timer so the new delay takes effect immediately.
+        # On a fresh token: an expiry of the old timer already in the mailbox
+        # must not match the new one. The timer still dies with the session,
+        # since end_session disarms every timer but a DeviceToken's.
         if self._timer_armed("idle"):
-            self._cancel_pause_timer()
             if self.auto_stop_enabled:
-                self._start_pause_timer()
+                self._arm_timer("idle", self.auto_stop_delay)
+            else:
+                self._cancel_pause_timer()
 
         return True
 

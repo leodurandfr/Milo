@@ -136,7 +136,6 @@ class BluetoothSource(BaseAudioSource):
     `/api/audio/control/bluetooth` to `_handle_command`.
     """
 
-    AUTO_STOP_SUPPORTED = False
     # A paused phone keeps the link (owner decision): see the module docstring.
     IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
     # bluez + bluealsa hold the link; only bluealsa-aplay, the writer, moves.

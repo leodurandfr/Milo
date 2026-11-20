@@ -135,8 +135,6 @@ class PodcastSource(MpvAudioSource):
                 return False
             await self._listen_to_mpv()
 
-            await self._load_auto_stop_config()
-
             point = self._resume_point
             if (
                 point is not None
@@ -161,17 +159,13 @@ class PodcastSource(MpvAudioSource):
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
         """Save where the episode is, keep it to resume (E46), stop mpv."""
-        await self._end_with_progress(EndReason.SOURCE_SWITCH)
+        await self._end_with_position(EndReason.SOURCE_SWITCH)
         await self._cleanup()
         return await self._stop_service()
 
-    @handle_errors(default=False)
-    async def _do_release(self) -> bool:
-        await self._end_with_progress(EndReason.REROUTE)
-        await self._cleanup()
-        return await self._stop_service()
-
-    async def _end_with_progress(self, reason: EndReason) -> None:
+    async def _end_with_position(self, reason: EndReason) -> None:
+        """End the live session at mpv's playhead, saved as the episode's
+        progress first."""
         session = self._session
         if isinstance(session, PodcastSession):
             await self._sync_position(session)

@@ -328,7 +328,6 @@ class RadioSource(MpvAudioSource):
             if not await self._attach_mpv():
                 return False
             await self._listen_to_mpv()
-            await self._load_auto_stop_config()
 
             point = self._resume_point
             if point is not None and point.reason is EndReason.REROUTE:
@@ -347,11 +346,6 @@ class RadioSource(MpvAudioSource):
 
     async def _do_stop(self) -> bool:
         await self.end_session(EndReason.SOURCE_SWITCH)
-        await self._cleanup()
-        return await self._stop_service()
-
-    async def _do_release(self) -> bool:
-        await self.end_session(EndReason.REROUTE)
         await self._cleanup()
         return await self._stop_service()
 

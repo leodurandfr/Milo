@@ -40,7 +40,7 @@ class Daemon(BaseAudioSource):
 
     def __init__(self, systemd) -> None:
         super().__init__("airplay", "milo-daemon.service", systemd_manager=systemd)
-        self.auto_stop_enabled, self.auto_stop_delay = True, DELAY
+        self.auto_stop_delay = DELAY
         self.requests: List[str] = []
         self.answers = True
         self.ends: List[EndReason] = []
@@ -297,6 +297,55 @@ async def test_connected_sessions_never_time_out(daemon, clock):
     await _report(daemon, "mac", Phase.CONNECTED)
     await clock.advance(10 * DELAY)
     assert daemon.requests == []
+
+
+async def test_a_sender_s_own_pause_never_times_out(pids, clock):
+    """KEEP_WHILE_LINKED is the whole declaration: no timer is armed, so no
+    end is asked of the daemon and none is made behind the sender."""
+    class Kept(Daemon):
+        IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
+
+    source = Kept(pids.systemd)
+    try:
+        assert (source.AUTO_STOP_SUPPORTED, source.auto_stop_enabled) == (False, False)
+        await _report(source, "phone", Phase.PAUSED)
+        await clock.advance(10 * DELAY)
+        assert source.requests == [] and source.ends == []
+        assert pids.systemd.restart.await_count == 0
+    finally:
+        await source.shutdown()
+
+
+# === REROUTE, read by the base's release ===
+
+async def test_a_reroute_ends_an_end_session_source_and_frees_the_unit(daemon, pids):
+    """END_SESSION: the session ends as a reroute — not a switch to another
+    source — and the unit is stopped, as a stop would."""
+    pids.systemd.stop = AsyncMock(return_value=True)
+    await _report(daemon, "phone", Phase.PLAYING)
+
+    assert await daemon.release_for_reroute() is True
+
+    assert daemon.ends == [EndReason.REROUTE]
+    assert pids.systemd.stop.await_count == 1
+    assert daemon.view.session is None
+
+
+async def test_a_keep_session_source_with_no_release_of_its_own_is_refused(pids, caplog):
+    """KEEP_SESSION moves only the writer, which the base cannot name: the
+    release is refused out loud, and the session is not ended in its place."""
+    class Keeps(Daemon):
+        REROUTE = ReroutePolicy.KEEP_SESSION
+
+    source = Keeps(pids.systemd)
+    pids.systemd.stop = AsyncMock(return_value=True)
+    try:
+        await _report(source, "phone", Phase.PLAYING)
+        assert await source.release_for_reroute() is False
+        assert source.ends == [] and pids.systemd.stop.await_count == 0
+        assert any("must implement _do_release" in r.message for r in caplog.records)
+    finally:
+        await source.shutdown()
 
 
 # === ProcessWatch, on a real process ===

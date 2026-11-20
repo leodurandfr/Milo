@@ -659,8 +659,6 @@ class SpotifySource(BaseAudioSource):
         # The daemon did not answer at start: a banner stands until /events connects.
         self._unanswered = False
 
-        self.auto_stop_enabled = True
-
         # Multiroom reroute: whether the release went through /player/output
         # (session kept) or fell back to a full stop, and what to restore.
         self._soft_reroute = False
@@ -1394,9 +1392,6 @@ class SpotifySource(BaseAudioSource):
 
         self._api_url = f"http://{addr}:{port}"
         self._ws_url = f"ws://{addr}:{port}/events"
-
-        # Load auto-stop config from settings
-        await self._load_auto_stop_config()
 
         self._logger.info(f"Config loaded: API={self._api_url}")
         return True

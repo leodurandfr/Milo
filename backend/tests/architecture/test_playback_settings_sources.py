@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 from backend.core.models.audio_state import AudioSource
-from backend.core.models.session import EndReason, IdlePolicy
+from backend.core.models.session import EndReason
 
 PAGE_LIST = Path(__file__).resolve().parents[3] / "frontend/src/constants/playbackSettingsSources.json"
 
@@ -35,12 +35,9 @@ def _acted_on():
     classes = _source_classes()
     assert len(classes) == len(AudioSource) - 1, "source discovery drift"
     return {
-        # The pause timer is armed only where the global delay applies and the
-        # idle policy ends a long pause (base _daemon_phase_changed, MpvAudioSource).
-        "auto_stop": {
-            sid for sid, cls in classes.items()
-            if cls.AUTO_STOP_SUPPORTED and cls.IDLE_POLICY in (IdlePolicy.AUTO_STOP, IdlePolicy.REQUEST_END)
-        },
+        # The pause timer is armed only where the idle policy ends a long pause
+        # (base _idle_follows_phase), which is what AUTO_STOP_SUPPORTED says.
+        "auto_stop": {sid for sid, cls in classes.items() if cls.AUTO_STOP_SUPPORTED},
         # The resume window acts on what survives a departure: the point a
         # source switch keeps.
         "resume": {

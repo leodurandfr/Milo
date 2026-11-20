@@ -270,7 +270,6 @@ class CdSource(MpvAudioSource):
             if not await self._attach_mpv():
                 return False
             await self._listen_to_mpv()
-            await self._load_auto_stop_config()
 
             if self._disc_state is DiscState.READY and self._disc:
                 # A jacket the archive could not serve last time: asked again
@@ -301,9 +300,9 @@ class CdSource(MpvAudioSource):
         await self._cleanup()
         return await self._stop_service()
 
-    @handle_errors(default=False)
-    async def _do_release(self) -> bool:
-        await self._end_with_position(EndReason.REROUTE)
+    async def _release_device(self) -> bool:
+        """A stop's teardown, but a disc inserted under CD and not played yet
+        is still to play once the reroute is over (the stop forgets it)."""
         await self._cleanup()
         return await self._stop_service()
 

@@ -307,9 +307,10 @@ class TestTheSettingsFailOpenReads:
 class TestTheAutoStopReload:
     """`BaseAudioSource`'s pause timer, which every source inherits.
 
-    Observed where it lands: the default auto-stop restarts the source's unit,
-    so what systemd was asked to do, and when on a clock the test moves, is the
-    whole outcome.
+    Armed by the base when a pause is reported (here as a daemon reports one,
+    through `reconcile`), for a source whose IDLE_POLICY ends a long pause.
+    Observed where it lands: the end of the session the state machine is told
+    of, and when, on a clock the test moves.
     """
 
     @pytest.fixture
@@ -326,63 +327,126 @@ class TestTheAutoStopReload:
         """settings.json as the source reads it; a test edits it like Settings does."""
         return {"audio.auto_stop_delay": 600}
 
+    @staticmethod
+    def _settings(stored):
+        settings = Mock()
+        settings.get_setting = AsyncMock(side_effect=lambda key, *a, **k: stored.get(key))
+        return settings
+
     @pytest.fixture
     async def source(self, stored):
         from backend.core.audio_source import BaseAudioSource
+        from backend.core.models.session import IdlePolicy
 
         class _Source(BaseAudioSource):
+            IDLE_POLICY = IdlePolicy.AUTO_STOP
+
             async def _do_start(self):
                 return await self._start_service()
 
-        settings = Mock()
-        settings.get_setting = AsyncMock(side_effect=lambda key, *a, **k: stored.get(key))
-        state_machine = Mock()
-        state_machine.broadcast = AsyncMock()
         systemd = Mock()
         systemd.start = AsyncMock(return_value=True)
         systemd.stop = AsyncMock(return_value=True)
+        # The two calls the source awaits must be awaitable: a bare Mock makes
+        # the publish after the end raise, and the auto-stop swallows it.
+        state_machine = Mock()
+        state_machine.update_source_view = AsyncMock()
+        state_machine.broadcast = AsyncMock()
         source = _Source(
-            source_id="probe",
+            # A real source id: the end of a session is announced under it.
+            source_id="radio",
             service_name="milo-probe.service",
             state_machine=state_machine,
             systemd_manager=systemd,
-            settings_service=settings,
+            settings_service=self._settings(stored),
         )
         yield source
         await source.shutdown()
 
     @staticmethod
-    def _restarts(source):
-        return [c for c in source._service_manager.mock_calls if c[0] in ("start", "stop")]
+    async def _pause(source):
+        """A pause as a daemon reports one."""
+        from backend.core.models.session import DaemonSnapshot, Phase
+        await source.reconcile(DaemonSnapshot(sender="phone", phase=Phase.PAUSED))
 
-    async def test_a_shorter_delay_restarts_a_running_timer(self, source, stored, clock):
+    @staticmethod
+    def _ends(source):
+        return [c.args[0].reason for c in source.state_machine.session_ended.call_args_list]
+
+    @staticmethod
+    def _auto_stop_failures(caplog):
+        """What the timer swallowed: an auto-stop that ended the session and
+        then raised (its publish, a source hook) still reads as an end."""
+        return [r.message for r in caplog.records if "Auto-stop failed" in r.message]
+
+    async def test_a_pause_ends_the_session_after_the_delay(self, source, clock, caplog):
+        """IDLE_POLICY = AUTO_STOP is the whole declaration: the start loads
+        the delay, the reported pause arms the timer, its expiry ends the
+        session — no flag or arming to copy into the source."""
+        from backend.core.models.session import EndReason
+
+        assert await source.start() is True
+        await self._pause(source)
+        await clock.advance(599.9)
+        assert self._ends(source) == []
+
+        await clock.advance(0.1)
+        assert self._ends(source) == [EndReason.IDLE_TIMEOUT]
+        assert source.view.session is None
+        assert self._auto_stop_failures(caplog) == []
+        source.state_machine.update_source_view.assert_awaited()
+
+    async def test_a_shorter_delay_restarts_a_running_timer(self, source, stored, clock, caplog):
         """The setting is changed while a source is paused. Leaving the old timer
         running means the change takes effect one auto-stop later — i.e. after
         the very stop it was meant to retime."""
+        from backend.core.models.session import EndReason
+
         await source.reload_auto_stop_config()
-        source._start_pause_timer()   # what every source does on a pause
+        await self._pause(source)
 
         stored["audio.auto_stop_delay"] = 10
         await source.reload_auto_stop_config()
         await clock.advance(9.9)
-        assert self._restarts(source) == [], "the new delay was not the one armed"
+        assert self._ends(source) == [], "the new delay was not the one armed"
 
         await clock.advance(0.1)
+        assert self._ends(source) == [EndReason.IDLE_TIMEOUT]
+        assert self._auto_stop_failures(caplog) == []
 
-        # Stop then start, both to the end: the stop disarms the pause timer
-        # from inside the auto-stop it runs, and must not cut that auto-stop.
-        assert [c[0] for c in self._restarts(source)] == ["stop", "start"]
+    async def test_a_longer_delay_drops_the_old_expiry_already_queued(
+        self, source, stored, clock, caplog
+    ):
+        """The old timer fired while the mailbox was busy (a reroute's hold, a
+        command waiting on the network) and the delay was lengthened before its
+        turn came. The queued expiry belongs to the timer the change replaced:
+        running it would end the session under the delay just abandoned."""
+        from backend.core.models.session import EndReason
+
+        assert await source.start() is True
+        await self._pause(source)
+
+        async with source.hold_mailbox():
+            await clock.advance(600)
+            stored["audio.auto_stop_delay"] = 3600
+            await source.reload_auto_stop_config()
+        await clock.advance(0)
+        assert self._ends(source) == [], "the replaced timer's expiry ended the session"
+
+        await clock.advance(3600)
+        assert self._ends(source) == [EndReason.IDLE_TIMEOUT]
+        assert self._auto_stop_failures(caplog) == []
 
     async def test_disabling_auto_stop_cancels_the_running_timer(self, source, stored, clock):
         """Otherwise turning it off in Settings still stops the music once."""
         await source.reload_auto_stop_config()
-        source._start_pause_timer()
+        await self._pause(source)
 
         stored["audio.auto_stop_delay"] = 0
         await source.reload_auto_stop_config()
         await clock.advance(3600)
 
-        assert self._restarts(source) == []
+        assert self._ends(source) == []
 
     async def test_an_unreadable_auto_stop_setting_leaves_the_declared_default(
         self, source, caplog
@@ -394,20 +458,23 @@ class TestTheAutoStopReload:
         )
 
         with caplog.at_level(logging.ERROR, logger=source._logger.name):
-            await source._load_auto_stop_config()
+            assert await source.start() is True
 
         assert any("Auto-stop settings load failed" in r.message for r in caplog.records)
 
     async def test_a_failing_auto_stop_does_not_kill_the_timer_task_silently(
         self, stored, clock, caplog
     ):
-        """The stop it triggers reaches the state machine and the source's own
-        `_do_stop`; an exception there must be said, and must cost that one
+        """The end it triggers reaches the state machine and the source's own
+        hooks; an exception there must be said, and must cost that one
         auto-stop — not the source's mailbox, which would leave every later
         pause playing on forever with nothing said."""
         from backend.core.audio_source import BaseAudioSource
+        from backend.core.models.session import DaemonSnapshot, IdlePolicy, Phase
 
         class _Failing(BaseAudioSource):
+            IDLE_POLICY = IdlePolicy.AUTO_STOP
+
             def __init__(self, **kwargs):
                 super().__init__(**kwargs)
                 self.attempts = 0
@@ -419,19 +486,18 @@ class TestTheAutoStopReload:
                 self.attempts += 1
                 raise RuntimeError("mpv is gone")
 
-        settings = Mock()
-        settings.get_setting = AsyncMock(side_effect=lambda key, *a, **k: stored.get(key))
         source = _Failing(source_id="probe", service_name="milo-probe.service",
-                          settings_service=settings)
+                          settings_service=self._settings(stored))
         await source.reload_auto_stop_config()
         try:
             with caplog.at_level(logging.ERROR, logger=source._logger.name):
-                source._start_pause_timer()
+                await self._pause(source)
                 await clock.advance(source.auto_stop_delay)
 
             assert any("Auto-stop failed" in r.message for r in caplog.records)
 
-            source._start_pause_timer()
+            await source.reconcile(DaemonSnapshot(sender="phone", phase=Phase.PLAYING))
+            await self._pause(source)
             await clock.advance(source.auto_stop_delay)
             assert source.attempts == 2, "the next pause no longer reached the auto-stop"
         finally:

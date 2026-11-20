@@ -336,7 +336,6 @@ class AirPlaySource(BaseAudioSource):
     # A sender's pause is its own: Milō never hangs up on it, as for Bluetooth
     # (owner decision, 2026-11-19). Ending the session would hand the output
     # back to the phone, and nothing here can start it again.
-    AUTO_STOP_SUPPORTED = False
     IDLE_POLICY = IdlePolicy.KEEP_WHILE_LINKED
     # shairport-sync writes to the output it was started on: a multiroom toggle
     # restarts it, and the sender has to reconnect.
@@ -375,7 +374,6 @@ class AirPlaySource(BaseAudioSource):
         self._metadata_reader: Optional[MetadataReader] = None
         self._remote: Optional[ShairportRemote] = None
         self._volume_service = None
-        self.auto_stop_enabled = True
         self._reset_daemon_mirror()
 
     def _reset_daemon_mirror(self) -> None:
@@ -411,7 +409,6 @@ class AirPlaySource(BaseAudioSource):
         try:
             if not await self._start_service_and_wait():
                 return False
-            await self._load_auto_stop_config()
             await self._ensure_metadata_pipe()
             self._metadata_reader = MetadataReader(self._metadata_pipe, on_event=self._on_pipe_event)
             await self._metadata_reader.start()
@@ -437,11 +434,6 @@ class AirPlaySource(BaseAudioSource):
 
     async def _do_stop(self) -> bool:
         await self.end_session(EndReason.SOURCE_SWITCH)
-        await self._cleanup()
-        return await self._stop_service()
-
-    async def _do_release(self) -> bool:
-        await self.end_session(EndReason.REROUTE)
         await self._cleanup()
         return await self._stop_service()
 

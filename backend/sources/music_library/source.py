@@ -779,7 +779,6 @@ class MusicLibrarySource(MpvAudioSource):
             if not await self._attach_mpv():
                 return False
             await self._listen_to_mpv()
-            await self._load_auto_stop_config()
 
             # Opening the library is the moment its freshness matters, and the
             # only moment Milō can infer it: music copied straight onto a NAS
@@ -810,12 +809,6 @@ class MusicLibrarySource(MpvAudioSource):
     async def _do_stop(self) -> bool:
         """A source switch: the session is kept to reopen (resume-on-return)."""
         await self._end_with_position(EndReason.SOURCE_SWITCH)
-        await self._cleanup()
-        return await self._stop_service()
-
-    @handle_errors(default=False)
-    async def _do_release(self) -> bool:
-        await self._end_with_position(EndReason.REROUTE)
         await self._cleanup()
         return await self._stop_service()
 
