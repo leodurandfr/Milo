@@ -43,6 +43,10 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   // switch, a close) clears it; a reload of the same target does not, unlike
   // `filtersLoaded`, since what is on screen is still that target's record.
   const hasRecord = ref(false);
+  // The last read of the selected target's record failed (a satellite whose
+  // app is restarting answers 503): nothing is on its way, so the controls'
+  // skeleton would wait forever. Cleared by cleanup() and by a read that lands.
+  const loadFailed = ref(false);
 
   // Equalizer effects enabled state (persisted in settings)
   // Note: Volume always works via CamillaDSP, this controls EQ/compressor/loudness
@@ -199,6 +203,61 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     return address !== LOCAL_TARGET && !address.startsWith(ZONE_PREFIX);
   }
 
+  // === WRITE TOKENS ===
+  // A write's answer belongs to the target it was sent to, and only while the
+  // editor still shows that target as it was. Tabs stay live during a request,
+  // and a slow satellite answers after the local DSP does: applied on arrival,
+  // a preset loaded on one speaker landed on the tab selected since. So each
+  // write takes a token — its target, the view it was sent from (cleanup()
+  // opens a new one: a switch, a close) and its rank among the writes of its
+  // kind, a later one superseding it unless the target refused it — and
+  // applies its answer only if all three still hold.
+  let viewEpoch = 0;
+  // The view the last record read was asked for: equal to `viewEpoch` once the
+  // editor shows a target again after a close or a switch.
+  let readEpoch = 0;
+  const writeLogs = {};
+  // Edits made in the editor, counted: a preset write remembers how many there
+  // were when it left, so leaving the editor can tell the edits it carried from
+  // those made while it was on its way.
+  let editCount = 0;
+
+  function claimWrite(kind) {
+    writeLogs[kind] ??= { seq: 0, pending: new Set(), refused: new Set() };
+    const log = writeLogs[kind];
+    const target = targetRef();
+    const epoch = viewEpoch;
+    const seq = ++log.seq;
+    log.pending.add(seq);
+    // A refused write changed nothing, so it replaces nothing either: an
+    // earlier one the target took is still what it holds.
+    const superseded = () => {
+      for (let later = seq + 1; later <= log.seq; later++) {
+        if (!log.refused.has(later)) return true;
+      }
+      return false;
+    };
+    return {
+      /** The editor still shows the view this write was sent from, as it was. */
+      current: () => targetRef() === target && viewEpoch === epoch && !superseded(),
+      /**
+       * The editor was left and now shows the same target again (closed and
+       * reopened, or switched away and back), and has read its record since.
+       * That read may have been served before this write landed: an accepted
+       * answer is then the truth the view lacks, and nothing else brings it — a
+       * satellite's record changes broadcast nothing.
+       */
+      reshown: () => targetRef() === target && viewEpoch !== epoch
+        && readEpoch === viewEpoch && !superseded(),
+      /** An earlier write of the same kind is still on its way. */
+      earlierPending: () => [...log.pending].some(other => other < seq),
+      settle(ok) {
+        log.pending.delete(seq);
+        if (!ok) log.refused.add(seq);
+      },
+    };
+  }
+
   // === API CALLS ===
   /**
    * Fetch the complete EQ record for the current target (one GET, one record).
@@ -244,6 +303,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     const ctrl = new AbortController();
     loadAbortController = ctrl;
     const signal = ctrl.signal;
+    readEpoch = viewEpoch;
 
     hasEverLoaded.value = true;
     filtersLoaded.value = false;
@@ -266,8 +326,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
         loaded = loadAbortController !== null;
         return;
       }
-      if (record === null) return;
+      if (record === null) {
+        loadFailed.value = true;
+        return;
+      }
 
+      loadFailed.value = false;
       state.value = record.state || 'disconnected';
       isEqualizerEffectsEnabled.value = record.enabled ?? true;
 
@@ -409,6 +473,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   async function updateFilter(filterId, field, value) {
     updateFilterValue(filterId, field, value);
+    editCount += 1;
 
     // Track edit state: mark as edited when any filter parameter changes from loaded preset
     if (!isPresetEdited.value && activePreset.value) {
@@ -463,13 +528,58 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       checkStatus: true,
     });
 
-  async function loadPreset(presetId) {
-    const result = await _postPreset(presetId, 'Error loading preset');
+  // The last preset write (a preset loaded, the custom curve saved) to each
+  // target base, while it is in flight: the preset it establishes, the edit
+  // count when it left, and whether the target took it.
+  const presetWrites = new Map();
+
+  function trackPresetWrite(base, presetId, request) {
+    const entry = { presetId, edits: editCount, done: request.then(r => r.ok, () => false) };
+    presetWrites.set(base, entry);
+    entry.done.then(() => {
+      if (presetWrites.get(base) === entry) presetWrites.delete(base);
+    });
+    return request;
+  }
+
+  /** Resolves once every band write already on its way to `base` has landed. */
+  function settleBandWrites(base) {
+    const prefix = `${base}/filter/`;
+    return Promise.all([...bandWriters]
+      .filter(([url]) => url.startsWith(prefix))
+      .map(([, writer]) => writer.inFlight));
+  }
+
+  /**
+   * Bring a preset write's answer to the view, through its token. Accepted, it
+   * is applied where the view is still the one it left from; where the same
+   * target is shown again since, it is applied and the record read back,
+   * replacing a read that may predate it. Refused, it supersedes nothing: an
+   * earlier preset write still on its way answers for the target, and with
+   * none the record is read back — an earlier answer this one superseded while
+   * it was in flight was dropped, and the view would show a preset no target
+   * holds.
+   */
+  async function settlePresetWrite(write, result, apply) {
+    write.settle(result.ok);
     if (result.ok) {
-      _applyResponseGains(presetId, result.data.gains);
-      return true;
+      if (write.current()) {
+        apply();
+      } else if (write.reshown()) {
+        apply();
+        await loadStatus();
+      }
+    } else if (write.current() && !write.earlierPending()) {
+      await loadStatus();
     }
-    return false;
+    return result.ok;
+  }
+
+  async function loadPreset(presetId) {
+    const write = claimWrite('preset');
+    const base = targetBase();
+    const result = await trackPresetWrite(base, presetId, _postPreset(presetId, 'Error loading preset', base));
+    return settlePresetWrite(write, result, () => _applyResponseGains(presetId, result.data.gains));
   }
 
   /**
@@ -481,16 +591,29 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * not Acoustic's. Called when the editor is left — closed, or pointed at
    * another target — so the answer is deliberately NOT applied locally: by the
    * time it lands, the state it would write belongs to nobody.
+   *
+   * A preset write still on its way ("Save", or a preset picked, then the editor
+   * left at once) is what the target keeps: `activePreset` and the edited flag
+   * only move when it answers, so re-posting the preset they still name would
+   * land behind it and undo it. The restore waits for it instead, and drops only
+   * the edits made since it left — back to the preset it established — or, if
+   * the target refused it, the edits it failed to save.
    */
   async function discardPresetEdits() {
-    if (!isPresetEdited.value || !activePreset.value) return false;
     // Read now: both callers run cleanup() and may switch target right after.
-    const presetId = activePreset.value;
     const base = targetBase();
+    const write = presetWrites.get(base);
+    const edits = editCount;
+    let presetId = isPresetEdited.value ? activePreset.value : null;
+    if (!write && !presetId) return false;
     clearAllThrottles();
+    if (write && await write.done) {
+      presetId = edits !== write.edits ? write.presetId : null;
+    }
+    if (!presetId) return false;
     // A band write cannot be recalled once sent: the restore waits for them,
     // so it is the last write the target sees.
-    await Promise.all([...bandWriters.values()].map(writer => writer.inFlight));
+    await settleBandWrites(base);
     const result = await _postPreset(presetId, 'Error discarding unsaved equalizer edits', base);
     return result.ok;
   }
@@ -521,22 +644,30 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   /**
    * Save current filter gains as the "custom" preset.
-   * Posts to the save-custom endpoint, which persists gains and sets active_preset.
+   * Posts to the save-custom endpoint, which persists the gains the target
+   * holds and sets active_preset — so the band writes on their way go first.
+   * The store records the curve on screen when "Save" was pressed; a drag that
+   * joins a band write still draining lands before the save too, so the target
+   * may keep a little more than that. The view then reads as edited, and
+   * leaving the editor re-posts "custom", which is the curve the target saved.
    */
   async function saveCustomPreset() {
-    const result = await apiCall.post(`${targetBase()}/save-custom`, null, {
+    const write = claimWrite('preset');
+    const base = targetBase();
+    const gains = filters.value.map(f => f.gain);
+    const request = settleBandWrites(base).then(() => apiCall.post(`${base}/save-custom`, null, {
       category: 'store',
       message: 'Error saving custom preset',
       checkStatus: true,
-    });
-    if (result.ok) {
+    }));
+    const result = await trackPresetWrite(base, 'custom', request);
+    return settlePresetWrite(write, result, () => {
       activePreset.value = 'custom';
-      customGains.value = filters.value.map(f => f.gain);
-      isPresetEdited.value = false;
-      originalPresetGains.value = [...customGains.value];
-      return true;
-    }
-    return false;
+      customGains.value = gains;
+      originalPresetGains.value = [...gains];
+      // A band moved while the save was on its way is an edit of what it saved.
+      isPresetEdited.value = _gainsDivergeFromPreset();
+    });
   }
 
   /**
@@ -584,20 +715,18 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === ADVANCED FEATURES ===
 
-  const effectWriteSeq = { compressor: 0, loudness: 0 };
-
   /**
    * Write one effect's settings object to the current target, optimistically:
    * apply locally so the sliders answer the finger. A refusal reads back what
    * the target still holds — the view has already written the dragged value
    * into the store, and a fan-out that failed after the record was saved keeps
    * the new value — and the snapshot is restored only when nothing answers.
-   * Nothing is applied once the target changed or a later write to the same
-   * effect started. `name` is both the path segment and the log noun.
+   * Nothing is applied once its token lapsed (claimWrite): the target changed
+   * or a later write to the same effect is on its way or was taken. `name` is
+   * both the path segment and the log noun.
    */
   async function _updateEffect(settingsRef, name, settings) {
-    const target = targetRef();
-    const seq = ++effectWriteSeq[name];
+    const write = claimWrite(name);
     const previous = { ...settingsRef.value };
     Object.assign(settingsRef.value, settings);
 
@@ -606,12 +735,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       message: `Error updating ${name}`,
       checkStatus: true,
     });
+    write.settle(result.ok);
     if (result.ok) return true;
 
-    const current = () => targetRef() === target && effectWriteSeq[name] === seq;
-    if (!current()) return false;
+    if (!write.current()) return false;
     const record = await fetchTargetRecord();
-    if (!current()) return false;
+    if (!write.current()) return false;
     if (record?.[name]) {
       settingsRef.value = { ...settingsRef.value, ...record[name] };
     } else {
@@ -624,6 +753,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const updateLoudness = (settings) => _updateEffect(loudness, 'loudness', settings);
 
   async function updateMono(enabled) {
+    const write = claimWrite('mono');
     const previous = mono.value;
     mono.value = enabled;
 
@@ -632,8 +762,12 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       message: 'Error updating mono',
       checkStatus: true,
     });
+    write.settle(result.ok);
     if (result.ok) return true;
-    mono.value = previous;
+    // Restored only on the view it was taken from: elsewhere `previous` is
+    // another target's value, or one a later toggle the target took has
+    // already replaced.
+    if (write.current()) mono.value = previous;
     return false;
   }
 
@@ -856,8 +990,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   function cleanup() {
     cancelPending();
+    // Every write's answer still on its way now belongs to a view that is gone.
+    viewEpoch += 1;
     filtersLoaded.value = false;
     hasRecord.value = false;
+    loadFailed.value = false;
     state.value = null;
 
     // Reset equalizer state to defaults to prevent showing stale data while loading
@@ -949,6 +1086,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     activePreset,
     filtersLoaded,
     hasRecord,
+    loadFailed,
     outputPeak,
 
     // Equalizer Effects Enabled State

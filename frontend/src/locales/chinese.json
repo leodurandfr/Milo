@@ -194,6 +194,10 @@
   "equalizer": {
     "title": "均衡器",
     "effects_disabled": "均衡器效果已关闭",
+    "effectsDisabledOn": "「{name}」的均衡器效果已关闭",
+    "loadFailed": "无法加载均衡器",
+    "loadFailedOn": "无法加载「{name}」的均衡器",
+    "retry": "重试",
     "selectPreset": "预设",
     "zones": {
       "zoneName": "区域名称",

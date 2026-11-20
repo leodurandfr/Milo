@@ -194,6 +194,10 @@
   "equalizer": {
     "title": "Égaliseur",
     "effects_disabled": "Les effets de l'égaliseur sont désactivés",
+    "effectsDisabledOn": "Les effets de l'égaliseur sont désactivés sur « {name} »",
+    "loadFailed": "Impossible de charger l'égaliseur",
+    "loadFailedOn": "Impossible de charger l'égaliseur de « {name} »",
+    "retry": "Réessayer",
     "selectPreset": "Preset",
     "zones": {
       "zoneName": "Nom de la zone",

@@ -1218,6 +1218,365 @@ describe('equalizerStore', () => {
     });
   });
 
+  /**
+   * Two targets with records of their own: Kitchen (a satellite) on "flat" with
+   * flat gains, the local unit on "jazz". A POST to a satellite crosses the
+   * network and its DSP, a GET of the local unit does not, so the satellite's
+   * answer can land after the tab moved on — on a target that never received it.
+   */
+  function answerTwoTargets({ remote = {}, local = {} } = {}) {
+    const bands = gains => gains.map((gain, i) => (
+      { id: `eq_band_0${i}`, freq: [31, 63][i], gain, q: 1.41, type: 'Peaking' }
+    ));
+    apiCall.get.mockImplementation(async (url) => {
+      if (url.endsWith('/presets')) {
+        return ok({ presets: [{ id: 'flat', gains: [0, 0] }, { id: 'jazz', gains: [1, 1] }, { id: 'rock', gains: [5, 5] }] });
+      }
+      if (url === '/api/equalizer/target/local') {
+        return ok({ state: 'running', enabled: true, filters: bands([1, 1]), active_preset: 'jazz', mono: false, ...local });
+      }
+      return ok({ state: 'running', enabled: true, filters: bands([0, 0]), active_preset: 'flat', mono: false, ...remote });
+    });
+  }
+
+  /** Hold the next `method` call until the test answers it. */
+  function holdNext(method) {
+    const held = {};
+    apiCall[method].mockImplementationOnce(() => new Promise((resolve) => { held.answer = resolve; }));
+    return held;
+  }
+
+  const presetPosts = () => apiCall.post.mock.calls
+    .filter(([url]) => url.endsWith('/preset') || url.endsWith('/save-custom'))
+    .map(([url, body]) => [url.replace('/api/equalizer/target/', ''), body?.preset_id ?? null]);
+
+  describe('answers addressed to their target', () => {
+    beforeEach(() => {
+      equalizerStore.selectedTarget = REMOTE_MAC;
+    });
+
+    it('a preset answered after a tab switch is not applied to the tab now shown', async () => {
+      answerTwoTargets();
+      await equalizerStore.loadStatus();
+      const post = holdNext('post');
+
+      const loading = equalizerStore.loadPreset('rock');
+      await equalizerStore.selectTarget(LOCAL_MAC);
+      post.answer(ok({ status: 'success', gains: [5, 5] }));
+
+      expect(await loading).toBe(true);
+      expect(equalizerStore.activePreset).toBe('jazz');
+      expect(equalizerStore.filters.map(f => f.gain)).toEqual([1, 1]);
+      expect(equalizerStore.isPresetEdited).toBe(false);
+    });
+
+    it('a save answered after a tab switch does not name the tab now shown custom', async () => {
+      answerTwoTargets({ remote: { filters: [{ id: 'eq_band_00', freq: 31, gain: 3, q: 1.41, type: 'Peaking' }] } });
+      await equalizerStore.loadStatus();
+      const post = holdNext('post');
+
+      const saving = equalizerStore.saveCustomPreset();
+      await equalizerStore.selectTarget(LOCAL_MAC);
+      post.answer(ok({ status: 'success' }));
+
+      expect(await saving).toBe(true);
+      expect(equalizerStore.activePreset).toBe('jazz');
+      expect(equalizerStore.isPresetEdited).toBe(false);
+    });
+
+    it('a refused mono answered after a tab switch restores nothing on the tab now shown', async () => {
+      answerTwoTargets({ remote: { mono: true } });
+      await equalizerStore.loadStatus();
+      const put = holdNext('put');
+
+      const writing = equalizerStore.updateMono(false);
+      await equalizerStore.selectTarget(LOCAL_MAC);
+      put.answer(fail());
+
+      expect(await writing).toBe(false);
+      expect(equalizerStore.mono).toBe(false);
+    });
+
+    it('a preset answered after a later one does not replace it', async () => {
+      answerTwoTargets();
+      await equalizerStore.loadStatus();
+      const first = holdNext('post');
+
+      const rock = equalizerStore.loadPreset('rock');
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success', gains: [1, 1] }));
+      await equalizerStore.loadPreset('jazz');
+      first.answer(ok({ status: 'success', gains: [5, 5] }));
+      await rock;
+
+      expect(equalizerStore.activePreset).toBe('jazz');
+      expect(equalizerStore.filters.map(f => f.gain)).toEqual([1, 1]);
+    });
+
+    it('a preset answered after the editor reopened on the same target is what the view ends on', async () => {
+      // The reopened editor read the record before the preset landed, and a
+      // satellite broadcasts nothing when its record changes: dropped, the
+      // answer left the view on the preset the target had just left.
+      answerTwoTargets();
+      await equalizerStore.loadStatus();
+      const post = holdNext('post');
+
+      const loading = equalizerStore.loadPreset('rock');
+      equalizerStore.cleanup();
+      await equalizerStore.loadStatus();
+      expect(equalizerStore.activePreset).toBe('flat');
+
+      answerTwoTargets({ remote: { active_preset: 'rock', filters: [
+        { id: 'eq_band_00', freq: 31, gain: 5, q: 1.41, type: 'Peaking' },
+        { id: 'eq_band_01', freq: 63, gain: 5, q: 1.41, type: 'Peaking' },
+      ] } });
+      post.answer(ok({ status: 'success', gains: [5, 5] }));
+      await loading;
+
+      expect(equalizerStore.activePreset).toBe('rock');
+      expect(equalizerStore.filters.map(f => f.gain)).toEqual([5, 5]);
+      expect(equalizerStore.isPresetEdited).toBe(false);
+    });
+
+    it('a preset answered while the editor is closed reads nothing', async () => {
+      // The next opening reads a record served after the write landed.
+      answerTwoTargets();
+      await equalizerStore.loadStatus();
+      const post = holdNext('post');
+
+      const loading = equalizerStore.loadPreset('rock');
+      equalizerStore.cleanup();
+      const reads = apiCall.get.mock.calls.length;
+      post.answer(ok({ status: 'success', gains: [5, 5] }));
+      await loading;
+
+      expect(apiCall.get.mock.calls.length).toBe(reads);
+      expect(equalizerStore.hasRecord).toBe(false);
+    });
+
+    it('a refused preset does not replace an earlier one the target takes after it', async () => {
+      answerTwoTargets();
+      await equalizerStore.loadStatus();
+      const first = holdNext('post');
+
+      const rock = equalizerStore.loadPreset('rock');
+      apiCall.post.mockResolvedValueOnce(fail());
+      const reads = apiCall.get.mock.calls.length;
+      expect(await equalizerStore.loadPreset('jazz')).toBe(false);
+      // Rock answers for the target: a read now could be served before it lands.
+      expect(apiCall.get.mock.calls.length).toBe(reads);
+      first.answer(ok({ status: 'success', gains: [5, 5] }));
+      await rock;
+
+      expect(equalizerStore.activePreset).toBe('rock');
+      expect(equalizerStore.filters.map(f => f.gain)).toEqual([5, 5]);
+    });
+
+    it('a refused preset reads back the earlier one it held off', async () => {
+      // Rock answered while Jazz was on its way and was dropped as superseded;
+      // Jazz then refused: what the target holds is read, not left unsaid.
+      answerTwoTargets();
+      await equalizerStore.loadStatus();
+      const first = holdNext('post');
+      const second = holdNext('post');
+
+      const rock = equalizerStore.loadPreset('rock');
+      const jazz = equalizerStore.loadPreset('jazz');
+      first.answer(ok({ status: 'success', gains: [5, 5] }));
+      await rock;
+      expect(equalizerStore.activePreset).toBe('flat');
+
+      answerTwoTargets({ remote: { active_preset: 'rock', filters: [
+        { id: 'eq_band_00', freq: 31, gain: 5, q: 1.41, type: 'Peaking' },
+        { id: 'eq_band_01', freq: 63, gain: 5, q: 1.41, type: 'Peaking' },
+      ] } });
+      second.answer(fail());
+
+      expect(await jazz).toBe(false);
+      expect(equalizerStore.activePreset).toBe('rock');
+      expect(equalizerStore.filters.map(f => f.gain)).toEqual([5, 5]);
+    });
+  });
+
+  describe('a preset write still on its way when the editor is left', () => {
+    /**
+     * "Save" (or a preset picked) and then the modal closed at once: the edited
+     * flag and the preset name only move when the write answers, so the restore
+     * that runs on close used to re-post the preset the write was replacing —
+     * behind it. On a satellite the room went back to the old preset and its
+     * record named it, while the user believed the curve was saved.
+     */
+    beforeEach(async () => {
+      vi.useFakeTimers();
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      answerTwoTargets({ remote: { active_preset: 'jazz', filters: [
+        { id: 'eq_band_00', freq: 31, gain: 1, q: 1.41, type: 'Peaking' },
+        { id: 'eq_band_01', freq: 63, gain: 1, q: 1.41, type: 'Peaking' },
+      ] } });
+      await equalizerStore.loadStatus();
+      equalizerStore.updateFilter('eq_band_00', 'gain', 6);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(equalizerStore.isPresetEdited).toBe(true);
+    });
+
+    /** The modal's onUnmounted: the restore, not awaited, then cleanup(). */
+    function closeEditor() {
+      const discarded = equalizerStore.discardPresetEdits();
+      equalizerStore.cleanup();
+      return discarded;
+    }
+
+    it('re-posts nothing behind a save that the target takes', async () => {
+      const post = holdNext('post');
+      const saving = equalizerStore.saveCustomPreset();
+      await vi.advanceTimersByTimeAsync(0);
+
+      const discarded = closeEditor();
+      post.answer(ok({ status: 'success' }));
+
+      expect(await saving).toBe(true);
+      expect(await discarded).toBe(false);
+      expect(presetPosts()).toEqual([[`${REMOTE_MAC}/save-custom`, null]]);
+    });
+
+    it('re-posts nothing behind a preset picked just before closing', async () => {
+      const post = holdNext('post');
+      const loading = equalizerStore.loadPreset('rock');
+
+      const discarded = closeEditor();
+      post.answer(ok({ status: 'success', gains: [5, 5] }));
+
+      expect(await loading).toBe(true);
+      expect(await discarded).toBe(false);
+      expect(presetPosts()).toEqual([[`${REMOTE_MAC}/preset`, 'rock']]);
+    });
+
+    it('drops the edits a refused save failed to keep, after the refusal', async () => {
+      const post = holdNext('post');
+      const saving = equalizerStore.saveCustomPreset();
+      await vi.advanceTimersByTimeAsync(0);
+
+      const discarded = closeEditor();
+      post.answer(fail());
+
+      expect(await saving).toBe(false);
+      expect(await discarded).toBe(true);
+      expect(presetPosts()).toEqual([
+        [`${REMOTE_MAC}/save-custom`, null],
+        [`${REMOTE_MAC}/preset`, 'jazz'],
+      ]);
+    });
+
+    it('drops an edit made while the save was on its way, back to the saved curve', async () => {
+      const post = holdNext('post');
+      const saving = equalizerStore.saveCustomPreset();
+      await vi.advanceTimersByTimeAsync(0);
+      equalizerStore.updateFilter('eq_band_01', 'gain', -4);
+
+      const discarded = closeEditor();
+      post.answer(ok({ status: 'success' }));
+
+      expect(await saving).toBe(true);
+      expect(await discarded).toBe(true);
+      expect(presetPosts()).toEqual([
+        [`${REMOTE_MAC}/save-custom`, null],
+        [`${REMOTE_MAC}/preset`, 'custom'],
+      ]);
+    });
+
+    it('re-posts nothing behind a save answered after the editor reopened on a record read before it', async () => {
+      const post = holdNext('post');
+      const saving = equalizerStore.saveCustomPreset();
+      await vi.advanceTimersByTimeAsync(0);
+      const firstClose = closeEditor();
+
+      // Reopened before the save landed: the record still names Jazz over the
+      // edited curve.
+      const edited = [
+        { id: 'eq_band_00', freq: 31, gain: 6, q: 1.41, type: 'Peaking' },
+        { id: 'eq_band_01', freq: 63, gain: 1, q: 1.41, type: 'Peaking' },
+      ];
+      answerTwoTargets({ remote: { active_preset: 'jazz', filters: edited } });
+      await equalizerStore.loadStatus();
+      expect(equalizerStore.isPresetEdited).toBe(true);
+
+      answerTwoTargets({ remote: { active_preset: 'custom', custom_gains: [6, 1], filters: edited } });
+      post.answer(ok({ status: 'success' }));
+      expect(await saving).toBe(true);
+      expect(await firstClose).toBe(false);
+      expect(equalizerStore.activePreset).toBe('custom');
+      expect(equalizerStore.isPresetEdited).toBe(false);
+
+      expect(await closeEditor()).toBe(false);
+      expect(presetPosts()).toEqual([[`${REMOTE_MAC}/save-custom`, null]]);
+    });
+
+    it('saves only once the band write still on its way has landed', async () => {
+      // save-custom records the gains the target holds: sent ahead of the
+      // released band, it saved the curve from before the release.
+      const put = holdNext('put');
+      equalizerStore.finalizeFilterUpdate('eq_band_00');
+      apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
+
+      const saving = equalizerStore.saveCustomPreset();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(presetPosts()).toEqual([]);
+
+      put.answer(ok());
+      expect(await saving).toBe(true);
+      expect(presetPosts()).toEqual([[`${REMOTE_MAC}/save-custom`, null]]);
+      expect(equalizerStore.activePreset).toBe('custom');
+      expect(equalizerStore.isPresetEdited).toBe(false);
+    });
+  });
+
+  describe('a record that cannot be read', () => {
+    /**
+     * A satellite registered online whose app is restarting answers its record
+     * read with a 503. The modal drew the controls' skeleton "while the record
+     * is on its way" — and none was: it waited forever, with no word and no way
+     * out but a tab switch nothing suggested.
+     */
+    it('says the read failed, and a read that lands clears it', async () => {
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      apiCall.get.mockImplementation(async (url) => (
+        url.endsWith('/presets') ? ok({ presets: [] }) : fail('Satellite unavailable', 503)
+      ));
+
+      expect(await equalizerStore.loadStatus()).toBe(false);
+      expect(equalizerStore.loadFailed).toBe(true);
+      expect(equalizerStore.hasRecord).toBe(false);
+
+      answerTwoTargets();
+      expect(await equalizerStore.loadStatus()).toBe(true);
+      expect(equalizerStore.loadFailed).toBe(false);
+      expect(equalizerStore.hasRecord).toBe(true);
+    });
+
+    it('a tab switch forgets the failure of the target it leaves', async () => {
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      apiCall.get.mockResolvedValue(fail('Satellite unavailable', 503));
+      await equalizerStore.loadStatus();
+
+      apiCall.get.mockImplementation(() => new Promise(() => {}));
+      equalizerStore.selectTarget(LOCAL_MAC);
+
+      expect(equalizerStore.loadFailed).toBe(false);
+    });
+
+    it('a read abandoned by a tab switch is not reported as failed', async () => {
+      equalizerStore.selectedTarget = REMOTE_MAC;
+      const get = holdNext('get');
+      apiCall.get.mockResolvedValue(ok({ presets: [] }));
+
+      const loading = equalizerStore.loadStatus();
+      equalizerStore.cleanup();
+      get.answer(fail('Satellite unavailable', 503));
+      await loading;
+
+      expect(equalizerStore.loadFailed).toBe(false);
+    });
+  });
+
   describe('levels monitor', () => {
     // An empty client list is the backend's word for "the local DAC", so a
     // selection whose every client is muted must never reach it as []: the

@@ -194,6 +194,10 @@
   "equalizer": {
     "title": "Equalizer",
     "effects_disabled": "Equalizer effects are disabled",
+    "effectsDisabledOn": "Equalizer effects are disabled on “{name}”",
+    "loadFailed": "The equalizer could not be loaded",
+    "loadFailedOn": "The equalizer of “{name}” could not be loaded",
+    "retry": "Retry",
     "selectPreset": "Preset",
     "zones": {
       "zoneName": "Zone name",

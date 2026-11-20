@@ -194,6 +194,10 @@
   "equalizer": {
     "title": "इक्वलाइज़र",
     "effects_disabled": "इक्वलाइज़र इफ़ेक्ट्स अक्षम हैं",
+    "effectsDisabledOn": "\"{name}\" पर इक्वलाइज़र इफ़ेक्ट्स अक्षम हैं",
+    "loadFailed": "इक्वलाइज़र लोड नहीं हो सका",
+    "loadFailedOn": "\"{name}\" का इक्वलाइज़र लोड नहीं हो सका",
+    "retry": "पुनः प्रयास करें",
     "selectPreset": "प्रीसेट",
     "zones": {
       "zoneName": "ज़ोन का नाम",

@@ -3,25 +3,41 @@
   <div class="equalizer-modal">
     <NavigationHeader ref="navHeaderRef" :title="t('equalizer.title')" icon="equalizer">
       <template #actions>
+        <!-- Inert until a record of the target says where its flag stands: before
+             it, the value shown is the previous target's, and a press would write
+             its opposite to this one. -->
         <Toggle :modelValue="equalizerStore.isEqualizerEffectsEnabled"
-          :disabled="equalizerStore.isTogglingEnabled" @change="handleEqualizerToggle" />
+          :disabled="equalizerStore.isTogglingEnabled || waiting" @change="handleEqualizerToggle" />
       </template>
     </NavigationHeader>
 
     <div class="swap-stack">
       <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
-        <!-- State 1: Equalizer disabled -->
-        <MessageContent v-if="contentKey === 'disabled'" key="disabled" icon="equalizer"
-          :title="t('equalizer.effects_disabled')" />
+        <!-- State 1: the target's effects are bypassed. The flag is per target,
+             so the tabs stay — another speaker is reached without turning this
+             one back on — and the message names the one it speaks for. -->
+        <SectionStack v-if="contentKey === 'disabled'" key="disabled">
+          <ItemSelector ref="zoneTabsRef" />
+          <MessageContent icon="equalizer" :title="disabledTitle" />
+        </SectionStack>
 
-        <!-- State 2: the target's record came back saying its DSP is not
+        <!-- State 2: the target's record could not be read (a satellite whose app
+             is restarting): nothing is on its way, so the skeleton would wait
+             forever. The tabs stay, and Retry reads it again. -->
+        <SectionStack v-else-if="contentKey === 'failed'" key="failed">
+          <ItemSelector ref="zoneTabsRef" />
+          <MessageContent icon="equalizer" :title="failedTitle" :cta-label="t('equalizer.retry')"
+            :cta-click="handleRetry" :cta-loading="retrying" />
+        </SectionStack>
+
+        <!-- State 3: the target's record came back saying its DSP is not
              running. The tabs stay, so a target that never connects can be left. -->
         <SectionStack v-else-if="contentKey === 'loading'" key="loading">
           <ItemSelector ref="zoneTabsRef" />
           <MessageContent variant="loading" :loading-delay="0" />
         </SectionStack>
 
-        <!-- State 3: the controls — and while the record is on its way, their
+        <!-- State 4: the controls — and while the record is on its way, their
              skeleton: bare band tracks, the rest inert until it lands. -->
         <SectionStack v-else key="controls">
           <!-- Section 1: Zones (tabs). Not before the first record when nothing
@@ -146,11 +162,14 @@ const { prepareNavigation, onBeforeLeave, onEnter, onAfterLeave } = useViewTrans
   contentElRef: modalContentInnerRef,
 });
 
-// Which of the three states is shown; a change prepares the transition before
+// Which of the four states is shown; a change prepares the transition before
 // Vue patches the DOM. Before a record has said the target is disconnected, its
 // state is unknown, not disconnected (equalizerStore `state`), so the wait for
-// the first record is the controls' skeleton, not the spinner card.
+// the first record is the controls' skeleton, not the spinner card — unless the
+// read failed, and nothing is on its way. Nor is the target bypassed before its
+// record says so: the flag still held is the previous target's.
 const contentKey = computed(() => {
+  if (!equalizerStore.hasRecord) return equalizerStore.loadFailed ? 'failed' : 'controls';
   if (!equalizerStore.isEqualizerEffectsEnabled) return 'disabled';
   if (!equalizerStore.isConnected) return 'loading';
   return 'controls';
@@ -174,6 +193,28 @@ const selectedZoneName = computed(() => {
 const selectedClientIds = computed(() => {
   return zoneTabsRef.value?.selectedClientIds ?? [];
 });
+
+// The two messages name the target they speak for, once the tabs have mounted
+// and know its name.
+const disabledTitle = computed(() => (selectedZoneName.value
+  ? t('equalizer.effectsDisabledOn', { name: selectedZoneName.value })
+  : t('equalizer.effects_disabled')));
+
+const failedTitle = computed(() => (selectedZoneName.value
+  ? t('equalizer.loadFailedOn', { name: selectedZoneName.value })
+  : t('equalizer.loadFailed')));
+
+// === RETRY ===
+const retrying = ref(false);
+
+async function handleRetry() {
+  retrying.value = true;
+  try {
+    await equalizerStore.loadStatus();
+  } finally {
+    retrying.value = false;
+  }
+}
 
 // === EQUALIZER TOGGLE ===
 async function handleEqualizerToggle(enabled) {
