@@ -10,6 +10,7 @@ Provides REST API endpoints for:
 - Images: Serve station artwork
 """
 import logging
+from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form, Depends, Request
@@ -20,6 +21,7 @@ from fastapi.responses import FileResponse, Response
 from backend.api.source_dependency import make_source_dependency
 from backend.sources.radio.genres import VALID_GENRES
 from backend.sources.radio import radiofrance
+from backend.sources.radio.data import RadioWriteFailed, StationRefused
 from backend.sources.radio.source import RadioSource
 from backend.sources.radio.models import (
     PlayStationRequest,
@@ -41,6 +43,24 @@ def setup_radio_routes(source_provider) -> APIRouter:
     """Configure routes with source provider."""
     set_source_provider(source_provider)
     return router
+
+
+@asynccontextmanager
+async def _station_store(context: str):
+    """The stores' two failures, each with the one answer it gets on every
+    route: a change the station or the upload cannot take is the request's
+    (400, its message the detail the user reads), a write the card refused is
+    the unit's (500)."""
+    try:
+        yield
+    except StationRefused as e:
+        # The request's fault, already shown in the form: below error, which
+        # would raise the banner on every screen.
+        logger.warning("%s refused: %s", context, e)
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RadioWriteFailed as e:
+        logger.error("%s: %s", context, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # === Playback Routes ===
@@ -195,9 +215,8 @@ async def add_favorite(
             logger.error("Station %s not found, cannot favorite it", request.station_id)
             raise HTTPException(status_code=404, detail=f"Station {request.station_id} not found")
 
-        if not await source.station_data.add_favorite(request.station_id, station):
-            logger.error("Failed to persist favorite %s", request.station_id)
-            raise HTTPException(status_code=500, detail="Failed to add favorite")
+        async with _station_store(f"Favorite {request.station_id}"):
+            await source.station_data.add_favorite(request.station_id, station)
 
         return {"status": "success", "station_id": request.station_id}
 
@@ -217,14 +236,8 @@ async def remove_favorite(
         Success envelope
     """
     async with api_error_handler("Remove favorite error", logger):
-        if source.station_data.is_custom_station(station_id):
-            logger.error("Refused to un-favorite added station %s", station_id)
-            raise HTTPException(
-                status_code=400, detail="An added station is removed from Settings"
-            )
-        if not await source.station_data.remove_favorite(station_id):
-            logger.error("Failed to persist removal of favorite %s", station_id)
-            raise HTTPException(status_code=500, detail="Failed to remove favorite")
+        async with _station_store(f"Removal of favorite {station_id}"):
+            await source.station_data.remove_favorite(station_id)
 
         return {"status": "success", "station_id": station_id}
 
@@ -251,24 +264,19 @@ async def modify_favorite_metadata(
     The path keeps its `favorites/` segment from when only a favorite could
     carry an edit; the web UI is its one caller.
     """
-    async with api_error_handler("Modify favorite error", logger):
+    async with api_error_handler("Modify favorite error", logger), _station_store(
+        f"Edit of station {station_id}"
+    ):
         image_filename = None
         should_remove_image = remove_image.lower() == "true"
 
         if image and image.filename:
-            file_content = await image.read()
-            success, saved_filename, error = await source.station_data.image_manager.validate_and_save_image(
-                file_content=file_content,
+            image_filename = await source.station_data.image_manager.validate_and_save_image(
+                file_content=await image.read(),
                 filename=image.filename
             )
 
-            if not success:
-                logger.error("Modify favorite image error: %s", error)
-                raise HTTPException(status_code=400, detail=f"Image error: {error}")
-
-            image_filename = saved_filename
-
-        result = await source.station_data.modify_favorite_metadata(
+        station = await source.station_data.modify_favorite_metadata(
             station_id=station_id,
             name=name,
             url=url,
@@ -281,13 +289,7 @@ async def modify_favorite_metadata(
             shazam_enabled=shazam_enabled
         )
 
-        if result["success"]:
-            return {"status": "success", "station": result["station"]}
-        else:
-            if image_filename:
-                await source.station_data.image_manager.delete_image(image_filename)
-            logger.error("Modify favorite failed: %s", result.get("error", "Unknown error"))
-            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+        return {"status": "success", "station": station}
 
 
 @router.post("/favorites/restore-metadata")
@@ -298,17 +300,14 @@ async def restore_favorite_metadata(
     """
     Restore an edited station's original metadata, favorite or not.
     """
-    async with api_error_handler("Restore favorite error", logger):
-        result = await source.station_data.restore_favorite_metadata(
+    async with api_error_handler("Restore favorite error", logger), _station_store(
+        f"Restore of station {station_id}"
+    ):
+        await source.station_data.restore_favorite_metadata(
             station_id=station_id,
             radio_api=source.radio_api
         )
-
-        if result["success"]:
-            return {"status": "success"}
-        else:
-            logger.error("Restore favorite failed: %s", result.get("error", "Unknown error"))
-            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+        return {"status": "success"}
 
 
 # === Custom Stations Routes ===
@@ -359,23 +358,18 @@ async def add_custom_station(
     Returns:
         Created station with ID
     """
-    async with api_error_handler("Add custom station error", logger):
+    async with api_error_handler("Add custom station error", logger), _station_store(
+        "Added station"
+    ):
         image_filename = ""
 
         if image and image.filename:
-            file_content = await image.read()
-            success, saved_filename, error = await source.station_data.image_manager.validate_and_save_image(
-                file_content=file_content,
+            image_filename = await source.station_data.image_manager.validate_and_save_image(
+                file_content=await image.read(),
                 filename=image.filename
             )
 
-            if not success:
-                logger.error("Add custom station image error: %s", error)
-                raise HTTPException(status_code=400, detail=f"Image error: {error}")
-
-            image_filename = saved_filename
-
-        result = await source.station_data.add_custom_station(
+        station = await source.station_data.add_custom_station(
             name=name,
             url=url,
             country=country,
@@ -387,16 +381,7 @@ async def add_custom_station(
             shazam_enabled=shazam_enabled
         )
 
-        if not result.get("success"):
-            if image_filename:
-                await source.station_data.image_manager.delete_image(image_filename)
-            logger.error("Add custom station failed: %s", result.get("error", "Add custom station failed"))
-            raise HTTPException(
-                status_code=400,
-                detail=result.get("error", "Add custom station failed")
-            )
-
-        return {"status": "success", "station": result["station"]}
+        return {"status": "success", "station": station}
 
 
 @router.delete("/custom/{station_id}")
@@ -413,13 +398,10 @@ async def remove_custom_station(
     Returns:
         Operation result
     """
-    async with api_error_handler("Remove custom station error", logger):
-        success = await source.station_data.remove_custom_station(station_id)
-
-        if not success:
-            logger.error("Remove custom station failed: %s", station_id)
-            raise HTTPException(status_code=400, detail="Remove custom station failed")
-
+    async with api_error_handler("Remove custom station error", logger), _station_store(
+        f"Removal of added station {station_id}"
+    ):
+        await source.station_data.remove_custom_station(station_id)
         return {"status": "success", "message": "Custom station removed"}
 
 

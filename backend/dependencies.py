@@ -300,7 +300,6 @@ def _create_service(name: str) -> Any:
             systemd_manager=get_service("systemd_manager")
         ),
         "airplay_source": lambda: _import("backend.sources.airplay", "AirPlaySource")(
-            config={"metadata_pipe": "/tmp/shairport-sync-metadata"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")
@@ -317,7 +316,6 @@ def _create_service(name: str) -> Any:
             systemd_manager=get_service("systemd_manager")
         ),
         "tidal_source": lambda: _import("backend.sources.tidal", "TidalSource")(
-            config={"socket_path": "/run/milo/tidal-controller.sock"},
             state_machine=get_service("audio_state_machine"),
             settings_service=get_service("settings_service"),
             systemd_manager=get_service("systemd_manager")

@@ -550,7 +550,7 @@ def _success_dict_producers():
     """Every backend function name that can return a dict with a "success" key.
 
     Names, not qualified symbols: a route reaches its service through an
-    instance attribute (`source.station_data.add_custom_station`), which no
+    instance attribute (`update_service.update_program`), which no
     offline resolver can bind to a class. Matching on the method name
     over-approximates — two same-named functions make the check stricter, never
     laxer — and that is the right direction for a guardrail.
@@ -567,7 +567,7 @@ def _success_dict_producers():
 
 
 SUCCESS_PRODUCERS = _success_dict_producers()
-assert "add_custom_station" in SUCCESS_PRODUCERS, "producer scan broken?"
+assert "update_program" in SUCCESS_PRODUCERS, "producer scan broken?"
 assert "success_response" in SUCCESS_PRODUCERS, "spread producer scan broken?"
 # The satellite's services answer their own callers with a `success` dict, which
 # is internal and stays. Pinned here so the second root going unwalked shows up
@@ -588,7 +588,7 @@ def _handler_success_flag(fn: ast.AST) -> str | None:
     """Describe how handler `fn` answers with a `success` flag, or None if it doesn't.
 
     Three ways a route can do it: build the dict itself, return a service's
-    call directly (`return await x.add_custom_station(...)`), or bind that call
+    call directly (`return await x.update_program(...)`), or bind that call
     to a name and return the name. The last two are the ones the
     string-matching version missed — they read as clean at the route and are
     the forbidden envelope on the wire. Producers are matched by name, so a
@@ -649,12 +649,12 @@ def test_the_success_flag_extractor_discriminates():
         "literal": 'async def r():\n    return {"success": True}\n',
         "via a service": (
             "async def r():\n"
-            "    result = await source.station_data.add_custom_station(name=name)\n"
+            "    result = await update_service.update_program(key)\n"
             "    return result\n"
         ),
         "direct return": (
             "async def r():\n"
-            "    return await source.station_data.add_custom_station(name=name)\n"
+            "    return await update_service.update_program(key)\n"
         ),
         "direct return, sync": 'def r():\n    return source.success_response("x")\n',
         "spread of a success dict": (

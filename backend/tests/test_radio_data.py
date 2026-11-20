@@ -17,7 +17,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.shared import persistence
-from backend.sources.radio.data import ImageManager, StationDataService
+from backend.sources.radio.data import (
+    ImageManager,
+    RadioWriteFailed,
+    StationDataService,
+    StationRefused,
+)
 
 
 def _unloaded(tmp_path, **kwargs):
@@ -48,14 +53,14 @@ def _on_disk(data, *, raw=False):
 
 async def _save_something_else(data, tmp_path):
     data._data_file = tmp_path / "radio_data.json"
-    assert await data.add_favorite("api-2", {"id": "api-2", "name": "Other"}) is True
+    await data.add_favorite("api-2", {"id": "api-2", "name": "Other"})
 
 
 async def _create_then_edit(data, *, image="", new_image=None):
     created = await data.add_custom_station(
         name="Created", url="http://example.invalid/s", image_filename=image,
     )
-    station_id = created["station"]["id"]
+    station_id = created["id"]
     await data.modify_favorite_metadata(
         station_id, name="Renamed", url="http://example.invalid/s",
         image_filename=new_image,
@@ -74,7 +79,7 @@ class TestAddedStationIsAFavorite:
 
     async def test_creating_a_station_favorites_it_and_says_so_once(self, data):
         created = await data.add_custom_station(name="Mine", url="http://example.invalid/m")
-        station_id = created["station"]["id"]
+        station_id = created["id"]
 
         assert data.is_favorite(station_id) is True
         event = data._state_machine.broadcast.await_args.args[0]
@@ -83,10 +88,11 @@ class TestAddedStationIsAFavorite:
 
     async def test_it_cannot_be_unfavorited(self, data):
         created = await data.add_custom_station(name="Mine", url="http://example.invalid/m")
-        station_id = created["station"]["id"]
+        station_id = created["id"]
         data._state_machine.broadcast.reset_mock()
 
-        assert await data.remove_favorite(station_id) is False
+        with pytest.raises(StationRefused):
+            await data.remove_favorite(station_id)
 
         assert data.is_favorite(station_id) is True
         assert station_id in data._manual_stations
@@ -96,7 +102,7 @@ class TestAddedStationIsAFavorite:
         station_id = await _create_then_edit(data)
         data._state_machine.broadcast.reset_mock()
 
-        assert await data.remove_custom_station(station_id) is True
+        await data.remove_custom_station(station_id)
 
         stored = json.loads(data._data_file.read_text())
         assert station_id not in stored["manual_stations"]
@@ -114,11 +120,11 @@ class TestAddedStationIsAFavorite:
         assert data.get_local_station(station_id)["is_custom"] is True
 
     async def test_an_edit_of_an_unknown_added_station_is_refused(self, data):
-        result = await data.modify_favorite_metadata(
-            "custom_ghost", name="Ghost", url="http://example.invalid/g",
-        )
+        with pytest.raises(StationRefused):
+            await data.modify_favorite_metadata(
+                "custom_ghost", name="Ghost", url="http://example.invalid/g",
+            )
 
-        assert result["success"] is False
         assert data._modified_metadata == {} and data._manual_stations == {}
 
 
@@ -136,7 +142,8 @@ class TestRemoveCustomStation:
         await data.remove_custom_station(station_id)
 
         # Second delete: nothing left to remove, so it reports so.
-        assert await data.remove_custom_station(station_id) is False
+        with pytest.raises(StationRefused):
+            await data.remove_custom_station(station_id)
 
     @pytest.mark.asyncio
     async def test_both_images_are_deleted_when_a_save_uploaded_a_new_one(self, data):
@@ -150,15 +157,16 @@ class TestRemoveCustomStation:
     @pytest.mark.asyncio
     async def test_an_unedited_custom_station_still_deletes(self, data):
         created = await data.add_custom_station(name="Solo", url="http://example.invalid/x")
-        station_id = created["station"]["id"]
+        station_id = created["id"]
 
-        assert await data.remove_custom_station(station_id) is True
+        await data.remove_custom_station(station_id)
         assert station_id not in data.get_manual_stations()
 
     @pytest.mark.asyncio
     async def test_an_unknown_station_is_refused(self, data):
-        assert await data.remove_custom_station("custom_nope") is False
-        assert await data.remove_custom_station("api_42") is False
+        for station_id in ("custom_nope", "api_42"):
+            with pytest.raises(StationRefused):
+                await data.remove_custom_station(station_id)
 
 
 class TestModifyStationImage:
@@ -216,7 +224,7 @@ class TestRestoreFavoriteMetadata:
         )
         data._state_machine.broadcast.reset_mock()
 
-        assert (await data.restore_favorite_metadata(station_id))["success"] is True
+        await data.restore_favorite_metadata(station_id)
 
         data.image_manager.delete_image.assert_awaited_once_with("upload.webp")
         event = data._state_machine.broadcast.await_args.args[0]
@@ -233,7 +241,7 @@ class TestRestoreFavoriteMetadata:
         )
         await data.remove_favorite("api-1")
 
-        assert (await data.restore_favorite_metadata("api-1"))["success"] is True
+        await data.restore_favorite_metadata("api-1")
 
         assert data.get_local_station("api-1") is None
         data.image_manager.delete_image.assert_awaited_once_with("upload.webp")
@@ -252,9 +260,47 @@ class TestRestoreFavoriteMetadata:
         blocker.write_text("")
         data._data_file = blocker / "radio_data.json"
 
-        assert (await data.restore_favorite_metadata("api-1"))["success"] is False
+        with pytest.raises(RadioWriteFailed):
+            await data.restore_favorite_metadata("api-1")
 
         assert data.get_local_station("api-1")["name"] == "Renamed"
+        data.image_manager.delete_image.assert_not_awaited()
+
+
+class TestAnUploadBelongsToItsChange:
+    """The route stores the upload before the change is tried, so its file is
+    on disk when the store refuses. Left there, nothing names it and nothing
+    can reach it again: one orphan WebP per refused form."""
+
+    async def test_a_refused_creation_deletes_its_upload(self, data):
+        with pytest.raises(StationRefused):
+            await data.add_custom_station(name=" ", url="http://x", image_filename="up.webp")
+
+        data.image_manager.delete_image.assert_awaited_once_with("up.webp")
+
+    async def test_a_refused_edit_deletes_its_upload_and_keeps_the_current_image(self, data):
+        station_id = await _create_then_edit(data, image="first.webp")
+        data.image_manager.delete_image.reset_mock()
+
+        with pytest.raises(StationRefused):
+            await data.modify_favorite_metadata(
+                station_id, name="", url="http://x", image_filename="second.webp",
+            )
+
+        data.image_manager.delete_image.assert_awaited_once_with("second.webp")
+        assert data.get_local_station(station_id)["image_filename"] == "first.webp"
+
+    async def test_a_refusal_with_no_upload_deletes_nothing(self, data):
+        """No upload is `None` or `""`: a cleanup that ran on a falsy name is
+        how it starts reaching for other stations' files."""
+        for image in (None, ""):
+            with pytest.raises(StationRefused):
+                await data.modify_favorite_metadata(
+                    "api-ghost", name="X", url="http://x", image_filename=image,
+                )
+        with pytest.raises(StationRefused):
+            await data.add_custom_station(name="", url="http://x")
+
         data.image_manager.delete_image.assert_not_awaited()
 
 
@@ -273,9 +319,9 @@ class TestBlankNameIsRefused:
         ("\t", "\n"),
     ])
     async def test_whitespace_cannot_create_a_station(self, data, name, url):
-        result = await data.add_custom_station(name=name, url=url)
+        with pytest.raises(StationRefused):
+            await data.add_custom_station(name=name, url=url)
 
-        assert result["success"] is False
         assert data._manual_stations == {}, "a blank station was stored"
         assert data._favorites == [], "a refused station was favorited"
 
@@ -283,13 +329,13 @@ class TestBlankNameIsRefused:
         created = await data.add_custom_station(
             name="Created", url="http://example.invalid/s",
         )
-        station_id = created["station"]["id"]
+        station_id = created["id"]
 
-        result = await data.modify_favorite_metadata(
-            station_id, name="   ", url="http://example.invalid/s",
-        )
+        with pytest.raises(StationRefused):
+            await data.modify_favorite_metadata(
+                station_id, name="   ", url="http://example.invalid/s",
+            )
 
-        assert result["success"] is False
         assert station_id not in data._modified_metadata
         assert data._manual_stations[station_id]["name"] == "Created"
 
@@ -300,9 +346,8 @@ class TestBlankNameIsRefused:
             name="  France Inter  ", url="  http://example.invalid/s  ",
         )
 
-        assert result["success"] is True
-        assert result["station"]["name"] == "France Inter"
-        assert result["station"]["url"] == "http://example.invalid/s"
+        assert result["name"] == "France Inter"
+        assert result["url"] == "http://example.invalid/s"
 
 
 class TestEnrichWithFavoriteStatus:
@@ -363,7 +408,7 @@ class TestEnrichWithFavoriteStatus:
         created = await data.add_custom_station(
             name="Created", url="http://example.invalid/s", genre="Jazz",
         )
-        station_id = created["station"]["id"]
+        station_id = created["id"]
 
         enriched = data.enrich_with_favorite_status(
             [{"id": station_id, "name": "stale", "genre": "Pop"}]
@@ -390,9 +435,8 @@ class TestFavorites:
     """
 
     async def test_adding_caches_the_original_without_its_id(self, data):
-        added = await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
 
-        assert added is True
         assert data.is_favorite("api-1") is True
         assert data._favorites_cache["api-1"] == {"name": "Origin"}
         event = data._state_machine.broadcast.await_args.args[0]
@@ -402,7 +446,7 @@ class TestFavorites:
         await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
         data._state_machine.broadcast.reset_mock()
 
-        assert await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"}) is True
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
 
         data._state_machine.broadcast.assert_not_awaited()
         assert data._favorites == ["api-1"]
@@ -415,7 +459,7 @@ class TestFavorites:
         )
         data._state_machine.broadcast.reset_mock()
 
-        assert await data.remove_favorite("api-1") is True
+        await data.remove_favorite("api-1")
 
         assert data.is_favorite("api-1") is False
         assert data.get_modified_metadata()["api-1"]["name"] == "Renamed"
@@ -457,17 +501,17 @@ class TestFavorites:
         await data.add_favorite("api-1", searched)
 
         assert data.get_local_station("api-1")["name"] == "Renamed"
-        assert (await data.restore_favorite_metadata("api-1"))["success"] is True
+        await data.restore_favorite_metadata("api-1")
         assert data.get_local_station("api-1")["name"] == "Origin"
 
     async def test_an_edit_of_a_station_that_is_not_a_favorite_is_refused(self, data):
         """An auto-save landing after the heart of a station never edited was
         released has no original kept to edit over."""
-        result = await data.modify_favorite_metadata(
-            "api-1", name="Renamed", url="http://example.invalid/s",
-        )
+        with pytest.raises(StationRefused):
+            await data.modify_favorite_metadata(
+                "api-1", name="Renamed", url="http://example.invalid/s",
+            )
 
-        assert result["success"] is False
         assert data._modified_metadata == {}
 
     async def test_an_edit_kept_without_its_favorite_can_still_be_edited(self, data):
@@ -476,11 +520,10 @@ class TestFavorites:
         await data.modify_favorite_metadata("api-1", name="Renamed", url="http://example.invalid/s")
         await data.remove_favorite("api-1")
 
-        result = await data.modify_favorite_metadata(
+        await data.modify_favorite_metadata(
             "api-1", name="Renamed again", url="http://example.invalid/s",
         )
 
-        assert result["success"] is True
         assert data.get_modified_metadata()["api-1"]["name"] == "Renamed again"
 
     async def test_an_edit_back_to_the_original_off_the_favorites_keeps_nothing(self, data):
@@ -491,8 +534,7 @@ class TestFavorites:
 
         result = await data.modify_favorite_metadata("api-1", **original)
 
-        assert result["success"] is True
-        assert result["station"]["name"] == "Origin"
+        assert result["name"] == "Origin"
         assert data.get_local_station("api-1") is None
 
     async def test_a_removal_that_cannot_be_written_is_not_kept(self, data, tmp_path):
@@ -503,19 +545,21 @@ class TestFavorites:
         blocker.write_text("")
         data._data_file = blocker / "radio_data.json"
 
-        assert await data.remove_favorite("api-1") is False
+        with pytest.raises(RadioWriteFailed):
+            await data.remove_favorite("api-1")
 
         assert data.is_favorite("api-1") is True
         assert data.get_local_station("api-1")["name"] == "Origin"
 
     async def test_a_deletion_that_cannot_be_written_is_not_kept(self, data, tmp_path):
         created = await data.add_custom_station(name="Mine", url="http://example.invalid/m")
-        station_id = created["station"]["id"]
+        station_id = created["id"]
         blocker = tmp_path / "not-a-directory"
         blocker.write_text("")
         data._data_file = blocker / "radio_data.json"
 
-        assert await data.remove_custom_station(station_id) is False
+        with pytest.raises(RadioWriteFailed):
+            await data.remove_custom_station(station_id)
 
         assert data.is_favorite(station_id) is True
         assert station_id in data._manual_stations
@@ -526,53 +570,55 @@ class TestFavorites:
         nothing written and nothing announced."""
         data._data_file = _blocked(tmp_path)
 
-        assert await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"}) is False
+        with pytest.raises(RadioWriteFailed):
+            await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
 
         assert data.is_favorite("api-1") is False
         assert data.get_local_station("api-1") is None
         data._state_machine.broadcast.assert_not_awaited()
 
         data._data_file = tmp_path / "radio_data.json"
-        assert await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"}) is True
+        await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
         event = data._state_machine.broadcast.await_args.args[0]
         assert (event.TYPE, event.station_id) == ("favorite_added", "api-1")
         assert _on_disk(data)["favorites"] == ["api-1"]
 
     async def test_a_creation_that_cannot_be_written_is_not_kept(self, data, tmp_path):
-        """The route answers 400 and deletes the upload; kept in memory, the
+        """The route answers 500 and the upload is deleted; kept in memory, the
         station was still served with a dead image, and the retry wrote both."""
         data._data_file = _blocked(tmp_path)
-        created = await data.add_custom_station(
-            name="Mine", url="http://example.invalid/m", image_filename="up.webp",
-        )
+        with pytest.raises(RadioWriteFailed):
+            await data.add_custom_station(
+                name="Mine", url="http://example.invalid/m", image_filename="up.webp",
+            )
 
-        assert created["success"] is False
+        data.image_manager.delete_image.assert_awaited_once_with("up.webp")
         assert data.get_manual_stations() == {}
         assert data.favorite_ids == []
         data._state_machine.broadcast.assert_not_awaited()
 
         data._data_file = tmp_path / "radio_data.json"
         again = await data.add_custom_station(name="Mine", url="http://example.invalid/m")
-        assert again["success"] is True
         stored = _on_disk(data)
-        assert list(stored["manual_stations"]) == [again["station"]["id"]]
-        assert stored["favorites"] == [again["station"]["id"]]
+        assert list(stored["manual_stations"]) == [again["id"]]
+        assert stored["favorites"] == [again["id"]]
 
     async def test_an_edit_that_cannot_be_written_is_not_kept(self, data, tmp_path):
-        """The route answers 400 and deletes the new upload; kept in memory,
-        the refused edit was played, and written by the next unrelated save."""
+        """The route answers 500 and the new upload is deleted, the image
+        showing kept; kept in memory, the refused edit was played, and written
+        by the next unrelated save."""
         await data.add_favorite("api-1", {"id": "api-1", "name": "Origin"})
         await data.modify_favorite_metadata("api-1", name="Renamed", url="http://example.invalid/s")
         data._state_machine.broadcast.reset_mock()
         data._data_file = _blocked(tmp_path)
 
-        refused = await data.modify_favorite_metadata(
-            "api-1", name="Refused", url="http://example.invalid/s", image_filename="new.webp",
-        )
+        with pytest.raises(RadioWriteFailed):
+            await data.modify_favorite_metadata(
+                "api-1", name="Refused", url="http://example.invalid/s", image_filename="new.webp",
+            )
 
-        assert refused["success"] is False
         assert data.get_local_station("api-1")["name"] == "Renamed"
-        data.image_manager.delete_image.assert_not_awaited()
+        data.image_manager.delete_image.assert_awaited_once_with("new.webp")
         data._state_machine.broadcast.assert_not_awaited()
         await _save_something_else(data, tmp_path)
         assert "Refused" not in _on_disk(data, raw=True)
@@ -585,11 +631,11 @@ class TestFavorites:
         station_id = await _create_then_edit(data)
         data._data_file = _blocked(tmp_path)
 
-        refused = await data.modify_favorite_metadata(
-            station_id, name="Refused", url="http://example.invalid/s",
-        )
+        with pytest.raises(RadioWriteFailed):
+            await data.modify_favorite_metadata(
+                station_id, name="Refused", url="http://example.invalid/s",
+            )
 
-        assert refused["success"] is False
         assert data.get_local_station(station_id)["name"] == "Renamed"
         await _save_something_else(data, tmp_path)
         assert _on_disk(data)["manual_stations"][station_id]["name"] == "Renamed"
@@ -606,16 +652,17 @@ class TestFavorites:
         await data.remove_favorite("api-1")
         data._data_file = _blocked(tmp_path)
 
-        assert (await data.modify_favorite_metadata("api-1", **original))["success"] is False
+        with pytest.raises(RadioWriteFailed):
+            await data.modify_favorite_metadata("api-1", **original)
 
         assert data.get_local_station("api-1")["name"] == "Renamed"
         await _save_something_else(data, tmp_path)
         assert _on_disk(data)["modified_metadata"]["api-1"]["name"] == "Renamed"
-        assert (await data.restore_favorite_metadata("api-1"))["success"] is True
+        await data.restore_favorite_metadata("api-1")
         assert data.get_local_station("api-1") is None
 
     async def test_removing_a_station_that_is_not_a_favourite_announces_nothing(self, data):
-        assert await data.remove_favorite("api-1") is True
+        await data.remove_favorite("api-1")
 
         data._state_machine.broadcast.assert_not_awaited()
 
@@ -658,7 +705,7 @@ class TestShazamOptOut:
 
     async def test_an_added_station_switched_off_stays_off(self, data):
         created = await data.add_custom_station(name="Mine", url="http://example.invalid/m")
-        station_id = created["station"]["id"]
+        station_id = created["id"]
 
         await data.modify_favorite_metadata(
             station_id, name="Mine", url="http://example.invalid/m", shazam_enabled=False,
@@ -729,7 +776,7 @@ class TestModifiedStationsList:
         created = await data.add_custom_station(
             name="Created", url="http://example.invalid/s",
         )
-        station_id = created["station"]["id"]
+        station_id = created["id"]
         await self._save_as_is(data)
         await data.modify_favorite_metadata(
             "api-1", name="Renamed", url=self.ORIGINAL["url"],
@@ -970,9 +1017,10 @@ class TestAnUnloadedFileIsNeverOverwritten:
             await data.initialize()
 
         new = {"name": "New", "url": "http://example.invalid/n"}
-        added = [await data.add_favorite("newone", new) for _ in range(2)]
+        for _ in range(2):
+            with pytest.raises(RadioWriteFailed):
+                await data.add_favorite("newone", new)
 
-        assert added == [False, False]
         assert data.is_favorite("newone") is False
         assert data._data_file.read_bytes() == before
         data._state_machine.broadcast.assert_not_awaited()

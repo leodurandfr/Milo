@@ -64,7 +64,8 @@ from backend.sources.tidal.controller_socket import TidalControllerSocket
 # Where milo-tidal.service is told to put its controller socket
 # (--controller-unix-socket-path). Not the SDK's /tmp default: /run/milo is the
 # same RuntimeDirectory the mpv sources already share, so the socket is not
-# world-writable.
+# world-writable. The launcher's default (rootfs/usr/local/bin/milo-tidal-connect)
+# is the other spelling, held equal by tests/architecture/test_daemon_rendezvous.py.
 TIDAL_CONTROLLER_SOCKET = "/run/milo/tidal-controller.sock"
 
 # playerState -> phase. IDLE is a skip's first millisecond or the end of the

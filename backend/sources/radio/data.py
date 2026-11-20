@@ -12,6 +12,7 @@ see CLAUDE.md §"Persistence & schema-version protocol").
 Images location: /var/lib/milo/radio_images/
 """
 import asyncio
+import contextlib
 import logging
 import unicodedata
 import uuid
@@ -36,6 +37,25 @@ from backend.shared.persistence import (
 )
 
 REQUIRED_TOP_LEVEL_KEYS = ("favorites", "modified_metadata", "manual_stations", "favorites_cache")
+
+
+class StationRefused(Exception):
+    """A change this station, or this upload, cannot take: the request's
+    fault, answered 400, and its message is what the user reads."""
+
+
+class RadioWriteFailed(Exception):
+    """The card refused the write — radio_data.json, or an uploaded image —
+    answered 500. Whatever the change had moved in memory is put back before
+    this is raised, so the next save cannot write what the user was told
+    failed.
+
+    These two exceptions are the one failure convention of the radio's
+    stores: a mutation returns what it made, or raises one of them. There were
+    three — a bool, a `{"success", "error"}` dict and a tuple — and the routes
+    answered the same failed write 500 on the heart, 400 "Unknown error" on an
+    edit and 400 "Add custom station failed" on an addition.
+    """
 
 
 WEBP_QUALITY = 80
@@ -104,81 +124,64 @@ class ImageManager:
         """Create images directory if it doesn't exist."""
         self.IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-    async def validate_and_save_image(
-        self,
-        file_content: bytes,
-        filename: str
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Validate and save an image.
+    async def validate_and_save_image(self, file_content: bytes, filename: str) -> str:
+        """Validate an upload and store it as WebP; the stored file's name.
 
-        Args:
-            file_content: Binary file content
-            filename: Original file name
-
-        Returns:
-            Tuple (success, saved_filename, error_message)
+        Raises StationRefused for an upload that is not an image this accepts
+        (its message names why) and RadioWriteFailed when the card refused it.
         """
+        file_size = len(file_content)
+        if file_size > self.MAX_FILE_SIZE_BYTES:
+            raise StationRefused(f"Image too large ({file_size / 1024 / 1024:.1f}MB)")
+        if file_size == 0:
+            raise StationRefused("Empty file")
+
+        original_ext = Path(filename).suffix.lower()
+        if original_ext not in self.ALLOWED_EXTENSIONS:
+            raise StationRefused(
+                f"Unsupported format. Accepted: {', '.join(self.ALLOWED_EXTENSIONS)}"
+            )
+
+        # PIL is synchronous; the event loop also answers the WebSocket.
+        webp_content = await asyncio.to_thread(self._to_stored_webp, file_content)
+
+        saved_filename = f"{uuid.uuid4().hex[:12]}.webp"
         try:
-            # Verify file size
-            file_size = len(file_content)
-            if file_size > self.MAX_FILE_SIZE_BYTES:
-                return False, None, f"Image too large ({file_size / 1024 / 1024:.1f}MB)"
-            if file_size == 0:
-                return False, None, "Empty file"
-
-            # Verify file extension
-            original_ext = Path(filename).suffix.lower()
-            if original_ext not in self.ALLOWED_EXTENSIONS:
-                return False, None, f"Unsupported format. Accepted: {', '.join(self.ALLOWED_EXTENSIONS)}"
-
-            # PIL is synchronous; the event loop also answers the WebSocket.
-            webp_content, error = await asyncio.to_thread(self._to_stored_webp, file_content)
-            if error:
-                return False, None, error
-
-            # Generate unique file name
-            unique_id = uuid.uuid4().hex[:12]
-            saved_filename = f"{unique_id}.webp"
-            file_path = self.IMAGES_DIR / saved_filename
-
             # Written in full before the caller saves the record that names it.
-            await write_bytes_atomically(file_path, webp_content)
+            await write_bytes_atomically(self.IMAGES_DIR / saved_filename, webp_content)
+        except OSError as e:
+            self.logger.error(f"Could not store image {saved_filename}: {e}")
+            raise RadioWriteFailed("Could not store the image") from e
 
-            self.logger.info(f"Image saved: {saved_filename}")
-            return True, saved_filename, None
+        self.logger.info(f"Image saved: {saved_filename}")
+        return saved_filename
 
-        except Exception as e:
-            self.logger.error(f"Error saving image: {e}")
-            return False, None, f"Error saving file: {str(e)}"
-
-    def _to_stored_webp(self, file_content: bytes) -> Tuple[Optional[bytes], Optional[str]]:
+    def _to_stored_webp(self, file_content: bytes) -> bytes:
         """Validate an upload and re-encode it as the stored WebP. Blocking.
 
-        Returns (webp, None) or (None, the reason shown to the user).
+        Raises StationRefused with the reason shown to the user.
         """
         try:
             image = Image.open(io.BytesIO(file_content))
             image.verify()
             image = Image.open(io.BytesIO(file_content))
-
-            if image.format not in self.ALLOWED_FORMATS:
-                return None, f"Unsupported image format: {image.format}"
-
-            width, height = image.size
-            if width < 50 or height < 50:
-                return None, f"Image too small ({width}x{height}). Minimum: 50x50px"
-
         except Exception as e:
             self.logger.warning(f"Image validation failed: {e}")
-            return None, "Invalid or corrupted file"
+            raise StationRefused("Invalid or corrupted file") from e
+
+        if image.format not in self.ALLOWED_FORMATS:
+            raise StationRefused(f"Unsupported image format: {image.format}")
+
+        width, height = image.size
+        if width < 50 or height < 50:
+            raise StationRefused(f"Image too small ({width}x{height}). Minimum: 50x50px")
 
         try:
             image.thumbnail(self.MAX_DIMENSIONS, Image.Resampling.LANCZOS)
-            return encode_webp(image), None
+            return encode_webp(image)
         except Exception as e:
             self.logger.error(f"Image processing failed: {e}")
-            return None, "Error processing image"
+            raise StationRefused("Error processing image") from e
 
     @handle_errors(default=False)
     async def delete_image(self, filename: str) -> bool:
@@ -416,7 +419,9 @@ class StationDataService:
         return True
 
     async def _save(self) -> bool:
-        """Save all data — never over a file that failed to load."""
+        """Save all data — never over a file that failed to load. False when
+        nothing was written (logged); a public mutation that gets False puts
+        its change back and raises RadioWriteFailed."""
         if not self._loaded:
             self.logger.error(
                 f"radio_data.json is not loaded; refusing to overwrite it — "
@@ -460,6 +465,20 @@ class StationDataService:
     @property
     def favorite_count(self) -> int:
         return len(self._favorites)
+
+    @contextlib.asynccontextmanager
+    async def _upload_kept_on_success(self, image_filename: Optional[str]):
+        """A fresh upload handed to a change belongs to it: refused or not
+        saved, the change names nothing, so the file is deleted before the
+        failure goes on — left, it is an orphan nothing ever sweeps. Only on
+        those two: anything raised once the record is saved leaves a file the
+        record names."""
+        try:
+            yield
+        except (StationRefused, RadioWriteFailed):
+            if image_filename:
+                await self.image_manager.delete_image(image_filename)
+            raise
 
     def _favorites_moved(self) -> None:
         """Tell the source the list changed, once it is saved."""
@@ -556,13 +575,13 @@ class StationDataService:
                 result.append(metadata)
         return result
 
-    async def add_favorite(self, station_id: str, station: Optional[Dict[str, Any]] = None) -> bool:
-        """Add station to favorites."""
+    async def add_favorite(self, station_id: str, station: Optional[Dict[str, Any]] = None) -> None:
+        """Add station to favorites (already one: nothing to do)."""
         if not station_id:
-            return False
+            raise StationRefused("A favorite needs a station id")
 
         if station_id in self._favorites:
-            return True
+            return
 
         self._favorites.append(station_id)
         previous_cache = self._favorites_cache.get(station_id)
@@ -585,11 +604,10 @@ class StationDataService:
                 self._favorites_cache.pop(station_id, None)
             else:
                 self._favorites_cache[station_id] = previous_cache
-        else:
-            self._favorites_moved()
-            await self._broadcast(RadioFavoriteAdded(station_id=station_id))
+            raise RadioWriteFailed("Could not save the favorite")
 
-        return success
+        self._favorites_moved()
+        await self._broadcast(RadioFavoriteAdded(station_id=station_id))
 
     def _drop_if_unkept(
         self, station_id: str
@@ -605,7 +623,7 @@ class StationDataService:
         return (self._modified_metadata.pop(station_id, None),
                 self._favorites_cache.pop(station_id, None))
 
-    async def remove_favorite(self, station_id: str) -> bool:
+    async def remove_favorite(self, station_id: str) -> None:
         """Remove a directory station from favorites. Its edit stays.
 
         The edit, its cached original and its upload belong to the station
@@ -617,11 +635,10 @@ class StationDataService:
         it is a favorite for as long as it exists, and `remove_custom_station`
         is how it leaves.
         """
-        if not station_id or station_id not in self._favorites:
-            return True
         if self.is_custom_station(station_id):
-            self.logger.error(f"Refused to un-favorite added station {station_id}")
-            return False
+            raise StationRefused("An added station is removed from Settings")
+        if not station_id or station_id not in self._favorites:
+            return
 
         position = self._favorites.index(station_id)
         self._favorites.remove(station_id)
@@ -637,11 +654,10 @@ class StationDataService:
                 self._modified_metadata[station_id] = override
             if cached is not None:
                 self._favorites_cache[station_id] = cached
-        else:
-            self._favorites_moved()
-            await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
+            raise RadioWriteFailed("Could not save the removal")
 
-        return success
+        self._favorites_moved()
+        await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
 
     def enrich_with_favorite_status(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Enrich stations with favorite status and custom metadata."""
@@ -712,15 +728,18 @@ class StationDataService:
         codec: str = "",
         shazam_enabled: bool = True
     ) -> Dict[str, Any]:
-        """Add custom station."""
-        # Strip before guarding, not after: the route takes a raw Form string, so
-        # a whitespace-only name passed `not name` and was then emptied by the
-        # .strip() below — a station with no name and no URL, reported as created.
-        name, url = name.strip(), url.strip()
-        if not name or not url:
-            return {"success": False, "error": "name and url required"}
+        """Add a station the user names; the station as stored, `id` included.
 
-        try:
+        `image_filename` is an upload just stored for it, deleted if the
+        station is not."""
+        async with self._upload_kept_on_success(image_filename):
+            # Strip before guarding, not after: the route takes a raw Form string, so
+            # a whitespace-only name passed `not name` and was then emptied by the
+            # .strip() below — a station with no name and no URL, reported as created.
+            name, url = name.strip(), url.strip()
+            if not name or not url:
+                raise StationRefused("name and url required")
+
             station_id = f"custom_{uuid.uuid4()}"
             favicon_url = f"/api/radio/images/{image_filename}" if image_filename else ""
 
@@ -744,33 +763,28 @@ class StationDataService:
 
             self._manual_stations[station_id] = station
             self._favorites.append(station_id)
-            success = await self._save()
 
-            if not success:
-                # The route deletes the upload on failure: left in memory, the
-                # station would be served with a dead image and written by the
-                # next save, beside the one a retry creates.
+            if not await self._save():
+                # `_upload_kept_on_success` deletes the upload once this
+                # raises: left in memory, the station would be served with a
+                # dead image and written by the next save, beside the one a
+                # retry creates.
                 del self._manual_stations[station_id]
                 self._favorites.remove(station_id)
-            else:
-                self._favorites_moved()
-                await self._broadcast(RadioFavoriteAdded(station_id=station_id))
+                raise RadioWriteFailed("Could not save the station")
 
-            return {"success": success, "station": station}
+            self._favorites_moved()
+            await self._broadcast(RadioFavoriteAdded(station_id=station_id))
+            return station
 
-        except Exception as e:
-            self.logger.error(f"Error adding custom station: {e}")
-            return {"success": False, "error": str(e)}
-
-    @handle_errors(default=False)
-    async def remove_custom_station(self, station_id: str) -> bool:
+    async def remove_custom_station(self, station_id: str) -> None:
         """Remove an added station — its record and its favorite, in one write."""
-        if not station_id or not self.is_custom_station(station_id):
-            return False
-
-        station = self._manual_stations.pop(station_id, None)
+        station = (
+            self._manual_stations.pop(station_id, None)
+            if station_id and self.is_custom_station(station_id) else None
+        )
         if station is None:
-            return False
+            raise StationRefused("Not an added station")
         position = self._favorites.index(station_id) if station_id in self._favorites else None
         if position is not None:
             self._favorites.remove(station_id)
@@ -783,15 +797,14 @@ class StationDataService:
             self._manual_stations[station_id] = station
             if position is not None:
                 self._favorites.insert(position, station_id)
-        else:
-            if station.get('image_filename'):
-                await self.image_manager.delete_image(station['image_filename'])
-            self._station_changed(station_id, _without_image(station))
-            if position is not None:
-                self._favorites_moved()
-                await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
+            raise RadioWriteFailed("Could not save the deletion")
 
-        return success
+        if station.get('image_filename'):
+            await self.image_manager.delete_image(station['image_filename'])
+        self._station_changed(station_id, _without_image(station))
+        if position is not None:
+            self._favorites_moved()
+            await self._broadcast(RadioFavoriteRemoved(station_id=station_id))
 
     async def modify_favorite_metadata(
         self,
@@ -816,24 +829,27 @@ class StationDataService:
         has no original kept to edit over, and an auto-save landing after its
         heart was released must not make it one. An edit of a station that is
         not a favorite and brings it back to its original leaves nothing kept.
+
+        Returns the station as it now reads, `id` and `is_favorite` stamped.
+        A new upload (`image_filename`) is deleted if the edit is not saved.
         """
-        # Same order as add_custom_station, and the same reason: here it renamed
-        # an existing favourite to nothing rather than creating a blank one.
-        name, url = name.strip(), url.strip()
-        if not name or not url:
-            return {"success": False, "error": "name and url required"}
+        async with self._upload_kept_on_success(image_filename):
+            # Same order as add_custom_station, and the same reason: here it renamed
+            # an existing favourite to nothing rather than creating a blank one.
+            name, url = name.strip(), url.strip()
+            if not name or not url:
+                raise StationRefused("name and url required")
 
-        custom = self.is_custom_station(station_id)
-        if custom:
-            record = self._manual_stations.get(station_id)
-            if record is None:
-                return {"success": False, "error": "Unknown station"}
-        elif station_id not in self._favorites and station_id not in self._modified_metadata:
-            return {"success": False, "error": "Only a favorite or an edited station can be edited"}
-        else:
-            record = self._modified_metadata.get(station_id)
+            custom = self.is_custom_station(station_id)
+            if custom:
+                record = self._manual_stations.get(station_id)
+                if record is None:
+                    raise StationRefused("Unknown station")
+            elif station_id not in self._favorites and station_id not in self._modified_metadata:
+                raise StationRefused("Only a favorite or an edited station can be edited")
+            else:
+                record = self._modified_metadata.get(station_id)
 
-        try:
             original = self._favorites_cache.get(station_id, {})
             # The image the station shows right now: its record, or for a
             # directory station never edited, the directory's logo.
@@ -878,11 +894,11 @@ class StationDataService:
                 _, original_kept = self._drop_if_unkept(station_id)
                 if original_kept is not None:
                     station = original_kept
-            success = await self._save()
 
-            if not success:
+            if not await self._save():
                 # Left in memory, the refused edit would play and be written by
-                # the next save — after the route deleted its upload.
+                # the next save — after `_upload_kept_on_success` deleted its
+                # upload.
                 if custom:
                     self._manual_stations[station_id] = record
                 else:
@@ -892,27 +908,22 @@ class StationDataService:
                         self._modified_metadata[station_id] = record
                     if original_kept is not None:
                         self._favorites_cache[station_id] = original_kept
+                raise RadioWriteFailed("Could not save the edit")
 
             # The upload this save replaces is now unreachable — no read can
             # name the old file again. Only this write knows it became garbage.
-            if success and previous_image and previous_image != final_image_filename:
+            if previous_image and previous_image != final_image_filename:
                 await self.image_manager.delete_image(previous_image)
 
             station_data = station.copy()
             station_data['id'] = station_id
             station_data['is_favorite'] = station_id in self._favorites
 
-            if success:
-                self._station_changed(station_id, station)
-                await self._broadcast(RadioFavoriteModified(station=station_data))
+            self._station_changed(station_id, station)
+            await self._broadcast(RadioFavoriteModified(station=station_data))
+            return station_data
 
-            return {"success": success, "station": station_data}
-
-        except Exception as e:
-            self.logger.error(f"Error modifying station metadata: {e}")
-            return {"success": False, "error": str(e)}
-
-    async def restore_favorite_metadata(self, station_id: str, radio_api=None) -> Dict[str, Any]:
+    async def restore_favorite_metadata(self, station_id: str, radio_api=None) -> None:
         """Restore a directory station's original metadata by dropping its edit
         — a favorite's, or one kept after its favorite was removed.
 
@@ -925,55 +936,47 @@ class StationDataService:
         `_lookup_local` has nothing else to offer once it is gone: deleting
         first turned an unreachable directory into a silent loss of that work,
         reported as `{"success": True}` and a `logger.warning` the user never
-        sees.
+        sees. Refused now, with that reason (StationRefused).
 
         Broadcasts the restored station like `modify_favorite_metadata` does: the
         stores hold the station by value, so without the event the favorites list
         keeps serving the override — its uploaded image included, still rendered
         from the browser cache after the file was deleted here.
         """
-        try:
-            if station_id not in self._modified_metadata:
-                return {"success": False, "error": "Station has no modified metadata"}
+        if station_id not in self._modified_metadata:
+            raise StationRefused("Station has no modified metadata")
 
-            # Refetched by its own id — never matched by name, which could
-            # bring back another station's stream under this one's id.
-            if radio_api:
-                station = await radio_api.fetch_remote_station(station_id)
-                if station:
-                    cached = station.copy()
-                    cached.pop('id', None)
-                    self._favorites_cache[station_id] = cached
+        # Refetched by its own id — never matched by name, which could
+        # bring back another station's stream under this one's id.
+        if radio_api:
+            station = await radio_api.fetch_remote_station(station_id)
+            if station:
+                cached = station.copy()
+                cached.pop('id', None)
+                self._favorites_cache[station_id] = cached
 
-            if station_id not in self._favorites_cache:
-                self.logger.error(
-                    f"Cannot restore {station_id}: no original metadata is known"
-                )
-                return {"success": False, "error": "No original metadata to restore"}
+        if station_id not in self._favorites_cache:
+            self.logger.error(
+                f"Cannot restore {station_id}: no original metadata is known"
+            )
+            raise StationRefused("No original metadata to restore")
 
-            override = self._modified_metadata.pop(station_id)
-            restored = {**self._favorites_cache[station_id], 'id': station_id}
-            # A station that is not a favorite keeps nothing once restored.
-            _, original = self._drop_if_unkept(station_id)
+        override = self._modified_metadata.pop(station_id)
+        restored = {**self._favorites_cache[station_id], 'id': station_id}
+        # A station that is not a favorite keeps nothing once restored.
+        _, original = self._drop_if_unkept(station_id)
 
-            if not await self._save():
-                # Put back, or the next save would write the restore the UI was
-                # told failed — after its image was already gone.
-                self._modified_metadata[station_id] = override
-                if original is not None:
-                    self._favorites_cache[station_id] = original
-                return {"success": False, "error": "Could not save the restore"}
+        if not await self._save():
+            # Put back, or the next save would write the restore the UI was
+            # told failed — after its image was already gone.
+            self._modified_metadata[station_id] = override
+            if original is not None:
+                self._favorites_cache[station_id] = original
+            raise RadioWriteFailed("Could not save the restore")
 
-            if override.get('image_filename'):
-                await self.image_manager.delete_image(override['image_filename'])
+        if override.get('image_filename'):
+            await self.image_manager.delete_image(override['image_filename'])
 
-            self._station_changed(station_id, restored)
-            restored['is_favorite'] = station_id in self._favorites
-            await self._broadcast(RadioFavoriteModified(station=restored))
-
-            return {"success": True}
-
-        except Exception as e:
-            self.logger.error(f"Error restoring favorite metadata: {e}")
-            return {"success": False, "error": str(e)}
-
+        self._station_changed(station_id, restored)
+        restored['is_favorite'] = station_id in self._favorites
+        await self._broadcast(RadioFavoriteModified(station=restored))

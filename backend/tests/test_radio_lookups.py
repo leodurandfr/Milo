@@ -25,7 +25,12 @@ from PIL import Image
 from backend.shared import persistence
 from backend.shared.network import NetworkUnavailableError
 from backend.sources.radio.browser_api import RadioBrowserAPI
-from backend.sources.radio.data import ImageManager, StationDataService
+from backend.sources.radio.data import (
+    ImageManager,
+    RadioWriteFailed,
+    StationDataService,
+    StationRefused,
+)
 
 
 def _remote(**overrides):
@@ -264,9 +269,8 @@ class TestImageUpload:
     async def test_a_valid_image_is_stored_as_webp_and_the_name_is_returned(
         self, images
     ):
-        ok, filename, error = await images.validate_and_save_image(_png(), "logo.png")
+        filename = await images.validate_and_save_image(_png(), "logo.png")
 
-        assert (ok, error) == (True, None)
         assert filename.endswith(".webp")
         saved = images.IMAGES_DIR / filename
         assert saved.exists()
@@ -277,8 +281,8 @@ class TestImageUpload:
     async def test_each_upload_gets_its_own_name(self, images):
         """The name is persisted per station; a deterministic one would make a
         second upload overwrite the first station's logo."""
-        _, first, _ = await images.validate_and_save_image(_png(), "a.png")
-        _, second, _ = await images.validate_and_save_image(_png(), "b.png")
+        first = await images.validate_and_save_image(_png(), "a.png")
+        second = await images.validate_and_save_image(_png(), "b.png")
 
         assert first != second
 
@@ -288,51 +292,46 @@ class TestImageUpload:
         bytes; PIL is the library that would otherwise open them."""
         oversized = b"\x00" * (images.MAX_FILE_SIZE_BYTES + 1)
 
-        ok, filename, error = await images.validate_and_save_image(oversized, "big.png")
+        with pytest.raises(StationRefused, match="too large"):
+            await images.validate_and_save_image(oversized, "big.png")
 
-        assert (ok, filename) == (False, None)
-        assert "too large" in error
         assert list(images.IMAGES_DIR.iterdir()) == []
 
     @pytest.mark.asyncio
     async def test_an_empty_file_is_refused(self, images):
-        ok, _, error = await images.validate_and_save_image(b"", "empty.png")
-        assert (ok, error) == (False, "Empty file")
+        with pytest.raises(StationRefused, match="^Empty file$"):
+            await images.validate_and_save_image(b"", "empty.png")
 
     @pytest.mark.asyncio
     async def test_an_extension_outside_the_allow_list_is_refused(self, images):
         """The stored name keeps no trace of the original, but the check is what
         stops the decode — the byte content is never the reason to trust a file."""
-        ok, _, error = await images.validate_and_save_image(_png(), "payload.svg")
-
-        assert ok is False
-        assert "Unsupported format" in error
+        with pytest.raises(StationRefused, match="Unsupported format"):
+            await images.validate_and_save_image(_png(), "payload.svg")
 
     @pytest.mark.asyncio
-    async def test_bytes_that_are_not_an_image_are_refused_without_raising(
+    async def test_bytes_that_are_not_an_image_are_refused_as_the_uploads_fault(
         self, images
     ):
-        ok, _, error = await images.validate_and_save_image(b"not an image", "x.png")
-
-        assert (ok, error) == (False, "Invalid or corrupted file")
+        """PIL's own exception would reach the route as a 500 — the unit's
+        fault — for a file the user can simply replace."""
+        with pytest.raises(StationRefused, match="^Invalid or corrupted file$"):
+            await images.validate_and_save_image(b"not an image", "x.png")
 
     @pytest.mark.asyncio
     async def test_a_favicon_sized_image_is_refused(self, images):
         """Below 50×50 the logo is a smudge at the size the grid renders it."""
-        ok, _, error = await images.validate_and_save_image(_png(size=(32, 32)), "s.png")
-
-        assert ok is False
-        assert "too small" in error
+        with pytest.raises(StationRefused, match="too small"):
+            await images.validate_and_save_image(_png(size=(32, 32)), "s.png")
 
     @pytest.mark.asyncio
     async def test_a_large_image_is_scaled_down_rather_than_refused(self, images):
         """A phone photo is 4000 px wide. Storing it whole is megabytes per
         station on a Pi's SD card, re-decoded on every list render."""
-        ok, filename, _ = await images.validate_and_save_image(
+        filename = await images.validate_and_save_image(
             _png(size=(3000, 2000)), "photo.png"
         )
 
-        assert ok is True
         with Image.open(images.IMAGES_DIR / filename) as stored:
             assert max(stored.size) <= max(images.MAX_DIMENSIONS)
             # Scaled, not cropped.
@@ -342,11 +341,10 @@ class TestImageUpload:
     async def test_transparency_survives_the_conversion(self, images):
         """A logo on a transparent background turns into a black box if the
         alpha channel is dropped by the RGB path."""
-        ok, filename, _ = await images.validate_and_save_image(
+        filename = await images.validate_and_save_image(
             _png_with_a_hole(), "logo.png"
         )
 
-        assert ok is True
         with Image.open(images.IMAGES_DIR / filename) as stored:
             assert stored.convert("RGBA").getpixel((10, 10))[3] == 0
 
@@ -354,8 +352,8 @@ class TestImageUpload:
     async def test_a_disk_that_refuses_the_write_is_reported_and_leaves_nothing(
         self, images, monkeypatch
     ):
-        """The route turns a False into a 400 the user can read; an exception
-        escaping here is the red banner instead.
+        """The card's refusal is the unit's fault, not the upload's: the route
+        answers it 500, never 400 as if the file were bad.
 
         The refusal is an fsync that fails. That the save fsyncs at all is the
         point: a logo written in place without one can be a zero-byte file
@@ -367,10 +365,9 @@ class TestImageUpload:
 
         monkeypatch.setattr(persistence.os, "fsync", refuse)
 
-        ok, filename, error = await images.validate_and_save_image(_png(), "logo.png")
+        with pytest.raises(RadioWriteFailed):
+            await images.validate_and_save_image(_png(), "logo.png")
 
-        assert (ok, filename) == (False, None)
-        assert error.startswith("Error saving file")
         assert list(images.IMAGES_DIR.iterdir()) == []
 
 
@@ -379,7 +376,7 @@ class TestImageDeletion:
 
     @pytest.mark.asyncio
     async def test_an_uploaded_image_is_removed(self, images):
-        _, filename, _ = await images.validate_and_save_image(_png(), "logo.png")
+        filename = await images.validate_and_save_image(_png(), "logo.png")
 
         assert await images.delete_image(filename) is True
         assert not (images.IMAGES_DIR / filename).exists()
@@ -434,9 +431,8 @@ class TestRestoringAFavourite:
             {"id": "s1", "name": "FIP", "url": "http://stream/fip"}
         ))
 
-        result = await store.restore_favorite_metadata("s1", radio_api=radio_api)
+        await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
-        assert result["success"] is True
         assert "s1" not in store.get_modified_metadata()
         assert store.get_local_station("s1")["name"] == "FIP"
 
@@ -447,9 +443,8 @@ class TestRestoringAFavourite:
         radio_api = Mock()
         radio_api.fetch_remote_station = AsyncMock(return_value=None)
 
-        result = await store.restore_favorite_metadata("s1", radio_api=radio_api)
+        await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
-        assert result["success"] is True
         assert store.get_local_station("s1")["name"] == "FIP"
 
     @pytest.mark.asyncio
@@ -457,30 +452,30 @@ class TestRestoringAFavourite:
         radio_api = Mock()
         radio_api.fetch_remote_station = AsyncMock(return_value=None)
 
-        result = await store.restore_favorite_metadata("s1", radio_api=radio_api)
+        with pytest.raises(StationRefused, match="^No original metadata to restore$"):
+            await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
-        assert result["success"] is False
-        assert result["error"] == "No original metadata to restore"
         assert store.get_modified_metadata()["s1"]["name"] == "My name"
 
     @pytest.mark.asyncio
     async def test_a_refused_restore_keeps_the_uploaded_logo_on_disk(self, store):
         """The image is deleted as part of the restore. Deleting it and then
         refusing leaves the override pointing at a file that is gone."""
-        _, filename, _ = await store.image_manager.validate_and_save_image(
+        filename = await store.image_manager.validate_and_save_image(
             _png(), "logo.png"
         )
         store._modified_metadata["s1"]["image_filename"] = filename
         radio_api = Mock()
         radio_api.fetch_remote_station = AsyncMock(return_value=None)
 
-        await store.restore_favorite_metadata("s1", radio_api=radio_api)
+        with pytest.raises(StationRefused):
+            await store.restore_favorite_metadata("s1", radio_api=radio_api)
 
         assert (store.image_manager.IMAGES_DIR / filename).exists()
 
     @pytest.mark.asyncio
     async def test_a_successful_restore_removes_the_uploaded_logo(self, store):
-        _, filename, _ = await store.image_manager.validate_and_save_image(
+        filename = await store.image_manager.validate_and_save_image(
             _png(), "logo.png"
         )
         store._modified_metadata["s1"]["image_filename"] = filename
@@ -510,10 +505,8 @@ class TestRestoringAFavourite:
 
     @pytest.mark.asyncio
     async def test_a_station_that_was_never_edited_is_refused(self, store):
-        result = await store.restore_favorite_metadata("never-touched")
-
-        assert result["success"] is False
-        assert result["error"] == "Station has no modified metadata"
+        with pytest.raises(StationRefused, match="^Station has no modified metadata$"):
+            await store.restore_favorite_metadata("never-touched")
 
     @pytest.mark.asyncio
     async def test_the_restored_station_is_announced(self, store):

@@ -522,5 +522,5 @@ class MpvAudioSource(BaseAudioSource):
         return position
 
     def _playhead_ms(self, session: MpvSession, position: float) -> int:
-        """mpv's time-pos as the session's playhead (CD: within the track)."""
+        """mpv's time-pos as the session's playhead."""
         return int(position * 1000)

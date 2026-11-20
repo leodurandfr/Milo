@@ -18,12 +18,14 @@ test_radio_logos.py. Nothing here reaches the network: the conftest guard
 refuses (and fails) any connect off this host.
 """
 import io
+import logging
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from backend.sources.radio.data import RadioWriteFailed, StationRefused
 from backend.sources.radio.genres import extract_valid_genre
 from backend.sources.radio.routes import setup_radio_routes
 
@@ -33,14 +35,14 @@ def station_data():
     data = Mock()
     data.get_favorites_with_metadata = AsyncMock(return_value=[])
     data.enrich_with_favorite_status = Mock(side_effect=lambda s: s)
-    data.add_custom_station = AsyncMock(return_value={"success": True, "station": {}})
-    data.remove_custom_station = AsyncMock(return_value=True)
-    data.modify_favorite_metadata = AsyncMock(return_value={"success": True, "station": {}})
-    data.restore_favorite_metadata = AsyncMock(return_value={"success": True})
+    data.add_custom_station = AsyncMock(return_value={})
+    data.remove_custom_station = AsyncMock(return_value=None)
+    data.modify_favorite_metadata = AsyncMock(return_value={})
+    data.restore_favorite_metadata = AsyncMock(return_value=None)
+    data.add_favorite = AsyncMock(return_value=None)
+    data.remove_favorite = AsyncMock(return_value=None)
     data.image_manager = Mock()
-    data.image_manager.validate_and_save_image = AsyncMock(
-        return_value=(True, "abc123.webp", None)
-    )
+    data.image_manager.validate_and_save_image = AsyncMock(return_value="abc123.webp")
     data.image_manager.delete_image = AsyncMock(return_value=True)
     data.image_manager.as_jpeg = AsyncMock(return_value=b"\xff\xd8\xffjpeg")
     data.image_manager.get_image_path = Mock(return_value=None)
@@ -240,7 +242,7 @@ class TestCustomStations:
 
     def test_a_station_is_created_with_the_form_it_was_given(self, client, station_data):
         station_data.add_custom_station = AsyncMock(
-            return_value={"success": True, "station": {"id": "custom_1", "name": "Mine"}}
+            return_value={"id": "custom_1", "name": "Mine"}
         )
 
         response = client.post("/api/radio/custom", data={
@@ -274,7 +276,7 @@ class TestCustomStations:
         self, client, station_data
     ):
         station_data.image_manager.validate_and_save_image = AsyncMock(
-            return_value=(False, None, "Image too large (7.2MB)")
+            side_effect=StationRefused("Image too large (7.2MB)")
         )
 
         response = client.post(
@@ -287,40 +289,8 @@ class TestCustomStations:
         assert "Image too large (7.2MB)" in response.json()["detail"]
         station_data.add_custom_station.assert_not_awaited()
 
-    def test_an_image_saved_for_a_creation_that_then_fails_is_deleted(
-        self, client, station_data
-    ):
-        """The file is already on disk by the time the store refuses. Without
-        this the unit accumulates orphan WebPs no screen ever lists and no
-        deletion path can reach — its filename was never persisted anywhere."""
-        station_data.add_custom_station = AsyncMock(
-            return_value={"success": False, "error": "URL already used"}
-        )
-
-        response = client.post(
-            "/api/radio/custom",
-            data={"name": "Mine", "url": "http://x"},
-            files={"image": ("logo.png", io.BytesIO(b"x"), "image/png")},
-        )
-
-        assert response.status_code == 400
-        station_data.image_manager.delete_image.assert_awaited_once_with("abc123.webp")
-
-    def test_nothing_is_deleted_when_a_creation_without_an_image_fails(
-        self, client, station_data
-    ):
-        """`image_filename` is `""` on this path — deleting on a falsy name is
-        how a cleanup starts reaching for other stations' files."""
-        station_data.add_custom_station = AsyncMock(
-            return_value={"success": False, "error": "nope"}
-        )
-
-        client.post("/api/radio/custom", data={"name": "Mine", "url": "http://x"})
-
-        station_data.image_manager.delete_image.assert_not_awaited()
-
     def test_deleting_a_custom_station_reports_a_refusal(self, client, station_data):
-        station_data.remove_custom_station = AsyncMock(return_value=False)
+        station_data.remove_custom_station = AsyncMock(side_effect=StationRefused("Not an added station"))
 
         assert client.delete("/api/radio/custom/custom_1").status_code == 400
         station_data.remove_custom_station.assert_awaited_once_with("custom_1")
@@ -378,22 +348,6 @@ class TestFavouriteMetadata:
         assert (station_data.modify_favorite_metadata.await_args.kwargs["image_filename"]
                 == "abc123.webp")
 
-    def test_an_image_saved_for_an_edit_that_then_fails_is_deleted(
-        self, client, station_data
-    ):
-        station_data.modify_favorite_metadata = AsyncMock(
-            return_value={"success": False, "error": "unknown station"}
-        )
-
-        response = client.post(
-            "/api/radio/favorites/modify-metadata",
-            data={"station_id": "s1", "name": "FIP", "url": "http://x"},
-            files={"image": ("logo.png", io.BytesIO(b"x"), "image/png")},
-        )
-
-        assert response.status_code == 400
-        station_data.image_manager.delete_image.assert_awaited_once_with("abc123.webp")
-
     def test_a_restore_passes_the_directory_client_so_the_original_can_be_refetched(
         self, client, station_data, radio_api
     ):
@@ -409,7 +363,7 @@ class TestFavouriteMetadata:
         self, client, station_data
     ):
         station_data.restore_favorite_metadata = AsyncMock(
-            return_value={"success": False, "error": "No original metadata to restore"}
+            side_effect=StationRefused("No original metadata to restore")
         )
 
         response = client.post("/api/radio/favorites/restore-metadata",
@@ -417,6 +371,67 @@ class TestFavouriteMetadata:
 
         assert response.status_code == 400
         assert "No original metadata" in response.json()["detail"]
+
+
+# Every route that writes the radio's stores, with the store call it makes.
+_WRITES = {
+    "add favorite": ("add_favorite", "post", "/api/radio/favorites",
+                     {"json": {"station_id": "s1", "station": {"name": "FIP"}}}),
+    "remove favorite": ("remove_favorite", "delete", "/api/radio/favorites/s1", {}),
+    "edit": ("modify_favorite_metadata", "post", "/api/radio/favorites/modify-metadata",
+             {"data": {"station_id": "s1", "name": "FIP", "url": "http://x"}}),
+    "restore": ("restore_favorite_metadata", "post", "/api/radio/favorites/restore-metadata",
+                {"data": {"station_id": "s1"}}),
+    "add station": ("add_custom_station", "post", "/api/radio/custom",
+                    {"data": {"name": "Mine", "url": "http://x"}}),
+    "remove station": ("remove_custom_station", "delete", "/api/radio/custom/custom_1", {}),
+}
+
+
+class TestOneAnswerPerFailure:
+    """The stores had three failure conventions (a bool, a `{"success",
+    "error"}` dict, a tuple) and each route knew the one it called: a card
+    refusing the write was 500 on the heart, 400 "Unknown error" on an edit,
+    400 "Add custom station failed" on an addition. A 4xx blames the request,
+    and the user read "Unknown error". Now every write route answers a refused
+    write 500 and a refused change 400, with the store's own words."""
+
+    @pytest.mark.parametrize("route", _WRITES, ids=list(_WRITES))
+    @pytest.mark.parametrize("failure,status", [
+        (RadioWriteFailed("Could not save it"), 500),
+        (StationRefused("Not this one"), 400),
+    ], ids=["write refused", "change refused"])
+    def test_every_write_route_answers_a_failure_the_same_way(
+        self, client, station_data, route, failure, status, caplog
+    ):
+        """A refused change is the request's and already shown in the form, so
+        it stays below error: an error under `backend.*` is the red banner on
+        every screen, which belongs to the write the card refused."""
+        method, verb, path, body = _WRITES[route]
+        getattr(station_data, method).side_effect = failure
+
+        with caplog.at_level(logging.DEBUG, logger="backend.sources.radio.routes"):
+            response = getattr(client, verb)(path, **body)
+
+        assert response.status_code == status
+        getattr(station_data, method).assert_awaited_once()
+        errors = [r for r in caplog.records
+                  if r.name == "backend.sources.radio.routes" and r.levelno >= logging.ERROR]
+        assert bool(errors) is (status == 500), [r.message for r in errors]
+
+    def test_an_image_the_card_refused_is_the_units_fault(self, client, station_data):
+        station_data.image_manager.validate_and_save_image.side_effect = (
+            RadioWriteFailed("Could not store the image")
+        )
+
+        response = client.post(
+            "/api/radio/custom",
+            data={"name": "Mine", "url": "http://x"},
+            files={"image": ("logo.png", io.BytesIO(b"x"), "image/png")},
+        )
+
+        assert response.status_code == 500
+        station_data.add_custom_station.assert_not_awaited()
 
 
 class TestStationImage:

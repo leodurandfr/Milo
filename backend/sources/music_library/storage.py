@@ -6,12 +6,14 @@ itself — that is this module's job. ``StorageManager`` watches the ``block``
 subsystem with pyudev (unprivileged, the analog of the CD disc-watcher), mounts
 each USB partition read-only under the mount root through the ``milo-mount``
 privileged helper, and asks Navidrome to rescan. On removal it unmounts through
-``milo-umount`` and rescans so Navidrome drops the tracks that vanished with the
-key.
+``milo-umount`` and asks for no scan: the key keeps its library and its index
+for when it comes back (see ``_unmount``).
 
-Runs for the whole backend lifetime, independent of playback: a plugged-in key
-gets indexed even when music_library is not the active source (Navidrome is
-always-on).
+The watcher runs for the whole backend lifetime, independent of playback: a key
+plugged in while another source plays is mounted all the same. Navidrome is not
+always on — it runs exactly while the dock enables Music Library
+(``MusicLibrarySource.set_catalog_running``) — so what is mounted is indexed
+only while the catalog runs.
 
 SMB/NFS network shares are handled alongside. Unlike USB there is no hotplug event to
 rediscover them, so their config is persisted (MusicLibraryDataService) and the
@@ -445,7 +447,9 @@ class StorageManager:
         share that is down at boot can't block startup). Triggers a Navidrome
         rescan on success so the newly-visible tracks get indexed. ``quiet`` logs
         a failure at debug rather than error, for a background retry against a
-        NAS known to be away: an error reaches every screen's banner.
+        NAS known to be away: the outage is said once, not at every retry. (No
+        banner either way: this logger hangs under ``source.``, and only
+        ``backend.*`` reaches the WebSocketLogHandler — main.py.)
         """
         share_id = share["id"]
         args = (

@@ -5,7 +5,7 @@ from unittest.mock import Mock, AsyncMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.sources.radio.data import StationDataService
+from backend.sources.radio.data import RadioWriteFailed, StationDataService
 from backend.sources.radio.routes import setup_radio_routes
 from backend.sources.radio.source import RadioSource
 
@@ -26,8 +26,6 @@ class TestFavoritesHaveOneEntryPoint:
     def _client(station_data, radio_api=None):
         app = FastAPI()
         source = Mock()
-        # The route asks the real predicate; a Mock would answer truthy for all.
-        station_data.is_custom_station = StationDataService.is_custom_station
         source.station_data = station_data
         source.radio_api = radio_api or Mock()
         app.include_router(setup_radio_routes(lambda: source), prefix="/api")
@@ -81,10 +79,10 @@ class TestFavoritesHaveOneEntryPoint:
         data.add_favorite.assert_not_awaited()
 
     def test_a_refused_write_raises_instead_of_answering_200(self):
-        """`station_data` reports a failed save as False. Passing that through as
-        a body flag is the `{"success": bool}` non-envelope — it must raise."""
+        """A failed save must not reach the wire as a body flag — the
+        `{"success": bool}` non-envelope: it is a 500."""
         data = Mock()
-        data.add_favorite = AsyncMock(return_value=False)
+        data.add_favorite = AsyncMock(side_effect=RadioWriteFailed("Could not save the favorite"))
         client, _ = self._client(data)
 
         # A falsy `station` sends the route to RadioBrowser first, and a Mock
@@ -110,18 +108,20 @@ class TestFavoritesHaveOneEntryPoint:
 
     def test_an_added_station_cannot_be_unfavorited(self):
         """An added station is a favorite for as long as it exists; the heart is
-        disabled for it, and a client that sends the DELETE anyway is refused
-        before the service is reached."""
-        data = Mock()
-        data.remove_favorite = AsyncMock(return_value=True)
+        disabled for it, and a client that sends the DELETE anyway is refused —
+        by the store, the one owner of that rule, as the request's fault."""
+        data = StationDataService()
+        data._loaded = True
         client, _ = self._client(data)
 
-        assert client.delete("/api/radio/favorites/custom_1").status_code == 400
-        data.remove_favorite.assert_not_awaited()
+        response = client.delete("/api/radio/favorites/custom_1")
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "An added station is removed from Settings"
 
     def test_remove_that_fails_to_persist_raises(self):
         data = Mock()
-        data.remove_favorite = AsyncMock(return_value=False)
+        data.remove_favorite = AsyncMock(side_effect=RadioWriteFailed("Could not save the removal"))
         client, _ = self._client(data)
 
         assert client.delete("/api/radio/favorites/s1").status_code == 500

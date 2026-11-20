@@ -137,9 +137,9 @@ class CdIoctlReader:
                    stop_event: threading.Event) -> None:
         """Main read loop: ioctl read -> FIFO write.
 
-        Reads its own ``stop_event``, never ``stop_event``: a thread this
-        object has already given up on must stay stopped when the next run
-        installs a fresh one.
+        Reads the ``stop_event`` it was handed, never ``self._stop_event``: a
+        thread this object has already given up on must stay stopped when the
+        next run installs a fresh one.
         """
         cd_fd = -1
         fifo_fd = -1

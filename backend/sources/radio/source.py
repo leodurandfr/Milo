@@ -990,7 +990,10 @@ class RadioSource(MpvAudioSource):
 
     def _radiofrance_failed(self, session: RadioSession, error: Exception, now: float) -> None:
         """A read that failed changes nothing: what is known keeps its
-        schedule. An outage is reported once, never at error (the banner)."""
+        schedule. An outage is reported once, and at warning: a source is not
+        broken because a third-party feed is away. (Its logger hangs under
+        ``source.``, which never reaches the WebSocketLogHandler's banner —
+        only ``backend.*`` does, main.py.)"""
         log = radiofrance.logger
         reason = describe_network_error(error)
         if session.radiofrance_failing_since is None:

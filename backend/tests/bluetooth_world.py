@@ -591,6 +591,11 @@ class FakeSystemBus:
 
         if message.interface == "org.freedesktop.DBus" and message.member == "AddMatch":
             return reply()
+        if message.interface == "org.freedesktop.DBus" and message.member == "GetNameOwner":
+            assert message.body == ["org.bluez"], message.body
+            if not world.bluez_up:
+                return error("org.freedesktop.DBus.Error.NameHasNoOwner")
+            return reply(world.bluez_owner)
         if not world.bluez_up:
             return error("org.freedesktop.DBus.Error.ServiceUnknown")
         if message.interface == OBJECT_MANAGER_IFACE and message.member == "GetManagedObjects":

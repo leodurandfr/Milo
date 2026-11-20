@@ -525,7 +525,8 @@ class PodcastCatalog:
         One fetch per subscribed feed, in parallel. There is no way to ask for
         only the newest few: an RSS feed is indivisible, and publishers do not
         answer conditional requests, so each cache miss downloads whole feeds.
-        The 120-minute cache is what keeps that off the critical path.
+        The feed cache (`cache_duration`, set by whoever builds the catalog) is
+        what keeps that off the critical path.
         """
         if not itunes_ids:
             return {"results": [], "total": 0}

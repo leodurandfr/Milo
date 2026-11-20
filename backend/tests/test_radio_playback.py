@@ -612,8 +612,7 @@ class TestStationRecordMoved:
 
     async def edit(self, data, station: dict, **changes) -> None:
         fields = {k: station[k] for k in ("name", "url")}
-        result = await data.modify_favorite_metadata(station["id"], **{**fields, **changes})
-        assert result["success"] is True
+        await data.modify_favorite_metadata(station["id"], **{**fields, **changes})
 
     def shown(self, radio) -> tuple:
         """What the clients draw: the line's artwork and the station's logo."""
@@ -666,7 +665,7 @@ class TestStationRecordMoved:
         await radio.tune(FIP)
         await radio.command("stop")
 
-        assert (await data.restore_favorite_metadata("fip"))["success"] is True
+        await data.restore_favorite_metadata("fip")
         await settle()
 
         assert self.shown(radio)[1] == FIP["favicon"]
@@ -689,15 +688,14 @@ class TestStationRecordMoved:
         self, radio, data
     ):
         """No directory to fall back on: no logo, rather than a dead link."""
-        added = await data.add_custom_station(
+        station = await data.add_custom_station(
             name="Mine", url="http://stream.example/mine.mp3", image_filename="upload.webp"
         )
-        station = added["station"]
         await radio.select()
         await radio.tune(station)
         assert self.shown(radio) == (self.UPLOAD, self.UPLOAD)
 
-        assert await data.remove_custom_station(station["id"]) is True
+        await data.remove_custom_station(station["id"])
         await settle()
 
         assert self.shown(radio) == (None, None)

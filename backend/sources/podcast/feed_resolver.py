@@ -179,11 +179,12 @@ class FeedUrlResolver:
     async def _from_lookup_api_batch(
         self, itunes_ids: list[str]
     ) -> Dict[str, Optional[str]]:
-        """Read `feedUrl` for a batch of ids. Empty dict when the call failed.
+        """Read `feedUrl` for a batch of ids.
 
         A failed call and a podcast Apple has no feed for are different news:
-        the first must not be cached as "no feed", so it answers with nothing
-        rather than with None per id.
+        the first must not be cached as "no feed", so it raises
+        `CatalogUnavailable` (from `_get_json`) rather than answering None per
+        id.
         """
         payload = await self._get_json(
             self.LOOKUP_URL,
@@ -233,7 +234,9 @@ class FeedUrlResolver:
     async def _get_json(
         self, url: str, params: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
-        """GET a JSON document. None on any failure.
+        """GET a JSON document. None when Apple answered that it is not there
+        (see `_get_text`); `CatalogUnavailable` when Apple did not answer or
+        answered something that is not JSON.
 
         The lookup API answers `text/javascript`, so the body is decoded by
         hand rather than through `resp.json()`, which enforces the content type.

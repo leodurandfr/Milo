@@ -103,6 +103,7 @@ from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
 from backend.shared.decorators import handle_errors
+from backend.sources.bluetooth import adapter as bluez_adapter
 
 
 # Called with (device_address, snapshot) whenever the player state moved.
@@ -170,15 +171,22 @@ TRACK_SETTLE_TIMEOUT_S = 2.0
 COMMAND_ATTRIBUTION_S = 3.0
 
 
+# Each BlueZ rule names bluetoothd as its sender, so dbus-daemon routes nothing
+# else here as a broadcast. That is not the defense, only less traffic: any local
+# account may signal on the system bus, and a signal addressed to this
+# connection reaches it whatever its match rules say. `_on_dbus_message` is the
+# check, against the unique name the bus daemon says holds org.bluez.
 _MATCH_RULES = (
-    f"type='signal',interface='{PROPERTIES_IFACE}',member='PropertiesChanged',"
-    f"arg0='{MEDIA_PLAYER_IFACE}'",
+    f"type='signal',sender='{BLUEZ_SERVICE}',interface='{PROPERTIES_IFACE}',"
+    f"member='PropertiesChanged',arg0='{MEDIA_PLAYER_IFACE}'",
     # Which of a device's players is the live one — measured, a phone can
     # publish two (one per app: "Musique" and "Spotify" side by side).
-    f"type='signal',interface='{PROPERTIES_IFACE}',member='PropertiesChanged',"
-    f"arg0='{MEDIA_CONTROL_IFACE}'",
-    f"type='signal',interface='{OBJECT_MANAGER_IFACE}',member='InterfacesAdded'",
-    f"type='signal',interface='{OBJECT_MANAGER_IFACE}',member='InterfacesRemoved'",
+    f"type='signal',sender='{BLUEZ_SERVICE}',interface='{PROPERTIES_IFACE}',"
+    f"member='PropertiesChanged',arg0='{MEDIA_CONTROL_IFACE}'",
+    f"type='signal',sender='{BLUEZ_SERVICE}',interface='{OBJECT_MANAGER_IFACE}',"
+    f"member='InterfacesAdded'",
+    f"type='signal',sender='{BLUEZ_SERVICE}',interface='{OBJECT_MANAGER_IFACE}',"
+    f"member='InterfacesRemoved'",
     # bluetoothd itself. Measured: killed, it removes nothing from the bus —
     # its player object is simply gone with its name, and nothing else says so.
     f"type='signal',sender='{DBUS_DAEMON}',interface='{DBUS_DAEMON}',"
@@ -296,6 +304,17 @@ class AvrcpController:
         self._own_playhead_from: Optional[float] = None
         self._command_at: float = 0.0
         self._stopped = False
+        # The unique name holding org.bluez, the only sender whose signals are
+        # read: a local account forging a PropertiesChanged would otherwise put
+        # its title on screen and on the Lock Screen, and a forged Adapter1
+        # InterfacesAdded would make the source reapply the adapter. Only the
+        # bus daemon says who holds the name.
+        self._bluez_owner: Optional[str] = None
+        self._owner_changes = 0
+        # The destinations whose last call went unanswered: a silent
+        # bluetoothd is said once, not at every position poll — and the bus
+        # daemon answering in between says nothing about bluetoothd.
+        self._unanswered: set[str] = set()
 
     def set_callbacks(
         self, *, on_update: UpdateCallback, on_daemon: Optional[DaemonCallback] = None,
@@ -356,18 +375,12 @@ class AvrcpController:
         self._bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
 
         for rule in _MATCH_RULES:
-            reply = await self._bus.call(Message(
-                destination="org.freedesktop.DBus",
-                path="/org/freedesktop/DBus",
-                interface="org.freedesktop.DBus",
-                member="AddMatch",
-                signature="s",
-                body=[rule],
-            ))
-            if reply.message_type == MessageType.ERROR:
-                raise RuntimeError(f"D-Bus AddMatch failed: {reply.body}")
+            reply = await self._call_daemon("AddMatch", rule)
+            if reply is None or reply.message_type == MessageType.ERROR:
+                raise RuntimeError(f"D-Bus AddMatch failed: {reply.body if reply else 'no reply'}")
 
         self._bus.add_message_handler(self._on_dbus_message)
+        await self._read_owner()
         self._notify_task = asyncio.create_task(self._notify_loop())
         self._poll_task = asyncio.create_task(self._poll_loop())
 
@@ -400,6 +413,8 @@ class AvrcpController:
             with contextlib.suppress(Exception):
                 self._bus.disconnect()
             self._bus = None
+        self._bluez_owner = None
+        self._unanswered.clear()
 
         self._others.clear()
         self._clear_player()
@@ -414,14 +429,16 @@ class AvrcpController:
         if not self._bus or not self._player_path:
             return False
 
-        reply = await self._bus.call(Message(
+        reply = await self._call(Message(
             destination=BLUEZ_SERVICE,
             path=self._player_path,
             interface=MEDIA_PLAYER_IFACE,
             member=member,
         ))
-        if reply is None or reply.message_type == MessageType.ERROR:
-            self._logger.warning(f"AVRCP {member} refused: {reply.body if reply else 'no reply'}")
+        if reply is None:
+            return False
+        if reply.message_type == MessageType.ERROR:
+            self._logger.warning(f"AVRCP {member} refused: {reply.body}")
             return False
 
         if member in ("Next", "Previous"):
@@ -466,7 +483,7 @@ class AvrcpController:
         if not self._bus or not self._player_path:
             return False
 
-        reply = await self._bus.call(Message(
+        reply = await self._call(Message(
             destination=BLUEZ_SERVICE,
             path=self._player_path,
             interface=PROPERTIES_IFACE,
@@ -526,13 +543,68 @@ class AvrcpController:
 
     # === D-Bus plumbing ===
 
+    async def _call(self, msg: Message) -> Optional[Message]:
+        """One D-Bus call, bounded by DBUS_CALL_TIMEOUT like every other call
+        the source makes to BlueZ (adapter.py says why; read at call time).
+
+        Unbounded, a bluetoothd on the bus that stops answering held the
+        source's mailbox for as long as it stayed silent: a transport command
+        or a playhead read runs inside it, and every message behind it — the
+        link, the stream — waited for the next STOP. None when nothing answered
+        in time, said once per outage: the position poll asks every few seconds.
+        """
+        timeout = bluez_adapter.DBUS_CALL_TIMEOUT
+        destination = msg.destination
+        try:
+            reply = await asyncio.wait_for(self._bus.call(msg), timeout)
+        except asyncio.TimeoutError:
+            log = self._logger.debug if destination in self._unanswered else self._logger.warning
+            log(f"{destination} did not answer {msg.member} within {timeout} s")
+            self._unanswered.add(destination)
+            return None
+        if destination in self._unanswered:
+            self._logger.info(f"{destination} answers again")
+            self._unanswered.discard(destination)
+        return reply
+
+    async def _call_daemon(self, member: str, arg: str) -> Optional[Message]:
+        """A call to the bus daemon itself (AddMatch, GetNameOwner)."""
+        return await self._call(Message(
+            destination=DBUS_DAEMON,
+            path="/org/freedesktop/DBus",
+            interface=DBUS_DAEMON,
+            member=member,
+            signature="s",
+            body=[arg],
+        ))
+
+    async def _read_owner(self) -> None:
+        """Who holds org.bluez now — unless the bus announced a change while
+        the answer was on its way, which is newer. None while nobody does: its
+        signals are read from the NameOwnerChanged that names it.
+
+        Raises when the bus daemon does not answer, as AddMatch does, so
+        `start` fails and says so: left None, every bluetoothd signal would be
+        dropped until bluetoothd next restarted — a feed deaf in silence."""
+        changes = self._owner_changes
+        reply = await self._call_daemon("GetNameOwner", BLUEZ_SERVICE)
+        if changes != self._owner_changes:
+            return
+        if reply is None:
+            raise RuntimeError(f"D-Bus GetNameOwner({BLUEZ_SERVICE}) got no reply")
+        if reply.message_type == MessageType.ERROR or not reply.body:
+            self._logger.debug(f"{BLUEZ_SERVICE} has no owner yet")
+            self._bluez_owner = None
+        else:
+            self._bluez_owner = reply.body[0]
+
     async def _rescan(self, prefer: Optional[str] = None) -> None:
         """Adopt the player on the bus that should be followed now: `prefer`
         if it exists, else one a device's MediaControl1 names as its live
         player, else any. Run at start (a player predating our listener — a
         backend restart under a live session) and whenever the one followed
         is gone or BlueZ names another, since a phone can publish two."""
-        reply = await self._bus.call(Message(
+        reply = await self._call(Message(
             destination=BLUEZ_SERVICE,
             path="/",
             interface=OBJECT_MANAGER_IFACE,
@@ -581,10 +653,20 @@ class AvrcpController:
         if msg.message_type != MessageType.SIGNAL or not msg.body:
             return
 
-        if msg.member == "NameOwnerChanged" and len(msg.body) >= 3:
-            if msg.sender != DBUS_DAEMON or msg.body[0] != BLUEZ_SERVICE or msg.body[2]:
+        if msg.member == "NameOwnerChanged":
+            if msg.sender != DBUS_DAEMON or len(msg.body) < 3 or msg.body[0] != BLUEZ_SERVICE:
+                return
+            self._owner_changes += 1
+            self._bluez_owner = msg.body[2] or None
+            if self._bluez_owner:
+                # A new bluetoothd: its adapter's InterfacesAdded, read from
+                # the name just given, says when it is ready.
                 return
             self._bluez_gone()
+
+        elif self._bluez_owner is None or msg.sender != self._bluez_owner:
+            # Not bluetoothd: see `_bluez_owner`.
+            return
 
         elif msg.member == "InterfacesAdded" and len(msg.body) >= 2:
             path, interfaces = msg.body[0], msg.body[1]
@@ -852,10 +934,7 @@ class AvrcpController:
 
     async def _settle_flush_loop(self) -> None:
         """Wait out the settle window, then publish what was held."""
-        try:
-            await asyncio.sleep(TRACK_SETTLE_TIMEOUT_S)
-        except asyncio.CancelledError:
-            raise
+        await asyncio.sleep(TRACK_SETTLE_TIMEOUT_S)
         if self._stopped or self._pending_track is None:
             return
         self._flush_pending()
@@ -901,7 +980,10 @@ class AvrcpController:
         """Look again on the COMMAND_REREAD_DELAYS schedule, then stop.
 
         Bounded on purpose: this covers the window where the sender has not yet
-        told BlueZ what it did, and the poll owns the steady state.
+        told BlueZ what it did, and the poll owns the steady state. A read that
+        fails is said and the next one still runs, as in `_poll_loop`: died
+        there, the rest of the schedule went with it and nothing said why the
+        bar stayed wrong until the next poll.
         """
         elapsed = 0.0
         for delay in COMMAND_REREAD_DELAYS:
@@ -914,6 +996,8 @@ class AvrcpController:
                 self._mark_dirty()
             except asyncio.CancelledError:
                 raise
+            except Exception as e:
+                self._logger.error(f"AVRCP playhead re-read failed: {e}")
 
     async def _poll_loop(self) -> None:
         """Advance the playhead while playing — no signal reports it moving.

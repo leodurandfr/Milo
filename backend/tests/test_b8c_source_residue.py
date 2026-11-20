@@ -99,6 +99,7 @@ class TestTheAvrcpAdoption:
         ctrl = AvrcpController.__new__(AvrcpController)
         ctrl._logger = logging.getLogger("source.bluetooth.avrcp")
         ctrl._bus = Mock()
+        ctrl._unanswered = set()
         ctrl._player_path = None
         ctrl._device = None
         ctrl._adopt_player = Mock()

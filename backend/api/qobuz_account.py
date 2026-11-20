@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.sources.qobuz.account import clear_credentials, is_connected, read_credentials
+from backend.sources.qobuz.source import QOBUZ_PROXY_PORT
 
 if TYPE_CHECKING:
     from backend.core.systemd import SystemdServiceManager
@@ -35,8 +36,7 @@ logger = logging.getLogger(__name__)
 
 # qobuz-proxy's local HTTP API. Logout uses loopback; the browser-facing login
 # URL is built from the request host so it resolves from the same device.
-QOBUZ_PROXY_INTERNAL = "http://127.0.0.1:8689"
-QOBUZ_PROXY_PORT = 8689
+QOBUZ_PROXY_INTERNAL = f"http://127.0.0.1:{QOBUZ_PROXY_PORT}"
 QOBUZ_SERVICE = "milo-qobuz.service"
 
 def create_qobuz_account_router(

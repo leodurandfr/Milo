@@ -52,8 +52,12 @@ from backend.sources.qobuz.monitor import QobuzMonitor
 # from the qobuz.allow_app_volume setting; the sidecar's data dir is D3.
 QOBUZ_VOLUME_FLAG = MILO_DATA_DIR / "qobuz" / "allow_app_volume"
 
-# qobuz-proxy local HTTP API (aiohttp, bound 0.0.0.0:8689 by milo-qobuz.service).
-QOBUZ_STATUS_URL = "http://127.0.0.1:8689/api/status"
+# qobuz-proxy's HTTP port: its `server.http_port`, written into config.yaml by
+# provisioning/qobuz-proxy.sh and bound on every interface by milo-qobuz.service.
+# The status poll and the account routes (api/qobuz_account.py) read it from
+# here; tests/architecture/test_daemon_rendezvous.py holds the two sides equal.
+QOBUZ_PROXY_PORT = 8689
+QOBUZ_STATUS_URL = f"http://127.0.0.1:{QOBUZ_PROXY_PORT}/api/status"
 # Our speaker is matched by its ALSA output device, not the slugified id
 # ("Milō" -> "mil"): qobuz-proxy hard-couples id = slugify(name).
 QOBUZ_AUDIO_DEVICE = "milo_qobuz"

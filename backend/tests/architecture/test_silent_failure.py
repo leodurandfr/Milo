@@ -82,7 +82,7 @@ does not reach is a dropped verdict from another service, which stays a review
 concern for the same reason as the rest of this paragraph.
 
 The blocker is structural, not effort: services are reached through instance
-attributes under dict-based DI (`source.station_data.add_custom_station`), so
+attributes under dict-based DI (`source.station_data.add_favorite`), so
 no offline resolver can bind a call to a class — the same limit
 `test_wire_conventions.py` records for its `SUCCESS_PRODUCERS` scan. There,
 over-approximating by name is harmless because the producer set is small and

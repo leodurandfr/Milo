@@ -96,6 +96,12 @@ from backend.shared.artwork import decode_artwork_dimensions
 # measured, a Mac's 5.4 s on a track change (5.5.1).
 ARTWORK_SETTLE_SECONDS = 8.0
 
+# The session pipe, the `metadata.pipe_name` rootfs/etc/shairport-sync.conf
+# gives shairport-sync. Two spellings of one rendezvous, held equal by
+# tests/architecture/test_daemon_rendezvous.py: moved on one side only, the
+# source waits on a pipe nobody writes and AirPlay stays silent with no error.
+METADATA_PIPE = "/tmp/shairport-sync-metadata"
+
 # Where shairport-sync writes the pictures it is sent: its built-in
 # cover_art_cache_directory (shairport-sync.conf sets none). The item names its
 # picture over the system bus, so nothing outside this is read.
@@ -365,7 +371,7 @@ class AirPlaySource(BaseAudioSource):
             settings_service=settings_service,
             config=config
         )
-        self._metadata_pipe = self._config.get("metadata_pipe", "/tmp/shairport-sync-metadata")
+        self._metadata_pipe = self._config.get("metadata_pipe", METADATA_PIPE)
         self._metadata_reader: Optional[MetadataReader] = None
         self._remote: Optional[ShairportRemote] = None
         self._volume_service = None
