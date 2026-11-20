@@ -283,6 +283,54 @@ class TestSubsonicTransport:
 
         assert await client._make_request("ping") == {"_network_error": True}
 
+    @pytest.mark.parametrize("status", [502, 503, 504])
+    async def test_a_gateway_or_not_ready_status_is_not_answering(
+        self, client, status, caplog
+    ):
+        """A server that says it cannot answer yet has refused nothing either:
+        the sentinel, not the miss a 500 is — and nothing at ERROR, which is the
+        log banner."""
+        attach(client, _Response(status, body="Service Unavailable"))
+
+        with caplog.at_level(logging.INFO, logger="source.music_library.navidrome"):
+            assert await client._make_request("star") == {"_network_error": True}
+
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    async def test_every_unanswered_call_is_reported(self, client):
+        """The scan watcher polls minutes apart when idle; this is how it hears
+        of a Navidrome that went away in between — from any call, the reads
+        that fail open to an empty list included, which no route would turn
+        into an error anyone sees."""
+        reported = []
+        client._on_unanswered = lambda: reported.append(True)
+        attach(
+            client,
+            aiohttp.ClientOSError(111, "Connection refused"),
+            _Response(503, body="Service Unavailable"),
+            _Response(json_body=ok({"artists": {"index": []}})),
+            _Response(500, body="upstream exploded"),
+        )
+
+        assert await client.get_artists([1]) == []
+        with pytest.raises(NavidromeUnreachable):
+            await client.star("s-1")
+        assert len(reported) == 2
+
+        await client.get_artists([1])
+        await client.get_playlists()
+        assert len(reported) == 2, "an answer, even a refusal, is not unanswered"
+
+    async def test_the_scan_watchers_own_poll_is_not_reported(self, client):
+        """The watcher decides for itself what an unanswered poll means; told
+        by its own poll, it would announce the catalog down twice."""
+        reported = []
+        client._on_unanswered = lambda: reported.append(True)
+        attach(client, aiohttp.ClientOSError(111, "Connection refused"))
+
+        assert (await client.get_scan_status()).available is False
+        assert reported == []
+
     async def test_an_unexpected_failure_is_a_miss_not_a_sentinel(self, client):
         """Only a *transient* failure earns the retry-later reading."""
         attach(client, _Response(json_body=None, raises=ValueError("not JSON")))
@@ -425,10 +473,11 @@ class TestScrobbleWire:
 
     async def test_an_unreachable_sidecar_is_a_play_not_recorded(self, client):
         """The caller logs and moves on; claiming True would be a play the
-        history never got."""
+        history never got, and False a refusal nobody made."""
         attach(client, aiohttp.ClientOSError(111, "Connection refused"))
 
-        assert await client.scrobble("s-1") is False
+        with pytest.raises(NavidromeUnreachable):
+            await client.scrobble("s-1")
 
 
 # =============================================================================

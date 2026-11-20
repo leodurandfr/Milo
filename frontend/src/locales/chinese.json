@@ -777,6 +777,8 @@
     "buildingProgress": "已索引 {count} 首曲目…",
     "catalogStarting": "正在启动音乐目录…",
     "catalogStartingHint": "音乐目录正在启动，您的音乐库稍后显示。",
+    "loadFailed": "无法加载音乐库",
+    "retry": "重试",
     "queueEmpty": "播放队列为空",
     "queueEmptyHint": "播放专辑、播放列表或曲目以创建播放队列。",
     "playNext": "下一首播放",

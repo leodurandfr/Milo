@@ -463,7 +463,7 @@ class TestDeferredScan:
         monkeypatch.setattr(storage_mod.asyncio, "create_subprocess_exec", _never)
         monkeypatch.setattr(storage_mod, "_SCAN_WAIT_POLL_S", 0.01)
         monkeypatch.setattr(storage_mod, "_SCAN_WAIT_CEILING_S", 0.03)
-        return StorageManager(AsyncMock(return_value=navidrome), AsyncMock())
+        return StorageManager(AsyncMock(return_value=navidrome), AsyncMock(), AsyncMock())
 
     async def test_a_scan_that_never_ends_is_left_to_the_scheduled_pass(
         self, manager, navidrome
@@ -499,7 +499,7 @@ class TestDeferredScan:
         them is that one is silent and the other files a warning an operator
         reads."""
         monkeypatch.setattr(storage_mod, "_SCAN_WAIT_POLL_S", 0.01)
-        manager = StorageManager(AsyncMock(return_value=None), AsyncMock())
+        manager = StorageManager(AsyncMock(return_value=None), AsyncMock(), AsyncMock())
 
         with caplog.at_level("WARNING", logger="source.music_library.storage"):
             await manager._scan_when_idle()
@@ -518,7 +518,7 @@ class TestDeferredScan:
     ):
         """A missing sudoers rule or an absent milo-mount must degrade to "not
         mounted", never raise into the udev callback."""
-        manager = StorageManager(AsyncMock(return_value=navidrome), AsyncMock())
+        manager = StorageManager(AsyncMock(return_value=navidrome), AsyncMock(), AsyncMock())
         monkeypatch.setattr(
             storage_mod.asyncio, "create_subprocess_exec",
             AsyncMock(side_effect=PermissionError("sudo: a password is required")),

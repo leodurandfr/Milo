@@ -24,12 +24,13 @@
         <template v-if="store.activeTab === 'albums'">
           <div class="swap-stack">
             <Transition name="fade-slide">
-              <div v-if="!store.albums.length && (store.albumsLoading || !store.albumsLoaded)" key="loading"
-                class="albums-grid swap-skeleton">
+              <div v-if="!store.albums.length && !store.albumsError && (store.albumsLoading || !store.albumsLoaded)"
+                key="loading" class="albums-grid swap-skeleton">
                 <SkeletonAlbumCard v-for="i in 12" :key="`skeleton-${i}`" />
               </div>
               <MessageContent v-else-if="!store.albums.length" key="empty"
-                v-bind="emptyState('musicLibrary.emptyLibrary', 'musicLibrary.emptyLibraryHint')" />
+                v-bind="emptyState('musicLibrary.emptyLibrary', 'musicLibrary.emptyLibraryHint',
+                  store.albumsError, store.albumsLoading)" />
               <div v-else key="loaded">
                 <div class="albums-grid">
                   <AlbumCard v-for="album in store.albums" :key="album.id" :album="album"
@@ -45,8 +46,8 @@
         <template v-else-if="store.activeTab === 'artists'">
           <div class="swap-stack">
             <Transition name="fade-slide">
-              <div v-if="!store.displayedArtistIndex.length && (store.artistsLoading || !store.artistsLoaded)"
-                key="loading" class="artists-layout swap-skeleton">
+              <div v-if="!store.displayedArtistIndex.length && !store.artistsError
+                && (store.artistsLoading || !store.artistsLoaded)" key="loading" class="artists-layout swap-skeleton">
                 <!-- One letter's bucket, beside the rail's column. -->
                 <div class="index-list">
                   <div class="index-bucket">
@@ -59,7 +60,7 @@
                 <div class="index-rail-skeleton"></div>
               </div>
               <MessageContent v-else-if="!store.displayedArtistIndex.length" key="empty"
-                v-bind="emptyState('musicLibrary.noArtists')" />
+                v-bind="emptyState('musicLibrary.noArtists', '', store.artistsError, store.artistsLoading)" />
               <div v-else key="loaded">
                 <div class="artists-layout">
                   <div class="index-list">
@@ -84,12 +85,12 @@
         <template v-else-if="store.activeTab === 'genres'">
           <div class="swap-stack">
             <Transition name="fade-slide">
-              <div v-if="!store.genres.length && (store.genresLoading || !store.genresLoaded)" key="loading"
-                class="rows-list swap-skeleton">
+              <div v-if="!store.genres.length && !store.genresError && (store.genresLoading || !store.genresLoaded)"
+                key="loading" class="rows-list swap-skeleton">
                 <SkeletonGenreRow v-for="i in 10" :key="`skeleton-${i}`" />
               </div>
               <MessageContent v-else-if="!store.genres.length" key="empty"
-                v-bind="emptyState('musicLibrary.noGenres')" />
+                v-bind="emptyState('musicLibrary.noGenres', '', store.genresError, store.genresLoading)" />
               <div v-else key="loaded" class="rows-list">
                 <div v-for="genre in store.genres" :key="genre.value" v-press class="genre-row"
                   @click="$emit('select-genre', genre)">
@@ -120,12 +121,12 @@
 
           <div class="swap-stack">
             <Transition name="fade-slide">
-              <div v-if="!store.playlists.length && (store.playlistsLoading || !store.playlistsLoaded)" key="loading"
-                class="rows-list swap-skeleton">
+              <div v-if="!store.playlists.length && !store.playlistsError
+                && (store.playlistsLoading || !store.playlistsLoaded)" key="loading" class="rows-list swap-skeleton">
                 <SkeletonMediaRow v-for="i in 10" :key="`skeleton-${i}`" />
               </div>
               <MessageContent v-else-if="!store.playlists.length" key="empty"
-                v-bind="emptyState('musicLibrary.noPlaylists')" />
+                v-bind="emptyState('musicLibrary.noPlaylists', '', store.playlistsError, store.playlistsLoading)" />
               <div v-else key="loaded" class="rows-list">
                 <MediaRow v-for="playlist in store.playlists" :key="playlist.id" :cover-id="playlist.coverArt"
                   :title="playlist.name" :subtitle="t('musicLibrary.tracksCount', { count: playlist.songCount || 0 })"
@@ -189,18 +190,23 @@ const buildingSubtitle = computed(() =>
     : t('musicLibrary.buildingHint')
 );
 
-// A tab with nothing in it has five possible reasons, and they are NOT
+// A tab with nothing in it has six possible reasons, and they are NOT
 // interchangeable — the third one used to be rendered as the last one, which
 // told a user whose NAS was mounted and full to go connect a NAS:
 //   1. no storage carries a library → connect some storage
 //   2. the catalog isn't answering  → it is starting, wait
-//   3. a scan is filling it         → wait, here is the progress
-//   4. the index lost its files     → the music is there, re-index it
-//   5. there is genuinely nothing   → this tab's own empty message
+//   3. its read failed otherwise    → say so, offer to try again
+//   4. a scan is filling it         → wait, here is the progress
+//   5. the index lost its files     → the music is there, re-index it
+//   6. there is genuinely nothing   → this tab's own empty message
 // (1) and (2) are the source's availability, which this view draws itself
-// rather than the status card, so the library stays at hand (D13). (2) has to
-// come before the rest: while Navidrome is down every count reads zero and
-// every list is empty, so they all look alike and the last one wins by default.
+// rather than the status card, so the library stays at hand (D13) — and (2) is
+// also the tab's own read answered 503, which can land before the state says
+// so (the first opening of the library starts Navidrome as the view mounts).
+// The list reloads by itself once the catalog answers. (2) has to come before
+// the rest: while Navidrome is down every count reads zero and every list is
+// empty, so they all look alike and the last one wins by default. A read that
+// failed has nothing to show, so it was a skeleton for good before (3).
 const rescanning = ref(false);
 
 async function handleRescan() {
@@ -210,7 +216,9 @@ async function handleRescan() {
   rescanning.value = false;
 }
 
-function emptyState(titleKey, subtitleKey) {
+// `error` and `loading` are the tab's own list's (the store's `<list>Error`
+// and `<list>Loading`).
+function emptyState(titleKey, subtitleKey, error = null, loading = false) {
   if (store.availability === 'no_storage') {
     return {
       icon: 'musicNote',
@@ -218,11 +226,23 @@ function emptyState(titleKey, subtitleKey) {
       subtitle: t('musicLibrary.emptyLibraryHint'),
     };
   }
-  if (store.availability === 'catalog_unavailable') {
+  if (store.availability === 'catalog_unavailable' || error === 'starting') {
     return {
       loading: true,
       title: t('musicLibrary.catalogStarting'),
       subtitle: t('musicLibrary.catalogStartingHint'),
+    };
+  }
+  if (error === 'failed') {
+    return {
+      icon: 'musicNote',
+      title: t('musicLibrary.loadFailed'),
+      ctaLabel: t('musicLibrary.retry'),
+      ctaVariant: 'control',
+      ctaLoading: loading,
+      // Forced: a list that loaded empty before is `loaded`, and its loader
+      // would answer from that cache without asking again.
+      ctaClick: () => loadTab(store.activeTab, { force: true }),
     };
   }
   if (store.isScanning) {
@@ -275,18 +295,18 @@ const tabOptions = computed(() => [
 ]);
 
 // Load the active tab's data lazily; each loader is idempotent (guarded by its
-// own loaded flag).
-function loadTab(tab) {
-  if (tab === 'albums') store.loadAlbums();
-  else if (tab === 'artists') store.loadArtists();
-  else if (tab === 'genres') store.loadGenres();
+// own loaded flag) unless `force` is passed.
+function loadTab(tab, options = {}) {
+  if (tab === 'albums') store.loadAlbums(options);
+  else if (tab === 'artists') store.loadArtists(options);
+  else if (tab === 'genres') store.loadGenres(options);
   else {
-    store.loadPlaylists();
-    store.loadLikedSongs();
+    store.loadPlaylists(options);
+    store.loadLikedSongs(options);
   }
 }
 
-watch(() => store.activeTab, loadTab);
+watch(() => store.activeTab, (tab) => loadTab(tab));
 
 // A-Z rail. The bucket elements are held by name so a jump can scroll to one
 // without querying the DOM, and the window is widened THROUGH the target first

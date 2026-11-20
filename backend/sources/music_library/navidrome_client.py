@@ -30,7 +30,7 @@ import secrets
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import urlencode
 
 import aiohttp
@@ -75,12 +75,14 @@ class NavidromeAuthError(Exception):
 
 
 class NavidromeUnreachable(Exception):
-    """Raised by a read when Navidrome did not answer at all (refused, timed out).
+    """Raised when Navidrome did not answer at all (refused, timed out, 502-504).
 
     Navidrome restarts with every backend restart and migrates its database
     before it listens: a self-healing window, which must not read as the item's
     absence — a 404 "not found" logged at ERROR, or favorites with every heart
-    off.
+    off — nor, for a write, as a refusal: "Navidrome rejected star" on the log
+    banner and a 502, for a gesture the same call accepts seconds later. Reads
+    and writes alike raise it; the routes answer 503 "not ready".
     """
 
 
@@ -118,6 +120,14 @@ class ScanStatus:
 # that is down, and every catalog route answers 503 either way, so the caller
 # reads it from here rather than restating it.
 CATALOG_UNREACHABLE = ScanStatus(available=False)
+
+# HTTP statuses that say "not answering" rather than "answered no": a gateway
+# that could not reach the server, or a server that says it is not ready. They
+# take the same sentinel as a refused connection, never the miss a 500 is.
+_NOT_ANSWERING_STATUSES = frozenset({502, 503, 504})
+
+# What _make_request answers when Navidrome did not answer at all.
+_NETWORK_ERROR = {"_network_error": True}
 
 
 class CoverArt(NamedTuple):
@@ -203,8 +213,14 @@ class NavidromeClient:
         username: str,
         password: str,
         base_url: str = NAVIDROME_URL,
+        on_unanswered: Optional[Callable[[], None]] = None,
     ):
         self.logger = logging.getLogger("source.music_library.navidrome")
+        # Told of every Subsonic call Navidrome did not answer (see
+        # _make_request): the scan watcher's idle poll is minutes apart, and a
+        # restart it never saw would leave every screen saying "ready" — the
+        # reads that fail open answering empty lists — with no edge to reload on.
+        self._on_unanswered = on_unanswered
         self._username = username
         self._password = password
         self._base_url = base_url.rstrip("/")
@@ -228,12 +244,16 @@ class NavidromeClient:
         cls,
         cred_file: Path = NAVIDROME_CRED_FILE,
         base_url: str = NAVIDROME_URL,
+        on_unanswered: Optional[Callable[[], None]] = None,
     ) -> Optional["NavidromeClient"]:
         """Build a client from the provisioned cred file, or None if unavailable."""
         creds = load_navidrome_credentials(cred_file)
         if not creds:
             return None
-        return cls(creds["username"], creds["password"], base_url=base_url)
+        return cls(
+            creds["username"], creds["password"],
+            base_url=base_url, on_unanswered=on_unanswered,
+        )
 
     async def _ensure_session(self) -> None:
         if self._session is None or self._session.closed:
@@ -265,16 +285,39 @@ class NavidromeClient:
         return f"{self._base_url}/rest/{endpoint}?{urlencode(query)}"
 
     async def _make_request(
-        self, endpoint: str, params: Optional[Dict[str, Any]] = None
+        self,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        report_unanswered: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """GET a Subsonic JSON endpoint and unwrap the ``subsonic-response``.
 
         Returns the response object on ``status == "ok"``; the
-        ``{"_network_error": True}`` sentinel on transient connectivity failures
-        (Navidrome still starting up); None on HTTP/API errors. Raises
+        ``{"_network_error": True}`` sentinel when Navidrome did not answer — a
+        transient connectivity failure, or a 502/503/504 (Navidrome still
+        starting up); None on any other HTTP or API error. Raises
         NavidromeAuthError on credential rejection so the caller can re-read the
         cred file rather than silently degrade.
+
+        Every sentinel is also reported to ``on_unanswered``, read or write,
+        strict or failing open — except where ``report_unanswered`` is False:
+        the scan watcher's own poll, which reports for itself.
         """
+        response = await self._request(endpoint, params)
+        if (
+            report_unanswered
+            and self._on_unanswered is not None
+            and response is not None
+            and response.get("_network_error")
+        ):
+            self._on_unanswered()
+        return response
+
+    async def _request(
+        self, endpoint: str, params: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """The one GET behind _make_request, which documents what it answers."""
         await self._ensure_session()
         query = {**self._auth_params(), "f": "json", **(params or {})}
 
@@ -284,6 +327,11 @@ class NavidromeClient:
                 params=_encode_query(query),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
+                if resp.status in _NOT_ANSWERING_STATUSES:
+                    self.logger.info(
+                        f"Navidrome did not answer yet: HTTP {resp.status} on {endpoint}"
+                    )
+                    return dict(_NETWORK_ERROR)
                 if resp.status != 200:
                     body = await resp.text()
                     self.logger.error(
@@ -315,7 +363,7 @@ class NavidromeClient:
                 self.logger.info(
                     f"Navidrome did not answer yet: {describe_network_error(exc)}"
                 )
-                return {"_network_error": True}
+                return dict(_NETWORK_ERROR)
             self.logger.error(f"Navidrome unexpected error on {endpoint}: {exc}")
             return None
 
@@ -349,7 +397,9 @@ class NavidromeClient:
         "2419" for the 18 minutes an iPod took to index), so progress comes from
         the per-library records in ``libraries.stats()`` instead.
         """
-        response = await self._make_request("getScanStatus")
+        # Not reported: this is the scan watcher's poll, the one caller that
+        # decides for itself what an unanswered catalog means.
+        response = await self._make_request("getScanStatus", report_unanswered=False)
         if response is not None and response.get("_network_error"):
             return ScanStatus(available=False)
         if response is None:
@@ -517,6 +567,15 @@ class NavidromeClient:
             return []
         return response.get("songsByGenre", {}).get("song", []) or []
 
+    @staticmethod
+    def _written(response: Optional[Dict[str, Any]], endpoint: str) -> bool:
+        """Whether a write verb was accepted: True, False for a refusal (an HTTP
+        or API error, already logged), NavidromeUnreachable when Navidrome did
+        not answer at all — the one outcome that refused nothing."""
+        if response is not None and response.get("_network_error"):
+            raise NavidromeUnreachable(endpoint)
+        return bool(response)
+
     # === Playlists ===
 
     async def get_playlists(self) -> List[Dict[str, Any]]:
@@ -544,12 +603,13 @@ class NavidromeClient:
     ) -> Optional[Dict[str, Any]]:
         """Create a playlist (Subsonic ``createPlaylist``), optionally seeded with
         an ordered set of songs. Navidrome echoes the created playlist back, which
-        is returned (with its generated id); None on error.
+        is returned (with its generated id); None when Navidrome refused it,
+        NavidromeUnreachable when it did not answer.
         """
         response = await self._make_request(
             "createPlaylist", {"name": name, "songId": song_ids}
         )
-        if not response or response.get("_network_error"):
+        if not self._written(response, "createPlaylist"):
             return None
         return response.get("playlist")
 
@@ -571,7 +631,7 @@ class NavidromeClient:
         if song_ids_to_add:
             params["songIdToAdd"] = song_ids_to_add
         response = await self._make_request("updatePlaylist", params)
-        return bool(response) and not response.get("_network_error")
+        return self._written(response, "updatePlaylist")
 
     async def set_playlist_tracks(
         self, playlist_id: str, song_ids: List[str]
@@ -586,12 +646,12 @@ class NavidromeClient:
         response = await self._make_request(
             "createPlaylist", {"playlistId": playlist_id, "songId": song_ids}
         )
-        return bool(response) and not response.get("_network_error")
+        return self._written(response, "createPlaylist")
 
     async def delete_playlist(self, playlist_id: str) -> bool:
         """Delete a playlist (Subsonic ``deletePlaylist``)."""
         response = await self._make_request("deletePlaylist", {"id": playlist_id})
-        return bool(response) and not response.get("_network_error")
+        return self._written(response, "deletePlaylist")
 
     # === Favorites (star) ===
 
@@ -638,7 +698,7 @@ class NavidromeClient:
             kind, "id"
         )
         response = await self._make_request(endpoint, {param: item_id})
-        return bool(response) and not response.get("_network_error")
+        return self._written(response, endpoint)
 
     # === Play history ===
 
@@ -658,7 +718,7 @@ class NavidromeClient:
         response = await self._make_request(
             "scrobble", {"id": song_id, "submission": str(submission).lower()}
         )
-        return bool(response) and not response.get("_network_error")
+        return self._written(response, "scrobble")
 
     # === Playback / media URLs ===
 

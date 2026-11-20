@@ -23,6 +23,7 @@ import contextlib
 import errno
 import logging
 import os
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -56,10 +57,34 @@ _SHARE_REMOUNT_PLATEAU_S = 300
 # Scan-watcher cadence. Navidrome exposes no scan event of any kind and runs its
 # own 6-hourly schedule, so a scan starts that Milō never asked for — polling is
 # the only way to know, and the alternative (every browser polling for itself)
-# is what this replaces. Idle is slow because nothing is happening; the active
-# rate paces how often a storage space's growing track count reaches the UI.
-_SCAN_POLL_IDLE_S = 15.0
+# is what this replaces.
+#
+# Every poll Navidrome *answers* is a write to its database: the authenticated
+# getScanStatus updates the account's last access and the player's last-seen,
+# each rate-limited to once a minute (Navidrome v0.64.2, consts.go). At the 15 s
+# this used to be, that was two SQLite transactions a minute, day and night, on
+# a unit nobody was using — the probable bulk of the ~100 MB a day Navidrome was
+# measured writing to the SD card with nobody using the unit. So the idle
+# cadence sits well past that one-minute limiter, and only Navidrome's own
+# 6-hourly scan is left to it: every scan Milō asks for is announced the moment
+# Navidrome accepts it (StorageManager's scanning hook), and any catalog call
+# that goes unanswered — the client reports each one — asks the watcher at once
+# (catalog_unanswered). A poll Navidrome does not answer writes nothing, which
+# is why a catalog that is down is asked often; the active rate paces how often
+# a storage space's growing track count reaches the UI.
+_SCAN_POLL_IDLE_S = 300.0
+_SCAN_POLL_UNANSWERED_S = 15.0
 _SCAN_POLL_ACTIVE_S = 3.0
+# How long a call reported unanswered no longer marks the catalog down by
+# itself, once the poll it woke found Navidrome answering. A browser reloads
+# every list it holds on the catalog coming back, so a call Navidrome is too
+# busy to answer in time (an album page during a first index) is asked again on
+# every up edge, fails again, and would push the next down edge: measured in a
+# harness, 45,000 pushes in half a second against a 502, one cycle per
+# timeout against a slow read — each one a reload burst per browser and an
+# availability flip in every app's state. Within the hold a report only wakes
+# the watcher, whose own poll is what decides.
+_UNANSWERED_REFUTED_HOLD_S = _SCAN_POLL_IDLE_S
 
 # Liveness probe for network shares. /proc/mounts answers "is something mounted
 # here", never "does the far side still answer": a NAS that loses power leaves
@@ -109,7 +134,9 @@ class NetworkShareService:
         self._logger = logging.getLogger("source.music_library.shares")
         self._data = MusicLibraryDataService()
         self._libraries = NavidromeLibraryService(on_storages_changed)
-        self._storage = StorageManager(navidrome_provider, self._sync_libraries)
+        self._storage = StorageManager(
+            navidrome_provider, self._sync_libraries, self.note_scan_started
+        )
         self._navidrome_provider = navidrome_provider
         # The merged-album cache lives with the catalog, not here; a share change
         # invalidates it through this callback rather than reaching back up.
@@ -126,6 +153,17 @@ class NetworkShareService:
         # claiming "still starting" on a healthy unit would be a worse lie than
         # the sub-second window it would cover.
         self._scan: Dict[str, Any] = {"scanning": False, "catalog_ready": True}
+        # Whether the watcher's own last poll found Navidrome not answering — an
+        # outage it saw, as opposed to one a single unanswered call reported
+        # (see catalog_unanswered). Only the first owes the catalog a rescan.
+        self._poll_saw_down = False
+        # A down state catalog_unanswered set and has not pushed yet. No poll
+        # may write the scan state under it: one that found Navidrome answering
+        # would put "ready" back first, and the down edge would never be sent.
+        self._announcing_down = False
+        # When a poll last found Navidrome answering under a down state only a
+        # call had reported — the report refuted. See _UNANSWERED_REFUTED_HOLD_S.
+        self._unanswered_refuted_at: Optional[float] = None
         # Cuts the watcher's current sleep short. Set whenever something has just
         # made a scan likely, so a short one is not missed between two polls.
         self._scan_kick = asyncio.Event()
@@ -448,21 +486,72 @@ class NetworkShareService:
         """Navidrome has just been started: reconcile its libraries once it listens.
 
         Until then every storage space carries a null library id, which the
-        library view drops.
+        library view drops. The watcher is asked too, so a catalog it last saw
+        down is seen answering as soon as it does.
         """
         self._libraries.reconcile_soon()
+        self._scan_kick.set()
+
+    def catalog_unanswered(self) -> None:
+        """A catalog call has just gone unanswered: say so, and watch for its return.
+
+        The client calls it on every Subsonic call Navidrome did not answer
+        (``NavidromeClient``'s ``on_unanswered``), the routes when there is no
+        client to call at all or its credential was refused. Idle, the watcher
+        only asks every few minutes, so a Navidrome that restarts while nobody
+        looks would otherwise stay "ready" on every screen while each list it
+        is asked for fails — or comes back empty, for the reads that fail open.
+
+        Marked down at once rather than left to the poll the kick brings: a
+        browser that saw a 503 reloads it on the catalog *coming back*, so the
+        down edge has to reach it first. The kick therefore follows the push,
+        and no poll writes the state while the push is on its way — a poll that
+        found Navidrome answering again would otherwise put "ready" back under
+        it, and both pushes would say ready.
+
+        Only the edge: the poll that sees the catalog answer again neither drops
+        the caches nor asks for a rescan unless it saw the outage itself (see
+        _poll_scan), so one slow call costs no more than the edge. Said once per
+        outage, however many calls fail meanwhile: the watcher, down, already
+        asks at its unanswered cadence. And not again for a while once the
+        watcher found such a report wrong (_UNANSWERED_REFUTED_HOLD_S): within
+        that hold a report only has the watcher look, and a down edge comes from
+        its poll or not at all — the edge it would push is the one a browser
+        answers by asking again for the very call that failed.
+        """
+        if not self._scan.get("catalog_ready"):
+            return
+        refuted = self._unanswered_refuted_at
+        if refuted is not None and time.monotonic() - refuted < _UNANSWERED_REFUTED_HOLD_S:
+            self._scan_kick.set()
+            return
+        self._scan = {**self._scan, "catalog_ready": False}
+        self._announcing_down = True
+        self._bg.spawn(self._announce_unanswered(), label="catalog-unanswered")
+
+    async def _announce_unanswered(self) -> None:
+        try:
+            await self._on_storages_changed()
+        finally:
+            self._announcing_down = False
+            self._scan_kick.set()
 
     async def note_scan_started(self) -> None:
-        """Navidrome has just accepted a scan — push it and watch it closely.
+        """Navidrome is scanning for Milō — push it and watch it closely.
 
-        Without this a manual refresh is invisible: a quick scan over an
-        already-indexed catalog takes ~0.4 s while the idle poll is 15 s, so it
-        would start and finish between two polls and no client would ever learn
-        it happened — the refresh button would sit there saying nothing.
+        Called once Navidrome has accepted a scan (the refresh route, and
+        StorageManager for every scan it asks for), or found one running that a
+        mount's scan now waits behind. Without it a scan Milō asked for is
+        invisible: a quick one over an already-indexed catalog takes ~0.4 s
+        while the idle poll is minutes long, so it would start and finish
+        between two polls and no client would ever learn it happened. Called
+        *after* the request, never before: the add-share wizard concluded "no
+        music in this folder" from a watcher woken by the mount, which read
+        "no scan" and went back to sleep before the scan was asked for.
 
-        Not optimism: ``start_scan`` returned success, so a scan *is* running at
-        the moment of this push. The kick then has the watcher confirm the end of
-        it within one active poll rather than one idle one.
+        Not optimism: a scan *is* running at the moment of this push. The kick
+        then has the watcher confirm the end of it within one active poll rather
+        than one idle one.
         """
         self._scan = {"scanning": True, "catalog_ready": True}
         await self._on_storages_changed()
@@ -487,13 +576,23 @@ class NetworkShareService:
             except Exception as exc:
                 self._logger.debug("Scan watcher poll failed: %s", exc)
                 scanning = False
-            # Sleep until the cadence elapses OR something kicks us — a mount
-            # change and an explicit refresh both make a scan imminent, and
-            # waiting out the idle cadence would miss a short one entirely.
-            delay = _SCAN_POLL_ACTIVE_S if scanning else _SCAN_POLL_IDLE_S
+            # Sleep until the cadence elapses OR something kicks us — a scan
+            # Milō started, a catalog call that went unanswered, the catalog
+            # started: waiting out the idle cadence would miss a short scan
+            # entirely, and leave a catalog that is down drawn as ready.
             with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(self._scan_kick.wait(), timeout=delay)
+                await asyncio.wait_for(
+                    self._scan_kick.wait(), timeout=self._poll_delay(scanning)
+                )
             self._scan_kick.clear()
+
+    def _poll_delay(self, scanning: bool) -> float:
+        """How long the watcher sleeps after a poll, unless kicked."""
+        if scanning:
+            return _SCAN_POLL_ACTIVE_S
+        if self._scan.get("catalog_ready"):
+            return _SCAN_POLL_IDLE_S
+        return _SCAN_POLL_UNANSWERED_S
 
     async def _poll_scan(self) -> bool:
         """One poll; broadcasts on a change. Returns whether a scan is running."""
@@ -506,11 +605,22 @@ class NetworkShareService:
             await client.get_scan_status() if client is not None
             else CATALOG_UNREACHABLE
         )
+        if self._announcing_down:
+            # A call has just been reported unanswered and its push is on its
+            # way: this answer is older than the push's own kick, which polls
+            # again once the down edge has gone.
+            return bool(self._scan.get("scanning"))
         was_scanning = bool(self._scan.get("scanning"))
         was_ready = bool(self._scan.get("catalog_ready"))
+        saw_outage = self._poll_saw_down
+        self._poll_saw_down = not status.available
         # A poll that got no answer says nothing about the scan; keeping the last
         # word is what stops a restart from reading as a scan that just ended.
         scanning = was_scanning if status.scanning is None else status.scanning
+        # A mount still owed its scan is indexing too: between the scan it waits
+        # behind and its own, Navidrome reports idle, and a falling edge there is
+        # the wizard counting a share before its scan began.
+        scanning = scanning or self._storage.scan_pending()
         self._scan = {"scanning": scanning, "catalog_ready": status.available}
         # While a scan runs, each poll carries the storage spaces' growing track
         # counts, so a freshly-plugged key's tab fills as it is indexed. A scan
@@ -521,7 +631,15 @@ class NetworkShareService:
         # zero, and no later poll had a reason to correct them — measured, a
         # restart left an open browser on an empty catalog until the source
         # itself was restarted.
-        regained = status.available and not was_ready
+        #
+        # Only an outage this watcher saw for itself, though — a whole poll
+        # unanswered, a restart. One a single call reported (catalog_unanswered)
+        # comes back with the edge alone: the caches never keep a failed read,
+        # and a rescan per slow call is a database write per slow call, on the
+        # Navidrome that was already too slow.
+        regained = status.available and not was_ready and saw_outage
+        if status.available and not was_ready and not saw_outage:
+            self._unanswered_refuted_at = time.monotonic()
         if status.available != was_ready or (status.available and (scanning or was_scanning)):
             if (was_scanning and not scanning) or regained:
                 self._on_catalog_changed()
@@ -618,10 +736,9 @@ class NetworkShareService:
         if returned:
             # Symmetric with a USB replug: what changed on the far side while it
             # was away is only knowable from a scan, and a quick one adds without
-            # purging. The kick puts "indexing…" on screen with it rather than an
-            # idle cadence later.
+            # purging. StorageManager announces it once Navidrome has it, which
+            # puts "indexing…" on screen with it rather than an idle cadence later.
             await self._storage.request_scan()
-            self._scan_kick.set()
         if changed:
             # A space entering or leaving the browsable set is a catalog change:
             # the browse scope is built from `mounted`, and the per-scope album
@@ -770,11 +887,10 @@ class NetworkShareService:
         # through here — so the frontend needs no refetch and no polling to see
         # a key appear or go.
         await self._on_storages_changed()
-        # A mount change is about to trigger a scan (StorageManager does it right
-        # after this hook): have the watcher look now rather than up to a full
-        # idle cadence later, so "indexing…" appears with the new storage space
-        # instead of 15 seconds after it.
-        self._scan_kick.set()
+        # No kick here, although a mount is about to trigger a scan: the scan is
+        # asked for after this hook returns, so a watcher woken now reads "no
+        # scan" and sleeps a full idle cadence. StorageManager announces the scan
+        # once Navidrome has accepted it.
 
     async def rename_usb(self, uuid: str, name: str) -> bool:
         """Name a known USB key. False when no key has that UUID.

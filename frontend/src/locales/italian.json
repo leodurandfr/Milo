@@ -777,6 +777,8 @@
     "buildingProgress": "{count} brano indicizzato… | {count} brani indicizzati…",
     "catalogStarting": "Avvio del catalogo…",
     "catalogStartingHint": "Il catalogo musicale si sta avviando. La sua libreria apparirà tra un istante.",
+    "loadFailed": "Impossibile caricare la libreria",
+    "retry": "Riprova",
     "queueEmpty": "Coda vuota",
     "queueEmptyHint": "Riproduca un album, una playlist o un brano per creare una coda.",
     "playNext": "Riproduci dopo",

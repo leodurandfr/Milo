@@ -283,8 +283,15 @@ async function createShare(targetPath) {
 // Watch the scan through after mounting, showing this share's live count.
 // Non-blocking: the "Done" button leaves at any point and the scan finishes
 // server-side. Nothing is polled — the backend pushes the flag and the counts.
+//
+// A scan already under way counts as seen. The backend announces this share's
+// scan as soon as Navidrome accepts it, which is before the add answers — and
+// one it waits behind (a key being indexed, Navidrome's own pass) keeps the
+// flag up until its own has run. Waiting for a rising edge there saw none and
+// settled at the grace period: "no music was found in this folder" over an
+// indexing that had not begun.
 function startIndexing(shareId) {
-  sawScanning = false;
+  sawScanning = store.isScanning;
   newShareId.value = shareId;
   indexingActive = true;
   phase.value = 'indexing';

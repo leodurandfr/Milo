@@ -777,6 +777,8 @@
     "buildingProgress": "{count} morceau indexé… | {count} morceaux indexés…",
     "catalogStarting": "Démarrage du catalogue…",
     "catalogStartingHint": "Le catalogue musical démarre. Votre bibliothèque réapparaît dans un instant.",
+    "loadFailed": "La bibliothèque n'a pas pu être chargée",
+    "retry": "Réessayer",
     "queueEmpty": "File d'attente vide",
     "queueEmptyHint": "Lisez un album, une playlist ou un titre pour créer une file d'attente.",
     "playNext": "Lire ensuite",

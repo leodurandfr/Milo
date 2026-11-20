@@ -18,12 +18,13 @@ fan-out that makes favouriting a collapsed multi-disc release star every disc,
 and the alphabetical album page — the one browse that pages over the whole
 merged catalog rather than asking Navidrome for a page.
 """
+import aiohttp
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.sources.music_library import source as source_mod
+from backend.sources.music_library import navidrome_client, source as source_mod
 from backend.sources.music_library.disc_merge import build_merged_id
 from backend.sources.music_library.navidrome_client import NavidromeAuthError
 from backend.sources.music_library.routes import newest_first, router, setup_music_library_routes
@@ -73,6 +74,26 @@ class TestSharedClientLifecycle:
             assert await source.get_navidrome_client() is not None
 
         assert factory.call_count == 3
+
+    async def test_the_client_reports_an_unanswered_call_to_the_scan_watcher(
+        self, source
+    ):
+        """Whoever calls: the grid's reads fail open to an empty list, so a
+        Navidrome restart the idle watcher never saw was otherwise said by no
+        one, and the lists cached empty had no edge to reload on."""
+        creds = {"username": "milo-svc", "password": "secret"}
+        with patch.object(navidrome_client, "load_navidrome_credentials",
+                          return_value=creds), \
+                patch.object(source.shares, "catalog_unanswered") as reported:
+            client = await source.get_navidrome_client()
+            client._session = Mock(
+                closed=False,
+                get=Mock(side_effect=aiohttp.ClientOSError(111, "Connection refused")),
+            )
+
+            assert await client.get_artists([1]) == []
+
+        reported.assert_called_once_with()
 
     async def test_invalidating_closes_the_session_before_dropping_it(self, source):
         """The aiohttp session is a real resource; dropping the reference without

@@ -7,13 +7,13 @@
  * dead library id outliving the storage it named — and the two opposite cases
  * an unplug and a deletion must NOT be confused with each other.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { nextTick } from 'vue';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
-import { resetApiCallMock, ok } from '../helpers/apiCallMock';
+import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 import { publishState, makeSession } from '../helpers/audioState';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
@@ -274,12 +274,30 @@ describe('musicLibraryStore — artists render window', () => {
     expect(rendered()).toBe(60);
   });
 
-  it('collapses back to one chunk when the index is refetched', async () => {
+  it('keeps the window the user scrolled open when the index is revalidated', async () => {
+    // A scan forces a reload of every cached list; collapsing the window each
+    // time threw a list read 200 rows down back to 40.
     store.renderMoreArtists();
-    expect(store.artistsHasMore).toBe(false);
+    expect(rendered()).toBe(60);
 
     apiCall.get.mockResolvedValueOnce(ok({ index: INDEX }));
     await store.loadArtists({ force: true });
+
+    expect(rendered()).toBe(60);
+  });
+
+  it('starts another storage space at one chunk', async () => {
+    apiCall.get.mockImplementation(async (url) =>
+      url.endsWith('/storages') ? ok({ storages: [NAS, USB] }) : ok({ index: INDEX })
+    );
+    await store.loadStorages();
+    await vi.waitFor(() => expect(store.artistsLoaded).toBe(true));
+    store.renderMoreArtists();
+    expect(rendered()).toBe(60);
+
+    store.activeLibraryId = USB.library_id;
+    await nextTick();
+    await vi.waitFor(() => expect(store.artistsLoaded).toBe(true));
 
     expect(rendered()).toBe(40);
   });
@@ -862,5 +880,182 @@ describe('musicLibraryStore — now playing', () => {
     publishState(unified, { source: 'music_library', service: 'running' });
     expect(store.nowPlaying).toBeNull();
     expect(store.queue).toEqual([]);
+  });
+});
+
+/**
+ * A first read that failed had no state of its own: the skeleton stayed up for
+ * good, which reads as a load still under way, and nothing reloaded it — every
+ * reload refetched only the lists already loaded. The first opening of the
+ * library starts Navidrome while the view mounts, so a 503 there is ordinary.
+ */
+describe('musicLibraryStore — a first read that failed', () => {
+  let store;
+  let unified;
+
+  beforeEach(async () => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    unified = useUnifiedAudioStore();
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS], scanning: false }));
+    await store.loadStorages();
+    await nextTick();
+  });
+
+  it('says the catalog is starting for a 503, and reloads once it answers', async () => {
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    await store.loadAlbums();
+    expect(store.albumsError).toBe('starting');
+    expect(store.albumsLoaded).toBe(false);
+
+    // The backend marks the catalog down on that 503, then up when it answers.
+    publishState(unified, { availability: { music_library: 'catalog_unavailable' } });
+    await nextTick();
+    apiCall.get.mockResolvedValueOnce(ok({ albums: [{ id: 'a-1' }] }));
+    publishState(unified, { availability: { music_library: null } });
+    await nextTick();
+
+    await vi.waitFor(() => expect(store.albums.map((a) => a.id)).toEqual(['a-1']));
+    expect(store.albumsError).toBeNull();
+  });
+
+  it('tells any other failure from a catalog that is starting', async () => {
+    apiCall.get.mockResolvedValueOnce(fail('boom', 500));
+    await store.loadGenres();
+
+    expect(store.genresError).toBe('failed');
+  });
+
+  it('is reloaded by a resync, like a list that loaded', async () => {
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    await store.loadPlaylists();
+    apiCall.get.mockClear();
+    apiCall.get.mockImplementation(async (url) =>
+      url.endsWith('/storages') ? ok({ storages: [NAS], scanning: false }) : ok({ playlists: [{ id: 'p1' }] })
+    );
+
+    await store.resync();
+
+    expect(store.playlists.map((p) => p.id)).toEqual(['p1']);
+    expect(store.playlistsError).toBeNull();
+  });
+
+  it('is only the latest read\'s to report, while it is on its way', async () => {
+    // A failure overtaken by a newer read is no longer why nothing is shown:
+    // the newer one may yet draw the list.
+    const older = deferred();
+    const newer = deferred();
+    apiCall.get.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    const stale = store.loadGenres({ force: true });
+    const fresh = store.loadGenres({ force: true });
+
+    older.settle(fail('boom', 500));
+    await stale;
+    expect(store.genresError).toBeNull();
+
+    newer.settle(ok({ genres: [{ value: 'Jazz' }] }));
+    await fresh;
+    expect(store.genresError).toBeNull();
+  });
+
+  it('is only the latest read\'s to report, once it has failed too', async () => {
+    // The newer read said "starting"; an older 500 landing after it must not
+    // turn that into "failed" — a Retry button over a catalog that is booting.
+    const older = deferred();
+    const newer = deferred();
+    apiCall.get.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    const stale = store.loadGenres({ force: true });
+    const fresh = store.loadGenres({ force: true });
+
+    newer.settle(fail('Music library catalog not ready', 503));
+    await fresh;
+    older.settle(fail('boom', 500));
+    await stale;
+
+    expect(store.genresError).toBe('starting');
+  });
+
+  it('belongs to the scope it was read in: a switch asks again, from a clean slate', async () => {
+    // A failed list was never `loaded`, so a reload keyed on that flag skipped
+    // it, and the last scope's "starting" stayed over the new scope's grid.
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS, USB], scanning: false }));
+    await store.loadStorages({ force: true });
+    await nextTick();
+    expect(store.activeLibraryId).toBe(NAS.library_id);
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    await store.loadAlbums();
+    expect(store.albumsError).toBe('starting');
+
+    const onTheKey = deferred();
+    apiCall.get.mockReturnValueOnce(onTheKey.promise);
+    store.activeLibraryId = USB.library_id;
+    await nextTick();
+    await Promise.resolve();
+
+    expect(paramsOf('/albums').library_id).toBe(USB.library_id);
+    expect(store.albumsLoading).toBe(true);
+    expect(store.albumsError).toBeNull();
+
+    onTheKey.settle(ok({ albums: [{ id: 'usb-1' }] }));
+    await vi.waitFor(() => expect(store.albums.map((a) => a.id)).toEqual(['usb-1']));
+  });
+});
+
+describe('musicLibraryStore — reloads around a scan', () => {
+  let store;
+
+  const push = (overrides, scanning) =>
+    store.handleStoragesEvent({ data: { storages: [{ ...NAS, ...overrides }], scanning } });
+  const reads = (path) => apiCall.get.mock.calls.filter(([url]) => url.endsWith(path)).length;
+
+  beforeEach(async () => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [{ ...NAS, album_count: 0 }], scanning: false }));
+    await store.loadStorages();
+    await nextTick();
+    apiCall.get.mockImplementation(async (url) => {
+      if (url.endsWith('/albums')) return ok({ albums: [] });
+      if (url.endsWith('/starred')) return ok({ songs: [] });
+      return ok({});
+    });
+    await store.loadAlbums();
+    await store.loadLikedSongs();
+    apiCall.get.mockClear();
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('refetches the liked songs with the other lists when a scan ends', async () => {
+    // A scan that marks tracks gone changes them as much as the albums, and
+    // the Liked Songs row counts them.
+    push({}, true);
+    await nextTick();
+    push({}, false);
+    await nextTick();
+
+    expect(reads('/starred')).toBe(1);
+    expect(reads('/albums')).toBe(1);
+  });
+
+  it('paces the reloads a growing album count forces while the scan runs', async () => {
+    // One storages push every 3 s for the whole scan: reloading every cached
+    // list at each was some 1,400 requests per client over an 18-minute index.
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    push({ album_count: 0 }, true);
+    await nextTick();
+
+    for (let count = 1; count <= 5; count += 1) {
+      now += 3000;
+      push({ album_count: count }, true);
+      await nextTick();
+    }
+    expect(reads('/albums')).toBe(1);
+
+    now += 30000;
+    push({ album_count: 6 }, true);
+    await nextTick();
+    expect(reads('/albums')).toBe(2);
   });
 });

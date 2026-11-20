@@ -27,6 +27,7 @@ from backend.sources.music_library.navidrome_client import (
     CoverArt,
     NavidromeClient,
     NavidromeUnreachable,
+    ScanRequest,
 )
 from backend.sources.music_library.routes import (
     router,
@@ -295,9 +296,16 @@ class TestNavidromeStar:
         assert await client.unstar("s-1") is True
         assert client._make_request.await_args.args[0] == "unstar"
 
-    async def test_star_network_error_is_false(self, client):
-        client._make_request = AsyncMock(return_value={"_network_error": True})
+    async def test_star_refused_is_false(self, client):
+        client._make_request = AsyncMock(return_value=None)
         assert await client.star("s-1") is False
+
+    async def test_star_unanswered_is_not_a_refusal(self, client):
+        """A Navidrome restarting refused nothing: read as False, the route
+        logged "Navidrome rejected star" at ERROR and answered 502."""
+        client._make_request = AsyncMock(return_value={"_network_error": True})
+        with pytest.raises(NavidromeUnreachable):
+            await client.star("s-1")
 
 
 class TestNavidromePlaylistWrites:
@@ -317,9 +325,8 @@ class TestNavidromePlaylistWrites:
         _, params = client._make_request.await_args.args
         assert params == {"name": "Empty", "songId": None}
 
-    @pytest.mark.parametrize("payload", [None, {"_network_error": True}])
-    async def test_create_playlist_error_is_none(self, client, payload):
-        client._make_request = AsyncMock(return_value=payload)
+    async def test_create_playlist_refused_is_none(self, client):
+        client._make_request = AsyncMock(return_value=None)
         assert await client.create_playlist("Road Trip") is None
 
     async def test_update_playlist_rename(self, client):
@@ -356,11 +363,28 @@ class TestNavidromePlaylistWrites:
         assert endpoint == "deletePlaylist"
         assert params == {"id": "pl-1"}
 
-    async def test_write_network_error_is_false(self, client):
-        client._make_request = AsyncMock(return_value={"_network_error": True})
+    async def test_write_refused_is_false(self, client):
+        client._make_request = AsyncMock(return_value=None)
         assert await client.update_playlist("pl-1", name="x") is False
         assert await client.set_playlist_tracks("pl-1", ["s-1"]) is False
         assert await client.delete_playlist("pl-1") is False
+
+    @pytest.mark.parametrize("write", [
+        lambda client: client.create_playlist("Road Trip"),
+        lambda client: client.update_playlist("pl-1", name="x"),
+        lambda client: client.set_playlist_tracks("pl-1", ["s-1"]),
+        lambda client: client.delete_playlist("pl-1"),
+        lambda client: client.unstar("s-1"),
+        lambda client: client.scrobble("s-1"),
+    ], ids=["create", "update", "set-tracks", "delete", "unstar", "scrobble"])
+    async def test_a_write_navidrome_did_not_answer_is_not_a_refusal(self, client, write):
+        """Every write verb, not only the reads: folded into False/None, the
+        window Navidrome spends restarting was "Navidrome rejected …" at ERROR
+        on the log banner and a 502, for a gesture the same call accepts seconds
+        later. The route answers 503 "not ready" only if the verb says so."""
+        client._make_request = AsyncMock(return_value={"_network_error": True})
+        with pytest.raises(NavidromeUnreachable):
+            await write(client)
 
 
 class TestEncodeQuery:
@@ -1106,6 +1130,15 @@ class TestScanRoute:
     def test_scan_503_when_client_missing(self, api, source):
         source.get_navidrome_client = AsyncMock(return_value=None)
         assert api.post("/api/music-library/scan").status_code == 503
+        source.shares.catalog_unanswered.assert_called_once_with()
+
+    def test_an_unanswered_scan_is_a_503_not_a_start(self, api, source, nav_client):
+        """Unanswered is reported by the client itself (on_unanswered); the
+        route only must not announce a scan nobody accepted."""
+        nav_client.start_scan = AsyncMock(return_value=ScanRequest.UNAVAILABLE)
+
+        assert api.post("/api/music-library/scan").status_code == 503
+        source.shares.note_scan_started.assert_not_awaited()
 
 
 class TestAuthRecovery:
@@ -1115,6 +1148,17 @@ class TestAuthRecovery:
         r = api.get("/api/music-library/artist/ar-1")
         assert r.status_code == 503
         source.invalidate_navidrome_client.assert_awaited_once()
+
+    def test_a_refused_credential_marks_the_catalog_down(self, api, source, nav_client):
+        """The library view draws every 503 as "the catalog is starting" and
+        reloads the list when the catalog comes back. This one is reported by
+        nobody else — the client that could have is dropped — so without it the
+        tab waited on a spinner for an edge that never came."""
+        from backend.sources.music_library.navidrome_client import NavidromeAuthError
+        nav_client.get_starred = AsyncMock(side_effect=NavidromeAuthError("bad creds"))
+
+        assert api.get("/api/music-library/starred").status_code == 503
+        source.shares.catalog_unanswered.assert_called_once_with()
 
 
 class TestCatalogUnreachable:
@@ -1134,6 +1178,9 @@ class TestCatalogUnreachable:
         nav_client.get_artist = failure
         nav_client.get_playlist = failure
         nav_client.get_starred = failure
+        for write in ("create_playlist", "update_playlist", "set_playlist_tracks",
+                      "delete_playlist", "star", "unstar"):
+            setattr(nav_client, write, failure)
 
     @pytest.fixture(autouse=True)
     def nothing_reaches_the_banner(self, caplog, source):
@@ -1155,6 +1202,18 @@ class TestCatalogUnreachable:
 
     def test_starred_503_when_the_catalog_does_not_answer(self, api):
         assert api.get("/api/music-library/starred").status_code == 503
+
+    @pytest.mark.parametrize("call", [
+        lambda api: api.post("/api/music-library/star", json={"id": "s-1"}),
+        lambda api: api.post("/api/music-library/unstar", json={"id": "s-1"}),
+        lambda api: api.post("/api/music-library/playlists", json={"name": "Road Trip"}),
+        lambda api: api.put("/api/music-library/playlist/pl-1", json={"name": "Renamed"}),
+        lambda api: api.delete("/api/music-library/playlist/pl-1"),
+    ], ids=["star", "unstar", "create", "rename", "delete"])
+    def test_a_write_the_catalog_did_not_answer_is_not_a_rejection(self, api, call):
+        """The writes answered 502 "Navidrome rejected …" logged at ERROR — the
+        banner — for the window in which the reads already said "not ready"."""
+        assert call(api).status_code == 503
 
     def test_a_merged_album_with_a_disc_that_does_not_answer_is_not_served_short(
         self, api, nav_client

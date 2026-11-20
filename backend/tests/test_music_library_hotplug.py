@@ -170,7 +170,7 @@ def changed():
 
 @pytest.fixture
 def manager(changed):
-    return StorageManager(AsyncMock(return_value=None), changed)
+    return StorageManager(AsyncMock(return_value=None), changed, AsyncMock())
 
 
 def use(monkeypatch, fake):

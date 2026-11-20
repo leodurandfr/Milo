@@ -2,8 +2,14 @@
   <div class="spotify-home">
     <div class="swap-stack">
       <Transition name="fade-slide">
+        <!-- Reloaded by itself once a sign-in in progress completes (the watch
+             below); a 409 with no sign-in under way — the daemon timing out, a
+             session rebuilt past its wait — has nothing coming, so it has the
+             button, as the search has. -->
         <MessageContent v-if="!home && (store.signingIn || store.homeError === 'not_signed_in')"
-          key="signing-in" loading :title="t('spotify.signingIn')" />
+          key="signing-in" loading :title="t('spotify.signingIn')"
+          :cta-label="store.signingIn ? '' : t('spotify.retry')" cta-variant="control"
+          :cta-loading="store.homeLoading" :cta-click="() => store.loadHome({ force: true })" />
 
         <MessageContent v-else-if="store.homeError === 'unavailable'" key="error" icon="spotify"
           :title="t('spotify.libraryUnavailable')"

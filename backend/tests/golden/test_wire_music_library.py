@@ -87,6 +87,9 @@ class FakeShares:
     def scan_state(self):
         return {"scanning": False, "catalog_ready": True}
 
+    def catalog_unanswered(self):
+        """Handed to the client as its on_unanswered; the fake never calls it."""
+
     def __getattr__(self, name):
         raise AttributeError(f"FakeShares has no '{name}' — add it")
 

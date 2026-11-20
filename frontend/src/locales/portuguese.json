@@ -777,6 +777,8 @@
     "buildingProgress": "{count} faixa indexada… | {count} faixas indexadas…",
     "catalogStarting": "A iniciar o catálogo…",
     "catalogStartingHint": "O catálogo musical está a iniciar. A sua biblioteca aparece dentro de momentos.",
+    "loadFailed": "Não foi possível carregar a biblioteca",
+    "retry": "Tentar novamente",
     "queueEmpty": "Nada na fila",
     "queueEmptyHint": "Reproduza um álbum, playlist ou faixa para criar uma fila.",
     "playNext": "Reproduzir a seguir",

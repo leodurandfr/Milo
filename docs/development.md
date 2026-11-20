@@ -665,11 +665,20 @@ standing in for the podcast catalogue and a mount layer underneath.**
   only *new* files ever cost time. Nothing polls: `shares.py::_watch_scan` observes
   Navidrome once for the whole appliance and broadcasts `{storages, scanning}` on
   `source/storages_changed`, and `musicLibraryStore` reloads its cached lists on
-  the completion edge. Two cadences plus a kick — 15 s idle, 3 s while scanning,
-  and an immediate wake whenever a mount changes or a refresh is requested,
-  because a quick scan would otherwise begin and end between two idle polls and
-  no client would ever see it. Progress is the storage space's own track count,
-  never Navidrome's global one (frozen for the duration of a scan).
+  the completion edge (and, while a scan runs, at most every 30 s as the space
+  on screen grows). Three cadences plus a kick — 5 min idle, 15 s while
+  Navidrome does not answer, 3 s while scanning. Idle is slow because every
+  poll Navidrome answers writes its database (last access, player last-seen,
+  each at most once a minute — at the old 15 s, the probable bulk of the
+  ~100 MB a day measured on the SD card), so only Navidrome's own 6-hourly scan
+  is left to it: every scan Milō asks for is announced the moment Navidrome
+  accepts it (`StorageManager`'s scanning hook, which also keeps `scanning` up
+  while a mount's scan waits behind a running one), and every Subsonic call
+  Navidrome does not answer is reported by the client (`on_unanswered` →
+  `catalog_unanswered`), which marks the catalog down and wakes the watcher.
+  Such a mark-down comes back with the availability edge alone; only an outage
+  a poll saw itself drops the catalog caches and asks for the owed rescan. Progress is the storage space's own track
+  count, never Navidrome's global one (frozen for the duration of a scan).
 - **Cover art** is proxied localhost-only behind `/api/music-library/cover/{id}`
   (1-year cache, `no-store` when Navidrome did not answer the placeholder probe);
   the frontend never reaches Navidrome directly. Navidrome's online

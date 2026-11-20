@@ -11,6 +11,7 @@ Moved here from test_music_library_source.py when the share block left the audio
 source — the service is what owns this behaviour now.
 """
 import asyncio
+import contextlib
 import errno
 import threading
 from unittest.mock import AsyncMock, Mock, patch
@@ -18,7 +19,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from backend.sources.music_library.models import ShareRequest
-from backend.sources.music_library.navidrome_client import ScanStatus
+from backend.sources.music_library.navidrome_client import ScanRequest, ScanStatus
 from backend.sources.music_library.shares import (
     NetworkShareService,
     ShareLoginNeedsPassword,
@@ -978,6 +979,7 @@ class TestScanChannel:
     @pytest.fixture
     def scanner(self, shares):
         shares._storage.request_scan = AsyncMock()
+        shares._storage.scan_pending = Mock(return_value=False)
         return shares
 
     @pytest.mark.asyncio
@@ -1001,14 +1003,37 @@ class TestScanChannel:
 
     @pytest.mark.asyncio
     async def test_a_started_scan_is_announced_and_watched_closely(self, scanner):
-        """A quick scan takes ~0.4 s against a 15 s idle poll, so without this
-        push the refresh button would start one and no client would ever hear
-        about it; the kick is what has the watcher confirm the end of it."""
+        """A quick scan takes ~0.4 s against an idle poll minutes apart, so
+        without this push the refresh button would start one and no client would
+        ever hear about it; the kick is what has the watcher confirm the end of
+        it."""
         await scanner.note_scan_started()
 
         assert scanner.scan_state() == {"scanning": True, "catalog_ready": True}
         scanner._on_storages_changed.assert_awaited_once()
         assert scanner._scan_kick.is_set()
+
+    @pytest.mark.asyncio
+    async def test_a_scan_the_storage_layer_starts_reaches_the_watcher(self, shares):
+        """The wire behind every mount's "indexing…": StorageManager announces a
+        scan it asked for through the hook this service hands it, and nothing
+        else does any more — the mount hook's kick is gone, because a watcher
+        woken before the request read "no scan" and slept a full idle cadence,
+        which is the add-share wizard saying "no music" at its grace. Built
+        through the real constructor, so a hook left unwired goes red here."""
+        client = AsyncMock()
+        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
+        client.start_scan = AsyncMock(return_value=ScanRequest.STARTED)
+        service = NetworkShareService(AsyncMock(return_value=client), Mock(), AsyncMock())
+        try:
+            await service._storage.request_scan()
+
+            client.start_scan.assert_awaited_once()
+            assert service.scan_state()["scanning"] is True
+            service._on_storages_changed.assert_awaited_once()
+            assert service._scan_kick.is_set()
+        finally:
+            service._probe_pool.shutdown(wait=False, cancel_futures=True)
 
     @pytest.mark.asyncio
     async def test_a_scan_that_ends_drops_the_catalog_caches(self, scanner):
@@ -1041,8 +1066,8 @@ class TestScanChannel:
 
     @pytest.mark.asyncio
     async def test_an_idle_poll_pushes_nothing(self, scanner):
-        """The idle cadence is one poll every 15 s forever; pushing on each would
-        be the per-browser polling this watcher exists to replace."""
+        """The idle cadence is one poll every few minutes forever; pushing on
+        each would be the per-browser polling this watcher exists to replace."""
         client = AsyncMock()
         client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
         scanner._navidrome_provider = AsyncMock(return_value=client)
@@ -1093,10 +1118,14 @@ class TestScanChannel:
         the source itself was restarted. Measured on the unit: 80 s of WebSocket
         after Navidrome answered again carried not one storages event.
         """
-        scanner._scan = {"scanning": False, "catalog_ready": False}
         client = AsyncMock()
-        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
+        client.get_scan_status = AsyncMock(side_effect=[
+            ScanStatus(available=False),
+            ScanStatus(available=True, scanning=False),
+        ])
         scanner._navidrome_provider = AsyncMock(return_value=client)
+        await scanner._poll_scan()
+        scanner._on_storages_changed.reset_mock()
 
         await scanner._poll_scan()
 
@@ -1120,6 +1149,216 @@ class TestScanChannel:
 
         await scanner._poll_scan()
         scanner._on_storages_changed.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_mount_still_owed_its_scan_is_still_indexing(self, scanner):
+        """Between the scan a new share waits behind and its own, Navidrome
+        reports idle. Read as the end of indexing, that gap was the add-share
+        wizard counting a share whose scan had not started — "no music was
+        found in this folder" — and the catalog caches dropped for nothing."""
+        scanner._scan = {"scanning": True, "catalog_ready": True}
+        scanner._storage.scan_pending = Mock(return_value=True)
+        client = AsyncMock()
+        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
+        scanner._navidrome_provider = AsyncMock(return_value=client)
+
+        assert await scanner._poll_scan() is True
+
+        assert scanner.scan_state()["scanning"] is True
+        scanner._on_catalog_changed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_unanswered_catalog_call_is_announced_at_once(self, scanner):
+        """Idle, the watcher asks every few minutes, so a Navidrome restarting
+        while nobody looked stayed "ready" on every screen while each list asked
+        of it failed. Said once, however many calls fail; the kick has the
+        watcher look again now rather than at its idle cadence."""
+        scanner.catalog_unanswered()
+        scanner.catalog_unanswered()
+        await asyncio.sleep(0)
+
+        assert scanner.scan_state()["catalog_ready"] is False
+        scanner._on_storages_changed.assert_awaited_once()
+        assert scanner._scan_kick.is_set()
+
+    @staticmethod
+    def _recording_push(scanner):
+        """The storages hook as broadcast_storages is: network I/O first (the
+        per-library counts), the scan state read after it. Returns what each
+        push said of the catalog."""
+        said = []
+
+        async def push():
+            for _ in range(3):
+                await asyncio.sleep(0)
+            said.append(scanner.scan_state()["catalog_ready"])
+
+        scanner._on_storages_changed = push
+        return said
+
+    @pytest.mark.asyncio
+    async def test_the_kicked_poll_cannot_swallow_the_down_edge(self, scanner):
+        """The kick is there to see the catalog come back, so the poll it wakes
+        often finds Navidrome answering. Kicked before the down push had read
+        the state, that poll put "ready" back first and both pushes said ready:
+        no client saw the catalog go, and a list that got the 503 stayed on
+        "starting" for good, waiting for an edge that had been absorbed."""
+        said = self._recording_push(scanner)
+        client = AsyncMock()
+        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
+        scanner._navidrome_provider = AsyncMock(return_value=client)
+        watcher = asyncio.create_task(scanner._watch_scan())
+        try:
+            await asyncio.sleep(0)  # its first poll: ready, nothing to push
+
+            scanner.catalog_unanswered()
+
+            async def two_pushes():
+                while len(said) < 2:
+                    await asyncio.sleep(0)
+            # A bound on a hang, not a budget.
+            await asyncio.wait_for(two_pushes(), timeout=5)
+        finally:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
+
+        assert said == [False, True]
+
+    @pytest.mark.asyncio
+    async def test_a_poll_landing_mid_announcement_waits_its_turn(self, scanner):
+        """The same edge against the watcher's own timer: a poll that answers
+        while the down push is still on its way must not put "ready" back
+        under it. The announcement's own kick polls again once it has gone."""
+        said = self._recording_push(scanner)
+        client = AsyncMock()
+        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
+        scanner._navidrome_provider = AsyncMock(return_value=client)
+
+        scanner.catalog_unanswered()
+        await scanner._poll_scan()
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert scanner._scan_kick.is_set()
+        await scanner._poll_scan()
+
+        assert said == [False, True]
+
+    @pytest.mark.asyncio
+    async def test_an_outage_only_a_call_saw_costs_no_rescan(self, scanner):
+        """One timed-out call marks the catalog down; the poll it wakes finds
+        Navidrome answering. That is the edge back and nothing more: dropping
+        every catalog cache and asking Navidrome for a scan — a database write
+        — after every slow call fed the very load that made it slow. The
+        caches hold no failed read (only complete walks are kept), so there is
+        nothing to drop."""
+        client = AsyncMock()
+        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
+        scanner._navidrome_provider = AsyncMock(return_value=client)
+        scanner.catalog_unanswered()
+        for _ in range(3):
+            await asyncio.sleep(0)
+
+        await scanner._poll_scan()
+
+        assert scanner.scan_state()["catalog_ready"] is True
+        scanner._on_catalog_changed.assert_not_called()
+        scanner._storage.request_scan.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_an_outage_the_watcher_saw_still_owes_its_scan(self, scanner):
+        """The other side of the line above: Navidrome down for a whole poll is
+        a restart, and every scan asked of it meanwhile was dropped."""
+        client = AsyncMock()
+        client.get_scan_status = AsyncMock(side_effect=[
+            ScanStatus(available=False),
+            ScanStatus(available=True, scanning=False),
+        ])
+        scanner._navidrome_provider = AsyncMock(return_value=client)
+        scanner.catalog_unanswered()
+        for _ in range(3):
+            await asyncio.sleep(0)
+
+        await scanner._poll_scan()
+        await scanner._poll_scan()
+
+        scanner._on_catalog_changed.assert_called_once()
+        scanner._storage.request_scan.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_call_that_keeps_failing_does_not_feed_its_own_edge(self, scanner):
+        """A browser reloads every list it holds on the catalog coming back, so
+        a call Navidrome is too busy to answer is asked again on each up edge
+        and fails again. Unchecked, that report pushed the next down edge, whose
+        poll found Navidrome answering and pushed the next up: measured in a
+        harness, 45,000 pushes in half a second against a 502, each one a reload
+        burst per browser and an availability flip for Milo-Mac and Milo-iOS.
+        Once a poll has refuted a report, the next one is the poll's to judge."""
+        said = []
+
+        async def push():
+            said.append(scanner.scan_state()["catalog_ready"])
+            if said[-1] and len(said) < 50:
+                # The browser answering the up edge with the read that fails.
+                scanner.catalog_unanswered()
+
+        scanner._on_storages_changed = push
+        client = AsyncMock()
+        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
+        scanner._navidrome_provider = AsyncMock(return_value=client)
+        watcher = asyncio.create_task(scanner._watch_scan())
+        try:
+            await asyncio.sleep(0)
+            scanner.catalog_unanswered()
+            for _ in range(200):
+                await asyncio.sleep(0)
+        finally:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
+
+        assert said == [False, True]
+        assert scanner.scan_state()["catalog_ready"] is True
+
+    @pytest.mark.asyncio
+    async def test_a_refuted_report_still_lets_a_real_outage_through(self, scanner):
+        """The hold only takes the down edge away from a single call: the report
+        still wakes the watcher, and a poll that finds Navidrome gone says so
+        itself — a restart within the hold is not hidden for minutes."""
+        client = AsyncMock()
+        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=True, scanning=False))
+        scanner._navidrome_provider = AsyncMock(return_value=client)
+        scanner.catalog_unanswered()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        await scanner._poll_scan()  # answering: the report is refuted
+        scanner._scan_kick.clear()
+        scanner._on_storages_changed.reset_mock()
+
+        scanner.catalog_unanswered()
+        assert scanner.scan_state()["catalog_ready"] is True
+        assert scanner._scan_kick.is_set()
+
+        client.get_scan_status = AsyncMock(return_value=ScanStatus(available=False))
+        await scanner._poll_scan()
+        assert scanner.scan_state()["catalog_ready"] is False
+        scanner._on_storages_changed.assert_awaited_once()
+
+    def test_an_idle_catalog_is_not_polled_every_minute(self, scanner):
+        """Every poll Navidrome answers writes its database — the account's last
+        access and the player's last-seen, each at most once a minute — so an
+        idle cadence under that minute is a write a minute, day and night —
+        the probable bulk of the ~100 MB a day measured on the SD card. A
+        catalog that does not answer writes nothing and is asked sooner, and a
+        running scan sooner still."""
+        navidrome_write_limiter_s = 60.0
+        idle = scanner._poll_delay(scanning=False)
+        assert idle > navidrome_write_limiter_s
+
+        scanner._scan = {"scanning": False, "catalog_ready": False}
+        unanswered = scanner._poll_delay(scanning=False)
+        assert unanswered < idle
+        assert scanner._poll_delay(scanning=True) < unanswered
 
     @pytest.mark.asyncio
     async def test_a_failing_poll_does_not_kill_the_watcher(self, scanner):

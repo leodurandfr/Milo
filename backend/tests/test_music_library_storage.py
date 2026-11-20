@@ -71,7 +71,7 @@ def navidrome():
 
 @pytest.fixture
 def manager(navidrome):
-    return StorageManager(_navidrome_provider(navidrome), AsyncMock())
+    return StorageManager(_navidrome_provider(navidrome), AsyncMock(), AsyncMock())
 
 
 # === classification ===============================================================
@@ -323,7 +323,7 @@ async def test_scan_skipped_when_navidrome_unavailable():
     mount must still complete rather than raise. Nothing else will notice it —
     no inotify event reports a mount — so the scheduled rescan is what catches
     up, and the mount itself must not fail over a catalog that isn't up yet."""
-    mgr = StorageManager(_navidrome_provider(None), AsyncMock())
+    mgr = StorageManager(_navidrome_provider(None), AsyncMock(), AsyncMock())
     await mgr.request_scan()  # must not raise
 
 
@@ -631,3 +631,73 @@ async def test_a_scan_navidrome_really_refused_is_still_warned_about(
                                        "host": "nas.local", "path": "music"})
 
     assert any("refused" in r.getMessage() for r in caplog.records)
+
+
+# === announcing the scan =========================================================
+#
+# The scan watcher polls minutes apart when nothing is happening, so a scan Milō
+# asks for reaches every screen only through the scanning hook — and only if the
+# hook fires after the request. Woken before it (the mount hook used to kick the
+# watcher), the watcher read "no scan" and slept, and the add-share wizard
+# concluded "no music in this folder" at its 9 s grace.
+
+def _recording_manager(navidrome, events):
+    """A manager whose two hooks and scan trigger write into one timeline."""
+    async def storage_changed():
+        events.append("storage-changed")
+
+    async def scanning():
+        events.append("scanning")
+
+    async def start_scan():
+        events.append("scan-requested")
+        return navidrome.start_scan.return_value
+
+    navidrome.start_scan = AsyncMock(side_effect=start_scan, return_value=ScanRequest.STARTED)
+    return StorageManager(_navidrome_provider(navidrome), storage_changed, scanning)
+
+
+async def test_a_mounted_share_announces_its_scan_after_asking_for_it(navidrome):
+    events = []
+    manager = _recording_manager(navidrome, events)
+
+    with patch("asyncio.create_subprocess_exec",
+               return_value=_proc(stdout=b"/media/milo/nas-abcd1234\n")):
+        await manager.mount_share({"id": "nas-abcd1234", "type": "cifs",
+                                   "host": "nas.local", "path": "music"})
+
+    assert events == ["storage-changed", "scan-requested", "scanning"]
+
+
+@pytest.mark.parametrize("outcome", [ScanRequest.UNAVAILABLE, ScanRequest.REFUSED])
+async def test_a_scan_navidrome_did_not_take_is_not_announced(navidrome, outcome):
+    """Announced, it would put "indexing…" on every screen for a scan that is
+    not running, until the next poll took it back."""
+    events = []
+    manager = _recording_manager(navidrome, events)
+    navidrome.start_scan.return_value = outcome
+
+    await manager.request_scan()
+
+    assert "scanning" not in events
+
+
+async def test_a_scan_owed_behind_a_running_one_is_announced_and_pending(navidrome):
+    """Indexing is under way from the deferral on — the running scan, then the
+    mount's own — and between the two Navidrome reports idle: the pending flag
+    is what keeps that gap from reading as the end of the mount's scan."""
+    events = []
+    manager = _recording_manager(navidrome, events)
+    navidrome.get_scan_status.side_effect = [
+        _scan_status(True),    # at request time
+        _scan_status(False),   # the waiter's first poll: free
+    ]
+
+    with patch("backend.sources.music_library.storage._SCAN_WAIT_POLL_S", 0):
+        await manager.request_scan()
+        assert events == ["scanning"]
+        assert manager.scan_pending() is True
+        await manager._deferred_scan
+
+    assert events == ["scanning", "scan-requested", "scanning"]
+    assert manager.scan_pending() is False

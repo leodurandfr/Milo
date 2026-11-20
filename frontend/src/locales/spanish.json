@@ -777,6 +777,8 @@
     "buildingProgress": "{count} pista indexada… | {count} pistas indexadas…",
     "catalogStarting": "Iniciando el catálogo…",
     "catalogStartingHint": "El catálogo musical se está iniciando. Su biblioteca aparecerá en un momento.",
+    "loadFailed": "No se pudo cargar la biblioteca",
+    "retry": "Reintentar",
     "queueEmpty": "Nada en la cola",
     "queueEmptyHint": "Reproduzca un álbum, una playlist o una pista para crear una cola.",
     "playNext": "Reproducir a continuación",

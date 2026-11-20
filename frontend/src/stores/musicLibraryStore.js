@@ -206,18 +206,31 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const inScope = (scope) => scope === activeLibraryId.value;
 
   // Overlapping reads of one catalog list land in any order: a scan forces a
-  // reload each time the album count moves (every storages push, 3 s apart),
-  // and a reload can outlast that. A response older than the list on screen
+  // reload as the album count moves, a storage change or a resync another, and
+  // a reload can outlast the next. A response older than the list on screen
   // would put back the list from before; one merely older than the latest
   // issued is still newer than what is shown, and is drawn — holding it back
-  // would freeze the grid for a whole scan whose reloads each outlast the next
-  // push. The loading flag belongs to the latest request alone.
+  // would freeze the grid for a whole scan whose reloads each outlast the next.
+  // The loading flag belongs to the latest request alone, and so does `error`.
+  //
+  // `error` is why the latest read failed, while nothing it asked for is on
+  // screen to fall back on: 'starting' for a 503 (the catalog is not answering
+  // yet — Navidrome boots with the backend and migrates its database before it
+  // listens) or 'failed'. Without it a first read that failed left the skeleton
+  // up for good, which looks like a load still under way. `wanted` is whether
+  // the list was asked for in this scope at all — loaded, loading or failed —
+  // which is what a reload after the catalog comes back, a scan ends or the tab
+  // returns refetches: a list that failed is the one that needs it most.
   function requestOrder(loading) {
     let issued = 0;
     let shown = 0;
+    let asked = false;
+    const error = ref(null);
     return {
+      error,
       start() {
         loading.value = true;
+        asked = true;
         return ++issued;
       },
       settle(request) {
@@ -226,6 +239,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       outdated: (request) => request < shown,
       show(request) {
         shown = request;
+        error.value = null;
+      },
+      fail(request, result) {
+        if (request !== issued) return;
+        error.value = result.error?.status === 503 ? 'starting' : 'failed';
+      },
+      wanted: () => asked,
+      // A scope change: what was asked for in the last one is another storage's.
+      forget() {
+        asked = false;
+        error.value = null;
       },
     };
   }
@@ -287,17 +311,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const likedSongIds = ref(new Set());
   const likedSongsLoaded = ref(false);
   const likedSongsLoading = ref(false);
-  // Two loads overlap when a storage change lands while the view forces one:
-  // the flag and the list belong to the latest. Otherwise the first to finish
-  // drops the spinner over a list still coming ("no tracks"), and the last to
-  // finish — possibly the older — puts back the list from before the change.
-  let likedSongsRequest = 0;
+  // Two loads overlap when a storage change lands while the view forces one,
+  // or a scan's reload while another is in flight: the same ordering as the
+  // four lists above. The flag belongs to the latest; an older response that
+  // lands first is still drawn — dropped, a scan whose reloads each outlast
+  // the next would freeze the list — and one that lands last is dropped.
+  const likedSongsOrder = requestOrder(likedSongsLoading);
 
   async function loadLikedSongs({ force = false } = {}) {
     if (likedSongsLoaded.value && !force) return true;
     const scope = activeLibraryId.value;
-    const request = ++likedSongsRequest;
-    likedSongsLoading.value = true;
+    const request = likedSongsOrder.start();
     // Released ahead of the scope check, as loadAlbums does: LikedSongsView
     // gates its spinner on this flag.
     let result;
@@ -309,14 +333,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         params: scoped(),
       });
     } finally {
-      if (request === likedSongsRequest) likedSongsLoading.value = false;
+      likedSongsOrder.settle(request);
     }
-    if (request !== likedSongsRequest || !inScope(scope)) return true;  // superseded, not failed
+    if (likedSongsOrder.outdated(request) || !inScope(scope)) return true;  // superseded, not failed
     const ok = result.ok && Array.isArray(result.data?.songs);
     if (ok) {
+      likedSongsOrder.show(request);
       likedSongs.value = result.data.songs;
       likedSongIds.value = new Set(result.data.songs.map((s) => s.id));
       likedSongsLoaded.value = true;
+    } else {
+      likedSongsOrder.fail(request, result);
     }
     return ok;
   }
@@ -449,6 +476,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       albums.value = result.data.albums;
       albumsHasMore.value = result.data.albums.length >= size;
       albumsLoaded.value = true;
+    } else {
+      albumsOrder.fail(request, result);
     }
     return ok;
   }
@@ -514,8 +543,14 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (ok) {
       artistsOrder.show(request);
       artistIndex.value = result.data.index;
-      artistsRendered.value = ARTISTS_RENDER_CHUNK;
+      // A first read starts the window at one chunk; a revalidation keeps the
+      // one the user scrolled open. Collapsing it threw a list read 200 rows
+      // down back to 40 on every reload a scan forced, and the sentinel then
+      // mounted the same rows again.
+      if (!force) artistsRendered.value = ARTISTS_RENDER_CHUNK;
       artistsLoaded.value = true;
+    } else {
+      artistsOrder.fail(request, result);
     }
     return ok;
   }
@@ -606,6 +641,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
         .filter((g) => (g.value || '').trim())
         .sort((a, b) => a.value.localeCompare(b.value));
       genresLoaded.value = true;
+    } else {
+      genresOrder.fail(request, result);
     }
     return ok;
   }
@@ -639,6 +676,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       playlistsOrder.show(request);
       playlists.value = result.data.playlists;
       playlistsLoaded.value = true;
+    } else {
+      playlistsOrder.fail(request, result);
     }
     return ok;
   }
@@ -883,12 +922,25 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return result.ok && result.data?.status === 'success';
   }
 
-  /** Refetch whichever top-level lists are already cached, in the current scope. */
+  // Every catalog list the store keeps, with its loader and its bookkeeping.
+  // Declared after the loaders it names; read only by the reloads below.
+  const catalogLists = () => [
+    [albumsOrder, loadAlbums],
+    [artistsOrder, loadArtists],
+    [genresOrder, loadGenres],
+    [playlistsOrder, loadPlaylists],
+    [likedSongsOrder, loadLikedSongs],
+  ];
+
+  /**
+   * Refetch every list asked for in the current scope — cached, in flight, or
+   * failed — the liked songs included: a scan that marks tracks gone changes
+   * them as much as the albums, and the Liked Songs row counts them.
+   */
   function reloadCachedLists() {
-    if (albumsLoaded.value) loadAlbums({ force: true });
-    if (artistsLoaded.value) loadArtists({ force: true });
-    if (genresLoaded.value) loadGenres({ force: true });
-    if (playlistsLoaded.value) loadPlaylists({ force: true });
+    for (const [order, load] of catalogLists()) {
+      if (order.wanted()) load({ force: true });
+    }
   }
 
   // A scan just finished — every cached list is stale (new tracks missing, gone
@@ -911,14 +963,24 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   // …and while it runs, the storage space on screen fills as it is indexed.
   // Driven by its album count rather than a timer: the count only moves when
-  // Navidrome has actually committed albums, so this refetches exactly when
-  // there is something new to show, and never on an idle poll.
+  // Navidrome has actually committed albums, so this refetches only when there
+  // is something new to show, and never on an idle poll. Paced, though: the
+  // count moves on nearly every push of a scan (3 s apart), and reloading every
+  // cached list each time was ~1,400 requests per client over an 18-minute
+  // first index, to a Navidrome busy indexing — for an album grid the backend
+  // serves from a cache of the same age as this pace anyway. The end of the
+  // scan reloads them all regardless.
+  const SCAN_RELOAD_INTERVAL_MS = 30000;
+  let lastScanReload = -Infinity;
   const activeStorageAlbumCount = computed(() => {
     const active = storages.value.find((s) => s.library_id === activeLibraryId.value);
     return active?.album_count ?? null;
   });
   watch(activeStorageAlbumCount, (now, before) => {
     if (!isScanning.value || now == null || before == null || now === before) return;
+    const at = Date.now();
+    if (at - lastScanReload < SCAN_RELOAD_INTERVAL_MS) return;
+    lastScanReload = at;
     reloadCachedLists();
   });
 
@@ -928,13 +990,10 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // over. Whatever was loaded is refetched, so the tab the user is looking at
   // repopulates without a second interaction.
   watch(activeLibraryId, () => {
-    const reload = {
-      albums: albumsLoaded.value,
-      artists: artistsLoaded.value,
-      genres: genresLoaded.value,
-      playlists: playlistsLoaded.value,
-      liked: likedSongsLoaded.value,
-    };
+    // Whatever was asked for, failed lists included: their failure was about
+    // the last scope.
+    const reload = catalogLists().filter(([order]) => order.wanted()).map(([, load]) => load);
+    for (const [order] of catalogLists()) order.forget();
     albums.value = [];
     albumsLoaded.value = false;
     albumsHasMore.value = true;
@@ -948,11 +1007,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     likedSongIds.value = new Set();
     likedSongsLoaded.value = false;
     clearSearch();
-    if (reload.albums) loadAlbums();
-    if (reload.artists) loadArtists();
-    if (reload.genres) loadGenres();
-    if (reload.playlists) loadPlaylists();
-    if (reload.liked) loadLikedSongs();
+    for (const load of reload) load();
   });
 
   // =========================================================================
@@ -1134,11 +1189,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     // failure is retried. The catalogReady watcher reloads them the moment it
     // answers again.
     if (catalogReady.value) {
-      if (albumsLoaded.value) tasks.push(loadAlbums({ force: true }));
-      if (artistsLoaded.value) tasks.push(loadArtists({ force: true }));
-      if (genresLoaded.value) tasks.push(loadGenres({ force: true }));
-      if (playlistsLoaded.value) tasks.push(loadPlaylists({ force: true }));
-      if (likedSongsLoaded.value) tasks.push(loadLikedSongs({ force: true }));
+      for (const [order, load] of catalogLists()) {
+        if (order.wanted()) tasks.push(load({ force: true }));
+      }
     }
     return (await Promise.all(tasks)).every(Boolean);
   }
@@ -1185,6 +1238,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     albums,
     albumsLoading,
     albumsLoaded,
+    albumsError: albumsOrder.error,
     albumsHasMore,
     loadAlbums,
     loadMoreAlbums,
@@ -1197,18 +1251,21 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     renderArtistsThrough,
     artistsLoading,
     artistsLoaded,
+    artistsError: artistsOrder.error,
     loadArtists,
 
     // Genres
     genres,
     genresLoading,
     genresLoaded,
+    genresError: genresOrder.error,
     loadGenres,
 
     // Playlists
     playlists,
     playlistsLoading,
     playlistsLoaded,
+    playlistsError: playlistsOrder.error,
     loadPlaylists,
     createPlaylist,
     renamePlaylist,

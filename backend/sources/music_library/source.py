@@ -272,9 +272,14 @@ class MusicLibrarySource(MpvAudioSource):
         host, provisioning not finished); the routes surface that as a 503. Re-reads
         the cred file on each attempt while None, so the client appears as soon as
         provisioning completes — no backend restart needed.
+
+        Every call it makes that Navidrome does not answer is reported to the
+        scan watcher (``shares.catalog_unanswered``), whoever made it.
         """
         if self._navidrome is None:
-            self._navidrome = NavidromeClient.from_cred_file()
+            self._navidrome = NavidromeClient.from_cred_file(
+                on_unanswered=self._shares.catalog_unanswered
+            )
         return self._navidrome
 
     async def invalidate_navidrome_client(self) -> None:
@@ -1580,6 +1585,14 @@ class MusicLibrarySource(MpvAudioSource):
                     submission,
                     song_id,
                 )
+        except NavidromeUnreachable:
+            # Restarting, not refusing: nothing to warn about, the listen is
+            # simply not recorded.
+            self._logger.info(
+                "Navidrome not answering; scrobble (submission=%s) for %s dropped",
+                submission,
+                song_id,
+            )
         except Exception as e:
             self._logger.warning(f"Scrobble failed for {song_id}: {e}")
 

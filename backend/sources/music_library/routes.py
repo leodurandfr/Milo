@@ -185,6 +185,7 @@ async def _require_client(source: MusicLibrarySource) -> NavidromeClient:
     client = await source.get_navidrome_client()
     if client is None:
         logger.error("Navidrome client unavailable (cred file missing)")
+        source.shares.catalog_unanswered()
         raise HTTPException(status_code=503, detail="Music library catalog not ready")
     return client
 
@@ -196,9 +197,17 @@ async def _catalog_errors(context: str, source: MusicLibrarySource):
     HTTPException passes through (404/503). NavidromeAuthError drops the cached
     client so the next request rebuilds it from a possibly-rotated cred file, and
     reports 503 (transient) rather than 500. NavidromeUnreachable — Navidrome
-    restarting, or past its deadline — is a 503 too, logged at warning with the
-    client kept: it heals itself and is no credential fault. Anything else is
-    logged and 500.
+    restarting, or past its deadline, on a read or a write alike — is a 503 too,
+    logged at warning with the client kept: it heals itself and is no credential
+    fault, and above all no refusal. Anything else is logged and 500.
+
+    The 503s that mean "the catalog is not there" are followed by a catalog
+    edge — down, then up once it answers — which is what the library view
+    reloads a failed list on: a call Navidrome did not answer is reported by the
+    client itself (``on_unanswered``), and a refused credential here, since the
+    client that would have reported it is dropped. A page Navidrome answered
+    with an error (the strict album walk) or a cover past its deadline is a 503
+    with no edge: the catalog did not go anywhere.
     """
     try:
         yield
@@ -207,6 +216,7 @@ async def _catalog_errors(context: str, source: MusicLibrarySource):
     except NavidromeAuthError as exc:
         await source.invalidate_navidrome_client()
         logger.error(f"{context}: {exc}")
+        source.shares.catalog_unanswered()
         raise HTTPException(status_code=503, detail="Music library catalog auth failed")
     except NavidromeUnreachable as exc:
         logger.warning(f"{context}: Navidrome did not answer {exc}")

@@ -50,6 +50,13 @@ NavidromeProvider = Callable[[], Awaitable[Optional[NavidromeClient]]]
 # library must exist before the scan that fills it).
 StorageChangedHook = Callable[[], Awaitable[None]]
 
+# Called once Navidrome is scanning on Milō's behalf: a scan Milō asked for was
+# accepted, or one already running holds back the scan a mount is owed (see
+# request_scan). Never before — a watcher told before the request reads "no
+# scan" and goes back to sleep, which is how the add-share wizard concluded
+# "no music in this folder" while its scan had not even started.
+ScanningHook = Callable[[], Awaitable[None]]
+
 # Filesystems worth mounting — mirrors milo-mount's allowlist. The helper is the
 # real security boundary and re-validates independently; this is only a fast
 # pre-filter so we don't shell out for a partition Navidrome couldn't read anyway.
@@ -151,6 +158,7 @@ class StorageManager:
         self,
         navidrome_provider: NavidromeProvider,
         on_storage_changed: StorageChangedHook,
+        on_scanning: ScanningHook,
     ) -> None:
         self.logger = logger
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -160,6 +168,7 @@ class StorageManager:
         # auth-recovery path that drops a stale client on a rotated cred file.
         self._navidrome_provider = navidrome_provider
         self._on_storage_changed = on_storage_changed
+        self._on_scanning = on_scanning
         # Serializes mount/unmount so concurrent hotplug events can't race on the
         # mountpoint table or the helpers.
         self._lock = asyncio.Lock()
@@ -596,15 +605,32 @@ class StorageManager:
             return
 
         async with self._scan_lock:
-            if self._deferred_scan is not None and not self._deferred_scan.done():
+            if self.scan_pending():
                 # A waiter is already owed a scan — fold this request into it
                 # rather than queueing a second pass over the same tree.
                 return
-            if await self._scan_in_progress(client):
+            deferred = await self._scan_in_progress(client)
+            if deferred:
                 self._deferred_scan = asyncio.create_task(self._scan_when_idle())
-                return
 
+        if deferred:
+            # Indexing is under way from here — the running scan, then the one
+            # owed to this mount — and whoever reports it has to know now: its
+            # idle cadence is minutes long.
+            await self._on_scanning()
+            return
         await self._start_scan(client)
+
+    def scan_pending(self) -> bool:
+        """Whether a mount is still owed the scan it is waiting to run.
+
+        True from the moment a request lands behind a running scan until the
+        scan it is owed has been asked for. Between the two scans Navidrome
+        reports itself idle, so whoever reports indexing reads this as well —
+        or the end of the scan that was already running reads as the end of
+        the mount's own, before it began.
+        """
+        return self._deferred_scan is not None and not self._deferred_scan.done()
 
     async def _scan_in_progress(self, client: NavidromeClient) -> bool:
         """Whether Navidrome is scanning right now; False when it can't say.
@@ -648,13 +674,16 @@ class StorageManager:
             self.logger.warning("Deferred Navidrome rescan failed: %s", exc)
 
     async def _start_scan(self, client: NavidromeClient) -> None:
-        """The one place a scan is actually asked for."""
+        """The one place a scan is actually asked for, and the one place a scan
+        Milō asked for is announced — after Navidrome accepted it."""
         try:
             outcome = await client.start_scan()
         except Exception as exc:
             self.logger.warning("Navidrome scan trigger failed: %s", exc)
             return
-        if outcome is ScanRequest.REFUSED:
+        if outcome is ScanRequest.STARTED:
+            await self._on_scanning()
+        elif outcome is ScanRequest.REFUSED:
             self.logger.warning("Navidrome refused the scan request")
         elif outcome is ScanRequest.UNAVAILABLE:
             # Its own periodic pass covers this once it is up; nothing is lost
