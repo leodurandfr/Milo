@@ -79,13 +79,16 @@
     "cdSource": {
       "unknownAlbum": "Album inconnu",
       "unknownArtist": "Artiste inconnu",
-      "trackN": "Morceau {n}"
+      "trackN": "Morceau {n}",
+      "showTracklist": "Afficher la liste des pistes",
+      "hideTracklist": "Masquer la liste des pistes"
     },
     "radioSource": {
       "favoritesTitle": "Stations favorites",
       "discoverTitle": "Rechercher une station",
       "searchPlaceholder": "Station",
       "loadingCountries": "Chargement des pays…",
+      "countriesUnavailable": "Pays indisponibles",
       "loadingStations": "Chargement des stations…",
       "searchUnavailable": "Recherche indisponible",
       "searchUnavailableHint": "L'annuaire des stations ne répond pas",
@@ -632,6 +635,10 @@
     "stop": "Arrêter",
     "play": "Lire",
     "pause": "Mettre en pause",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "skipBack": "Reculer de {time}",
+    "skipForward": "Avancer de {time}",
     "shuffle": "Aléatoire",
     "live": "En direct",
     "position": "Position de lecture"

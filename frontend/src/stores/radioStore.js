@@ -4,6 +4,7 @@ import { ref, computed } from 'vue';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
+import { RETRY_COUNTRIES } from '@/constants/countries';
 
 export const useRadioStore = defineStore('radio', () => {
   // === STATE ===
@@ -52,6 +53,15 @@ export const useRadioStore = defineStore('radio', () => {
 
   // The search filter's genres, served by the backend (GET /api/radio/genres).
   const genres = ref([]);
+
+  // The search filter's countries, served by the backend from RadioBrowser
+  // (GET /api/radio/countries) — so, unlike the genres, they can fail. Held
+  // here for the app's life, as the genres are: asked once, and again only
+  // after a failure. `countriesStatus` is what the dropdowns say meanwhile:
+  // 'idle' | 'loading' | 'loaded' | 'failed'.
+  const countries = ref([]);
+  const countriesStatus = ref('idle');
+  let countriesRequest = null;
 
   // Top stations cache (3 minutes, memory only)
   const topStationsCache = ref(null);
@@ -511,6 +521,67 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   /**
+   * Load the countries, unless they are in or on their way: a second caller
+   * shares the request in flight. Answers whether they are in.
+   *
+   * An empty list is a failure: the route answers one when RadioBrowser is
+   * unreachable and it holds no cached list, and the directory always lists
+   * countries.
+   */
+  function loadCountries() {
+    if (countriesStatus.value === 'loaded') return Promise.resolve(true);
+    countriesRequest ??= (async () => {
+      countriesStatus.value = 'loading';
+      const result = await apiCall.get('/api/radio/countries', {
+        category: 'radio',
+        message: 'Error loading countries',
+      });
+      const loaded = result.ok && Array.isArray(result.data) && result.data.length > 0;
+      if (loaded) countries.value = result.data;
+      // apiCall saw a success and said nothing: say why the dropdown offers Retry.
+      else if (result.ok) logger.warn('radio', 'No countries served (RadioBrowser unreachable, nothing cached)');
+      countriesStatus.value = loaded ? 'loaded' : 'failed';
+      countriesRequest = null;
+      return loaded;
+    })();
+    return countriesRequest;
+  }
+
+  /**
+   * What a country dropdown holds once `value` is picked from it, `current`
+   * being what it held. The line offered after the list failed to load
+   * (RETRY_COUNTRIES) asks for the list again and is no country: the
+   * dropdown keeps `current`. Any other value is the country picked.
+   */
+  function pickCountry(value, current) {
+    if (value !== RETRY_COUNTRIES) return value;
+    loadCountries();
+    return current;
+  }
+
+  /**
+   * The search's country dropdown: answers whether the filter moved, i.e.
+   * whether there is a new search to run — never after the retry line, which
+   * would otherwise filter the search on a country nobody has.
+   */
+  function setCountryFilter(value) {
+    const country = pickCountry(value, countryFilter.value);
+    if (country === countryFilter.value) return false;
+    countryFilter.value = country;
+    return true;
+  }
+
+  /**
+   * The directory's Retry button: what failed with the directory is asked
+   * again — its stations, and the countries unless they are in already
+   * (loadCountries is a no-op then, and shares a request in flight).
+   */
+  function retryDirectory() {
+    loadCountries();
+    return loadStations(false);
+  }
+
+  /**
    * Load radio settings data (custom stations only — favorites are already
    * kept fresh via preload + WebSocket events)
    */
@@ -599,12 +670,18 @@ export const useRadioStore = defineStore('radio', () => {
     favoriteStations: enrichedFavorites,
     customStations,
     genres,
+    countries,
+    countriesStatus,
 
     // Actions
     preloadFavorites,
     loadStations,
     loadRadioSettingsData,
     loadGenres,
+    loadCountries,
+    pickCountry,
+    setCountryFilter,
+    retryDirectory,
     loadMore,
     playStation,
     stopPlayback,

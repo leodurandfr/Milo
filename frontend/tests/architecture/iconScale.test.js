@@ -6,8 +6,8 @@
  * recopied in three files — AudioPlayer twice and LyricsPlaybackBar once, whose
  * own comment said "copied verbatim". Nothing could see them diverge, and one of
  * the four transport rows had quietly lost its hierarchy entirely: prev, play
- * and next all drawn at the same size. These three checks are what makes that
- * class of drift fail the build instead of waiting to be noticed by eye.
+ * and next all drawn at the same size. These checks are what makes that class
+ * of drift fail the build instead of waiting to be noticed by eye.
  *
  * Mounts nothing, asserts no markup: it reads the sources the browser reads.
  */
@@ -187,12 +187,21 @@ describe('transport icon scale', () => {
       'a role lost its class'
     ).toEqual([]);
 
-    // Every transport row in the app wears a primary — the players' shared
-    // PlayerTransport and the lyrics bar; one file would mean the scale reached
-    // a single component, and the guardrail above would be guarding nothing
-    // but it.
-    const primaryFiles = [...(worn.get('transport-primary') ?? [])];
-    expect(primaryFiles.length, `transport-primary worn only by ${primaryFiles.join(', ')}`).toBeGreaterThan(1);
+    // The roles are worn by one transport, PlayerTransport, which every row in
+    // the app draws — both players and the Lyrics bar. A role in any other
+    // file is a transport drawn by hand, the copy whose rules drifted (the
+    // Lyrics bar's drew steps the source did not list). The tiers reach it
+    // from more than one row, or the scale would be guarding one component.
+    const ROLE_OWNER = 'components/audio/PlayerTransport.vue';
+    for (const role of ROLES) {
+      expect([...(worn.get(`transport-${role}`) ?? [])], `transport-${role} worn outside the one transport`)
+        .toEqual([ROLE_OWNER]);
+    }
+    const tierFiles = new Set(
+      ['transport-scale', 'transport-scale--phone', 'transport-scale--compact']
+        .flatMap((tier) => [...(worn.get(tier) ?? [])])
+    );
+    expect(tierFiles.size, `the tiers reach only ${[...tierFiles].join(', ')}`).toBeGreaterThan(1);
   });
 
   it('bends a tier token only where a component says so, and only downward', () => {

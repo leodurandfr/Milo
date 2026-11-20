@@ -11,6 +11,27 @@ import { nextRepeatMode } from '@/utils/repeatMode';
 export const SKIP_BACK_SECONDS = -15;
 export const SKIP_FORWARD_SECONDS = 30;
 
+// What each control says to a screen reader, by its command — every one is a
+// glyph alone on screen, so this is its only name. A labeled button says the
+// same words on screen. A skip's key takes the move's length (`{time}`); a
+// repeat's names the mode it is in.
+const LABEL_KEYS = {
+  pause: 'player.pause',
+  resume: 'player.play',
+  stop: 'player.stop',
+  resume_playback: 'player.play',
+  take_over: 'player.takeOver',
+  prev: 'player.previous',
+  next: 'player.next',
+  set_shuffle: 'player.shuffle'
+};
+const SKIP_LABEL_KEYS = { back: 'player.skipBack', forward: 'player.skipForward' };
+const REPEAT_LABEL_KEYS = {
+  off: 'player.repeatOff',
+  context: 'player.repeatContext',
+  track: 'player.repeatTrack'
+};
+
 /**
  * The main button: the pause/resume pair, else a live stream's stop/resume_playback.
  * The pause pair follows the phase rather than which half is listed, as the
@@ -21,21 +42,27 @@ function mainControl(listed, phase) {
   if (listed('pause') || listed('resume')) {
     const pauses = pausesOnPress(phase);
     const command = pauses ? 'pause' : 'resume';
-    return { id: 'main', row: 'transport', command, icon: pauses ? 'pause' : 'play', enabled: listed(command) };
+    return {
+      id: 'main', row: 'transport', command, icon: pauses ? 'pause' : 'play', label: LABEL_KEYS[command],
+      enabled: listed(command)
+    };
   }
   // Another device of the account plays: the one button brings it here, and
   // says so in words — a bare play glyph would read as playing it there.
   if (listed('take_over')) {
-    return { id: 'main', row: 'transport', command: 'take_over', icon: 'play', labelled: true, enabled: true };
+    return {
+      id: 'main', row: 'transport', command: 'take_over', icon: 'play', labelled: true,
+      label: LABEL_KEYS.take_over, enabled: true
+    };
   }
   // A live stream has no pause: its stop glyph, else the play that re-tunes.
   // The progress bar above it says the stream is live.
   if (listed('stop') || listed('resume_playback')) {
     const stops = listed('stop');
+    const command = stops ? 'stop' : 'resume_playback';
     return {
-      id: 'main', row: 'transport', live: true,
-      command: stops ? 'stop' : 'resume_playback',
-      icon: stops ? 'stop' : 'play',
+      id: 'main', row: 'transport', live: true, command,
+      icon: stops ? 'stop' : 'play', label: LABEL_KEYS[command],
       enabled: true
     };
   }
@@ -62,15 +89,21 @@ function mainControl(listed, phase) {
 function flankControls(listed, opening, live) {
   if (listed('prev') || listed('next') || live) {
     return [
-      { id: 'prev', row: 'transport', command: 'prev', icon: 'previous', enabled: listed('prev') },
-      { id: 'next', row: 'transport', command: 'next', icon: 'next', enabled: listed('next') }
+      { id: 'prev', row: 'transport', command: 'prev', icon: 'previous', label: LABEL_KEYS.prev, enabled: listed('prev') },
+      { id: 'next', row: 'transport', command: 'next', icon: 'next', label: LABEL_KEYS.next, enabled: listed('next') }
     ];
   }
   if (listed('skip') || opening) {
     const enabled = listed('skip');
     return [
-      { id: 'skip-back', row: 'transport', command: 'skip', icon: 'rewind15', seconds: SKIP_BACK_SECONDS, enabled },
-      { id: 'skip-forward', row: 'transport', command: 'skip', icon: 'forward30', seconds: SKIP_FORWARD_SECONDS, enabled }
+      {
+        id: 'skip-back', row: 'transport', command: 'skip', icon: 'rewind15',
+        seconds: SKIP_BACK_SECONDS, label: SKIP_LABEL_KEYS.back, enabled
+      },
+      {
+        id: 'skip-forward', row: 'transport', command: 'skip', icon: 'forward30',
+        seconds: SKIP_FORWARD_SECONDS, label: SKIP_LABEL_KEYS.forward, enabled
+      }
     ];
   }
   return [];
@@ -83,7 +116,7 @@ function flankControls(listed, opening, live) {
 function toggleControls(listed, details) {
   const shuffle = listed('set_shuffle')
     ? {
-      id: 'shuffle', row: 'transport', command: 'set_shuffle', icon: 'shuffle',
+      id: 'shuffle', row: 'transport', command: 'set_shuffle', icon: 'shuffle', label: LABEL_KEYS.set_shuffle,
       active: !!details?.shuffle, params: { shuffle: !details?.shuffle }, enabled: true
     }
     : null;
@@ -92,7 +125,7 @@ function toggleControls(listed, details) {
     const mode = details?.repeat ?? 'off';
     repeat = {
       id: 'repeat', row: 'transport', command: 'set_repeat',
-      icon: mode === 'track' ? 'repeatOnce' : 'repeat',
+      icon: mode === 'track' ? 'repeatOnce' : 'repeat', label: REPEAT_LABEL_KEYS[mode],
       mode, active: mode !== 'off', params: { mode: nextRepeatMode(mode) }, enabled: true
     };
   }
@@ -105,7 +138,8 @@ function toggleControls(listed, details) {
  * `row` says where each goes: `progress` (the bar is interactive iff a `seek`
  * control is present) and `transport` (the plate: shuffle, flank, main, flank,
  * repeat). Every control carries the command it sends; `params` is the payload
- * a press sends when the control knows it alone.
+ * a press sends when the control knows it alone, and `label` the i18n key of
+ * its accessible name (a skip's takes the move's length as `{time}`).
  *
  * Flanks and toggles without a main button are dropped: a transport is a main
  * button first, and a row of arrows around nothing is not one.
@@ -114,7 +148,7 @@ function toggleControls(listed, details) {
  * @param {string[]} state.controls - the commands the source takes now
  * @param {object|null} state.details - the source's details (`kind` and its fields)
  * @param {string|null} state.phase - the session's phase, null with no session
- * @returns {Array<{id: string, row: string, command: string, enabled: boolean}>}
+ * @returns {Array<{id: string, row: string, command: string, label?: string, enabled: boolean}>}
  */
 export function playerControls({ controls, details, phase }) {
   const listed = (command) => controls.includes(command);

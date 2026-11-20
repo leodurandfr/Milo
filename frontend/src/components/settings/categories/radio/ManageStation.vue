@@ -49,7 +49,7 @@
       <!-- Country + Genre (horizontal on desktop, stacked on mobile) -->
       <div class="form-row">
         <SettingItem :label="t('radio.manageStation.country')">
-          <Dropdown v-model="formData.countrycode" :options="countryOptions" :placeholder="t('radio.manageStation.selectCountry')" />
+          <Dropdown v-model="countryCode" :options="countryOptions" :placeholder="t('radio.manageStation.selectCountry')" />
         </SettingItem>
 
         <SettingItem :label="t('radio.manageStation.genre')">
@@ -101,7 +101,7 @@ import { useI18n } from '@/services/i18n';
 import { logger } from '@/services/logger';
 import { useRadioStore } from '@/stores/radioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { countryOptions as createCountryOptions } from '@/constants/countries';
+import { countryOptions as createCountryOptions, pendingCountryOptions } from '@/constants/countries';
 import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
@@ -170,7 +170,6 @@ const imagePreview = ref(null);
 const currentImageUrl = ref('');
 const isSubmitting = ref(false);
 const errorMessage = ref('');
-const availableCountries = ref([]);
 
 const formData = reactive({
   name: '',
@@ -186,7 +185,7 @@ const formData = reactive({
 // `country` field stays consistent with stations coming from the API.
 function countryNameForIso(iso) {
   if (!iso) return '';
-  const match = availableCountries.value.find(c => (c.iso_3166_1 || '').toUpperCase() === iso.toUpperCase());
+  const match = radioStore.countries.find(c => (c.iso_3166_1 || '').toUpperCase() === iso.toUpperCase());
   return match?.name || '';
 }
 
@@ -199,27 +198,26 @@ const submitButtonText = computed(() => {
 
 // === Country options ===
 
-async function loadAvailableCountries() {
-  const result = await apiCall.get('/api/radio/countries', {
-    category: 'radio',
-    message: 'Error loading countries',
-  });
-  if (result.ok) {
-    availableCountries.value = result.data;
-    logger.debug('radio', `Loaded ${availableCountries.value.length} countries`);
-  } else {
-    availableCountries.value = [];
-  }
-}
-
+// The radio search's own list, loaded once through the store.
 const countryOptions = computed(() => {
-  if (availableCountries.value.length === 0) {
-    return [{ label: t('audioSources.radioSource.loadingCountries'), value: '' }];
+  if (radioStore.countriesStatus !== 'loaded') {
+    return pendingCountryOptions(radioStore.countriesStatus, {
+      loading: t('audioSources.radioSource.loadingCountries'),
+      unavailable: t('audioSources.radioSource.countriesUnavailable'),
+      retry: t('audioSources.radioSource.retry')
+    });
   }
-  const translatedOptions = createCountryOptions(getCurrentLanguage(), availableCountries.value, '');
+  const translatedOptions = createCountryOptions(getCurrentLanguage(), radioStore.countries, '');
   // Bind to ISO so the country name and the translation stay in sync regardless
   // of UI language (Intl.DisplayNames translates from ISO at render time).
   return translatedOptions.slice(1).map(opt => ({ label: opt.label, value: opt.iso }));
+});
+
+// The country the form holds. The line offered after the list failed to load
+// asks for it again and is never a country (the store decides).
+const countryCode = computed({
+  get: () => formData.countrycode,
+  set: (value) => { formData.countrycode = radioStore.pickCountry(value, formData.countrycode); }
 });
 
 // === Form initialization ===
@@ -357,7 +355,7 @@ watch(() => props.station, async () => {
 }, { immediate: true });
 
 onMounted(() => {
-  loadAvailableCountries();
+  radioStore.loadCountries();
 });
 
 // === File selection ===

@@ -3,9 +3,15 @@
      its command (utils/playerControls, read through the player's usePlayerState),
      in the same order, glyphs, rungs and inks wherever it is drawn. PlayerBody
      draws it in both players: on the full player's plate, and on the playing
-     bar's card. Neither draws a ground of its own; only the ink and the tap
-     targets change: the plate's theme ink and finger-sized targets, or the
-     card's ink on its dark glass and the bar's ghost buttons.
+     bar's card. The Lyrics bar draws it too, on the card's ink. None draws a
+     ground of its own; only the ink and the tap targets change: the plate's
+     theme ink and finger-sized targets, or the card's ink on its dark glass
+     and the bar's ghost buttons.
+     One exception to "drawn iff listed", and it is about room, not about the
+     source: `toggles=false` leaves shuffle and repeat out of a row too narrow
+     for them (the Lyrics bar's column, ~240 CSS px on the 1024 px kiosk
+     against ~260 for the row with them). Every other control, a new one
+     included, is still the state's to list.
      A relative skip (−15 / +30) is emitted, not sent: the progress bar beside
      the transport owns the playhead that shows a burst's sum at once.
      The steps and the main button sit together as one control, spaced the
@@ -39,7 +45,7 @@
                 <Button :variant="filled" size="medium" :left-icon="control.icon"
                   class="player-button--labelled" :loading="pending === control.command || (control.id === 'main' && isBuffering)" :disabled="!control.enabled"
                   @click="press(control)">
-                  {{ t(LABEL_KEYS[control.command]) }}
+                  {{ nameOf(control) }}
                 </Button>
               </span>
               <IconButton v-else :icon="control.icon" variant="ghost"
@@ -47,14 +53,14 @@
                 :color="ink(control)"
                 class="player-button"
                 :class="control.id === 'main' ? 'player-button--primary transport-primary' : 'transport-secondary player-extra'"
-                :aria-label="control.live ? t(LIVE_LABEL_KEYS[control.command]) : undefined"
+                :aria-label="nameOf(control)"
                 :loading="control.id === 'main' && (waiting(control) || mainInFlight)" :disabled="!control.enabled"
                 @click="press(control)" />
             </template>
           </span>
           <IconButton v-else :icon="item.icon" variant="ghost" size="small" :color="ink(item)"
             class="player-button player-button--toggle transport-toggle player-extra"
-            :aria-label="toggleLabel(item)" :aria-pressed="item.active" :disabled="!item.enabled"
+            :aria-label="nameOf(item)" :aria-pressed="item.active" :disabled="!item.enabled"
             @click="press(item)" />
         </template>
         <span v-if="$slots.end" class="player-button player-button--toggle player-extra player-transport-end">
@@ -86,12 +92,20 @@ const props = defineProps({
     type: String,
     default: 'plate',
     validator: (value) => ['plate', 'card'].includes(value)
+  },
+  // Whether the row has room for shuffle and repeat. What it draws of the rest
+  // is still the state's alone; this is the room a surface has (the Lyrics
+  // bar's column holds the steps and the main button, the full player and the
+  // playing bar hold the toggles too).
+  toggles: {
+    type: Boolean,
+    default: true
   }
 });
 
 const emit = defineEmits(['skip']);
 
-const { t } = useI18n();
+const { t, formatDuration } = useI18n();
 const { isMobile } = useIsMobile();
 // The player's one reading of its state, made by the shell drawing this row.
 const { controls, shownControls, phase, isBuffering, sendSourceCommand } = usePlayerState(props.source).controls;
@@ -104,7 +118,9 @@ const { controls, shownControls, phase, isBuffering, sendSourceCommand } = usePl
 const waiting = (control) => (control.live ? phase.value === 'loading' : isBuffering.value);
 
 const isToggle = (control) => control.id === 'shuffle' || control.id === 'repeat';
-const transportControls = computed(() => shownControls.value.filter(control => control.row === 'transport'));
+const transportControls = computed(() => shownControls.value.filter(control =>
+  control.row === 'transport' && (props.toggles || !isToggle(control))
+));
 const hasToggles = computed(() => transportControls.value.some(isToggle));
 // A control that says what it does in words: a take-over, whose bare play
 // glyph would read as playing it on the other device.
@@ -146,26 +162,12 @@ function ink(control) {
 // transport roles), and everything but the main button is `player-extra`,
 // which the phone's mini-bar hides.
 
-const REPEAT_LABEL_KEYS = {
-  off: 'player.repeatOff',
-  context: 'player.repeatContext',
-  track: 'player.repeatTrack',
-};
-
-// A button that says what it does in words, by its command.
-const LABEL_KEYS = {
-  take_over: 'player.takeOver',
-};
-
-// What a live stream's glyph-only main button says to a screen reader.
-const LIVE_LABEL_KEYS = {
-  stop: 'player.stop',
-  resume_playback: 'player.play',
-};
-
-function toggleLabel(control) {
-  if (control.id === 'repeat') return t(REPEAT_LABEL_KEYS[control.mode]);
-  return t('player.shuffle');
+// A control's name, from the key utils/playerControls gives it: what a glyph
+// says to a screen reader, and what a labeled button says on screen. A skip
+// names the length of its move.
+function nameOf(control) {
+  if (control.command === 'skip') return t(control.label, { time: formatDuration(Math.abs(control.seconds)) });
+  return t(control.label);
 }
 
 // A labelled command and the main button's spin until the source stops

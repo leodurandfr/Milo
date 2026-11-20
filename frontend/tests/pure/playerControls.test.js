@@ -14,7 +14,10 @@
  * starts producing one, or a toggle stops reading its state from `details`.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { playerControls, swipeMove, swipeTarget, swipeable } from '@/utils/playerControls';
+import { LOCALES_DIR } from '../helpers/i18nScan';
 
 /** One readable token per control: `prev`, `next(disabled)`, `main:pause`. */
 function summary(items) {
@@ -190,6 +193,45 @@ describe('a command not listed draws nothing', () => {
 
   it('nothing listed, nothing drawn', () => {
     expect(controlsOf([], 'playing', { kind: 'spotify', shuffle: true, repeat: 'track' })).toEqual([]);
+  });
+
+  it('names every control it can draw with a string english.json declares', () => {
+    // Every transport button is a glyph alone, so its key is its only name to
+    // a screen reader: a control without one is announced "button", and a key
+    // with no string renders its own path. A skip names the length of its
+    // move, so its string must take it.
+    const flatten = (node, prefix = '') => Object.entries(node).flatMap(([key, value]) =>
+      (typeof value === 'object' ? flatten(value, `${prefix}${key}.`) : [[`${prefix}${key}`, value]]));
+    const english = Object.fromEntries(flatten(JSON.parse(readFileSync(join(LOCALES_DIR, 'english.json'), 'utf8'))));
+
+    const LISTS = [
+      ['pause', 'resume', 'prev', 'next', 'seek', 'set_shuffle', 'set_repeat'],
+      ['pause', 'skip', 'seek'],
+      ['resume'],
+      ['take_over'],
+      ['stop', 'prev', 'next'],
+      ['resume_playback']
+    ];
+    const drawn = new Map();
+    for (const controls of LISTS) {
+      for (const phase of ['playing', 'paused', 'loading']) {
+        for (const repeat of ['off', 'context', 'track']) {
+          for (const item of controlsOf(controls, phase, { kind: 'spotify', shuffle: false, repeat })) {
+            if (item.row === 'transport') drawn.set(`${item.id}:${item.command}:${item.mode ?? ''}`, item);
+          }
+        }
+      }
+    }
+    // The extractor first: every kind of transport control must have been drawn.
+    const ids = new Set([...drawn.values()].map(item => item.id));
+    expect([...ids].sort()).toEqual(['main', 'next', 'prev', 'repeat', 'shuffle', 'skip-back', 'skip-forward']);
+
+    const unnamed = [...drawn].filter(([, item]) => {
+      const text = english[item.label];
+      if (typeof text !== 'string') return true;
+      return (item.command === 'skip') !== text.includes('{time}');
+    }).map(([name, item]) => `${name} → ${item.label}`);
+    expect(unnamed).toEqual([]);
   });
 });
 

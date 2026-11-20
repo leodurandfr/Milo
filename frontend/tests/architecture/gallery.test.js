@@ -1590,7 +1590,8 @@ describe('component gallery source pages', () => {
     // drew the same information a third way — three copies of one screen, and
     // the stage's drifted from the app's more than once. PlayerBody is the one
     // implementation now: both players render it, and nothing else renders its
-    // parts. So no source, and not the stage, may wire a player row again —
+    // parts but the Lyrics bar, whose transport is PlayerTransport too. So no
+    // source, and not the stage, may wire a player row again —
     // the slots are gone, and a component that comes back beside AudioPlayer
     // is a second copy in the making.
     const templateOf = source => source.split(/<script[\s>]/)[0];
@@ -1639,6 +1640,17 @@ describe('component gallery source pages', () => {
       checked += 1;
       if (!templateOf(body).includes(part)) broken.push(`PlayerBody (no ${part})`);
     }
+
+    // The Lyrics bar lays its own row out (title, progress, transport side by
+    // side) but draws the players' transport in it, never buttons of its own:
+    // its hand-drawn trio drew prev/next for an AirPlay sender that takes
+    // neither, and kept its main button live when its command was not listed.
+    // (Shuffle and repeat stay out of it by PlayerTransport's `toggles`, for
+    // room: its column cannot hold them.)
+    const lyricsBar = templateOf(read('components/lyrics/LyricsPlaybackBar.vue'));
+    checked += 1;
+    if (!lyricsBar.includes('<PlayerTransport')) broken.push('LyricsPlaybackBar (draws no PlayerTransport)');
+    if (lyricsBar.includes('<IconButton')) broken.push('LyricsPlaybackBar (draws a transport button by hand)');
 
     // The one class the bar still styles on the transport: the mini-bar hides
     // PlayerTransport's `player-extra`. Worn by the transport, styled by the bar

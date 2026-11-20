@@ -79,13 +79,16 @@
     "cdSource": {
       "unknownAlbum": "Álbum desconocido",
       "unknownArtist": "Artista desconocido",
-      "trackN": "Pista {n}"
+      "trackN": "Pista {n}",
+      "showTracklist": "Mostrar la lista de pistas",
+      "hideTracklist": "Ocultar la lista de pistas"
     },
     "radioSource": {
       "favoritesTitle": "Emisoras favoritas",
       "discoverTitle": "Buscar emisoras",
       "searchPlaceholder": "Emisora",
       "loadingCountries": "Cargando países…",
+      "countriesUnavailable": "Países no disponibles",
       "loadingStations": "Cargando estaciones…",
       "searchUnavailable": "Búsqueda no disponible",
       "searchUnavailableHint": "El directorio de emisoras no responde",
@@ -632,6 +635,10 @@
     "stop": "Detener",
     "play": "Reproducir",
     "pause": "Pausar",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "skipBack": "Retroceder {time}",
+    "skipForward": "Avanzar {time}",
     "shuffle": "Aleatorio",
     "live": "En directo",
     "position": "Posición de reproducción"

@@ -107,3 +107,30 @@ export function countryOptions(language, apiCountries, allCountriesLabel) {
   translated.forEach(({ label, value, iso }) => options.push({ label, value, iso }));
   return options;
 }
+
+/**
+ * The value of the line a country dropdown offers once the list failed to
+ * load: picking it asks for the list again instead of filtering by a country.
+ * No RadioBrowser country is named this.
+ */
+export const RETRY_COUNTRIES = '__retry_countries__';
+
+/**
+ * The lines a country dropdown shows while the list is not in (radioStore's
+ * `countriesStatus` anything but 'loaded'): a line saying it loads, or, after
+ * a failure, one saying so and the line that asks again — never a "loading"
+ * that nothing is loading.
+ *
+ * @param {string} status - radioStore.countriesStatus
+ * @param {{loading: string, unavailable: string, retry: string}} labels
+ * @returns {Array<{label: string, value: string, disabled?: boolean}>}
+ */
+export function pendingCountryOptions(status, labels) {
+  if (status === 'failed') {
+    return [
+      { label: labels.unavailable, value: '', disabled: true },
+      { label: labels.retry, value: RETRY_COUNTRIES }
+    ];
+  }
+  return [{ label: labels.loading, value: '', disabled: true }];
+}

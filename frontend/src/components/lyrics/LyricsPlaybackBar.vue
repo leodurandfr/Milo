@@ -1,14 +1,18 @@
 <!-- LyricsPlaybackBar.vue — full-width playback bar pinned to the bottom of
      LyricsView. Its control surface is what the session offers right now:
-       - the transport (prev / play-pause / next) when the source's `controls`
-         carry pause or resume — the same generic commands AudioPlayerFull
-         sends, each button live only while its command is listed;
+       - the players' own transport (PlayerTransport, on the card's ink,
+         without its toggles) when the source's main button is the pause pair
+         — every button drawn iff its command is listed, by
+         utils/playerControls, so an AirPlay sender that takes play/pause
+         alone gets the main button alone, as on the full player;
        - a progress bar when the session has a duration and a position anchor,
          interactive only while `controls` carries seek (Tidal has the
          transport and no seek, so it gets the buttons and a read-only bar);
        - neither for radio (a live stream: no duration, and its stop/next/prev
          change the station, not the track) — name/artist only.
        A receiver that lists no command (Qobuz) gets the bar alone.
+     Its source is fixed for its life (the playhead and the controls are read
+     for one source), so LyricsView keys it on the source of the state.
      Always visible by default; swipes down to hide, swipes up from the bottom
      edge to show again (useSwipeVisibility — the same gesture the Dock would
      normally own, freed up because useDockDrag ignores .lyrics-view). The
@@ -65,21 +69,16 @@
             @track-width="setTrackWidth" />
         </div>
 
-        <!-- Right column: the transport when the source has one — same as
-             AudioPlayer's desktop sidebar (music library's .track-transport-main):
-             ghost IconButtons, no pill behind them. Without a transport it
-             stays as an empty column of the same width, so the progress bar
-             keeps the exact same centred 44% share whether the transport is
-             there or not. -->
-        <div v-if="hasBar" class="lyrics-bar-controls" :class="{ 'is-spacer': !hasTransport }">
-          <div v-if="hasTransport" class="playback-controls transport-scale--compact">
-            <IconButton icon="previous" variant="ghost" size="small" class="transport-secondary"
-              :disabled="!controls.includes('prev')" @click="previousTrack" />
-            <IconButton :icon="pausesOnPress(session?.phase) ? 'pause' : 'play'" variant="ghost" size="medium"
-              class="transport-primary" :loading="isLoading" @click="togglePlayPause" />
-            <IconButton icon="next" variant="ghost" size="small" class="transport-secondary"
-              :disabled="!controls.includes('next')" @click="nextTrack" />
-          </div>
+        <!-- Right column: the transport when the source has one — the one the
+             playing bar draws on its card, at the compact scale: ghost buttons,
+             no pill behind them. Without a transport it stays as an empty
+             column of the same width, so the progress bar keeps the exact same
+             centered 44% share whether the transport is there or not. The
+             column holds the steps and the main button, not the toggles (see
+             .lyrics-bar-controls). A relative skip goes through the progress
+             bar's playhead, as in the players. -->
+        <div v-if="hasBar" class="lyrics-bar-controls transport-scale--compact" :class="{ 'is-spacer': !hasTransport }">
+          <PlayerTransport v-if="hasTransport" :source="source" surface="card" :toggles="false" @skip="skip" />
         </div>
       </div>
     </div>
@@ -92,13 +91,12 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { getTrackIdentity } from '@/stores/lyricsStore';
 import { useI18n } from '@/services/i18n';
 import { useSourceProgress } from '@/composables/useSourceProgress';
+import { usePlayerState } from '@/composables/usePlayerState';
 import { useSwipeVisibility } from '@/composables/useSwipeVisibility';
-import { useLoadingIndicator } from '@/composables/useLoadingIndicator';
-import { pausesOnPress } from '@/utils/transport';
 
 import PlayerInfoText from '@/components/audio/PlayerInfoText.vue';
+import PlayerTransport from '@/components/audio/PlayerTransport.vue';
 import ProgressBar from '@/components/audio/ProgressBar.vue';
-import IconButton from '@/components/ui/IconButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
@@ -108,12 +106,16 @@ const props = defineProps({
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 
-const session = computed(() => unifiedStore.systemState.session);
-const controls = computed(() => unifiedStore.systemState.controls);
+// This bar's one reading of its source, shared with the transport it draws
+// (usePlayerState): the session and the controls of this source only.
+const { session, controls, shownControls } = usePlayerState(props.source).controls;
 
-const hasTransport = computed(() =>
-  controls.value.includes('pause') || controls.value.includes('resume')
-);
+// The transport is the pause pair's: a live stream's stop and a take-over's
+// labeled button are not a track's transport.
+const hasTransport = computed(() => {
+  const main = shownControls.value.find(control => control.id === 'main');
+  return !!main && !main.live && !main.labelled;
+});
 // ProgressBar itself waits for the position anchor (isReady), so the row only
 // needs to know whether this session has a length at all.
 const hasProgress = computed(() => session.value?.duration_ms != null);
@@ -126,19 +128,6 @@ const identity = computed(() => getTrackIdentity(unifiedStore.systemState));
 
 const { currentPosition, duration, progressPercentage, seekTo, skip, isPositionInitialized, setTrackWidth } =
   useSourceProgress(props.source);
-
-const isLoading = useLoadingIndicator(() => session.value?.phase);
-
-function togglePlayPause() {
-  const command = pausesOnPress(session.value?.phase) ? 'pause' : 'resume';
-  if (controls.value.includes(command)) unifiedStore.sendCommand(props.source, command);
-}
-function previousTrack() {
-  unifiedStore.sendCommand(props.source, 'prev');
-}
-function nextTrack() {
-  unifiedStore.sendCommand(props.source, 'next');
-}
 
 // === Swipe show/hide ===
 const dragZone = ref(null);
@@ -233,13 +222,13 @@ function onHintClick(event) {
    stays in flow under the zone, so a swipe down started there still hides the
    bar. */
 .lyrics-bar-progress.is-seekable,
-.playback-controls > :not(:disabled) {
+.lyrics-bar-controls :deep(.icon-button:not(:disabled)) {
   position: relative;
 }
 
 .lyrics-bar:not(.is-hidden) .lyrics-bar-hide-zone,
 .lyrics-bar:not(.is-hidden) .lyrics-bar-progress.is-seekable,
-.lyrics-bar:not(.is-hidden) .playback-controls > :not(:disabled) {
+.lyrics-bar:not(.is-hidden) .lyrics-bar-controls :deep(.icon-button:not(:disabled)) {
   pointer-events: auto;
 }
 
@@ -247,8 +236,8 @@ function onHintClick(event) {
   display: contents;
 }
 
-/* The three sections rise + fade in behind the bar's own travel (same staggered
-   entrance as AudioPlayerFull's track-info/controls-section), and fade back out
+/* The three sections rise + fade in behind the bar's own travel (a staggered
+   entrance, as the full player's body has), and fade back out
    with it. Transitions rather than keyframes so both directions replay on every
    toggle — an `animation ... forwards` only ever runs on mount and would then
    pin these properties, overriding anything the hide state sets. The stagger
@@ -346,20 +335,15 @@ function onHintClick(event) {
 
 /* Same basis as .lyrics-bar-track (identical calc, gaps included) so the row
    reads 28/44/28 and the progress bar sits optically centred. The transport is
-   fixed-size (~176px: 50 + 60 + 50 + two 8px gaps) and can't shrink, but 28%
-   stays well above that down to ~630px of content width — narrower than that is
-   already the stacked mobile layout below. */
+   fixed-size and can't shrink: its steps and main button take ~164px at the
+   compact scale, which 28% holds down to ~590px of content width — narrower
+   than that is already the stacked mobile layout below. Shuffle and repeat
+   would add ~80px, past the 28% of the 1024px kiosk's row, so the bar draws
+   the transport without them. */
 .lyrics-bar-controls {
   flex: 0 0 calc((100% - 2 * var(--space-06)) * 0.28);
   display: flex;
   justify-content: center;
-}
-
-.playback-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-  color: var(--color-text-on-contrast);
 }
 
 

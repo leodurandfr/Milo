@@ -5,10 +5,12 @@
          its end. -->
     <template #top-start>
       <IconButton :icon="cdStore.showTracklist ? 'close' : 'queue'" variant="control" size="medium"
-        @click="cdStore.toggleTracklist()" />
+        :aria-label="cdStore.showTracklist ? t('audioSources.cdSource.hideTracklist') : t('audioSources.cdSource.showTracklist')"
+        :aria-expanded="cdStore.showTracklist" @click="cdStore.toggleTracklist()" />
     </template>
     <template v-if="canEject" #top-end>
-      <IconButton icon="eject" variant="control" size="medium" @click="cdStore.eject()" />
+      <IconButton icon="eject" variant="control" size="medium" :aria-label="t('status.eject')"
+        @click="cdStore.eject()" />
     </template>
 
     <template #content-replace>

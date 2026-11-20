@@ -10,7 +10,7 @@
         :content-key="isSearchMode ? 'search' : 'favorites'" header-icon="radio"
         :player-mobile-height="144" gradient="radio" @header-back="closeSearch">
         <template v-if="!isSearchMode" #header-actions>
-          <IconButton icon="search" @click="openSearch" />
+          <IconButton icon="search" :aria-label="t('audioSources.radioSource.discoverTitle')" @click="openSearch" />
         </template>
 
         <!-- Content slot: scrollable views -->
@@ -66,14 +66,13 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { apiCall } from '@/services/apiCall'
 import { useRadioStore } from '@/stores/radioStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useSourcePlaybackVisibility } from '@/composables/useSourcePlaybackVisibility'
 import { useI18n } from '@/services/i18n'
 import { logger } from '@/services/logger'
 import { genreOptions as createGenreOptions } from '@/constants/musicGenres'
-import { countryOptions as createCountryOptions } from '@/constants/countries'
+import { countryOptions as createCountryOptions, pendingCountryOptions } from '@/constants/countries'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import BrowserSourceViews from '@/components/audio/BrowserSourceViews.vue'
@@ -128,7 +127,6 @@ const favoriteLabel = computed(() => t(stationIsFavorite.value
 
 // === STATE ===
 const isSearchMode = ref(false)
-const availableCountries = ref([])
 
 // ID of the buffering station (to display the spinner on the correct station).
 // Not the delayed buffering flag: on the card just tapped, the spinner is the
@@ -146,14 +144,18 @@ const bufferingStationId = computed(() => {
 const stationArtwork = computed(() => getFaviconUrl(station.value?.favicon))
 
 const countryOptions = computed(() => {
-  if (availableCountries.value.length === 0) {
+  if (radioStore.countriesStatus !== 'loaded') {
     return [
       { label: t('radio.country'), value: '' },
-      { label: t('audioSources.radioSource.loadingCountries'), value: '', disabled: true }
+      ...pendingCountryOptions(radioStore.countriesStatus, {
+        loading: t('audioSources.radioSource.loadingCountries'),
+        unavailable: t('audioSources.radioSource.countriesUnavailable'),
+        retry: t('audioSources.radioSource.retry')
+      })
     ]
   }
 
-  return createCountryOptions(getCurrentLanguage(), availableCountries.value, t('radio.country'))
+  return createCountryOptions(getCurrentLanguage(), radioStore.countries, t('radio.country'))
 })
 
 const genreOptions = computed(() => {
@@ -162,7 +164,7 @@ const genreOptions = computed(() => {
 
 // === NAVIGATION ===
 async function openSearch() {
-  logger.debug('radio', `Opening search mode. Available countries: ${availableCountries.value.length}`)
+  logger.debug('radio', `Opening search mode. Countries: ${radioStore.countriesStatus}`)
 
   // Set loading AND switch mode immediately to prevent showing favorites
   radioStore.setLoading(true)
@@ -173,13 +175,12 @@ async function openSearch() {
     radioStore.loadGenres()
   }
 
-  // Load countries if not yet loaded
-  if (availableCountries.value.length === 0) {
-    await loadAvailableCountries()
-    // Closed while the countries were loading: a search started now would run
-    // behind the favorites, and its retry with it.
-    if (!isSearchMode.value) return
-  }
+  // Countries once, and again after a failure: the store decides, shares a
+  // request in flight and answers at once when they are in.
+  await radioStore.loadCountries()
+  // Closed while the countries were loading: a search started now would run
+  // behind the favorites, and its retry with it.
+  if (!isSearchMode.value) return
 
   // Load top 500 stations
   await radioStore.loadStations(false)
@@ -200,8 +201,9 @@ async function handleSearch() {
   await radioStore.loadStations(false)
 }
 
+// The directory did not answer: the store asks again for what failed with it.
 function retrySearch() {
-  radioStore.loadStations(false)
+  radioStore.retryDirectory()
 }
 
 // === PLAYBACK CONTROLS ===
@@ -219,15 +221,6 @@ async function handleFavorite() {
   if (station.value) {
     await radioStore.toggleFavorite(station.value.id)
   }
-}
-
-// === AVAILABLE COUNTRIES ===
-async function loadAvailableCountries() {
-  const result = await apiCall.get('/api/radio/countries', {
-    category: 'radio',
-    message: 'Error loading countries',
-  })
-  availableCountries.value = result.ok ? result.data : []
 }
 
 // === LIFECYCLE ===

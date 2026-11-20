@@ -79,13 +79,16 @@
     "cdSource": {
       "unknownAlbum": "未知专辑",
       "unknownArtist": "未知艺术家",
-      "trackN": "曲目 {n}"
+      "trackN": "曲目 {n}",
+      "showTracklist": "显示曲目列表",
+      "hideTracklist": "隐藏曲目列表"
     },
     "radioSource": {
       "favoritesTitle": "喜爱的电台",
       "discoverTitle": "搜索电台",
       "searchPlaceholder": "电台",
       "loadingCountries": "正在加载国家…",
+      "countriesUnavailable": "国家列表不可用",
       "loadingStations": "正在加载电台…",
       "searchUnavailable": "搜索不可用",
       "searchUnavailableHint": "电台目录无响应",
@@ -632,6 +635,10 @@
     "stop": "停止",
     "play": "播放",
     "pause": "暂停",
+    "previous": "上一个",
+    "next": "下一个",
+    "skipBack": "后退 {time}",
+    "skipForward": "前进 {time}",
     "shuffle": "随机播放",
     "live": "直播",
     "position": "播放进度"

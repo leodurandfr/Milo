@@ -11,9 +11,9 @@
         @submit="onSearchSubmit"
       />
       <Dropdown
-        v-model="countryFilter"
+        :model-value="radioStore.countryFilter"
         :options="countryOptions"
-        @change="search"
+        @change="pickCountry"
       />
       <Dropdown
         v-model="genreFilter"
@@ -239,10 +239,11 @@ const searchQuery = computed({
   set: (value) => { radioStore.searchQuery = value }
 })
 
-const countryFilter = computed({
-  get: () => radioStore.countryFilter,
-  set: (value) => { radioStore.countryFilter = value }
-})
+// A country filters the search; the line offered after the list failed to
+// load asks for the list again and filters nothing (the store decides).
+function pickCountry(value) {
+  if (radioStore.setCountryFilter(value)) search()
+}
 
 const genreFilter = computed({
   get: () => radioStore.genreFilter,

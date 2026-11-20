@@ -79,13 +79,16 @@
     "cdSource": {
       "unknownAlbum": "अज्ञात एल्बम",
       "unknownArtist": "अज्ञात कलाकार",
-      "trackN": "ट्रैक {n}"
+      "trackN": "ट्रैक {n}",
+      "showTracklist": "ट्रैक सूची दिखाएं",
+      "hideTracklist": "ट्रैक सूची छिपाएं"
     },
     "radioSource": {
       "favoritesTitle": "पसंदीदा स्टेशन",
       "discoverTitle": "स्टेशन खोजें",
       "searchPlaceholder": "स्टेशन",
       "loadingCountries": "देश लोड हो रहे हैं…",
+      "countriesUnavailable": "देश उपलब्ध नहीं हैं",
       "loadingStations": "स्टेशन लोड हो रहे हैं…",
       "searchUnavailable": "खोज उपलब्ध नहीं",
       "searchUnavailableHint": "स्टेशन निर्देशिका जवाब नहीं दे रही",
@@ -632,6 +635,10 @@
     "stop": "रोकें",
     "play": "चलाएं",
     "pause": "विराम दें",
+    "previous": "पिछला",
+    "next": "अगला",
+    "skipBack": "{time} पीछे जाएं",
+    "skipForward": "{time} आगे जाएं",
     "shuffle": "शफ़ल",
     "live": "लाइव",
     "position": "प्लेबैक स्थिति"

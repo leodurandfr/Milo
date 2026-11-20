@@ -51,7 +51,12 @@
         </div>
       </Transition>
 
-      <LyricsPlaybackBar v-if="showPlaybackBar" :source="activeSource" />
+      <!-- Keyed on the source like LyricsContent, for the same reason: the bar
+           reads the playhead and the controls of the source it was mounted
+           for, and the state can name another one in a single step (a
+           reconnection's initial state, a resync) without the empty view in
+           between that would have unmounted it. -->
+      <LyricsPlaybackBar v-if="showPlaybackBar" :key="`bar-${activeSource}`" :source="activeSource" />
     </div>
   </div>
 </template>

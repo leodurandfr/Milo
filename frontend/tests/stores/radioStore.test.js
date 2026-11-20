@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { apiCall } from '@/services/apiCall';
+import { RETRY_COUNTRIES } from '@/constants/countries';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 import { makeSession, publishState } from '../helpers/audioState';
 
@@ -687,6 +688,94 @@ describe('radioStore', () => {
       // The dict is refetched, not patched: the event carries the station, not
       // whether it has just become a custom entry.
       expect(apiCall.get).toHaveBeenLastCalledWith('/api/radio/custom', expect.anything());
+    });
+  });
+
+  describe('loadCountries', () => {
+    // The search's country filter and the custom-station form read the list
+    // from here. A failure that read as "still loading" left the dropdown
+    // promising a list nothing was fetching, with no way to ask again.
+    const COUNTRIES = [{ name: 'France', iso_3166_1: 'FR', stationcount: 900 }];
+
+    it('says a failed list failed, and loads it on the next ask', async () => {
+      apiCall.get.mockResolvedValueOnce(fail('All mirrors unreachable', 503));
+      expect(await store.loadCountries()).toBe(false);
+      expect(store.countriesStatus).toBe('failed');
+      expect(store.countries).toEqual([]);
+
+      apiCall.get.mockResolvedValueOnce(ok(COUNTRIES));
+      expect(await store.loadCountries()).toBe(true);
+      expect(store.countriesStatus).toBe('loaded');
+    });
+
+    it('reads an empty answer as a failure: the route answers one when RadioBrowser is unreachable', async () => {
+      apiCall.get.mockResolvedValueOnce(ok([]));
+      expect(await store.loadCountries()).toBe(false);
+      expect(store.countriesStatus).toBe('failed');
+    });
+
+    it('asks once for every caller, and never again once the list is in', async () => {
+      // The search and the form open it independently; a second request while
+      // one is in flight would race it to the same refs.
+      let answer;
+      apiCall.get.mockReturnValueOnce(new Promise(resolve => { answer = resolve; }));
+      const first = store.loadCountries();
+      const second = store.loadCountries();
+      expect(store.countriesStatus).toBe('loading');
+      answer(ok(COUNTRIES));
+      expect(await Promise.all([first, second])).toEqual([true, true]);
+
+      await store.loadCountries();
+      expect(apiCall.get).toHaveBeenCalledTimes(1);
+      expect(apiCall.get).toHaveBeenCalledWith('/api/radio/countries', expect.anything());
+    });
+
+    const countryRequests = () =>
+      apiCall.get.mock.calls.filter(([url]) => url === '/api/radio/countries').length;
+
+    async function failCountries() {
+      apiCall.get.mockResolvedValueOnce(fail('All mirrors unreachable', 503));
+      await store.loadCountries();
+    }
+
+    it("the search's Retry line asks for the list again and filters nothing", async () => {
+      // A retry line taken for a country ran a search filtered on a country
+      // nobody has, and drew an empty directory.
+      await failCountries();
+      store.countryFilter = 'DE';
+      apiCall.get.mockResolvedValueOnce(ok(COUNTRIES));
+
+      expect(store.setCountryFilter(RETRY_COUNTRIES)).toBe(false);
+      expect(store.countryFilter).toBe('DE');
+      expect(countryRequests()).toBe(2);
+
+      expect(store.setCountryFilter('FR')).toBe(true);
+      expect(store.countryFilter).toBe('FR');
+    });
+
+    it("the station form's Retry line asks for the list again and keeps the country held", async () => {
+      // The custom-station form saved whatever its dropdown held as the
+      // station's countrycode.
+      await failCountries();
+      apiCall.get.mockResolvedValueOnce(ok(COUNTRIES));
+
+      expect(store.pickCountry(RETRY_COUNTRIES, 'DE')).toBe('DE');
+      expect(countryRequests()).toBe(2);
+      expect(store.pickCountry('FR', 'DE')).toBe('FR');
+    });
+
+    it("the directory's Retry asks again for the countries that failed with it, not for those in", async () => {
+      await failCountries();
+      apiCall.get.mockResolvedValueOnce(ok(COUNTRIES));
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION(1)], total: 1 }));
+      await store.retryDirectory();
+      expect(store.countriesStatus).toBe('loaded');
+      expect(apiCall.get).toHaveBeenLastCalledWith('/api/radio/stations', expect.anything());
+
+      apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION(1)], total: 1 }));
+      store.countryFilter = 'FR';
+      await store.retryDirectory();
+      expect(countryRequests()).toBe(2);
     });
   });
 });
