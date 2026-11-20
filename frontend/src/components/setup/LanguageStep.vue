@@ -11,7 +11,7 @@
         @click="selectLanguage(lang.code)"
       >
         <template #icon>
-          <img :src="getFlagIcon(lang.code)" :alt="lang.name" />
+          <img :src="languageFlag(lang.code)" :alt="lang.name" />
         </template>
       </ListItemButton>
     </div>
@@ -23,25 +23,7 @@ import { computed } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 
-import franceIcon from '@/assets/flags-icons/france.svg';
-import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
-import spainIcon from '@/assets/flags-icons/spain.svg';
-import indiaIcon from '@/assets/flags-icons/india.svg';
-import chinaIcon from '@/assets/flags-icons/china.svg';
-import portugalIcon from '@/assets/flags-icons/portugal.svg';
-import italyIcon from '@/assets/flags-icons/italy.svg';
-import germanyIcon from '@/assets/flags-icons/germany.svg';
-
-const flagIcons = {
-  french: franceIcon,
-  english: unitedKingdomIcon,
-  spanish: spainIcon,
-  hindi: indiaIcon,
-  chinese: chinaIcon,
-  portuguese: portugalIcon,
-  italian: italyIcon,
-  german: germanyIcon,
-};
+import { languageFlag } from '@/constants/languageFlags';
 
 const props = defineProps({
   modelValue: {
@@ -54,10 +36,6 @@ const emit = defineEmits(['update:modelValue']);
 
 const { getAvailableLanguages } = useI18n();
 const availableLanguages = computed(() => getAvailableLanguages());
-
-function getFlagIcon(code) {
-  return flagIcons[code] || '';
-}
 
 async function selectLanguage(code) {
   emit('update:modelValue', code);

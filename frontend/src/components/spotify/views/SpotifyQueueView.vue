@@ -24,7 +24,7 @@
               :song="row.song"
               :number="idx + 1"
               :current="row.current"
-              :playing="store.isPlaying"
+              :playing="row.current && store.isPlaying"
               show-artist
               show-cover
               :cover-url="row.track.thumbnail || ''"

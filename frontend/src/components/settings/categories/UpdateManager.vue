@@ -61,18 +61,18 @@
                       </div>
 
                       <div class="program-actions">
-                        <template v-if="isLocalUpdating('milo') || debugForceUpdating || (miloAction === 'update' && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))">
+                        <template v-if="isLocalUpdating('milo') || (miloAction === 'update' && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo'))">
                           <Button size="small" variant="brand" class="program-button action-wide"
-                            :loading="isLocalUpdating('milo') || debugForceUpdating"
+                            :loading="isLocalUpdating('milo')"
                             @click="startLocalUpdate('milo')"
-                            :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()">
+                            :disabled="isLocalUpdateBusy() || isAnySatelliteUpdating()">
                             {{ miloButtonLabel }}
                           </Button>
                           <IconButton :icon="miloButtonIcon" variant="brand" size="small"
                             class="action-compact row-icon-button" :aria-label="miloButtonLabel"
-                            :loading="isLocalUpdating('milo') || debugForceUpdating"
+                            :loading="isLocalUpdating('milo')"
                             @click="startLocalUpdate('milo')"
-                            :disabled="debugForceUpdating || isLocalUpdateBusy() || isAnySatelliteUpdating()" />
+                            :disabled="isLocalUpdateBusy() || isAnySatelliteUpdating()" />
                         </template>
                         <template v-else-if="miloAction === 'checkFailed'">
                           <Button size="small" variant="control" class="program-button action-wide"
@@ -132,7 +132,7 @@
                              one the backend would refuse. -->
                         <!-- Each action comes twice: a labelled button, and in the
                              mobile layout an icon on the row's own line. -->
-                        <template v-if="isLocalUpdating(key) || debugForceUpdating">
+                        <template v-if="isLocalUpdating(key)">
                           <Button size="small" :variant="isFromMenu(key) ? 'control' : 'brand'"
                             class="program-button action-wide" loading disabled>
                             {{ runningLabel(key) }}
@@ -271,18 +271,18 @@
                   <div class="program-actions">
                     <!-- Retry is the row's update, offered even to a satellite that
                          does not answer: the push is what finds out. -->
-                    <template v-if="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating || satelliteAppFailure(client.mac_id) || (satelliteByMacId[client.mac_id].app_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteAppUpdateCompleted(client.mac_id))">
+                    <template v-if="isSatelliteAppUpdating(client.mac_id) || satelliteAppFailure(client.mac_id) || (satelliteByMacId[client.mac_id].app_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteAppUpdateCompleted(client.mac_id))">
                       <Button size="small" variant="brand" class="program-button action-wide"
-                        :loading="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating"
+                        :loading="isSatelliteAppUpdating(client.mac_id)"
                         @click="startSatelliteAppUpdate(client.mac_id)"
-                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteAppBlocked(client.mac_id)">
+                        :disabled="isMiloUpdating() || isSatelliteAppBlocked(client.mac_id)">
                         {{ appButtonLabel(client.mac_id) }}
                       </Button>
                       <IconButton :icon="appFailureShown(client.mac_id) ? 'arrowClockwise' : 'downloadSimple'" variant="brand" size="small"
                         class="action-compact row-icon-button" :aria-label="appButtonLabel(client.mac_id)"
-                        :loading="isSatelliteAppUpdating(client.mac_id) || debugForceUpdating"
+                        :loading="isSatelliteAppUpdating(client.mac_id)"
                         @click="startSatelliteAppUpdate(client.mac_id)"
-                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteAppBlocked(client.mac_id)" />
+                        :disabled="isMiloUpdating() || isSatelliteAppBlocked(client.mac_id)" />
                     </template>
                     <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
@@ -311,18 +311,18 @@
                   </div>
 
                   <div class="program-actions">
-                    <template v-if="isSatelliteUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].update_available && satelliteByMacId[client.mac_id].online && !isSatelliteUpdateCompleted(client.mac_id))">
+                    <template v-if="isSatelliteUpdating(client.mac_id) || (satelliteByMacId[client.mac_id].update_available && satelliteByMacId[client.mac_id].online && !isSatelliteUpdateCompleted(client.mac_id))">
                       <Button size="small" variant="brand" class="program-button action-wide"
-                        :loading="isSatelliteUpdating(client.mac_id) || debugForceUpdating"
+                        :loading="isSatelliteUpdating(client.mac_id)"
                         @click="startSatelliteUpdate(client.mac_id)"
-                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)">
-                        {{ (isSatelliteUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                        :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)">
+                        {{ isSatelliteUpdating(client.mac_id) ? t('updates.updating') : t('updates.update') }}
                       </Button>
                       <IconButton icon="downloadSimple" variant="brand" size="small"
-                        class="action-compact row-icon-button" :aria-label="(isSatelliteUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update')"
-                        :loading="isSatelliteUpdating(client.mac_id) || debugForceUpdating"
+                        class="action-compact row-icon-button" :aria-label="isSatelliteUpdating(client.mac_id) ? t('updates.updating') : t('updates.update')"
+                        :loading="isSatelliteUpdating(client.mac_id)"
                         @click="startSatelliteUpdate(client.mac_id)"
-                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
+                        :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
                     </template>
                     <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
@@ -345,18 +345,18 @@
                   </div>
 
                   <div class="program-actions">
-                    <template v-if="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating || (satelliteByMacId[client.mac_id].camilladsp_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteCamillaUpdateCompleted(client.mac_id))">
+                    <template v-if="isSatelliteCamillaUpdating(client.mac_id) || (satelliteByMacId[client.mac_id].camilladsp_update_available && satelliteByMacId[client.mac_id].online && !isSatelliteCamillaUpdateCompleted(client.mac_id))">
                       <Button size="small" variant="brand" class="program-button action-wide"
-                        :loading="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating"
+                        :loading="isSatelliteCamillaUpdating(client.mac_id)"
                         @click="startSatelliteCamillaUpdate(client.mac_id)"
-                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)">
-                        {{ (isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update') }}
+                        :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)">
+                        {{ isSatelliteCamillaUpdating(client.mac_id) ? t('updates.updating') : t('updates.update') }}
                       </Button>
                       <IconButton icon="downloadSimple" variant="brand" size="small"
-                        class="action-compact row-icon-button" :aria-label="(isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating) ? t('updates.updating') : t('updates.update')"
-                        :loading="isSatelliteCamillaUpdating(client.mac_id) || debugForceUpdating"
+                        class="action-compact row-icon-button" :aria-label="isSatelliteCamillaUpdating(client.mac_id) ? t('updates.updating') : t('updates.update')"
+                        :loading="isSatelliteCamillaUpdating(client.mac_id)"
                         @click="startSatelliteCamillaUpdate(client.mac_id)"
-                        :disabled="debugForceUpdating || isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
+                        :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
                     </template>
                     <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
@@ -491,7 +491,7 @@ async function recheck() {
 const miloButtonLabel = computed(() => {
   const version = stripTagPrefix(localPrograms.value.milo?.latest?.tag_name);
   const withdrawn = localPrograms.value.milo?.latest?.withdrawn;
-  if (isLocalUpdating('milo') || debugForceUpdating.value) {
+  if (isLocalUpdating('milo')) {
     return withdrawn ? t('updates.revertingTo', { version }) : t('updates.updating');
   }
   if (withdrawn) return t('updates.revertTo', { version });
@@ -541,7 +541,7 @@ const APP_FAILURE_CAUSES = {
 
 // A retry in flight is the question the failure asked again.
 function appFailureShown(macId) {
-  return !!satelliteAppFailure(macId) && !isSatelliteAppUpdating(macId) && !debugForceUpdating.value;
+  return !!satelliteAppFailure(macId) && !isSatelliteAppUpdating(macId);
 }
 
 // The release on offer is the one that was put back: a press is a retry. With
@@ -553,7 +553,7 @@ const miloFailureOffered = computed(() => !!miloUpdateFailure.value
   && miloUpdateFailure.value.to_version === localPrograms.value.milo?.latest?.tag_name);
 
 const miloFailureShown = computed(() =>
-  !!miloUpdateFailure.value && !isLocalUpdating('milo') && !debugForceUpdating.value
+  !!miloUpdateFailure.value && !isLocalUpdating('milo')
   && (miloFailureOffered.value || miloAction.value !== 'update'
     || !!rollbackNotice.value || !miloUpdateFailure.value.to_version));
 
@@ -570,14 +570,8 @@ function appFailureCause(macId) {
 }
 
 function appButtonLabel(macId) {
-  if (isSatelliteAppUpdating(macId) || debugForceUpdating.value) return t('updates.updating');
+  if (isSatelliteAppUpdating(macId)) return t('updates.updating');
   return satelliteAppFailure(macId) ? t('updates.retry') : t('updates.update');
-}
-
-// Debug: toggle via console with window.__miloDebugUpdating(true/false)
-const debugForceUpdating = ref(false);
-if (typeof window !== 'undefined') {
-  window.__miloDebugUpdating = (val) => { debugForceUpdating.value = val; };
 }
 
 const programToDockApp = {

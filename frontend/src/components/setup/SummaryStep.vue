@@ -51,25 +51,7 @@ import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 
-import franceIcon from '@/assets/flags-icons/france.svg';
-import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
-import spainIcon from '@/assets/flags-icons/spain.svg';
-import indiaIcon from '@/assets/flags-icons/india.svg';
-import chinaIcon from '@/assets/flags-icons/china.svg';
-import portugalIcon from '@/assets/flags-icons/portugal.svg';
-import italyIcon from '@/assets/flags-icons/italy.svg';
-import germanyIcon from '@/assets/flags-icons/germany.svg';
-
-const flagIcons = {
-  french: franceIcon,
-  english: unitedKingdomIcon,
-  spanish: spainIcon,
-  hindi: indiaIcon,
-  chinese: chinaIcon,
-  portuguese: portugalIcon,
-  italian: italyIcon,
-  german: germanyIcon,
-};
+import { languageFlag } from '@/constants/languageFlags';
 
 const { t } = useI18n();
 
@@ -112,7 +94,7 @@ const props = defineProps({
   },
 });
 
-const flagIcon = computed(() => flagIcons[props.languageCode] || null);
+const flagIcon = computed(() => languageFlag(props.languageCode) || null);
 </script>
 
 <style scoped>

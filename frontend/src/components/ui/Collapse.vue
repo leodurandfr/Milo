@@ -11,6 +11,7 @@
 
 <script setup>
 import { ref, watch, inject, nextTick, onMounted } from 'vue';
+import { COLLAPSE_TRANSITION, COLLAPSE_FOLLOW_MS } from '@/constants/collapse';
 
 const props = defineProps({
   open: { type: Boolean, required: true }
@@ -22,10 +23,8 @@ const props = defineProps({
 // own (shorter) animation — the flicker. Same reasoning as MultiroomItem:
 // collapse lands a padding above 0, which a tall content's spring lobe passes,
 // clamped away on the wrapper but not on the clip, so it takes a monotone
-// curve on both sides — the CSS's closing curve, which must stay this one.
-const COLLAPSE_TRANSITION = 'height var(--transition-collapse)';
-const COLLAPSE_FOLLOW_MS = 450;
-
+// curve on both sides — the CSS's closing curve, which must stay this one
+// (COLLAPSE_TRANSITION).
 const springHeightDelta = inject('modalSpringHeightDelta', null);
 const wrapperRef = ref(null);
 const innerRef = ref(null);

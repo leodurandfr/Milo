@@ -201,10 +201,10 @@ class TestByGenre:
     def test_the_genre_and_the_resolved_store_both_reach_the_catalogue(
         self, client, source, settings
     ):
-        client.get("/api/podcast/discover/by-genre?genre=PODCASTSERIES_TECHNOLOGY")
+        client.get("/api/podcast/discover/by-genre?genre=PODCASTSERIES_COMEDY")
 
         kwargs = source.podcast_api.get_itunes_top_podcasts_by_genre.await_args.kwargs
-        assert kwargs["genre"] == "PODCASTSERIES_TECHNOLOGY"
+        assert kwargs["genre"] == "PODCASTSERIES_COMEDY"
         assert kwargs["country_code"] == "fr"
 
     def test_the_podcasts_are_returned_under_their_own_key(

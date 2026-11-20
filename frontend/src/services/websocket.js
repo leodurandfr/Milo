@@ -14,20 +14,25 @@ import { serverClock } from '@/services/serverClock';
  * components react to store state, never to raw events. parsedOn() validates
  * payloads against the Zod registry in @/schemas/ws.js before dispatching.
  *
- * Categories currently emitted by the backend:
- *   system    → unifiedAudioStore / systemStore (initial_state,
- *               hostname_conflict_changed, timezone_changed, backend_error;
- *               ping is consumed internally as the keepalive)
+ * Categories currently emitted by the backend, and the stores App.vue sends
+ * them to (App.vue's tables are the authority; this is the map):
+ *   system    → unifiedAudioStore (initial_state), systemStore
+ *               (hostname_conflict_changed), settingsStore (timezone_changed),
+ *               App.vue's own banner (backend_error); ping is consumed
+ *               internally as the keepalive
  *   source    → unifiedAudioStore + per-source stores (state, position,
- *               session_ended, error, error_cleared, storages_changed,
- *               profiles_changed, favorite_* with data.source discriminator)
+ *               session_ended, storages_changed, profiles_changed, favorite_*
+ *               with data.source discriminator); error and error_cleared drive
+ *               App.vue's banner
  *   volume    → unifiedAudioStore (volume_changed)
- *   routing   → multiroomStore (multiroom_* transition events)
+ *   routing   → multiroomStore (multiroom_* transition events), snapcastStore
+ *               (calibration_*)
  *   multiroom → multiroomStore / equalizerStore (client_state_changed,
  *               zone_changed, pending_client_changed, equalizer_changed)
  *   equalizer → equalizerStore (state_changed, levels, enabled_changed,
  *               zone_enabled_changed)
- *   settings  → settingsStore / fanStore (settings.*_changed)
+ *   settings  → settingsStore / fanStore (settings.*_changed), macLinkStore
+ *               (mac_calibration_*)
  *   programs  → updatesStore (program + satellite update progress/completion)
  *   network   → useNetwork's module singleton (status_changed) — the one
  *               consumer that is not a Pinia store

@@ -32,7 +32,8 @@ const STATION = (id, extra = {}) => ({
 /**
  * The store keeps `searchResults` and the raw `favoriteStations` private —
  * publicly they surface as `displayedStations` and the `favoriteStations`
- * computed. Seed them the way the app does: through loadStations().
+ * computed. Seed them the way the app does: through loadStations() and
+ * preloadFavorites().
  */
 async function seedSearchResults(store, stations) {
   apiCall.get.mockResolvedValueOnce(ok({ stations, total: stations.length }));
@@ -41,7 +42,7 @@ async function seedSearchResults(store, stations) {
 
 async function seedFavorites(store, stations) {
   apiCall.get.mockResolvedValueOnce(ok({ stations }));
-  await store.loadStations(true);
+  await store.preloadFavorites({ force: true });
 }
 
 const DETAILS_STATION = (id, extra = {}) => ({
@@ -360,18 +361,6 @@ describe('radioStore', () => {
       expect(store.searchUnavailable).toBe(false);
     });
 
-    it('loads favorites into their own list when favoritesOnly is set', async () => {
-      apiCall.get.mockResolvedValueOnce(ok({ stations: [STATION('s1')], total: 1 }));
-
-      await store.loadStations(true);
-
-      expect(apiCall.get).toHaveBeenCalledWith(
-        '/api/radio/stations',
-        expect.objectContaining({ params: { favorites_only: true } }),
-      );
-      expect(store.favoriteStations).toHaveLength(1);
-      expect(store.displayedStations).toHaveLength(0);
-    });
   });
 
   /**
@@ -443,6 +432,8 @@ describe('radioStore', () => {
   });
 
   describe('play / favorite payloads', () => {
+    // Play goes through the one command transport, as the player's buttons do:
+    // a refusal then raises the same banner (commandError) from the grid.
     it('sends the full station object when the store already knows it', async () => {
       // Lets the backend play a station that is not in its own catalog
       // (custom or search-only result) without a second lookup.
@@ -453,8 +444,8 @@ describe('radioStore', () => {
       await store.playStation('s1');
 
       expect(apiCall.post).toHaveBeenCalledWith(
-        '/api/radio/play',
-        { station_id: 's1', station },
+        '/api/audio/control/radio',
+        { command: 'play_station', data: { station_id: 's1', station } },
         expect.anything(),
       );
     });
@@ -465,16 +456,27 @@ describe('radioStore', () => {
       await store.playStation('unknown');
 
       expect(apiCall.post).toHaveBeenCalledWith(
-        '/api/radio/play',
-        { station_id: 'unknown' },
+        '/api/audio/control/radio',
+        { command: 'play_station', data: { station_id: 'unknown' } },
         expect.anything(),
       );
     });
 
-    it('reports failure when the backend refuses the play', async () => {
+    it('reports a refused play as the player reports a refused command', async () => {
       apiCall.post.mockResolvedValueOnce(fail('MPV not connected', 400));
 
       expect(await store.playStation('s1')).toBe(false);
+      expect(useUnifiedAudioStore().commandError).toEqual({ source: 'radio', command: 'play_station' });
+    });
+
+    it('reports a refused stop the same way', async () => {
+      apiCall.post.mockResolvedValueOnce(fail('MPV not connected', 400));
+
+      expect(await store.stopPlayback()).toBe(false);
+      expect(apiCall.post).toHaveBeenCalledWith(
+        '/api/audio/control/radio', { command: 'stop', data: {} }, expect.anything(),
+      );
+      expect(useUnifiedAudioStore().commandError).toEqual({ source: 'radio', command: 'stop' });
     });
 
     it('toggleFavorite removes a station that is already a favorite', async () => {

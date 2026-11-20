@@ -411,8 +411,8 @@ Note: CamillaDSP is always in the audio path for volume control. DSP effects are
 
 Every command, whatever the family, travels on the generic
 `POST /api/audio/control/{source}`. Two kinds of route may run a command anyway: one that composes
-several commands in one request (`POST /api/radio/play`), and one a companion app's contract pins
-(`POST /api/radio/stop`, Milo-Mac); a new source adds neither. A `routes.py`
+several commands in one request (none does today), and one a companion app's contract pins
+(`POST /api/radio/play` and `POST /api/radio/stop`, Milo-Mac); a new source adds neither. A `routes.py`
 exists only for what is not a command: a catalog to browse, favorites, binary artwork; many
 sources (Mac, Qobuz, Tidal, Bluetooth) have none. Use `make_source_dependency` for the source
 lookup, reach a non-playback service through a property of the source (`source.station_data`,

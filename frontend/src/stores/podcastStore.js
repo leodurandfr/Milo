@@ -105,6 +105,12 @@ export const usePodcastStore = defineStore('podcast', () => {
   // episode still plays from its own host while this is set.
   const apiError = ref(false);
 
+  // The genre keys the browse grid offers, in its order: the backend's
+  // (GET /api/podcast/genres), held for the app's life — the list is code, so it
+  // only changes with a release, and a failed read is asked again on next use.
+  const genres = ref([]);
+  let genresRequest = null;
+
   // === COMPUTED ===
   const hasSubscriptions = computed(() => subscriptions.value.size > 0);
 
@@ -498,6 +504,22 @@ export const usePodcastStore = defineStore('podcast', () => {
     searchFailed.value = false;
   }
 
+  // === GENRES ===
+  /** Load the browsable genres once; a second caller shares the request in flight. */
+  function loadGenres() {
+    if (genres.value.length) return Promise.resolve();
+    genresRequest ??= (async () => {
+      const result = await apiCall.get('/api/podcast/genres', {
+        category: 'podcast',
+        message: 'Error loading podcast genres',
+        checkStatus: true,
+      });
+      if (result.ok && Array.isArray(result.data.genres)) genres.value = result.data.genres;
+      genresRequest = null;
+    })();
+    return genresRequest;
+  }
+
   // === RETURN ===
   // The now-playing slice is a view of unifiedStore.systemState, which App.vue
   // heals first: only the subscriptions list has deltas of its own to refetch.
@@ -519,6 +541,7 @@ export const usePodcastStore = defineStore('podcast', () => {
 
     // Catalogue state
     apiError,
+    genres,
 
     // Search state
     searchTerm,
@@ -546,6 +569,9 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Progress cache helpers
     getEpisodeProgress,
     enrichEpisodesWithProgress,
+
+    // Genres
+    loadGenres,
 
     // Subscriptions
     preloadSubscriptionsList,

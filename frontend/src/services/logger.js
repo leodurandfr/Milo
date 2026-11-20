@@ -3,16 +3,14 @@
  * Centralized logging service for Milo frontend
  *
  * Features:
- * - Categorized logs (store, api, websocket, component)
+ * - Categorized logs (the caller's category: 'store', 'radio', 'network'…)
  * - Level-based filtering (debug, info, warn, error)
  * - Environment-aware (verbose in dev, minimal in prod)
  * - Consistent formatting with timestamps
- * - Performance tracking for API calls
  *
  * Usage:
  *   import { logger } from '@/services/logger';
  *   logger.info('store', 'State updated', { source: 'spotify' });
- *   logger.api('GET', '/api/status', { duration: 45 });
  *   logger.ws('received', 'source.state', data);
  */
 
@@ -45,9 +43,6 @@ class Logger {
     this.level = import.meta.env.DEV ? LOG_LEVELS.debug : LOG_LEVELS.warn;
     this.enabled = true;
     this.categories = new Set(); // Empty = all categories enabled
-
-    // Performance tracking for API calls
-    this.apiTimings = new Map();
 
     // Expose for runtime configuration
     if (import.meta.env.DEV) {
@@ -144,47 +139,6 @@ class Logger {
   // === SPECIALIZED LOGGING METHODS ===
 
   /**
-   * Log API calls with timing
-   * @param {string} method - HTTP method
-   * @param {string} url - API endpoint
-   * @param {object} options - { duration?, status?, error?, data? }
-   */
-  api(method, url, options = {}) {
-    const { duration, status, error, data } = options;
-
-    if (error) {
-      this.log('error', 'api', `${method} ${url} failed`, { error, duration });
-    } else if (duration !== undefined) {
-      const level = duration > 1000 ? 'warn' : 'debug';
-      this.log(level, 'api', `${method} ${url} (${duration}ms)`, status ? { status, data } : data);
-    } else {
-      this.log('debug', 'api', `${method} ${url}`, data);
-    }
-  }
-
-  /**
-   * Start timing an API call
-   * @returns {string} Timing ID
-   */
-  apiStart(method, url) {
-    const id = `${method}-${url}-${Date.now()}`;
-    this.apiTimings.set(id, { method, url, start: performance.now() });
-    return id;
-  }
-
-  /**
-   * End timing an API call
-   */
-  apiEnd(id, options = {}) {
-    const timing = this.apiTimings.get(id);
-    if (!timing) return;
-
-    const duration = Math.round(performance.now() - timing.start);
-    this.apiTimings.delete(id);
-    this.api(timing.method, timing.url, { ...options, duration });
-  }
-
-  /**
    * Log WebSocket events
    * @param {'sent'|'received'|'error'} direction
    * @param {string} eventType - e.g., 'source.state'
@@ -196,41 +150,6 @@ class Logger {
                  direction === 'received' ? '←' : '✕';
     const level = direction === 'error' ? 'error' : 'debug';
     this.log(level, 'websocket', `${icon} ${eventType}`, data);
-  }
-
-  /**
-   * Log store state changes
-   * @param {string} storeName
-   * @param {string} action
-   * @param {object} data
-   */
-  store(storeName, action, data = null) {
-    this.log('debug', 'store', `[${storeName}] ${action}`, data);
-  }
-
-  /**
-   * Log component lifecycle or events
-   * @param {string} componentName
-   * @param {string} event
-   * @param {object} data
-   */
-  component(componentName, event, data = null) {
-    this.log('debug', 'component', `[${componentName}] ${event}`, data);
-  }
-
-  /**
-   * Group related logs together
-   */
-  group(label) {
-    if (this.enabled && import.meta.env.DEV) {
-      console.group(label);
-    }
-  }
-
-  groupEnd() {
-    if (this.enabled && import.meta.env.DEV) {
-      console.groupEnd();
-    }
   }
 }
 

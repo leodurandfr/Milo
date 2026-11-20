@@ -92,11 +92,11 @@ provide('modalContentRef', modalScroller);
 // A header drawn in a modal takes the modal's look (NavigationHeader).
 provide('inModal', true);
 
-// Accordions (Network, AddToPlaylist) on EXPAND pre-announce
-// intra-view height changes through this so the clip springs in lock-step.
+// AddToPlaylist's create form pre-announces its intra-view height change
+// through this so the clip springs in lock-step.
 provide('modalRequestHeightDelta', requestHeightDelta);
 
-// Collapse (every ToggleSection) and multiroom zones, expand AND collapse: the item animates its own height 0 ↔ full on the
+// Collapse (every ToggleSection), multiroom zones and the Network card's WiFi row, expand AND collapse: the item animates its own height 0 ↔ full on the
 // same curve as the clip, so both stay equal at every frame while this keeps the
 // scroller matched to the live reflow. One mechanism for both directions; the curve is
 // the caller's (it springs on expand, and passes a monotone one for the collapse, which
@@ -110,11 +110,6 @@ provide('modalContentInnerRef', contentInner);
 // content, writes scroller height + reflow, runs the scrollTop restore (beforeClip),
 // then springs the clip — the mandated order height → reflow → scrollTop → clip.
 provide('modalSetNavHeight', (beforeClip) => setTargetHeight(null, { beforeClip }));
-
-// Absolute height writer for accordions that measure AFTER mutating the DOM
-// (NetworkSettings WiFi-card corrections): they hold the settled height, so they
-// set it directly instead of a delta (a delta would double-count the live content).
-provide('modalSetContentHeight', () => setTargetHeight());
 
 // Variables to cancel ongoing timeouts
 const timer = useTimer();

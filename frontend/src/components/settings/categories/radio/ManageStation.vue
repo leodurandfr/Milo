@@ -141,6 +141,7 @@ const props = defineProps({
   }
 });
 
+// `success` is the add mode's alone: an edit saves itself (autosave) and stays.
 const emit = defineEmits(['success', 'confirm-action']);
 
 // Icon for the Restore/Delete confirm drawer. Mirrors the IconButton in the

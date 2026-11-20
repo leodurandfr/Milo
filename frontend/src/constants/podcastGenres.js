@@ -1,14 +1,10 @@
 // frontend/src/constants/podcastGenres.js
 /**
- * The genre keys the backend maps to Apple category ids, in the order the browse grid
- * shows them.
- *
- * One declaration for three readers: HomeView builds the grid from it,
- * GenreCard resolves its artwork through it, and the gallery offers it as a
- * select. It was restated per reader before, and the third copy was written
- * from the labels — `comedy` where the API says `PODCASTSERIES_COMEDY` — so
- * every tile on the gallery page rendered with no artwork at all, including the
- * default, and nothing anywhere disagreed.
+ * A podcast genre key's slug and artwork. The genres themselves are the
+ * backend's (GET /api/podcast/genres, `GENRE_TO_ITUNES_ID` in
+ * sources/podcast/podcast_catalog.py), fetched by the podcast store; nothing
+ * here restates that list. tests/pure/podcastGenres.test.js reads the backend
+ * table and holds every key it serves to an artwork and a label here.
  *
  * The artwork is matched by file name rather than by a second map: a genre's
  * slug is its file in `assets/podcasts/genres/`, which is one fact to keep true
@@ -19,24 +15,11 @@ const artworkModules = import.meta.glob('@/assets/podcasts/genres/*.jpg', {
   import: 'default'
 });
 
-export const PODCAST_GENRE_IDS = [
-  'PODCASTSERIES_COMEDY',
-  'PODCASTSERIES_SOCIETY_AND_CULTURE',
-  'PODCASTSERIES_NEWS',
-  'PODCASTSERIES_TRUE_CRIME',
-  'PODCASTSERIES_BUSINESS',
-  'PODCASTSERIES_EDUCATION',
-  'PODCASTSERIES_HEALTH_AND_FITNESS',
-  'PODCASTSERIES_SPORTS',
-  'PODCASTSERIES_ARTS',
-  'PODCASTSERIES_SCIENCE',
-  'PODCASTSERIES_TV_AND_FILM',
-  'PODCASTSERIES_MUSIC'
-];
+const PREFIX = 'PODCASTSERIES_';
 
 /** `PODCASTSERIES_TRUE_CRIME` → `true_crime`: both the i18n key and the file name. */
 export function genreSlug(id) {
-  return id.replace('PODCASTSERIES_', '').toLowerCase();
+  return id.replace(PREFIX, '').toLowerCase();
 }
 
 /** The files themselves, keyed by the name they carry on disk. */
@@ -45,13 +28,17 @@ const FILES = Object.fromEntries(
 );
 
 /**
- * Keyed by the id, not by its slug. A slug lookup would answer for `comedy` as
- * happily as for `PODCASTSERIES_COMEDY` — the file is named after the slug — so
- * the vocabulary that broke the gallery would have kept on working, silently.
+ * The genre keys an artwork ships for — what the gallery offers without a
+ * backend. Derived from the files, never written out.
  */
-const ARTWORK = Object.fromEntries(PODCAST_GENRE_IDS.map(id => [id, FILES[genreSlug(id)]]));
+export const PODCAST_GENRE_IDS = Object.keys(FILES).map(slug => PREFIX + slug.toUpperCase());
 
-/** The tile artwork for a genre id, or undefined when no file ships for it. */
+/**
+ * The tile artwork for a genre key, or undefined when no file ships for it.
+ * Only a key answers: a slug lookup would answer for `comedy` as happily as for
+ * `PODCASTSERIES_COMEDY` — the file is named after the slug — so the label
+ * vocabulary that once broke the gallery would have kept on working, silently.
+ */
 export function genreArtwork(id) {
-  return ARTWORK[id];
+  return id.startsWith(PREFIX) ? FILES[genreSlug(id)] : undefined;
 }

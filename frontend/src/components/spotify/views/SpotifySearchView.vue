@@ -51,10 +51,11 @@
               <TrackRow
                 v-for="(track, idx) in results.tracks"
                 :key="track.uri"
+                v-memo="[track, idx, track.uri === store.currentTrackUri, track.uri === store.currentTrackUri && store.isPlaying]"
                 :song="trackRowSong(track)"
                 :number="idx + 1"
                 :current="track.uri === store.currentTrackUri"
-                :playing="store.isPlaying"
+                :playing="track.uri === store.currentTrackUri && store.isPlaying"
                 show-artist
                 show-cover
                 :cover-url="track.thumbnail || ''"

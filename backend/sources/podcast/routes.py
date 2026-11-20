@@ -3,7 +3,8 @@
 FastAPI routes for Podcast feature.
 
 Provides REST API for:
-- Discovery (top charts, by genre — iTunes RSS, exact Apple Podcasts order)
+- Discovery (top charts, by genre — iTunes RSS, exact Apple Podcasts order),
+  and the genres a listener can browse
 - Search (podcasts only — there is no cross-podcast episode search)
 - Content (series details, episode details)
 - Subscriptions (add, remove, list)
@@ -20,6 +21,7 @@ from backend.sources.podcast.models import (
 )
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.podcast_catalog import (
+    GENRE_TO_ITUNES_ID,
     PodcastCatalog,
     is_upstream_error,
 )
@@ -98,10 +100,16 @@ async def get_top_charts(
         return result
 
 
+@router.get("/genres")
+async def get_genres() -> Dict[str, Any]:
+    """Return the genre keys a listener can browse, in the order the grid shows them."""
+    return {"status": "success", "genres": list(GENRE_TO_ITUNES_ID)}
+
+
 @router.get("/discover/by-genre")
 async def get_content_by_genre(
     source: PodcastSource = Depends(get_source),
-    genre: str = Query(..., description="Genre (e.g., PODCASTSERIES_TECHNOLOGY)"),
+    genre: str = Query(..., description="Genre key, one GET /podcast/genres lists (e.g., PODCASTSERIES_COMEDY)"),
     limit: int = Query(30, ge=1, le=200)
 ) -> Dict[str, Any]:
     """Get top podcasts for a specific genre using user's language."""

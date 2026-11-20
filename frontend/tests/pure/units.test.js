@@ -38,6 +38,17 @@ describe('formatUnit', () => {
     expect(formatUnit(4, ':1', 'english')).toBe('4:1');
   });
 
+  it('writes a level that rounds to zero without a sign, wherever it is formatted', () => {
+    // A volume capped at 0 dB sits just under it: Math.round(-0.4) is -0, and
+    // the bar, the panel and the multiroom sliders all format it.
+    expect(formatUnit(Math.round(-0.4), 'dB', 'french')).toBe(`0${NB}dB`);
+    expect(formatUnit(-0.4, '%', 'english', { maximumFractionDigits: 0 })).toBe('0%');
+    expect(formatNumber(-0, 'english')).toBe('0');
+    // A real negative keeps its sign, and a caller's own signDisplay still wins.
+    expect(formatUnit(-1, 'dB', 'english')).toBe(`-1${NB}dB`);
+    expect(formatNumber(2, 'english', { signDisplay: 'exceptZero' })).toBe('+2');
+  });
+
   it('never lets a value wrap away from its unit, in any language', () => {
     // Neue Montreal has no glyph for U+202F, which French puts before every
     // unit: left in, "52,3 °C" renders as "52,3°C".

@@ -119,7 +119,6 @@
 
       <ManageStation v-else-if="currentView === 'radio-edit'" key="radio-edit" class="view-content" mode="edit"
         :station="stationToEdit" :show-action-menu="showStationActionMenu" :action-refusal="stationRefusal"
-        @success="handleRadioStationEdited"
         @confirm-action="handleStationActionConfirm" />
 
       <MacSettings v-else-if="currentView === 'macos'" key="macos" class="view-content" />
@@ -620,14 +619,6 @@ function handleZoneSaved() {
 
 function handleClientSaved() {
   macIdToEdit.value = null;
-  back();
-}
-
-async function handleRadioStationEdited(station) {
-  logger.info('settings', 'Station edited', station);
-
-  await radioStore.loadRadioSettingsData();
-  stationToEdit.value = null;
   back();
 }
 

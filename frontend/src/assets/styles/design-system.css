@@ -167,9 +167,9 @@
 
     /* === GLASS === */
     /* A translucent gray, the same in both themes since it is tinted by what
-       is behind it: the volume bar's track on a contrast surface, and its
-       stronger twin (the volume bar's track, the dock handle). The floating
-       chrome itself is .glass-shell. */
+       is behind it: the volume track (VolumeBar, VolumeOverlay) on a contrast
+       surface, and its stronger twin, the same track in its default variant.
+       The floating chrome itself is .glass-shell. */
     --color-glass: var(--gray-500-a16);
     --color-glass-strong: var(--gray-500-a32);
     /* The veil over the screen behind what is laid over it (a modal, the
@@ -626,7 +626,7 @@
 @font-face {
     font-family: 'Neue Montreal Regular';
     src: url('../fonts/NeueMontreal-Regular.woff2') format('woff2');
-    font-weight: 500;
+    font-weight: 400;
 }
 
 @font-face {
@@ -976,7 +976,8 @@
 }
 
 /* === INTERACTIVE PRESS EFFECTS === */
-/* Pixel-based: all elements shrink by 4px regardless of size */
+/* Pixel-based: v-press shrinks an element by about 4px whatever its size,
+   within a 0.85-0.98 scale (0.95 under 16px) — see directives/press.js. */
 
 .interactive-press {
     --press-scale: 0.96;

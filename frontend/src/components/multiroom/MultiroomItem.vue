@@ -218,6 +218,7 @@ import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useVolumeThrottle, useVolumeThrottleMap } from '@/composables/useVolumeThrottle';
 import { useTimer } from '@/composables/useTimer';
 import { useI18n } from '@/services/i18n';
+import { COLLAPSE_FOLLOW_MS } from '@/constants/collapse';
 
 const { t } = useI18n();
 const timer = useTimer();
@@ -392,9 +393,9 @@ function getClientDisplayVolume(macId, serverVolume) {
 // a monotone curve for the collapse, written identically on the wrapper (CSS below) and
 // on the clip; only the expand, where both sides can overshoot, keeps the bounce.
 const COLLAPSE_TRANSITION = 'height var(--transition-medium)';
-// Follow window: the 300ms collapse plus a margin. Nothing wobbles afterwards, so there
-// is no reason to hold the clip away from the observer for the spring's full 900ms.
-const COLLAPSE_FOLLOW_MS = 450;
+// Follow window (COLLAPSE_FOLLOW_MS): the 300ms collapse plus a margin. Nothing wobbles
+// afterwards, so there is no reason to hold the clip away from the observer for the
+// spring's full 900ms.
 
 function toggleExpand() {
   const wrapper = expandedWrapperRef.value;

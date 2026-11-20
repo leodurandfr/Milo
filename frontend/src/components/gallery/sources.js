@@ -108,6 +108,7 @@
 import stationImageTurntable from './samples/station-image-turntable.webp';
 import stationImageCapsule from './samples/station-image-capsule.webp';
 import { musicPlaceholder } from '@/constants/placeholders';
+import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
 import { displayStateFor } from '@/composables/useSourceStatusDisplay';
 
@@ -697,6 +698,8 @@ function podcastSetup(charts) {
   return {
     api: {
       '/api/podcast/discover/top-charts': charts,
+      // The browse grid's genres are the backend's; here, every one an artwork ships for.
+      '/api/podcast/genres': { status: 'success', genres: PODCAST_GENRE_IDS },
       '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
       '/api/podcast/subscriptions/latest-episodes': { results: PODCAST_LATEST_EPISODES }
     },
@@ -1158,7 +1161,7 @@ export const SOURCE_PAGES = [
         layout: RADIO_HEADER,
         view: 'radio-favourites',
         api: { '/api/radio/stations': { stations: [] } },
-        prime: [['radio', 'loadStations', true]],
+        prime: [['radio', 'preloadFavorites']],
         player: null
       }),
       browsing('radio', 'Favourites, mixed artwork', 'The real favourites grid, six real StationCards in the image variant, split across the card\'s two branches: two stations carry an image, four fall back to the generated monogram. The third case — an external logo fetched through /api/radio/favicon — stays out, see RADIO_FAVOURITES.', {
@@ -1166,7 +1169,7 @@ export const SOURCE_PAGES = [
         layout: RADIO_HEADER,
         view: 'radio-favourites',
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
-        prime: [['radio', 'loadStations', true]],
+        prime: [['radio', 'preloadFavorites']],
         player: null
       }),
       browsing('radio', 'Tuning a station', 'A session in loading before a single byte of audio: the station is named and the transport spins, while bufferingStationId marks the same card in the grid and the rest of it stays live, so a second tap goes somewhere rather than being swallowed by a full-screen loader.', {
@@ -1192,7 +1195,7 @@ export const SOURCE_PAGES = [
         // change anything on screen. The pane's station is the fixture's, below.
         props: { bufferingStationId: 'st-nova' },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
-        prime: [['radio', 'loadStations', true]],
+        prime: [['radio', 'preloadFavorites']],
         player: {
           station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
           track: null,
@@ -1217,7 +1220,7 @@ export const SOURCE_PAGES = [
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
-        prime: [['radio', 'loadStations', true]],
+        prime: [['radio', 'preloadFavorites']],
         player: {
           // Both halves of the same station: the grid card and the pane resolve
           // their image from one favicon, exactly as RadioSource does through
@@ -1246,7 +1249,7 @@ export const SOURCE_PAGES = [
         },
         props: { isPlaying: false, currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
-        prime: [['radio', 'loadStations', true]],
+        prime: [['radio', 'preloadFavorites']],
         player: {
           station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
           track: null,
@@ -1269,7 +1272,7 @@ export const SOURCE_PAGES = [
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_SEARCHED },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
-        prime: [['radio', 'loadStations', true]],
+        prime: [['radio', 'preloadFavorites']],
         player: {
           station: { name: RADIO_STATION_SEARCHED.name, artwork: RADIO_STATION_SEARCHED.favicon },
           track: null,
@@ -1299,7 +1302,7 @@ export const SOURCE_PAGES = [
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_WITH_IMAGE },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
-        prime: [['radio', 'loadStations', true]],
+        prime: [['radio', 'preloadFavorites']],
         player: {
           station: { name: RADIO_STATION_WITH_IMAGE.name, artwork: RADIO_STATION_WITH_IMAGE.favicon },
           // The card's source bar is gated on a detected track, and the mobile

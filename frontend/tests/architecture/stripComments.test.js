@@ -62,6 +62,6 @@ describe('stripComments', () => {
     expect(icon).toContain("import.meta.glob('@/assets/app-icons/*.svg'");
     expect(stripComments(icon)).toContain('const prepareSvg = ');
     expect(genres).toContain("import.meta.glob('@/assets/podcasts/genres/*.jpg'");
-    expect(stripComments(genres)).toContain('export const PODCAST_GENRE_IDS = [');
+    expect(stripComments(genres)).toContain('export const PODCAST_GENRE_IDS = ');
   });
 });

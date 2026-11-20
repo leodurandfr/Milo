@@ -117,8 +117,7 @@ const readout = computed(() => {
     const { min_db, max_db } = settingsStore.volumeLimits;
     db = min_db + level.value * (max_db - min_db);
   }
-  // `|| 0`: a level just under 0 rounds to -0, which Intl prints as "-0 dB".
-  return formatUnit(Math.round(db) || 0, 'dB');
+  return formatUnit(Math.round(db), 'dB');
 });
 
 // VolumeBar's own fill: a full-width bar slid in from the left, so its rounded

@@ -38,7 +38,7 @@
                its own opacity). -->
           <Transition name="cover-fade" :css="fades">
             <div :key="haloUrl || ''" class="artwork-halo">
-              <div class="artwork-blur" :style="{ backgroundImage: haloUrl ? `url(${haloUrl})` : 'none' }"></div>
+              <div class="artwork-blur" :style="{ backgroundImage: haloImage }"></div>
             </div>
           </Transition>
 
@@ -205,6 +205,13 @@ const haloUrl = computed(() => {
   }
   return null;
 });
+
+// Quoted: unquoted, url() refuses a `(`, `)`, `'` or space — and the avatar's
+// SVG always carries `hsl(…)` and a quoted font name, which encodeURIComponent
+// leaves as is, so the whole declaration was dropped and that halo never drawn.
+const haloImage = computed(() =>
+  haloUrl.value ? `url("${haloUrl.value.replace(/["\\]/g, '\\$&')}")` : 'none'
+);
 
 // The outgoing cover stays as it is until the next one has decoded.
 const { shownArtwork, preloadArtwork, fades, settleFromLoad, settleFromError } =

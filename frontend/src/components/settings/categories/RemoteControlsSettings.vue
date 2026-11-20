@@ -112,6 +112,8 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
+/* Same code as the storage rows' (MusicLibrarySettings): green connected, red
+   set up but not connected, tertiary when switched off. */
 .remote-dot {
   display: inline-block;
   width: 8px;

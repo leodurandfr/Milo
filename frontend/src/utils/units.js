@@ -59,12 +59,17 @@ function formatterFor(Kind, locale, options) {
   return formatter;
 }
 
+// A value that is zero once rounded is written without a sign: Intl's default
+// prints -0 (and -0.4 at no decimals) as "-0", which read "-0 dB" on a volume
+// capped at 0 dB. A caller's own signDisplay wins.
+const SIGN = { signDisplay: 'negative' };
+
 /**
  * A bare number in the language's digits: decimal comma or point, thousands
  * grouping. `options` are Intl.NumberFormat's (fraction digits, signDisplay).
  */
 export function formatNumber(value, language, options = {}) {
-  return toNoBreak(formatterFor(Intl.NumberFormat, bcp47For(language), options).format(value));
+  return toNoBreak(formatterFor(Intl.NumberFormat, bcp47For(language), { ...SIGN, ...options }).format(value));
 }
 
 /**
@@ -77,7 +82,7 @@ export function formatUnit(value, unit, language, options = {}) {
 
   const cldrUnit = CLDR_UNITS[unit];
   if (!cldrUnit) throw new Error(`formatUnit: unknown unit "${unit}"`);
-  const formatter = formatterFor(Intl.NumberFormat, bcp47For(language), { ...options, style: 'unit', unit: cldrUnit });
+  const formatter = formatterFor(Intl.NumberFormat, bcp47For(language), { ...SIGN, ...options, style: 'unit', unit: cldrUnit });
   return toNoBreak(formatter.format(value));
 }
 

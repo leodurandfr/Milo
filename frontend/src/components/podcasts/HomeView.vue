@@ -78,8 +78,8 @@
       </div>
     </section>
 
-    <!-- Browse by Genre (Bloc 3) -->
-    <section class="section">
+    <!-- Browse by Genre (Bloc 3) — drawn once the backend's list has arrived -->
+    <section v-if="mainGenres.length" class="section">
       <header class="section-header">
         <span class="section-overline text-mono-small">{{ t('podcasts.explore') }}</span>
         <h2 class="section-title heading-2">{{ t('podcasts.byGenre') }}</h2>
@@ -98,14 +98,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useCardGridColumns } from '@/composables/useCardGridColumns'
 import { onPageReturn } from '@/composables/useNavigationStack'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { logger } from '@/services/logger'
-import { PODCAST_GENRE_IDS, genreSlug } from '@/constants/podcastGenres'
+import { genreSlug } from '@/constants/podcastGenres'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import GenreCard from './GenreCard.vue'
@@ -136,8 +136,9 @@ const hasSubscriptions = computed(() => podcastStore.hasSubscriptions)
 const latestSubscriptionEpisodes = computed(() => podcastStore.latestSubscriptionEpisodes)
 const latestEpisodesUnavailable = computed(() => podcastStore.latestEpisodesUnavailable)
 
+// The backend's list, in its order (GET /api/podcast/genres).
 const mainGenres = computed(() =>
-  PODCAST_GENRE_IDS.map(id => ({ value: id, label: t(`podcasts.genres.${genreSlug(id)}`) }))
+  podcastStore.genres.map(id => ({ value: id, label: t(`podcasts.genres.${genreSlug(id)}`) }))
 )
 
 function browseGenre(genreValue) {
@@ -160,17 +161,19 @@ async function loadSubscriptionsBlock() {
   }
 }
 
-async function loadData() {
-  // Note: Country/language is automatically derived from user settings on the backend
+// How many chart entries the last read asked for: the grid shows `columns * 2`,
+// so a window widened past it (or a phone turned) reads the chart again.
+let fetchedLimit = 0
 
-  await loadSubscriptionsBlock()
-
-  // Load top podcasts (Bloc 2) - backend derives country from user's language setting
-  loadingTopCharts.value = true
+// Load top podcasts (Bloc 2) - backend derives country from user's language setting.
+// `quiet` keeps the grid on screen while a wider read replaces it.
+async function loadTopCharts({ quiet = false } = {}) {
+  if (!quiet) loadingTopCharts.value = true
+  const limit = columns.value * 2
   const podcastsResult = await apiCall.get('/api/podcast/discover/top-charts', {
     category: 'podcast',
     message: 'Error loading top charts',
-    params: { limit: 10 },
+    params: { limit },
   })
   if (podcastsResult.ok) {
     const data = podcastsResult.data
@@ -180,6 +183,7 @@ async function loadData() {
     } else {
       topChartsApiError.value = false
       topCharts.value = data.results || []
+      fetchedLimit = limit
     }
   } else {
     // The request itself failed (backend 500, or a 502 while milo-backend restarts).
@@ -189,6 +193,22 @@ async function loadData() {
   }
   loadingTopCharts.value = false
 }
+
+// Also the retry of the chart's error card, so it asks for the genres again too:
+// a read that failed while the backend restarted would otherwise leave the
+// genre section hidden until the view is mounted again.
+async function loadData() {
+  // Note: Country/language is automatically derived from user settings on the backend
+  podcastStore.loadGenres()
+  await loadSubscriptionsBlock()
+  await loadTopCharts()
+}
+
+watch(columns, (count) => {
+  if (fetchedLimit && count * 2 > fetchedLimit && !loadingTopCharts.value) {
+    loadTopCharts({ quiet: true })
+  }
+})
 
 onMounted(() => {
   loadData()

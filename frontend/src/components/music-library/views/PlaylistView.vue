@@ -50,6 +50,8 @@
             <div
               v-for="(song, idx) in dragRows"
               :key="rowKeys[idx]"
+              v-memo="[song, idx, editing, song.id === store.currentTrackId, song.id === store.currentTrackId && store.isPlaying,
+                dragState.index === idx, dragState.index !== -1, dragState.index === idx && dragState.currentY - dragState.startY]"
               class="drag-item"
               :class="{
                 'drag-item--dragging': dragState.index === idx,
@@ -61,7 +63,7 @@
                 :song="song"
                 :number="idx + 1"
                 :current="song.id === store.currentTrackId"
-                :playing="store.isPlaying"
+                :playing="song.id === store.currentTrackId && store.isPlaying"
                 show-artist
                 :editing="editing"
                 show-cover

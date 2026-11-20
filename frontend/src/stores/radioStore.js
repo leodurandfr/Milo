@@ -199,7 +199,7 @@ export const useRadioStore = defineStore('radio', () => {
       }
       retryAttempts += 1;
       logger.debug('radio', `Auto-retrying after network error (${retryAttempts}/${MAX_RETRY_ATTEMPTS})...`);
-      loadStations(false);
+      loadStations();
     }, RETRY_INTERVAL_MS);
   }
 
@@ -250,28 +250,12 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   /**
-   * Load stations according to active filters
+   * Load stations according to active filters. The favorites have their own
+   * path, preloadFavorites, which never touches the grid's `loading` flag.
    */
-  async function loadStations(favoritesOnly = false) {
+  async function loadStations() {
     loading.value = true;
     hasError.value = false;
-
-    if (favoritesOnly) {
-      const result = await apiCall.get('/api/radio/stations', {
-        category: 'radio',
-        message: 'Error loading favorites',
-        params: { favorites_only: true }
-      });
-      loading.value = false;
-      if (result.ok) {
-        favoriteStations.value = result.data.stations;
-        logger.debug('radio', `Loaded ${favoriteStations.value.length} favorites`);
-        favoritesInitialized.value = true;
-        return true;
-      }
-      hasError.value = true;
-      return false;
-    }
 
     // Check if this is a top stations request (no filters)
     const isTopStationsRequest = !searchQuery.value && !countryFilter.value && !genreFilter.value;
@@ -382,29 +366,21 @@ export const useRadioStore = defineStore('radio', () => {
     logger.debug('radio', `Load more: displaying ${displayedCount.value} / ${searchResults.value.length} stations (added ${added})`);
   }
 
-  /**
-   * Play a station
-   */
+  // Play and stop go where the player's buttons go: the one command transport
+  // (POST /api/audio/control/radio), so a refusal raises the same banner from
+  // the grid as from the player. /api/radio/play and /stop stay for Milo-Mac.
+
+  /** Play a station, with its object when the store knows it (custom or search-only). */
   async function playStation(stationId) {
     let station = searchResults.value.find(s => s.id === stationId);
     if (!station) station = favoriteStations.value.find(s => s.id === stationId);
-    const payload = station ? { station_id: stationId, station } : { station_id: stationId };
-    const result = await apiCall.post('/api/radio/play', payload, {
-      category: 'radio',
-      message: 'Error playing station',
-    });
-    return result.ok;
+    const params = station ? { station_id: stationId, station } : { station_id: stationId };
+    return useUnifiedAudioStore().sendCommand('radio', 'play_station', params);
   }
 
-  /**
-   * Stop playback
-   */
+  /** Stop playback. */
   async function stopPlayback() {
-    const result = await apiCall.post('/api/radio/stop', null, {
-      category: 'radio',
-      message: 'Error stopping playback',
-    });
-    return result.ok;
+    return useUnifiedAudioStore().sendCommand('radio', 'stop');
   }
 
   /**
@@ -580,7 +556,7 @@ export const useRadioStore = defineStore('radio', () => {
    */
   function retryDirectory() {
     loadCountries();
-    return loadStations(false);
+    return loadStations();
   }
 
   /**

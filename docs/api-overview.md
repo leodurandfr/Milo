@@ -51,8 +51,9 @@ else is the static SPA).
 **Every source command travels on `/api/audio/control/{source}`**, whatever its family — a
 per-source command route would only add a second failure contract to keep in sync. A source
 router therefore holds what is *not* a command: catalog browsing, favorites, binary/proxied
-artwork. There are two exceptions: a route that composes several commands in one request
-(`POST /api/radio/play`), and a route Milo-Mac's contract pins (`POST /api/radio/stop`).
+artwork. The one exception is a route a companion app's contract pins: `POST /api/radio/play`
+and `POST /api/radio/stop` each run one command and stay because Milo-Mac's manifest pins them;
+the frontend sends both commands on `/api/audio/control/radio`.
 
 So Bluetooth, Mac and Tidal have no router at all; Qobuz's only surface is the
 `/api/qobuz/account/*` one-time-login relay; `/api/airplay` serves proxied

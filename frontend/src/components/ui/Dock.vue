@@ -60,8 +60,9 @@
           <AppIcon :name="icon" size="tile-lg" class="dock-item-icon" />
         </button>
 
-        <!-- Separator - Desktop: shown if features exist, Mobile: shown if toggle button exists -->
-        <div v-if="enabledFeatures.length > 0 || additionalDockApps.length > 0"
+        <!-- Separator: only before something — the features on desktop, the
+             toggle button on mobile (where the features are already in dockApps) -->
+        <div v-if="isMobile ? additionalDockApps.length > 0 : enabledFeatures.length > 0"
           :style="{ transitionDelay: getDockItemDelay(enabledAudioSources.length) }"
           class="dock-separator">
         </div>

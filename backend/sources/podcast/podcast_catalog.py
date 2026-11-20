@@ -45,23 +45,24 @@ from backend.sources.podcast.feed_resolver import CatalogUnavailable, FeedUrlRes
 from backend.sources.podcast.rss_parser import parse_feed, split_episode_id
 
 
-# Map Milō genre keys (frontend genre grid/filters) to iTunes RSS genre IDs
+# The genres a listener can browse, in the order the browse grid shows them,
+# each with its iTunes RSS genre id. The one declaration: GET /api/podcast/genres
+# serves its keys, and the frontend draws a tile for each (artwork and label are
+# looked up by key there, and tests/pure/podcastGenres.test.js reads this table
+# to hold every key to an artwork and a label).
 GENRE_TO_ITUNES_ID = {
-    'PODCASTSERIES_NEWS': 1489,
     'PODCASTSERIES_COMEDY': 1303,
-    'PODCASTSERIES_TRUE_CRIME': 1488,
-    'PODCASTSERIES_TECHNOLOGY': 1318,
-    'PODCASTSERIES_SPORTS': 1545,
-    'PODCASTSERIES_EDUCATION': 1304,
-    'PODCASTSERIES_BUSINESS': 1321,
-    'PODCASTSERIES_HEALTH_AND_FITNESS': 1512,
-    'PODCASTSERIES_ARTS': 1301,
-    'PODCASTSERIES_KIDS_AND_FAMILY': 1305,
-    'PODCASTSERIES_MUSIC': 1310,
-    'PODCASTSERIES_RELIGION_AND_SPIRITUALITY': 1314,
-    'PODCASTSERIES_SCIENCE': 1533,
     'PODCASTSERIES_SOCIETY_AND_CULTURE': 1324,
+    'PODCASTSERIES_NEWS': 1489,
+    'PODCASTSERIES_TRUE_CRIME': 1488,
+    'PODCASTSERIES_BUSINESS': 1321,
+    'PODCASTSERIES_EDUCATION': 1304,
+    'PODCASTSERIES_HEALTH_AND_FITNESS': 1512,
+    'PODCASTSERIES_SPORTS': 1545,
+    'PODCASTSERIES_ARTS': 1301,
+    'PODCASTSERIES_SCIENCE': 1533,
     'PODCASTSERIES_TV_AND_FILM': 1309,
+    'PODCASTSERIES_MUSIC': 1310,
 }
 
 # The storefront a language stands for when the unit has no country of its own
@@ -372,7 +373,7 @@ class PodcastCatalog:
         This is the most reliable way to get the same results as shown on podcasts.apple.com
 
         Args:
-            genre: Milō genre key (e.g., 'PODCASTSERIES_TECHNOLOGY')
+            genre: Milō genre key (e.g., 'PODCASTSERIES_COMEDY'), one of GENRE_TO_ITUNES_ID
             country_code: iTunes country code (e.g., 'fr' for France)
             limit: Number of results (max 200)
 

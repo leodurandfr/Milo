@@ -738,4 +738,35 @@ describe('podcastStore', () => {
       expect(apiCall.get.mock.calls[1][1].params.get('page')).toBe('2');
     });
   });
+
+  describe('genres', () => {
+    // The home's genre grid is drawn from this list alone (HomeView), and its
+    // retry calls loadGenres again: a failure that stuck would hide the section
+    // until the view remounts, and a second caller must not read the list twice.
+    it('shares one request between two callers in flight', async () => {
+      let answer;
+      apiCall.get.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+
+      const first = store.loadGenres();
+      const second = store.loadGenres();
+      answer(ok({ status: 'success', genres: ['PODCASTSERIES_NEWS'] }));
+      await Promise.all([first, second]);
+
+      expect(apiCall.get).toHaveBeenCalledTimes(1);
+      expect(store.genres).toEqual(['PODCASTSERIES_NEWS']);
+    });
+
+    it('asks again after a failed read, and not once it has the list', async () => {
+      apiCall.get.mockResolvedValueOnce(fail('Bad gateway', 502));
+      await store.loadGenres();
+      expect(store.genres).toEqual([]);
+
+      apiCall.get.mockResolvedValueOnce(ok({ status: 'success', genres: ['PODCASTSERIES_ARTS'] }));
+      await store.loadGenres();
+      await store.loadGenres();
+
+      expect(apiCall.get).toHaveBeenCalledTimes(2);
+      expect(store.genres).toEqual(['PODCASTSERIES_ARTS']);
+    });
+  });
 });

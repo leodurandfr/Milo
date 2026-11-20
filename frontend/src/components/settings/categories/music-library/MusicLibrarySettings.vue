@@ -40,7 +40,7 @@
           </template>
           <template #title="{ headingClass }">
             <span class="ml-title" :class="headingClass">
-              <span class="ml-dot" :class="share.mounted ? 'is-on' : 'is-off'" />
+              <span class="ml-dot" :class="share.mounted ? 'is-on' : 'is-down'" />
               {{ shareTitle(share) }}
             </span>
           </template>
@@ -77,7 +77,7 @@
           </template>
           <template #title="{ headingClass }">
             <span class="ml-title" :class="headingClass">
-              <span class="ml-dot" :class="row.connected ? 'is-on' : 'is-off'" />
+              <span class="ml-dot" :class="dotClass(row)" />
               {{ row.label }}
             </span>
           </template>
@@ -156,6 +156,13 @@ function storageSubtitle(count) {
   return count
     ? t('musicLibrary.tracksCount', { count })
     : t('musicLibrary.storage.nothingIndexed');
+}
+
+// A known key that is unplugged is set up but not connected; the placeholder
+// row has nothing set up.
+function dotClass(row) {
+  if (row.connected) return 'is-on';
+  return row.known ? 'is-down' : 'is-off';
 }
 
 // One row per USB key Milō knows — two keys (or one key with two partitions)
@@ -254,7 +261,9 @@ onMounted(() => {
 }
 
 /* Connection dot — the only state indicator on a storage row; it sits on the
-   title so the subtitle is free to carry the index. */
+   title so the subtitle is free to carry the index. Same code as the remotes'
+   (RemoteControlsSettings, RemoteStatusSection): green connected, red set up
+   but not connected, tertiary when there is nothing set up to connect. */
 .ml-dot {
   flex-shrink: 0;
   width: 8px;
@@ -264,6 +273,10 @@ onMounted(() => {
 
 .ml-dot.is-on {
   background: var(--color-success);
+}
+
+.ml-dot.is-down {
+  background: var(--color-error);
 }
 
 .ml-dot.is-off {

@@ -32,10 +32,11 @@
             <TrackRow
               v-for="(track, idx) in visibleTracks"
               :key="`${track.uri}-${idx}`"
+              v-memo="[track, idx, kind, editable, uri, isCurrent(track), isCurrent(track) && store.isPlaying]"
               :song="rowSong(track)"
               :number="kind === 'album' ? (track.track_number || idx + 1) : idx + 1"
               :current="isCurrent(track)"
-              :playing="store.isPlaying"
+              :playing="isCurrent(track) && store.isPlaying"
               show-artist
               :show-cover="kind !== 'album'"
               :cover-url="track.thumbnail || ''"

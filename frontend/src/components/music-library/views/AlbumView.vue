@@ -39,7 +39,7 @@
                 :song="item.song"
                 :number="item.song.track || i + 1"
                 :current="item.song.id === store.currentTrackId"
-                :playing="store.isPlaying"
+                :playing="item.song.id === store.currentTrackId && store.isPlaying"
                 :show-artist="isVariousArtists"
                 :feat="featuredBySong[item.song.id] || ''"
                 @play="playFrom(item.index)"

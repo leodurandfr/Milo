@@ -17,7 +17,7 @@
           @click="selectLanguage(language.code)"
         >
           <template #icon>
-            <img :src="getFlagIcon(language.code)" :alt="language.name" />
+            <img :src="languageFlag(language.code)" :alt="language.name" />
           </template>
         </ListItemButton>
       </div>
@@ -54,34 +54,12 @@ import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 
-import franceIcon from '@/assets/flags-icons/france.svg';
-import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
-import spainIcon from '@/assets/flags-icons/spain.svg';
-import indiaIcon from '@/assets/flags-icons/india.svg';
-import chinaIcon from '@/assets/flags-icons/china.svg';
-import portugalIcon from '@/assets/flags-icons/portugal.svg';
-import italyIcon from '@/assets/flags-icons/italy.svg';
-import germanyIcon from '@/assets/flags-icons/germany.svg';
-
-const flagIcons = {
-  french: franceIcon,
-  english: unitedKingdomIcon,
-  spanish: spainIcon,
-  hindi: indiaIcon,
-  chinese: chinaIcon,
-  portuguese: portugalIcon,
-  italian: italyIcon,
-  german: germanyIcon
-};
+import { languageFlag } from '@/constants/languageFlags';
 
 const { t, getAvailableLanguages, getCurrentLanguage, setLanguage } = useI18n();
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
-
-function getFlagIcon(languageCode) {
-  return flagIcons[languageCode] || '';
-}
 
 async function selectLanguage(languageCode) {
   await setLanguage(languageCode);

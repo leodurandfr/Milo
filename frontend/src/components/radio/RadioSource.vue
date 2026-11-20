@@ -183,7 +183,7 @@ async function openSearch() {
   if (!isSearchMode.value) return
 
   // Load top 500 stations
-  await radioStore.loadStations(false)
+  await radioStore.loadStations()
 }
 
 function closeSearch() {
@@ -198,7 +198,7 @@ function closeSearch() {
 
 // === SEARCH ===
 async function handleSearch() {
-  await radioStore.loadStations(false)
+  await radioStore.loadStations()
 }
 
 // The directory did not answer: the store asks again for what failed with it.

@@ -73,6 +73,9 @@ async def play_station(
     """
     Play a radio station.
 
+    Milo-Mac's (its manifest pins it); the frontend sends `play_station` through
+    the one command transport, /api/audio/control/radio.
+
     Args:
         request: Request with station_id
 
@@ -91,6 +94,9 @@ async def play_station(
 async def stop_playback(source: RadioSource = Depends(get_source)):
     """
     Stop current playback.
+
+    Milo-Mac's (its manifest pins it); the frontend sends `stop` through the
+    one command transport, /api/audio/control/radio.
 
     Returns:
         The success envelope

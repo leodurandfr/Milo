@@ -1,10 +1,10 @@
 <!-- frontend/src/components/settings/categories/NetworkSettings.vue -->
 <template>
   <SectionStack>
-    <!-- Connection status card (MultiroomItem zone pattern) -->
-    <div class="connection-section" :class="{ 'is-expanded': showWifiCard, 'no-transition': skipTransition }">
+    <!-- Connection status card: Ethernet always, the WiFi row unfolding under it -->
+    <div class="connection-section" :class="{ 'is-expanded': showWifiCard }">
       <!-- Ethernet row (always visible, like zone header) -->
-      <div class="connection-card">
+      <div class="connection-card connection-card--ethernet">
         <div class="connection-card__name">
           <SvgIcon name="network" :size="24" />
           <span class="heading-3">{{ t('network.ethernet') }}</span>
@@ -19,8 +19,10 @@
         </div>
       </div>
 
-      <!-- WiFi row (expandable, like expanded-clients) -->
-      <div ref="wifiWrapperRef" class="expanded-wrapper" :class="{ 'no-transition': skipTransition }" :style="{ height: wifiRowHeight }">
+      <!-- WiFi row: px height while it animates, then the class's -->
+      <div ref="wifiWrapperRef" class="expanded-wrapper" :class="{ 'no-transition': skipTransition }"
+        @transitionend.self="onWifiWrapperTransitionEnd"
+        @transitioncancel.self="onWifiWrapperTransitionCancel">
         <div ref="wifiRowRef" class="expanded-content" :class="{ 'is-visible': showWifiCard }">
           <div class="connection-card">
             <div class="connection-card__name">
@@ -44,9 +46,9 @@
     <ToggleSection
       :title="t('network.wifi')"
       :enabled="status.wifi_enabled"
-      @change="handleWifiToggle"
+      @change="toggleWifi"
     >
-      <div ref="wifiContentRef" class="wifi-content">
+      <div class="wifi-content">
         <span class="text-body-medium wifi-content__description">{{ t('network.wifiDescription') }}</span>
 
         <!-- Preferred network -->
@@ -133,12 +135,13 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from 'vue';
+import { ref, computed, watch, nextTick, onUnmounted, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
 import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
+import { COLLAPSE_TRANSITION, COLLAPSE_FOLLOW_MS } from '@/constants/collapse';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import InputText from '@/components/ui/InputText.vue';
@@ -151,9 +154,6 @@ import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 
 const { t } = useI18n();
 const timer = useTimer();
-const requestHeightDelta = inject('modalRequestHeightDelta', null);
-const modalSetContentHeight = inject('modalSetContentHeight', null);
-const modalContentInnerRef = inject('modalContentInnerRef', null);
 
 const {
   status,
@@ -225,96 +225,64 @@ const wifiShown = useHeldWhileClosed(() => status.value.wifi_enabled, () => ({
   pulse: status.value.wifi.connecting && !status.value.wifi.connected,
 }));
 
-// === WiFi row expand/collapse (MultiroomItem pattern) ===
+// === WiFi row expand/collapse — MultiroomItem's mechanism ===
+// The row animates its own height on the same curve as the Modal clip, and the
+// clip is told the delta through modalSpringHeightDelta, so frame and content
+// are equal at every frame. The section's box is the same open or closed (its
+// bottom padding lives on the rows), so the delta is the row and nothing else.
+// A collapse lands on 0, where a spring's overshoot cannot be drawn on the row
+// but would be on the clip: it rides the monotone curve on both sides, the one
+// the ToggleSection folding with it rides too (Collapse.vue).
+const springHeightDelta = inject('modalSpringHeightDelta', null);
 const wifiWrapperRef = ref(null);
 const wifiRowRef = ref(null);
-const wifiContentRef = ref(null);
-const wifiRowHeight = ref('0px');
 const skipTransition = ref(true);
-let skipNextWatcher = false;
 
-function measureWifiRow() {
-  if (!wifiRowRef.value) return 0;
-  const el = wifiRowRef.value;
-  const marginTop = parseFloat(getComputedStyle(el).marginTop) || 0;
-  return el.offsetHeight + marginTop;
-}
-
-function getPaddingOffset() {
-  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--space-05')) || 0;
-}
-
-// Announce wifi card height delta to Modal (MultiroomItem toggleExpand pattern).
-// Synchronous height set so the animation starts immediately.
-function handleWifiToggle(enabled) {
-  const wasVisible = showWifiCard.value;
-  const prevHeight = wasVisible ? (parseFloat(wifiRowHeight.value) || 0) : 0;
-  const oldToggleContentH = wifiContentRef.value?.offsetHeight || 0;
-
-  toggleWifi(enabled);
-
-  if (!wasVisible && showWifiCard.value) {
-    // OPENING: synchronous height + delta (like MultiroomItem expand)
-    skipNextWatcher = true;
-    const fullHeight = measureWifiRow();
-    if (fullHeight > 0) {
-      const paddingOffset = getPaddingOffset();
-      if (requestHeightDelta) requestHeightDelta(fullHeight - paddingOffset);
-      wifiRowHeight.value = `${fullHeight}px`;
-    }
-    // Correct for toggle content changes after DOM update (e.g. preferred network appearing)
-    correctToggleContentDelta(oldToggleContentH);
-  } else if (wasVisible && !showWifiCard.value && prevHeight > 0) {
-    // CLOSING: synchronous height + delta (like MultiroomItem collapse)
-    skipNextWatcher = true;
-    const paddingOffset = getPaddingOffset();
-    if (requestHeightDelta) requestHeightDelta(-(prevHeight - paddingOffset));
-    wifiRowHeight.value = '0px';
-  }
-}
-
-async function correctToggleContentDelta(oldH) {
+// One path for every change, the toggle's and a status update's alike. Explicit
+// px only while animating: settled, the height is the class's (auto or 0), so a
+// row that grows later is never cut to a stale value.
+watch(showWifiCard, async (open) => {
+  const wrapper = wifiWrapperRef.value;
+  // Before the data lands (transitions off) or out of sight, the modal's own
+  // observer sizes the clip: the row takes its height from the class.
+  if (!wrapper || skipTransition.value || !wrapper.checkVisibility()) return;
+  // Pinned before the patch flips the class, so a reversal starts from what is
+  // on screen and the new direction's curve is the one the move starts on.
+  const from = wrapper.offsetHeight;
+  wrapper.style.height = `${from}px`;
   await nextTick();
-  const newH = wifiContentRef.value?.offsetHeight || 0;
-  // DOM is already in the post-change state here, so set the absolute measured
-  // height (a delta would double-count the now-live content).
-  if (modalSetContentHeight && Math.abs(newH - oldH) > 2) {
-    modalSetContentHeight();
-  }
-}
-
-watch(showWifiCard, async (visible) => {
-  if (skipNextWatcher) {
-    skipNextWatcher = false;
+  if (!wifiRowRef.value) return;
+  const to = open ? wifiRowRef.value.offsetHeight : 0;
+  if (to === from) {
+    wrapper.style.height = '';
     return;
   }
-
-  // Measure contentInner BEFORE DOM update (watcher fires pre-render)
-  const beforeH = modalContentInnerRef?.value?.offsetHeight ?? 0;
-
-  if (visible) {
-    await nextTick();
-    wifiRowHeight.value = `${measureWifiRow()}px`;
-  } else {
-    wifiRowHeight.value = '0px';
-  }
-
-  // Measure contentInner AFTER DOM update. DOM is in the post-change state, so set
-  // the absolute measured height (a delta would double-count the now-live content).
-  await nextTick();
-  const afterH = modalContentInnerRef?.value?.offsetHeight ?? 0;
-  if (modalSetContentHeight && Math.abs(afterH - beforeH) > 2) {
-    modalSetContentHeight();
-  }
+  springHeightDelta?.(
+    to - from,
+    open ? {} : { transition: COLLAPSE_TRANSITION, durationMs: COLLAPSE_FOLLOW_MS }
+  );
+  wrapper.style.height = `${to}px`;
 });
+
+function onWifiWrapperTransitionEnd(event) {
+  if (event.propertyName === 'height') wifiWrapperRef.value.style.height = '';
+}
+
+// A reversal cancels too, and keeps its new target; only a transition cut by
+// the view leaving the screen would otherwise leave the px height for good.
+function onWifiWrapperTransitionCancel(event) {
+  if (event.propertyName === 'height' && !wifiWrapperRef.value.checkVisibility()) {
+    wifiWrapperRef.value.style.height = '';
+  }
+}
 
 let rafId = null;
 let signalPollId = null;
 
 // The signal arc is the only value on this panel that moves on its own, and the
 // backend broadcasts nothing for it: it lives exactly as long as the card that
-// shows it. Kept out of the height-measuring watcher above, whose early return
-// on `skipNextWatcher` would silently skip a start or a stop.
+// shows it. Kept out of the height watcher above, whose early returns (no
+// transition yet, out of sight) would silently skip a start or a stop.
 watch(showWifiCard, (visible) => {
   if (visible && signalPollId === null) {
     refreshWifiSignal();
@@ -336,41 +304,22 @@ watch(loading, (isLoading) => {
   }
 }, { immediate: true });
 
-onMounted(async () => {
-  // If status was pre-loaded, wifi card may already be visible —
-  // set initial wrapper height before viewTransition measures entering height
-  if (showWifiCard.value) {
-    await nextTick();
-    const h = measureWifiRow();
-    if (h > 0) {
-      wifiRowHeight.value = `${h}px`;
-      skipNextWatcher = true;
-    }
-  }
-});
-
 onUnmounted(() => {
   if (rafId) cancelAnimationFrame(rafId);
 });
 </script>
 
 <style scoped>
-/* Connection status card (MultiroomItem zone pattern) */
+/* Connection status card. The bottom padding lives on the rows (the Ethernet
+   card and .expanded-content), never on the section: its box must not change
+   when the WiFi row unfolds, or the delta announced to the Modal clip would
+   need a correction that silently tracks --space-05 (MultiroomItem, same). */
 .connection-section {
   background: var(--color-surface);
   border-radius: var(--radius-06);
-  padding: var(--space-05);
+  padding: var(--space-05) var(--space-05) 0;
   display: flex;
   flex-direction: column;
-  transition: padding-bottom var(--transition-fast);
-}
-
-.connection-section.no-transition {
-  transition: none;
-}
-
-.connection-section.is-expanded {
-  padding-bottom: 0;
 }
 
 /* Connection rows */
@@ -379,6 +328,10 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-03);
+}
+
+.connection-card--ethernet {
+  padding-bottom: var(--space-05);
 }
 
 .connection-card__name {
@@ -405,25 +358,29 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-/* Height wrapper for single-step animation */
+/* Same curves as the Modal clip (see the showWifiCard watcher): the spring
+   opening, the monotone one closing — the collapse lands on 0, where the
+   spring's lobe would be clamped away here but drawn on the clip. */
 .expanded-wrapper {
   height: 0;
   overflow: hidden;
-  transition: height var(--transition-normal);
+  transition: height var(--transition-collapse);
 }
 
-.expanded-wrapper.no-transition {
-  transition: none;
+.connection-section.is-expanded .expanded-wrapper {
+  height: auto;
+  transition: height var(--transition-spring-light);
 }
 
-/* Suppress content opacity/visibility transition during initial mount */
+/* Suppress content opacity/visibility transition during initial mount. The
+   wrapper needs no such rule: until the data lands the watcher sets no px
+   height, so its class flips auto <-> 0, which never animates. */
 .expanded-wrapper.no-transition .expanded-content {
   transition: none;
 }
 
 /* Content: border-top + opacity/visibility (like .expanded-clients in MultiroomItem) */
 .expanded-content {
-  margin-top: var(--space-03);
   padding-top: var(--space-03);
   padding-bottom: var(--space-05);
   border-top: 1px solid var(--color-border);

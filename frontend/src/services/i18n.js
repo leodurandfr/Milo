@@ -190,14 +190,14 @@ class I18nService {
 
   getAvailableLanguages() {
     return [
-      { code: 'french', name: 'Français', flag: '🇫🇷' },
-      { code: 'english', name: 'English', flag: '🇺🇸' },
-      { code: 'spanish', name: 'Español', flag: '🇪🇸' },
-      { code: 'hindi', name: 'हिन्दी', flag: '🇮🇳' },
-      { code: 'chinese', name: '中文', flag: '🇨🇳' },
-      { code: 'portuguese', name: 'Português', flag: '🇵🇹' },
-      { code: 'italian', name: 'Italiano', flag: '🇮🇹' },
-      { code: 'german', name: 'Deutsch', flag: '🇩🇪' }
+      { code: 'french', name: 'Français' },
+      { code: 'english', name: 'English' },
+      { code: 'spanish', name: 'Español' },
+      { code: 'hindi', name: 'हिन्दी' },
+      { code: 'chinese', name: '中文' },
+      { code: 'portuguese', name: 'Português' },
+      { code: 'italian', name: 'Italiano' },
+      { code: 'german', name: 'Deutsch' }
     ];
   }
 

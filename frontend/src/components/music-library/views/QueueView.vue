@@ -17,6 +17,8 @@
           <div
             v-for="(row, idx) in visibleRows"
             :key="row.key"
+            v-memo="[row, idx, row.current, row.current && store.isPlaying, store.canRemoveFromQueue,
+              canMove(idx), lifted === idx, lifted === idx && offset]"
             data-hold-row
             :class="{ movable: canMove(idx), lifted: lifted === idx }"
             :style="rowStyle(idx)"
@@ -26,7 +28,7 @@
               :song="row.song"
               :number="idx + 1"
               :current="row.current"
-              :playing="store.isPlaying"
+              :playing="row.current && store.isPlaying"
               show-artist
               show-cover
               :cover-url="store.thumbUrl(row.song.coverArt)"
@@ -89,7 +91,7 @@ const canMove = (index) =>
   tab.value === 'queue' && store.canMoveInQueue && !visibleRows.value[index]?.current;
 
 const listRef = ref(null);
-const { lifted, line, rowStyle, onPointerDown, cancel } = useHoldReorder({
+const { lifted, offset, line, rowStyle, onPointerDown, cancel } = useHoldReorder({
   list: () => listRef.value?.$el,
   canMove,
   minGap: () => visibleRows.value.findIndex((row) => row.current) + 1,

@@ -3,7 +3,7 @@
     <div class="track-index">
       <div class="track-position">
         <LoadingSpinner v-if="loading && !showCover" :size="20" />
-        <div v-else-if="current && playing" class="playing-indicator" aria-hidden="true">
+        <div v-else-if="current && playing" ref="indicatorRef" class="playing-indicator" aria-hidden="true">
           <span class="bar"></span>
           <span class="bar"></span>
           <span class="bar"></span>
@@ -58,6 +58,24 @@
 <script>
 import { ref } from 'vue';
 
+// The playing indicator's bounce — three bars, each 0.8 s there and back on
+// ease-in-out, a quarter-cycle apart — stepped INDICATOR_HZ times a second
+// rather than animated every frame, the way the Lyrics backdrop drifts. A CSS
+// animation made Chromium compose a frame per vsync for as long as the row was
+// on screen (a CD's tracklist: the whole disc), where the rest of the playing
+// screen asks for about one a second. Each bar holds a paused animation the
+// browser evaluates on its own curve; the tick only moves its clock, so the row
+// never re-renders for it. Not measured on the Pi yet.
+const INDICATOR_HZ = 10;
+const BOUNCE_MS = 800;
+const BAR_DELAYS_MS = [0, 150, 300];
+const BOUNCE_KEYFRAMES = [
+  { transform: 'scaleY(0.4)', easing: 'ease-in-out' },
+  { transform: 'scaleY(1)', easing: 'ease-in-out' },
+  { transform: 'scaleY(0.4)' },
+];
+const BOUNCE_TIMING = { duration: BOUNCE_MS, iterations: Infinity };
+
 // How long a tapped row spins while the state shows nothing at all: a start that
 // fails raises its own banner. Once the session is loading, the backend's own
 // loading watchdog bounds the wait instead.
@@ -69,7 +87,7 @@ const startingRow = ref(null);
 </script>
 
 <script setup>
-import { computed, watch } from 'vue';
+import { computed, watch, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import LazyImage from '@/components/ui/LazyImage.vue';
@@ -133,7 +151,40 @@ const emit = defineEmits(['play', 'menu', 'remove', 'grip-down']);
 
 const { t } = useI18n();
 const timer = useTimer();
+// Its own timer: the start spinner's clearAll() must not stop the bounce.
+const indicatorTimer = useTimer();
 const audioStore = useUnifiedAudioStore();
+
+const indicatorRef = ref(null);
+let bounce = null;
+
+function stopBounce() {
+  if (!bounce) return;
+  indicatorTimer.clear(bounce.interval);
+  bounce.bars.forEach((bar) => bar.cancel());
+  bounce = null;
+}
+
+// Started when the indicator is drawn, canceled when it goes (or the row does).
+watch(indicatorRef, (el) => {
+  stopBounce();
+  // No Web Animations (a test DOM): the bars stand still, which is all they mean.
+  if (!el || typeof el.animate !== 'function') return;
+  const start = performance.now();
+  const bars = [...el.children].map((bar) => {
+    const animation = bar.animate(BOUNCE_KEYFRAMES, BOUNCE_TIMING);
+    animation.pause();
+    return animation;
+  });
+  // A lagging bar is one whose clock runs behind; a cycle ahead keeps it positive.
+  const tick = () => {
+    const elapsed = performance.now() - start + BOUNCE_MS;
+    bars.forEach((bar, i) => { bar.currentTime = elapsed - BAR_DELAYS_MS[i]; });
+  };
+  tick();
+  bounce = { bars, interval: indicatorTimer.setInterval(tick, 1000 / INDICATOR_HZ) };
+});
+onUnmounted(stopBounce);
 
 const displayTitle = computed(() => props.song.title || props.song.name || props.fallbackTitle);
 
@@ -342,26 +393,18 @@ function formatDuration(totalSeconds) {
   width: 3px;
   background: var(--color-brand);
   border-radius: 1px;
-  animation: bar-bounce 0.8s ease-in-out infinite;
 }
 
+/* Heights only: the bounce is stepped from the script (INDICATOR_HZ). */
 .playing-indicator .bar:nth-child(1) {
   height: 60%;
-  animation-delay: 0s;
 }
 
 .playing-indicator .bar:nth-child(2) {
   height: 100%;
-  animation-delay: 0.15s;
 }
 
 .playing-indicator .bar:nth-child(3) {
   height: 40%;
-  animation-delay: 0.3s;
-}
-
-@keyframes bar-bounce {
-  0%, 100% { transform: scaleY(0.4); }
-  50% { transform: scaleY(1); }
 }
 </style>
