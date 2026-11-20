@@ -2,12 +2,12 @@
 /**
  * The flag drawn beside each UI language, keyed by its Milō code — one table
  * for the setup wizard's language step, its summary and the Language settings,
- * which each carried a copy. The English flag is the United Kingdom's, as all
- * three copies drew it, although `english` is en-US (CLAUDE.md § Language):
- * whether it becomes the United States' is the owner's call, still open.
+ * which each carried a copy. English is drawn as one flag split along its
+ * diagonal, the United States' and the United Kingdom's: the locale is en-US
+ * (CLAUDE.md § Language), but the language is not one country's.
  */
 import franceIcon from '@/assets/flags-icons/france.svg';
-import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
+import englishIcon from '@/assets/flags-icons/united-kingdom-united-states.svg';
 import spainIcon from '@/assets/flags-icons/spain.svg';
 import indiaIcon from '@/assets/flags-icons/india.svg';
 import chinaIcon from '@/assets/flags-icons/china.svg';
@@ -17,7 +17,7 @@ import germanyIcon from '@/assets/flags-icons/germany.svg';
 
 const FLAGS = {
   french: franceIcon,
-  english: unitedKingdomIcon,
+  english: englishIcon,
   spanish: spainIcon,
   hindi: indiaIcon,
   chinese: chinaIcon,
