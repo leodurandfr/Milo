@@ -3,18 +3,28 @@
   track row's ⋯ menu via store.requestAddToPlaylist(songIds). A single view:
   existing playlists (radio toggles add/remove of the current songIds) plus
   an inline name+create row for a brand new one. Stays open across multiple
-  adds — the user closes it via the Modal's own close button when done.
+  adds — the user closes it via the Modal's own close button when done. Which
+  playlists already hold the songs is read at each opening; until it is, no
+  row can be toggled, and a read that fails says so with a Retry rather than
+  draw every playlist unchecked — a tap would then add the songs twice. The
+  rows are drawn from three reads (the playlists, the liked songs, which
+  playlists hold the songs), so a failure of any of them is that state, and
+  the Retry runs all three again.
 -->
 <template>
   <Modal :is-open="isOpen" @close="$emit('close')">
     <div class="add-to-playlist">
       <NavigationHeader :title="t('musicLibrary.playlists.addToPlaylist')">
         <template #actions>
-          <IconButton icon="plus" @click="setCreateOpen(!showCreate)" />
+          <IconButton icon="plus" :disabled="failed" @click="setCreateOpen(!showCreate)" />
         </template>
       </NavigationHeader>
 
-      <SectionCard class="add-to-playlist__section">
+      <MessageContent v-if="failed" icon="musicNote" :title="t('musicLibrary.catalogUnreachable')"
+        :cta-label="t('musicLibrary.retry')" cta-variant="control"
+        :cta-click="readChoices" />
+
+      <SectionCard v-else class="add-to-playlist__section">
         <ListItemButton
           action="radio"
           icon-variant="standard"
@@ -69,6 +79,7 @@ import { ref, computed, watch, inject } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import Modal from '@/components/ui/Modal.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
 import NavigationHeader from '@/components/ui/NavigationHeader.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -103,6 +114,16 @@ let createdOnClose = false;
 const showCreate = ref(false);
 const addedIds = ref(new Set());
 const checkingExisting = ref(false);
+// A read the rows are drawn from did not answer: the rows are not drawn, a
+// Retry is — and the header's create button, whose row is among them, is
+// disabled.
+const failed = ref(false);
+// Moved by each opening and each closing: an answer read for an opening that
+// is over is dropped — it would check the rows of other songs and unlock them
+// before their own read is in. A write sent for an opening that is over is
+// dropped the same way when it lands: its playlist holds the songs of that
+// opening, not of this one.
+let opening = 0;
 
 const likedChecked = computed(() =>
   props.songIds.length > 0 && props.songIds.every((id) => store.likedSongIds.has(id))
@@ -145,9 +166,23 @@ function setCreateOpen(next) {
   showCreate.value = next;
 }
 
-async function refreshAddedIds() {
+// The three reads the rows are drawn from, at the opening and on Retry. The
+// membership read alone was the Retry once: a Navidrome that failed it at the
+// opening had failed the playlist list too, and a Retry that succeeded drew
+// the membership over an empty list — no row for a playlist that holds the
+// songs, and the create row inviting the user to make it again.
+async function readChoices() {
+  const asked = opening;
   checkingExisting.value = true;
-  addedIds.value = await store.fetchPlaylistsContaining(props.songIds);
+  failed.value = false;
+  const [listed, liked, held] = await Promise.all([
+    store.loadPlaylists(),
+    store.loadLikedSongs(),
+    store.fetchPlaylistsContaining(props.songIds),
+  ]);
+  if (asked !== opening) return;
+  if (held) addedIds.value = held;
+  failed.value = !(listed && liked && held);
   checkingExisting.value = false;
 }
 
@@ -155,6 +190,7 @@ async function refreshAddedIds() {
 // too: the store keeps its songs while the source view is unmounted and mounted
 // again, and a picker born open with no membership read would add them twice.
 watch(() => props.isOpen, async (open) => {
+  opening += 1;
   if (!open) return;
   newName.value = '';
   busy.value = false;
@@ -162,17 +198,18 @@ watch(() => props.isOpen, async (open) => {
   createdOnClose = false;
   showCreate.value = false;
   addedIds.value = new Set();
-  await Promise.all([store.loadPlaylists(), store.loadLikedSongs()]);
-  await refreshAddedIds();
+  await readChoices();
 }, { immediate: true });
 
 async function toggleIn(pl) {
   if (busy.value) return;
+  const asked = opening;
   busy.value = true;
   const wasAdded = addedIds.value.has(pl.id);
   const ok = wasAdded
     ? await store.removeFromPlaylist(pl.id, props.songIds)
     : await store.addToPlaylist(pl.id, props.songIds);
+  if (asked !== opening) return;
   busy.value = false;
   if (!ok) return;
   const next = new Set(addedIds.value);
@@ -184,8 +221,10 @@ async function toggleIn(pl) {
 async function createAndAdd() {
   const name = newName.value.trim();
   if (!name || creating.value) return;
+  const asked = opening;
   creating.value = true;
   const created = await store.createPlaylist(name, props.songIds);
+  if (asked !== opening) return;
   if (created) {
     createdOnClose = true;
     setCreateOpen(false);

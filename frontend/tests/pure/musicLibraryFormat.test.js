@@ -5,7 +5,7 @@
  * exactly on that boundary, so the unit they assume is the thing worth pinning.
  */
 import { describe, it, expect } from 'vitest';
-import { formatDuration, totalMinutes, formatAudioQuality } from '@/components/music-library/format';
+import { formatDuration, totalMinutes, totalSeconds, formatAudioQuality } from '@/components/music-library/format';
 
 describe('formatDuration', () => {
   it('renders m:ss below an hour', () => {
@@ -47,6 +47,15 @@ describe('totalMinutes', () => {
   it('treats missing input as zero', () => {
     expect(totalMinutes(undefined)).toBe(0);
     expect(totalMinutes(null)).toBe(0);
+  });
+});
+
+describe('totalSeconds', () => {
+  // PlaylistView's header reads its duration from the rows it shows, so a
+  // removal moves the count and the duration together.
+  it('sums the rows, a row with no duration counting nothing', () => {
+    expect(totalSeconds([{ duration: 100 }, { duration: 200 }, {}])).toBe(300);
+    expect(totalSeconds([])).toBe(0);
   });
 });
 

@@ -56,6 +56,7 @@ from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.shared.mpv_audio_source import MpvAudioSource, MpvSession
 from backend.sources.music_library.disc_merge import (
+    folded_discs_per_artist,
     is_merged_id,
     merge_albums,
     parse_merged_id,
@@ -349,19 +350,45 @@ class MusicLibrarySource(MpvAudioSource):
 
         Same TTL and same invalidation as the album cache — a rescan or a share
         change moves both.
+
+        Each ``albumCount`` is answered as the artist page counts: a multi-disc
+        set ``merge_albums`` collapses is one album there, where Navidrome counts
+        each "… CD 1"/"CD 2" (see disc_merge.folded_discs_per_artist). The
+        scope's merged catalog is read for it on every call, so the cached index
+        stays Navidrome's own and a merge seen later is never taken off twice.
         """
         key = tuple(sorted(scope))
         now = asyncio.get_event_loop().time()
         cached = self._artist_cache.get(key)
         if cached is not None and now - cached[0] < ALBUM_CACHE_TTL_S:
-            return cached[1]
-        client = await self.get_navidrome_client()
-        if client is None:
-            return []
-        index = await client.get_artists(scope)
-        if index:
-            self._artist_cache[key] = (now, index)
-        return index
+            index = cached[1]
+        else:
+            client = await self.get_navidrome_client()
+            if client is None:
+                return []
+            index = await client.get_artists(scope)
+            if index:
+                self._artist_cache[key] = (now, index)
+        folded = folded_discs_per_artist(await self.get_merged_albums(scope))
+        if not folded:
+            return index
+        return [
+            {
+                **bucket,
+                "artist": [
+                    {
+                        **artist,
+                        "albumCount": max(
+                            int(artist.get("albumCount") or 0) - folded[artist["id"]], 1
+                        ),
+                    }
+                    if artist.get("id") in folded
+                    else artist
+                    for artist in bucket.get("artist") or []
+                ],
+            }
+            for bucket in index
+        ]
 
     async def get_merged_albums(
         self, scope: List[int], *, strict: bool = False

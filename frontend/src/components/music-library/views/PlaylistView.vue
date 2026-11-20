@@ -49,7 +49,7 @@
           <TrackList v-else :class="{ reordering: editing }">
             <div
               v-for="(song, idx) in dragRows"
-              :key="song.id"
+              :key="rowKeys[idx]"
               class="drag-item"
               :class="{
                 'drag-item--dragging': dragState.index === idx,
@@ -97,7 +97,8 @@
 import { ref, computed, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
-import { totalMinutes } from '../format.js';
+import { totalMinutes, totalSeconds } from '../format.js';
+import { occurrenceKeys } from '../queueRows.js';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -143,8 +144,10 @@ const deleting = ref(false);
 
 const subtitle = computed(() => {
   if (!playlist.value) return '';
+  // Both from the rows on screen, so a removal moves the two together: the
+  // read's own duration stayed the one of the entries before it.
   const parts = [t('musicLibrary.tracksCount', { count: tracks.value.length })];
-  const mins = totalMinutes(playlist.value.duration);
+  const mins = totalMinutes(totalSeconds(tracks.value));
   if (mins && !editing.value) parts.push(formatUnit(mins, 'min'));
   return parts.join(' · ');
 });
@@ -216,6 +219,12 @@ const { rows: dragRows, dragState, getDragItemStyle, onGripDown } = useDragReord
   },
 });
 
+// A row is its entry: the track and which copy of it this is, since a
+// playlist may hold a track twice. Keyed by the track alone, two rows shared a
+// key, and the server's order coming back after a refused edit left a row too
+// many on screen, whose play button started from a stale rank.
+const rowKeys = computed(() => occurrenceKeys(dragRows.value));
+
 // === Load ===
 // Every read that lands resets the edit surface to it: a first load, a retry,
 // and the re-read after a write that failed. One that fails leaves the page on
@@ -229,6 +238,11 @@ watch(() => props.playlistId, () => {
   editing.value = false;
   confirmDelete.value = false;
 });
+
+// The picker wrote this playlist's entries (from one of its own rows, or from a
+// page in front of it while it waits in the navigation): the copy held here is
+// no longer the playlist, and an edit made from it would be refused.
+watch(() => store.playlistWrites[props.playlistId], () => reload());
 </script>
 
 <style scoped>

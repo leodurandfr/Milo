@@ -18,12 +18,10 @@
  *   follows, in play order; and what played before it, most recent first
  */
 export function splitQueue(queue, queueIndex, offset = 0) {
-  const seen = new Map();
-  const rows = queue.map((song, index) => {
-    const nth = (seen.get(song.id) ?? 0) + 1;
-    seen.set(song.id, nth);
-    return { key: `${song.id}#${nth}`, song, queueIndex: offset + index, current: index === queueIndex };
-  });
+  const keys = occurrenceKeys(queue);
+  const rows = queue.map((song, index) => (
+    { key: keys[index], song, queueIndex: offset + index, current: index === queueIndex }
+  ));
   const start = Math.max(queueIndex, 0);
   return { upcoming: rows.slice(start), played: rows.slice(0, start).reverse() };
 }
@@ -46,4 +44,23 @@ export function moveRow(rows, from, to) {
  */
 export function queueMove(row, from, to) {
   return { fromIndex: row.queueIndex, toIndex: row.queueIndex - from + to };
+}
+
+/**
+ * One key per row of a list that may hold a track more than once (a queue, a
+ * playlist): the track and its occurrence in the list, `id#n`. Unique where
+ * the track id alone is not — two rows sharing a key are diffed as one, and a
+ * reorder of the list left a row too many on screen — and kept by a row when
+ * the rows around it move, which a key by position is not.
+ *
+ * @param {Array<{id: string}>} songs - The rows, in order
+ * @returns {string[]} Their keys, in the same order
+ */
+export function occurrenceKeys(songs) {
+  const seen = new Map();
+  return songs.map((song) => {
+    const nth = (seen.get(song.id) ?? 0) + 1;
+    seen.set(song.id, nth);
+    return `${song.id}#${nth}`;
+  });
 }

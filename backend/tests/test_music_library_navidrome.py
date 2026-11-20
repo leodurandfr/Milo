@@ -755,6 +755,65 @@ class TestPlaylistRoutes:
         nav_client.get_playlist = AsyncMock(return_value=None)
         assert api.get("/api/music-library/playlist/nope").status_code == 404
 
+    def test_a_playlist_row_counts_what_its_page_lists(self, api, source, nav_client):
+        """The Playlists tab's row and the playlist's page give one count and one
+        duration: the entries a mounted space serves. Navidrome's songCount takes
+        in an unplugged key, so the row said 2 tracks over a page listing 1."""
+        source.playlists_in_scope = AsyncMock(return_value=[
+            {"id": "pl-1", "songCount": 2, "duration": 300},
+        ])
+        nav_client.get_playlist = AsyncMock(side_effect=lambda _id: {
+            "id": "pl-1",
+            "songCount": 2,
+            "duration": 300,
+            "entry": [
+                {"id": "s-1", "albumId": "al-1", "duration": 100},
+                {"id": "s-2", "albumId": "al-unplugged", "duration": 200},
+            ],
+        })
+
+        [row] = api.get("/api/music-library/playlists").json()["playlists"]
+        page = api.get("/api/music-library/playlist/pl-1").json()["playlist"]
+
+        assert (row["songCount"], row["duration"]) == (page["songCount"], page["duration"])
+        assert row["songCount"] == 1  # non-trivial: Navidrome said 2
+
+    def test_an_empty_playlist_costs_no_read(self, api, source, nav_client):
+        """An empty playlist has nothing to tally: reading it anyway would add
+        one getPlaylist per empty playlist to every opening of the tab."""
+        source.playlists_in_scope = AsyncMock(return_value=[{"id": "pl-0", "songCount": 0}])
+
+        listed = api.get("/api/music-library/playlists").json()["playlists"]
+
+        assert [playlist["id"] for playlist in listed] == ["pl-0"]
+        nav_client.get_playlist.assert_not_awaited()
+
+    def test_a_playlist_deleted_before_its_count_is_read_is_left_out(
+        self, api, source, nav_client
+    ):
+        """A playlist deleted between the list and its read has no count to
+        show; listed anyway, its row would open on a 404."""
+        source.playlists_in_scope = AsyncMock(return_value=[
+            {"id": "gone", "songCount": 1}, {"id": "here", "songCount": 1},
+        ])
+        nav_client.get_playlist = AsyncMock(side_effect=lambda pid: None if pid == "gone" else {
+            "id": pid, "entry": [{"id": "s-1", "albumId": "al-1", "duration": 5}],
+        })
+
+        listed = api.get("/api/music-library/playlists").json()["playlists"]
+
+        assert [playlist["id"] for playlist in listed] == ["here"]
+
+    def test_a_count_navidrome_did_not_answer_is_a_503_not_a_wrong_count(
+        self, api, source, nav_client
+    ):
+        """A read Navidrome did not answer leaves the tab on its Retry, never on
+        Navidrome's own count, which is the wrong one this route replaces."""
+        source.playlists_in_scope = AsyncMock(return_value=[{"id": "pl-1", "songCount": 3}])
+        nav_client.get_playlist = AsyncMock(side_effect=NavidromeUnreachable("getPlaylist"))
+
+        assert api.get("/api/music-library/playlists").status_code == 503
+
 
 def _raw_playlist(*entries):
     """A playlist as Subsonic getPlaylist returns it: (song id, album id) pairs."""

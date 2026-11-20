@@ -42,6 +42,7 @@
 import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import DetailHeader from '@/components/audio/DetailHeader.vue';
 import SkeletonDetailHeader from '@/components/audio/SkeletonDetailHeader.vue';
@@ -61,8 +62,9 @@ const props = defineProps({
 
 defineEmits(['select-album']);
 
-const { t } = useI18n();
+const { t, formatList } = useI18n();
 const store = useMusicLibraryStore();
+const unifiedStore = useUnifiedAudioStore();
 
 const { value: artist, error, loading, reload } = useCatalogRead(() => props.artistId, store.fetchArtist);
 
@@ -109,12 +111,22 @@ const subtitleMeta = computed(() => {
 // Every album's songs, in the order the page shows them — all of them or
 // none (fetchAlbumsSongs). Null when the page moved to another artist while the
 // fetches were in flight: playing or queueing then would act on an artist the
-// user has left behind.
+// user has left behind. Null too when an album did not load, and the banner
+// names which: the play button stopped turning and nothing played or queued,
+// without a word about why.
 async function artistSongs() {
   if (!albums.value.length) return null;
   const requested = props.artistId;
-  const { value } = await store.fetchAlbumsSongs(albums.value.map((album) => album.id));
+  const asked = albums.value;
+  const { value, failed } = await store.fetchAlbumsSongs(asked.map((album) => album.id));
   if (props.artistId !== requested) return null;
+  if (failed.length) {
+    const names = asked.filter((album) => failed.includes(album.id)).map((album) => album.name);
+    unifiedStore.transientNotice = {
+      title: t('musicLibrary.albumsNotLoaded', { count: failed.length }),
+      detail: formatList(names),
+    };
+  }
   return value;
 }
 

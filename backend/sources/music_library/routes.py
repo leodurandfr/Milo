@@ -108,9 +108,10 @@ def _keep_playable(item: Dict[str, Any], key: str, album_ids: set) -> None:
 
     In place, and the two header fields that describe those entries are retallied
     with them: left at their catalog values, ``songCount`` and ``duration`` would
-    announce tracks the page no longer lists (AlbumView reads both, PlaylistView
-    the duration). Every entry carries its own ``albumId``, so a merged multi-disc
-    set spanning a mounted and an absent space keeps exactly the discs that play.
+    announce tracks the page no longer lists (AlbumView reads both, and
+    ``GET /playlists`` hands both to the playlist rows from here). Every entry
+    carries its own ``albumId``, so a merged multi-disc set spanning a mounted
+    and an absent space keeps exactly the discs that play.
     """
     kept = [entry for entry in item.get(key) or [] if _is_playable(entry, album_ids)]
     item[key] = kept
@@ -464,11 +465,39 @@ async def get_playlists(
     Navidrome keeps playlists catalog-wide and ignores musicFolderId here, so
     membership is decided by the source (see source.playlists_in_scope), not by a
     Subsonic param — for the default scope exactly as for a named storage space.
+
+    ``songCount`` and ``duration`` are those of ``GET /playlist/{id}``: the
+    entries a mounted storage space serves (``_keep_playable``). Navidrome's own
+    count takes in a key that is away, so a playlist straddling a NAS and an
+    unplugged key read "20 tracks" in the list and 12 on its page. Subsonic has
+    no count by storage, so every playlist holding entries is read, all at once;
+    one deleted between the list and its read is left out, as it would 404.
     """
     async with _catalog_errors("Error listing playlists", source):
         client = await _require_client(source)
-        playlists = await client.get_playlists()
-        return {"playlists": await source.playlists_in_scope(playlists, library_id)}
+        playlists = await source.playlists_in_scope(
+            await client.get_playlists(), library_id
+        )
+        filled = [playlist for playlist in playlists if playlist.get("songCount")]
+        if not filled:
+            return {"playlists": playlists}
+        album_ids = await source.mounted_album_ids()
+        details = await asyncio.gather(
+            *(client.get_playlist(playlist["id"]) for playlist in filled)
+        )
+        gone = set()
+        for playlist, detail in zip(filled, details):
+            if detail is None:
+                gone.add(playlist["id"])
+                continue
+            _keep_playable(detail, "entry", album_ids)
+            playlist["songCount"] = detail["songCount"]
+            playlist["duration"] = detail["duration"]
+        return {
+            "playlists": [
+                playlist for playlist in playlists if playlist["id"] not in gone
+            ]
+        }
 
 
 @router.get("/playlists/containing")

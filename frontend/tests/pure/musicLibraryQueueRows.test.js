@@ -9,7 +9,7 @@
  * whenever that other track's id is the one sent.
  */
 import { describe, it, expect } from 'vitest';
-import { moveRow, queueMove, splitQueue } from '@/components/music-library/queueRows';
+import { moveRow, occurrenceKeys, queueMove, splitQueue } from '@/components/music-library/queueRows';
 
 const queue = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id }));
 
@@ -81,5 +81,30 @@ describe('moving an upcoming row', () => {
     expect(moved.map((row) => row.song)).toEqual(applyMove(queue, move).slice(2));
     expect(moved.map((row) => row.queueIndex)).toEqual([2, 3, 4, 5]);
     expect(moved[0].current).toBe(true);
+  });
+});
+
+/**
+ * A playlist (or a queue) may hold a track twice — an .m3u, an album added
+ * over one of its tracks. Rows keyed by the track id alone share a key, and
+ * Vue's keyed diff of [c, a, b, a] → [a, b, a, c], which is the server's order
+ * coming back after a refused reorder, leaves five rows on screen for four
+ * entries.
+ */
+describe('occurrenceKeys', () => {
+  const list = (...ids) => ids.map((id) => ({ id }));
+
+  it('gives every row its own key, duplicates included', () => {
+    const keys = occurrenceKeys(list('c', 'a', 'b', 'a'));
+
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it('keeps a row\'s key when another track moves past it', () => {
+    const before = occurrenceKeys(list('c', 'a', 'b', 'a'));
+    const after = occurrenceKeys(list('a', 'b', 'a', 'c'));
+
+    expect(after[3]).toBe(before[0]);
+    expect(after[1]).toBe(before[2]);
   });
 });

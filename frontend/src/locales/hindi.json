@@ -791,6 +791,7 @@
     "previouslyPlayed": "पहले सुने गए",
     "previouslyPlayedEmpty": "कोई ट्रैक नहीं सुना गया",
     "albumsCount": "{count} एल्बम",
+    "albumsNotLoaded": "{count} एल्बम लोड नहीं हो सका | {count} एल्बम लोड नहीं हो सके",
     "tracksCount": "{count} ट्रैक",
     "discLabel": "डिस्क {number}",
     "playlists": {

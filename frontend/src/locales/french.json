@@ -791,6 +791,7 @@
     "previouslyPlayed": "Écoutés précédemment",
     "previouslyPlayedEmpty": "Aucun titre écouté",
     "albumsCount": "{count} album | {count} albums",
+    "albumsNotLoaded": "{count} album n'a pas pu être chargé | {count} albums n'ont pas pu être chargés",
     "tracksCount": "{count} morceau | {count} morceaux",
     "discLabel": "Disque {number}",
     "playlists": {

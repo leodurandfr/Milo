@@ -11,6 +11,7 @@ import pytest
 from backend.sources.music_library.disc_merge import (
     build_merged_id,
     expand_merged_album,
+    folded_discs_per_artist,
     is_merged_id,
     merge_albums,
     parse_disc_suffix,
@@ -172,6 +173,43 @@ class TestMergeAlbums:
 # =============================================================================
 # synthetic-id codec
 # =============================================================================
+
+class TestFoldedDiscsPerArtist:
+    """The artist rows (the Artists tab, search) count an artist's albums from
+    Navidrome's ``albumCount``, which counts each disc of a split set; the
+    artist page lists ``merge_albums`` of the artist's albums. If this fails,
+    the row says "5 albums" over a page that shows 4."""
+
+    CATALOG = [
+        _album("c1", "At Carnegie Hall CD 1", artist_id="a1"),
+        _album("c2", "At Carnegie Hall CD 2", artist_id="a1"),
+        _album("x", "Kind of Blue", artist_id="a1"),
+        _album("r1", "Box Disc 1", artist="B", artist_id="b1"),
+        _album("r2", "Box Disc 2", artist="B", artist_id="b1"),
+        _album("r3", "Box Disc 3", artist="B", artist_id="b1"),
+        _album("s", "Single", artist="C", artist_id="c1"),
+    ]
+
+    def test_navidromes_count_less_the_folds_is_what_the_artist_page_lists(self):
+        folded = folded_discs_per_artist(merge_albums(self.CATALOG))
+        for artist_id in ("a1", "b1", "c1"):
+            own = [a for a in self.CATALOG if a["artistId"] == artist_id]
+            page = merge_albums(own)
+            assert len(own) - folded.get(artist_id, 0) == len(page)
+        # Non-trivial: two of the three artists did have discs folded.
+        assert set(folded) == {"a1", "b1"}
+
+    def test_a_set_is_credited_to_every_album_artist_it_names(self):
+        duo = [{"id": "d1", "name": "Duo"}, {"id": "d2", "name": "Other"}]
+        albums = [
+            {**_album("p1", "Pair CD 1", artist_id="d1"), "artists": duo},
+            {**_album("p2", "Pair CD 2", artist_id="d1"), "artists": duo},
+        ]
+        assert folded_discs_per_artist(merge_albums(albums)) == {"d1": 1, "d2": 1}
+
+    def test_an_unmerged_catalog_folds_nothing(self):
+        assert folded_discs_per_artist(merge_albums([_album("x", "Kind of Blue")])) == {}
+
 
 class TestMergedIdCodec:
     def test_round_trip(self):

@@ -791,6 +791,7 @@
     "previouslyPlayed": "之前播放",
     "previouslyPlayedEmpty": "没有播放过的曲目",
     "albumsCount": "{count} 张专辑",
+    "albumsNotLoaded": "{count} 张专辑无法加载",
     "tracksCount": "{count} 首曲目",
     "discLabel": "光盘 {number}",
     "playlists": {

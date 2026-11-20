@@ -31,6 +31,7 @@ from unittest.mock import AsyncMock, Mock
 
 from backend.config.constants import MUSIC_LIBRARY_MOUNT_ROOT
 from backend.shared.mpv_audio_source import MpvAudioSource
+from backend.sources.music_library.disc_merge import merge_albums
 from backend.sources.music_library.libraries import NavidromeLibraryService
 from backend.sources.music_library.source import MusicLibrarySource
 from backend.tests.golden.harness import settle
@@ -147,6 +148,56 @@ class TestGenresAreDerivedFromTheScope:
         source.get_merged_albums = albums()
 
         assert await source.genres_in_scope([2]) == []
+
+
+# =============================================================================
+# get_artist_index — the album count an artist row shows
+# =============================================================================
+
+class TestArtistRowsCountAsTheArtistPageLists:
+    """The Artists tab and the search read an artist's ``albumCount`` from the
+    scope's index; the artist page lists its albums through ``merge_albums``.
+    Navidrome counts each disc of a split "… CD 1"/"CD 2" set, so left as it
+    answers, the row said "3 albums" over a page that lists 2."""
+
+    CATALOG = [
+        {"id": "c1", "name": "At Carnegie Hall CD 1", "artistId": "ar-1"},
+        {"id": "c2", "name": "At Carnegie Hall CD 2", "artistId": "ar-1"},
+        {"id": "kb", "name": "Kind of Blue", "artistId": "ar-1"},
+        {"id": "so", "name": "Solo", "artistId": "ar-2"},
+    ]
+
+    @pytest.fixture
+    def navidrome(self, source):
+        """Navidrome as it answers getArtists and getAlbumList2: one album per
+        disc, the scope's catalog in a single page."""
+        client = Mock()
+        client.get_artists = AsyncMock(return_value=[{"name": "D", "artist": [
+            {"id": artist_id, "albumCount": sum(a["artistId"] == artist_id for a in self.CATALOG)}
+            for artist_id in ("ar-1", "ar-2")
+        ]}])
+        client.get_album_list = AsyncMock(return_value=list(self.CATALOG))
+        source.get_navidrome_client = AsyncMock(return_value=client)
+        return client
+
+    async def test_a_merged_set_counts_once(self, source, navidrome):
+        for _ in range(2):  # the second from the cache: never folded twice
+            index = await source.get_artist_index([2])
+            counts = {artist["id"]: artist["albumCount"] for artist in index[0]["artist"]}
+            assert counts == {
+                artist_id: len(merge_albums(
+                    [a for a in self.CATALOG if a["artistId"] == artist_id]
+                ))
+                for artist_id in ("ar-1", "ar-2")
+            }
+        assert counts["ar-1"] == 2  # non-trivial: the raw count was 3
+        navidrome.get_artists.assert_awaited_once()
+        # The catalog folded is the scope's own, not another storage space's.
+        scope = navidrome.get_artists.await_args.args[0]
+        assert navidrome.get_album_list.await_args_list
+        assert all(
+            call.args[0] == scope for call in navidrome.get_album_list.await_args_list
+        )
 
 
 # =============================================================================

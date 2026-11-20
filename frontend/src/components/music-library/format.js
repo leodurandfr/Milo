@@ -17,6 +17,11 @@ export function formatDuration(totalSeconds) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
+/** The summed duration of these songs or entries, in seconds. */
+export function totalSeconds(songs) {
+  return songs.reduce((sum, song) => sum + (Number(song.duration) || 0), 0);
+}
+
 /** Whole minutes (rounded) for an album/playlist meta line ("61 min"). */
 export function totalMinutes(totalSeconds) {
   return Math.round((totalSeconds || 0) / 60);

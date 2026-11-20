@@ -1096,7 +1096,7 @@ describe('musicLibraryStore — a drill-down read that failed', () => {
       .mockResolvedValueOnce(album('al-1', ['s-1', 's-2']))
       .mockResolvedValueOnce(fail('Music library catalog not ready', 503));
     expect(await store.fetchAlbumsSongs(['al-1', 'al-2']))
-      .toEqual({ value: null, error: 'unavailable' });
+      .toEqual({ value: null, error: 'unavailable', failed: ['al-2'] });
 
     apiCall.get
       .mockResolvedValueOnce(album('al-1', ['s-1', 's-2']))
@@ -1104,6 +1104,21 @@ describe('musicLibraryStore — a drill-down read that failed', () => {
     const { value, error } = await store.fetchAlbumsSongs(['al-1', 'al-2']);
     expect(error).toBeNull();
     expect(value.map((s) => s.id)).toEqual(['s-1', 's-2', 's-3']);
+  });
+
+  it('names every album of an artist that did not load, in the order asked', async () => {
+    // The page names them in its banner: playing nothing without a word was
+    // the albums lost in silence.
+    const album = (id) => ok({ album: { id, song: [{ id: `${id}-s` }] } });
+    apiCall.get
+      .mockResolvedValueOnce(fail('Music library catalog not ready', 503))
+      .mockResolvedValueOnce(album('al-2'))
+      .mockResolvedValueOnce(fail('Album not found', 404));
+
+    const { value, failed } = await store.fetchAlbumsSongs(['al-1', 'al-2', 'al-3']);
+
+    expect(value).toBeNull();
+    expect(failed).toEqual(['al-1', 'al-3']);
   });
 
   it('says a genre whose tabs did not load failed, not that it is empty', async () => {
@@ -1232,5 +1247,52 @@ describe('musicLibraryStore — a search that failed', () => {
     await store.search();
     store.clearSearch();
     expect(store.searchFailed).toBe(false);
+  });
+});
+
+/**
+ * The "add to playlist" picker and the playlist page share one playlist. A
+ * membership read that failed was taken for "in no playlist": every row drew
+ * unchecked, and a tap on one already holding the songs added them twice. A
+ * picker write the page did not hear of left it on a copy the next edit was
+ * refused from (409, a banner, the rows undone).
+ */
+describe('musicLibraryStore — the picker and the playlist on screen', () => {
+  let store;
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+  });
+
+  it('tells a membership read that failed from songs in no playlist', async () => {
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    expect(await store.fetchPlaylistsContaining(['s-1'])).toBeNull();
+
+    apiCall.get.mockResolvedValueOnce(ok({ playlist_ids: [] }));
+    expect(await store.fetchPlaylistsContaining(['s-1'])).toEqual(new Set());
+  });
+
+  it('tells the playlist page of every write the picker makes to its entries', async () => {
+    apiCall.put.mockResolvedValue(ok({ status: 'success' }));
+
+    await store.addToPlaylist('pl-1', ['s-1']);
+    const afterAdd = store.playlistWrites['pl-1'];
+    await store.removeFromPlaylist('pl-1', ['s-1']);
+
+    expect(afterAdd).toBeDefined();
+    expect(store.playlistWrites['pl-1']).not.toBe(afterAdd);
+    expect(store.playlistWrites['pl-2']).toBeUndefined();
+  });
+
+  it('leaves the page alone for a write that failed, and for its own edits', async () => {
+    apiCall.put.mockResolvedValueOnce(fail('Navidrome rejected playlist update', 502));
+    await store.addToPlaylist('pl-1', ['s-1']);
+
+    apiCall.put.mockResolvedValue(ok({ status: 'success' }));
+    await store.setPlaylistTracks('pl-1', ['s-1', 's-2'], ['s-2', 's-1']);
+    await store.renamePlaylist('pl-1', 'Road');
+
+    expect(store.playlistWrites['pl-1']).toBeUndefined();
   });
 });

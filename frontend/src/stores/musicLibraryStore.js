@@ -717,13 +717,35 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return ok;
   }
 
+  // How many times each playlist's entries were written from outside the page
+  // that lists them — the "add to playlist" picker, over a track row of that
+  // very page or of a page in front of it. PlaylistView holds its own copy of
+  // the entries and reads them again when its count moves: a copy left as it
+  // was kept a row the picker had removed, and the next edit made from it was
+  // refused (409, with its banner) and undone on screen.
+  const playlistWrites = ref({});
+  function notePlaylistWritten(playlistId) {
+    playlistWrites.value = {
+      ...playlistWrites.value,
+      [playlistId]: (playlistWrites.value[playlistId] ?? 0) + 1,
+    };
+  }
+
+  // A picker's write: the page showing the playlist reads it again.
+  async function editEntries(playlistId, payload) {
+    const ok = await editPlaylist(playlistId, payload);
+    if (ok) notePlaylistWritten(playlistId);
+    return ok;
+  }
+
   const renamePlaylist = (playlistId, name) => editPlaylist(playlistId, { name });
   const addToPlaylist = (playlistId, songIds) =>
-    editPlaylist(playlistId, { song_ids_to_add: songIds });
+    editEntries(playlistId, { song_ids_to_add: songIds });
+  // The page's own edit, made from the copy it holds: nothing to read again.
   const setPlaylistTracks = (playlistId, shownIds, trackIds) =>
     editPlaylist(playlistId, { shown_track_ids: shownIds, track_ids: trackIds });
   const removeFromPlaylist = (playlistId, songIds) =>
-    editPlaylist(playlistId, { remove_song_ids: songIds });
+    editEntries(playlistId, { remove_song_ids: songIds });
 
   async function deletePlaylist(playlistId) {
     const result = await apiCall.delete(`${BASE}/playlist/${playlistId}`, {
@@ -773,11 +795,15 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // getArtist does not carry (it answers albums only), so one album read per
   // release — merged multi-disc ids included, which fetchAlbum expands. Every
   // album or none: the albums that did load would play as the whole artist.
+  // `failed` names the albums that did not load, in the order asked, so the
+  // page can say which instead of playing nothing without a word.
   async function fetchAlbumsSongs(albumIds) {
     const reads = await Promise.all(albumIds.map((id) => fetchAlbum(id)));
-    const failed = reads.find((read) => read.error);
-    if (failed) return { value: null, error: failed.error };
-    return { value: reads.flatMap((read) => read.value.song || []), error: null };
+    const failed = albumIds.filter((_, index) => reads[index].error);
+    if (failed.length) {
+      return { value: null, error: reads.find((read) => read.error).error, failed };
+    }
+    return { value: reads.flatMap((read) => read.value.song || []), error: null, failed };
   }
 
   async function fetchArtist(artistId) {
@@ -842,7 +868,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // Which playlists already hold every one of these songs, for the picker's
   // checkmarks. One request: the backend owns the fan-out, so the storage scope
   // is resolved once instead of once per playlist. Nothing is cached — the
-  // answer must be fresh, and a stale checkmark re-adds a track.
+  // answer must be fresh, and a stale checkmark re-adds a track. Null when the
+  // backend did not answer: read as "in none", every row drew unchecked, and
+  // a tap on one already holding the songs added them a second time.
   async function fetchPlaylistsContaining(songIds) {
     if (!songIds?.length) return new Set();
     // URLSearchParams rather than a plain object: axios encodes an array value
@@ -854,7 +882,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       message: 'Error checking playlist membership',
       params,
     });
-    return new Set(result.ok ? result.data?.playlist_ids || [] : []);
+    return result.ok ? new Set(result.data?.playlist_ids || []) : null;
   }
 
   // =========================================================================
@@ -1327,6 +1355,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     addToPlaylist,
     setPlaylistTracks,
     removeFromPlaylist,
+    playlistWrites,
     deletePlaylist,
     addToPlaylistSongIds,
     requestAddToPlaylist,

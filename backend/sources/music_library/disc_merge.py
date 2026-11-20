@@ -258,6 +258,30 @@ def merge_albums(albums: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return result
 
 
+def folded_discs_per_artist(albums: List[Dict[str, Any]]) -> Dict[str, int]:
+    """How many albums :func:`merge_albums` folded away, per album artist id.
+
+    ``albums`` is an already-merged list. Navidrome counts a split "… CD 1"/"CD 2"
+    release as two albums in the ``albumCount`` it hangs on an artist row
+    (getArtists, and search through it), while the artist page lists the set
+    once; this is the difference, so a count taken from Navidrome can be brought
+    to what the page shows. A set is credited to every album artist it names —
+    ``artistId`` and the OpenSubsonic ``artists`` list alike — since Navidrome
+    counts the release under each of them.
+    """
+    folded: Dict[str, int] = {}
+    for album in albums:
+        members = parse_merged_id(album.get("id") or "")
+        if len(members) < 2:
+            continue
+        credited = {album.get("artistId")} | {
+            artist.get("id") for artist in album.get("artists") or []
+        }
+        for artist_id in credited - {None, ""}:
+            folded[artist_id] = folded.get(artist_id, 0) + len(members) - 1
+    return folded
+
+
 async def expand_merged_album(
     get_album, synthetic_id: str
 ) -> Optional[Dict[str, Any]]:
