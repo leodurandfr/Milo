@@ -47,7 +47,8 @@
     "shutdownInProgress": "正在关机…",
     "remoteControls": "遥控器",
     "btRemote": "蓝牙遥控器",
-    "irRemote": "红外遥控器"
+    "irRemote": "红外遥控器",
+    "writeRefused": "无法保存此更改。"
   },
   "audioSources": {
     "title": "音频源",
@@ -343,7 +344,9 @@
     "applyAndReboot": "应用并重启",
     "confirmReboot": "确认重启",
     "rebooting": "正在重启…",
-    "rebootTimeout": "重启未能及时完成。请刷新页面或重新应用配置。"
+    "rebootTimeout": "重启未能及时完成。请刷新页面或重新应用配置。",
+    "applyFailed": "无法应用此配置。",
+    "pinsUnset": "应用前，请为每个空着的引脚选择一个 GPIO。"
   },
   "fanSettings": {
     "temperature": "温度",
@@ -618,7 +621,8 @@
     "loading": "正在加载…",
     "unknown": "未知",
     "showPassword": "显示密码",
-    "hidePassword": "隐藏密码"
+    "hidePassword": "隐藏密码",
+    "details": "详情"
   },
   "player": {
     "repeatContext": "列表循环",

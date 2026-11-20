@@ -34,6 +34,8 @@
           @change="updateSetting('volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
       </Collapse>
     </SectionCard>
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -51,9 +53,12 @@ import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const { t } = useI18n();
-const { updateSetting } = useSettingsAPI();
+// Every control here holds a local copy, which a refused write puts back on
+// the store.
+const { updateSetting, refusal } = useSettingsAPI({ resync: syncFromStore });
 const { rotaryEnabled } = useHardwareConfig();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -74,7 +79,7 @@ function handleStartupModeChange(restoreLast) {
   updateSetting('volume-startup', {
     startup_volume_db: config.value.startup_volume_db,
     restore_last_volume: restoreLast
-  }).catch(syncFromStore);
+  });
 }
 
 function fromStore() {

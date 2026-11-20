@@ -33,6 +33,8 @@
         :title="settingsStore.btRemote.battery_percentage < 20 ? t('btRemoteSettings.batteryLow') : undefined"
       > · {{ formatUnit(settingsStore.btRemote.battery_percentage, '%') }}</span></template>
     </RemoteStatusSection>
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -44,12 +46,16 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const { t, formatUnit } = useI18n();
-const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 const stepBtRemoteDb = ref(settingsStore.volumeSteps.step_bt_remote_db);
+// The step slider holds its own copy, which a refused write puts back.
+const { updateSetting, refusal } = useSettingsAPI({
+  resync: () => { stepBtRemoteDb.value = settingsStore.volumeSteps.step_bt_remote_db; }
+});
 const unpairing = ref(false);
 
 // Only consider "connected" when not actively discovering (avoids stale state flash)

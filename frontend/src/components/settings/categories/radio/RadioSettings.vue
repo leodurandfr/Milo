@@ -40,6 +40,8 @@
       {{ t('radioSettings.addStation') }}
     </Button>
     </SectionCard>
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -55,6 +57,7 @@ import StationCard from '@/components/radio/StationCard.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import { isCustomStation } from '@/utils/radioStation';
 
 defineEmits(['go-to-add-station', 'edit-station']);
@@ -62,7 +65,7 @@ defineEmits(['go-to-add-station', 'edit-station']);
 const { t } = useI18n();
 const radioStore = useRadioStore();
 const settingsStore = useSettingsStore();
-const { updateSetting } = useSettingsAPI();
+const { updateSetting, refusal } = useSettingsAPI();
 
 // Shazam toggle state (synced from settings store)
 const shazamEnabled = computed(() => settingsStore.radioSettings.shazam_enabled);

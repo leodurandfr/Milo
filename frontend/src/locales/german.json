@@ -47,7 +47,8 @@
     "shutdownInProgress": "Wird ausgeschaltet…",
     "remoteControls": "Fernbedienungen",
     "btRemote": "Bluetooth-Fernbedienung",
-    "irRemote": "IR-Fernbedienung"
+    "irRemote": "IR-Fernbedienung",
+    "writeRefused": "Diese Änderung konnte nicht gespeichert werden."
   },
   "audioSources": {
     "title": "Audioquellen",
@@ -343,7 +344,9 @@
     "applyAndReboot": "Anwenden und neu starten",
     "confirmReboot": "Neustart bestätigen",
     "rebooting": "Neustart…",
-    "rebootTimeout": "Der Neustart wurde nicht rechtzeitig abgeschlossen. Bitte laden Sie die Seite neu oder wenden Sie die Konfiguration erneut an."
+    "rebootTimeout": "Der Neustart wurde nicht rechtzeitig abgeschlossen. Bitte laden Sie die Seite neu oder wenden Sie die Konfiguration erneut an.",
+    "applyFailed": "Die Konfiguration konnte nicht angewendet werden.",
+    "pinsUnset": "Wählen Sie vor dem Anwenden für jeden leeren Pin einen GPIO."
   },
   "fanSettings": {
     "temperature": "Temperatur",
@@ -618,7 +621,8 @@
     "loading": "Wird geladen…",
     "unknown": "Unbekannt",
     "showPassword": "Passwort anzeigen",
-    "hidePassword": "Passwort ausblenden"
+    "hidePassword": "Passwort ausblenden",
+    "details": "Details"
   },
   "player": {
     "repeatContext": "Liste wiederholen",

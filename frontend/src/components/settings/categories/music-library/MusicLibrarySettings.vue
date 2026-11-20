@@ -107,6 +107,8 @@
         {{ busy ? t('musicLibrary.maintenance.refreshing') : t('musicLibrary.maintenance.refresh') }}
       </Button>
     </SectionCard>
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -125,13 +127,14 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 defineEmits(['add-share', 'edit-share', 'edit-usb']);
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
 const settingsStore = useSettingsStore();
-const { updateSetting } = useSettingsAPI();
+const { updateSetting, refusal } = useSettingsAPI();
 
 function typeLabel(type) {
   return type === 'nfs' ? 'NFS' : 'SMB';

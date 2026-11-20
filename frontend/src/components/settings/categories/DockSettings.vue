@@ -58,6 +58,8 @@
         </div>
       </div>
     </SectionCard>
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -76,13 +78,14 @@ import Button from '@/components/ui/Button.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import { ALL_AUDIO_SOURCES, AUDIO_SOURCE_LABEL_KEYS } from '@/constants/audioSources';
 import { DOCK_FEATURE_LABEL_KEYS } from '@/constants/dockFeatures';
 
 const emit = defineEmits(['open-volume']);
 
 const { t } = useI18n();
-const { debouncedUpdate } = useSettingsAPI();
+const { debouncedUpdate, refusal } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 
@@ -97,10 +100,9 @@ function canDisableAudioSource(sourceId) {
 function saveDockApps() {
   const enabledApps = settingsStore.buildEnabledAppsArray();
   // The tile moved before the request: a rejection the server announces no
-  // dock for (network, a failed save) is undone by reading the stored one.
-  debouncedUpdate('dock-apps', 'dock-apps', { enabled_apps: enabledApps }, 500, {
-    onError: () => settingsStore.loadAllSettings()
-  });
+  // dock for (network, a failed save) is undone by reading the stored one
+  // (useSettingsAPI).
+  debouncedUpdate('dock-apps', 'dock-apps', { enabled_apps: enabledApps }, 500);
 }
 
 function handleToggle(appName, value) {

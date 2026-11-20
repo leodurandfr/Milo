@@ -87,6 +87,8 @@
         @change="setScreenTimeout"
       />
     </ToggleSection>
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -104,10 +106,21 @@ import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ThemePicker from '@/components/settings/categories/ThemePicker.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 
 const { t, formatDuration, formatUnit } = useI18n();
-const { updateSetting } = useSettingsAPI();
+// The brightness slider is the one control here the store does not follow
+// while it moves, so a refused write puts it back by hand — and the panel too,
+// which the drag lit at a level never stored.
+const { updateSetting, refusal } = useSettingsAPI({
+  resync: () => {
+    syncFromStore();
+    if (lastAppliedBrightness !== null && lastAppliedBrightness !== config.value.brightness_on) {
+      applyBrightness(config.value.brightness_on);
+    }
+  }
+});
 const timer = useTimer();
 const settingsStore = useSettingsStore();
 const { hardwareInfo } = useHardwareConfig();

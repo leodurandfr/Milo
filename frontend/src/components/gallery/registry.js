@@ -116,6 +116,7 @@ import SettingItem from '@/components/settings/SettingItem.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
 import AnalysisSection from '@/components/settings/AnalysisSection.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import FillerBlock from './samples/FillerBlock.vue';
 import ControlSample from './samples/ControlSample.vue';
 import TriggerSample from './samples/TriggerSample.vue';
@@ -555,7 +556,7 @@ export const REGISTRY = {
 
   NoticeBox: {
     component: NoticeBox,
-    args: { kind: 'error', class: 'canvas-column' },
+    args: { kind: 'error', detail: 'Errno 113: No route to host', class: 'canvas-column' },
     slots: { default: 'Could not reach this server. Check that it is on and on the same network.' }
   },
 
@@ -1228,6 +1229,17 @@ export const REGISTRY = {
     slots: {
       default: { 'FillerBlock — the measured speakers': {
         component: FillerBlock, props: { label: 'measured speakers', height: 120 } } }
+    }
+  },
+
+  SettingsRefusal: {
+    component: SettingsRefusal,
+    args: { detail: 'Failed to save setting', class: 'canvas-column' },
+    slots: {
+      default: {
+        'none — the shared sentence': null,
+        'text override — what Hardware says of a refused Apply': { text: 'The configuration could not be applied.' }
+      }
     }
   },
 

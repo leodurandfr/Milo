@@ -46,6 +46,8 @@
       </div>
       <p v-else class="none text-body-medium">{{ t('audioPlayback.appliesToNone') }}</p>
     </SectionCard>
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -61,9 +63,12 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const { t, formatDuration, formatList } = useI18n();
-const { updateSetting, debouncedUpdate } = useSettingsAPI();
+// Every control here draws the store, so a refused write is undone by the
+// stored settings coming back.
+const { updateSetting, debouncedUpdate, refusal } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 // The resume window's last stop: stored as null (no limit), which a slider
@@ -142,11 +147,7 @@ const normalizedSources = computed(() => settingsStore.sourceOrder.filter(
 
 function setNormalization(source, value) {
   settingsStore.updateAudioNormalization({ [source]: value });
-  // The switch moved before the request: a rejected write is undone by
-  // reading the stored switches back.
-  debouncedUpdate('audio-normalization', 'audio-normalization', { ...settingsStore.audioNormalization }, 300, {
-    onError: () => settingsStore.loadAllSettings()
-  });
+  debouncedUpdate('audio-normalization', 'audio-normalization', { ...settingsStore.audioNormalization }, 300);
 }
 
 const durationSteps = (values) => values.map(value => ({ value, label: formatDuration(value) }));

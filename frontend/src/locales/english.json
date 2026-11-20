@@ -47,7 +47,8 @@
     "shutdownInProgress": "Shutting down…",
     "remoteControls": "Remote controls",
     "btRemote": "Bluetooth remote",
-    "irRemote": "IR remote"
+    "irRemote": "IR remote",
+    "writeRefused": "This change could not be saved."
   },
   "audioSources": {
     "title": "Audio sources",
@@ -343,7 +344,9 @@
     "applyAndReboot": "Apply and reboot",
     "confirmReboot": "Confirm reboot",
     "rebooting": "Rebooting…",
-    "rebootTimeout": "The reboot did not complete in time. Please refresh the page or apply the configuration again."
+    "rebootTimeout": "The reboot did not complete in time. Please refresh the page or apply the configuration again.",
+    "applyFailed": "The configuration could not be applied.",
+    "pinsUnset": "Choose a GPIO for every pin left empty before applying."
   },
   "fanSettings": {
     "temperature": "Temperature",
@@ -618,7 +621,8 @@
     "loading": "Loading…",
     "unknown": "Unknown",
     "showPassword": "Show password",
-    "hidePassword": "Hide password"
+    "hidePassword": "Hide password",
+    "details": "Details"
   },
   "player": {
     "repeatContext": "Repeat the list",

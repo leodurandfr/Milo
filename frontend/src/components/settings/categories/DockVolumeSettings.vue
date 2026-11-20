@@ -14,6 +14,8 @@
         />
       </div>
     </SectionCard>
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -24,6 +26,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const SURFACES = [
   { key: 'milo_screen', labelKey: 'dockVolume.miloScreen' },
@@ -33,16 +36,13 @@ const SURFACES = [
 ];
 
 const { t } = useI18n();
-const { debouncedUpdate } = useSettingsAPI();
+// The switches draw the store, which a refused write reads back.
+const { debouncedUpdate, refusal } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
 function handleToggle(surface, value) {
   settingsStore.updateDockVolume({ [surface]: value });
-  // The switch moved before the request: a rejected write is undone by
-  // reading the stored switches back.
-  debouncedUpdate('dock-volume', 'dock-volume', { ...settingsStore.dockVolume }, 300, {
-    onError: () => settingsStore.loadAllSettings()
-  });
+  debouncedUpdate('dock-volume', 'dock-volume', { ...settingsStore.dockVolume }, 300);
 }
 </script>
 

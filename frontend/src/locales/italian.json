@@ -47,7 +47,8 @@
     "shutdownInProgress": "Spegnimento in corso…",
     "remoteControls": "Telecomandi",
     "btRemote": "Telecomando Bluetooth",
-    "irRemote": "Telecomando IR"
+    "irRemote": "Telecomando IR",
+    "writeRefused": "Non è stato possibile salvare questa modifica."
   },
   "audioSources": {
     "title": "Sorgenti audio",
@@ -343,7 +344,9 @@
     "applyAndReboot": "Applica e riavvia",
     "confirmReboot": "Conferma riavvio",
     "rebooting": "Riavvio…",
-    "rebootTimeout": "Il riavvio non si è completato in tempo. Aggiorni la pagina o applichi di nuovo la configurazione."
+    "rebootTimeout": "Il riavvio non si è completato in tempo. Aggiorni la pagina o applichi di nuovo la configurazione.",
+    "applyFailed": "Non è stato possibile applicare la configurazione.",
+    "pinsUnset": "Scelga un GPIO per ogni pin rimasto vuoto prima di applicare."
   },
   "fanSettings": {
     "temperature": "Temperatura",
@@ -618,7 +621,8 @@
     "loading": "Caricamento…",
     "unknown": "Sconosciuto",
     "showPassword": "Mostra password",
-    "hidePassword": "Nascondi password"
+    "hidePassword": "Nascondi password",
+    "details": "Dettagli"
   },
   "player": {
     "repeatContext": "Ripeti l'elenco",

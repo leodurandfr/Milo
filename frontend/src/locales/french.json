@@ -47,7 +47,8 @@
     "shutdownInProgress": "Extinction en cours…",
     "remoteControls": "Télécommandes",
     "btRemote": "Télécommande Bluetooth",
-    "irRemote": "Télécommande IR"
+    "irRemote": "Télécommande IR",
+    "writeRefused": "Cette modification n'a pas pu être enregistrée."
   },
   "audioSources": {
     "title": "Sources audio",
@@ -343,7 +344,9 @@
     "applyAndReboot": "Appliquer et redémarrer",
     "confirmReboot": "Confirmer le redémarrage",
     "rebooting": "Redémarrage…",
-    "rebootTimeout": "Le redémarrage n'a pas abouti à temps. Veuillez actualiser la page ou appliquer à nouveau la configuration."
+    "rebootTimeout": "Le redémarrage n'a pas abouti à temps. Veuillez actualiser la page ou appliquer à nouveau la configuration.",
+    "applyFailed": "La configuration n'a pas pu être appliquée.",
+    "pinsUnset": "Choisissez un GPIO pour chaque broche restée vide avant d'appliquer."
   },
   "fanSettings": {
     "temperature": "Température",
@@ -618,7 +621,8 @@
     "loading": "Chargement…",
     "unknown": "Inconnu",
     "showPassword": "Afficher le mot de passe",
-    "hidePassword": "Masquer le mot de passe"
+    "hidePassword": "Masquer le mot de passe",
+    "details": "Détails"
   },
   "player": {
     "repeatContext": "Répéter la liste",

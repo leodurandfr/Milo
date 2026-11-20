@@ -28,6 +28,9 @@
     <GalleryVariant label='kind="error" — the default' stacked>
       <NoticeBox>Could not reach this server. Check that it is on and on the same network.</NoticeBox>
     </GalleryVariant>
+    <GalleryVariant label=":detail — the server's own words, folded under the sentence" stacked>
+      <NoticeBox detail="GPIO 17 cannot be the IR data line: the rotary encoder already uses it">The configuration could not be applied.</NoticeBox>
+    </GalleryVariant>
     <GalleryVariant label='kind="warning"' stacked>
       <NoticeBox kind="warning">Saved, but the server did not connect. You can retry from the list.</NoticeBox>
     </GalleryVariant>

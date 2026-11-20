@@ -66,6 +66,15 @@
     </GalleryVariant>
   </GalleryItem>
 
+  <GalleryItem id="SettingsRefusal">
+    <GalleryVariant label=":detail — the shared sentence, the server's detail folded" stacked>
+      <SettingsRefusal detail="Failed to save setting" />
+    </GalleryVariant>
+    <GalleryVariant label="default slot — a screen's own sentence" stacked>
+      <SettingsRefusal detail="Value error, All GPIO pins must be different">The configuration could not be applied.</SettingsRefusal>
+    </GalleryVariant>
+  </GalleryItem>
+
   <GalleryItem id="SettingItem">
     <GalleryVariant label=":label — mono, secondary, above the control" stacked>
       <SettingItem label="Startup volume">
@@ -104,6 +113,7 @@ import ControlSample from '../samples/ControlSample.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
 import Button from '@/components/ui/Button.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';

@@ -230,7 +230,7 @@ export const ENTRIES = [
     id: 'NoticeBox',
     group: 'feedback',
     file: 'components/ui/NoticeBox.vue',
-    summary: 'An inline notice, in three kinds: error (a request that failed), warning (it half worked — saved but not mounted, the fan switched off) and empty (the dashed placeholder of a list with nothing in it). The text is slot content, so a list fits inside as well as a sentence.',
+    summary: 'An inline notice, in three kinds: error (a request that failed), warning (it half worked — saved but not mounted, the fan switched off) and empty (the dashed placeholder of a list with nothing in it). The text is slot content, so a list fits inside as well as a sentence. `detail` folds the server\'s own words under it, closed: they name the field, in English, for whoever opens them.',
   },
   {
     id: 'NotificationBanner',
@@ -511,6 +511,12 @@ export const ENTRIES = [
     group: 'settings',
     file: 'components/settings/AnalysisSection.vue',
     summary: 'The automatic-tuning section of the multiroom and Mac panels: a title with Start beside it, then the section opens in height on the run\'s progress and, once it ends, on what it found, which stays open: `error` (why the run failed) in a NoticeBox, `note` (a caveat on the result) as a line, then the panel\'s own results in the slot.',
+  },
+  {
+    id: 'SettingsRefusal',
+    group: 'settings',
+    file: 'components/settings/SettingsRefusal.vue',
+    summary: 'A write the server refused, said one way on every settings screen: the sentence in the slot (by default, that the change was not saved and the previous setting is back), the server\'s `detail` folded under it in a NoticeBox. Sticky at the bottom of the panel like an Apply button, so it is seen wherever the control that moved back sits; nothing at all while `detail` is null.',
   },
   {
     id: 'SettingItem',

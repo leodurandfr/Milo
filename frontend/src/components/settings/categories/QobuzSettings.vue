@@ -57,6 +57,8 @@
       :enabled="allowAppVolume"
       @change="handleAppVolumeToggle"
     />
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -75,12 +77,13 @@ import SectionHeader from '@/components/ui/SectionHeader.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const { t } = useI18n();
 const timer = useTimer();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
-const { updateSetting } = useSettingsAPI();
+const { updateSetting, refusal } = useSettingsAPI();
 
 // Whether the Qobuz app may change the volume (else qobuz-proxy stays at unity
 // and CamillaDSP owns the volume). Mirrors settingsStore, fed by WS + bulk load.

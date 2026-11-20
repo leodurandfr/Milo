@@ -47,7 +47,8 @@
     "shutdownInProgress": "बंद हो रहा है…",
     "remoteControls": "रिमोट कंट्रोल",
     "btRemote": "Bluetooth रिमोट",
-    "irRemote": "IR रिमोट"
+    "irRemote": "IR रिमोट",
+    "writeRefused": "यह बदलाव सहेजा नहीं जा सका।"
   },
   "audioSources": {
     "title": "ऑडियो स्रोत",
@@ -343,7 +344,9 @@
     "applyAndReboot": "लागू करें और पुनः आरंभ करें",
     "confirmReboot": "पुनः आरंभ की पुष्टि करें",
     "rebooting": "पुनः आरंभ हो रहा है…",
-    "rebootTimeout": "पुनः आरंभ समय पर पूरा नहीं हुआ। कृपया पेज को रीफ़्रेश करें या कॉन्फ़िगरेशन फिर से लागू करें।"
+    "rebootTimeout": "पुनः आरंभ समय पर पूरा नहीं हुआ। कृपया पेज को रीफ़्रेश करें या कॉन्फ़िगरेशन फिर से लागू करें।",
+    "applyFailed": "कॉन्फ़िगरेशन लागू नहीं किया जा सका।",
+    "pinsUnset": "लागू करने से पहले हर खाली पिन के लिए एक GPIO चुनें।"
   },
   "fanSettings": {
     "temperature": "तापमान",
@@ -618,7 +621,8 @@
     "loading": "लोड हो रहा है…",
     "unknown": "अज्ञात",
     "showPassword": "पासवर्ड दिखाएँ",
-    "hidePassword": "पासवर्ड छिपाएँ"
+    "hidePassword": "पासवर्ड छिपाएँ",
+    "details": "विवरण"
   },
   "player": {
     "repeatContext": "सूची दोहराएं",

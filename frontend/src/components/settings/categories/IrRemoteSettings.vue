@@ -48,6 +48,8 @@
       :cta-variant="primaryCtaVariant"
       :cta-click="primaryCtaClick"
     />
+
+    <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
 
@@ -61,11 +63,11 @@ import { useTimer } from '@/composables/useTimer';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const emit = defineEmits(['open-hardware']);
 
 const { t, formatUnit } = useI18n();
-const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 const { hardwareConfig } = useHardwareConfig();
 const timer = useTimer();
@@ -78,6 +80,10 @@ const PAIRING_TIMEOUT_SECONDS = 15;
 
 // === Paired view ===
 const stepIrRemoteDb = ref(settingsStore.volumeSteps.step_ir_remote_db);
+// The step slider holds its own copy, which a refused write puts back.
+const { updateSetting, refusal } = useSettingsAPI({
+  resync: () => { stepIrRemoteDb.value = settingsStore.volumeSteps.step_ir_remote_db; }
+});
 const unpairing = ref(false);
 
 watch(

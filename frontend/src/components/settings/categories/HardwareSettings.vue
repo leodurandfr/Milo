@@ -42,7 +42,7 @@
         <SettingItem label="CLK">
           <Dropdown
             :model-value="config.clk_pin"
-            :options="freePinOptions"
+            :options="pinOptionsOf.clk_pin"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="v => onPinChange('clk_pin', v)"
@@ -51,7 +51,7 @@
         <SettingItem label="DT">
           <Dropdown
             :model-value="config.dt_pin"
-            :options="freePinOptions"
+            :options="pinOptionsOf.dt_pin"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="v => onPinChange('dt_pin', v)"
@@ -60,7 +60,7 @@
         <SettingItem label="SW">
           <Dropdown
             :model-value="config.sw_pin"
-            :options="freePinOptions"
+            :options="pinOptionsOf.sw_pin"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="v => onPinChange('sw_pin', v)"
@@ -75,7 +75,7 @@
         <SettingItem label="OUT">
           <Dropdown
             :model-value="config.ir_gpio_pin"
-            :options="freePinOptions"
+            :options="pinOptionsOf.ir_gpio_pin"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="v => onIrPinChange(v)"
@@ -110,7 +110,7 @@
         <SettingItem label="LED −">
           <Dropdown
             :model-value="config.power_led_gpio_pin"
-            :options="freePinOptions"
+            :options="pinOptionsOf.power_led_gpio_pin"
             :disabled="isRebooting"
             :placeholder="t('common.selectOption')"
             @change="onPowerLedPinChange"
@@ -132,16 +132,25 @@
 
     <NoticeBox v-if="rebootTimedOut">{{ t('hardwareSettings.rebootTimeout') }}</NoticeBox>
 
-    <!-- Apply & Reboot (sticky, two-step confirm) -->
-    <Button v-if="isDirty || isRebooting" :variant="confirmReboot ? 'important' : 'brand'" class="apply-button-sticky" floating
-      :loading="isApplying || isRebooting" :disabled="isApplying || isRebooting" @click="handleApply">
-      {{ applyButtonLabel }}
-    </Button>
+    <!-- A pin the PUT would refuse: why Apply waits. -->
+    <NoticeBox v-if="isDirty && unsetPins.length" kind="warning">{{ t('hardwareSettings.pinsUnset') }}</NoticeBox>
+
+    <!-- What the server refused, and Apply & Reboot (two-step confirm), in one
+         sticky footer: two at bottom 0 would overlap. -->
+    <div class="sticky-footer">
+      <SettingsRefusal :detail="volumeControlRefusal" />
+      <SettingsRefusal :detail="applyRefusal">{{ t('hardwareSettings.applyFailed') }}</SettingsRefusal>
+      <Button v-if="isDirty || isRebooting" :variant="confirmReboot ? 'important' : 'brand'" class="apply-button" floating
+        :loading="isApplying || isRebooting" :disabled="isApplying || isRebooting || unsetPins.length > 0"
+        @click="handleApply">
+        {{ applyButtonLabel }}
+      </Button>
+    </div>
   </SectionStack>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
@@ -150,6 +159,7 @@ import { apiCall } from '@/services/apiCall';
 import { logger } from '@/services/logger';
 import { nextRebootStep } from '@/utils/rebootPoll';
 import { volumeControlForCard } from '@/utils/clientHardware';
+import { pinOptionsByField, unsetPinFields } from '@/utils/hardwarePins';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -159,6 +169,7 @@ import Dropdown from '@/components/ui/Dropdown.vue';
 import Button from '@/components/ui/Button.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import FanSection from '@/components/settings/categories/FanSection.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import { useFanStore } from '@/stores/fanStore';
 
 const { t } = useI18n();
@@ -198,7 +209,19 @@ const confirmReboot = ref(false);
 const isApplying = ref(false);
 const isRebooting = ref(false);
 const rebootTimedOut = ref(false);
+// The server's detail for a refused Apply (the config stays as edited, to be
+// corrected) and for a refused volume management switch (put back).
+const applyRefusal = ref(null);
+const volumeControlRefusal = ref(null);
 
+// A refused Apply describes the config it was sent: an edit since (the pins
+// corrected, or every change undone and Apply gone) leaves it describing
+// nothing on screen.
+watch(config, () => { applyRefusal.value = null; }, { deep: true });
+
+// What waits for Apply & Reboot. The volume management switch is not in it: on
+// the running card it is saved at once (toggleVolumeControl), and on another
+// card it rides with the card change, which is.
 const isDirty = computed(() => {
   if (!savedConfig.value) return false;
   return (
@@ -216,12 +239,19 @@ const isDirty = computed(() => {
 });
 
 // The pins the selected card's overlay leaves free: the PUT validator refuses
-// the rest. A saved pin the new card holds shows as unset until one is picked.
+// the rest. A saved pin the new card holds shows as unset until one is picked,
+// and Apply waits for it (unsetPins).
 const freePinOptions = computed(() => {
   const card = audioCardOptions.value.find(c => c.value === config.value.audio_id);
   const held = new Set(card?.reserved_pins ?? []);
   return gpioPinOptions.value.filter(pin => !held.has(pin.value));
 });
+
+// Each pin dropdown offers only what the PUT accepts for it: no pin the card
+// holds, and none another enabled peripheral already uses.
+const pinOptionsOf = computed(() => pinOptionsByField(config.value, freePinOptions.value));
+
+const unsetPins = computed(() => unsetPinFields(config.value, freePinOptions.value));
 
 const isDacCard = computed(() =>
   audioCardOptions.value.find(c => c.value === config.value.audio_id)?.category === 'dac'
@@ -302,20 +332,25 @@ function onAudioChange(value) {
   });
 }
 
+// The switch belongs to the card on screen. For the card the unit runs it is
+// saved at once, whatever else is pending: held for Apply, it was lost when
+// the other change was undone and Apply went away with it. For a card picked
+// and not applied yet, it travels with that card in the PUT — and picking the
+// running card back shows its saved value again (volumeControlForCard).
 async function toggleVolumeControl() {
   config.value.volume_control = !config.value.volume_control;
-  // If no pending hardware change, save immediately via API
-  if (!isDirty.value) {
-    const result = await apiCall.patch('/api/volume/volume-control', { volume_control: config.value.volume_control }, {
-      category: 'hardware',
-      message: 'Error saving volume control'
-    });
-    if (!result.ok) {
-      config.value.volume_control = !config.value.volume_control; // Revert on failure
-    } else if (savedConfig.value) {
-      // Saved now: picking another card and this one again restores this value, not the one loaded.
-      savedConfig.value.volume_control = config.value.volume_control;
-    }
+  if (!savedConfig.value || config.value.audio_id !== savedConfig.value.audio_id) return;
+  volumeControlRefusal.value = null;
+  const result = await apiCall.patch('/api/volume/volume-control', { volume_control: config.value.volume_control }, {
+    category: 'hardware',
+    message: 'Error saving volume control',
+    errorRef: volumeControlRefusal
+  });
+  if (!result.ok) {
+    config.value.volume_control = savedConfig.value.volume_control;
+  } else {
+    // Saved now: picking another card and this one again restores this value, not the one loaded.
+    savedConfig.value.volume_control = config.value.volume_control;
   }
 }
 
@@ -353,6 +388,7 @@ async function applyAndReboot() {
   isApplying.value = true;
   confirmReboot.value = false;
   rebootTimedOut.value = false;
+  applyRefusal.value = null;
 
   const payload = {
     audio: { id: config.value.audio_id, volume_control: config.value.volume_control },
@@ -373,9 +409,12 @@ async function applyAndReboot() {
     },
   };
 
+  // A refusal (a 422 on the pins, the 409 of a Milō update in progress, a
+  // failed apply) leaves the config as edited, said under it.
   const putResult = await apiCall.put('/api/settings/hardware-config', payload, {
     category: 'hardware',
-    message: 'Failed to apply hardware config'
+    message: 'Failed to apply hardware config',
+    errorRef: applyRefusal
   });
   if (!putResult.ok) {
     isApplying.value = false;
@@ -440,12 +479,22 @@ onMounted(async () => {
   display: none;
 }
 
-/* Sticky apply button (matches MultiroomSettings pattern) */
-.apply-button-sticky {
+/* Sticky footer: the refusals and the apply button (matches MultiroomSettings pattern) */
+.sticky-footer {
   position: sticky;
   bottom: 0;
-  width: 100%;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.sticky-footer:empty {
+  display: none;
+}
+
+.apply-button {
+  width: 100%;
 }
 
 @media (max-aspect-ratio: 4/3) and (max-width: 1023px) {

@@ -7,11 +7,12 @@
 
 import axios from 'axios';
 import { logger } from '@/services/logger';
+import { describeDetail } from '@/utils/errorDetail';
 
 const isCancelled = (error) => axios.isCancel(error) || error?.name === 'AbortError';
 
 function extractErrorDetail(error) {
-  return error?.response?.data?.detail || error?.message || 'Unknown error';
+  return describeDetail(error?.response?.data?.detail) || error?.message || 'Unknown error';
 }
 
 /**

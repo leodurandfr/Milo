@@ -47,7 +47,8 @@
     "shutdownInProgress": "A desligar…",
     "remoteControls": "Comandos",
     "btRemote": "Comando Bluetooth",
-    "irRemote": "Comando IR"
+    "irRemote": "Comando IR",
+    "writeRefused": "Não foi possível guardar esta alteração."
   },
   "audioSources": {
     "title": "Fontes de áudio",
@@ -343,7 +344,9 @@
     "applyAndReboot": "Aplicar e reiniciar",
     "confirmReboot": "Confirmar reinício",
     "rebooting": "A reiniciar…",
-    "rebootTimeout": "O reinício não foi concluído a tempo. Atualize a página ou aplique novamente a configuração."
+    "rebootTimeout": "O reinício não foi concluído a tempo. Atualize a página ou aplique novamente a configuração.",
+    "applyFailed": "Não foi possível aplicar a configuração.",
+    "pinsUnset": "Escolha um GPIO para cada pino vazio antes de aplicar."
   },
   "fanSettings": {
     "temperature": "Temperatura",
@@ -618,7 +621,8 @@
     "loading": "A carregar…",
     "unknown": "Desconhecido",
     "showPassword": "Mostrar palavra-passe",
-    "hidePassword": "Ocultar palavra-passe"
+    "hidePassword": "Ocultar palavra-passe",
+    "details": "Detalhes"
   },
   "player": {
     "repeatContext": "Repetir a lista",

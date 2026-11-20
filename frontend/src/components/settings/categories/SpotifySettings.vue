@@ -41,19 +41,24 @@
       @change="handleAppVolumeToggle"
     />
 
-    <!-- Only offered while the daemon is running: with Spotify stopped there is
-         nothing to restart, the stored value applies at its next start. -->
-    <Button
-      v-if="needsRestart"
-      variant="brand"
-      size="medium"
-      class="apply-button-sticky" floating
-      :loading="isApplying"
-      :disabled="isApplying"
-      @click="applyNow"
-    >
-      {{ isApplying ? t('spotifySettings.restarting') : t('spotifySettings.restartToApply') }}
-    </Button>
+    <!-- One sticky footer for the refusal and the restart: two at bottom 0
+         would overlap. -->
+    <div class="sticky-footer">
+      <SettingsRefusal :detail="refusal" />
+      <!-- Only offered while the daemon is running: with Spotify stopped there is
+           nothing to restart, the stored value applies at its next start. -->
+      <Button
+        v-if="needsRestart"
+        variant="brand"
+        size="medium"
+        class="restart-button" floating
+        :loading="isApplying"
+        :disabled="isApplying"
+        @click="applyNow"
+      >
+        {{ isApplying ? t('spotifySettings.restarting') : t('spotifySettings.restartToApply') }}
+      </Button>
+    </div>
   </SectionStack>
 </template>
 
@@ -68,11 +73,13 @@ import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
-const { updateSetting } = useSettingsAPI();
+// The two controls hold local copies, which a refused write puts back.
+const { updateSetting, refusal } = useSettingsAPI({ resync: readAllStored });
 
 const MS_PER_SECOND = 1000;
 const DEFAULT_SECONDS = 6;
@@ -145,17 +152,29 @@ watch(() => settingsStore.spotifySettings.allow_app_volume, (allowed) => {
   allowAppVolume.value = allowed;
 });
 
-onMounted(() => {
+function readAllStored() {
   readStored(settingsStore.spotifySettings.crossfade_duration);
   allowAppVolume.value = settingsStore.spotifySettings.allow_app_volume;
-});
+}
+
+onMounted(readAllStored);
 </script>
 
 <style scoped>
-.apply-button-sticky {
+.sticky-footer {
   position: sticky;
   bottom: 0;
-  width: 100%;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.sticky-footer:empty {
+  display: none;
+}
+
+.restart-button {
+  width: 100%;
 }
 </style>
