@@ -5,6 +5,11 @@ import { dirname, resolve } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// One time zone for every run, and one with a daylight-saving change, so a
+// date computation that only holds on 24-hour days fails on CI (which runs in
+// UTC) as it would on a unit. Set before the workers start: they inherit it.
+process.env.TZ = 'Europe/Paris';
+
 export default defineConfig({
   plugins: [vue()],
   test: {

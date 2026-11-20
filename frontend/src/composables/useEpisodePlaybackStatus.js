@@ -2,7 +2,7 @@ import { computed } from 'vue';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n';
-import { bcp47For } from '@/constants/countries';
+import { calendarDaysBetween, formatEpisodeDay, formatRemaining } from '@/utils/episodeDates';
 
 export function useEpisodePlaybackStatus(episodeRef) {
   const { t, currentLanguage, formatDuration } = useI18n();
@@ -60,7 +60,7 @@ export function useEpisodePlaybackStatus(episodeRef) {
       return t('podcasts.episodeCompleted');
     }
 
-    return t('podcasts.remaining', { time: toMinutes(remaining) });
+    return t('podcasts.remaining', { time: formatRemaining(remaining, currentLanguage.value) });
   });
 
   const formattedDuration = computed(() => {
@@ -82,18 +82,11 @@ export function useEpisodePlaybackStatus(episodeRef) {
 
   function formatRelativeDate(epochSeconds) {
     const date = new Date(epochSeconds * 1000);
-    const now = new Date();
-    const diff = now - date;
-    const days = Math.floor(diff / 86400000);
+    const days = calendarDaysBetween(date, new Date());
 
     if (days === 0) return t('podcasts.today');
     if (days === 1) return t('podcasts.yesterday');
-
-    const locale = bcp47For(currentLanguage.value);
-    const day = date.getDate();
-    const month = date.toLocaleDateString(locale, { month: 'short' }).replace('.', '');
-    const capitalized = month.charAt(0).toUpperCase() + month.slice(1);
-    return `${day} ${capitalized}`;
+    return formatEpisodeDay(date, currentLanguage.value);
   }
 
   const formattedDate = computed(() => {

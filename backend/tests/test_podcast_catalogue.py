@@ -14,7 +14,10 @@ never ran is the other half of each failure pair:
   vocabulary and Apple's ids can disagree.
 * **the caches**, on both the hit side and the eviction side. A cache that never
   hits costs one upstream call per screen; a cache that never evicts grows for
-  the life of the process.
+  the life of the process. `ExpiringCache` is tested on its own, with a clock
+  the test moves: an expired entry is released rather than skipped, and the
+  whole is bounded in bytes, because a chart and a 1,000-episode series are
+  not the same size (4.07 MB for one feed, measured).
 
 The feed half is `TestOpeningAPodcast` and `TestFindingOneEpisode` below. The
 parsing itself is not retested here — that is
@@ -27,18 +30,23 @@ opens, assigned as the *session* rather than by replacing a method of the unit
 two sessions — its own and the resolver's — so both are pointed at the double.
 """
 import asyncio
+import gc
 import json
-from datetime import datetime, timedelta
+import tracemalloc
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from unittest.mock import MagicMock
 
 import pytest
 
 from backend.sources.podcast.podcast_catalog import (
     GENRE_TO_ITUNES_ID,
+    ExpiringCache,
     PodcastCatalog,
+    estimate_size,
     is_upstream_error,
 )
-from backend.sources.podcast.rss_parser import make_episode_id
+from backend.sources.podcast.rss_parser import make_episode_id, parse_feed
 
 
 @pytest.fixture
@@ -381,16 +389,14 @@ class TestTheChartsFetch:
 
         assert session.get.call_count == 1
 
-    async def test_a_stale_cache_entry_is_refetched(self, api):
-        """The other half of the pair: an entry past `cache_duration` must not
-        be served, or the charts freeze for the life of the process."""
+    async def test_a_stale_cache_entry_is_refetched(self):
+        """The other half of the pair: an entry past the cache duration must
+        not be served, or the charts freeze for the life of the process. A
+        catalog whose entries expire at once stands for the hours passing."""
+        api = PodcastCatalog(cache_duration_minutes=0)
         session = _answers_with(api, _FakeResponse(200, text=_chart()))
-        await api.get_itunes_top_podcasts(country_code="fr")
-        key, (_stamp, value) = next(iter(api._discovery_cache.items()))
-        api._discovery_cache[key] = (
-            datetime.now() - api.cache_duration - timedelta(seconds=1), value
-        )
 
+        await api.get_itunes_top_podcasts(country_code="fr")
         await api.get_itunes_top_podcasts(country_code="fr")
 
         assert session.get.call_count == 2
@@ -408,34 +414,121 @@ class TestTheChartsFetch:
         assert (await api.get_itunes_top_podcasts(country_code="fr"))["api_error"] is True
 
 
-class TestCacheEviction:
-    def test_the_cache_stops_growing_at_its_declared_ceiling(self, api):
-        """Each entry holds a whole chart or back-catalogue. Unbounded, this is
-        the appliance's memory over a long uptime — and the appliance is not
-        restarted between listens."""
-        for i in range(api.MAX_CACHE_ENTRIES + 10):
-            api._set_cache(api._discovery_cache, f"k{i}", {"results": []})
+class _Clock:
+    """A monotonic clock the test moves by hand."""
 
-        assert len(api._discovery_cache) <= api.MAX_CACHE_ENTRIES + 1
+    def __init__(self):
+        self.now = 1000.0
 
-    def test_the_oldest_entry_is_the_one_dropped(self, api):
+    def __call__(self):
+        return self.now
+
+
+class TestTheExpiringCache:
+    """`ExpiringCache` — what every catalog cache is. The backend runs under
+    `MemoryMax=512M`, and an OOM kill cuts the sound."""
+
+    def test_an_entry_is_served_until_it_expires(self):
+        clock = _Clock()
+        cache = ExpiringCache(ttl_s=60, max_bytes=10_000, clock=clock)
+        cache.put("chart", {"results": ["Radiolab"]}, size=100)
+
+        clock.now += 59
+        assert cache.get("chart") == {"results": ["Radiolab"]}
+        clock.now += 1
+        assert cache.get("chart") is None
+
+    def test_an_expired_entry_is_released_when_read_not_just_skipped(self):
+        """The defect: an expired series was ignored and kept, so a feed opened
+        once held its megabytes for the life of the process."""
+        clock = _Clock()
+        cache = ExpiringCache(ttl_s=60, max_bytes=10_000, clock=clock)
+        cache.put("series", {"episodes": []}, size=4_000)
+
+        clock.now += 61
+        cache.get("series")
+
+        assert len(cache) == 0
+        assert cache.size == 0
+
+    def test_storing_anything_releases_every_expired_entry(self):
+        """Most entries are never read again — a series opened once, a search
+        for a term nobody types twice — so a read alone cannot be the only way
+        out."""
+        clock = _Clock()
+        cache = ExpiringCache(ttl_s=60, max_bytes=10_000, clock=clock)
+        cache.put("old-1", "a", size=1_000)
+        cache.put("old-2", "b", size=1_000)
+        clock.now += 30
+        cache.put("recent", "c", size=1_000)
+        clock.now += 31
+
+        cache.put("new", "d", size=1_000)
+
+        assert cache.get("recent") == "c"
+        assert len(cache) == 2
+        assert cache.size == 2_000
+
+    def test_the_cache_never_holds_more_than_its_budget(self):
+        cache = ExpiringCache(ttl_s=3600, max_bytes=10_000, clock=_Clock())
+
+        for i in range(50):
+            cache.put(f"k{i}", i, size=1_500)
+
+        assert cache.size <= 10_000
+        assert len(cache) == 6
+
+    def test_the_oldest_entries_are_the_ones_dropped(self):
         """Dropping the newest instead would evict what the owner is looking at
-        right now and keep what they have finished with.
+        right now and keep what they have finished with."""
+        clock = _Clock()
+        cache = ExpiringCache(ttl_s=3600, max_bytes=3_000, clock=clock)
+        for key in ("first", "second", "third"):
+            cache.put(key, key, size=1_000)
+            clock.now += 1
 
-        The iteration order of a dict is insertion order, so `min` returning
-        the first key proves nothing on its own — the stamps are set so the
-        oldest sits *last* in insertion order and only the comparison can find
-        it."""
-        for i in range(api.MAX_CACHE_ENTRIES):
-            api._set_cache(api._discovery_cache, f"k{i}", {"results": []})
-        api._discovery_cache["k5"] = (
-            datetime.now() - timedelta(days=1), {"results": ["oldest"]}
-        )
+        cache.put("fourth", "fourth", size=1_000)
 
-        api._set_cache(api._discovery_cache, "fresh", {"results": []})
+        assert cache.get("first") is None
+        assert [cache.get(k) for k in ("second", "third", "fourth")] == [
+            "second", "third", "fourth"
+        ]
 
-        assert "k5" not in api._discovery_cache
-        assert "k0" in api._discovery_cache
+    def test_storing_a_key_again_counts_its_bytes_once(self):
+        cache = ExpiringCache(ttl_s=3600, max_bytes=10_000, clock=_Clock())
+
+        cache.put("series", "v1", size=4_000)
+        cache.put("series", "v2", size=5_000)
+
+        assert cache.size == 5_000
+        assert cache.get("series") == "v2"
+
+    def test_a_value_larger_than_the_whole_budget_is_not_kept(self):
+        """Kept, it would evict everything else and still exceed the budget."""
+        cache = ExpiringCache(ttl_s=3600, max_bytes=10_000, clock=_Clock())
+        cache.put("small", "s", size=1_000)
+
+        cache.put("huge", "h", size=10_001)
+
+        assert cache.get("huge") is None
+        assert cache.get("small") == "s"
+
+    def test_a_value_is_weighed_down_to_its_strings(self):
+        """The budget is only as honest as the weighing: a size that stopped at
+        the outer dict would call a 1,000-episode series a few hundred bytes."""
+        description = "x" * 5_000
+        series = {"episodes": [{"description": description + str(i)} for i in range(20)]}
+
+        assert estimate_size(series) > 20 * 5_000
+
+    def test_an_object_shared_by_many_episodes_is_weighed_once(self):
+        """Every episode inherits its show's image URL as the same string
+        object; weighed per episode, a series would read heavier than it is."""
+        shared = "https://cdn.example/" + "a" * 10_000
+        one = estimate_size([{"image_url": shared}])
+        many = estimate_size([{"image_url": shared} for _ in range(100)])
+
+        assert many - one < 100 * 1_000
 
 
 FEED_URL = "https://cdn.example/radiolab.xml"
@@ -536,7 +629,7 @@ class TestOpeningAPodcast:
         _answers_with(api, _lookup(), _FakeResponse(503, body=b""))
 
         assert is_upstream_error(await api.get_podcast_series("152249110"))
-        assert api._feed_cache == {}
+        assert len(api._feed_cache) == 0
 
     async def test_a_document_that_is_not_a_feed_is_an_outage(self, api):
         """A captcha or an error page arrives with HTTP 200. The feed exists;
@@ -544,7 +637,7 @@ class TestOpeningAPodcast:
         _answers_with(api, _lookup(), _FakeResponse(200, body=b"<html>nope</html>"))
 
         assert is_upstream_error(await api.get_podcast_series("152249110"))
-        assert api._feed_cache == {}
+        assert len(api._feed_cache) == 0
 
     async def test_apple_being_unreachable_is_an_outage(self, api):
         """The failure one layer up: the resolver could not ask. Answering
@@ -613,7 +706,7 @@ class TestFindingOneEpisode:
         assert is_upstream_error(
             await api.get_episode(make_episode_id("152249110", "a"))
         )
-        assert api._feed_cache == {}
+        assert len(api._feed_cache) == 0
 
 
 class TestMergingSubscriptions:
@@ -647,6 +740,111 @@ class TestMergingSubscriptions:
         result = await api.get_latest_episodes(["111", "222"])
 
         assert [e["guid"] for e in result["results"]] == ["new", "x", "old"]
+
+    async def test_the_merge_keeps_no_whole_series(self, api):
+        """The defect: "latest episodes" read every subscription and cached
+        each series whole — megabytes per feed, a hundred feeds, for the cache
+        window. What it keeps is each feed's head, without the descriptions
+        the episode card never shows."""
+        long_feed = _many_episodes(PodcastCatalog.LATEST_EPISODES_MAX + 30, title="A")
+        downloads = _serve_feeds(api, {
+            "111": long_feed,
+            "222": _many_episodes(3, title="B"),
+        })
+
+        result = await api.get_latest_episodes(["111", "222"])
+
+        assert result["results"], "the merge answered nothing"
+        assert downloads == ["111", "222"]
+        assert len(api._feed_cache) == 0
+        assert all("description" not in ep for ep in result["results"])
+        # The head is the newest page of the feed and nothing older: kept whole
+        # minus its descriptions, a Vergecast-sized series still weighs over a
+        # megabyte, and the latest cache would hold a handful of subscriptions
+        # and download the rest again at every home-screen open.
+        newest = sorted(
+            parse_feed(long_feed, "111", "https://cdn/111.xml")["episodes"],
+            key=lambda e: e["date_published"], reverse=True,
+        )[:PodcastCatalog.LATEST_EPISODES_MAX]
+        kept = api._latest_cache.get("111")
+        assert [e["uuid"] for e in kept] == [e["uuid"] for e in newest]
+        # Opening the series afterwards finds nothing whole to serve from.
+        series = await api.get_podcast_series("111")
+        assert series["total_episodes"] == 80
+        assert downloads == ["111", "222", "111"]
+
+    async def test_a_second_merge_downloads_nothing(self, api):
+        """The heads are what the cache window keeps: the home screen reopened
+        within it costs no feed."""
+        downloads = _serve_feeds(api, {"111": _many_episodes(5), "222": _many_episodes(5)})
+
+        first = await api.get_latest_episodes(["111", "222"])
+        second = await api.get_latest_episodes(["111", "222"])
+
+        assert len(first["results"]) == 10
+        assert [e["uuid"] for e in second["results"]] == [e["uuid"] for e in first["results"]]
+        assert downloads == ["111", "222"]
+
+    async def test_a_series_held_whole_serves_its_head_without_a_download(self, api):
+        downloads = _serve_feeds(api, {"111": _many_episodes(5)})
+        await api.get_podcast_series("111")
+
+        result = await api.get_latest_episodes(["111"])
+
+        assert len(result["results"]) == 5
+        assert downloads == ["111"]
+
+    async def test_the_merge_is_exact_up_to_its_limit(self, api):
+        """Each feed keeps only its newest `LATEST_EPISODES_MAX`, and a page of
+        that many can take no more from one feed — so the merge is the same as
+        sorting every episode of every feed. One feed entirely newer than the
+        other is the page that takes all of it from one feed, which is where a
+        head shorter than a page would let the older feed in."""
+        count = PodcastCatalog.LATEST_EPISODES_MAX + 30
+        feeds = {
+            "111": _many_episodes(count, title="A", offset_h=0, step_h=1),
+            "222": _many_episodes(count, title="B", offset_h=count, step_h=1),
+        }
+        _serve_feeds(api, feeds)
+
+        result = await api.get_latest_episodes(["111", "222"])
+
+        every = [
+            ep for itunes_id, raw in feeds.items()
+            for ep in parse_feed(raw, itunes_id, f"https://cdn/{itunes_id}.xml")["episodes"]
+        ]
+        every.sort(key=lambda e: e["date_published"], reverse=True)
+        expected = [e["uuid"] for e in every[:PodcastCatalog.LATEST_EPISODES_MAX]]
+        assert [e["uuid"] for e in result["results"]] == expected
+
+    async def test_what_the_merge_retains_stays_within_its_budget(self, api):
+        """Measured rather than estimated: what forty large subscriptions leave
+        behind once the merge has answered, by tracemalloc. Cached whole, as
+        they were, they held about 1 MB each; the heads must fit the latest
+        cache's budget and leave the feed cache empty."""
+        feeds = {
+            str(100 + i): _many_episodes(150, title=f"Show {i}", description_len=3_000)
+            for i in range(40)
+        }
+        _serve_feeds(api, feeds)
+        whole = estimate_size(parse_feed(feeds["100"], "100", "https://cdn/100.xml"))
+        assert whole > 400_000, "the simulated feeds are too small to measure anything"
+
+        gc.collect()
+        tracemalloc.start()
+        try:
+            before = tracemalloc.take_snapshot()
+            result = await api.get_latest_episodes(list(feeds))
+            del result
+            gc.collect()
+            after = tracemalloc.take_snapshot()
+        finally:
+            tracemalloc.stop()
+        retained = sum(stat.size_diff for stat in after.compare_to(before, "filename"))
+
+        assert len(api._feed_cache) == 0
+        assert retained < PodcastCatalog.LATEST_CACHE_BYTES
+        assert retained < 40 * whole / 4
 
     async def test_the_whole_set_is_resolved_in_one_lookup(self, api):
         """Apple's lookup endpoint takes 200 ids per call. Resolving one
@@ -707,3 +905,49 @@ class TestMergingSubscriptions:
 
         assert result["results"] == []
         assert "api_error" not in result
+
+
+def _many_episodes(count, title="Show", offset_h=0, step_h=24, description_len=200):
+    """A feed of `count` episodes, newest first, one every `step_h` hours, each
+    with a description of `description_len` characters — the part of an
+    episode that weighs."""
+    base = datetime(2025, 6, 1, tzinfo=timezone.utc)
+    items = "".join(
+        f"<item><title>{title} {i}</title><guid>{title}-{i}</guid>"
+        f"<description>{'d' * description_len} {i}</description>"
+        f"<pubDate>{format_datetime(base - timedelta(hours=offset_h + i * step_h))}</pubDate>"
+        f'<enclosure url="https://cdn.example/{title}/{i}.mp3" length="1" type="audio/mpeg"/>'
+        f"</item>"
+        for i in range(count)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">'
+        f"<channel><title>{title}</title>"
+        '<itunes:image href="https://cdn.example/art.jpg"/>'
+        f"{items}</channel></rss>"
+    ).encode("utf-8")
+
+
+def _serve_feeds(api, feeds):
+    """Point the client at Apple's lookup and the publishers' CDN, serving
+    `feeds` ({itunes id: feed bytes}); returns the ids downloaded, in order."""
+    downloads = []
+
+    def _get(url, **kw):
+        if "itunes.apple.com/lookup" in url:
+            ids = kw.get("params", {}).get("id", "")
+            return _FakeResponse(200, text=json.dumps({"results": [
+                {"collectionId": int(i), "feedUrl": f"https://cdn/{i}.xml"}
+                for i in ids.split(",")
+            ]}))
+        itunes_id = url.rsplit("/", 1)[-1].removesuffix(".xml")
+        downloads.append(itunes_id)
+        return _FakeResponse(200, body=feeds[itunes_id])
+
+    session = MagicMock()
+    session.closed = False
+    session.get = MagicMock(side_effect=_get)
+    api.session = session
+    api.resolver.session = session
+    return downloads

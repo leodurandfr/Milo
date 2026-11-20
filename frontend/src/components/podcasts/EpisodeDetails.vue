@@ -24,6 +24,20 @@
             <p class="text-body-medium">{{ episode.description }}</p>
           </div>
         </div>
+
+        <!-- 404: the episode is no longer in its feed. Anything else (503 when
+             the feed could not be read, a dropped link) is passing. Either way
+             the page says so and offers to ask again, rather than sit blank. -->
+        <MessageContent
+          v-else-if="failure"
+          :key="`failed-${failure}`"
+          :icon="failure === 'absent' ? 'podcast' : 'network'"
+          :title="failure === 'absent' ? t('podcasts.episodeNotAvailable') : t('podcasts.catalogUnavailable')"
+          :subtitle="failure === 'absent' ? t('podcasts.episodeNotAvailableHint') : t('podcasts.catalogUnavailableHint')"
+          :cta-label="t('podcasts.retry')"
+          cta-variant="control"
+          :cta-click="loadEpisode"
+        />
       </Transition>
     </div>
   </div>
@@ -37,9 +51,11 @@ import { useI18n } from '@/services/i18n'
 import { apiCall } from '@/services/apiCall'
 import { useAsyncData } from '@/composables/useAsyncData'
 import { useDetailPlayback } from '@/composables/useDetailPlayback'
+import { onPageReturn } from '@/composables/useNavigationStack'
 import { logger } from '@/services/logger'
 import DetailHeader from '@/components/audio/DetailHeader.vue'
 import SkeletonEpisodeDetails from './SkeletonEpisodeDetails.vue'
+import MessageContent from '@/components/ui/MessageContent.vue'
 import { podcastPlaceholder } from '@/constants/placeholders'
 
 const { t } = useI18n()
@@ -55,6 +71,8 @@ const emit = defineEmits(['select-podcast'])
 
 const podcastStore = usePodcastStore()
 const episode = ref(null)
+// Why the last load brought no episode: 'absent' (404) or 'transient'.
+const failure = ref(null)
 
 const { formattedDate, statusLabel } = useEpisodePlaybackStatus(episode)
 
@@ -78,7 +96,12 @@ const { loading, execute: loadEpisode } = useAsyncData(async () => {
     category: 'podcast',
     message: 'Error loading episode details',
   })
-  if (!result.ok) return
+  if (!result.ok) {
+    episode.value = null
+    failure.value = result.error?.status === 404 ? 'absent' : 'transient'
+    return
+  }
+  failure.value = null
   episode.value = result.data
   podcastStore.enrichEpisodesWithProgress([episode.value])
 }, { logTag: 'podcast' })
@@ -89,6 +112,8 @@ function handleSelectPodcast() {
 
 watch(() => props.uuid, loadEpisode, { immediate: false })
 onMounted(loadEpisode)
+// Shown again (KeepAlive) with nothing loaded: ask again.
+onPageReturn(() => { if (!episode.value && !loading.value) loadEpisode() })
 </script>
 
 <style scoped>

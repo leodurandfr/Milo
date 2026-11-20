@@ -341,6 +341,33 @@ describe('podcastStore', () => {
       expect(store.subscriptionsLoaded).toBe(false);
     });
 
+    it('a call while a load is in flight waits for that load, and gets its episodes', async () => {
+      // HomeView ends its skeleton when the call returns: answered at once and
+      // empty, it drew "no new episodes" while the load the last visit left
+      // running was still reading the feeds.
+      let settleLatest;
+      apiCall.get.mockImplementation(async (url) => {
+        if (url === '/api/podcast/subscriptions') {
+          return ok({ subscriptions: [{ uuid: 'p1', name: 'P1' }] });
+        }
+        return new Promise((resolve) => { settleLatest = resolve; });
+      });
+
+      const first = store.loadSubscriptions();
+      let secondDone = false;
+      const second = store.loadSubscriptions().then((answer) => { secondDone = true; return answer; });
+      await vi.waitFor(() => expect(settleLatest).toBeTypeOf('function'));
+      await Promise.resolve();
+      expect(secondDone).toBe(false);
+
+      settleLatest(ok({ results: [{ uuid: 'ep1', podcast: { uuid: 'p1' } }] }));
+      const answer = await second;
+      await first;
+
+      expect(answer.latestEpisodes.map(e => e.uuid)).toEqual(['ep1']);
+      expect(apiCall.get.mock.calls.filter(([url]) => url.endsWith('/latest-episodes'))).toHaveLength(1);
+    });
+
     // HomeView reads the flag to draw "catalog unavailable" instead of the
     // "no new episodes" check mark, and a cached outage would keep that lie
     // on screen (the kiosk never reloads) until the next WS resync.
@@ -462,6 +489,66 @@ describe('podcastStore', () => {
       expect(store.searchResults.podcasts).toEqual([]);
       expect(store.searchCurrentPage.podcasts).toBe(1);
       expect(store.hasSearched).toBe(false);
+    });
+
+    describe('a search that fails', () => {
+      const page = (uuid) => ok({
+        podcasts: [{ uuid }],
+        pagination: { podcasts: { total: 1, pages: 1 } },
+      });
+
+      beforeEach(async () => {
+        apiCall.get.mockResolvedValueOnce(page('bach-1'));
+        store.searchTerm = 'bach';
+        await store.search();
+        expect(store.searchResults.podcasts.map(p => p.uuid)).toEqual(['bach-1']);
+      });
+
+      it('says so, for the term it was asked, and drops the previous term’s results', async () => {
+        apiCall.get.mockResolvedValueOnce(fail('Bad Gateway', 502));
+        store.searchTerm = 'beatles';
+
+        await store.search();
+
+        expect(store.searchFailed).toBe(true);
+        expect(store.lastSearchTerm).toBe('beatles');
+        expect(store.searchResults.podcasts).toEqual([]);
+        expect(store.hasSearched).toBe(false);
+        expect(store.searchLoading).toBe(false);
+      });
+
+      it('drops the previous term’s results when Apple did not answer either', async () => {
+        apiCall.get.mockResolvedValueOnce(ok({ podcasts: [], api_error: true }));
+        store.searchTerm = 'beatles';
+
+        await store.search();
+
+        expect(store.apiError).toBe(true);
+        expect(store.searchFailed).toBe(false);
+        expect(store.searchResults.podcasts).toEqual([]);
+      });
+
+      it('is forgotten by the next search that goes through', async () => {
+        apiCall.get.mockResolvedValueOnce(fail('Bad Gateway', 502));
+        store.searchTerm = 'beatles';
+        await store.search();
+
+        apiCall.get.mockResolvedValueOnce(page('beatles-1'));
+        await store.search();
+
+        expect(store.searchFailed).toBe(false);
+        expect(store.searchResults.podcasts.map(p => p.uuid)).toEqual(['beatles-1']);
+      });
+
+      it('is forgotten by clearSearch', async () => {
+        apiCall.get.mockResolvedValueOnce(fail('Bad Gateway', 502));
+        store.searchTerm = 'beatles';
+        await store.search();
+
+        store.clearSearch();
+
+        expect(store.searchFailed).toBe(false);
+      });
     });
 
     it('clearSearch clears the catalogue-unavailable flag', () => {

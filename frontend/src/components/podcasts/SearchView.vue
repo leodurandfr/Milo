@@ -22,6 +22,17 @@
           :cta-click="() => podcastStore.search()"
         />
 
+        <!-- The request itself failed (the backend did not answer it) -->
+        <MessageContent
+          v-else-if="podcastStore.searchFailed"
+          key="failed"
+          icon="search"
+          :title="t('podcasts.searchFailed', { query: lastSearchTerm })"
+          :cta-label="t('podcasts.retry')"
+          cta-variant="control"
+          :cta-click="() => podcastStore.search()"
+        />
+
         <!-- Search results -->
         <div v-else-if="hasSearched && searchResults.podcasts.length > 0" key="results" class="results-content">
           <!-- Podcasts results -->

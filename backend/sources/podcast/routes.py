@@ -11,7 +11,7 @@ Provides REST API for:
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
 from backend.api.route_helpers import api_error_handler
-from typing import Dict, Any
+from typing import Any, Dict, Iterable
 import logging
 
 from backend.api.source_dependency import make_source_dependency
@@ -20,6 +20,7 @@ from backend.sources.podcast.models import (
 )
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.podcast_catalog import (
+    PodcastCatalog,
     is_upstream_error,
 )
 
@@ -58,6 +59,21 @@ async def _itunes_country(source: PodcastSource) -> str:
     return (await _user_locale(source))[1]
 
 
+async def _flag_subscribed(
+    source: PodcastSource, podcasts: Iterable[Dict[str, Any]]
+) -> None:
+    """Stamp `is_subscribed` on each podcast, from one read of the store.
+
+    The one join every route uses — the charts, a genre, a search and a series
+    — so a followed podcast is marked in all four or in none. A podcast's
+    `uuid` is its Apple id wherever it comes from, which is what a subscription
+    stores.
+    """
+    subscribed = set(await source.podcast_data.get_subscription_uuids())
+    for podcast in podcasts:
+        podcast['is_subscribed'] = podcast.get('uuid') in subscribed
+
+
 # === Discovery Routes ===
 
 @router.get("/discover/top-charts")
@@ -74,11 +90,7 @@ async def get_top_charts(
             limit=limit
         )
 
-        # Enrich with subscription status (uuid is None for unresolved iTunes
-        # entries — those simply stay unsubscribed-looking, like /by-genre)
-        subscriptions = await source.podcast_data.get_subscription_uuids()
-        for podcast in result.get('results', []):
-            podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
+        await _flag_subscribed(source, result.get('results', []))
 
         result['country'] = itunes_country
         result['language'] = milo_language
@@ -103,6 +115,7 @@ async def get_content_by_genre(
         )
 
         podcasts = podcasts_result.get('results', [])
+        await _flag_subscribed(source, podcasts)
 
         response = {
             "podcasts": podcasts,
@@ -139,12 +152,7 @@ async def search_podcasts(
             country=await _itunes_country(source),
         )
 
-        # Enrich with subscription status. A hit's uuid is its Apple id, which
-        # is what a subscription stores, so one set answers it.
-        subscriptions = await source.podcast_data.get_subscriptions()
-        subscribed = {s['uuid'] for s in subscriptions if s.get('uuid')}
-        for podcast in result.get('podcasts', []):
-            podcast['is_subscribed'] = podcast.get('uuid') in subscribed
+        await _flag_subscribed(source, result.get('podcasts', []))
 
         response = {
             "podcasts": result.get('podcasts', []),
@@ -190,8 +198,7 @@ async def get_podcast_series(
             logger.debug("No public feed for podcast: %s", uuid)
             raise HTTPException(status_code=404, detail="Podcast not found")
 
-        # Add subscription status
-        series['is_subscribed'] = await source.podcast_data.is_subscribed(uuid)
+        await _flag_subscribed(source, [series])
 
         # Add progress to episodes
         for episode in series.get('episodes', []):
@@ -277,10 +284,12 @@ async def remove_subscription(
 @router.get("/subscriptions/latest-episodes")
 async def get_latest_episodes_from_subscriptions(
     source: PodcastSource = Depends(get_source),
-    page: int = Query(1, ge=1, le=20),
-    limit: int = Query(50, ge=1, le=50)
+    limit: int = Query(
+        PodcastCatalog.LATEST_EPISODES_MAX, ge=1, le=PodcastCatalog.LATEST_EPISODES_MAX
+    ),
 ) -> Dict[str, Any]:
-    """Get latest episodes from all subscribed podcasts (N parallel calls)."""
+    """The newest episodes across every subscription (one page, N parallel
+    feed reads)."""
     async with api_error_handler("Error getting latest episodes", logger):
         subscriptions = await source.podcast_data.get_subscriptions()
 
@@ -291,7 +300,6 @@ async def get_latest_episodes_from_subscriptions(
         # needed for the episode's podcast block.
         result = await source.podcast_api.get_latest_episodes(
             itunes_ids=[s['uuid'] for s in subscriptions if s.get('uuid')],
-            page=page,
             limit=limit,
             country=await _itunes_country(source),
         )

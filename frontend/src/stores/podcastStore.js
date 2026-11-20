@@ -74,7 +74,6 @@ export const usePodcastStore = defineStore('podcast', () => {
   });
   const subscriptionsListLoaded = ref(false); // True when subscriptions list is loaded (no discovery API call)
   const subscriptionsLoaded = ref(false); // True when latest episodes are also loaded (with discovery API call)
-  const subscriptionsFullLoading = ref(false); // Guard against concurrent loadSubscriptions calls
   const latestEpisodesUnavailable = ref(false); // The last latest-episodes fetch failed or hit a catalog outage
 
   // === SEARCH STATE ===
@@ -95,6 +94,10 @@ export const usePodcastStore = defineStore('podcast', () => {
   const searchLoadingMore = ref({
     podcasts: false
   });
+  // The search of `lastSearchTerm` did not go through (the request failed).
+  // Its results are not the previous term's: a failure drops them, or the list
+  // of the term before stayed on screen under the new one, without a word.
+  const searchFailed = ref(false);
 
   // === CATALOGUE STATE ===
   // The `api_error` key a discovery route returns: Apple did not
@@ -274,72 +277,77 @@ export const usePodcastStore = defineStore('podcast', () => {
     return result.ok;
   }
 
+  // The full load in flight. A second caller (HomeView and SubscriptionsView
+  // mounting together, or Podcasts reopened while the last visit's load still
+  // reads its feeds) waits for it rather than returning at once with nothing:
+  // HomeView ends its skeleton when the call returns, and would draw "no new
+  // episodes" over a list still on its way.
+  let fullLoad = null;
+
   // Full load - fetches subscriptions list + latest episodes (discovery API call)
   // Called when HomeView opens
-  async function loadSubscriptions(forceRefresh = false) {
+  function loadSubscriptions(forceRefresh = false) {
     // Return cached data if fully loaded and not forcing refresh
     if (subscriptionsLoaded.value && !forceRefresh) {
-      return {
+      return Promise.resolve({
         subscriptions: subscriptionsList.value,
         latestEpisodes: latestSubscriptionEpisodes.value
-      };
+      });
+    }
+    if (!fullLoad) {
+      fullLoad = fetchSubscriptions().finally(() => { fullLoad = null; });
+    }
+    return fullLoad;
+  }
+
+  async function fetchSubscriptions() {
+    // Reuse subscriptions list if already preloaded, otherwise fetch
+    if (!subscriptionsListLoaded.value) {
+      const subsResult = await apiCall.get('/api/podcast/subscriptions', {
+        category: 'store',
+        message: 'Error loading subscriptions',
+      });
+      if (!subsResult.ok) return false;
+      subscriptions.value = arrayToSubscriptionsMap(
+        subsResult.data.subscriptions || []
+      );
+      subscriptionsListLoaded.value = true;
     }
 
-    // Prevent concurrent calls (HomeView + SubscriptionsView mounting simultaneously)
-    if (subscriptionsFullLoading.value) return;
-    subscriptionsFullLoading.value = true;
-
-    try {
-      // Reuse subscriptions list if already preloaded, otherwise fetch
-      if (!subscriptionsListLoaded.value) {
-        const subsResult = await apiCall.get('/api/podcast/subscriptions', {
+    // Fetch latest episodes (discovery API call) if user has subscriptions
+    if (subscriptions.value.size > 0) {
+      const epResult = await apiCall.get(
+        '/api/podcast/subscriptions/latest-episodes',
+        {
           category: 'store',
-          message: 'Error loading subscriptions',
-        });
-        if (!subsResult.ok) return false;
-        subscriptions.value = arrayToSubscriptionsMap(
-          subsResult.data.subscriptions || []
-        );
-        subscriptionsListLoaded.value = true;
+          message: 'Error loading latest subscription episodes',
+          params: { limit: 20 },
+        },
+      );
+      // An outage is not "no new episodes": keep the list already shown and
+      // leave the load unmarked, so the next call fetches again.
+      if (!epResult.ok || epResult.data.api_error) {
+        latestEpisodesUnavailable.value = true;
+        subscriptionsLoaded.value = false;
+        return {
+          subscriptions: subscriptionsList.value,
+          latestEpisodes: latestSubscriptionEpisodes.value,
+        };
       }
-
-      // Fetch latest episodes (discovery API call) if user has subscriptions
-      if (subscriptions.value.size > 0) {
-        const epResult = await apiCall.get(
-          '/api/podcast/subscriptions/latest-episodes',
-          {
-            category: 'store',
-            message: 'Error loading latest subscription episodes',
-            params: { limit: 20 },
-          },
-        );
-        // An outage is not "no new episodes": keep the list already shown and
-        // leave the load unmarked, so the next call fetches again.
-        if (!epResult.ok || epResult.data.api_error) {
-          latestEpisodesUnavailable.value = true;
-          subscriptionsLoaded.value = false;
-          return {
-            subscriptions: subscriptionsList.value,
-            latestEpisodes: latestSubscriptionEpisodes.value,
-          };
-        }
-        // Hide episodes already listened to from "new episodes"
-        latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(
-          epResult.data.results || []
-        ).filter((ep) => !ep.playback_progress?.completed);
-      } else {
-        latestSubscriptionEpisodes.value = [];
-      }
-
-      latestEpisodesUnavailable.value = false;
-      subscriptionsLoaded.value = true;
-      return {
-        subscriptions: subscriptionsList.value,
-        latestEpisodes: latestSubscriptionEpisodes.value,
-      };
-    } finally {
-      subscriptionsFullLoading.value = false;
+      // Hide episodes already listened to from "new episodes"
+      latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(
+        epResult.data.results || []
+      ).filter((ep) => !ep.playback_progress?.completed);
+    } else {
+      latestSubscriptionEpisodes.value = [];
     }
+
+    latestEpisodesUnavailable.value = false;
+    subscriptionsLoaded.value = true;
+    return {
+      subscriptions: subscriptionsList.value,
+      latestEpisodes: latestSubscriptionEpisodes.value,
+    };
   }
 
   // Called after a local subscribe AND from the favorite_added WS handler
@@ -411,14 +419,15 @@ export const usePodcastStore = defineStore('podcast', () => {
     if (searchAbortController !== ctrl) return;
     searchAbortController = null;
 
-    if (result.ok) {
-      const data = result.data;
-      if (data.api_error) {
-        apiError.value = true;
-      } else {
-        apiError.value = false;
-        setSearchResults(data.podcasts, data.pagination, term);
-      }
+    const answered = result.ok && !result.data.api_error;
+    apiError.value = result.ok && !!result.data.api_error;
+    searchFailed.value = !result.ok;
+    if (answered) {
+      setSearchResults(result.data.podcasts, result.data.pagination, term);
+    } else {
+      // Whatever failed, the list on screen is the previous term's.
+      setSearchResults([], null, term);
+      hasSearched.value = false;
     }
     searchLoading.value = false;
   }
@@ -486,6 +495,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     hasSearched.value = false;
     searchLoading.value = false;
     apiError.value = false;
+    searchFailed.value = false;
   }
 
   // === RETURN ===
@@ -519,6 +529,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     hasSearched,
     searchLoading,
     searchLoadingMore,
+    searchFailed,
 
     // Computed
     hasSubscriptions,

@@ -199,11 +199,6 @@ class PodcastDataService:
         subscriptions = await self.get_subscriptions()
         return [s['uuid'] for s in subscriptions if s.get('uuid')]
 
-    async def is_subscribed(self, podcast_uuid: str) -> bool:
-        """Check if podcast is subscribed."""
-        subscriptions = await self.get_subscription_uuids()
-        return podcast_uuid in subscriptions
-
     # ========== PLAYBACK PROGRESS ==========
 
     async def update_playback_progress(

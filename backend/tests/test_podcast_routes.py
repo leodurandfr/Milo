@@ -16,9 +16,10 @@ Three things the handlers do that the services underneath cannot:
   `storefront()` with no Wi-Fi country, which asks Apple nothing; what it does
   with a country is `test_podcast_catalogue.py`'s.
 * **the subscribed flag.** The catalogue does not know what this appliance is
-  subscribed to; the route joins the two. It is what draws the filled/hollow
-  subscribe button on every card, and the join is not the same in all three
-  places — measured below rather than assumed.
+  subscribed to; the route joins the two. It is what draws the subscribed
+  badge on every card and the subscribe button on a series, and it is one join
+  (`_flag_subscribed`) for all four routes — the genre view once had none, so a
+  followed podcast looked unfollowed there alone.
 * **the composite `/play`.** CLAUDE.md sanctions exactly two multi-command
   routes and this is one of them: play, then resume-seek, in one request.
 
@@ -80,7 +81,6 @@ def source():
     src.podcast_api.get_latest_episodes = AsyncMock(return_value={"results": []})
     src.podcast_data.get_subscriptions = AsyncMock(return_value=[])
     src.podcast_data.get_subscription_uuids = AsyncMock(return_value=[])
-    src.podcast_data.is_subscribed = AsyncMock(return_value=False)
     src.podcast_data.get_playback_progress = AsyncMock(return_value=None)
     src.podcast_data.add_subscription = AsyncMock(return_value=True)
     src.podcast_data.remove_subscription = AsyncMock(return_value=True)
@@ -159,15 +159,14 @@ class TestTopCharts:
 
         assert [p["is_subscribed"] for p in results] == [False, True]
 
-    def test_an_unresolved_itunes_entry_is_flagged_unsubscribed_not_crashed(
+    def test_an_entry_apple_gave_no_id_is_flagged_unsubscribed_not_crashed(
         self, client, source, settings
     ):
-        """Chart entries carry `uuid=None` until `lookup/itunes` resolves them.
+        """A chart entry's uuid is its `im:id`, None when Apple leaves it out.
         `get_subscription_uuids` drops falsy uuids, so None can never match a
-        stored one — the entry stays unsubscribed-looking, which is the
-        documented behaviour and not an accident of the data."""
+        stored one."""
         source.podcast_api.get_itunes_top_podcasts.return_value = {
-            "results": [{"uuid": None, "itunes_id": "42"}]
+            "results": [{"uuid": None, "itunes_id": None}]
         }
         source.podcast_data.get_subscription_uuids.return_value = ["feed-2"]
 
@@ -244,32 +243,48 @@ class TestByGenre:
 
         assert "api_error" not in client.get("/api/podcast/discover/by-genre?genre=G").json()
 
-    def test_genre_results_carry_no_subscribed_flag_at_all(
-        self, client, source, settings
-    ):
-        """Measured asymmetry, pinned so a reader does not have to rediscover
-        it: `/top-charts` and `/search` join against the subscriptions,
-        `/by-genre` does not — it never reads them. A podcast the owner follows
-        therefore shows a hollow subscribe button in the genre list and a filled
-        one everywhere else.
-
-        Kept as a constat rather than fixed: the enrichment on `/top-charts`
-        cannot match an unresolved iTunes entry either (uuid is None until the
-        podcast is opened), so adding the same join here would flag almost
-        nothing while adding a subscriptions read to every genre page."""
-        source.podcast_api.get_itunes_top_podcasts_by_genre.return_value = {
-            "results": [{"uuid": "feed-2"}]
-        }
-        source.podcast_data.get_subscription_uuids.return_value = ["feed-2"]
-
-        body = client.get("/api/podcast/discover/by-genre?genre=G").json()
-
-        assert "is_subscribed" not in body["podcasts"][0]
-        source.podcast_data.get_subscription_uuids.assert_not_awaited()
-        source.podcast_data.get_subscriptions.assert_not_awaited()
-
     def test_the_genre_is_required(self, client, settings):
         assert client.get("/api/podcast/discover/by-genre").status_code == 422
+
+
+class TestTheSubscribedFlag:
+    """The four routes that show a podcast — the charts, a genre, a search, a
+    series — answer "is it followed" the same way. Each once had its own join
+    and the genre view had none: the same podcast read SUBSCRIBED in the charts
+    and in search and not in its genre. The flag draws every card's badge
+    (`GenreView.vue` included) and the subscribe button on a series page."""
+
+    ROUTES = {
+        "top-charts": ("/api/podcast/discover/top-charts", "get_itunes_top_podcasts",
+                       lambda p: {"results": [p]}, lambda body: body["results"][0]),
+        "by-genre": ("/api/podcast/discover/by-genre?genre=G",
+                     "get_itunes_top_podcasts_by_genre",
+                     lambda p: {"results": [p]}, lambda body: body["podcasts"][0]),
+        "search": ("/api/podcast/search?term=x", "search_podcasts",
+                   lambda p: {"podcasts": [p],
+                              "pagination": {"podcasts": {"total": 1, "pages": 1}}},
+                   lambda body: body["podcasts"][0]),
+        "series": ("/api/podcast/series/152249110", "get_podcast_series",
+                   lambda p: dict(p, episodes=[]), lambda body: body),
+    }
+
+    @pytest.mark.parametrize("route", sorted(ROUTES))
+    @pytest.mark.parametrize("followed", [True, False])
+    def test_every_route_flags_a_podcast_from_the_same_subscriptions(
+        self, client, source, route, followed
+    ):
+        url, method, answer, podcast_of = self.ROUTES[route]
+        getattr(source.podcast_api, method).return_value = answer(
+            {"uuid": "152249110", "itunes_id": "152249110", "name": "Radiolab"}
+        )
+        source.podcast_data.get_subscription_uuids.return_value = (
+            ["152249110"] if followed else ["999"]
+        )
+
+        body = client.get(url).json()
+
+        assert podcast_of(body)["name"] == "Radiolab"
+        assert podcast_of(body)["is_subscribed"] is followed
 
 
 class TestSearch:
@@ -306,11 +321,7 @@ class TestSearch:
             "podcasts": [{"uuid": "feed-1"}, {"uuid": "feed-2"}],
             "pagination": {"podcasts": {"total": 2, "pages": 1}},
         }
-        # `add_subscription` always writes `itunes_id`, None included, so a
-        # stored record missing the key is a state the producer cannot make.
-        source.podcast_data.get_subscriptions.return_value = [
-            {"uuid": "feed-2", "itunes_id": None}
-        ]
+        source.podcast_data.get_subscription_uuids.return_value = ["feed-2"]
 
         podcasts = client.get("/api/podcast/search?term=x").json()["podcasts"]
 
@@ -328,21 +339,25 @@ class TestSearch:
                          {"uuid": "222", "itunes_id": "222"}],
             "pagination": {"podcasts": {"total": 2, "pages": 1}},
         }
-        source.podcast_data.get_subscriptions.return_value = [{"uuid": "222"}]
+        source.podcast_data.get_subscription_uuids.return_value = ["222"]
 
         podcasts = client.get("/api/podcast/search?term=x").json()["podcasts"]
 
         assert [p["is_subscribed"] for p in podcasts] == [False, True]
 
-    def test_the_subscriptions_are_read_once_for_both_lookup_sets(
+    def test_the_subscriptions_are_read_once_per_search(
         self, client, source, settings
     ):
-        """Both sets are derived from a single fetch — the comment above them
-        says so, and a second read here is a second load of
-        `podcast_data.json` on every keystroke."""
+        """One read for the whole page of hits: a read per hit is a load of
+        `podcast_data.json` per card, on every keystroke."""
+        source.podcast_api.search_podcasts.return_value = {
+            "podcasts": [{"uuid": "111"}, {"uuid": "222"}, {"uuid": "333"}],
+            "pagination": {"podcasts": {"total": 3, "pages": 1}},
+        }
+
         client.get("/api/podcast/search?term=x")
 
-        assert source.podcast_data.get_subscriptions.await_count == 1
+        assert source.podcast_data.get_subscription_uuids.await_count == 1
 
     def test_the_pagination_block_is_carried_through(self, client, source, settings):
         source.podcast_api.search_podcasts.return_value = {
@@ -429,18 +444,6 @@ class TestSeries:
         assert resp.status_code == 404
         assert "nope" in caplog.text
         assert [r.levelname for r in caplog.records] == ["DEBUG"]
-
-    def test_the_details_page_learns_whether_this_podcast_is_followed(
-        self, client, source
-    ):
-        """The subscribe/unsubscribe button on the details page is this flag."""
-        source.podcast_api.get_podcast_series.return_value = {"episodes": []}
-        source.podcast_data.is_subscribed.return_value = True
-
-        body = client.get("/api/podcast/series/feed-1").json()
-
-        assert body["is_subscribed"] is True
-        assert source.podcast_data.is_subscribed.await_args.args[0] == "feed-1"
 
     def test_each_episode_carries_the_progress_stored_for_it(self, client, source):
         """The resume bar under an episode row. The progress store is keyed by
@@ -605,14 +608,20 @@ class TestLatestEpisodes:
             "itunes_ids"
         ] == ["111"]
 
-    def test_the_paging_reaches_the_catalogue(self, client, source):
+    def test_a_limit_past_what_the_catalog_keeps_per_feed_is_refused(
+        self, client, source
+    ):
+        """The catalog keeps `LATEST_EPISODES_MAX` episodes of each feed and
+        nothing more, which is what makes its merge exact up to that many. A
+        larger page would be a merge of truncated lists, wrong without a word,
+        so the route refuses it before the catalog is asked."""
         source.podcast_data.get_subscriptions.return_value = [{"uuid": "feed-1"}]
+        too_many = PodcastCatalog.LATEST_EPISODES_MAX + 1
 
-        client.get("/api/podcast/subscriptions/latest-episodes?page=2&limit=20")
+        resp = client.get(f"/api/podcast/subscriptions/latest-episodes?limit={too_many}")
 
-        kwargs = source.podcast_api.get_latest_episodes.await_args.kwargs
-        assert kwargs["page"] == 2
-        assert kwargs["limit"] == 20
+        assert resp.status_code == 422
+        source.podcast_api.get_latest_episodes.assert_not_awaited()
 
     def test_each_episode_carries_the_progress_stored_for_it(self, client, source):
         source.podcast_data.get_subscriptions.return_value = [{"uuid": "feed-1"}]

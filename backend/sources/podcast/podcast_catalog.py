@@ -32,11 +32,12 @@ the source level by the state's `availability.podcast`.
 import asyncio
 import contextlib
 import json
+import sys
+import time
 import aiohttp
 import logging
 from math import ceil
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from typing import Callable, Dict, Any, List, Optional, Tuple
 from urllib.parse import urlencode
 
 from backend.shared.network import describe_network_error, is_network_error
@@ -121,6 +122,118 @@ def is_upstream_error(data: Optional[Dict[str, Any]]) -> bool:
     return bool(data) and bool(data.get(UPSTREAM_ERROR_KEY))
 
 
+def estimate_size(value: Any) -> int:
+    """Bytes a parsed answer holds, as `sys.getsizeof` counts them, walked
+    through its dicts, lists and tuples.
+
+    Each object is counted once, so the key strings every episode shares (the
+    interned `"uuid"`, `"name"`, …) and the show's image URL its episodes
+    inherit weigh what they weigh, not once per episode. An estimate, not a
+    measure: what decides the cache is the order of magnitude — the two feeds
+    measured with tracemalloc held 4.07 MB (Vergecast, 1,118 episodes) and
+    2.47 MB (Transfert, 609).
+    """
+    seen = set()
+    total = 0
+    stack = [value]
+    while stack:
+        obj = stack.pop()
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        total += sys.getsizeof(obj)
+        if isinstance(obj, dict):
+            stack.extend(obj.keys())
+            stack.extend(obj.values())
+        elif isinstance(obj, (list, tuple)):
+            stack.extend(obj)
+    return total
+
+
+class ExpiringCache:
+    """Answers kept for `ttl_s` seconds, the whole bounded at `max_bytes`.
+
+    An expired entry is released when it is read and whenever anything is
+    stored, not merely skipped: an entry nobody asks for again (a series opened
+    once) would otherwise stay in memory for the life of the process, and the
+    backend runs under `MemoryMax=512M`, where an OOM kill cuts the sound. Past
+    the budget the oldest entries go first; a value larger than the whole
+    budget is not kept at all.
+
+    The clock is monotonic, so a wall-clock step (NTP at boot) neither ages
+    every entry at once nor keeps one forever.
+    """
+
+    def __init__(
+        self,
+        ttl_s: float,
+        max_bytes: int,
+        clock: Callable[[], float] = time.monotonic,
+    ):
+        self.ttl_s = ttl_s
+        self.max_bytes = max_bytes
+        self._clock = clock
+        # Insertion order is age order: `put` always re-inserts.
+        self._entries: Dict[str, Tuple[float, int, Any]] = {}
+        self._bytes = 0
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    @property
+    def size(self) -> int:
+        """Bytes held, as `estimate_size` counted them when they were stored."""
+        return self._bytes
+
+    def get(self, key: str) -> Optional[Any]:
+        entry = self._entries.get(key)
+        if entry is None:
+            return None
+        stamp, _size, value = entry
+        if self._clock() - stamp >= self.ttl_s:
+            self._drop(key)
+            return None
+        return value
+
+    def put(self, key: str, value: Any, size: Optional[int] = None) -> None:
+        if size is None:
+            size = estimate_size(value)
+        self._drop(key)
+        self._drop_expired()
+        if size > self.max_bytes:
+            return
+        self._entries[key] = (self._clock(), size, value)
+        self._bytes += size
+        while self._bytes > self.max_bytes:
+            self._drop(next(iter(self._entries)))
+
+    def _drop(self, key: str) -> None:
+        entry = self._entries.pop(key, None)
+        if entry is not None:
+            self._bytes -= entry[1]
+
+    def _drop_expired(self) -> None:
+        now = self._clock()
+        # Oldest first, so the first live entry ends the walk.
+        for key, (stamp, _size, _value) in list(self._entries.items()):
+            if now - stamp < self.ttl_s:
+                break
+            self._drop(key)
+
+
+def _latest_head(series: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The newest episodes of a series, as "latest episodes" lists them.
+
+    No more than one merged page can take from a feed, and without their
+    description, which the episode card never shows and which is most of an
+    episode's weight. The series itself is not kept.
+    """
+    return [
+        {k: v for k, v in episode.items() if k != "description"}
+        for episode in series["episodes"][:PodcastCatalog.LATEST_EPISODES_MAX]
+    ]
+
+
 class PodcastCatalog:
     """
     Async catalogue client: Apple for discovery, RSS feeds for content.
@@ -129,32 +242,44 @@ class PodcastCatalog:
     `{itunes_id}:{guid hash}`. Neither needs resolving through a third party,
     so opening a chart entry costs no extra round-trip.
 
-    Feeds are cached whole (`_feed_cache`) rather than per page: an RSS feed is
-    indivisible, and the same bytes serve the series view, the episode list and
-    the audio URL playback needs. Publishers do not honour conditional requests
-    — Radio France sends no ETag, and audiomeans and audion answer 200 with the
-    full body on If-None-Match — so a cache miss is always a full download.
+    A series that is opened is cached whole (`_feed_cache`) rather than per
+    page: an RSS feed is indivisible, and the same bytes serve the series view,
+    the episode list and the audio URL playback needs. Publishers do not honour
+    conditional requests — Radio France sends no ETag, and audiomeans and audion
+    answer 200 with the full body on If-None-Match — so a cache miss is always a
+    full download. "Latest episodes" reads every subscription, so it keeps only
+    each feed's head (`_latest_cache`, see `_latest_head`): a whole series
+    weighs megabytes in Python objects (4.07 MB for Vergecast, measured).
+
+    Every cache is an `ExpiringCache`, bounded in bytes rather than in entries:
+    a chart and a 1,000-episode series are not the same size.
     """
 
-    MAX_CACHE_ENTRIES = 200
     ITUNES_SEARCH_MAX = 100    # iTunes Search hits fetched per term, sliced client-side
+    LATEST_EPISODES_MAX = 50   # the most "latest episodes" answers, and what it keeps per feed
     LATEST_EPISODES_MAX_FEEDS = 100  # subscriptions merged into "latest episodes"
     LATEST_EPISODES_CONCURRENCY = 8   # simultaneous feed downloads in that fan-out
+
+    # Byte budgets, against a backend that holds 100-125 MB under MemoryMax=512M.
+    FEED_CACHE_BYTES = 32 * 1024 * 1024       # a handful of large series, dozens of small ones
+    LATEST_CACHE_BYTES = 8 * 1024 * 1024      # 100 subscriptions' heads, without descriptions
+    DISCOVERY_CACHE_BYTES = 4 * 1024 * 1024   # charts: ~1 kB per entry
+    SEARCH_CACHE_BYTES = 4 * 1024 * 1024      # ITUNES_SEARCH_MAX hits per term
 
     def __init__(self, cache_duration_minutes: int = 120):
         self.logger = logging.getLogger("source.podcast.podcast_catalog")
         self.session: Optional[aiohttp.ClientSession] = None
-        self.cache_duration = timedelta(minutes=cache_duration_minutes)
         self.resolver = FeedUrlResolver(cache_duration_minutes)
 
         # Whether Apple has a storefront in a country: Apple's answer, kept for
         # the life of the process (a storefront does not come and go).
         self._storefronts: Dict[str, bool] = {}
 
-        # Caches
-        self._search_cache: Dict[str, tuple[datetime, Any]] = {}
-        self._feed_cache: Dict[str, tuple[datetime, Any]] = {}
-        self._discovery_cache: Dict[str, tuple[datetime, Any]] = {}
+        ttl_s = cache_duration_minutes * 60
+        self._search_cache = ExpiringCache(ttl_s, self.SEARCH_CACHE_BYTES)
+        self._feed_cache = ExpiringCache(ttl_s, self.FEED_CACHE_BYTES)
+        self._latest_cache = ExpiringCache(ttl_s, self.LATEST_CACHE_BYTES)
+        self._discovery_cache = ExpiringCache(ttl_s, self.DISCOVERY_CACHE_BYTES)
 
     async def _ensure_session(self) -> None:
         """Create the aiohttp session if needed, and lend it to the resolver.
@@ -168,21 +293,6 @@ class PodcastCatalog:
                 headers={'User-Agent': 'Milo/1.0'}
             )
         self.resolver.session = self.session
-
-    def _check_cache(self, cache: Dict, key: str) -> Optional[Any]:
-        """Check if cached data is still valid"""
-        if key in cache:
-            cached_time, cached_data = cache[key]
-            if datetime.now() - cached_time < self.cache_duration:
-                return cached_data
-        return None
-
-    def _set_cache(self, cache: Dict, key: str, data: Any) -> None:
-        """Store data in cache, evicting oldest entries if over limit."""
-        cache[key] = (datetime.now(), data)
-        if len(cache) > self.MAX_CACHE_ENTRIES:
-            oldest_key = min(cache, key=lambda k: cache[k][0])
-            del cache[oldest_key]
 
     # ========== STOREFRONT ==========
 
@@ -286,8 +396,8 @@ class PodcastCatalog:
     async def _fetch_itunes_top(self, cache_key: str, url: str) -> Dict[str, Any]:
         """Fetch + parse an iTunes RSS top-podcasts feed (shared by the
         genre and no-genre variants)."""
-        cached = self._check_cache(self._discovery_cache, cache_key)
-        if cached:
+        cached = self._discovery_cache.get(cache_key)
+        if cached is not None:
             return cached
 
         await self._ensure_session()
@@ -333,7 +443,7 @@ class PodcastCatalog:
                     })
 
                 result = {"results": results, "total": len(results)}
-                self._set_cache(self._discovery_cache, cache_key, result)
+                self._discovery_cache.put(cache_key, result)
                 return result
 
         except Exception as e:
@@ -365,7 +475,7 @@ class PodcastCatalog:
         page = max(1, page)
 
         cache_key = f"search_{country}_{term}"
-        data = self._check_cache(self._search_cache, cache_key)
+        data = self._search_cache.get(cache_key)
         if data is None:
             data = await self._search_itunes(term, country)
             if _failed(data):
@@ -374,7 +484,7 @@ class PodcastCatalog:
                     "pagination": {"podcasts": {"total": 0, "pages": 0}},
                     "api_error": True,
                 }
-            self._set_cache(self._search_cache, cache_key, data)
+            self._search_cache.put(cache_key, data)
 
         results = data.get("results") or []
         start = (page - 1) * limit
@@ -516,23 +626,26 @@ class PodcastCatalog:
     async def get_latest_episodes(
         self,
         itunes_ids: List[str],
-        page: int = 1,
-        limit: int = 50,
+        limit: int = LATEST_EPISODES_MAX,
         country: str = "us",
     ) -> Dict[str, Any]:
-        """Newest episodes across every subscription, merged and paginated.
+        """The newest `limit` episodes across every subscription, merged.
 
         One fetch per subscribed feed, in parallel. There is no way to ask for
         only the newest few: an RSS feed is indivisible, and publishers do not
         answer conditional requests, so each cache miss downloads whole feeds.
-        The feed cache (`cache_duration`, set by whoever builds the catalog) is
-        what keeps that off the critical path.
+        What is kept of each is its head alone (`_latest_head`) — a page can
+        take no more than `LATEST_EPISODES_MAX` episodes from one feed, so the
+        merge is exact — and a series already held whole because it was opened
+        serves its head without a download.
+
+        There is one page: holding enough of every feed to serve a twentieth
+        one is holding the feeds.
         """
         if not itunes_ids:
             return {"results": [], "total": 0}
 
-        limit = min(limit, 50)
-        page = max(1, min(page, 20))
+        limit = max(1, min(limit, self.LATEST_EPISODES_MAX))
         itunes_ids = itunes_ids[:self.LATEST_EPISODES_MAX_FEEDS]
 
         # Resolve the whole set in one batch first: Apple's lookup endpoint
@@ -550,35 +663,47 @@ class PodcastCatalog:
         # one appliance's link and SD card.
         gate = asyncio.Semaphore(self.LATEST_EPISODES_CONCURRENCY)
 
-        async def _one(itunes_id: str) -> Optional[Dict[str, Any]]:
+        async def _one(itunes_id: str) -> Any:
+            key = str(itunes_id)
+            whole = self._feed_cache.get(key)
+            if whole is not None:
+                return _latest_head(whole)
+            head = self._latest_cache.get(key)
+            if head is not None:
+                return head
             async with gate:
-                return await self._feed(itunes_id, country)
+                head, size = await self._load_feed(itunes_id, country, _latest_head)
+            if isinstance(head, list):
+                self._latest_cache.put(key, head, size)
+            return head
 
-        feeds = await asyncio.gather(*(_one(i) for i in itunes_ids))
+        heads = await asyncio.gather(*(_one(i) for i in itunes_ids))
 
         episodes: List[Dict[str, Any]] = []
-        for series in feeds:
-            if not _failed(series):
-                episodes.extend(dict(ep) for ep in series["episodes"])
+        for head in heads:
+            if isinstance(head, list):
+                # Copies: the route stamps `playback_progress` on what it gets.
+                episodes.extend(dict(ep) for ep in head)
 
         # Only when nothing came back at all, and only for a *transient*
         # failure: several subscriptions that Apple simply publishes no feed
         # for is not a catalogue outage, and must not offer a retry that can
         # never succeed.
-        if not episodes and any(is_upstream_error(series) for series in feeds):
+        if not episodes and any(
+            not isinstance(head, list) and is_upstream_error(head) for head in heads
+        ):
             return {"results": [], "total": 0, "api_error": True}
 
         episodes.sort(key=lambda e: e.get("date_published") or 0, reverse=True)
-        start = (page - 1) * limit
-        page_episodes = episodes[start:start + limit]
-        return {"results": page_episodes, "total": len(page_episodes)}
+        latest = episodes[:limit]
+        return {"results": latest, "total": len(latest)}
 
     # ========== FEED ACCESS ==========
 
     async def _feed(
         self, itunes_id: str, country: str
     ) -> Optional[Dict[str, Any]]:
-        """Resolve, fetch and parse one feed. Cached whole, by iTunes id.
+        """One feed's series, cached whole by iTunes id.
 
         Three outcomes, and callers must keep them apart:
         the series; `None` when Apple publishes no feed for this id, which is
@@ -588,35 +713,52 @@ class PodcastCatalog:
         `None` for that last case is what would turn a passing outage into a
         podcast the owner believes is gone.
         """
-        cached = self._check_cache(self._feed_cache, str(itunes_id))
-        if cached:
+        key = str(itunes_id)
+        cached = self._feed_cache.get(key)
+        if cached is not None:
             return cached
 
+        series, size = await self._load_feed(itunes_id, country, lambda s: s)
+        if not _failed(series):
+            self._feed_cache.put(key, series, size)
+        return series
+
+    async def _load_feed(
+        self, itunes_id: str, country: str, keep: Callable[[Dict[str, Any]], Any]
+    ) -> Tuple[Any, int]:
+        """Resolve, fetch and parse one feed, and return `keep(series)` with
+        its size — or `None` / the sentinel, as `_feed` tells them apart, with
+        a size of 0. Caches nothing: what is kept is the caller's to say.
+        """
         await self._ensure_session()
         try:
             feed_url = await self.resolver.resolve(itunes_id, country)
         except CatalogUnavailable as exc:
             self.logger.info("Could not resolve feed for %s: %s", itunes_id, exc)
-            return _upstream_error()
+            return _upstream_error(), 0
         if not feed_url:
-            return None
+            return None, 0
 
         raw = await self._fetch_feed(feed_url)
         if raw is None:
-            return _upstream_error()
+            return _upstream_error(), 0
+
+        def _parse() -> Tuple[Any, int]:
+            series = parse_feed(raw, str(itunes_id), feed_url)
+            if series is None:
+                return None, 0
+            kept = keep(series)
+            return kept, estimate_size(kept)
 
         # ElementTree is synchronous and a large feed is not cheap — 59 ms for a
         # 1.6 MB / 244-episode feed on this hardware. Off the loop, or a cold
-        # subscriptions screen stalls every other client for a second.
-        series = await asyncio.to_thread(
-            parse_feed, raw, str(itunes_id), feed_url
-        )
-        if series is None:
+        # subscriptions screen stalls every other client for a second; and so
+        # is the walk that weighs what is kept.
+        kept, size = await asyncio.to_thread(_parse)
+        if kept is None:
             self.logger.error("Feed at %s did not parse as a podcast", feed_url)
-            return _upstream_error()
-
-        self._set_cache(self._feed_cache, str(itunes_id), series)
-        return series
+            return _upstream_error(), 0
+        return kept, size
 
     async def _fetch_feed(self, feed_url: str) -> Optional[bytes]:
         """Download a feed. Bytes, not text: the XML declaration owns the

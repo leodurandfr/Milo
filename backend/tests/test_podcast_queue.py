@@ -271,15 +271,3 @@ class TestSubscriptionLookups:
         ])
 
         assert await store.get_subscription_uuids() == ["feed-1", "feed-2"]
-
-    async def test_a_subscribed_podcast_is_reported_subscribed(self, store):
-        _write(store, subscriptions=[{"uuid": "feed-1", "itunes_id": None}])
-
-        assert await store.is_subscribed("feed-1") is True
-
-    async def test_a_podcast_that_is_not_stored_is_not_subscribed(self, store):
-        """`PodcastDetails.vue` draws subscribe vs unsubscribe from this one
-        boolean."""
-        _write(store, subscriptions=[{"uuid": "feed-1", "itunes_id": None}])
-
-        assert await store.is_subscribed("feed-9") is False
