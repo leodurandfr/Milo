@@ -128,6 +128,21 @@ SESSION_IDLE_GRACE_S = 300.0
 END_RETRY_S = 30.0
 END_ATTEMPTS = 5
 
+# A card Apple refused one device of a session for a reason that may pass is
+# sent to that device again, on a wake of its own, no sooner than this and at
+# most this many times in a row. Left to the next bus event, it waited for one:
+# a track change is one cycle, and a song that moves nothing else after it kept
+# the refused device's Lock Screen on the previous track until the next one.
+# Spaced, so a 429 is never answered by a push per cycle or per report of the
+# app: the same card goes to that device again only once the spacing has passed,
+# whoever calls in meanwhile. A card that changed goes at once. Bounded, for the
+# same reason an `end` is: past the bound no wake is armed, and the device gets
+# the card again on the next cycle that changes it, or that the bus starts once
+# the spacing has passed. Counted per device, so one refused for good leaves
+# another's retries alone. See `_send_changed`.
+UPDATE_RETRY_S = 30.0
+UPDATE_ATTEMPTS = 5
+
 # How long an ended session is watched (`_Ending`): a token registered for it
 # meanwhile — one that had not landed yet, another device's arriving late, the
 # app re-registering on launch — gets the `end` too, and is never adopted.
@@ -160,6 +175,20 @@ class _Ending:
     knocked_at: float = 0.0
 
 
+@dataclass
+class _Refused:
+    """A session token Apple refused its last card for, for a reason that may
+    pass. See `PushService._send_changed`."""
+
+    # The card refused, and the earliest the same card may go to it again.
+    card: Any
+    not_before: float
+    # Refusals in a row, whatever card each was for.
+    count: int = 1
+    # A wake to send it again is pending.
+    armed: bool = False
+
+
 class PushService:
     """Coalesces state changes into APNs pushes and owns the session lifecycle."""
 
@@ -190,10 +219,15 @@ class PushService:
         # The track a skip is loading, shown playing until it plays. See
         # `_through_a_skip`.
         self._skip_loading: Optional[Track] = None
-        # The last `update` Apple took while playing, so a cycle that changes
-        # nothing on the card spends no push. Any other Now Playing push
-        # replaces what the card shows, and clears it. See `_update_session`.
-        self._playing_card: Optional[tuple] = None
+        # The last playing `update` Apple took, per session token — so per
+        # device: a cycle that changes nothing on a device's card spends no push
+        # on it, and a device Apple refused is sent it again (`_send_changed`).
+        # Any other Now Playing push a device took replaces what its card
+        # shows, and clears its entry. See `_update_session` and `_shown`.
+        self._playing_card: Dict[str, tuple] = {}
+        # The session tokens whose last card Apple refused, and when each may
+        # be sent it again. See `_send_changed`.
+        self._update_refused: Dict[str, _Refused] = {}
         # Serializes the two seams. The coalescer used to be the only thing that
         # touched the session, and a loop is single file; the device's report is
         # a second caller on the same loop, and both decide on `_session_id`
@@ -208,9 +242,9 @@ class PushService:
         self._session_renewed_at: float = 0.0
         self._session_cleared_at: float = 0.0
         self._idle_since: float = 0.0
-        # The card last sent while nothing plays, so an idle cycle that changes
-        # nothing spends no push — see `_publish_paused`.
-        self._idle_card: Optional[Dict[str, Any]] = None
+        # The card last taken while nothing plays, per session token, so an
+        # idle cycle that changes nothing spends no push — see `_publish_paused`.
+        self._idle_card: Dict[str, Dict[str, Any]] = {}
         # Ended sessions still watched for their `end`. See `_send_end`.
         self._endings: Dict[str, _Ending] = {}
         # Whether a token was ever seen for the session held — one ended
@@ -608,7 +642,7 @@ class PushService:
         if self._idle_since == 0.0:
             self._idle_since = now
             # What the phone shows now is playback's card, not an idle one.
-            self._idle_card = None
+            self._idle_card.clear()
             self._bg.spawn(self._wake_after(SESSION_IDLE_GRACE_S), label="idle-recheck")
         elif now - self._idle_since >= SESSION_IDLE_GRACE_S:
             await self._end_session(state)
@@ -662,8 +696,9 @@ class PushService:
         **Re-sent only when it changes.** Every idle cycle lands here — a
         source chosen inside the grace has to reach the phone as its own
         card — and the app's report calls in every couple of seconds, so
-        the card is compared with the last one sent, timestamp aside, and an
-        idle cycle that changes nothing spends no push.
+        the card is compared, per device, with the last one Apple took for it,
+        timestamp aside, and an idle cycle that changes nothing spends no push
+        (`_send_changed`).
 
         Ending instead of showing would be the wrong trade and it has been
         measured: a session opened afterwards by a push has never been in the
@@ -695,14 +730,10 @@ class PushService:
         attributes["isPlaying"] = False
 
         card = {k: v for k, v in attributes.items() if k != "timestamp"}
-        if card == self._idle_card:
-            return
-        if await self._send_all(
-            targets,
+        await self._send_changed(
+            targets, card, self._idle_card,
             now_playing_payload("update", self._session_id, attributes),
-            "nowplaying",
-        ):
-            self._idle_card = card
+        )
 
     async def _wake_after(self, delay: float) -> None:
         """Stir the coalescer once, `WAKE_MARGIN_S` past `delay`. See
@@ -914,19 +945,106 @@ class PushService:
         # and each one was an update identical to the last: ~30 pushes a
         # minute of the budget the module docstring is about, and a next press
         # landing after one waited out the window. The timestamp counts only
-        # with an anchor; without one it is the moment of building. The
-        # targets count too: a device that just registered gets its first one.
+        # with an anchor; without one it is the moment of building. Compared
+        # per device (`_send_changed`): one that just registered gets its first
+        # one, and one Apple refused gets it again once spaced.
         anchored = bool((state.get("session") or {}).get("position"))
         card = (
             self._session_id,
-            tuple(sorted(t.token for t in targets)),
             attributes if anchored else {k: v for k, v in attributes.items() if k != "timestamp"},
         )
-        if card == self._playing_card:
+        await self._send_changed(
+            targets, card, self._playing_card,
+            now_playing_payload("update", self._session_id, attributes),
+        )
+
+    async def _send_changed(self, targets, card, taken: Dict[str, Any],
+                            payload: Dict[str, Any]) -> None:
+        """Send `payload` to the devices whose card is not `card` yet.
+
+        `taken` holds, per session token, the last card of its kind Apple took
+        for that token. **A card is recorded as shown only for the devices
+        Apple took it for.** It was recorded for every target as soon as one
+        of them took it: a phone and an iPad on one session, the iPad refused
+        for a reason that may pass (a 429, a 5xx, its environment's host
+        unreachable), and every identical cycle after it was skipped — the
+        iPad's Lock Screen kept the previous track and cover until the card
+        next changed, often for the rest of the song. A refused device is now
+        one whose entry did not move, so it is sent the card again, to it
+        alone — and a wake is armed for it (`UPDATE_RETRY_S`), since nothing
+        on the bus may come before the next track. A token Apple calls dead is
+        purged by `_deliver` and leaves the targets.
+
+        **The same card waits out the spacing.** This is reached outside the
+        loop's window too — the app's report every couple of seconds lands in
+        `_publish_paused` — and the bus can start a cycle per event with an
+        identical card (a satellite flapping in the multiroom): sent again on
+        each, a device answering 429 got a push per report. So a refused
+        device is sent the card it refused no sooner than `UPDATE_RETRY_S`
+        after the refusal, whoever calls in; a card that changed goes at once.
+
+        Kept to the tokens addressed now, so a session's tokens do not pile up
+        here after it ends.
+        """
+        addressed = {t.token for t in targets}
+        for kept in (taken, self._update_refused):
+            for token in [k for k in kept if k not in addressed]:
+                del kept[token]
+        now = time.monotonic()
+        due = []
+        for target in targets:
+            if taken.get(target.token) == card:
+                continue
+            refused = self._update_refused.get(target.token)
+            if refused is not None and refused.card == card and now < refused.not_before:
+                continue
+            due.append(target)
+        if not due:
             return
-        payload = now_playing_payload("update", self._session_id, attributes)
-        if await self._send_all(targets, payload, "nowplaying"):
-            self._playing_card = card
+        delivered, dead = await self._deliver(due, payload, "nowplaying")
+        for token in delivered:
+            taken[token] = card
+        for token in (*delivered, *dead):
+            self._update_refused.pop(token, None)
+        for target in due:
+            if target.token in delivered or target.token in dead:
+                continue
+            refused = self._update_refused.get(target.token)
+            if refused is None:
+                refused = self._update_refused[target.token] = _Refused(
+                    card=card, not_before=now + UPDATE_RETRY_S
+                )
+            else:
+                refused.card, refused.not_before = card, now + UPDATE_RETRY_S
+                refused.count += 1
+            if refused.count > UPDATE_ATTEMPTS:
+                if refused.count == UPDATE_ATTEMPTS + 1:
+                    logger.warning(
+                        f"Now Playing session {self._session_id}: update never "
+                        f"taken by device {target.device_id} after "
+                        f"{UPDATE_ATTEMPTS} retries — left to the next cycle"
+                    )
+                continue
+            if refused.armed:
+                continue
+            refused.armed = True
+            self._bg.spawn(self._retry_update_when_due(refused), label="update-retry")
+            logger.warning(
+                f"Now Playing session {self._session_id}: update refused for "
+                f"device {target.device_id}, retrying in {UPDATE_RETRY_S:.0f}s "
+                f"(attempt {refused.count}/{UPDATE_ATTEMPTS})"
+            )
+
+    async def _retry_update_when_due(self, refused: _Refused) -> None:
+        """Stir the coalescer once the refused card may go again. Read again
+        after every sleep: a refusal meanwhile moves the time. See
+        `_send_changed`."""
+        try:
+            while (wait := refused.not_before - time.monotonic()) > 0:
+                await asyncio.sleep(wait)
+        finally:
+            refused.armed = False
+        self._dirty.set()
 
     async def _knock(self, state: Dict[str, Any]) -> None:
         """No token yet for the session held: let it go if the phone that held
@@ -1031,7 +1149,9 @@ class PushService:
         self._session_renewed_at = 0.0
         self._session_cleared_at = time.time()
         self._idle_since = 0.0
-        self._idle_card = None
+        self._idle_card.clear()
+        self._playing_card.clear()
+        self._update_refused.clear()
 
     async def _end_session(self, state: Dict[str, Any]) -> None:
         """Close the session, and drop the token that could only address it.
@@ -1310,7 +1430,7 @@ class PushService:
                 )
 
         if push_type == "nowplaying" and delivered:
-            self._shown(payload)
+            self._shown(payload, delivered)
 
         # Stamped only for the ones Apple accepted. `last_push_at` is the only
         # way an operator reading push_tokens.json can tell a token that is
@@ -1320,16 +1440,25 @@ class PushService:
             await self._registry.mark_pushed(delivered)
         return delivered, dead
 
-    def _shown(self, payload: Dict[str, Any]) -> None:
+    def _shown(self, payload: Dict[str, Any], delivered: List[str]) -> None:
         """Apple took this Now Playing push: it is what the card shows now.
 
         Read here and only here, so a cycle that was refused, knocked or sent
         nothing never makes this side believe the phone moved on. And it clears
-        the update dedupe: a paused card or a `start` sent since is what an
-        identical update must now be compared with, not the last update.
+        the update dedupe of the devices that took it: a paused card or a
+        `start` sent since is what an identical update must now be compared
+        with, not the last update. An `update` clears only the tokens it
+        reached — a device that refused a paused card still shows the playing
+        one. A `start` (addressed to the push-to-start tokens, which name no
+        session token) rebuilds the card and an `end` closes it, so either
+        clears every device's.
         """
         aps = payload.get("aps") or {}
-        self._playing_card = None
+        if aps.get("event") == "update":
+            for token in delivered:
+                self._playing_card.pop(token, None)
+        else:
+            self._playing_card.clear()
         if aps.get("event") == "end":
             self._card_track, self._card_playing = None, False
             return

@@ -33,6 +33,8 @@ from backend.core.push.service import (
     MIN_PUSH_INTERVAL_S,
     SESSION_IDLE_GRACE_S,
     START_REPORT_GRACE_S,
+    UPDATE_ATTEMPTS,
+    UPDATE_RETRY_S,
     PushService,
 )
 
@@ -362,6 +364,207 @@ class TestSessionLifecycle:
 
         assert sent_events(apns) == ["end", "end"]
         assert "sess-phone" not in registry.held and "sess-ipad" not in registry.held
+
+    async def _two_devices_on_one_session(self, service, registry, apns):
+        """A phone and an iPad each holding the session `start` opened.
+
+        Returns a switch that makes APNs refuse the iPad for a reason that may
+        pass (a 429), as the simulated client answers per token.
+        """
+        registry.held["pts-phone"] = tok(PushTokenKind.PUSH_TO_START, "pts-phone")
+        registry.held["pts-ipad"] = tok(PushTokenKind.PUSH_TO_START, "pts-ipad",
+                                        device_id="ipad-1")
+        await service._publish()
+        session_id = service._session_id
+        registry.held["sess-phone"] = tok(PushTokenKind.SESSION, "sess-phone",
+                                          session_id=session_id)
+        registry.held["sess-ipad"] = tok(PushTokenKind.SESSION, "sess-ipad",
+                                         session_id=session_id, device_id="ipad-1")
+        refusing = {"ipad": False}
+
+        async def send(target, *args, **kwargs):
+            if refusing["ipad"] and target.token == "sess-ipad":
+                return ApnsResult(ok=False, status=429, reason="TooManyRequests")
+            return ApnsResult(ok=True, status=200)
+
+        apns.send.side_effect = send
+        apns.send.reset_mock()
+        return refusing
+
+    @staticmethod
+    def _addressed(apns):
+        """The tokens each Now Playing push of the cycle went to, in order."""
+        return [c.args[0].token for c in apns.send.await_args_list
+                if c.args[2] == "nowplaying"]
+
+    async def test_a_device_whose_update_was_refused_gets_it_again_once_spaced(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The card counts as delivered to each device that took it, never to
+        all of them because one did. Recorded for every token once the phone
+        took it, the iPad's refused update was never sent again: the next
+        cycles were identical and skipped, and its Lock Screen kept the
+        previous track until the card next changed. And the identical cycles
+        the bus starts meanwhile (a satellite flapping in the multiroom, every
+        2 s) must not each answer a 429 with a push: the iPad gets the card
+        again once the spacing has passed, to it alone — the phone already
+        shows it — and then nothing goes."""
+        clock = _ShiftedClock()
+        monkeypatch.setattr("backend.core.push.service.time", clock)
+        refusing = await self._two_devices_on_one_session(service, registry, apns)
+
+        refusing["ipad"] = True
+        await service._publish()                       # phone takes it, iPad refused
+        first = self._addressed(apns)
+        apns.send.reset_mock()
+        refusing["ipad"] = False
+        for _ in range(10):
+            await service._publish()                   # same card, inside the spacing
+        held = self._addressed(apns)
+        clock.shift += UPDATE_RETRY_S
+        await service._publish()                       # the iPad's retry
+        retry = self._addressed(apns)
+        apns.send.reset_mock()
+        await service._publish()                       # both hold it: nothing
+
+        assert sorted(first) == ["sess-ipad", "sess-phone"]
+        assert held == []
+        assert retry == ["sess-ipad"]
+        assert self._addressed(apns) == []
+
+    async def test_a_card_that_changed_reaches_a_refused_device_at_once(
+        self, service, registry, apns
+    ):
+        """The spacing holds back the card a device refused, never the next
+        one: a track change goes to the iPad as soon as it is on the bus, or
+        its Lock Screen would wait out the spacing on a song that has moved."""
+        refusing = await self._two_devices_on_one_session(service, registry, apns)
+        refusing["ipad"] = True
+        await service._publish()
+        apns.send.reset_mock()
+        refusing["ipad"] = False
+
+        service.machine.get_current_state.return_value = playing_with(title="Next")
+        await service._publish()
+
+        assert sorted(self._addressed(apns)) == ["sess-ipad", "sess-phone"]
+
+    async def test_a_device_whose_paused_card_was_refused_is_not_sent_it_per_report(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The idle card is deduplicated the same way and for the same reason:
+        a paused card the iPad refused was recorded as sent once the phone took
+        it, and the iPad's Lock Screen went on claiming the music played. The
+        report seam runs outside the loop's window, every couple of seconds the
+        app is open, so each report re-sent the paused card to the iPad that
+        had just answered 429: it waits out the spacing whoever calls in."""
+        clock = _ShiftedClock()
+        monkeypatch.setattr("backend.core.push.service.time", clock)
+        refusing = await self._two_devices_on_one_session(service, registry, apns)
+        service.machine.get_current_state.return_value = dict(READY)
+
+        refusing["ipad"] = True
+        await service._publish()                       # phone takes it, iPad refused
+        first = self._addressed(apns)
+        apns.send.reset_mock()
+        for _ in range(10):
+            await service.align_session_to_playback("phone-1")
+        held = self._addressed(apns)
+        refusing["ipad"] = False
+        clock.shift += UPDATE_RETRY_S
+        await service.align_session_to_playback("phone-1")
+        retry = self._addressed(apns)
+        apns.send.reset_mock()
+        await service.align_session_to_playback("phone-1")
+
+        assert sorted(first) == ["sess-ipad", "sess-phone"]
+        assert held == []
+        assert retry == ["sess-ipad"]
+        assert self._addressed(apns) == []
+
+    async def _one_refused_track_change(self, service, registry, apns, monkeypatch):
+        """The loop running, one track change on the bus and nothing after it,
+        the iPad refused for it."""
+        monkeypatch.setattr("backend.core.push.service.MIN_PUSH_INTERVAL_S", 0.01)
+        monkeypatch.setattr("backend.core.push.service.UPDATE_RETRY_S", 0.03)
+        refusing = await self._two_devices_on_one_session(service, registry, apns)
+        refusing["ipad"] = True
+        await service.initialize()
+        service.machine.get_current_state.return_value = playing_with(title="Next")
+        service.on_event(VolumeChanged(display="bar", multiroom_enabled=True, state={}))
+        await _settled(apns, count=2, settle=0)
+        return refusing
+
+    async def test_a_refused_device_is_sent_its_card_with_nothing_else_on_the_bus(
+        self, service, registry, apns, monkeypatch
+    ):
+        """A track change is one cycle, and a song that moves nothing else after
+        it starts no other. Left to the next bus event, the iPad refused for the
+        track change kept the previous title and cover until the next track. A
+        wake of its own brings the card to it, and to it alone."""
+        refusing = await self._one_refused_track_change(service, registry, apns, monkeypatch)
+        refusing["ipad"] = False
+        await _settled(apns, count=3, settle=0.15)
+        await service.cleanup()
+
+        addressed = self._addressed(apns)
+        assert sorted(addressed[:2]) == ["sess-ipad", "sess-phone"]
+        assert addressed[2:] == ["sess-ipad"]
+
+    async def test_a_device_that_keeps_refusing_is_not_retried_for_ever(
+        self, service, registry, apns, monkeypatch
+    ):
+        """A token Apple keeps refusing without calling it dead would otherwise
+        cost a push every retry interval for as long as the song lasts — the
+        same reason an `end` is bounded. Past the bound it waits for the bus."""
+        await self._one_refused_track_change(service, registry, apns, monkeypatch)
+        await _settled(apns, count=2 + UPDATE_ATTEMPTS, settle=0.3)
+        await service.cleanup()
+
+        addressed = self._addressed(apns)
+        assert addressed.count("sess-phone") == 1
+        assert addressed.count("sess-ipad") == 1 + UPDATE_ATTEMPTS
+
+    async def test_a_device_that_recovered_is_retried_again_on_its_next_refusal(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The bound counts refusals in a row, per device. Counted over the
+        session, a device refused and recovered more than `UPDATE_ATTEMPTS`
+        times over a long listen got no wake for its next refused track
+        change, and its Lock Screen kept the previous song again."""
+        refusing = await self._one_refused_track_change(service, registry, apns, monkeypatch)
+        reached_by_its_wake = []
+        for i in range(UPDATE_ATTEMPTS + 2):
+            if i:                                      # the first change is already out
+                refusing["ipad"] = True
+                service.machine.get_current_state.return_value = playing_with(title=f"T{i}")
+                service.on_event(VolumeChanged(display="bar", multiroom_enabled=True, state={}))
+                await _settled(apns, count=apns.send.await_count + 2, settle=0)
+            refusing["ipad"] = False
+            sent = apns.send.await_count
+            await _settled(apns, count=sent + 1, settle=0)
+            reached_by_its_wake.append(self._addressed(apns)[sent:])
+        await service.cleanup()
+
+        assert reached_by_its_wake == [["sess-ipad"]] * (UPDATE_ATTEMPTS + 2)
+
+    async def test_a_dead_device_arms_no_retry(self, service, registry, apns, caplog):
+        """A token Apple calls dead is purged, not refused: arming a wake for
+        it spent a cycle on nothing and logged an update as retried that never
+        would be."""
+        await self._two_devices_on_one_session(service, registry, apns)
+
+        async def send(target, *args, **kwargs):
+            if target.token == "sess-ipad":
+                return ApnsResult(ok=False, status=410, reason="Unregistered", dead=True)
+            return ApnsResult(ok=True, status=200)
+
+        apns.send.side_effect = send
+        with caplog.at_level("WARNING"):
+            await service._publish()
+
+        registry.purge.assert_awaited_once()
+        assert "update refused" not in caplog.text
 
     async def test_a_pause_does_not_end_the_session(self, service, registry, apns):
         """Ending on pause deletes the play button at the moment someone
@@ -2476,7 +2679,7 @@ class TestCoalescing:
         """Sofa dropping and rejoining the multiroom every two seconds emitted a
         `volume_changed` each time, level unchanged: one identical update per
         event (2026-11-08). A device that registers gets its first one all the
-        same."""
+        same, and only it: the other device's card has not moved."""
         window = 0.02
         await self._session_open(service, registry, apns, monkeypatch, window=window)
 
@@ -2489,7 +2692,8 @@ class TestCoalescing:
         await _settled(apns, count=2, settle=3 * window)
         await service.cleanup()
 
-        assert sent_types(apns) == ["nowplaying"] + ["nowplaying"] * 2
+        assert [c.args[0].token for c in apns.send.await_args_list
+                if c.args[2] == "nowplaying"] == ["sess", "ipad"]
 
     async def test_the_card_back_from_a_pause_is_pushed_again(
         self, service, registry, apns, monkeypatch
