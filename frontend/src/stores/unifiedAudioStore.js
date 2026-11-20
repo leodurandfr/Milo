@@ -113,7 +113,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     requestedMultiroom.value ?? systemState.value.multiroom_enabled
   );
 
-  async function setMultiroomEnabled(enabled) {
+  async function setMultiroomEnabled(enabled, { errorRef } = {}) {
     const seq = ++multiroomRequestSeq;
     requestedMultiroom.value = enabled;
     try {
@@ -121,6 +121,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         category: 'store',
         message: 'Set multiroom failed',
         checkStatus: true,
+        errorRef,
       });
       return result.ok;
     } finally {

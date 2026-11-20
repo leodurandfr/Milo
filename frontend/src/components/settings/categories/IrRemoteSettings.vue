@@ -49,6 +49,12 @@
       :cta-click="primaryCtaClick"
     />
 
+    <!-- The header switch refused; a pairing, a Cancel or an Unpair that
+         failed, its reason folded under the sentence. -->
+    <NoticeBox v-if="toggleRefusal !== null" :detail="toggleRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
+    <NoticeBox v-if="pairingFailed" :detail="actionRefusal">{{ t('irRemoteSettings.wizard.errorDetails') }}</NoticeBox>
+    <NoticeBox v-else-if="actionRefusal !== null" :detail="actionRefusal">{{ t('settings.actionFailed') }}</NoticeBox>
+
     <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
@@ -63,7 +69,13 @@ import { useTimer } from '@/composables/useTimer';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
+
+defineProps({
+  // The server's detail when the header's switch (SettingsModal) was refused.
+  toggleRefusal: { type: String, default: null }
+});
 
 const emit = defineEmits(['open-hardware']);
 
@@ -85,6 +97,10 @@ const { updateSetting, refusal } = useSettingsAPI({
   resync: () => { stepIrRemoteDb.value = settingsStore.volumeSteps.step_ir_remote_db; }
 });
 const unpairing = ref(false);
+// The server's detail for the last pairing, Cancel or Unpair that failed: the
+// backend's own `message` for a capture it reports as failed, the HTTP error's
+// detail otherwise.
+const actionRefusal = ref(null);
 
 watch(
   () => settingsStore.volumeSteps.step_ir_remote_db,
@@ -93,8 +109,9 @@ watch(
 
 async function handleUnpair() {
   unpairing.value = true;
+  actionRefusal.value = null;
   try {
-    await settingsStore.unpairIrRemote();
+    await settingsStore.unpairIrRemote({ errorRef: actionRefusal });
     // After unpair, the wizard re-appears via reactive `paired` flag.
     fsmState.value = 'idle';
   } finally {
@@ -112,7 +129,19 @@ async function handleUnpair() {
 // confirmation.
 
 const fsmState = ref('idle');           // 'idle' | 'waiting' | 'timeout' | 'unsupported' | 'error'
-const errorMessage = ref('');
+// A failed capture is said under the wizard, the one way every settings failure is.
+const pairingFailed = computed(() => fsmState.value === 'error');
+const showsWizard = computed(
+  () => irHardwareEnabled.value && settingsStore.irRemote.enabled && !settingsStore.irRemote.paired
+);
+// The failure belongs to the wizard: once another view replaces it (the remote
+// switched off, the receiver gone, a pairing made elsewhere), it goes with it.
+watch(showsWizard, (shown) => {
+  if (!shown && fsmState.value === 'error') {
+    fsmState.value = 'idle';
+    actionRefusal.value = null;
+  }
+});
 const remainingSeconds = ref(PAIRING_TIMEOUT_SECONDS);
 let countdownTimer = null;
 
@@ -133,7 +162,7 @@ const messageDetails = computed(() => {
     case 'waiting':      return t('irRemoteSettings.wizard.waitingDetails', { time: formatUnit(remainingSeconds.value, 's') });
     case 'timeout':      return t('irRemoteSettings.wizard.timeoutDetails');
     case 'unsupported':  return t('irRemoteSettings.wizard.unsupportedDetails');
-    case 'error':        return errorMessage.value || t('irRemoteSettings.wizard.errorDetails');
+    case 'error':        return '';
     default:             return '';
   }
 });
@@ -168,23 +197,16 @@ function stopCountdown() {
 }
 
 async function startPairing() {
-  errorMessage.value = '';
+  actionRefusal.value = null;
   fsmState.value = 'waiting';
   startCountdown();
-  let result;
-  try {
-    result = await settingsStore.startIrRemotePairing();
-  } catch (e) {
-    stopCountdown();
-    fsmState.value = 'error';
-    errorMessage.value = e?.message || '';
-    return;
-  }
+  // A refusal sets actionRefusal: the store answers with a verdict, never a throw.
+  const result = await settingsStore.startIrRemotePairing({ errorRef: actionRefusal });
   stopCountdown();
 
   if (!result || result.status === 'error') {
     fsmState.value = 'error';
-    errorMessage.value = result?.message || '';
+    if (result?.message) actionRefusal.value = result.message;
     return;
   }
   if (result.status === 'success') {
@@ -210,7 +232,8 @@ async function startPairing() {
 }
 
 async function cancelPairing() {
-  await settingsStore.cancelIrRemotePairing();
+  actionRefusal.value = null;
+  await settingsStore.cancelIrRemotePairing({ errorRef: actionRefusal });
   // The waiting request will resolve with status=cancelled and reset the FSM.
 }
 
@@ -222,6 +245,7 @@ onBeforeUnmount(() => {
   // If the user navigates away mid-pairing, abort the capture so the device
   // doesn't stay locked in pairing mode for the full timeout.
   if (fsmState.value === 'waiting') {
+    // No errorRef: nobody is in front of this view any more to read a refusal.
     settingsStore.cancelIrRemotePairing();
   }
   stopCountdown();

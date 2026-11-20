@@ -226,20 +226,21 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     });
   }
 
-  async function applyServerConfig() {
+  async function applyServerConfig({ errorRef } = {}) {
     if (!hasServerConfigChanges.value || isApplyingServerConfig.value) return false;
 
-    lastApply = _writeServerConfig();
+    lastApply = _writeServerConfig(errorRef);
     return lastApply;
   }
 
-  async function _writeServerConfig() {
+  async function _writeServerConfig(errorRef) {
     isApplyingServerConfig.value = true;
     const result = await apiCall.put('/api/routing/snapcast/server-config', {
       config: serverConfig.value,
     }, {
       category: 'store',
       message: 'Error applying multiroom server config',
+      errorRef,
     });
     isApplyingServerConfig.value = false;
 

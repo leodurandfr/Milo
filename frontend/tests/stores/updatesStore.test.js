@@ -47,6 +47,24 @@ describe('updatesStore recheck', () => {
     expect(apiCall.get).not.toHaveBeenCalled();
   });
 
+  it('a refused Retry keeps the rows drawn: only a read that never got a list replaces the screen', async () => {
+    // A recheck that failed used to flip the read error, which swaps the whole
+    // list for the "could not load" card and throws the server's detail away;
+    // the row's own refusal says it instead.
+    apiCall.get.mockResolvedValue(ok({ programs: { milo: { check_failed: true } }, active_updates: [] }));
+    await store.loadLocalPrograms();
+    apiCall.post.mockResolvedValue(fail('GitHub unreachable', 502));
+
+    expect(await store.loadLocalPrograms({ recheck: true })).toBe(false);
+
+    expect(store.localProgramsError).toBe(false);
+    expect(Object.keys(store.localPrograms)).toEqual(['milo']);
+
+    apiCall.get.mockResolvedValue(fail('backend down', 500));
+    await store.loadLocalPrograms();
+    expect(store.localProgramsError).toBe(true);
+  });
+
   it('an ordinary read does not ask GitHub again', async () => {
     apiCall.get.mockResolvedValue(ok({ programs: {}, active_updates: [] }));
     await store.loadLocalPrograms();

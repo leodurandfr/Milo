@@ -997,10 +997,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   //
   // Never refused: it cannot destroy anything, so an unplugged key is no reason
   // to hold it back. The settings button and the library view both call it.
-  async function rescan() {
+  async function rescan({ errorRef } = {}) {
     const result = await apiCall.post(`${BASE}/scan`, null, {
       category: 'musicLibrary',
       message: 'Error starting library scan',
+      errorRef,
     });
     return result.ok && result.data?.status === 'success';
   }
@@ -1136,10 +1137,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // was saved, `mounted` whether the read-only mount actually succeeded (a share
   // persists either way, but the UI tells the user whether it connected). No
   // throw — the form reads the flags.
-  async function addShare(payload) {
+  async function addShare(payload, { errorRef } = {}) {
     const result = await apiCall.post(`${BASE}/shares`, payload, {
       category: 'musicLibrary',
       message: 'Error adding network share',
+      errorRef,
     });
     if (result.ok && result.data?.status === 'success') {
       await loadShares({ force: true });
@@ -1153,10 +1155,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return { ok: false };
   }
 
-  async function updateShare(shareId, payload) {
+  async function updateShare(shareId, payload, { errorRef } = {}) {
     const result = await apiCall.put(`${BASE}/shares/${shareId}`, payload, {
       category: 'musicLibrary',
       message: 'Error updating network share',
+      errorRef,
     });
     if (result.ok && result.data?.status === 'success') {
       await loadShares({ force: true });
@@ -1165,10 +1168,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     return { ok: false };
   }
 
-  async function removeShare(shareId) {
+  async function removeShare(shareId, { errorRef } = {}) {
     const result = await apiCall.delete(`${BASE}/shares/${shareId}`, {
       category: 'musicLibrary',
       message: 'Error removing network share',
+      errorRef,
     });
     if (result.ok && result.data?.status === 'success') {
       await loadShares({ force: true });
@@ -1190,20 +1194,22 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
 
   // Name a known USB key. The name is stored against its filesystem UUID, so it
   // comes back with the key; an empty name restores the disk label.
-  async function renameUsbDevice(uuid, name) {
+  async function renameUsbDevice(uuid, name, { errorRef } = {}) {
     const result = await apiCall.put(usbPath(uuid), { name }, {
       category: 'musicLibrary',
       message: 'Error renaming USB device',
+      errorRef,
     });
     return result.ok && result.data?.status === 'success';
   }
 
   // Forget an unplugged key: drops its Navidrome library and its index, which is
   // the only way a key that will never come back stops holding catalog rows.
-  async function forgetUsbDevice(uuid) {
+  async function forgetUsbDevice(uuid, { errorRef } = {}) {
     const result = await apiCall.delete(usbPath(uuid), {
       category: 'musicLibrary',
       message: 'Error forgetting USB device',
+      errorRef,
     });
     return result.ok && result.data?.status === 'success';
   }
@@ -1224,7 +1230,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // exports) WITHOUT mounting. Returns the backend's typed envelope
   // { status: 'ok'|'auth_required'|'unreachable'|'error', entries, message } —
   // credentials are only sent for CIFS and are never persisted client-side.
-  async function browseShare({ type, host, path = '', username, password, domain }) {
+  async function browseShare({ type, host, path = '', username, password, domain }, { errorRef } = {}) {
     const body = { type, host, path };
     if (type === 'cifs' && (username || password)) {
       Object.assign(body, { username, password, domain });
@@ -1232,6 +1238,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     const result = await apiCall.post(`${BASE}/shares/browse`, body, {
       category: 'musicLibrary',
       message: 'Error browsing network server',
+      errorRef,
       checkStatus: true,
       logLevel: 'debug',
     });

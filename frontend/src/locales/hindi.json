@@ -48,7 +48,9 @@
     "remoteControls": "रिमोट कंट्रोल",
     "btRemote": "Bluetooth रिमोट",
     "irRemote": "IR रिमोट",
-    "writeRefused": "यह बदलाव सहेजा नहीं जा सका।"
+    "writeRefused": "यह बदलाव सहेजा नहीं जा सका।",
+    "actionFailed": "यह कार्रवाई पूरी नहीं हो सकी।",
+    "readFailed": "यह जानकारी लोड नहीं हो सकी।"
   },
   "audioSources": {
     "title": "ऑडियो स्रोत",
@@ -674,7 +676,6 @@
       "invalidImageFormat": "असमर्थित छवि प्रारूप। JPG, PNG, WEBP या GIF का उपयोग करें।",
       "imageTooLarge": "छवि बहुत बड़ी है। अधिकतम {size}।",
       "addFailed": "स्टेशन जोड़ने में विफल",
-      "errorOccurred": "एक त्रुटि हुई",
       "addStationTitle": "स्टेशन जोड़ें",
       "editStationTitle": "स्टेशन संपादित करें",
       "shazamEnabled": "इस स्टेशन के लिए गाना पहचान",

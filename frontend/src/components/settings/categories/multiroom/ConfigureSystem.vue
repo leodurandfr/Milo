@@ -12,15 +12,16 @@
       :subtitle="rebootTimedOut ? t('multiroom.pending.rebootTimeout') : rebootingSubtitle"
     />
 
-    <!-- Error State -->
-    <MessageContent
-      v-else-if="error"
-      icon="multiroom"
-      :title="t('multiroom.pending.errorTitle')"
-      :subtitle="error"
-      :cta-label="t('multiroom.pending.retry')"
-      :cta-click="resetError"
-    />
+    <!-- Error State: the sentence says what failed, the server's words folded under it. -->
+    <template v-else-if="error">
+      <MessageContent
+        icon="multiroom"
+        :title="t('multiroom.pending.errorTitle')"
+        :cta-label="t('multiroom.pending.retry')"
+        :cta-click="resetError"
+      />
+      <NoticeBox :detail="errorDetail">{{ error }}</NoticeBox>
+    </template>
 
     <!-- Configuration Form -->
     <template v-else>
@@ -133,6 +134,7 @@ import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
@@ -175,6 +177,8 @@ const isRebooting = ref(false);
 const rebootTimedOut = ref(false);
 const confirmReboot = ref(false);
 const error = ref('');
+// The server's detail for the failure `error` says, folded under it.
+const errorDetail = ref(null);
 const audioCards = ref([]);
 let rebootTimeoutId = null;
 const REBOOT_TIMEOUT_MS = 120000; // 2 minutes
@@ -243,6 +247,7 @@ async function loadAudioCards() {
 
 async function resetError() {
   error.value = '';
+  errorDetail.value = null;
   if (audioCards.value.length === 0) {
     await loadAudioCards();
   }
@@ -271,6 +276,7 @@ async function applyConfiguration() {
 
   isRebooting.value = true;
   error.value = '';
+  errorDetail.value = null;
 
   try {
     if (props.mode === 'wifi') {
@@ -291,7 +297,7 @@ async function applyConfiguration() {
         // ever reaches the LAN), so an empty field sends the word for one.
         speaker_name: speakerName.value.trim() || t('multiroom.defaultSpeakerName'),
         speaker_type: selectedSpeakerType.value,
-      }, typedWifi);
+      }, typedWifi, { errorRef: errorDetail });
       // Server returns once the device has accepted the config and is rebooting.
       // The new client appears in the multiroom list when it joins the LAN.
       timer.clear(rebootTimeoutId);
@@ -302,7 +308,7 @@ async function applyConfiguration() {
         name: speakerName.value.trim() || null,
         speaker_type: selectedSpeakerType.value,
         audio_id: selectedAudioId.value,
-      });
+      }, { errorRef: errorDetail });
       rebootTimeoutId = timer.setTimeout(() => {
         rebootTimedOut.value = true;
       }, REBOOT_TIMEOUT_MS);

@@ -33,6 +33,11 @@ export const useUpdatesStore = defineStore('updates', () => {
   const localPrograms = ref({});
   const localProgramsLoading = ref(true);
   const localProgramsError = ref(false);
+  // The server's detail when the last update it was asked to start was
+  // refused (a 409 while another runs, a satellite gone): the button goes back,
+  // and UpdateManager says why. Feedback on a press, never state: the screen
+  // clears it as it opens.
+  const startRefusal = ref(null);
   // True from the first loadLocalPrograms() onwards (gates resync, see below)
   const hasEverLoaded = ref(false);
 
@@ -200,14 +205,17 @@ export const useUpdatesStore = defineStore('updates', () => {
   // again at once (POST /recheck) instead of answering the failure it
   // remembers, and the rows stay drawn — the pressed button is what waits, not
   // the whole list.
-  async function loadLocalPrograms({ recheck = false } = {}) {
+  // A recheck is a row's Retry over a list already drawn: refused, the list
+  // stands and the cause goes to `errorRef` — only a read that never got one
+  // replaces the screen with the read error.
+  async function loadLocalPrograms({ recheck = false, errorRef } = {}) {
     const seq = ++localLoadSeq;
     const deltasSeen = localClock.now();
     const miloRead = startMiloRead();
     hasEverLoaded.value = true;
     if (!recheck) localProgramsLoading.value = true;
     localProgramsError.value = false;
-    const options = { category: 'updates', message: 'Error loading programs', checkStatus: true };
+    const options = { category: 'updates', message: 'Error loading programs', checkStatus: true, errorRef };
     const result = recheck
       ? await apiCall.post('/api/programs/recheck', null, options)
       : await apiCall.get('/api/programs', options);
@@ -224,7 +232,7 @@ export const useUpdatesStore = defineStore('updates', () => {
       for (const id of [...localCompletedUpdates.value]) {
         if (!newer.has(id)) localCompletedUpdates.value.delete(id);
       }
-    } else {
+    } else if (!recheck) {
       localProgramsError.value = true;
     }
     localProgramsLoading.value = false;
@@ -291,10 +299,12 @@ export const useUpdatesStore = defineStore('updates', () => {
     // in-flight set has no target and falls back to the generic label.
     states.value[id] = { updating: true, target: body?.target, version: body?.version };
     onDelta?.(id);
+    startRefusal.value = null;
     const result = await apiCall.post(url, body, {
       category: 'updates',
       message,
-      checkStatus: true
+      checkStatus: true,
+      errorRef: startRefusal
     });
     if (!result.ok) {
       delete states.value[id];
@@ -577,6 +587,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     localPrograms,
     localProgramsLoading,
     localProgramsError,
+    startRefusal,
     satellites,
     satellitesError,
     miloUpdate,

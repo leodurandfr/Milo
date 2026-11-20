@@ -54,11 +54,14 @@
         @change="onTargetChange"
       />
     </template>
+
+    <!-- A change the backend refused: the controls are back on the stored config. -->
+    <NoticeBox v-if="saveRefusal !== null" :detail="saveRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
   </SectionCard>
 </template>
 
 <script setup>
-import { reactive, computed, watch, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useFanStore } from '@/stores/fanStore';
 import { useTimer } from '@/composables/useTimer';
@@ -96,13 +99,16 @@ function syncFromStore() {
   config.target_temp_c = fanStore.config.target_temp_c;
 }
 
+const saveRefusal = ref(null);
+
 function save() {
+  saveRefusal.value = null;
   fanStore.updateConfig({
     enabled: config.enabled,
     mode: config.mode,
     manual_percent: config.manual_percent,
     target_temp_c: config.target_temp_c,
-  });
+  }, { errorRef: saveRefusal });
 }
 
 // Applies at once, like every fan control: the fan is driven live and is

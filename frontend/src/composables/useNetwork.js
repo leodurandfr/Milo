@@ -90,6 +90,10 @@ export function useNetwork() {
   const loading = ref(!_statusLoaded);
   const connecting = ref(false);
   const connectError = ref('');
+  // The server's detail for the failure connectError says, folded under it.
+  const connectDetail = ref(null);
+  // The server's detail when the WiFi switch or a Forget was refused.
+  const wifiRefusal = ref(null);
   const selectedSsid = ref(null);
   const password = ref('');
 
@@ -117,10 +121,12 @@ export function useNetwork() {
       selectedSsid.value = null;
       password.value = '';
       connectError.value = '';
+      connectDetail.value = null;
     } else {
       selectedSsid.value = network.ssid;
       password.value = '';
       connectError.value = '';
+      connectDetail.value = null;
     }
   }
 
@@ -146,15 +152,18 @@ export function useNetwork() {
     }
   }
 
-  async function setCountry(code) {
+  // A refusal leaves the country where it was and hands the server's detail to
+  // `errorRef`; the answer is the verdict, never a throw.
+  async function setCountry(code, { errorRef } = {}) {
     const result = await apiCall.put('/api/network/wifi/country', { country_code: code }, {
       category: 'network',
       message: 'Failed to set WiFi country',
-      rethrow: true
+      errorRef
     });
     if (result.ok) {
       _country.value = code;
     }
+    return result.ok;
   }
 
   async function loadSavedNetworks() {
@@ -182,10 +191,12 @@ export function useNetwork() {
   async function connectToNetwork(network, t) {
     connecting.value = true;
     connectError.value = '';
+    connectDetail.value = null;
     const payload = { ssid: network.ssid, password: network.security ? password.value : null };
     const result = await apiCall.post('/api/network/wifi/connect', payload, {
       category: 'network',
-      message: 'WiFi connection failed'
+      message: 'WiFi connection failed',
+      errorRef: connectDetail
     });
     if (result.ok) {
       selectedSsid.value = null;
@@ -200,10 +211,12 @@ export function useNetwork() {
   async function saveNetwork(network, t) {
     connecting.value = true;
     connectError.value = '';
+    connectDetail.value = null;
     const payload = { ssid: network.ssid, password: network.security ? password.value : null };
     const result = await apiCall.post('/api/network/wifi/save', payload, {
       category: 'network',
-      message: 'WiFi save failed'
+      message: 'WiFi save failed',
+      errorRef: connectDetail
     });
     if (result.ok) {
       selectedSsid.value = null;
@@ -220,9 +233,11 @@ export function useNetwork() {
   }
 
   async function forgetNetwork(ssid) {
+    wifiRefusal.value = null;
     const result = await apiCall.delete(`/api/network/wifi/saved/${encodeURIComponent(ssid)}`, {
       category: 'network',
-      message: 'Failed to forget network'
+      message: 'Failed to forget network',
+      errorRef: wifiRefusal
     });
     if (result.ok) {
       savedSsids.value.delete(ssid);
@@ -256,9 +271,11 @@ export function useNetwork() {
       networks.value = [];
       scanning.value = true;
     }
+    wifiRefusal.value = null;
     const result = await apiCall.put('/api/network/wifi/radio', { enabled }, {
       category: 'network',
-      message: 'Failed to toggle WiFi'
+      message: 'Failed to toggle WiFi',
+      errorRef: wifiRefusal
     });
     if (result.ok) {
       status.value = result.data.data;
@@ -294,6 +311,8 @@ export function useNetwork() {
     scanning,
     connecting,
     connectError,
+    connectDetail,
+    wifiRefusal,
     selectedSsid,
     password,
     preferredSsid,

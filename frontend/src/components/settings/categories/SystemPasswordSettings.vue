@@ -17,7 +17,8 @@
       <InputText v-model="confirmPassword" type="password" :maxlength="128"
         :placeholder="t('system.password.confirmPlaceholder')" @submit="savePassword" />
 
-      <NoticeBox v-if="passwordError">{{ passwordError }}</NoticeBox>
+      <NoticeBox v-if="passwordInvalid">{{ passwordInvalid }}</NoticeBox>
+      <NoticeBox v-if="passwordRefusal !== null" :detail="passwordRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
 
       <Button variant="brand" :loading="savingPassword" :disabled="!canSavePassword || savingPassword"
         @click="savePassword">
@@ -58,7 +59,10 @@ const newPassword = ref('');
 const confirmPassword = ref('');
 const savingPassword = ref(false);
 const passwordChanged = ref(false);
-const passwordError = ref(null);
+// What the form says of the two fields before anything is sent, translated…
+const passwordInvalid = ref(null);
+// …and the server's detail when the unit refused the password.
+const passwordRefusal = ref(null);
 
 // The address the SSH panel above logs into, as its `ssh user@host` line
 // names it: milo.local for the server, the IP for a satellite.
@@ -75,21 +79,22 @@ const canSavePassword = computed(() =>
 );
 
 async function savePassword() {
-  passwordError.value = null;
+  passwordInvalid.value = null;
+  passwordRefusal.value = null;
 
   if (newPassword.value !== confirmPassword.value) {
-    passwordError.value = t('system.password.mismatch');
+    passwordInvalid.value = t('system.password.mismatch');
     return;
   }
   if (newPassword.value.length < PASSWORD_MIN_LENGTH) {
-    passwordError.value = t('system.password.tooShort', { n: PASSWORD_MIN_LENGTH });
+    passwordInvalid.value = t('system.password.tooShort', { n: PASSWORD_MIN_LENGTH });
     return;
   }
 
   savingPassword.value = true;
   const saved = props.macId
-    ? await multiroomStore.setClientPassword(props.macId, newPassword.value, { errorRef: passwordError })
-    : await systemStore.setPassword(newPassword.value, { errorRef: passwordError });
+    ? await multiroomStore.setClientPassword(props.macId, newPassword.value, { errorRef: passwordRefusal })
+    : await systemStore.setPassword(newPassword.value, { errorRef: passwordRefusal });
   savingPassword.value = false;
 
   if (!saved) return;

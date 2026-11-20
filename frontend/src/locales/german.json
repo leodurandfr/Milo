@@ -48,7 +48,9 @@
     "remoteControls": "Fernbedienungen",
     "btRemote": "Bluetooth-Fernbedienung",
     "irRemote": "IR-Fernbedienung",
-    "writeRefused": "Diese Änderung konnte nicht gespeichert werden."
+    "writeRefused": "Diese Änderung konnte nicht gespeichert werden.",
+    "actionFailed": "Diese Aktion konnte nicht ausgeführt werden.",
+    "readFailed": "Diese Informationen konnten nicht geladen werden."
   },
   "audioSources": {
     "title": "Audioquellen",
@@ -674,7 +676,6 @@
       "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwenden Sie JPG, PNG, WEBP oder GIF.",
       "imageTooLarge": "Bild zu groß. Maximum {size}.",
       "addFailed": "Sender konnte nicht hinzugefügt werden",
-      "errorOccurred": "Ein Fehler ist aufgetreten",
       "addStationTitle": "Sender hinzufügen",
       "editStationTitle": "Sender bearbeiten",
       "shazamEnabled": "Titelidentifikation für diesen Sender",

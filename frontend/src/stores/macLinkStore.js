@@ -93,13 +93,14 @@ export const useMacLinkStore = defineStore('macLink', () => {
     });
   }
 
-  async function apply() {
+  async function apply({ errorRef } = {}) {
     if (!hasChanges.value || isApplying.value) return false;
     isApplying.value = true;
     const body = { ...draft.value };
     const result = await apiCall.put('/api/settings/mac-roc', body, {
       category: 'mac',
       message: 'Failed to apply the Mac link',
+      errorRef,
       checkStatus: true,
     });
     isApplying.value = false;

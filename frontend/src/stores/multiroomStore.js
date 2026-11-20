@@ -397,10 +397,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Create a new zone.
    * Uses the canonical /api/multiroom/zones endpoint.
    */
-  async function createZone(name, clientIds = []) {
+  async function createZone(name, clientIds = [], { errorRef } = {}) {
     const result = await apiCall.post('/api/multiroom/zones', { name, client_ids: clientIds }, {
       category: 'store',
       message: 'Error creating zone',
+      errorRef,
       rethrow: true,
     });
     const newZone = result.data.zone;
@@ -415,10 +416,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Delete a zone.
    * Uses the canonical /api/multiroom/zones endpoint.
    */
-  async function deleteZone(zoneId) {
+  async function deleteZone(zoneId, { errorRef } = {}) {
     await apiCall.delete(`/api/multiroom/zones/${zoneId}`, {
       category: 'store',
       message: 'Error deleting zone',
+      errorRef,
       rethrow: true,
     });
     zones.value.delete(zoneId);
@@ -430,10 +432,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Update zone properties (name).
    * Uses the canonical /api/multiroom/zones endpoint.
    */
-  async function updateZone(zoneId, updates) {
+  async function updateZone(zoneId, updates, { errorRef } = {}) {
     const result = await apiCall.patch(`/api/multiroom/zones/${zoneId}`, updates, {
       category: 'store',
       message: 'Error updating zone',
+      errorRef,
       rethrow: true,
     });
     if (result.data.zone) {
@@ -450,10 +453,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {string} macId - Client mac_id to add
    * @returns {Promise<Object>} Response with updated zone data
    */
-  async function addClientToZone(zoneId, macId) {
+  async function addClientToZone(zoneId, macId, { errorRef } = {}) {
     const result = await apiCall.post(`/api/multiroom/zones/${zoneId}/clients`, { mac_id: macId }, {
       category: 'store',
       message: 'Error adding client to zone',
+      errorRef,
       rethrow: true,
     });
     if (result.data.zone) {
@@ -471,10 +475,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {string} macId - Client mac_id to remove
    * @returns {Promise<Object>} Response with zone data or deletion message
    */
-  async function removeClientFromZone(zoneId, macId) {
+  async function removeClientFromZone(zoneId, macId, { errorRef } = {}) {
     const result = await apiCall.delete(`/api/multiroom/zones/${zoneId}/clients/${macId}`, {
       category: 'store',
       message: 'Error removing client from zone',
+      errorRef,
       rethrow: true,
     });
     if (result.data.zone) {
@@ -493,10 +498,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {Object} updates - { name?: string, speaker_type?: string }
    * @returns {Promise<Object>} Updated client data
    */
-  async function updateClient(macId, updates) {
+  async function updateClient(macId, updates, { errorRef } = {}) {
     const result = await apiCall.patch(`/api/multiroom/clients/${macId}`, updates, {
       category: 'store',
       message: 'Error updating client',
+      errorRef,
       rethrow: true,
     });
     return result.data;
@@ -509,10 +515,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {boolean} enabled - True = EQ independent from the zone
    * @returns {Promise<Object>} Updated client data
    */
-  async function setClientEqIndependent(macId, enabled) {
+  async function setClientEqIndependent(macId, enabled, { errorRef } = {}) {
     const result = await apiCall.put(`/api/multiroom/clients/${macId}/eq-independent`, { enabled }, {
       category: 'store',
       message: 'Error updating EQ independence',
+      errorRef,
       rethrow: true,
     });
     return result.data;
@@ -526,10 +533,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {number} delayMs - Delay in milliseconds (0-100)
    * @returns {Promise<Object>} Updated client data
    */
-  async function setClientDelay(macId, delayMs) {
+  async function setClientDelay(macId, delayMs, { errorRef } = {}) {
     const result = await apiCall.patch(`/api/multiroom/clients/${macId}/delay`, { delay_ms: delayMs }, {
       category: 'store',
       message: 'Error updating client delay',
+      errorRef,
       rethrow: true,
     });
     return result.data;
@@ -544,10 +552,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {number} gainDb - Level trim in dB (-12 to 0, cut only)
    * @returns {Promise<Object>} Updated client data
    */
-  async function setClientGain(macId, gainDb) {
+  async function setClientGain(macId, gainDb, { errorRef } = {}) {
     const result = await apiCall.patch(`/api/multiroom/clients/${macId}/gain`, { gain_db: gainDb }, {
       category: 'store',
       message: 'Error updating client gain',
+      errorRef,
       rethrow: true,
     });
     return result.data;
@@ -559,10 +568,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {string} macId - Client mac_id
    * @returns {Promise<boolean>} Success status
    */
-  async function deleteClient(macId) {
+  async function deleteClient(macId, { errorRef } = {}) {
     const result = await apiCall.delete(`/api/multiroom/clients/${macId}`, {
       category: 'store',
       message: 'Error deleting client',
+      errorRef,
       checkStatus: true,
     });
     return result.ok;
@@ -590,7 +600,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {string} audioId - Audio card ID from hardware registry
    * @returns {Promise<Object>} Response with status
    */
-  async function configureClientAudio(macId, audioId, volumeControl = null) {
+  async function configureClientAudio(macId, audioId, volumeControl = null, { errorRef } = {}) {
     const body = { audio_id: audioId };
     if (volumeControl !== null) body.volume_control = volumeControl;
     const result = await apiCall.put(
@@ -599,6 +609,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       {
         category: 'store',
         message: 'Error configuring client audio',
+        errorRef,
         rethrow: true,
       },
     );
@@ -698,7 +709,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * @param {string} macId - Client MAC address
    * @param {Object} config - { name, speaker_type, audio_id }
    */
-  async function configurePendingClient(macId, config) {
+  async function configurePendingClient(macId, config, { errorRef } = {}) {
     // Add to configuring set BEFORE the request to avoid race with WebSocket events
     configuringClients.value = new Set([...configuringClients.value, macId]);
     try {
@@ -709,6 +720,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
           category: 'store',
           message: 'Error configuring pending client',
           rethrow: true,
+          errorRef,
         },
       );
 

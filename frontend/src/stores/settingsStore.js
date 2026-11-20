@@ -379,7 +379,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return result.ok;
   }
 
-  async function toggleBtRemote(enabled) {
+  async function toggleBtRemote(enabled, { errorRef } = {}) {
     const prev = { ...btRemote.value };
     btRemote.value.enabled = enabled;
     // Disabling keeps the BlueZ bond (only the explicit "unpair" removes it), so
@@ -393,6 +393,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const result = await apiCall.patch('/api/bt-remote/config', { enabled }, {
       category: 'settings',
       message: 'Error toggling BT remote',
+      errorRef,
     });
     if (!result.ok) {
       Object.assign(btRemote.value, prev);
@@ -410,11 +411,12 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function discoverBtRemote() {
+  async function discoverBtRemote({ errorRef } = {}) {
     btRemote.value.discovering = true;
     const result = await apiCall.post('/api/bt-remote/discover', null, {
       category: 'settings',
       message: 'Error discovering BT remote',
+      errorRef,
     });
     if (!result.ok) {
       btRemote.value.discovering = false;
@@ -423,10 +425,11 @@ export const useSettingsStore = defineStore('settings', () => {
     return result.data.status;
   }
 
-  async function unpairBtRemote() {
+  async function unpairBtRemote({ errorRef } = {}) {
     const result = await apiCall.delete('/api/bt-remote/pairing', {
       category: 'settings',
       message: 'Error unpairing BT remote',
+      errorRef,
     });
     if (result.ok) {
       // Backend also broadcasts the new status via WS, but clear optimistically
@@ -464,13 +467,14 @@ export const useSettingsStore = defineStore('settings', () => {
     return result.ok;
   }
 
-  async function toggleIrRemote(enabled) {
+  async function toggleIrRemote(enabled, { errorRef } = {}) {
     const prev = { ...irRemote.value };
     irRemote.value.enabled = enabled;
     irRemote.value.listening = enabled && irRemote.value.paired;
     const result = await apiCall.patch('/api/ir-remote/config', { enabled }, {
       category: 'settings',
       message: 'Error toggling IR remote',
+      errorRef,
     });
     if (result.ok) {
       applyIrRemoteStatus(result.data);
@@ -484,26 +488,29 @@ export const useSettingsStore = defineStore('settings', () => {
    *   { status: 'success' | 'timeout' | 'cancelled' | 'unsupported' | 'error',
    *     device_id?: number, message?: string }
    */
-  async function startIrRemotePairing() {
+  async function startIrRemotePairing({ errorRef } = {}) {
     const result = await apiCall.post('/api/ir-remote/pair', null, {
       category: 'settings',
       message: 'Error starting IR pairing',
+      errorRef,
     });
     return result.ok ? result.data : false;
   }
 
-  async function cancelIrRemotePairing() {
+  async function cancelIrRemotePairing({ errorRef } = {}) {
     const result = await apiCall.post('/api/ir-remote/pair/cancel', null, {
       category: 'settings',
       message: 'Error cancelling IR pairing',
+      errorRef,
     });
     return result.ok ? result.data : false;
   }
 
-  async function unpairIrRemote() {
+  async function unpairIrRemote({ errorRef } = {}) {
     const result = await apiCall.delete('/api/ir-remote/pair', {
       category: 'settings',
       message: 'Error unpairing IR remote',
+      errorRef,
     });
     if (result.ok) {
       applyIrRemoteStatus(result.data);

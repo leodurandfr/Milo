@@ -108,16 +108,20 @@
     <MessageContent v-else loading />
 
     <!-- One write for both halves: mac.env and a roc-recv restart here, the
-         Mac's device rebuilt by the Milō app for Mac. -->
-    <Button v-if="macLinkStore.hasChanges" variant="brand" size="medium" class="apply-button-sticky" floating
-      :loading="macLinkStore.isApplying" :disabled="busy" @click="macLinkStore.apply()">
-      {{ macLinkStore.isApplying ? t('macSettings.applying') : t('macSettings.apply') }}
-    </Button>
+         Mac's device rebuilt by the Milō app for Mac. What the server refused
+         shares its sticky footer: two at bottom 0 would overlap. -->
+    <div class="sticky-footer">
+      <SettingsRefusal :detail="applyRefusal" />
+      <Button v-if="macLinkStore.hasChanges" variant="brand" size="medium" class="apply-button" floating
+        :loading="macLinkStore.isApplying" :disabled="busy" @click="apply">
+        {{ macLinkStore.isApplying ? t('macSettings.applying') : t('macSettings.apply') }}
+      </Button>
+    </div>
   </SectionStack>
 </template>
 
 <script setup>
-import { computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useMacLinkStore } from '@/stores/macLinkStore';
@@ -132,6 +136,7 @@ import SectionHeader from '@/components/ui/SectionHeader.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import AnalysisSection from '@/components/settings/AnalysisSection.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const { t, formatUnit } = useI18n();
 const settingsStore = useSettingsStore();
@@ -205,6 +210,14 @@ watch(() => settingsStore.macRocSettings, (applied, previous) => {
   macLinkStore.followApplied(previous);
 });
 
+// The server's detail when Apply was refused; the draft stays on screen.
+const applyRefusal = ref(null);
+
+async function apply() {
+  applyRefusal.value = null;
+  await macLinkStore.apply({ errorRef: applyRefusal });
+}
+
 onMounted(() => {
   macLinkStore.syncDraft();
   macLinkStore.loadCapabilities();
@@ -276,11 +289,22 @@ onMounted(() => {
   color: var(--color-brand);
 }
 
-.apply-button-sticky {
+/* Sticky footer: the refusal and the apply button (as in HardwareSettings) */
+.sticky-footer {
   position: sticky;
   bottom: 0;
-  width: 100%;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.sticky-footer:empty {
+  display: none;
+}
+
+.apply-button {
+  width: 100%;
 }
 
 @media (max-aspect-ratio: 4/3) and (max-width: 1023px) {

@@ -37,7 +37,7 @@
           @change="selectLocation" />
       </SettingItem>
 
-      <NoticeBox v-if="timezoneError">{{ timezoneError }}</NoticeBox>
+      <NoticeBox v-if="timezoneError !== null" :detail="timezoneError">{{ t('settings.writeRefused') }}</NoticeBox>
     </SectionCard>
   </SectionStack>
 </template>

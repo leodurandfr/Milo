@@ -81,8 +81,14 @@
         @update:model-value="handleShazamToggle"
       />
 
-      <!-- Error Message -->
+      <!-- An image the form refuses before anything is sent -->
       <NoticeBox v-if="errorMessage">{{ errorMessage }}</NoticeBox>
+      <!-- What the server refused: the save or the creation, or the Restore
+           or Delete confirmed in the drawer above (run by the settings modal) -->
+      <NoticeBox v-if="saveRefusal !== null" :detail="saveRefusal">
+        {{ isEditMode ? t('settings.writeRefused') : t('radio.manageStation.addFailed') }}
+      </NoticeBox>
+      <NoticeBox v-if="actionRefusal !== null" :detail="actionRefusal">{{ t('settings.actionFailed') }}</NoticeBox>
 
       <!-- Add mode: explicit "Create station" button. Edit mode auto-saves via watchers. -->
       <Button v-if="!isEditMode" variant="brand" size="medium" class="create-btn" type="submit"
@@ -127,6 +133,11 @@ const props = defineProps({
   showActionMenu: {
     type: Boolean,
     default: false
+  },
+  // The server's detail when the drawer's Restore or Delete was refused.
+  actionRefusal: {
+    type: String,
+    default: null
   }
 });
 
@@ -170,6 +181,7 @@ const imagePreview = ref(null);
 const currentImageUrl = ref('');
 const isSubmitting = ref(false);
 const errorMessage = ref('');
+const saveRefusal = ref(null);
 
 const formData = reactive({
   name: '',
@@ -280,7 +292,7 @@ async function saveEdit() {
     return;
   }
   isSaving.value = true;
-  errorMessage.value = '';
+  saveRefusal.value = null;
 
   try {
     const formDataToSend = new FormData();
@@ -301,14 +313,12 @@ async function saveEdit() {
     const result = await apiCall.post('/api/radio/favorites/modify-metadata', formDataToSend, {
       category: 'radio',
       message: 'Auto-save failed',
-      errorRef: errorMessage,
+      errorRef: saveRefusal,
     });
 
-    // The route raises on failure, so result.ok is the whole verdict.
-    if (!result.ok) {
-      // errorRef already set by apiCall; fall back to a localized default
-      if (!errorMessage.value) errorMessage.value = t('radio.manageStation.errorOccurred');
-    } else if (selectedFile.value && result.data.station?.favicon) {
+    // The route raises on failure, so result.ok is the whole verdict, and a
+    // failure has set saveRefusal.
+    if (result.ok && selectedFile.value && result.data.station?.favicon) {
       // After an image upload, swap the local preview for the server-side URL
       // so subsequent saves don't re-upload the same file.
       currentImageUrl.value = result.data.station.favicon;
@@ -405,7 +415,7 @@ async function handleAddSubmit() {
   if (isSubmitting.value) return;
   if (!formData.name.trim() || !formData.url.trim()) return;
 
-  errorMessage.value = '';
+  saveRefusal.value = null;
   isSubmitting.value = true;
 
   try {
@@ -421,17 +431,13 @@ async function handleAddSubmit() {
       shazam_enabled: formData.shazam_enabled
     };
 
-    const result = await radioStore.addCustomStation(stationData);
+    // A refusal sets saveRefusal: the store answers with a verdict, never a throw.
+    const result = await radioStore.addCustomStation(stationData, { errorRef: saveRefusal });
 
     if (result.success) {
       logger.info('radio', 'Station added successfully', result.station);
       emit('success', result.station);
-    } else {
-      errorMessage.value = t('radio.manageStation.addFailed');
     }
-  } catch (error) {
-    logger.error('radio', 'Error submitting station form:', error);
-    errorMessage.value = error.message || t('radio.manageStation.errorOccurred');
   } finally {
     isSubmitting.value = false;
   }

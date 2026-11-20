@@ -24,7 +24,7 @@
             :maxlength="128" />
         </SettingItem>
 
-        <NoticeBox v-if="errorMessage">{{ errorMessage }}</NoticeBox>
+        <NoticeBox v-if="errorMessage" :detail="errorDetail">{{ errorMessage }}</NoticeBox>
       </SectionCard>
 
       <SectionCard v-if="device && !device.mounted"
@@ -77,6 +77,8 @@ const isSubmitting = ref(false);
 const isForgetting = ref(false);
 const confirmForget = ref(false);
 const errorMessage = ref('');
+// The server's detail for the refusal errorMessage says, folded under it.
+const errorDetail = ref(null);
 
 const hasChanged = computed(() => name.value.trim() !== (props.device?.name || ''));
 
@@ -84,7 +86,8 @@ async function handleSubmit() {
   if (isSubmitting.value || !props.device) return;
   isSubmitting.value = true;
   errorMessage.value = '';
-  const ok = await store.renameUsbDevice(props.device.id, name.value.trim());
+  errorDetail.value = null;
+  const ok = await store.renameUsbDevice(props.device.id, name.value.trim(), { errorRef: errorDetail });
   isSubmitting.value = false;
   if (ok) emit('success');
   else errorMessage.value = t('musicLibrary.usb.renameError');
@@ -98,7 +101,8 @@ async function handleForget() {
   }
   isForgetting.value = true;
   errorMessage.value = '';
-  const ok = await store.forgetUsbDevice(props.device.id);
+  errorDetail.value = null;
+  const ok = await store.forgetUsbDevice(props.device.id, { errorRef: errorDetail });
   isForgetting.value = false;
   if (ok) {
     emit('success');

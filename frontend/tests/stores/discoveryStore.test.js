@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
+import { ref } from 'vue';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 vi.mock('@/utils/kiosk', () => ({ isKiosk: () => true }));
@@ -140,6 +141,21 @@ describe('discoveryStore — the server network offered for an adoption', () => 
     expect(body.use_server_network).toBe(true);
     expect(body.wifi_ssid).toBe(discovery.serverWifi.ssid);
     expect(body).not.toHaveProperty('wifi_password');
+  });
+
+  it('a refused adoption still throws its code, and folds the message, never the object', async () => {
+    // ConfigureSystem translates the code and folds the server's words under
+    // the sentence; NoticeBox takes a string, so the `{code, message}` apiCall
+    // writes would reach it as an object.
+    const refusal = { response: { data: { detail: { code: 'push_rejected', message: 'speaker answered 500' } } } };
+    apiCall.post.mockRejectedValueOnce(refusal);
+    const errorRef = ref(null);
+
+    const thrown = await discovery.adoptSpeaker(SPEAKER, { ssid: 'Grenier', password: 'typed' }, { errorRef })
+      .catch(error => error);
+
+    expect(thrown.response.data.detail.code).toBe('push_rejected');
+    expect(errorRef.value).toBe(refusal.response.data.detail.message);
   });
 
   it('adopts onto a typed network with its typed key, never as the server network', async () => {

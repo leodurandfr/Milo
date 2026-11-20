@@ -29,18 +29,23 @@
 
     </SectionCard>
 
-    <!-- Create Zone Button (only when creating new zone) -->
-    <Button
-      v-if="!groupId && selectedClients.length >= 2"
-      variant="brand"
-      size="medium"
-      class="action-button-sticky" floating
-      :disabled="!zoneName.trim()"
-      :loading="saving"
-      @click="handleCreate"
-    >
-      {{ t('equalizer.zones.createZone') }}
-    </Button>
+    <!-- What the server refused (a name, a member, the creation or the
+         deletion) and the Create button, in one sticky footer: two at bottom 0
+         would overlap. -->
+    <div class="sticky-footer">
+      <SettingsRefusal :detail="refusal">{{ t(refusalMessage) }}</SettingsRefusal>
+      <Button
+        v-if="!groupId && selectedClients.length >= 2"
+        variant="brand"
+        size="medium"
+        class="action-button" floating
+        :disabled="!zoneName.trim()"
+        :loading="saving"
+        @click="handleCreate"
+      >
+        {{ t('equalizer.zones.createZone') }}
+      </Button>
+    </div>
 
     <!-- Delete Zone (only when editing existing zone) -->
     <Button
@@ -66,6 +71,7 @@ import InputText from '@/components/ui/InputText.vue';
 import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const props = defineProps({
   // Group ID if editing an existing zone, null for creating new
@@ -84,6 +90,16 @@ const deleteState = ref('idle'); // 'idle' | 'confirming' | 'deleting'
 const zoneName = ref('');
 const originalZoneName = ref('');
 const selectedClients = ref([]);
+// The server's detail for the last write it refused, and the sentence that says
+// which kind it was: an edit put back, or an action that did not happen.
+const refusal = ref(null);
+const refusalMessage = ref('settings.writeRefused');
+
+// Clears the last refusal before a write, and names the sentence for its own.
+function expectRefusal(messageKey) {
+  refusal.value = null;
+  refusalMessage.value = messageKey;
+}
 // Get available clients from multiroomStore (single source of truth)
 const availableTargets = computed(() => {
   return multiroomStore.clientList.map(client => ({
@@ -110,7 +126,8 @@ async function toggleClient(clientId) {
     selectedClients.value.push(clientId);
     if (props.groupId) {
       try {
-        await multiroomStore.addClientToZone(props.groupId, clientId);
+        expectRefusal('settings.writeRefused');
+        await multiroomStore.addClientToZone(props.groupId, clientId, { errorRef: refusal });
         // Watcher syncs final state from WebSocket
       } catch (error) {
         // Show the store's membership, not the one before the tap: a 502 means
@@ -128,7 +145,8 @@ async function toggleClient(clientId) {
     selectedClients.value.splice(index, 1);
     if (props.groupId) {
       try {
-        const response = await multiroomStore.removeClientFromZone(props.groupId, clientId);
+        expectRefusal('settings.writeRefused');
+        const response = await multiroomStore.removeClientFromZone(props.groupId, clientId, { errorRef: refusal });
         // Watcher syncs final state from WebSocket
         if (response.message && response.message.includes('deleted')) {
           emit('back');
@@ -155,7 +173,8 @@ async function saveZoneName() {
   }
 
   try {
-    await multiroomStore.updateZone(props.groupId, { name: newName });
+    expectRefusal('settings.writeRefused');
+    await multiroomStore.updateZone(props.groupId, { name: newName }, { errorRef: refusal });
     originalZoneName.value = newName;
   } catch (error) {
     if (zoneName.value?.trim() === newName) zoneName.value = originalZoneName.value;
@@ -196,7 +215,8 @@ async function handleCreate() {
   saving.value = true;
   try {
     // Use multiroomStore directly for zone creation (consistent with edit operations)
-    await multiroomStore.createZone(name, selectedClients.value);
+    expectRefusal('settings.actionFailed');
+    await multiroomStore.createZone(name, selectedClients.value, { errorRef: refusal });
     emit('back');
   } catch (error) {
     logger.error('multiroom', 'Error creating zone', error);
@@ -221,7 +241,8 @@ async function handleDelete() {
 
   deleteState.value = 'deleting';
   try {
-    await multiroomStore.deleteZone(props.groupId);
+    expectRefusal('settings.actionFailed');
+    await multiroomStore.deleteZone(props.groupId, { errorRef: refusal });
     emit('back');
   } catch (error) {
     logger.error('multiroom', 'Error deleting zone', error);
@@ -237,12 +258,22 @@ async function handleDelete() {
   gap: var(--space-01);
 }
 
-/* Sticky action button */
-.action-button-sticky {
+/* Sticky footer: the refusal and the Create button (as in HardwareSettings) */
+.sticky-footer {
   position: sticky;
   bottom: 0;
-  width: 100%;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.sticky-footer:empty {
+  display: none;
+}
+
+.action-button {
+  width: 100%;
 }
 
 /* Mobile adjustments */

@@ -110,7 +110,7 @@
                   @click="connectToNetwork(network, t)">
                   {{ connecting ? t('network.connecting') : t('network.connect') }}
                 </Button>
-                <NoticeBox v-if="connectError">{{ connectError }}</NoticeBox>
+                <NoticeBox v-if="connectError" :detail="connectDetail">{{ connectError }}</NoticeBox>
               </div>
             </div>
           </div>
@@ -126,6 +126,9 @@
         </div>
       </div>
     </ToggleSection>
+
+    <!-- Outside the section: a refused switch-on leaves it closed. -->
+    <NoticeBox v-if="wifiRefusal !== null" :detail="wifiRefusal">{{ t('settings.actionFailed') }}</NoticeBox>
   </SectionStack>
 </template>
 
@@ -158,6 +161,8 @@ const {
   scanning,
   connecting,
   connectError,
+  connectDetail,
+  wifiRefusal,
   selectedSsid,
   password,
   preferredNetwork,

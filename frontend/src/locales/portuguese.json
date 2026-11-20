@@ -48,7 +48,9 @@
     "remoteControls": "Comandos",
     "btRemote": "Comando Bluetooth",
     "irRemote": "Comando IR",
-    "writeRefused": "Não foi possível guardar esta alteração."
+    "writeRefused": "Não foi possível guardar esta alteração.",
+    "actionFailed": "Não foi possível concluir esta ação.",
+    "readFailed": "Não foi possível carregar estas informações."
   },
   "audioSources": {
     "title": "Fontes de áudio",
@@ -674,7 +676,6 @@
       "invalidImageFormat": "Formato de imagem não suportado. Use JPG, PNG, WEBP ou GIF.",
       "imageTooLarge": "Imagem demasiado grande. Máximo {size}.",
       "addFailed": "Falha ao adicionar a estação",
-      "errorOccurred": "Ocorreu um erro",
       "addStationTitle": "Adicionar uma estação",
       "editStationTitle": "Editar estação",
       "shazamEnabled": "Reconhecimento de faixas desta estação",

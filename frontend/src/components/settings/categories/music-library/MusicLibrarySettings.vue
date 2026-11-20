@@ -106,6 +106,7 @@
         :disabled="busy" @click="onRefresh">
         {{ busy ? t('musicLibrary.maintenance.refreshing') : t('musicLibrary.maintenance.refresh') }}
       </Button>
+      <NoticeBox v-if="rescanRefusal !== null" :detail="rescanRefusal">{{ t('settings.actionFailed') }}</NoticeBox>
     </SectionCard>
 
     <SettingsRefusal :detail="refusal" />
@@ -127,6 +128,7 @@ import ToggleSection from '@/components/ui/ToggleSection.vue';
 import ProgressStrip from '@/components/settings/ProgressStrip.vue';
 import SourceBadge from '@/components/settings/categories/music-library/SourceBadge.vue';
 import Button from '@/components/ui/Button.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 defineEmits(['add-share', 'edit-share', 'edit-usb']);
@@ -198,13 +200,20 @@ const scanLabel = computed(() =>
 // means it finished.
 watch(() => store.isScanning, (scanning) => { if (!scanning) inFlight.value = false; });
 
+// The server's detail when a scan could not be started.
+const rescanRefusal = ref(null);
+
 async function onRefresh() {
   if (busy.value) return;
   inFlight.value = true;
   // Safety net: if no scan state ever arrives (Navidrome not provisioned, a
   // dropped socket), release the button rather than leave it disabled for good.
   timer.setTimeout(() => { inFlight.value = false; }, REFRESH_RELEASE_MS);
-  if (!await store.rescan()) inFlight.value = false;
+  rescanRefusal.value = null;
+  if (!await store.rescan({ errorRef: rescanRefusal })) {
+    inFlight.value = false;
+    rescanRefusal.value ??= '';
+  }
 }
 
 const separateStorages = computed(

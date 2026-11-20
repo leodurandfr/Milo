@@ -15,35 +15,48 @@
   so the list of networks before and after a change is not the same list.
 -->
 <template>
-  <SettingItem :label="t('network.wifiCountry')" inline>
-    <Dropdown
-      :model-value="country"
-      :options="countryOptions"
-      :placeholder="t('network.selectCountry')"
-      @change="onCountryChange"
-    />
-  </SettingItem>
+  <div class="wifi-country">
+    <SettingItem :label="t('network.wifiCountry')" inline>
+      <Dropdown
+        :model-value="country"
+        :options="countryOptions"
+        :placeholder="t('network.selectCountry')"
+        @change="onCountryChange"
+      />
+    </SettingItem>
+    <!-- A refused change: the dropdown is back on the country in force. -->
+    <NoticeBox v-if="refusal !== null" :detail="refusal">{{ t('settings.writeRefused') }}</NoticeBox>
+  </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useNetwork } from '@/composables/useNetwork';
 import { wifiCountryOptions } from '@/constants/wifiCountries';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 
 const { t, getCurrentLanguage } = useI18n();
 const { country, scanNetworks, setCountry } = useNetwork();
 
 const countryOptions = computed(() => wifiCountryOptions(getCurrentLanguage()));
 
+// The server's detail when the last change was refused. Without it the
+// dropdown snapped back to the old country without a word.
+const refusal = ref(null);
+
 async function onCountryChange(code) {
-  try {
-    await setCountry(code);
-    scanNetworks();
-  } catch {
-    // setCountry already logs via logger
-  }
+  refusal.value = null;
+  if (await setCountry(code, { errorRef: refusal })) scanNetworks();
 }
 </script>
+
+<style scoped>
+.wifi-country {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+</style>

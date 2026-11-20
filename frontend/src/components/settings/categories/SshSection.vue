@@ -33,7 +33,8 @@
       {{ factoryPasswordNotice }}
     </NoticeBox>
 
-    <NoticeBox v-if="error">{{ error }}</NoticeBox>
+    <!-- A switch the unit refused: back where it was, and said why. -->
+    <NoticeBox v-if="error !== null" :detail="error">{{ t('settings.writeRefused') }}</NoticeBox>
   </SectionCard>
 </template>
 
@@ -54,6 +55,7 @@ const props = defineProps({
   description: { type: String, required: true },
   factoryPasswordNotice: { type: String, required: true },
   busy: { type: Boolean, default: false },
+  /** The server's detail for a refused switch (an apiCall errorRef), null while none. */
   error: { type: String, default: null },
 });
 

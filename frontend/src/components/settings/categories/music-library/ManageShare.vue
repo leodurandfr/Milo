@@ -51,7 +51,7 @@
         <p v-else class="text-body-medium share-form__note">{{ t('musicLibrary.shares.nfsNoCredentials') }}</p>
 
         <!-- Error -->
-        <NoticeBox v-if="errorMessage">{{ errorMessage }}</NoticeBox>
+        <NoticeBox v-if="errorMessage" :detail="errorDetail">{{ errorMessage }}</NoticeBox>
       </SectionCard>
 
       <!-- Remove (edit only) — two-tap inline confirm, like the power menu. -->
@@ -118,6 +118,8 @@ const isSubmitting = ref(false);
 const isRemoving = ref(false);
 const confirmRemove = ref(false);
 const errorMessage = ref('');
+// The server's detail for the refusal errorMessage says, folded under it.
+const errorDetail = ref(null);
 
 // The path field carries an SMB share/subpath or an NFS export — one label
 // ("Access path"), the placeholder/hint adapt to the protocol.
@@ -181,6 +183,7 @@ const showSubmit = computed(
 
 function initForm() {
   errorMessage.value = '';
+  errorDetail.value = null;
   confirmRemove.value = false;
   if (isEditMode.value && props.share) {
     form.type = props.share.type || 'cifs';
@@ -232,11 +235,12 @@ function buildPayload() {
 async function handleSubmit() {
   if (isSubmitting.value || !isValid.value) return;
   errorMessage.value = '';
+  errorDetail.value = null;
   isSubmitting.value = true;
   const payload = buildPayload();
   const result = isEditMode.value
-    ? await store.updateShare(props.share.id, payload)
-    : await store.addShare(payload);
+    ? await store.updateShare(props.share.id, payload, { errorRef: errorDetail })
+    : await store.addShare(payload, { errorRef: errorDetail });
   isSubmitting.value = false;
   if (result.ok) {
     emit('success');
@@ -252,7 +256,9 @@ async function handleRemove() {
     return;
   }
   isRemoving.value = true;
-  const ok = await store.removeShare(props.share.id);
+  errorMessage.value = '';
+  errorDetail.value = null;
+  const ok = await store.removeShare(props.share.id, { errorRef: errorDetail });
   isRemoving.value = false;
   if (ok) {
     emit('success');

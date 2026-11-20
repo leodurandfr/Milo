@@ -58,7 +58,7 @@
         <NoticeBox v-if="client?.audio_card_missing" kind="warning">
           {{ t('multiroom.audioCardMissing', { card: client.audio_card_missing }) }}
         </NoticeBox>
-        <NoticeBox v-if="audioError">{{ audioError }}</NoticeBox>
+        <NoticeBox v-if="audioRefusal !== null" :detail="audioRefusal">{{ t('multiroom.pending.errorGeneric') }}</NoticeBox>
       </SectionCard>
 
       <!-- Speaker Type Selection -->
@@ -144,8 +144,8 @@
           :error="sshError" :description="t('multiroom.ssh.description')"
           :factory-password-notice="t('multiroom.ssh.factoryPassword')"
           @toggle="handleSshToggle" @open-password="emit('open-password')" />
-        <SectionCard v-else-if="sshError" :title="t('system.ssh.title')">
-          <NoticeBox>{{ sshError }}</NoticeBox>
+        <SectionCard v-else-if="sshReadError !== null" :title="t('system.ssh.title')">
+          <NoticeBox :detail="sshReadError">{{ t('settings.readFailed') }}</NoticeBox>
         </SectionCard>
       </template>
 
@@ -179,19 +179,25 @@
         </div>
       </SectionCard>
 
-      <!-- Apply & Reboot (two-step confirm, only when audio card changed) -->
+    </template>
+
+    <!-- What the server refused (a setting put back, the delete of an offline
+         speaker) and Apply & Reboot (two-step confirm, only when the audio card
+         changed), in one sticky footer: two at bottom 0 would overlap. -->
+    <div v-if="!isRebooting" class="sticky-footer">
+      <SettingsRefusal :detail="refusal">{{ t(refusalMessage) }}</SettingsRefusal>
       <Button
-        v-if="isAudioDirty"
+        v-if="!isOffline && isAudioDirty"
         :variant="confirmReboot ? 'important' : 'brand'"
         size="medium"
-        class="apply-button-sticky" floating
+        class="apply-button" floating
         :loading="isApplying"
         :disabled="isApplying"
         @click="handleApply"
       >
         {{ applyButtonLabel }}
       </Button>
-    </template>
+    </div>
 
   </SectionStack>
 </template>
@@ -219,6 +225,7 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import SshSection from '@/components/settings/categories/SshSection.vue';
 import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
 
@@ -264,10 +271,22 @@ const lastDelay = ref(DEFAULT_DELAY_MS);
 const deleteState = ref('idle');
 const crossoverFrequency = ref(80);
 // null until the satellite answered; a satellite whose app predates the route
-// answers with an error that says to update it, shown in place of the switch.
+// answers with an error that says to update it, folded in place of the switch.
 const sshState = ref(null);
 const sshBusy = ref(false);
 const sshError = ref(null);
+const sshReadError = ref(null);
+// The server's detail for the last write of this panel it refused, and the
+// sentence that says which kind it was: a setting put back, or a delete that
+// did not happen.
+const refusal = ref(null);
+const refusalMessage = ref('settings.writeRefused');
+
+// Clears the last refusal before a write, and names the sentence for its own.
+function expectRefusal(messageKey) {
+  refusal.value = null;
+  refusalMessage.value = messageKey;
+}
 // null until the satellite answered, and for good on one whose app predates the
 // route (the rows stay hidden).
 const networkState = ref(null);
@@ -283,7 +302,7 @@ const audioCards = ref([]);
 const selectedAudioId = ref('');
 const savedAudioId = ref('');
 const confirmReboot = ref(false);
-const audioError = ref('');
+const audioRefusal = ref(null);
 const isApplying = ref(false);
 const isRebooting = ref(false);
 const rebootTimedOut = ref(false);
@@ -435,7 +454,7 @@ const applyButtonLabel = computed(() => {
 function selectAudioCard(audioId) {
   selectedAudioId.value = audioId;
   confirmReboot.value = false;
-  audioError.value = '';
+  audioRefusal.value = null;
   // The record's value is the saved one: with no card change pending, the
   // toggle writes it at once.
   volumeControl.value = volumeControlForCard({
@@ -451,7 +470,8 @@ async function toggleVolumeControl() {
   // If no pending audio card change, save immediately via PATCH
   if (!isAudioDirty.value) {
     try {
-      await multiroomClientStore.updateClient(props.macId, { volume_control: volumeControl.value });
+      expectRefusal('settings.writeRefused');
+      await multiroomClientStore.updateClient(props.macId, { volume_control: volumeControl.value }, { errorRef: refusal });
     } catch (error) {
       logger.error('multiroom', 'Error saving volume control', error);
       volumeControl.value = !volumeControl.value; // Revert on failure
@@ -462,7 +482,8 @@ async function toggleVolumeControl() {
 async function toggleEqIndependent(enabled) {
   eqIndependent.value = enabled;
   try {
-    await multiroomClientStore.setClientEqIndependent(props.macId, enabled);
+    expectRefusal('settings.writeRefused');
+    await multiroomClientStore.setClientEqIndependent(props.macId, enabled, { errorRef: refusal });
   } catch (error) {
     logger.error('multiroom', 'Error saving EQ independence', error);
     // The record's flag, not the one before the tap: a 502 means the flag was
@@ -475,7 +496,8 @@ async function toggleEqIndependent(enabled) {
 async function persistGain(value) {
   const previous = gainDb.value;
   try {
-    await multiroomClientStore.setClientGain(props.macId, value);
+    expectRefusal('settings.writeRefused');
+    await multiroomClientStore.setClientGain(props.macId, value, { errorRef: refusal });
   } catch (error) {
     logger.error('multiroom', 'Error saving client gain', error);
     // The backend pushes to the speaker before it records the value, so a
@@ -505,7 +527,8 @@ function handleGainChange(value) {
 
 async function persistDelay(value) {
   try {
-    await multiroomClientStore.setClientDelay(props.macId, value);
+    expectRefusal('settings.writeRefused');
+    await multiroomClientStore.setClientDelay(props.macId, value, { errorRef: refusal });
   } catch (error) {
     logger.error('multiroom', 'Error saving client delay', error);
     // Same order as the trim: snapserver is asked before the value is
@@ -543,15 +566,17 @@ async function applyAudioChange() {
   if (!selectedAudioId.value || isApplying.value) return;
 
   isApplying.value = true;
-  audioError.value = '';
+  audioRefusal.value = null;
   try {
-    await multiroomClientStore.configureClientAudio(props.macId, selectedAudioId.value, volumeControl.value);
+    await multiroomClientStore.configureClientAudio(props.macId, selectedAudioId.value, volumeControl.value,
+      { errorRef: audioRefusal });
     isRebooting.value = true;
     rebootTimeoutId = timer.setTimeout(() => {
       rebootTimedOut.value = true;
     }, REBOOT_TIMEOUT_MS);
   } catch (e) {
-    audioError.value = t('multiroom.pending.errorGeneric');
+    // apiCall has set audioRefusal; a throw that is not an HTTP failure has none.
+    audioRefusal.value ??= '';
     logger.error('multiroom', 'Error configuring client audio', e);
   } finally {
     isApplying.value = false;
@@ -561,25 +586,22 @@ async function applyAudioChange() {
 
 async function handleCrossoverChange(frequency) {
   if (!clientZone.value?.id) return;
-  try {
-    await equalizerStore.setZoneCrossoverFrequency(clientZone.value.id, frequency);
-  } catch (error) {
-    logger.error('multiroom', 'Error updating crossover frequency', error);
-  }
+  // The zone record is untouched by a refusal; the slider follows it again.
+  expectRefusal('settings.writeRefused');
+  const saved = await equalizerStore.setZoneCrossoverFrequency(clientZone.value.id, frequency, { errorRef: refusal });
+  if (!saved) crossoverFrequency.value = zoneCrossoverFrequency.value;
 }
 
 // Leaving auto pins whatever auto had just resolved to, so the sound does not
 // jump on the toggle; entering it sends null and lets the speaker types decide.
 async function toggleCrossoverAuto() {
   if (!clientZone.value?.id) return;
-  try {
-    await equalizerStore.setZoneCrossoverFrequency(
-      clientZone.value.id,
-      crossoverAuto.value ? zoneCrossoverFrequency.value : null,
-    );
-  } catch (error) {
-    logger.error('multiroom', 'Error updating crossover mode', error);
-  }
+  expectRefusal('settings.writeRefused');
+  await equalizerStore.setZoneCrossoverFrequency(
+    clientZone.value.id,
+    crossoverAuto.value ? zoneCrossoverFrequency.value : null,
+    { errorRef: refusal },
+  );
 }
 
 async function selectSpeakerType(type) {
@@ -591,11 +613,14 @@ async function selectSpeakerType(type) {
     crossoverFrequency.value = clientZone.value.crossover_frequency;
   }
 
-  // Save immediately via PATCH /api/multiroom/clients/{mac_id}
+  // Save immediately via PATCH /api/multiroom/clients/{mac_id}; a refusal puts
+  // back the type the record holds.
   try {
-    await multiroomClientStore.updateClient(props.macId, { speaker_type: type });
+    expectRefusal('settings.writeRefused');
+    await multiroomClientStore.updateClient(props.macId, { speaker_type: type }, { errorRef: refusal });
   } catch (error) {
     logger.error('multiroom', 'Error saving speaker type', error);
+    selectedSpeakerType.value = equalizerStore.getClientSpeakerType(props.macId);
   }
 }
 
@@ -604,10 +629,13 @@ async function saveClientName() {
   if (!newName || newName === originalClientName.value) return;
 
   try {
-    await multiroomClientStore.updateClient(props.macId, { name: newName });
+    expectRefusal('settings.writeRefused');
+    await multiroomClientStore.updateClient(props.macId, { name: newName }, { errorRef: refusal });
     originalClientName.value = newName;
   } catch (error) {
     logger.error('multiroom', 'Error saving client name', error);
+    // The name the speaker keeps, unless the field was edited again since.
+    if (clientName.value?.trim() === newName) clientName.value = originalClientName.value;
   }
 }
 
@@ -631,16 +659,11 @@ async function handleDelete() {
   }
 
   deleteState.value = 'deleting';
-  try {
-    const success = await multiroomClientStore.deleteClient(props.macId);
-    if (success) {
-      emit('back');
-    }
-  } catch (error) {
-    logger.error('multiroom', 'Error deleting client', error);
-  } finally {
-    deleteState.value = 'idle';
-  }
+  expectRefusal('settings.actionFailed');
+  // A refusal sets refusal: the store answers with a verdict, never a throw.
+  const success = await multiroomClientStore.deleteClient(props.macId, { errorRef: refusal });
+  deleteState.value = 'idle';
+  if (success) emit('back');
 }
 
 async function handleSshToggle(enabled) {
@@ -693,8 +716,8 @@ watch(
         inFlight: hardwareReadInFlight,
       }) && readHardware(),
       !sshState.value && (async () => {
-        sshError.value = null;
-        sshState.value = await multiroomClientStore.fetchClientSsh(props.macId, { errorRef: sshError });
+        sshReadError.value = null;
+        sshState.value = await multiroomClientStore.fetchClientSsh(props.macId, { errorRef: sshReadError });
       })(),
       (async () => {
         networkState.value = await multiroomClientStore.fetchClientNetwork(props.macId) ?? networkState.value;
@@ -803,11 +826,22 @@ onMounted(() => {
   text-align: right;
 }
 
-.apply-button-sticky {
+/* Sticky footer: the refusal and the apply button (as in HardwareSettings) */
+.sticky-footer {
   position: sticky;
   bottom: 0;
-  width: 100%;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.sticky-footer:empty {
+  display: none;
+}
+
+.apply-button {
+  width: 100%;
 }
 
 /* Mobile adjustments */

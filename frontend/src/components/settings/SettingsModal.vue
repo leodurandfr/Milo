@@ -26,7 +26,9 @@
     <div class="swap-stack">
     <Transition name="fade-slide" @before-leave="onBeforeLeave" @enter="onEnter" @after-leave="onAfterLeave">
       <div v-if="currentView === 'home'" key="home" class="view-content home-view">
-        <div class="power-menu-region" :class="{ 'power-menu-region--open': showPowerMenu }" :inert="!showPowerMenu">
+        <div class="power-menu-region"
+          :class="{ 'power-menu-region--open': showPowerMenu, 'power-menu-region--refused': powerRefusal !== null }"
+          :inert="!showPowerMenu">
             <div class="power-menu-items">
               <ListItemButton v-for="action in POWER_ACTIONS" :key="action.key" variant="glass" @click="runPowerAction(action)">
                 <template #icon>
@@ -40,6 +42,9 @@
                   </span>
                 </template>
               </ListItemButton>
+              <NoticeBox v-if="powerRefusal !== null" class="power-menu-refusal" :detail="powerRefusal">
+                {{ t('settings.actionFailed') }}
+              </NoticeBox>
             </div>
         </div>
         <SectionCard class="home-card">
@@ -77,13 +82,14 @@
       <RemoteControlsSettings v-else-if="currentView === 'remote-controls'" key="remote-controls" class="view-content"
         @open-bt-remote="push('bt-remote')" @open-ir-remote="push('ir-remote')" />
 
-      <BtRemoteSettings v-else-if="currentView === 'bt-remote'" key="bt-remote" class="view-content" />
+      <BtRemoteSettings v-else-if="currentView === 'bt-remote'" key="bt-remote" class="view-content"
+        :toggle-refusal="toggleRefusal" />
 
       <IrRemoteSettings v-else-if="currentView === 'ir-remote'" key="ir-remote" class="view-content"
-        @open-hardware="push('hardware')" />
+        :toggle-refusal="toggleRefusal" @open-hardware="push('hardware')" />
 
       <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content"
-        @edit-zone="handleEditZone" @create-zone="handleCreateZone" @edit-client="handleEditClient"
+        :toggle-refusal="toggleRefusal" @edit-zone="handleEditZone" @create-zone="handleCreateZone" @edit-client="handleEditClient"
         @configure-system="handleConfigureSystem" />
 
       <ZoneEdit v-else-if="currentView === 'multiroom-zone-edit'" key="multiroom-zone-edit" class="view-content"
@@ -112,7 +118,7 @@
         @success="handleRadioStationAdded" />
 
       <ManageStation v-else-if="currentView === 'radio-edit'" key="radio-edit" class="view-content" mode="edit"
-        :station="stationToEdit" :show-action-menu="showStationActionMenu"
+        :station="stationToEdit" :show-action-menu="showStationActionMenu" :action-refusal="stationRefusal"
         @success="handleRadioStationEdited"
         @confirm-action="handleStationActionConfirm" />
 
@@ -173,6 +179,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import { SETTINGS_ICONS } from '@/components/settings/settingsIcons';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
@@ -270,11 +277,15 @@ const powerState = reactive(
   Object.fromEntries(POWER_ACTIONS.map(a => [a.key, { confirming: false, running: false }]))
 );
 
+// The server's detail when Restart or Shut down was refused, said in the drawer.
+const powerRefusal = ref(null);
+
 function resetPowerActions() {
   for (const action of POWER_ACTIONS) {
     powerState[action.key].confirming = false;
     powerState[action.key].running = false;
   }
+  powerRefusal.value = null;
 }
 
 // Scroll-aware view transition (shared with AudioSourceLayout via composable)
@@ -443,6 +454,9 @@ watch(() => props.initialView, (newView) => {
 // home power-menu). Tapping the ListItemButton in the drawer fires the action.
 
 const showStationActionMenu = ref(false);
+// The server's detail when the drawer's Restore or Delete was refused, said by
+// the edit form under it.
+const stationRefusal = ref(null);
 
 const stationActionIcon = computed(() => {
   if (currentView.value !== 'radio-edit' || !stationToEdit.value) return null;
@@ -466,7 +480,10 @@ function handleStationActionConfirm() {
 
 // Close the drawer when leaving the edit view.
 watch(currentView, (next) => {
-  if (next !== 'radio-edit') showStationActionMenu.value = false;
+  if (next !== 'radio-edit') {
+    showStationActionMenu.value = false;
+    stationRefusal.value = null;
+  }
 });
 
 function handleEditStation(station) {
@@ -480,9 +497,11 @@ async function handleRestoreStation() {
   const formData = new FormData();
   formData.append('station_id', stationToEdit.value.id);
 
+  stationRefusal.value = null;
   const result = await apiCall.post('/api/radio/favorites/restore-metadata', formData, {
     category: 'settings',
-    message: 'Error restoring station'
+    message: 'Error restoring station',
+    errorRef: stationRefusal
   });
 
   // The route raises on failure, so result.ok is the whole verdict.
@@ -496,19 +515,14 @@ async function handleRestoreStation() {
 async function handleDeleteStation() {
   if (!stationToEdit.value) return;
 
-  try {
-    const success = await radioStore.removeCustomStation(stationToEdit.value.id);
-
-    if (success) {
-      logger.info('settings', 'Station deleted');
-      await radioStore.loadRadioSettingsData();
-      back();
-      stationToEdit.value = null;
-    } else {
-      logger.error('settings', 'Failed to delete station');
-    }
-  } catch (error) {
-    logger.error('settings', 'Error deleting station:', error);
+  stationRefusal.value = null;
+  // A refusal sets stationRefusal: the store answers with a verdict, never a throw.
+  const success = await radioStore.removeCustomStation(stationToEdit.value.id, { errorRef: stationRefusal });
+  if (success) {
+    logger.info('settings', 'Station deleted');
+    await radioStore.loadRadioSettingsData();
+    back();
+    stationToEdit.value = null;
   }
 }
 
@@ -639,9 +653,11 @@ async function runPowerAction(action) {
     return;
   }
   state.running = true;
+  powerRefusal.value = null;
   const result = await apiCall.post(action.endpoint, null, {
     category: 'settings',
-    message: action.error
+    message: action.error,
+    errorRef: powerRefusal
   });
   if (!result.ok) {
     state.running = false;
@@ -650,15 +666,29 @@ async function runPowerAction(action) {
 
 const showMultiroomToggle = computed(() => currentView.value === 'multiroom');
 
+// The three header switches below are refused where the view under them says
+// it: the detail is handed to that view, and dropped when the view changes —
+// an answer that lands after the view was left included (the multiroom switch
+// waits for the reroute, seconds), or it would be said on the next view.
+const toggleRefusal = ref(null);
+watch(currentView, () => { toggleRefusal.value = null; });
+
+async function sayRefusalWhereSent(send) {
+  const view = currentView.value;
+  toggleRefusal.value = null;
+  await send();
+  if (currentView.value !== view) toggleRefusal.value = null;
+}
+
 async function handleMultiroomToggle(enabled) {
-  await unifiedStore.setMultiroomEnabled(enabled);
+  await sayRefusalWhereSent(() => unifiedStore.setMultiroomEnabled(enabled, { errorRef: toggleRefusal }));
 }
 
 // BT remote enable/disable (toggle lives in the navigation header for this view)
 const showBtRemoteToggle = computed(() => currentView.value === 'bt-remote');
 
 async function handleBtRemoteToggle(enabled) {
-  await settingsStore.toggleBtRemote(enabled);
+  await sayRefusalWhereSent(() => settingsStore.toggleBtRemote(enabled, { errorRef: toggleRefusal }));
 }
 
 // IR remote master toggle (nav header), shown whenever the receiver hardware is
@@ -671,7 +701,7 @@ const showIrRemoteToggle = computed(
 );
 
 async function handleIrRemoteToggle(enabled) {
-  await settingsStore.toggleIrRemote(enabled);
+  await sayRefusalWhereSent(() => settingsStore.toggleIrRemote(enabled, { errorRef: toggleRefusal }));
 }
 
 // The header slot renders nothing at all unless one of its actions is showing,
@@ -771,6 +801,17 @@ onMounted(async () => {
 
 .power-menu-region--open {
   max-height: 70px;
+}
+
+/* A refused Restart or Shut down is said under the two buttons, across both
+   columns; the drawer drops its cap to hold it, the server's detail opened
+   at whatever length (a cap would draw it over the card below). */
+.power-menu-region--open.power-menu-region--refused {
+  max-height: none;
+}
+
+.power-menu-refusal {
+  grid-column: 1 / -1;
 }
 
 .power-menu-items {

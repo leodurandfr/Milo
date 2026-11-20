@@ -1,11 +1,15 @@
 <!-- frontend/src/components/settings/categories/multiroom/MultiroomSettings.vue -->
 <template>
   <Transition name="fade-slide" mode="out-in">
-        <!-- MESSAGE: Enabling or Disabled -->
-        <MessageContent v-if="showMessage" :key="multiroomClientStore.transitionState" :loading="isLoading" :loading-delay="0"
-          :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
+        <!-- MESSAGE: Enabling or Disabled, and the header switch refused -->
+        <SectionStack v-if="showMessage" :key="multiroomClientStore.transitionState">
+          <MessageContent :loading="isLoading" :loading-delay="0"
+            :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
+          <NoticeBox v-if="toggleRefusal !== null" :detail="toggleRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
+        </SectionStack>
         <!-- SETTINGS: Active and ready -->
         <SectionStack v-else key="settings">
+          <NoticeBox v-if="toggleRefusal !== null" :detail="toggleRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
           <!-- Discovered Speakers Section (pending ethernet + wifi hotspots) -->
           <SectionCard v-if="discoveryItems.length > 0">
             <template #header>
@@ -175,11 +179,16 @@
             </div>
           </AnalysisSection>
 
-          <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium"
-            class="apply-button-sticky" floating :loading="snapcastStore.isApplyingServerConfig"
-            :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
-            {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
-          </Button>
+          <!-- What the server refused, and Apply, in one sticky footer: two at
+               bottom 0 would overlap. -->
+          <div class="sticky-footer">
+            <SettingsRefusal :detail="applyRefusal" />
+            <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium"
+              class="apply-button" floating :loading="snapcastStore.isApplyingServerConfig"
+              :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
+              {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
+            </Button>
+          </div>
         </SectionStack>
   </Transition>
 </template>
@@ -200,6 +209,7 @@ import SystemListItem from '@/components/settings/categories/multiroom/SystemLis
 import SkeletonListItem from '@/components/ui/SkeletonListItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
@@ -207,6 +217,11 @@ import SectionCard from '@/components/ui/SectionCard.vue';
 import SectionHeader from '@/components/ui/SectionHeader.vue';
 import SettingItem from '@/components/settings/SettingItem.vue';
 import AnalysisSection from '@/components/settings/AnalysisSection.vue';
+
+defineProps({
+  // The server's detail when the header's switch (SettingsModal) was refused.
+  toggleRefusal: { type: String, default: null }
+});
 
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client', 'configure-system']);
 
@@ -467,8 +482,12 @@ function selectCodec(codecName) {
   snapcastStore.selectCodec(codecName);
 }
 
+// The server's detail when Apply was refused; the staged values stay on screen.
+const applyRefusal = ref(null);
+
 async function applyServerConfig() {
-  await snapcastStore.applyServerConfig();
+  applyRefusal.value = null;
+  await snapcastStore.applyServerConfig({ errorRef: applyRefusal });
 }
 
 // Reload data when multiroom becomes ready after a transition
@@ -638,11 +657,22 @@ onBeforeUnmount(() => {
   color: var(--color-warning);
 }
 
-.apply-button-sticky {
+/* Sticky footer: the refusal and the apply button (as in HardwareSettings) */
+.sticky-footer {
   position: sticky;
   bottom: 0;
-  width: 100%;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.sticky-footer:empty {
+  display: none;
+}
+
+.apply-button {
+  width: 100%;
 }
 
 /* Discovered speakers list (pending ethernet + wifi hotspots) */

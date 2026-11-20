@@ -49,7 +49,7 @@
             :connect="() => connectToNetwork(network, t)"
             :save="() => saveNetwork(network, t)"
           />
-          <NoticeBox v-if="showConnectError && connectError">{{ connectError }}</NoticeBox>
+          <NoticeBox v-if="showConnectError && connectError" :detail="connectDetail">{{ connectError }}</NoticeBox>
         </div>
       </div>
 
@@ -105,6 +105,7 @@ const {
   scanning,
   connecting,
   connectError,
+  connectDetail,
   selectedSsid,
   password,
   selectNetwork,

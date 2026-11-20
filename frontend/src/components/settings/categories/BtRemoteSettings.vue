@@ -35,6 +35,10 @@
       > · {{ formatUnit(settingsStore.btRemote.battery_percentage, '%') }}</span></template>
     </RemoteStatusSection>
 
+    <!-- The header switch, a Search or an Unpair the backend refused. -->
+    <NoticeBox v-if="toggleRefusal !== null" :detail="toggleRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
+    <NoticeBox v-if="actionRefusal !== null" :detail="actionRefusal">{{ t('settings.actionFailed') }}</NoticeBox>
+
     <SettingsRefusal :detail="refusal" />
   </SectionStack>
 </template>
@@ -47,7 +51,13 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import RemoteStatusSection from '@/components/settings/categories/RemoteStatusSection.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
+
+defineProps({
+  // The server's detail when the header's switch (SettingsModal) was refused.
+  toggleRefusal: { type: String, default: null }
+});
 
 const { t, formatUnit } = useI18n();
 const settingsStore = useSettingsStore();
@@ -58,6 +68,7 @@ const { updateSetting, refusal } = useSettingsAPI({
   resync: () => { stepBtRemoteDb.value = settingsStore.volumeSteps.step_bt_remote_db; }
 });
 const unpairing = ref(false);
+const actionRefusal = ref(null);
 
 // Only consider "connected" when not actively discovering (avoids stale state flash)
 const btRemoteConnected = computed(() =>
@@ -81,13 +92,15 @@ const ctaLabel = computed(() => {
 });
 
 function handleBtRemoteDiscover() {
-  settingsStore.discoverBtRemote();
+  actionRefusal.value = null;
+  settingsStore.discoverBtRemote({ errorRef: actionRefusal });
 }
 
 async function handleUnpair() {
   unpairing.value = true;
+  actionRefusal.value = null;
   try {
-    await settingsStore.unpairBtRemote();
+    await settingsStore.unpairBtRemote({ errorRef: actionRefusal });
   } finally {
     unpairing.value = false;
   }

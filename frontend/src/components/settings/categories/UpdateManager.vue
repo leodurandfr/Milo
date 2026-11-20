@@ -375,11 +375,14 @@
         </SectionCard>
       </template>
     </template>
+
+    <SettingsRefusal :detail="startRefusal">{{ t('settings.actionFailed') }}</SettingsRefusal>
+    <SettingsRefusal :detail="recheckRefusal">{{ t('settings.actionFailed') }}</SettingsRefusal>
   </SectionStack>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -394,6 +397,7 @@ import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import { stripTagPrefix, miloVersionLabel, miloRowAction } from '@/utils/miloRelease';
 
 function getProgramIcon(programKey) {
@@ -440,7 +444,7 @@ const updatesStore = useUpdatesStore();
 // Update state and `programs/*` WS handling live in updatesStore (handlers
 // registered centrally in App.vue); this component only renders store state.
 const {
-  localPrograms, localProgramsLoading, localProgramsError,
+  localPrograms, localProgramsLoading, localProgramsError, startRefusal,
   satellites, satellitesError, satelliteByMacId, miloUpdateFailure, rollbackNotice,
 } = storeToRefs(updatesStore);
 const {
@@ -462,13 +466,19 @@ const miloVersion = computed(() =>
 
 const miloAction = computed(() => miloRowAction(localPrograms.value.milo));
 
-// A row's Retry after its check failed: the rows stay drawn while it runs.
+// A row's Retry after its check failed: the rows stay drawn while it runs, and
+// after it when it is refused, the server's detail folded under the sentence.
 const rechecking = ref(false);
+const recheckRefusal = ref(null);
+watch(startRefusal, (detail) => { if (detail !== null) recheckRefusal.value = null; });
 async function recheck() {
   if (rechecking.value) return;
   rechecking.value = true;
+  recheckRefusal.value = null;
+  // One refusal at a time: two sticky boxes at the panel's bottom overlap.
+  startRefusal.value = null;
   try {
-    await loadLocalPrograms({ recheck: true });
+    await loadLocalPrograms({ recheck: true, errorRef: recheckRefusal });
   } finally {
     rechecking.value = false;
   }
@@ -679,6 +689,7 @@ const rows = computed(() => {
 // === LIFECYCLE ===
 
 onMounted(async () => {
+  startRefusal.value = null;
   // Both inventories resync centrally in App.vue::resyncStores — a reconnect
   // handler here would fetch the satellites a second time.
   const tasks = [loadLocalPrograms()];

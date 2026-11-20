@@ -21,14 +21,16 @@
        unless Qobuz is the active source: the OAuth page is served by the
        sidecar, which only runs while the source is selected, and the backend
        no longer starts it on this screen's behalf. -->
-  <MessageContent
-    v-else-if="view !== 'connected'"
-    :title="t('qobuzSettings.notConnectedTitle')"
-    :details="canConnect ? t('qobuzSettings.notConnectedDetails') : t('qobuzSettings.selectSourceFirst')"
-    :cta-label="canConnect ? t('qobuzSettings.connect') : ''"
-    :cta-loading="connecting"
-    :cta-click="connect"
-  />
+  <SectionStack v-else-if="view !== 'connected'">
+    <MessageContent
+      :title="t('qobuzSettings.notConnectedTitle')"
+      :details="canConnect ? t('qobuzSettings.notConnectedDetails') : t('qobuzSettings.selectSourceFirst')"
+      :cta-label="canConnect ? t('qobuzSettings.connect') : ''"
+      :cta-loading="connecting"
+      :cta-click="connect"
+    />
+    <NoticeBox v-if="connectError !== null" :detail="connectError">{{ t('settings.actionFailed') }}</NoticeBox>
+  </SectionStack>
 
   <!-- Connected -->
   <SectionStack v-else>
@@ -47,6 +49,7 @@
           </template>
         </SectionHeader>
       </template>
+      <NoticeBox v-if="disconnectError !== null" :detail="disconnectError">{{ t('settings.actionFailed') }}</NoticeBox>
     </SectionCard>
 
     <!-- Allow the Qobuz mobile app to control volume. Off (default) keeps
@@ -77,6 +80,7 @@ import SectionHeader from '@/components/ui/SectionHeader.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import Button from '@/components/ui/Button.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 
 const { t } = useI18n();
@@ -105,6 +109,9 @@ const canConnect = computed(() => sidecarWantsLogin(unifiedStore.systemState));
 const loading = ref(true);
 const connecting = ref(false);
 const disconnecting = ref(false);
+// The server's detail when Connect or Disconnect did not go through.
+const connectError = ref(null);
+const disconnectError = ref(null);
 
 // Bounded status poll after opening the OAuth tab: the callback lands on
 // qobuz-proxy, not here, so we can't observe completion directly — poll until
@@ -153,12 +160,16 @@ function startPoll() {
 async function connect() {
   if (connecting.value) return;
   connecting.value = true;
+  connectError.value = null;
   const result = await apiCall.get('/api/qobuz/account/login-url', {
     category: 'settings',
     message: 'Error building Qobuz login URL',
+    errorRef: connectError,
   });
   const loginUrl = result.ok ? result.data?.data?.login_url : null;
   if (!loginUrl) {
+    // An answer with no URL is a failure too, with nothing more to fold.
+    connectError.value ??= '';
     connecting.value = false;
     return;
   }
@@ -170,9 +181,11 @@ async function connect() {
 async function disconnect() {
   if (disconnecting.value) return;
   disconnecting.value = true;
+  disconnectError.value = null;
   await apiCall.post('/api/qobuz/account/logout', null, {
     category: 'settings',
     message: 'Error disconnecting Qobuz account',
+    errorRef: disconnectError,
   });
   await fetchStatus();
   disconnecting.value = false;

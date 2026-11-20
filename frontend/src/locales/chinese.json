@@ -48,7 +48,9 @@
     "remoteControls": "遥控器",
     "btRemote": "蓝牙遥控器",
     "irRemote": "红外遥控器",
-    "writeRefused": "无法保存此更改。"
+    "writeRefused": "无法保存此更改。",
+    "actionFailed": "无法完成此操作。",
+    "readFailed": "无法加载此信息。"
   },
   "audioSources": {
     "title": "音频源",
@@ -674,7 +676,6 @@
       "invalidImageFormat": "不支持的图片格式。请使用JPG、PNG、WEBP或GIF。",
       "imageTooLarge": "图片太大。最大{size}。",
       "addFailed": "添加电台失败",
-      "errorOccurred": "发生错误",
       "addStationTitle": "添加电台",
       "editStationTitle": "编辑电台",
       "shazamEnabled": "为此电台启用歌曲识别",

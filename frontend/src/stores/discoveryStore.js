@@ -88,17 +88,29 @@ export const useDiscoveryStore = defineStore('discovery', () => {
    * @param {Object|null} wifi - { ssid, password } typed by the owner, or null
    *   for the server's own network, whose key the server reads itself
    */
-  async function adoptSpeaker(speaker, wifi) {
+  async function adoptSpeaker(speaker, wifi, { errorRef } = {}) {
     const target = wifi
       ? { wifi_ssid: wifi.ssid, wifi_password: wifi.password }
       : { wifi_ssid: serverWifi.value.ssid, use_server_network: true };
     const payload = { ...speaker, ...target };
-    const result = await apiCall.post('/api/discovery/adopt-speaker', payload, {
-      category: 'discovery',
-      message: 'Error adopting wifi speaker',
-      timeout: ADOPT_TIMEOUT_MS,
-      rethrow: true,
-    });
+    let result;
+    try {
+      result = await apiCall.post('/api/discovery/adopt-speaker', payload, {
+        category: 'discovery',
+        message: 'Error adopting wifi speaker',
+        timeout: ADOPT_TIMEOUT_MS,
+        rethrow: true,
+        errorRef,
+      });
+    } catch (error) {
+      // The route refuses with `{code, message}`: the code is what the screen
+      // translates, the message the server's own words it folds under it.
+      const detail = error?.response?.data?.detail;
+      if (errorRef && detail && typeof detail === 'object' && !Array.isArray(detail)) {
+        errorRef.value = typeof detail.message === 'string' ? detail.message : null;
+      }
+      throw error;
+    }
     // Optimistically drop the adopted hotspot from the list — it will reboot
     // and stop broadcasting; a stale entry would only confuse the UI.
     hotspots.value = hotspots.value.filter(h => h.ssid !== payload.ssid);

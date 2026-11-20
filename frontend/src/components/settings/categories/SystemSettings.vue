@@ -16,7 +16,7 @@
         {{ generating ? t('system.diagnostic.generating') : t('system.diagnostic.generate') }}
       </Button>
 
-      <NoticeBox v-if="diagnosticError">{{ diagnosticError }}</NoticeBox>
+      <NoticeBox v-if="diagnosticError !== null" :detail="diagnosticError">{{ t('settings.actionFailed') }}</NoticeBox>
 
       <template v-if="report">
         <!-- Download and Copy are both here because neither one reaches
@@ -57,6 +57,7 @@
         :disabled="resetting" @click="handleReset">
         {{ resetLabel }}
       </Button>
+      <NoticeBox v-if="resetError !== null" :detail="resetError">{{ t('settings.actionFailed') }}</NoticeBox>
     </SectionCard>
   </SectionStack>
 </template>
@@ -87,6 +88,7 @@ const sshError = ref(null);
 
 const confirmReset = ref(false);
 const resetting = ref(false);
+const resetError = ref(null);
 
 const report = ref(null);
 const unavailable = ref([]);
@@ -111,10 +113,12 @@ async function handleReset() {
   }
   confirmReset.value = false;
   resetting.value = true;
+  resetError.value = null;
 
   const result = await apiCall.post('/api/system/reset-setup', null, {
     category: 'system',
-    message: 'Failed to reset the setup'
+    message: 'Failed to reset the setup',
+    errorRef: resetError
   });
   // The unit reboots into the wizard; leave the button in its running state
   // until the page goes away with it.

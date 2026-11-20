@@ -48,7 +48,9 @@
     "remoteControls": "Telecomandi",
     "btRemote": "Telecomando Bluetooth",
     "irRemote": "Telecomando IR",
-    "writeRefused": "Non è stato possibile salvare questa modifica."
+    "writeRefused": "Non è stato possibile salvare questa modifica.",
+    "actionFailed": "Non è stato possibile completare questa azione.",
+    "readFailed": "Non è stato possibile caricare queste informazioni."
   },
   "audioSources": {
     "title": "Sorgenti audio",
@@ -674,7 +676,6 @@
       "invalidImageFormat": "Formato immagine non supportato. Usi JPG, PNG, WEBP o GIF.",
       "imageTooLarge": "Immagine troppo grande. Massimo {size}.",
       "addFailed": "Impossibile aggiungere la stazione",
-      "errorOccurred": "Si è verificato un errore",
       "addStationTitle": "Aggiungi una stazione",
       "editStationTitle": "Modifica stazione",
       "shazamEnabled": "Riconoscimento brani per questa stazione",

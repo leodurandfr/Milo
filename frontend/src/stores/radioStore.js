@@ -446,7 +446,7 @@ export const useRadioStore = defineStore('radio', () => {
   /**
    * Add a custom station
    */
-  async function addCustomStation(stationData) {
+  async function addCustomStation(stationData, { errorRef } = {}) {
     const formData = new FormData();
     formData.append('name', stationData.name);
     formData.append('url', stationData.url);
@@ -464,6 +464,7 @@ export const useRadioStore = defineStore('radio', () => {
     const result = await apiCall.post('/api/radio/custom', formData, {
       category: 'radio',
       message: 'Error adding custom station',
+      errorRef,
       headers: { 'Content-Type': 'multipart/form-data' }
     });
 
@@ -480,10 +481,11 @@ export const useRadioStore = defineStore('radio', () => {
   /**
    * Remove a custom station
    */
-  async function removeCustomStation(stationId) {
+  async function removeCustomStation(stationId, { errorRef } = {}) {
     const result = await apiCall.delete(`/api/radio/custom/${stationId}`, {
       category: 'radio',
       message: 'Error removing custom station',
+      errorRef,
     });
     // The route raises on failure, so result.ok is the whole verdict. The
     // grid follows the favorite_removed event the deletion announces.

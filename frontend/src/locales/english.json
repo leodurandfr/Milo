@@ -48,7 +48,9 @@
     "remoteControls": "Remote controls",
     "btRemote": "Bluetooth remote",
     "irRemote": "IR remote",
-    "writeRefused": "This change could not be saved."
+    "writeRefused": "This change could not be saved.",
+    "actionFailed": "This action could not be completed.",
+    "readFailed": "This information could not be loaded."
   },
   "audioSources": {
     "title": "Audio sources",
@@ -674,7 +676,6 @@
       "invalidImageFormat": "Unsupported image format. Use JPG, PNG, WEBP or GIF.",
       "imageTooLarge": "Image too large. Maximum {size}.",
       "addFailed": "Failed to add station",
-      "errorOccurred": "An error occurred",
       "addStationTitle": "Add a station",
       "editStationTitle": "Edit station",
       "shazamEnabled": "Track recognition for this station",

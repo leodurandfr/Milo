@@ -78,13 +78,14 @@ export const useFanStore = defineStore('fan', () => {
     }
   }
 
-  async function updateConfig(newConfig) {
+  async function updateConfig(newConfig, { errorRef } = {}) {
     const payload = { ...config.value, ...newConfig };
     const prev = config.value;
     config.value = payload; // optimistic
     const result = await apiCall.put('/api/fan/config', payload, {
       category: 'fan',
       message: 'Error updating fan config',
+      errorRef,
     });
     if (!result.ok) {
       config.value = prev; // revert

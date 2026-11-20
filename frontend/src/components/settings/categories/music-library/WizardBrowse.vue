@@ -66,7 +66,7 @@
 
       <!-- Unreachable / error -->
       <template v-else-if="phase === 'error'">
-        <NoticeBox>{{ errorMsg }}</NoticeBox>
+        <NoticeBox :detail="errorDetail">{{ errorMsg }}</NoticeBox>
         <Button variant="control" size="medium" @click="load(path)">
           {{ t('musicLibrary.shares.wizard.retry') }}
         </Button>
@@ -106,7 +106,7 @@
           </Button>
         </template>
 
-        <NoticeBox v-if="errorMsg">{{ errorMsg }}</NoticeBox>
+        <NoticeBox v-if="errorMsg" :detail="errorDetail">{{ errorMsg }}</NoticeBox>
       </template>
     </SectionCard>
 
@@ -156,6 +156,9 @@ const entries = ref([]);
 const creds = reactive({ username: '', password: '' });
 const authError = ref('');
 const errorMsg = ref('');
+// The server's detail for the failure errorMsg says, folded under it: the
+// browse envelope's own `message`, or the HTTP error's detail.
+const errorDetail = ref(null);
 const connecting = ref(false);
 const creating = ref(false);
 
@@ -203,13 +206,14 @@ async function load(target) {
   pendingPath.value = target;
   phase.value = 'loading';
   errorMsg.value = '';
+  errorDetail.value = null;
   const r = await store.browseShare({
     type: props.server.type,
     host: props.server.host,
     path: target,
     username: creds.username,
     password: creds.password,
-  });
+  }, { errorRef: errorDetail });
   if (r.status === 'ok') {
     path.value = target;
     entries.value = r.entries;
@@ -223,6 +227,7 @@ async function load(target) {
     errorMsg.value = r.status === 'unreachable'
       ? t('musicLibrary.shares.wizard.unreachable')
       : t('musicLibrary.shares.wizard.browseError');
+    if (r.message) errorDetail.value = r.message;
     phase.value = 'error';
   }
 }
@@ -254,6 +259,7 @@ async function createShare(targetPath) {
   if (creating.value) return;
   creating.value = true;
   errorMsg.value = '';
+  errorDetail.value = null;
   const payload = {
     type: props.server.type,
     host: props.server.host,
@@ -267,7 +273,7 @@ async function createShare(targetPath) {
     payload.username = creds.username || undefined;
     payload.password = creds.password;
   }
-  const result = await store.addShare(payload);
+  const result = await store.addShare(payload, { errorRef: errorDetail });
   creating.value = false;
   if (!result.ok) {
     errorMsg.value = t('musicLibrary.shares.errorGeneric');

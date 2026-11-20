@@ -843,13 +843,14 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    *   null to hand the zone back to auto (derived from its speaker types)
    * @returns {Promise<boolean>} Success status
    */
-  async function setZoneCrossoverFrequency(zoneId, frequency) {
+  async function setZoneCrossoverFrequency(zoneId, frequency, { errorRef } = {}) {
     // Explicit zone token rather than targetBase(): the caller names the zone,
     // which is not necessarily the currently selected target.
     const url = `/api/equalizer/target/${ZONE_PREFIX}${zoneId}/crossover`;
     const result = await apiCall.put(url, { frequency }, {
       category: 'store',
       message: 'Error setting zone crossover',
+      errorRef,
     });
     return result.ok;
   }
