@@ -1044,15 +1044,17 @@ class CamillaDSPService:
 
     @handle_errors(default={"available": False}, level='debug')
     async def get_levels(self) -> Dict[str, Any]:
-        """Get current audio levels (peak/RMS)"""
+        """The playback peak, the one level LevelsMonitor reads (`output_peak`).
+
+        One command per reading, as on a satellite: LevelsMonitor samples at
+        10 Hz over the one control socket the volume and the EQ share, so a
+        capture peak nobody reads was half that traffic for nothing.
+        """
         if not self._connected:
             return {"available": False}
 
-        capture, playback = await asyncio.gather(
-            self._run(self._client.get_capture_peak),
-            self._run(self._client.get_playback_peak),
-        )
-        return {"available": True, "input_peak": capture, "output_peak": playback}
+        playback = await self._run(self._client.get_playback_peak)
+        return {"available": True, "output_peak": playback}
 
     # === Preset Management ===
 

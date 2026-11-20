@@ -1,11 +1,14 @@
-"""Reading and writing `/etc/snapserver.conf`, and the restart that follows.
+"""Reading and writing `/etc/snapserver.conf`, and waiting for the control
+socket the restart closed (`wait_for_control`) — the restart itself is
+`AudioRoutingService.restart_snapserver`, issued by the server-config route.
 
 What breaks when these fail: this is the write half of the network-preset
 resource — the one endpoint on the appliance that edits a file under `/etc` and
 then restarts a daemon whose restart **cuts the sound in every room**. Measured
 2026-08-27, all four steps ran at 0 %: `_read_snapserver_conf`,
-`_modify_config_content`, `_update_config_file` and `_restart_snapserver` are 68
-of this module's 93 uncovered lines, and B1 closed with them named and untouched.
+`_modify_config_content`, `_update_config_file` and the restart (then a method
+here) were 68 of this module's 93 uncovered lines, and B1 closed with them named
+and untouched.
 
 The read half already paid for its own defect (B1-1: the daemon nests streams
 under `"server"`, so the merge collapsed to the file and the settings page
@@ -21,7 +24,9 @@ invariants nothing was holding:
 * **a failed write must not reach the restart.** The file lands on disk *before*
   snapserver is asked to reload it, so an accepted write followed by a refused
   restart already leaves the new preset on disk with the old one playing. A
-  write that failed and restarted anyway would cut every room for nothing.
+  write that failed and restarted anyway would cut every room for nothing —
+  held at the route, which issues the restart
+  (`test_routes_snapcast.py::test_write_server_config_failure_is_not_a_200`).
 * **32-bit is forced, whatever the caller asked for.** `sampleformat` is the
   pipeline's own format, not a preference.
 
@@ -139,8 +144,8 @@ def _unowned(conf):
 class SpawnedPastTheGuards(BaseException):
     """A real subprocess was about to run.
 
-    BaseException-derived: `_update_config_file` and `_restart_snapserver` are
-    both wrapped in `@handle_errors`, which catches `Exception` and returns the
+    BaseException-derived: `_update_config_file` is wrapped in
+    `@handle_errors`, which catches `Exception` and returns the
     declared default — an ordinary error would leave the run green with a real
     `sudo` having been attempted.
     """
@@ -158,21 +163,14 @@ class FakeProc:
 
 
 @pytest.fixture
-def systemd():
-    manager = MagicMock()
-    manager.restart = AsyncMock(return_value=True)
-    return manager
-
-
-@pytest.fixture
-def service(systemd, tmp_path, monkeypatch):
+def service(tmp_path, monkeypatch):
     """The service with its conf redirected and every spawn wired to explode."""
 
     def _never(*args, **kwargs):
         raise SpawnedPastTheGuards(f"a subprocess was spawned past the doubles: {args}")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _never)
-    svc = SnapcastService(systemd_manager=systemd)
+    svc = SnapcastService()
     svc.snapserver_conf = tmp_path / "snapserver.conf"
     svc.snapserver_conf.write_text(LIVE_CONF)
     return svc
@@ -358,7 +356,7 @@ class TestRewritingTheStreamSection:
         """Measured limit, recorded rather than fixed (B1-9).
 
         The writer only rewrites lines that already exist, so a setting with no
-        line in `[stream]` is lost while `update_server_config` returns success
+        line in `[stream]` is lost while `write_server_config` returns success
         and restarts snapserver anyway. Latent on this fleet only because
         `provisioning/snapcast.sh` writes all four keys — an image that omitted one,
         or a fifth setting added to the payload, would fail exactly this way.
@@ -650,7 +648,7 @@ class TestTheControlSurfaces:
         assert out["tcp-streaming"] == {"bind_to_address": "0.0.0.0", "port": "1704"}
 
     async def test_a_card_whose_captures_are_current_is_closed_once(
-        self, service, deploy, staging, systemd
+        self, service, deploy, staging
     ):
         """A card flashed after its captures last moved has nothing else to
         rewrite: left out of the change test, its control ports would stay open
@@ -669,86 +667,19 @@ class TestTheControlSurfaces:
         service.snapserver_conf.write_text(staged)
         assert await service.reconcile_conf() is False
         assert len(calls) == 1
-        systemd.restart.assert_not_called()
 
 
-class TestTheRestart:
-    """`_restart_snapserver`: the step that cuts the sound in every room."""
-
-    async def test_it_settles_before_probing_and_only_then_reports_success(
-        self, service, systemd, monkeypatch
-    ):
-        """The old instance's socket answers `Server.GetRPCVersion` while it is
-        going down, so probing immediately would report the *old* daemon as the
-        restarted one — the settings page then shows a preset that is not
-        running, which is the exact confusion B1-1 was."""
-        order = []
-        waits = []
-
-        async def _sleep(delay, *a, **k):
-            waits.append(delay)
-            order.append("settle")
-
-        systemd.restart = AsyncMock(side_effect=lambda unit: order.append("restart") or True)
-        service.is_available = AsyncMock(side_effect=lambda: order.append("probe") or True)
-        monkeypatch.setattr(asyncio, "sleep", _sleep)
-
-        assert await service._restart_snapserver() is True
-
-        assert order == ["restart", "settle", "probe"]
-        assert waits == [3]
-
-    async def test_the_unit_restarted_is_the_multiroom_one(self, service, systemd, monkeypatch):
-        """`milo-snapserver-multiroom.service` has no `WantedBy`: its lifecycle
-        belongs solely to `AudioRoutingService._sync_snapcast_state`, and its name
-        is what `/etc/sudoers.d/milo-backend` grants."""
-        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
-        service.is_available = AsyncMock(return_value=True)
-
-        await service._restart_snapserver()
-
-        systemd.restart.assert_awaited_once_with("milo-snapserver-multiroom.service")
-
-    async def test_a_refused_restart_never_reaches_the_probe(
-        self, service, systemd, monkeypatch
-    ):
-        """systemd refusing means the old daemon is still playing. Probing would
-        find it, answer "available", and report a restart that did not happen."""
-        systemd.restart = AsyncMock(return_value=False)
-        service.is_available = AsyncMock(return_value=True)
-        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
-
-        assert await service._restart_snapserver() is False
-        service.is_available.assert_not_called()
-
-    async def test_a_daemon_that_never_comes_back_is_reported_not_claimed(
-        self, service, systemd, monkeypatch, caplog
-    ):
-        """Every room is silent at this point. Returning True would end the
-        request with a green banner over a fleet with no server."""
-        clock = {"t": 500.0}
-        service.is_available = AsyncMock(return_value=False)
-
-        async def _sleep(delay, *a, **k):
-            clock["t"] += delay
-
-        monkeypatch.setattr(asyncio, "sleep", _sleep)
-        monkeypatch.setattr("backend.core.multiroom.snapcast.time.monotonic", lambda: clock["t"])
-
-        with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.snapcast"):
-            assert await service._restart_snapserver() is False
-
-        assert any("API not available" in r.message for r in caplog.records)
-
+class TestTheControlSocketAfterARestart:
+    """`wait_for_control`: the restart itself is AudioRoutingService's
+    (`restart_snapserver`); what is this service's is the control socket every
+    request rides, which the restart closed."""
 
     async def test_the_restart_is_done_once_the_control_socket_is_back(
-        self, service, monkeypatch, caplog
+        self, service, caplog
     ):
-        """The restart closed the socket every request rides: reported done
-        before it reconnects, the settings page's next read finds nothing to
-        ask snapserver. In direct mode no socket is expected and none is waited for."""
-        monkeypatch.setattr(asyncio, "sleep", AsyncMock())
-        service.is_available = AsyncMock(return_value=True)
+        """Reported done before it reconnects, the settings page's next read
+        finds nothing to ask snapserver. In direct mode no socket is expected
+        and none is waited for."""
         control = MagicMock()
         control.should_connect = True
         control.RECONNECT_MAX_DELAY_S = 30
@@ -756,18 +687,18 @@ class TestTheRestart:
         service.set_control_channel(control)
 
         with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.snapcast"):
-            assert await service._restart_snapserver() is False
+            assert await service.wait_for_control() is False
         assert any("control WebSocket is not back" in r.message for r in caplog.records)
 
         control.wait_for_ready = AsyncMock(return_value=True)
-        assert await service._restart_snapserver() is True
+        assert await service.wait_for_control() is True
         assert control.wait_for_ready.await_args.kwargs["timeout"] > control.RECONNECT_MAX_DELAY_S, (
             "a socket backed off before the restart would be reported as not back"
         )
 
         control.should_connect = False
         control.wait_for_ready = AsyncMock(return_value=False)
-        assert await service._restart_snapserver() is True
+        assert await service.wait_for_control() is True
         control.wait_for_ready.assert_not_awaited()
 
 
@@ -808,11 +739,11 @@ class TestWaitingForTheDaemon:
         assert await service.wait_until_available(timeout=10.0) is True
         assert service.is_available.await_count == 2
 
-    async def test_the_probe_is_one_http_request_to_the_daemon(self, systemd, caplog):
+    async def test_the_probe_is_one_http_request_to_the_daemon(self, caplog):
         """It runs while snapserver starts, before any control socket exists: an
         answer is availability, a JSON-RPC error or nobody listening is not."""
         async with serving(FakeSnapserver()) as fake:
-            service = SnapcastService(systemd_manager=systemd, host="127.0.0.1", port=fake.port)
+            service = SnapcastService(host="127.0.0.1", port=fake.port)
             assert await service.is_available() is True
             assert fake.http_requests == 1
 
@@ -824,51 +755,30 @@ class TestWaitingForTheDaemon:
         assert any("availability check failed" in r.message for r in caplog.records)
 
 
-class TestTheWholeUpdate:
-    """`update_server_config`: validate, force, write, restart — in that order."""
+class TestTheWholeWrite:
+    """`write_server_config`: validate, force, write — and restart nothing,
+    which is the routing service's to do."""
 
-    async def test_a_rejected_body_writes_nothing_and_restarts_nothing(
-        self, service, deploy, systemd
-    ):
+    async def test_a_rejected_body_writes_nothing(self, service, deploy):
         """An unknown key means a body in the wrong shape; accepting it wrote
         nothing, returned success and restarted snapserver anyway — the only way
         this endpoint can lie."""
         calls, _, _ = deploy
 
-        assert await service.update_server_config({"buffer_ms": 700, "bogus": 1}) is False
+        assert await service.write_server_config({"buffer_ms": 700, "bogus": 1}) is False
 
         assert calls == []
-        systemd.restart.assert_not_called()
-
-    async def test_a_write_that_failed_never_restarts_the_server(self, service, systemd):
-        """The restart cuts every room. Doing it after a failed write costs the
-        silence and changes nothing."""
-        service._update_config_file = AsyncMock(return_value=False)
-
-        assert await service.update_server_config({"buffer_ms": 700}) is False
-
-        systemd.restart.assert_not_called()
 
     async def test_the_sample_format_is_pinned_before_the_file_is_touched(self, service):
         """The caller's value never reaches the writer, whatever it sent."""
         seen = {}
         service._update_config_file = AsyncMock(side_effect=lambda cfg: seen.update(cfg) or True)
-        service._restart_snapserver = AsyncMock(return_value=True)
 
-        assert await service.update_server_config(
+        assert await service.write_server_config(
             {"buffer_ms": 700, "sampleformat": "44100:16:2"}
         ) is True
 
         assert seen["sampleformat"] == "48000:32:2"
-
-    async def test_the_answer_is_the_restarts_answer(self, service):
-        """A write that landed with a daemon that did not come back is exactly
-        the state where the settings page must not confirm the new preset: the
-        file on disk and the daemon playing now disagree."""
-        service._update_config_file = AsyncMock(return_value=True)
-        service._restart_snapserver = AsyncMock(return_value=False)
-
-        assert await service.update_server_config({"buffer_ms": 700}) is False
 
 
 class TestReadingTheClientList:

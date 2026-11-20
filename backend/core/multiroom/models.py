@@ -9,7 +9,7 @@ throughout the application.
 Architecture: Uses mac_id as the single unique identifier for clients.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Literal, Any, get_args
+from typing import Dict, Iterable, List, Optional, Literal, Any, Tuple, get_args
 from enum import Enum
 import uuid
 
@@ -238,10 +238,10 @@ DEFAULT_CROSSOVER_FREQUENCY = 80  # Hz (THX/Dolby recommended)
 @dataclass
 class EqualizerSettings:
     """
-    Equalizer settings for a zone or standalone client.
+    One client's EQ record — every client owns one, zone member or not.
 
-    Contains all audio processing settings that are shared within a zone
-    or stored individually for standalone clients.
+    A zone holds no EQ: its members hold identical records (kept so by
+    MultiroomEqualizerService), apart from `enabled`, which is each member's.
 
     Attributes:
         enabled: Global equalizer bypass toggle (True = Equalizer active, False = bypassed)
@@ -519,6 +519,20 @@ class Zone:
     def is_valid(self) -> bool:
         """Check if zone has minimum required clients (2+)."""
         return len(self.client_ids) >= 2
+
+
+def zone_subwoofers(members: Iterable[Tuple[str, bool]]) -> Tuple[bool, bool]:
+    """`(has_subwoofer, crossover_enabled)` of a zone — the one definition of both.
+
+    `members` is each member's `(speaker_type, online)`. A zone *has* a
+    subwoofer when a member is one, online or not; its crossover is *enabled*
+    only while one of them is online, since there is nothing else to hand the
+    low band to. The two differ exactly when the zone's subwoofer is off —
+    what the multiroom page warns about. The registry's enriched zone and the
+    crossover service each read their members their own way and decide here.
+    """
+    online = [is_online for speaker_type, is_online in members if speaker_type == "subwoofer"]
+    return bool(online), any(online)
 
 
 class RegistryEventType:

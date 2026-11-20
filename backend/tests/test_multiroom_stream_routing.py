@@ -66,7 +66,7 @@ async def appliance(snapserver, mock_settings_service):
     systemd.start = AsyncMock(return_value=True)
     systemd.stop = AsyncMock(return_value=True)
     systemd.is_active = AsyncMock(return_value=True)
-    snapcast = SnapcastService(systemd_manager=Mock(), host="127.0.0.1", port=snapserver.port)
+    snapcast = SnapcastService(host="127.0.0.1", port=snapserver.port)
     routing = AudioRoutingService(
         settings_service=mock_settings_service, systemd_manager=systemd,
         snapcast_service=snapcast,
@@ -202,7 +202,7 @@ async def test_enabling_multiroom_points_the_groups_at_the_carried_source_before
 
 async def test_a_stream_snapserver_does_not_know_is_a_refusal(snapserver):
     """snapserver answers a JSON-RPC error; the verdict carries it."""
-    snapcast = SnapcastService(systemd_manager=Mock())
+    snapcast = SnapcastService()
     snapcast.set_control_channel(snapserver.control_channel())
 
     assert await snapcast.point_groups_at("DLNA") is False

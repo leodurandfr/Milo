@@ -1498,10 +1498,11 @@ class UpdateService(VersionService):
     async def _restore_multiroom_services(self) -> bool:
         """Starts the multiroom units back exactly when multiroom is on.
 
-        The two snapcast units have no `WantedBy`: their lifecycle is owned solely
-        by `AudioRoutingService._sync_snapcast_state`, which runs at init and inside
-        `set_multiroom_enabled`, never reconciles afterwards, and runs both of them
-        exactly while `routing.multiroom_enabled` is set. So that setting decides
+        The two snapcast units have no `WantedBy`: their lifecycle is
+        AudioRoutingService's — `_sync_snapcast_state`, which runs at init and
+        inside `set_multiroom_enabled`, never reconciles afterwards, and runs both
+        of them exactly while `routing.multiroom_enabled` is set; this install is
+        the one other hand on them. So that setting decides
         here too, not a probe: one that timed out, or a unit caught `activating`,
         would leave every room mute; and starting them in direct mode leaves
         snapclient holding hw:Loopback,0,0, so the next direct-mode source opens a

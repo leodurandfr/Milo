@@ -659,7 +659,7 @@ class TestPendingSettingsQueue:
         ws._equalizer_client_proxy_service = proxy
         ws._crossover_service = crossover
 
-        assert await ws._sync_standalone_equalizer_to_client(mac) is False
+        assert await ws._sync_client_equalizer_to_satellite(mac) is False
         await crossover._handle_registry_event(RegistryEventType.CLIENT_CONNECTED, {"mac_id": mac})
 
         assert proxy.apply_record.await_count == 2
@@ -2021,3 +2021,45 @@ class TestAZonelessClientIsHeldWithoutFilters:
 
         mock_proxy_service.try_request.assert_not_called()
         assert not crossover.has_pending_settings(self.BOOKSHELF)
+
+
+class TestAZoneWhoseSubwooferIsOff:
+    """The real registry and the real crossover service on one zone whose
+    subwoofer is offline: the multiroom page draws "Subwoofer offline" iff the
+    enriched zone says `has_subwoofer` without `crossover_enabled`, and the
+    crossover route's answer must say the same thing as the zone."""
+
+    @pytest.fixture
+    def zone(self):
+        registry = ClientRegistryService(settings_service=None)
+        registry._clients["sat-1"] = Client(
+            mac_id="sat-1", name="Bookshelf", ip="192.168.1.10",
+            speaker_type="satellite", online=True, zone_id="zone-1",
+        )
+        registry._clients["sub-1"] = Client(
+            mac_id="sub-1", name="Subwoofer", ip="192.168.1.20",
+            speaker_type="subwoofer", online=False, zone_id="zone-1",
+        )
+        registry._zones["zone-1"] = Zone(id="zone-1", name="Salon", client_ids=["sat-1", "sub-1"])
+        service = CrossoverService()
+        service.set_registry(registry)
+        return registry, service
+
+    def test_the_zone_has_a_subwoofer_and_no_crossover(self, zone):
+        registry, _ = zone
+
+        enriched = registry.zone_to_enriched_dict(registry.get_zone("zone-1"))
+
+        assert enriched["has_subwoofer"] is True
+        assert enriched["crossover_enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_the_crossover_answer_agrees_with_the_zone(self, zone):
+        registry, service = zone
+
+        answer = await service.get_zone_crossover("zone-1")
+        enriched = registry.zone_to_enriched_dict(registry.get_zone("zone-1"))
+
+        assert (answer["has_subwoofer"], answer["enabled"]) == (
+            enriched["has_subwoofer"], enriched["crossover_enabled"]
+        )

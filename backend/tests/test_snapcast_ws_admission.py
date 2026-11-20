@@ -285,7 +285,7 @@ class TestTheDuplicateSyncGuard:
             return True
 
         service._apply_target_volume_to_client = _apply
-        service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
         waits = []
 
         async def _sleep(delay, *a, **k):
@@ -324,7 +324,7 @@ class TestTheDuplicateSyncGuard:
         await registry.register_client(MAC, "Canapé", IP)
         await registry.set_client_delay(MAC, 40)
         service._apply_target_volume_to_client = AsyncMock(return_value=True)
-        service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
 
         await service._do_sync_reconnecting_client_volume(
             MAC, set_online_after=False, max_retries=0, retry_delay=0.0,
@@ -342,7 +342,7 @@ class TestTheDuplicateSyncGuard:
         naming no client. The guard is what makes the id optional at all."""
         await registry.register_client(MAC, "Canapé", IP)
         service._apply_target_volume_to_client = AsyncMock(return_value=True)
-        service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
 
         await service._do_sync_reconnecting_client_volume(
             MAC, set_online_after=False, max_retries=0, retry_delay=0.0, snapcast_id=None
@@ -409,7 +409,7 @@ class TestTheDuplicateSyncGuard:
         await registry.register_client(MAC, "Canapé", IP)
         await registry.set_client_online(MAC, False)
         service._apply_target_volume_to_client = AsyncMock(return_value=True)
-        service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
 
         ok = await service._do_sync_reconnecting_client_volume(
             MAC, set_online_after=False, max_retries=0, retry_delay=0.0
@@ -460,7 +460,7 @@ def admitted(service, registry, snapserver):
     snapserver answers, and every change of a client's online flag written to
     the snapserver's journal.
     """
-    snapcast = SnapcastService(systemd_manager=MagicMock(), host="snapserver.test")
+    snapcast = SnapcastService(host="snapserver.test")
     snapcast.set_control_channel(snapserver.control_channel())
     service._snapcast_service = snapcast
     set_online = registry.set_client_online
@@ -711,7 +711,7 @@ class TestThePushesNothingRetries:
         service._equalizer_client_proxy_service = MagicMock()
         service._equalizer_client_proxy_service.apply_record = AsyncMock()
 
-        assert await service._sync_standalone_equalizer_to_client(MAC) is True
+        assert await service._sync_client_equalizer_to_satellite(MAC) is True
         service._equalizer_client_proxy_service.apply_record.assert_not_called()
 
     async def test_a_client_without_an_address_cannot_be_synced_and_says_so(
@@ -722,7 +722,7 @@ class TestThePushesNothingRetries:
         await registry.register_client(MAC, "Canapé", "")
 
         with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.websocket"):
-            assert await service._sync_standalone_equalizer_to_client(MAC) is False
+            assert await service._sync_client_equalizer_to_satellite(MAC) is False
 
         assert any("no IP address" in r.message for r in caplog.records)
 
@@ -735,7 +735,7 @@ class TestThePushesNothingRetries:
         await registry.set_client_equalizer(MAC, _eq_record())
         service._equalizer_client_proxy_service = None
 
-        assert await service._sync_standalone_equalizer_to_client(MAC) is False
+        assert await service._sync_client_equalizer_to_satellite(MAC) is False
 
     async def test_a_refused_record_is_requeued_whole_not_per_setting(
         self, service, registry, caplog
@@ -751,7 +751,7 @@ class TestThePushesNothingRetries:
         service._crossover_service = crossover
 
         with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.websocket"):
-            assert await service._sync_standalone_equalizer_to_client(MAC) is False
+            assert await service._sync_client_equalizer_to_satellite(MAC) is False
 
         crossover.queue_pending_settings.assert_awaited_once()
         assert crossover.queue_pending_settings.await_args.args[1] == "record"
@@ -769,7 +769,7 @@ class TestThePushesNothingRetries:
         )
 
         with caplog.at_level(logging.ERROR, logger="backend.core.multiroom.websocket"):
-            assert await service._sync_standalone_equalizer_to_client(MAC) is False
+            assert await service._sync_client_equalizer_to_satellite(MAC) is False
 
         assert any("Error syncing equalizer" in r.message for r in caplog.records)
 
@@ -1025,7 +1025,7 @@ class TestTheRemainingAdmissionArms:
             return True
 
         service._apply_target_volume_to_client = apply
-        service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
         service._sync_client_gain_to_client = AsyncMock()
 
         assert await service._do_sync_reconnecting_client_volume(
@@ -1258,7 +1258,7 @@ class TestSnapwebIsNotASpeaker:
 
         by_status_walk = [
             c["mac_id"]
-            for c in SnapcastService(systemd_manager=MagicMock()).extract_clients(status)
+            for c in SnapcastService().extract_clients(status)
         ]
         await service._handle_client_connect(frame["params"])
         await drain_background_tasks()
@@ -1299,7 +1299,7 @@ class TestAnEntryWithNoUsableId:
 
         by_status_walk = [
             c["mac_id"]
-            for c in SnapcastService(systemd_manager=MagicMock()).extract_clients(status)
+            for c in SnapcastService().extract_clients(status)
         ]
         await service._handle_client_connect(frame["params"])
         await drain_background_tasks()
@@ -1895,7 +1895,7 @@ class TestAnAdmissionTheSatelliteKeepsRefusing:
         from backend.core.volume import EqualizerController
         from backend.core.volume import state as state_module
 
-        snapcast = SnapcastService(systemd_manager=MagicMock(), host="snapserver.test")
+        snapcast = SnapcastService(host="snapserver.test")
         snapcast.set_control_channel(FakeSnapserver(clients={SNAPCAST_ID: IP}).control_channel())
         service._snapcast_service = snapcast
         satellite = _SatelliteWithItsDspDown()

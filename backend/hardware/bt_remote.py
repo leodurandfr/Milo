@@ -46,13 +46,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Default configuration for ANTICATER VK-01
-DEFAULT_KEY_MAP = {
-    "115": "volume_up",     # KEY_VOLUMEUP (rotation CW)
-    "114": "volume_down",   # KEY_VOLUMEDOWN (rotation CCW)
-    "113": "click",         # KEY_MUTE -> multi-click detection
-}
-DEFAULT_DEVICE_FILTER = "ANTICATER"
 SCAN_INTERVAL = 30.0        # Fallback interval — D-Bus listener handles instant reconnect
 BOOT_ATTEMPTS = 3           # Startup reconnect/pair tries, then the adapter is left alone
 BOOT_RETRY_INTERVAL = 15.0  # Seconds between them — BlueZ is often not ready yet
@@ -76,10 +69,12 @@ class BtRemoteController:
     Bluetooth HID remote controller.
 
     Detects BT HID input devices (e.g. ANTICATER VK-01), reads evdev
-    events, and dispatches volume/playback actions. Automatically discovers
-    and pairs matching BT devices in the background. Relies on BlueZ
-    auto-connect for trusted devices — no aggressive reconnect polling,
-    allowing the remote to deep-sleep and preserve battery.
+    events, and dispatches volume/playback actions. At startup it tries
+    BOOT_ATTEMPTS times to reconnect a bonded remote, or to discover and pair
+    a matching one; past that, pairing is the Search button's
+    (POST /api/bt-remote/discover). Relies on BlueZ auto-connect for trusted
+    devices — no reconnect polling, allowing the remote to deep-sleep and
+    preserve battery.
     """
 
     def __init__(self, volume_service, state_machine, settings_service, *,
@@ -92,10 +87,13 @@ class BtRemoteController:
         self._systemd_manager = systemd_manager
         self._bluetooth_service = bluetooth_service
 
+        # Until initialize() reads settings.json: the declared defaults, so a
+        # controller never holds a filter or a key map nobody declared.
+        defaults = settings_service.defaults['hardware']['bt_remote']
         self.running = False
         self.enabled = False
-        self.device_name_filter = DEFAULT_DEVICE_FILTER
-        self.key_map: Dict[str, str] = dict(DEFAULT_KEY_MAP)
+        self.device_name_filter: str = defaults['device_name_filter']
+        self.key_map: Dict[str, str] = dict(defaults['key_map'])
 
         # Tracked devices: path -> task/info
         self._monitored_paths: Set[str] = set()
@@ -205,17 +203,15 @@ class BtRemoteController:
     # ========================================================================
 
     async def _load_config_from_settings(self):
-        """Load configuration from settings.json."""
+        """Load configuration from settings.json.
+
+        Read directly: the settings validator emits the section whole, with a
+        non-empty key map, so there is no default to restate here.
+        """
         config = await self.settings_service.get_setting('hardware.bt_remote')
-        if not config:
-            return
-
-        self.enabled = config.get('enabled', False)
-        self.device_name_filter = config.get('device_name_filter', DEFAULT_DEVICE_FILTER)
-
-        key_map = config.get('key_map', {})
-        if key_map and isinstance(key_map, dict):
-            self.key_map = key_map
+        self.enabled = config['enabled']
+        self.device_name_filter = config['device_name_filter']
+        self.key_map = config['key_map']
 
     async def update_config(self, partial_config: dict):
         """Update configuration partially and persist."""
@@ -501,11 +497,15 @@ class BtRemoteController:
             logger.info("Disconnecting BT remote device: %s (%s)", name, address)
             await self._run_bluetoothctl("disconnect", address)
 
-    async def _remove_matching_bonds(self):
-        """Remove all paired matching devices from BlueZ (clear stale bonds)."""
+    async def _remove_matching_bonds(self) -> list:
+        """Remove all paired matching devices from BlueZ; returns the names of
+        those whose `bluetoothctl remove` failed (the bond is still there)."""
+        kept = []
         for address, name in await self._get_matching_devices("Paired"):
             logger.info("Removing bond: %s (%s)", name, address)
-            await self._run_bluetoothctl("remove", address)
+            if not await self._run_bluetoothctl("remove", address):
+                kept.append(f"{name} ({address})")
+        return kept
 
     async def _is_bt_connected(self, address: str) -> bool:
         """Check if a BT address is currently connected in BlueZ."""
@@ -744,14 +744,18 @@ class BtRemoteController:
 
         logger.info("Unpairing BT remote (disconnect + remove bond)")
         await self._disconnect_matching_devices()
-        await self._remove_matching_bonds()
+        kept = await self._remove_matching_bonds()
         # Refresh evdev monitoring so a now-disconnected device leaves the
-        # status, then broadcast the new (unpaired) state — covers both the
-        # connected case (scan drops the node) and the asleep case (no node,
-        # explicit broadcast still reflects paired=False).
+        # status, then broadcast the new state — covers both the connected case
+        # (scan drops the node) and the asleep case (no node, explicit
+        # broadcast still reflects the bond BlueZ now reports).
         if self.running:
             await self._scan_devices()
         await self._broadcast_status()
+        if kept:
+            # The route answers this as a failure, so the panel keeps its
+            # "Unpair" button over a bond that would reconnect the remote.
+            return {"status": "error", "message": f"BlueZ kept the bond of {', '.join(kept)}"}
         return {"status": "success", "message": "Remote unpaired"}
 
     async def _startup_discovery(self):
@@ -805,8 +809,9 @@ class BtRemoteController:
     async def _run_discovery(self):
         """Discover and pair a new matching BT device via full scan+pair sequence.
 
-        Only called when no paired devices exist. Reconnection of already-paired
-        devices is handled by the caller (_startup_discovery, trigger_discovery).
+        Called at startup when no matching device is bonded, and by the Search
+        button when no bonded one answered a reconnect — reconnecting bonded
+        devices is the callers' (_startup_discovery, _run_manual_discovery).
         """
         logger.debug("Starting BT discovery for '%s' devices...", self.device_name_filter)
 

@@ -964,6 +964,58 @@ class TestAudioRoutingService:
         mock_systemd_manager.start.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_restarting_snapserver_probes_at_once_and_answers_its_readiness(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """The one restart recipe, for the reconcile and the server-config
+        route alike. `systemctl restart` returns once the new process started,
+        so the probe right after can only reach it — the 3 s settle the other
+        copy of this recipe slept was waiting for a socket that cannot linger.
+        A daemon that never answers is reported, not claimed: the route turns
+        False into a 502 over a fleet with no server."""
+        _seed_multiroom(mock_settings_service, True)
+        routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=False)
+        order = Mock()
+        order.attach_mock(mock_systemd_manager.restart, "restart")
+        order.attach_mock(snapcast.wait_until_available, "ready")
+
+        with patch("asyncio.sleep", new=AsyncMock()) as sleep:
+            assert await routing_service.restart_snapserver() is True
+        sleep.assert_not_awaited()
+        assert [c[0] for c in order.mock_calls] == ["restart", "ready"]
+        assert order.mock_calls[0].args == ("milo-snapserver-multiroom.service",)
+
+        snapcast.wait_until_available = AsyncMock(return_value=False)
+        assert await routing_service.restart_snapserver() is False
+
+    @pytest.mark.asyncio
+    async def test_a_refused_restart_never_reaches_the_probe(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """systemd refusing means the old daemon is still playing: probing would
+        find it and report a restart that did not happen."""
+        _seed_multiroom(mock_settings_service, True)
+        routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=False)
+        mock_systemd_manager.restart = AsyncMock(return_value=False)
+
+        assert await routing_service.restart_snapserver() is False
+        snapcast.wait_until_available.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_restart_of_a_snapcast_unit_in_direct_mode(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """A restart STARTS a stopped unit: in direct mode snapclient would take
+        hw:Loopback,0,0 from the direct-mode source, which plays silence until
+        a reboot. The owner refuses it itself, whatever its caller checked."""
+        _seed_multiroom(mock_settings_service, False)
+        routing_service.snapcast_service = self._snapcast(conf_changed=False)
+
+        assert await routing_service.restart_snapserver() is False
+        assert await routing_service.restart_snapclient() is False
+        mock_systemd_manager.restart.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_direct_mode_rewrites_the_conf_without_starting_snapserver(
         self, routing_service, mock_settings_service, mock_systemd_manager
     ):

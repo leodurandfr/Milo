@@ -59,6 +59,19 @@ def _resolve_target(target: str) -> tuple[str, str]:
     return "client", target
 
 
+def _not_applied(detail: str) -> CommandNotApplied:
+    """A write the target did not take, raised as the router's one failure.
+
+    Every write here says it the same way: a band, the compressor, loudness and
+    mono raise ``CommandNotApplied`` from the access layer, and the three that
+    answer a bool (enabled, preset, save-custom) raise it here. So a speaker
+    that answered and refused is a 502 and one that could not be reached a
+    503, both logged by ``api_error_handler`` — never a 200 carrying
+    ``"status": "error"``, which a client had to know to look for.
+    """
+    return CommandNotApplied(detail)
+
+
 def create_equalizer_router(
     camilladsp_service: "CamillaDSPService",
     routing_service: Optional["AudioRoutingService"] = None,
@@ -298,6 +311,9 @@ def create_equalizer_router(
         "local" is the appliance's own toggle — Milo-Mac's Equalizer switch — and
         moves the zone the local client shares its EQ with, as the dock does; an
         explicit "<mac>" moves that client alone.
+
+        A target that did not take it answers 502, like every other write of this
+        router (see `_not_applied`).
         """
         async with api_error_handler(f"Error updating equalizer enabled for target {target}", logger):
             enabled = payload.enabled
@@ -318,7 +334,9 @@ def create_equalizer_router(
             except ValueError as e:
                 logger.warning(f"Equalizer enabled update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
-            return {"status": "success" if success else "error", "target": target, "enabled": enabled}
+            if not success:
+                raise _not_applied(f"Equalizer {'enable' if enabled else 'bypass'} not applied to target {target}")
+            return {"status": "success", "target": target, "enabled": enabled}
 
     @router.post("/target/{target}/preset", response_model=TargetPresetResponse)
     async def load_target_preset(target: str, payload: EqualizerPresetRequest):
@@ -340,11 +358,7 @@ def create_equalizer_router(
                 logger.warning(f"Preset load failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             if not success:
-                logger.error(f"Preset {payload.preset_id} not applied to target {target}")
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Preset not applied to target {target}",
-                )
+                raise _not_applied(f"Preset {payload.preset_id} not applied to target {target}")
             return {
                 "status": "success",
                 "target": target,
@@ -363,11 +377,7 @@ def create_equalizer_router(
                 logger.warning(f"Custom-preset save failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             if not saved:
-                logger.error(f"Custom preset not applied to target {target}")
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Custom preset not applied to target {target}",
-                )
+                raise _not_applied(f"Custom preset not applied to target {target}")
             return {"status": "success", "target": target, "preset_id": "custom"}
 
     return router

@@ -13,5 +13,6 @@ Submodules:
 - screen.ScreenController: Screen brightness and power management
 - service.HardwareService: Hardware configuration service
 - bt_remote.BtRemoteController: Bluetooth HID remote for volume/playback control
-- ir_remote.IrRemoteController: IR remote (Apple Remote 1st gen) via TSOP4838 on GPIO17
+- ir_remote.IrRemoteController: IR remote (Apple Remote 1st gen) via a TSOP4838 on the
+  configured GPIO (GPIO17 by default)
 """

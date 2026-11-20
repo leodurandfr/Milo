@@ -288,15 +288,8 @@ class ScreenController:
                 live = self.state_machine.system_state.view.session is not None
 
                 if not self.session_live and live:
-                    was_sleeping = not self.screen_on
-                    woke = await self._screen_cmd(self.screen_on_cmd)
+                    await self._wake()
                     self.last_activity_time = monotonic()
-                    # Only the panel's own verdict may be broadcast: _screen_cmd
-                    # leaves screen_on untouched when the write is refused, so
-                    # announcing the state we asked for would tell the UI the
-                    # panel woke while it is still dark.
-                    if was_sleeping and woke:
-                        await self._broadcast_sleep_state(False)
                 elif self.session_live and not live:
                     self.last_activity_time = monotonic()
 
@@ -362,10 +355,29 @@ class ScreenController:
                 await asyncio.sleep(10)
 
     async def on_touch_detected(self):
-        """Public interface for external touch"""
+        """Public interface for external touch: restart the countdown, and
+        light the panel unless it is lit already."""
+        self.last_activity_time = monotonic()
+        await self._wake()
+
+    async def _wake(self) -> None:
+        """Light the panel, announcing it only when it was dark and took it.
+
+        A panel that is lit and took its last write is left alone: the kiosk
+        pings on every touch (one every 2 s at most), and each write is a shell
+        — plus a python3 and a USB HID report on the 7\" panel — for the value
+        already showing. Symmetric to force_sleep's guard. After a refused write
+        it is retried, whatever screen_on says: that write may have been the
+        one that should have lit it.
+        """
+        if self.screen_on and not self._refusal_reported:
+            return
         was_sleeping = not self.screen_on
         woke = await self._screen_cmd(self.screen_on_cmd)
-        self.last_activity_time = monotonic()
+        # Only the panel's own verdict may be broadcast: _screen_cmd leaves
+        # screen_on untouched when the write is refused, so announcing the
+        # state we asked for would tell the UI the panel woke while it is
+        # still dark.
         if was_sleeping and woke:
             await self._broadcast_sleep_state(False)
 

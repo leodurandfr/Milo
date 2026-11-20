@@ -8,7 +8,9 @@ This service is the ONLY place where client state is mutated.
 Architecture:
 - mac_id is the single unique identifier for clients (always a MAC address)
 - Local client is identified by ip == "127.0.0.1" or client.is_local
-- Zones share equalizer settings, standalone clients have individual equalizer
+- Every client owns one EQ record (`client_equalizer[mac]`); a zone holds no
+  EQ of its own — its members hold identical records, kept so by
+  MultiroomEqualizerService, which this service never calls
 """
 import asyncio
 import contextlib
@@ -32,6 +34,7 @@ from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCIES,
     DEFAULT_CROSSOVER_FREQUENCY,
+    zone_subwoofers,
 )
 
 # Map registry event types to the typed multiroom WS event classes; each
@@ -74,11 +77,12 @@ class ClientRegistryService:
 
     Responsibilities:
     - Track all clients with complete metadata
-    - Manage zone configuration and equalizer settings
+    - Manage zone configuration
     - Track online/offline status (single source)
     - Notify subscribers on state changes (broadcasting is owned by callers)
     - Persist configuration to settings
-    - Manage standalone equalizer settings
+    - Store each client's EQ record (the record only: what a zone's members
+      adopt is MultiroomEqualizerService's to decide and push)
     """
 
     # Debounce for the one write path that streams: an EQ band drag emits 20
@@ -206,7 +210,7 @@ class ClientRegistryService:
         """
         Remove a client from the registry completely.
 
-        Also removes from zones and cleans up standalone equalizer settings.
+        Also removes it from its zone and drops its EQ record.
 
         Args:
             mac_id: The client's mac_id
@@ -239,7 +243,7 @@ class ClientRegistryService:
                     else:
                         zones_modified.append((zone.id, self.zone_to_enriched_dict(zone)))
 
-            # Clean up standalone equalizer
+            # Its EQ record goes with it
             if mac_id in self._client_equalizer:
                 del self._client_equalizer[mac_id]
 
@@ -806,10 +810,13 @@ class ClientRegistryService:
 
     async def add_client_to_zone(self, zone_id: str, mac_id: str) -> bool:
         """
-        Add a client to a zone. Client's equalizer is replaced by zone's equalizer.
+        Add a client to a zone. Membership only: the client's EQ record is left
+        as it is, and the caller (POST /api/multiroom/zones/{id}/clients) has it
+        adopt the zone's EQ through MultiroomEqualizerService.
 
         If the client's previous zone becomes invalid (< 2 members), that zone is
-        deleted and its remaining clients become standalone with the zone's EQ.
+        deleted and its remaining clients become standalone, each keeping its
+        own record.
 
         Announced in three steps: the zone left, then a CLIENT_UPDATED for each
         client whose zone_id or eq_independent moved (the newcomer's override is
@@ -1013,16 +1020,15 @@ class ClientRegistryService:
         base['client_ids'] = sorted_client_ids
 
         # Compute derived fields
-        online_count = 0
-        has_subwoofer = False
-
-        for mac_id in sorted_client_ids:
-            client = self._clients.get(mac_id)
-            if client:
-                if client.online:
-                    online_count += 1
-                if client.speaker_type == 'subwoofer' and client.online:
-                    has_subwoofer = True
+        online_count = sum(
+            1 for mac_id in sorted_client_ids
+            if (client := self._clients.get(mac_id)) and client.online
+        )
+        has_subwoofer, crossover_enabled = zone_subwoofers(
+            (client.speaker_type, client.online)
+            for mac_id in sorted_client_ids
+            if (client := self._clients.get(mac_id))
+        )
 
         base['online_client_count'] = online_count
         base['has_subwoofer'] = has_subwoofer
@@ -1041,10 +1047,8 @@ class ClientRegistryService:
         if zone.crossover_frequency is None:
             base['crossover_frequency'] = self.auto_crossover_frequency(zone)
 
-        # The crossover is on exactly when the zone holds an online subwoofer —
-        # there is nothing else to split the band with. Computed here, never
-        # stored: a zone carries no crossover_enabled of its own.
-        base['crossover_enabled'] = has_subwoofer and online_count > 0
+        # Computed, never stored: a zone carries no crossover_enabled of its own.
+        base['crossover_enabled'] = crossover_enabled
 
         return base
 

@@ -69,7 +69,7 @@ FOREIGN_REGISTER_CLIENT = (
 RECIPE_CALLS = frozenset({
     "_resolve_target_volume",
     "_apply_target_volume_to_client",
-    "_sync_standalone_equalizer_to_client",
+    "_sync_client_equalizer_to_satellite",
 })
 
 

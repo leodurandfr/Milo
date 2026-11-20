@@ -116,7 +116,7 @@ def on_snapserver(registry, volume_service, no_satellite_network):
     """The service on the real SnapcastService, whose control channel a given
     fake snapserver answers."""
     def wire(fake):
-        snapcast = SnapcastService(systemd_manager=MagicMock(), host="snapserver.test")
+        snapcast = SnapcastService(host="snapserver.test")
         snapcast.set_control_channel(fake.control_channel())
         return _service_on(snapcast, registry, volume_service)
 

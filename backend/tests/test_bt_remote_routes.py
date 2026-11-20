@@ -8,8 +8,9 @@ route that answers the wrong shape leaves that panel wrong until a reload; a
 route that swallows a failure leaves it wrong *and* silent.
 
 `DELETE /pairing` is the one with teeth: it lands on `forget_remote()`, i.e.
-`bluetoothctl remove` over every bond whose name matches the filter. Its 400
-arm is what tells the user the bond is still there.
+`bluetoothctl remove` over every bond whose name matches the filter, and
+answers `error` when BlueZ kept one. A controller's `error` is a 500 on every
+route of the router, the other statuses are flow control under a 200.
 """
 import pytest
 from fastapi import FastAPI
@@ -133,21 +134,52 @@ class TestDiscover:
         {"status": "success", "message": "Device found and connected"},
         {"status": "already_connected", "message": "Device already connected"},
         {"status": "not_found", "message": "No matching device found"},
-        {"status": "error", "message": "BT remote is disabled"},
+        {"status": "cancelled", "message": "BT remote stopped during discovery"},
     ])
-    def test_every_outcome_reaches_the_store_verbatim_under_a_200(
+    def test_flow_control_outcomes_reach_the_store_verbatim_under_a_200(
         self, client, controller, outcome
     ):
-        """`discoverBtRemote()` returns `result.data.status` and the CTA reads
-        it: the four outcomes are flow control, not HTTP failures. Translating
-        any of them to a non-2xx leaves `discovering` stuck true, and the
-        "Search" button binds both :loading and :disabled to it."""
+        """`discoverBtRemote()` returns `result.data.status`: these four are
+        what the search found, not failures, and each one is followed by a
+        status broadcast that clears the panel's `discovering`."""
         controller.trigger_discovery = AsyncMock(return_value=outcome)
 
         response = client.post("/api/bt-remote/discover")
 
         assert response.status_code == 200
         assert response.json() == outcome
+
+    def test_a_refused_search_is_a_500_carrying_its_reason(self, client, controller):
+        """A refusal broadcasts no status, so the HTTP failure is the only
+        thing that clears `discovering`: `discoverBtRemote()` drops it on
+        `!result.ok`. Answered 200, the Search button stayed a disabled spinner
+        until a reload."""
+        controller.trigger_discovery = AsyncMock(
+            return_value={"status": "error", "message": "evdev not available"}
+        )
+
+        response = client.post("/api/bt-remote/discover")
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "evdev not available"
+
+    def test_a_search_on_a_disabled_remote_is_a_conflict_not_a_failure(
+        self, client, controller, caplog
+    ):
+        """Search pressed on a screen that has not yet heard another one
+        disable the remote: still not a 2xx (the spinner must drop), but
+        nothing failed, so no error line — the WebSocketLogHandler would put
+        it on every screen as a banner."""
+        import logging
+
+        controller.enabled = False
+
+        with caplog.at_level(logging.WARNING):
+            response = client.post("/api/bt-remote/discover")
+
+        assert response.status_code == 409
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+        controller.trigger_discovery.assert_not_awaited()
 
 
 class TestUnpair:
@@ -160,18 +192,18 @@ class TestUnpair:
         assert response.json() == {"status": "success", "message": "Remote unpaired"}
         controller.forget_remote.assert_awaited_once_with()
 
-    def test_a_refused_unpair_is_a_400_carrying_the_reason(self, client, controller):
+    def test_a_kept_bond_is_a_failure_carrying_the_reason(self, client, controller):
         """The store clears `paired` on `result.ok` alone. A refusal answered
         200 hides the "Unpair" button while the bond is still in BlueZ, so the
         remote keeps reconnecting and the button is gone."""
-        controller.forget_remote = AsyncMock(
-            return_value={"status": "error", "message": "evdev not available"}
-        )
+        controller.forget_remote = AsyncMock(return_value={
+            "status": "error", "message": f"BlueZ kept the bond of {REMOTE_NAME} ({REMOTE_MAC})",
+        })
 
         response = client.delete("/api/bt-remote/pairing")
 
-        assert response.status_code == 400
-        assert response.json()["detail"] == "evdev not available"
+        assert response.status_code == 500
+        assert REMOTE_MAC in response.json()["detail"]
 
     def test_a_refusal_with_no_message_still_says_what_failed(
         self, client, controller
@@ -179,9 +211,7 @@ class TestUnpair:
         controller.forget_remote = AsyncMock(return_value={"status": "error"})
         assert client.delete("/api/bt-remote/pairing").json()["detail"] == "Unpair failed"
 
-    def test_a_controller_that_raises_is_a_500_not_a_400(self, client, controller):
-        """The 400 means "BlueZ refused"; anything else is a fault of ours and
-        must not read as a refusal the user could act on."""
+    def test_a_controller_that_raises_is_a_500(self, client, controller):
         controller.forget_remote = AsyncMock(side_effect=RuntimeError("bus gone"))
 
         response = client.delete("/api/bt-remote/pairing")

@@ -177,6 +177,33 @@ class TestSleepStateFollowsThePanel:
         shell.assert_not_called()
         broadcasts.assert_not_called()
 
+    async def test_a_touch_on_a_lit_panel_writes_nothing_and_restarts_the_countdown(
+        self, controller, broadcasts
+    ):
+        """The kiosk pings on every touch, up to one every 2 s. Each write on a
+        lit panel was a shell — and a python3 plus a USB HID report on the 7"
+        panel — for the value already showing."""
+        controller.screen_on = True
+        controller.last_activity_time = monotonic() - 60
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc()) as shell:
+            await controller.on_touch_detected()
+        shell.assert_not_called()
+        broadcasts.assert_not_called()
+        assert monotonic() - controller.last_activity_time < 5
+
+    async def test_a_touch_after_a_refused_write_tries_again(self, controller, broadcasts):
+        """`screen_on` is what the last *accepted* write left: after a refusal
+        the panel may be dark under a True, so the next touch must still write."""
+        controller.screen_on = True
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)):
+            await controller.apply_screen_config(5)
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc()) as shell:
+            await controller.on_touch_detected()
+        shell.assert_called_once()
+        with patch("asyncio.create_subprocess_shell", return_value=_make_proc()) as shell:
+            await controller.on_touch_detected()
+        shell.assert_not_called()
+
     async def test_the_inactivity_timeout_does_not_announce_a_refused_sleep(
         self, controller, broadcasts
     ):

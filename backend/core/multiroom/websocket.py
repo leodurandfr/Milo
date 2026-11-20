@@ -41,9 +41,9 @@ class SnapcastWebSocketService:
     The snapserver control WebSocket: notifications in, requests out.
 
     Handles real-time events from Snapcast server:
-    - Client connect/disconnect
-    - Volume and mute changes
+    - Client connect/disconnect and name changes
     - Server updates (availability changes)
+    Volume and mute notifications are ignored: the volume service owns both.
 
     and answers SnapcastService's requests (``call``). A reader task settles
     each answer by its id the moment it arrives, so a notification handler may
@@ -663,9 +663,9 @@ class SnapcastWebSocketService:
     ) -> Optional[Dict[str, Any]]:
         """Register a snapclient in the registry, honouring its pending configuration.
 
-        Two notifications can be the first to see a new client — `Client.OnConnect`
-        and `Server.OnUpdate` — and whichever wins must produce the same registry
-        entry. That is why the pending lookup lives here and not in one caller:
+        Four paths can be the first to see a new client — the sweep at WebSocket
+        connect, `Client.OnConnect`, `Server.OnUpdate` and the reconcile sweep's
+        online flip — and whichever wins must produce the same registry entry. That is why the pending lookup lives here and not in one caller:
         registering with the Snapcast host name instead loses the name, speaker
         type and volume_control the user just picked in the wizard, and
         `register_client` preserves an existing non-empty name, so a later
@@ -1074,7 +1074,7 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.warning(f"Could not push snapclient config to {client_ip}: {e}")
 
-    async def _sync_standalone_equalizer_to_client(self, mac_id: str) -> bool:
+    async def _sync_client_equalizer_to_satellite(self, mac_id: str) -> bool:
         """Push a reconnecting REMOTE client's own EQ record to the satellite.
 
         Reads the registry's per-client EQ store (`client_equalizer[mac]`, the
@@ -1133,7 +1133,7 @@ class SnapcastWebSocketService:
     async def _sync_client_gain_to_client(self, mac_id: str) -> bool:
         """Apply a client's level trim on admission — the local unit included.
 
-        Sibling of _sync_standalone_equalizer_to_client, for the one DSP setting
+        Sibling of _sync_client_equalizer_to_satellite, for the one DSP setting
         that is a client property (Client.gain_db) instead of part of the EQ
         record, so the record push carries it nowhere. It is pushed whatever its
         value, 0.0 included: clearing a stale trim is the same operation.
@@ -1282,7 +1282,7 @@ class SnapcastWebSocketService:
                     )
 
             if "record" in sent and self.registry.get_client_equalizer(mac_id) is not sent["record"]:
-                await self._sync_standalone_equalizer_to_client(mac_id)
+                await self._sync_client_equalizer_to_satellite(mac_id)
             if "gain" in sent and client.gain_db != sent["gain"]:
                 await self._sync_client_gain_to_client(mac_id)
 
@@ -1402,7 +1402,7 @@ class SnapcastWebSocketService:
                     # full Client.OnConnect. No-op for the local client (is_local
                     # guard inside the callee). Done before showing online so the
                     # client is fully configured first.
-                    await self._sync_standalone_equalizer_to_client(mac_id)
+                    await self._sync_client_equalizer_to_satellite(mac_id)
 
                     # The level trim rides beside the record, not inside it: it
                     # is a client property, so the push above carries it nowhere

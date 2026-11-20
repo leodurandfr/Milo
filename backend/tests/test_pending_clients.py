@@ -70,18 +70,28 @@ def _service() -> PendingClientsService:
     return PendingClientsService(state_machine=state_machine)
 
 
-async def _reload_after_sweep() -> dict:
-    """Boot a second service on the same file.
+async def _reboot() -> PendingClientsService:
+    """Boot a second service on the same file — what a backend restart does.
 
-    `initialize()` loads the persisted entries and runs the stale sweep before
-    returning — the only way in that is not a private method.
-    """
+    The caller shuts it down."""
     service = _service()
     await service.initialize()
+    return service
+
+
+async def _reload() -> dict:
+    """What a second service loads from the file."""
+    service = await _reboot()
     try:
         return service.get_all_clients()
     finally:
         await service.shutdown()
+
+
+async def _sweep(service: PendingClientsService) -> dict:
+    """One pass of the heartbeat sweep `_cleanup_loop` runs every interval."""
+    await service._purge_stale()
+    return service.get_all_clients()
 
 
 async def test_a_heartbeat_keeps_the_name_the_user_chose(clock, storage):
@@ -107,6 +117,102 @@ async def test_a_heartbeat_keeps_the_name_the_user_chose(clock, storage):
     assert client["speaker_type"] == "floorstanding"
 
 
+async def test_a_heartbeat_that_changes_nothing_is_neither_written_nor_announced(
+    clock, storage
+):
+    """Every waiting satellite re-registers every 15 s: each one used to rewrite
+    the file on the SD card, broadcast to every screen and log at info — ~5,760
+    times a day per speaker — for a timestamp. It still keeps the entry alive:
+    the sweep that would expire it reads the refreshed time in memory."""
+    service = _service()
+    await service.register_client(
+        mac_id=FRESH, ip="192.168.1.70", hardware_configured=False, audio_id="none"
+    )
+    await service.update_client(FRESH, name="Bureau", speaker_type="floorstanding")
+    broadcasts = service._state_machine.broadcast
+    broadcasts.reset_mock()
+    storage.unlink()
+
+    for _ in range(4):
+        clock.now += 15
+        await service.register_client(
+            mac_id=FRESH, ip="192.168.1.70", hardware_configured=False, audio_id="none"
+        )
+        # An adopted satellite's heartbeat carries its identity too.
+        await service.update_client(FRESH, name="Bureau", speaker_type="floorstanding")
+    await service._purge_stale()
+
+    assert not storage.exists(), "a heartbeat rewrote the file"
+    broadcasts.assert_not_awaited()
+    assert service.get_client(FRESH)["name"] == "Bureau"
+
+    clock.now += 15
+    await service.register_client(
+        mac_id=FRESH, ip="192.168.1.71", hardware_configured=False, audio_id="none"
+    )
+    assert storage.exists(), "a heartbeat with a new address was not written"
+    assert broadcasts.await_args.args[0].client["ip"] == "192.168.1.71"
+
+
+class TestABackendRestart:
+    """The file no longer carries the last heartbeat, so a restart cannot read
+    a satellite's liveness from it. A live satellite whose entry a restart
+    dropped heartbeats again as a speaker never seen — `registered` for a mac
+    the freshly resynced page does not hold, which `App.vue` reads as new: the
+    screen wakes and opens Settings › Multiroom after every update."""
+
+    async def test_a_live_satellite_keeps_its_entry_across_a_restart(self, clock, storage):
+        service = _service()
+        await service.register_client(
+            mac_id=FRESH, ip="192.168.1.70", hardware_configured=False, audio_id="none"
+        )
+        for _ in range(10):  # 150 s of heartbeats that change nothing
+            clock.now += 15
+            await service.register_client(
+                mac_id=FRESH, ip="192.168.1.70", hardware_configured=False, audio_id="none"
+            )
+        await service.shutdown()
+
+        clock.now += 5  # the backend restarts between two heartbeats
+        rebooted = await _reboot()
+        try:
+            assert FRESH in rebooted.get_all_clients()
+
+            # `initialize` runs before uvicorn listens, so the first sweep can
+            # land before the satellite's first heartbeat reaches the new
+            # process. The file still holds the time of the last write, 155 s
+            # ago: only the clock restarted at boot keeps the entry here.
+            clock.now += 10
+            assert FRESH in await _sweep(rebooted), "the first sweep after boot dropped it"
+
+            rebooted._state_machine.broadcast.reset_mock()
+            await rebooted.register_client(
+                mac_id=FRESH, ip="192.168.1.70", hardware_configured=False, audio_id="none"
+            )
+            rebooted._state_machine.broadcast.assert_not_awaited()
+        finally:
+            await rebooted.shutdown()
+
+    async def test_a_dead_satellite_expires_one_stale_timeout_after_the_restart(
+        self, clock, storage
+    ):
+        service = _service()
+        await service.register_client(
+            mac_id=SILENT, ip="192.168.1.60", hardware_configured=False, audio_id="none"
+        )
+        await service.shutdown()
+
+        clock.now += 3600  # it was unplugged an hour before the restart
+        rebooted = await _reboot()
+        try:
+            assert SILENT in rebooted.get_all_clients()
+
+            clock.now += STALE_TIMEOUT + 1
+            assert SILENT not in await _sweep(rebooted)
+        finally:
+            await rebooted.shutdown()
+
+
 async def test_the_sweep_expires_the_silent_client_but_spares_the_one_rebooting(clock, storage):
     service = _service()
     for mac in (SILENT, REBOOTING):
@@ -118,7 +224,7 @@ async def test_the_sweep_expires_the_silent_client_but_spares_the_one_rebooting(
 
     clock.now += STALE_TIMEOUT + 1
 
-    clients = await _reload_after_sweep()
+    clients = await _sweep(service)
 
     assert REBOOTING in clients
     assert clients[REBOOTING]["name"] == "Canapé"
@@ -139,7 +245,7 @@ async def test_the_reboot_shield_expires_with_its_own_grace(clock, storage):
         mac_id=FRESH, ip="192.168.1.61", hardware_configured=False, audio_id="none"
     )
 
-    clients = await _reload_after_sweep()
+    clients = await _sweep(service)
 
     assert REBOOTING not in clients
     assert FRESH in clients
@@ -164,7 +270,7 @@ async def test_reporting_the_card_ends_the_reboot_shield(clock, storage):
         mac_id=FRESH, ip="192.168.1.61", hardware_configured=False, audio_id="none"
     )
 
-    clients = await _reload_after_sweep()
+    clients = await _sweep(service)
 
     assert REBOOTING not in clients
     assert FRESH in clients
@@ -189,7 +295,7 @@ class TestTheTransferAndTheRefusals:
             assert await service.remove_client(REBOOTING) is True
 
             assert service.get_client(REBOOTING) is None
-            assert await _reload_after_sweep() == {}, "the removal did not reach the disk"
+            assert await _reload() == {}, "the removal did not reach the disk"
         finally:
             await service.shutdown()
 

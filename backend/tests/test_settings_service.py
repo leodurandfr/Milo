@@ -749,13 +749,11 @@ class TestSettingsService:
 
 
 class TestValidateHardwareSection:
-    """The `hardware` branch of `_validate_and_merge`, which had never run.
+    """The `hardware` branch of `_validate_and_merge`: the two remote controls.
 
-    It is optional and absent from `defaults`, so it is the one section whose
-    keys are read from the *input* rather than projected from a declared shape.
-    That makes it the one place where a value straight off disk reaches a
-    consumer, and both of its sub-sections drive real hardware: the BT remote's
-    pairing filter and the IR receiver's scancode table.
+    Both of its sub-sections drive real hardware — the BT remote's pairing
+    filter and key map, the IR receiver's scancode table — and the controllers
+    read the section directly, so what is validated here is what they run.
     """
 
     @pytest.fixture
@@ -764,25 +762,13 @@ class TestValidateHardwareSection:
         service.settings_file = str(tmp_path / "settings.json")
         return service
 
-    def test_a_file_with_no_hardware_section_produces_none(self, service):
-        """It is optional. Emitted empty, `hardware.bt_remote.enabled` would read
-        as a declared False and the controller would never start — which is
-        indistinguishable from the user having turned it off."""
-        result = service._validate_and_merge({})
+    @pytest.mark.parametrize("stored", [{}, {"hardware": {}}, {"hardware": {"unknown": {"x": 1}}}])
+    def test_a_file_without_the_remotes_emits_the_declared_section(self, service, stored):
+        """Emitted whole whatever is stored: a controller reading a key the
+        section lacks would answer a default nobody declared."""
+        result = service._validate_and_merge(stored)
 
-        assert "hardware" not in result
-
-    def test_an_empty_hardware_section_produces_none(self, service):
-        result = service._validate_and_merge({"hardware": {}})
-
-        assert "hardware" not in result
-
-    def test_a_hardware_section_with_neither_sub_section_produces_none(self, service):
-        """The inner guard is separate from the outer one: a `hardware` key
-        carrying something unrelated must not synthesise an empty record."""
-        result = service._validate_and_merge({"hardware": {"unknown": {"x": 1}}})
-
-        assert "hardware" not in result
+        assert result["hardware"] == service.defaults["hardware"]
 
     def test_the_bt_remote_filter_survives_the_round_trip(self, service):
         """The filter is what the pairing scan matches on. Dropped to its
@@ -809,15 +795,21 @@ class TestValidateHardwareSection:
 
         assert len(result["hardware"]["bt_remote"]["device_name_filter"]) == 64
 
-    def test_a_bt_remote_key_map_that_is_not_a_dict_is_dropped(self, service):
-        """The controller indexes it per keypress. A list or a string from a
-        hand-edited file would raise inside the input-event loop — the loop
-        nothing restarts — and every button on the remote would go dead."""
+    @pytest.mark.parametrize("key_map", [["KEY_PLAY"], "115:volume_up", {}])
+    def test_a_bt_remote_key_map_that_is_not_a_usable_map_is_the_declared_one(
+        self, service, key_map
+    ):
+        """The controller indexes it per keypress and adopts a device only if
+        its keys meet the map. A list or a string from a hand-edited file would
+        raise inside the input-event loop — the loop nothing restarts — and an
+        empty map adopts no remote at all."""
         result = service._validate_and_merge({"hardware": {"bt_remote": {
-            "enabled": True, "key_map": ["KEY_PLAY"],
+            "enabled": True, "key_map": key_map,
         }}})
 
-        assert result["hardware"]["bt_remote"]["key_map"] == {}
+        assert result["hardware"]["bt_remote"]["key_map"] == (
+            service.defaults["hardware"]["bt_remote"]["key_map"]
+        )
 
     def test_the_ir_device_id_is_kept_when_it_fits_a_byte(self, service):
         """The paired remote's address. Lost, the receiver accepts scancodes from
@@ -879,13 +871,14 @@ class TestValidateHardwareSection:
 
         assert result["hardware"]["ir_remote"]["paired_at"] == expected
 
-    def test_one_sub_section_alone_is_enough(self, service):
-        """A unit with an IR receiver and no BT remote is the normal case; the
-        record must not carry a synthesised `bt_remote` that reads as
-        deliberately disabled."""
+    def test_one_sub_section_stored_leaves_the_other_at_its_defaults(self, service):
+        """A unit with an IR receiver and no BT remote is the normal case: the
+        BT remote reads as the declared one, disabled, not as one the stored
+        IR record says anything about."""
         result = service._validate_and_merge({"hardware": {"ir_remote": {"enabled": True}}})
 
-        assert set(result["hardware"]) == {"ir_remote"}
+        assert result["hardware"]["bt_remote"] == service.defaults["hardware"]["bt_remote"]
+        assert result["hardware"]["ir_remote"]["enabled"] is True
 
 
 class TestValidateMultiroomSection:

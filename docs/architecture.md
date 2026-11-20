@@ -1286,7 +1286,7 @@ The list above is the whole of `system/` — `ls system/*.service` is the author
   a backend that starts stops one still up
 - Automatic restart on error
 
-**Multiroom lifecycle:** Snapserver and snapclient units do **not** auto-start at boot. `AudioRoutingService._sync_snapcast_state` is the only writer: it reads `settings.routing.multiroom_enabled` and reconciles both units accordingly during backend init and after every multiroom toggle. This avoids the desync class where snapcast could run while the backend believed it was in direct mode (which holds `hw:Loopback,0,0` and produces `Device or resource busy` on other sources).
+**Multiroom lifecycle:** Snapserver and snapclient units do **not** auto-start at boot. `AudioRoutingService` is the only writer: `_sync_snapcast_state` reads `settings.routing.multiroom_enabled` and reconciles both units at backend init, the multiroom toggle starts or stops them, and every restart (a new snapserver.conf, a new snapclient.env) goes through `restart_snapserver` / `restart_snapclient`, which refuse in direct mode — a restart starts a stopped unit. The multiroom update's install is the one other hand on them, and starts them back only while multiroom is on. This avoids the desync class where snapcast could run while the backend believed it was in direct mode (which holds `hw:Loopback,0,0` and produces `Device or resource busy` on other sources).
 
 ## App updates on the server
 

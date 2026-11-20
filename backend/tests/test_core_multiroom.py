@@ -1009,7 +1009,7 @@ class TestSnapcastService:
     @pytest.fixture
     def snapcast_service(self):
         """Create a SnapcastService instance."""
-        return SnapcastService(systemd_manager=MagicMock())
+        return SnapcastService()
 
     def test_compute_mac_id_local_via_service(self, snapcast_service):
         """Test computing mac_id for local client via ClientRegistryService."""
@@ -1126,7 +1126,7 @@ class TestSnapcastService:
         """What the settings page reports must be what snapserver plays.
 
         The file is written before the restart, and the restart can be refused
-        (`update_server_config` then returns False and the route answers 502) —
+        (`write_server_config` then returns False and the route answers 502) —
         at which point the file holds the new preset and the daemon still runs
         the old one. Reading the daemon is the only way that shows.
 
@@ -2217,7 +2217,7 @@ class TestSnapcastClientDetection:
 
 class TestSyncStandaloneDspToClient:
     """
-    Unit tests for SnapcastWebSocketService._sync_standalone_equalizer_to_client().
+    Unit tests for SnapcastWebSocketService._sync_client_equalizer_to_satellite().
 
     In the unified per-client model this path pushes a REMOTE client's one EQ
     record (registry `client_equalizer[mac]`, the single source of truth — zone
@@ -2277,7 +2277,7 @@ class TestSyncStandaloneDspToClient:
         from backend.core.multiroom.models import EqualizerSettings
         ws = self._make_ws(mock_state_machine, mock_registry, mock_proxy, mock_crossover)
 
-        result = await ws._sync_standalone_equalizer_to_client("test-client")
+        result = await ws._sync_client_equalizer_to_satellite("test-client")
 
         assert result is True
         mock_proxy.apply_record.assert_awaited_once()
@@ -2296,7 +2296,7 @@ class TestSyncStandaloneDspToClient:
         )
         mock_registry.get_client_equalizer.return_value = record
         ws = self._make_ws(mock_state_machine, mock_registry, mock_proxy, mock_crossover)
-        await ws._sync_standalone_equalizer_to_client("test-client")
+        await ws._sync_client_equalizer_to_satellite("test-client")
         mock_proxy.apply_record.assert_awaited_once_with("192.168.1.100", record)
 
     @pytest.mark.asyncio
@@ -2317,7 +2317,7 @@ class TestSyncStandaloneDspToClient:
             mono=False, enabled=True, active_preset="vocal_boost",
         ))
         ws = self._make_ws(mock_state_machine, registry, mock_proxy, mock_crossover)
-        result = await ws._sync_standalone_equalizer_to_client("local")
+        result = await ws._sync_client_equalizer_to_satellite("local")
         assert result is True
         mock_proxy.apply_record.assert_not_called()
 
@@ -2327,7 +2327,7 @@ class TestSyncStandaloneDspToClient:
         registry = MagicMock()
         registry.get_client = MagicMock(return_value=None)
         ws = self._make_ws(mock_state_machine, registry, mock_proxy)
-        result = await ws._sync_standalone_equalizer_to_client("unknown-client")
+        result = await ws._sync_client_equalizer_to_satellite("unknown-client")
         assert result is False
 
     @pytest.mark.asyncio
@@ -2347,7 +2347,7 @@ class TestSyncStandaloneDspToClient:
         failing_proxy.apply_record = AsyncMock(return_value=False)
         ws = self._make_ws(mock_state_machine, mock_registry, failing_proxy, mock_crossover)
 
-        result = await ws._sync_standalone_equalizer_to_client("test-client")
+        result = await ws._sync_client_equalizer_to_satellite("test-client")
 
         assert result is False
         mock_crossover.queue_pending_settings.assert_awaited_once_with(
@@ -2374,7 +2374,7 @@ class TestReconnectRepushesEqualizer:
         ws._volume_service.broadcast_volume_state = AsyncMock()
         ws._resolve_target_volume = MagicMock(return_value=-40.0)
         ws._apply_target_volume_to_client = AsyncMock(return_value=True)
-        ws._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        ws._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
         return ws
 
     @pytest.mark.asyncio
@@ -2384,7 +2384,7 @@ class TestReconnectRepushesEqualizer:
             "milo-client-1", set_online_after=True, max_retries=0, retry_delay=0,
         )
         assert ok is True
-        ws._sync_standalone_equalizer_to_client.assert_awaited_once_with("milo-client-1")
+        ws._sync_client_equalizer_to_satellite.assert_awaited_once_with("milo-client-1")
         # EQ pushed before the client is shown online (fully configured first).
         ws._registry.set_client_online.assert_awaited_once_with("milo-client-1", True)
 
@@ -2398,7 +2398,7 @@ class TestReconnectRepushesEqualizer:
             "milo-client-1", set_online_after=True, max_retries=0, retry_delay=0,
         )
         assert ok is False
-        ws._sync_standalone_equalizer_to_client.assert_not_called()
+        ws._sync_client_equalizer_to_satellite.assert_not_called()
 
 
 # =============================================================================
@@ -2711,7 +2711,7 @@ class TestClientReconcileSweep:
             await registry.register_client(mac, f"Speaker {mac[-2:]}", ip, host="milo-client")
             await registry.set_client_online(mac, True)
 
-        snapcast = SnapcastService(systemd_manager=MagicMock())
+        snapcast = SnapcastService()
         snapcast.get_server_status = AsyncMock(side_effect=status_sequence)
 
         sm = MagicMock()
@@ -2773,7 +2773,7 @@ class TestClientReconcileSweep:
         flag — so a consumer that reads one is reading something the parser
         cannot produce, and its offline branch can never run.
         """
-        snapcast = SnapcastService(systemd_manager=MagicMock())
+        snapcast = SnapcastService()
 
         parsed = snapcast.extract_clients(self._status(vanished_last_seen_age=500))
 
@@ -2931,7 +2931,7 @@ class TestAdmissionPathConvergence:
         registry = ClientRegistryService(settings_service=settings)
         await registry.initialize()
 
-        snapcast = SnapcastService(systemd_manager=MagicMock())
+        snapcast = SnapcastService()
         snapcast.get_server_status = AsyncMock(return_value=self._status())
         snapcast.set_volume = AsyncMock(return_value=True)
         snapcast.set_latency = AsyncMock(return_value=True)
@@ -3209,7 +3209,7 @@ class TestAdmissionPathConvergence:
 
         settings = AsyncMock()
         settings.get_setting = AsyncMock(return_value=None)
-        snapcast = SnapcastService(systemd_manager=MagicMock())
+        snapcast = SnapcastService()
         snapcast.get_server_status = AsyncMock(return_value=self._status())
         for call in ("set_volume", "set_latency", "set_group_mute", "set_group_stream"):
             setattr(snapcast, call, AsyncMock(return_value=True))
@@ -3475,7 +3475,7 @@ class TestRegistryPersistenceRoundTrip:
     under the whole suite. The zones and client_equalizer branches were at 0 %.
 
     Consumers: the multiroom screen (zones, members), and every satellite —
-    `_sync_standalone_equalizer_to_client` re-pushes the stored EQ record on
+    `_sync_client_equalizer_to_satellite` re-pushes the stored EQ record on
     admission, so an EQ that did not load is an EQ the speaker loses.
     """
 
@@ -3516,7 +3516,7 @@ class TestRegistryPersistenceRoundTrip:
     async def test_a_client_equalizer_record_comes_back_whole(self):
         """The record is what the satellite is re-pushed on its next admission.
 
-        Losing it does not reset the UI only: `_sync_standalone_equalizer_to_client`
+        Losing it does not reset the UI only: `_sync_client_equalizer_to_satellite`
         sends whatever the registry holds, so an empty record silently flattens
         the speaker's EQ, bypass flag and mono on reconnection.
         """

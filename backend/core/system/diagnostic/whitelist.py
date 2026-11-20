@@ -101,7 +101,7 @@ SETTINGS_ALLOWED = frozenset({
     "fan.manual_percent",
     "fan.target_temp_c",
     "hardware.bt_remote.enabled",
-    "hardware.bt_remote.key_map",
+    "hardware.bt_remote.key_map.*",
     "hardware.ir_remote.enabled",
     "hardware.ir_remote.device_id",
     "hardware.ir_remote.paired_at",

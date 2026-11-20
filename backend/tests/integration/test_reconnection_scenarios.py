@@ -118,7 +118,7 @@ class TestInZoneReconnectionSyncIntegration:
         ws_service._volume_service = mock_state_machine.volume_service
 
         # Mock Equalizer sync to avoid errors
-        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        ws_service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
 
         target_volume = ws_service._resolve_target_volume("client-1")
 
@@ -217,7 +217,7 @@ class TestInZoneReconnectionSyncIntegration:
         ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
-        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        ws_service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
 
         # Mock _state_store._clients to return a proper client state object
         volume_service = mock_state_machine.volume_service
@@ -352,7 +352,7 @@ class TestPendingSettingsQueue:
         ws_service._equalizer_client_proxy_service = mock_state_machine_with_crossover.equalizer_client_proxy_service
         ws_service._crossover_service = mock_state_machine_with_crossover.crossover_service
 
-        result = await ws_service._sync_standalone_equalizer_to_client("client-1")
+        result = await ws_service._sync_client_equalizer_to_satellite("client-1")
 
         assert result is False
         crossover = mock_state_machine_with_crossover.crossover_service
@@ -413,8 +413,8 @@ class TestPendingSettingsQueue:
         ws_service._equalizer_client_proxy_service = sm.equalizer_client_proxy_service
         ws_service._crossover_service = sm.crossover_service
 
-        # Call _sync_standalone_equalizer_to_client - should succeed
-        result = await ws_service._sync_standalone_equalizer_to_client("client-1")
+        # Call _sync_client_equalizer_to_satellite - should succeed
+        result = await ws_service._sync_client_equalizer_to_satellite("client-1")
 
         # Assert: sync succeeded and nothing was queued
         assert result is True
@@ -526,7 +526,7 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service._volume_service = mock_state_machine.volume_service
 
         # Mock Equalizer sync to avoid errors
-        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        ws_service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
 
         target_volume = ws_service._resolve_target_volume("client-1")
 
@@ -607,7 +607,7 @@ class TestStandaloneReconnectionSyncIntegration:
         ws_service.set_registry(registry)
         ws_service._snapcast_service = mock_snapcast
         ws_service._volume_service = mock_state_machine.volume_service
-        ws_service._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+        ws_service._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
 
         await ws_service._sync_reconnecting_client_volume(
             "local-main", max_retries=0, retry_delay=0, snapcast_id="local-main"

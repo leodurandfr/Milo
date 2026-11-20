@@ -276,6 +276,17 @@ class MultiroomEqualizerService:
         copy.enabled = existing.enabled if existing else EqualizerSettings.default().enabled
         return copy
 
+    async def adopt_zone_eq(self, mac_id: str, zone_record: EqualizerSettings) -> bool:
+        """Have a member that joins (or re-attaches to) a zone take its EQ.
+
+        ``zone_record`` is ``get_zone_eq``'s, read by the caller before the
+        membership changed. It reaches the member through ``_member_record``,
+        as in the fan-out: everything is the zone's but ``enabled``, which stays
+        the member's own — the zone's conjunction would bypass a speaker as soon
+        as any other member is. Same answer as ``set_client_eq``.
+        """
+        return await self.set_client_eq(mac_id, self._member_record(mac_id, zone_record))
+
     async def set_zone_eq(self, zone_id: str, settings: EqualizerSettings) -> bool:
         """Apply one EQ record to every zone member, keeping them identical.
 

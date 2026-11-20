@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import IrRemoteStatusChanged
-from backend.core.settings import SettingsWriteError
+from backend.core.settings import SettingsService, SettingsWriteError
 from backend.hardware.ir_remote import (
     GPIO_IR_DEVICE_NAME,
     MENU_CLICK_WINDOW,
@@ -60,6 +60,10 @@ class TestParseAppleScancode:
         assert device_id == 0x00
 
 
+# What settings.json holds for the receiver when nothing was ever paired.
+UNPAIRED = SettingsService().defaults["hardware"]["ir_remote"]
+
+
 class TestControllerConfig:
     """Config load/persist lifecycle."""
 
@@ -79,7 +83,7 @@ class TestControllerConfig:
 
     @pytest.mark.asyncio
     async def test_unconfigured_settings_yield_idle_state(self, controller):
-        controller.settings_service.get_setting.return_value = None
+        controller.settings_service.get_setting.return_value = UNPAIRED
         await controller._load_config_from_settings()
         assert controller.enabled is False
         assert controller.paired is False
@@ -97,16 +101,6 @@ class TestControllerConfig:
         assert controller.paired is True
         assert controller.device_id == 0x8D
         assert controller.paired_at == 1700000000.0
-
-    @pytest.mark.asyncio
-    async def test_invalid_device_id_treated_as_unpaired(self, controller):
-        controller.settings_service.get_setting.return_value = {
-            "enabled": True,
-            "device_id": "not-an-int",
-        }
-        await controller._load_config_from_settings()
-        assert controller.paired is False
-        assert controller.device_id is None
 
     def test_get_status_shape(self, controller):
         status = controller.get_status()
@@ -968,6 +962,52 @@ class TestStartPairing:
         assert not controller._mode_lock.locked()
 
     @pytest.mark.asyncio
+    async def test_a_re_pairing_that_times_out_leaves_the_paired_remote_listening(self):
+        """The capture pauses the listener of the remote already paired; a
+        capture that found nothing must hand it back, or that remote is dead
+        until the next reboot while the panel still shows it paired."""
+        controller = _runtime_controller()
+        controller.enabled, controller.paired, controller.device_id = True, True, 0x10
+        device = _pairing_device()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device):
+            await controller._start_runtime_listener()
+            result = await controller.start_pairing(timeout_seconds=0.05)
+
+            assert result["status"] == "timeout"
+            assert controller.get_status()["listening"] is True
+            # Every screen's status chip reads the last broadcast, not the controller.
+            last = controller.state_machine.broadcast.await_args.args[0]
+            assert last.listening is True
+            await controller._stop_runtime_listener()
+
+    @pytest.mark.asyncio
+    async def test_a_remote_disabled_during_a_capture_stays_silent_after_it(self):
+        """The capture can last tens of seconds; a switch turned off meanwhile
+        (another screen, the API) must not be undone by its end — that is a
+        remote that works while settings.json says it is disabled."""
+        controller = _runtime_controller()
+        controller.enabled, controller.paired, controller.device_id = True, True, 0x10
+        device = _pairing_device()
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device):
+            await controller._start_runtime_listener()
+            pairing = asyncio.create_task(controller.start_pairing(timeout_seconds=5))
+            assert await _until(lambda: controller._pairing_in_progress)
+
+            await controller.update_config({"enabled": False})
+            await controller.cancel_pairing()
+            result = await pairing
+
+            assert result["status"] == "cancelled"
+            assert controller.get_status()["listening"] is False
+            last = controller.state_machine.broadcast.await_args.args[0]
+            assert last.listening is False
+            await controller._stop_runtime_listener()
+
+    @pytest.mark.asyncio
     async def test_the_wizard_can_cancel_a_capture_in_flight(self):
         controller = _runtime_controller()
         device = _pairing_device()
@@ -1168,11 +1208,46 @@ class TestAWriteThatDidNotLand:
         assert reloaded.enabled is False
 
     @pytest.mark.asyncio
-    async def test_a_failed_settings_write_fails_the_pairing(self, disk):
+    async def test_a_failed_settings_write_fails_the_pairing_and_restores_the_kernel(
+        self, disk
+    ):
+        """The new keymap loads before the write, and /etc/rc_keymaps is
+        reloaded at boot: left in place, the next boot answers remote 0x8D
+        while settings.json and the panel name 0x10, and until then the
+        listener the capture paused stays down. Both are put back."""
         await disk.set_setting_strict(
             "hardware.ir_remote",
             {"enabled": True, "device_id": 0x10, "paired_at": 1700000000.0},
         )
+        controller = self._controller(disk)
+        await controller._load_config_from_settings()
+        # Every open of the receiver: the capture finds the scancode, the
+        # runtime reader ignores it (EV_MSC) and keeps reading.
+        device = _pairing_device([_scan(APPLE_SCANCODE_8D)])
+
+        with patch("backend.hardware.ir_remote._find_gpio_ir_device",
+                   return_value="/dev/input/event1"), \
+             patch("evdev.InputDevice", return_value=device), \
+             patch("backend.hardware.ir_remote.keymap_writer.apply_keymap",
+                   new=AsyncMock()) as apply_keymap:
+            await controller._start_runtime_listener()
+            with self._full_disk(), pytest.raises(SettingsWriteError):
+                await controller.start_pairing(timeout_seconds=5)
+
+            assert [c.args[0] for c in apply_keymap.await_args_list] == [0x8D, 0x10]
+            assert controller.get_status()["listening"] is True
+            await controller._stop_runtime_listener()
+
+        assert controller.device_id == 0x10
+        assert controller.paired_at == 1700000000.0
+        reloaded = self._controller(disk)
+        await reloaded._load_config_from_settings()
+        assert reloaded.device_id == 0x10
+
+    @pytest.mark.asyncio
+    async def test_a_first_pairing_refused_by_settings_clears_the_kernel_keymap(self, disk):
+        """Nothing was paired: the keymap that loaded must not survive as one
+        the kernel recognizes behind an unpaired panel."""
         controller = self._controller(disk)
         await controller._load_config_from_settings()
         device = _pairing_device([_scan(APPLE_SCANCODE_8D)])
@@ -1182,15 +1257,14 @@ class TestAWriteThatDidNotLand:
              patch("evdev.InputDevice", return_value=device), \
              patch("backend.hardware.ir_remote.keymap_writer.apply_keymap",
                    new=AsyncMock()), \
+             patch("backend.hardware.ir_remote.keymap_writer.clear_kernel_keymap",
+                   new=AsyncMock()) as clear, \
              self._full_disk(), pytest.raises(SettingsWriteError):
             await controller.start_pairing(timeout_seconds=5)
 
-        assert controller.device_id == 0x10
-        assert controller.paired_at == 1700000000.0
+        clear.assert_awaited_once_with()
+        assert controller.paired is False
         assert controller._runtime_task is None
-        reloaded = self._controller(disk)
-        await reloaded._load_config_from_settings()
-        assert reloaded.device_id == 0x10
 
     @pytest.mark.asyncio
     async def test_a_failed_settings_write_keeps_the_pairing_it_was_to_forget(self, disk):
@@ -1236,7 +1310,7 @@ class TestLifecycle:
     @pytest.mark.asyncio
     async def test_an_unpaired_remote_boots_idle(self):
         controller = _runtime_controller()
-        controller.settings_service.get_setting.return_value = {"enabled": True}
+        controller.settings_service.get_setting.return_value = {**UNPAIRED, "enabled": True}
         with patch("backend.hardware.ir_remote._find_gpio_ir_device") as find:
             assert await controller.initialize() is True
         assert controller._runtime_task is None

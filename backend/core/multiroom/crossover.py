@@ -24,6 +24,7 @@ from backend.core.multiroom.models import (
     DEFAULT_SPEAKER_TYPE,
     DEFAULT_CROSSOVER_FREQUENCY,
     EqualizerSettings,
+    zone_subwoofers,
 )
 
 if TYPE_CHECKING:
@@ -199,6 +200,13 @@ class CrossoverService:
         """Check if a client is marked as a subwoofer."""
         return self.get_client_speaker_type(client_id) == "subwoofer"
 
+    def _member_states(self, zone):
+        """Each member's `(speaker_type, online)`, what `zone_subwoofers` decides on."""
+        return [
+            (self.get_client_speaker_type(cid), self._registry.is_client_online(cid))
+            for cid in zone.client_ids
+        ]
+
     # === Zone Crossover Management ===
 
     @handle_errors(default={"frequency": DEFAULT_CROSSOVER_FREQUENCY, "auto": True,
@@ -224,12 +232,12 @@ class CrossoverService:
         if not zone:
             return unknown
 
-        has_subwoofer = any(self.is_client_subwoofer(cid) for cid in zone.client_ids)
+        has_subwoofer, enabled = zone_subwoofers(self._member_states(zone))
 
         return {
             "frequency": self._resolve_frequency(zone),
             "auto": zone.crossover_frequency is None,
-            "enabled": has_subwoofer,
+            "enabled": enabled,
             "has_subwoofer": has_subwoofer
         }
 
@@ -300,19 +308,13 @@ class CrossoverService:
             if self._registry.is_client_online(cid)
         }
 
-        has_subwoofer = any(
-            self.is_client_subwoofer(cid) and cid in available_clients
-            for cid in client_ids
-        )
-
         # An online subwoofer in the zone is the whole condition: it is what the
         # highpass hands the low band to. No stored override — a zone carries no
         # crossover_enabled of its own.
-        should_apply_crossover = has_subwoofer
+        _, should_apply_crossover = zone_subwoofers(self._member_states(zone))
 
         self.logger.info(
             f"Applying crossover to zone {zone_id}: "
-            f"has_sub={has_subwoofer}, "
             f"should_apply={should_apply_crossover}, freq={frequency}Hz, "
             f"available_clients={list(available_clients)}"
         )

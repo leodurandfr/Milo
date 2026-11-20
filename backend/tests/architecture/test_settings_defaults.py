@@ -65,6 +65,10 @@ def sentinels(value):
     own clamp (a step of 2.0 nudged to 9.0 comes back as 6.0 either way); the
     rule only needs *one* that moves the output.
     """
+    if value is None:
+        # An optional value (the IR remote's device_id, paired_at): a number
+        # is the one non-null shape such a value takes.
+        return [1]
     if isinstance(value, bool):
         return [not value]
     if isinstance(value, int):
@@ -244,8 +248,8 @@ def _settings_path(node, env):
     variables, so `section = await settings.get_setting('volume')`
     followed by `section.get('limit_max_db', …)` resolves to `volume.limit_max_db`.
     Anything it cannot resolve is None, which is what keeps reads of *undeclared*
-    data (hardware.json's `hardware.ir_remote`, the bt-remote key map) out of the
-    rule: their fallbacks are legitimate.
+    data (the `multiroom` section, which the validator passes through unchecked)
+    out of the rule: their fallbacks are legitimate.
     """
     if isinstance(node, ast.Await):
         return _settings_path(node.value, env)
@@ -366,6 +370,11 @@ def test_the_offender_extractor_discriminates(tmp_path):
         "async def f(settings):\n"
         "    config = await settings.get_setting('hardware.ir_remote') or {}\n"
         "    return config.get('enabled', False)\n"
+    )
+    assert offenders(
+        "async def f(settings):\n"
+        "    config = await settings.get_setting('multiroom') or {}\n"
+        "    return config.get('snapclient_buffer_time', 80)\n"
     ) == []
 
 

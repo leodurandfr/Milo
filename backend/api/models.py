@@ -270,9 +270,15 @@ class BtRemoteConfigRequest(BaseModel):
         Both were accepted unchecked and only failed downstream, where a
         non-numeric keycode broke device matching for every remote at debug
         level — a remote that simply never worked again, with nothing to see.
+
+        An empty map is refused too: the settings validator stores the
+        declared default in its place, so the controller would run on `{}` —
+        every key ignored — while settings.json says otherwise.
         """
         if v is None:
             return v
+        if not v:
+            raise ValueError("key_map must not be empty")
         for keycode, action in v.items():
             if not str(keycode).isdigit():
                 raise ValueError(f"keycode must be a positive integer, got '{keycode}'")

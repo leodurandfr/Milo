@@ -77,7 +77,6 @@ def _create_service(name: str) -> Any:
         "settings_service": lambda: _import("backend.core.settings", "SettingsService")(),
         "hardware_service": lambda: _import("backend.hardware.service", "HardwareService")(),
         "snapcast_service": lambda: _import("backend.core.multiroom.snapcast", "SnapcastService")(
-            systemd_manager=get_service("systemd_manager"),
             host=_import("backend.core.multiroom.snapcast", "SNAPSERVER_CONTROL_ADDRESS"),
             port=_import("backend.core.multiroom.snapcast", "SNAPSERVER_CONTROL_PORT"),
         ),

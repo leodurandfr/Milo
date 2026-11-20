@@ -181,6 +181,28 @@ class SettingsService:
             # absent from every settings.json until someone opened the Mac panel
             # — and why GET /bulk needed fallbacks at all.
             "mac": copy.deepcopy(DEFAULT_ROC_CONFIG),
+            # The two remote controls, read by hardware/bt_remote.py and
+            # hardware/ir_remote.py. Unlike hardware.json (the card and the
+            # screen), these are user settings.
+            "hardware": {
+                "bt_remote": {
+                    "enabled": False,
+                    # Matched against the BlueZ device name; empty matches nothing.
+                    "device_name_filter": "ANTICATER",
+                    # Linux keycode (as a string) -> action, for the ANTICATER VK-01.
+                    "key_map": {
+                        "115": "volume_up",    # KEY_VOLUMEUP (rotation CW)
+                        "114": "volume_down",  # KEY_VOLUMEDOWN (rotation CCW)
+                        "113": "click",        # KEY_MUTE -> multi-click detection
+                    },
+                },
+                "ir_remote": {
+                    "enabled": False,
+                    # The paired Apple Remote's address byte; None until paired.
+                    "device_id": None,
+                    "paired_at": None,
+                },
+            },
             "fan": {
                 "enabled": True,
                 "mode": "target",
@@ -490,30 +512,35 @@ class SettingsService:
         if multiroom_input:
             validated['multiroom'] = multiroom_input
 
-        # Hardware (optional hardware feature settings)
+        # The remote controls. A key_map that is not a non-empty map is
+        # replaced whole: the controller adopts a device only if its keys meet
+        # the map, so an empty one would strand the remote in silence.
         hardware_input = settings.get('hardware', {})
-        if hardware_input:
-            validated_hardware = {}
-            bt_remote_input = hardware_input.get('bt_remote', {})
-            if bt_remote_input:
-                validated_hardware['bt_remote'] = {
-                    'enabled': bool(bt_remote_input.get('enabled', False)),
-                    'device_name_filter': str(bt_remote_input.get('device_name_filter', 'ANTICATER'))[:64],
-                    'key_map': bt_remote_input.get('key_map', {}) if isinstance(bt_remote_input.get('key_map'), dict) else {}
-                }
-            ir_remote_input = hardware_input.get('ir_remote', {})
-            if ir_remote_input:
-                raw_device_id = ir_remote_input.get('device_id')
-                device_id = raw_device_id if isinstance(raw_device_id, int) and 0 <= raw_device_id <= 0xFF else None
-                raw_paired_at = ir_remote_input.get('paired_at')
-                paired_at = float(raw_paired_at) if isinstance(raw_paired_at, (int, float)) else None
-                validated_hardware['ir_remote'] = {
-                    'enabled': bool(ir_remote_input.get('enabled', False)),
-                    'device_id': device_id,
-                    'paired_at': paired_at,
-                }
-            if validated_hardware:
-                validated['hardware'] = validated_hardware
+        bt_input = hardware_input.get('bt_remote', {})
+        bt_d = d['hardware']['bt_remote']
+        key_map = bt_input.get('key_map', bt_d['key_map'])
+        ir_input = hardware_input.get('ir_remote', {})
+        ir_d = d['hardware']['ir_remote']
+        device_id = ir_input.get('device_id', ir_d['device_id'])
+        paired_at = ir_input.get('paired_at', ir_d['paired_at'])
+        validated['hardware'] = {
+            'bt_remote': {
+                'enabled': bool(bt_input.get('enabled', bt_d['enabled'])),
+                'device_name_filter': str(bt_input.get('device_name_filter', bt_d['device_name_filter']))[:64],
+                'key_map': (
+                    {str(code): str(action) for code, action in key_map.items()}
+                    if isinstance(key_map, dict) and key_map
+                    else copy.deepcopy(bt_d['key_map'])
+                ),
+            },
+            'ir_remote': {
+                'enabled': bool(ir_input.get('enabled', ir_d['enabled'])),
+                # Written into the kernel keymap by milo-apply-ir-keymap, which
+                # refuses anything outside a byte: dropped, it reads as unpaired.
+                'device_id': device_id if isinstance(device_id, int) and 0 <= device_id <= 0xFF else None,
+                'paired_at': float(paired_at) if isinstance(paired_at, (int, float)) else None,
+            },
+        }
 
         # Fan control (optional — runtime PWM fan setpoint, see hardware/fan.py)
         fan_input = settings.get('fan', {})

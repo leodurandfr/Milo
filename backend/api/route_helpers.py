@@ -117,6 +117,24 @@ async def api_error_handler(context: str, log=None):
         raise HTTPException(status_code=500, detail=reason)
 
 
+def raise_on_error_status(result: dict, context: str, log=None) -> dict:
+    """A controller answer whose ``status`` is ``"error"``, raised as HTTP 500.
+
+    The hardware controllers answer flow control (``timeout``, ``cancelled``,
+    ``not_found``, ``already_connected``…) and failure in one dict, and only
+    ``error`` is a failure. Passed through under a 200, it is a failure every
+    client must know to look for — the settings panel does not, and kept its
+    Search button spinning. Use inside ``api_error_handler``, which lets the
+    HTTPException through. Returns ``result`` unchanged otherwise.
+    """
+    if result.get("status") == "error":
+        detail = result.get("message") or context
+        if log:
+            log.error(f"{context}: {detail}")
+        raise HTTPException(status_code=500, detail=detail)
+    return result
+
+
 def parse_audio_source(name: str) -> AudioSource:
     """Parse user-provided audio source name to enum, or raise HTTP 400.
 

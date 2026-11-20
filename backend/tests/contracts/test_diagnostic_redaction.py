@@ -198,8 +198,14 @@ UPSTREAM = {
 
 
 def _covered(path: str, allowed) -> bool:
-    """A declared `x.*` covers `x` itself: the map is one field, its keys data."""
-    return path in allowed or f"{path}.*" in allowed
+    """A declared `x.*` covers `x` itself and every key under it: the map is
+    one field, its keys data (an empty map in the defaults, or one declared
+    with entries, as the BT remote's key map is)."""
+    return (
+        path in allowed
+        or f"{path}.*" in allowed
+        or any(path.startswith(entry[:-1]) for entry in allowed if entry.endswith(".*"))
+    )
 
 
 # --------------------------------------------------------------------------- #

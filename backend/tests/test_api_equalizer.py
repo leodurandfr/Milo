@@ -382,15 +382,17 @@ class TestLocalMasterToggleMovesItsZone:
         assert [(e.zone_id, e.enabled) for e in zone_events] == [("salon", False)], \
             "the web's zone tab is never told the zone moved"
 
-    async def test_a_satellite_that_refuses_answers_an_error_milo_mac_reads(self, world):
-        """Milo-Mac's `sendCommand` reads `status`: answered "success", its switch
-        shows the room bypassed while Canapé kept its effects."""
+    async def test_a_satellite_that_refuses_answers_a_502_milo_mac_reads(self, world):
+        """Answered "success", Milo-Mac's switch shows the room bypassed while
+        Canapé kept its effects. A 502, the router's one way of saying a write
+        did not take: Milo-Mac's `send` throws on any non-200, the web's
+        apiCall reports it, and nobody has to know to read `"status": "error"`
+        out of a 200."""
         world.proxy.request = AsyncMock(return_value={"status": "error"})
 
         response = await self._put_local_enabled(world, False)
 
-        assert response.status_code == 200
-        assert response.json()["status"] == "error"
+        assert response.status_code == 502
         world.routing.set_equalizer_effects_enabled.assert_awaited_once_with(False)
 
     async def test_local_enabled_of_an_independent_local_member_stays_local(self, world):

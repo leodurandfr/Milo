@@ -2,8 +2,8 @@
 Centralized playback dispatch for hardware controllers.
 
 Provides multi-click detection (1=play/pause, 2=next, 3=prev) and
-source-aware command dispatch. Used by both the GPIO rotary encoder
-and the Bluetooth HID remote controller.
+source-aware command dispatch. Used by the GPIO rotary encoder, the
+Bluetooth HID remote and the IR remote.
 """
 import asyncio
 import logging

@@ -49,7 +49,7 @@ async def snapserver():
 @pytest.fixture
 async def connected(snapserver):
     """The two services as `dependencies.py` wires them, connected to the fake."""
-    snapcast = SnapcastService(systemd_manager=MagicMock(), host="127.0.0.1", port=snapserver.port)
+    snapcast = SnapcastService(host="127.0.0.1", port=snapserver.port)
     routing = MagicMock()
     routing.multiroom_enabled = True
     control = SnapcastWebSocketService(

@@ -40,6 +40,15 @@ def _routing_service(settings_service):
     return AudioRoutingService(settings_service=settings_service, systemd_manager=systemd)
 
 
+def _serving(routing_service, snapcast):
+    """Hand the routing service the snapcast double its restart probes, with a
+    snapserver that answers and a control socket that comes back."""
+    snapcast.wait_until_available = AsyncMock(return_value=True)
+    snapcast.wait_for_control = AsyncMock(return_value=True)
+    routing_service.snapcast_service = snapcast
+    return snapcast
+
+
 class _RecordingSatellite:
     """An aiohttp session stand-in recording what the push sent."""
 
@@ -84,7 +93,7 @@ class TestSnapcastRoutes:
         service = Mock()
         service.control_connected = True
         service.get_server_config = AsyncMock(return_value={"version": "0.27.0"})
-        service.update_server_config = AsyncMock(return_value=True)
+        service.write_server_config = AsyncMock(return_value=True)
         return service
 
     @pytest.fixture
@@ -98,6 +107,7 @@ class TestSnapcastRoutes:
     @pytest.fixture
     def client(self, routing_service, mock_snapcast_service, mock_state_machine):
         """Fixture to create a TestClient"""
+        _serving(routing_service, mock_snapcast_service)
         app = FastAPI()
         router = create_routing_router(
             routing_service,
@@ -107,6 +117,7 @@ class TestSnapcastRoutes:
         app.include_router(router)
         client = TestClient(app)
         client._mock_snapcast = mock_snapcast_service
+        client._routing_service = routing_service
         return client
 
     # ===================
@@ -137,7 +148,7 @@ class TestSnapcastRoutes:
         # Static capabilities are served even when snapserver is down
         assert response.json()["capabilities"]["codecs"]
 
-    def test_update_server_config(self, client):
+    def test_write_server_config(self, client):
         """Test PUT /api/routing/snapcast/server-config"""
         response = client.put(
             "/api/routing/snapcast/server-config",
@@ -146,18 +157,44 @@ class TestSnapcastRoutes:
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
-    def test_update_server_config_failure_is_not_a_200(self, client):
+    def test_write_server_config_failure_is_not_a_200(self, client):
         """A rejected config must surface as an HTTP error, not a 200 body flag.
 
         The route is not /status-style: hiding a failed snapserver write behind
-        200 would leave the UI showing the new config as applied.
+        200 would leave the UI showing the new config as applied. And snapserver
+        is not restarted on a conf that did not land: that restart cuts the
+        sound in every room for nothing.
         """
-        client._mock_snapcast.update_server_config = AsyncMock(return_value=False)
+        client._mock_snapcast.write_server_config = AsyncMock(return_value=False)
         response = client.put(
             "/api/routing/snapcast/server-config",
             json={"config": {"buffer": 1000}}
         )
         assert response.status_code == 502
+        client._routing_service.service_manager.restart.assert_not_called()
+
+    def test_the_answer_waits_for_the_control_socket_after_the_restart(self, client, caplog):
+        """The panel re-reads the config as soon as the PUT answers, and that
+        GET rides the control WebSocket the restart cut. Answering before it is
+        back hands the panel nothing to read; a socket that never comes back is
+        a snapserver that did not return, not a success.
+        """
+        import logging
+
+        order = Mock()
+        order.attach_mock(client._routing_service.service_manager.restart, "restart")
+        order.attach_mock(client._mock_snapcast.wait_for_control, "wait_for_control")
+        client._mock_snapcast.wait_for_control.return_value = False
+
+        with caplog.at_level(logging.ERROR, logger="backend.api.routing"):
+            response = client.put(
+                "/api/routing/snapcast/server-config",
+                json={"config": {"buffer": 1000}}
+            )
+
+        assert response.status_code == 502
+        assert [c[0] for c in order.mock_calls] == ["restart", "wait_for_control"]
+        assert any(r.levelno == logging.ERROR for r in caplog.records)
 
     def test_a_write_is_refused_while_snapserver_is_down(self, client, mock_settings_service):
         """Direct mode stops both snapcast units, and every step of this route
@@ -186,13 +223,13 @@ class TestSnapcastRoutes:
         )
 
         assert response.status_code == 409
-        client._mock_snapcast.update_server_config.assert_not_awaited()
+        client._mock_snapcast.write_server_config.assert_not_awaited()
 
     def test_a_write_survives_a_dead_snapserver_while_multiroom_is_on(self, client):
         """The other half of the gate above: an enabled-but-down snapserver must
         still be configurable.
 
-        update_server_config writes snapserver.conf BEFORE restarting, so a conf
+        write_server_config writes snapserver.conf BEFORE restarting, so a conf
         the daemon refused is repaired by rewriting it. Gating on liveness would
         answer 409 to every retry and strand a failed unit with no route back
         from the settings page.
@@ -205,7 +242,7 @@ class TestSnapcastRoutes:
         )
 
         assert response.status_code == 200
-        client._mock_snapcast.update_server_config.assert_awaited_once()
+        client._mock_snapcast.write_server_config.assert_awaited_once()
 
 
 class TestSnapclientBufferSetting:
@@ -236,7 +273,8 @@ class TestSnapclientBufferSetting:
         snapcast_service = Mock()
         snapcast_service.control_connected = True
         snapcast_service.get_server_config = AsyncMock(return_value={"buffer_ms": 1000})
-        snapcast_service.update_server_config = AsyncMock(return_value=True)
+        snapcast_service.write_server_config = AsyncMock(return_value=True)
+        _serving(routing_service, snapcast_service)
 
         state_machine = Mock()
         state_machine.broadcast = AsyncMock()
@@ -284,7 +322,7 @@ class TestSnapclientBufferSetting:
         assert response.status_code == 400
         settings_service.set_settings_strict.assert_not_called()
         regenerate.assert_not_called()
-        client.snapcast_service.update_server_config.assert_not_called()
+        client.snapcast_service.write_server_config.assert_not_called()
         client.routing_service.service_manager.restart.assert_not_called()
 
     def test_a_refused_settings_write_is_not_a_200(
@@ -308,7 +346,7 @@ class TestSnapclientBufferSetting:
         )
 
         assert response.status_code == 500
-        client.snapcast_service.update_server_config.assert_not_called()
+        client.snapcast_service.write_server_config.assert_not_called()
         client.routing_service.service_manager.restart.assert_not_called()
 
     def test_the_pair_never_reaches_the_snapserver_config_writer(self, client, monkeypatch):
@@ -324,7 +362,7 @@ class TestSnapclientBufferSetting:
             "buffer_ms": 1000, "snapclient_buffer_time": 120, "snapclient_fragments": 4,
         }})
 
-        (written,), _ = client.snapcast_service.update_server_config.call_args
+        (written,), _ = client.snapcast_service.write_server_config.call_args
         assert written == {"buffer_ms": 1000}
 
     def test_an_accepted_value_reaches_the_env_and_the_local_snapclient(
@@ -343,7 +381,9 @@ class TestSnapclientBufferSetting:
         assert settings_service.store['multiroom.snapclient_buffer_time'] == high
         # Fragments were not part of the request: the declared default carries.
         regenerate.assert_called_once_with(high, DEFAULT_SNAPCLIENT_CONFIG["fragments"])
-        client.routing_service.service_manager.restart.assert_awaited_once()
+        assert [c.args[0] for c in client.routing_service.service_manager.restart.await_args_list] == [
+            client.routing_service.snapserver_service, client.routing_service.snapclient_service,
+        ]
 
 
 class TestStoredFragmentsReachBothSidesClamped:
@@ -387,7 +427,8 @@ class TestStoredFragmentsReachBothSidesClamped:
 
         snapcast_service = Mock()
         snapcast_service.control_connected = True
-        snapcast_service.update_server_config = AsyncMock(return_value=True)
+        snapcast_service.write_server_config = AsyncMock(return_value=True)
+        _serving(routing_service, snapcast_service)
 
         state_machine = Mock()
         state_machine.broadcast = AsyncMock()
@@ -462,7 +503,7 @@ class TestAnInvalidServerBodyChangesNothing:
             raise SpawnedPastTheGuards(f"a subprocess was spawned past the doubles: {args}")
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _never)
-        svc = SnapcastService(systemd_manager=snapserver_systemd)
+        svc = SnapcastService()
         svc.snapserver_conf = tmp_path / "snapserver.conf"
         return svc
 
@@ -746,8 +787,9 @@ class TestAServerConfigWriteRacingTheToggle:
         state_machine.ws_manager = Mock()
         state_machine.ws_manager.broadcast_dict = AsyncMock()
 
-        # snapserver's conf writer, which restarts snapserver on success. Set
-        # `writing` and `held` to hold the first call until `held` is set.
+        # snapserver's conf writer (the routing service restarts snapserver
+        # after it). Set `writing` and `held` to hold the first call until
+        # `held` is set.
         snapcast = Mock()
         snapcast.writing = snapcast.held = None
 
@@ -758,7 +800,8 @@ class TestAServerConfigWriteRacingTheToggle:
                 await snapcast.held.wait()
             return True
 
-        snapcast.update_server_config = AsyncMock(side_effect=_write)
+        snapcast.write_server_config = AsyncMock(side_effect=_write)
+        _serving(routing, snapcast)
 
         app = FastAPI()
         app.include_router(create_routing_router(
@@ -804,7 +847,7 @@ class TestAServerConfigWriteRacingTheToggle:
 
         assert disabled.status_code == 200
         assert written.status_code == 409
-        appliance.snapcast.update_server_config.assert_not_awaited()
+        appliance.snapcast.write_server_config.assert_not_awaited()
         assert [unit for verb, unit in appliance.journal if verb in ("start", "restart")] == []
         assert appliance.settings["routing.multiroom_enabled"] is False
 
@@ -831,6 +874,7 @@ class TestAServerConfigWriteRacingTheToggle:
         assert [
             (verb, unit) for verb, unit in appliance.journal if verb in ("start", "stop", "restart")
         ] == [
+            ("restart", routing.snapserver_service),
             ("restart", routing.snapclient_service),
             ("stop", routing.snapclient_service),
             ("stop", routing.snapserver_service),
@@ -841,6 +885,7 @@ class TestAServerConfigWriteRacingTheToggle:
         """Two Applies a second apart (the kiosk and a phone): each one's
         settings, env, conf and restart land together, the second's last."""
         snapcast, client_unit = appliance.snapcast, appliance.routing.snapclient_service
+        server_unit = appliance.routing.snapserver_service
         snapcast.writing, snapcast.held = asyncio.Event(), asyncio.Event()
         async with self._client(appliance) as client:
             first = asyncio.create_task(self._apply(client, 700, 120))
@@ -853,7 +898,9 @@ class TestAServerConfigWriteRacingTheToggle:
 
         assert [r.status_code for r in responses] == [200, 200]
         assert appliance.journal == [
-            ("settings", 120), ("env", 120), ("server-config", 700), ("restart", client_unit),
-            ("settings", 200), ("env", 200), ("server-config", 900), ("restart", client_unit),
+            ("settings", 120), ("env", 120), ("server-config", 700),
+            ("restart", server_unit), ("restart", client_unit),
+            ("settings", 200), ("env", 200), ("server-config", 900),
+            ("restart", server_unit), ("restart", client_unit),
         ]
         assert appliance.settings["multiroom.snapclient_buffer_time"] == 200

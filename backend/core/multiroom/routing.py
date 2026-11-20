@@ -1,6 +1,8 @@
 # backend/core/multiroom/routing.py
 """
-Audio routing service for Milo - UNIFIED version with SystemAudioState as single source of truth
+Audio routing service: the multiroom/direct mode and the equalizer-effects
+switch, persisted in settings.json (`routing.*`), and the snapcast units'
+lifecycle that follows the mode.
 """
 import contextlib
 import itertools
@@ -419,10 +421,15 @@ class AudioRoutingService:
     async def _sync_snapcast_state(self) -> None:
         """Reconcile running Snapcast services with persisted multiroom state.
 
-        Sole authoritative entry point for starting/stopping snapserver and
-        snapclient. Source of truth: settings.routing.multiroom_enabled
-        (mirrored in self.multiroom_enabled). Snapcast units carry no
-        [Install] section, so they only run when this reconcile starts them.
+        Source of truth: settings.routing.multiroom_enabled (mirrored in
+        self.multiroom_enabled). Snapcast units carry no [Install] section, so
+        they only run when this service starts them: `_start_snapcast` /
+        `_stop_snapcast`, from here at boot and from the multiroom toggle. Their
+        restarts — which start a stopped unit just as well — go through
+        `restart_snapserver` and `restart_snapclient`, which refuse in direct
+        mode. The only other hand on them is the multiroom update's install
+        (UpdateService), which stops them and starts them back only while
+        multiroom is on.
 
         snapserver.conf's captures and control sections are rewritten first, in
         either mode: no OTA ships that file, and snapserver reads it only when
@@ -449,9 +456,7 @@ class AudioRoutingService:
             # no-op on it. Not gated on the probe: one that timed out reads as
             # stopped, and a restart starts a stopped unit all the same.
             self.logger.info("SNAPCAST_RECONCILE: restarting snapserver on its rewritten conf")
-            restarted = await self.service_manager.restart(self.snapserver_service)
-            if restarted and not await self._wait_snapserver_ready(timeout=10.0):
-                self.logger.warning("Snapserver not ready 10s after its restart, proceeding anyway")
+            await self.restart_snapserver()
 
         if self.multiroom_enabled and not services_running:
             self.logger.info("SNAPCAST_RECONCILE: starting snapcast services")
@@ -909,6 +914,41 @@ class AudioRoutingService:
             return False
         return await self.snapcast_service.wait_until_available(timeout)
 
+    async def restart_snapserver(self) -> bool:
+        """Restart snapserver; True once its JSON-RPC answers again.
+
+        The one restart recipe. `systemctl restart` returns once the new
+        process started, so the old one is gone and the probe that follows can
+        only reach the new daemon — no settle delay before it. Refused in
+        direct mode, where a restart would START the unit behind the reconcile
+        and take hw:Loopback from the direct-mode source: callers hold the
+        routing lock (the reconcile, or `snapcast_config_held`), so the mode
+        read here is the one in force.
+        """
+        if not self._snapcast_restart_allowed(self.snapserver_service):
+            return False
+        if not await self.service_manager.restart(self.snapserver_service):
+            return False
+        if not await self._wait_snapserver_ready(timeout=10.0):
+            self.logger.warning("Snapserver not ready 10s after its restart")
+            return False
+        return True
+
+    async def restart_snapclient(self) -> bool:
+        """Restart the local snapclient (to read a new snapclient.env).
+
+        Refused in direct mode, as `restart_snapserver` is.
+        """
+        if not self._snapcast_restart_allowed(self.snapclient_service):
+            return False
+        return await self.service_manager.restart(self.snapclient_service)
+
+    def _snapcast_restart_allowed(self, unit: str) -> bool:
+        if self.multiroom_enabled:
+            return True
+        self.logger.error(f"Refusing to restart {unit} in direct mode: it would start a stopped unit")
+        return False
+
     @handle_errors(default=False)
     async def _start_snapcast(self) -> bool:
         """Starts snapcast services and waits for snapserver readiness"""
@@ -964,11 +1004,7 @@ class AudioRoutingService:
             yield
 
     def get_state(self) -> Dict[str, bool]:
-        """
-        Gets current routing state from single source of truth
-
-        NEW: Returns a dict instead of AudioRoutingState (which no longer exists)
-        """
+        """The current routing state, as the settings hold it."""
         return {
             "multiroom_enabled": self.multiroom_enabled,
             "equalizer_effects_enabled": self.equalizer_effects_enabled

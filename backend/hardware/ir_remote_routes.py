@@ -9,9 +9,10 @@ do not broadcast directly.
 import logging
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from backend.api.models import IrRemoteConfigRequest
+from backend.api.route_helpers import api_error_handler, raise_on_error_status
 
 if TYPE_CHECKING:
     from backend.hardware.ir_remote import IrRemoteController
@@ -32,13 +33,10 @@ def create_ir_remote_router(ir_remote_controller: "IrRemoteController"):
     @router.patch("/config")
     async def update_config(payload: IrRemoteConfigRequest):
         """Partial config update — currently only the `enabled` flag."""
-        try:
+        async with api_error_handler("Error updating IR remote config", logger):
             update = payload.model_dump(exclude_unset=True)
             await ir_remote_controller.update_config(update)
             return {"status": "success", **ir_remote_controller.get_status()}
-        except Exception as e:
-            logger.error("Error updating IR remote config: %s", e)
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/pair")
     async def start_pairing():
@@ -46,35 +44,23 @@ def create_ir_remote_router(ir_remote_controller: "IrRemoteController"):
         and regenerate the rc-core keymap.
 
         On success the runtime listener is started; any other outcome leaves
-        it as it was, which is down only when the controller was unpaired to
-        begin with — the wizard is the unpaired branch of the settings panel.
+        the controller as it was — the listener resumes if it was running, and
+        a refused settings write puts the previous keymap back.
 
         Returns the pairing result; HTTP 200 in all flow-control cases
-        (success/timeout/cancelled/unsupported). HTTP 500 only on internal
-        errors (helper script failure, kernel reload failure, etc.).
+        (success/timeout/cancelled/unsupported). HTTP 500 on `error` and on
+        internal failures (helper script failure, refused settings write…).
         """
-        try:
+        async with api_error_handler("Error starting IR pairing", logger):
             result = await ir_remote_controller.start_pairing()
-            if result.get("status") == "error":
-                # Surface as 500 — the wizard distinguishes flow-control vs failure
-                logger.error("IR pairing internal error: %s", result.get("message"))
-                raise HTTPException(status_code=500, detail=result.get("message"))
-            return result
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("Error starting IR pairing: %s", e)
-            raise HTTPException(status_code=500, detail=str(e))
+            return raise_on_error_status(result, "IR pairing failed", logger)
 
     @router.post("/pair/cancel")
     async def cancel_pairing():
         """Abort an in-flight pairing capture."""
-        try:
+        async with api_error_handler("Error cancelling IR pairing", logger):
             cancelled = await ir_remote_controller.cancel_pairing()
             return {"status": "success", "cancelled": cancelled}
-        except Exception as e:
-            logger.error("Error cancelling IR pairing: %s", e)
-            raise HTTPException(status_code=500, detail=str(e))
 
     @router.delete("/pair")
     async def unpair():
@@ -83,11 +69,8 @@ def create_ir_remote_router(ir_remote_controller: "IrRemoteController"):
         `enabled` is the header master switch and is deliberately left as it
         is: an unpaired-but-enabled remote lands back on the pairing wizard.
         """
-        try:
+        async with api_error_handler("Error unpairing IR remote", logger):
             await ir_remote_controller.unpair()
             return {"status": "success", **ir_remote_controller.get_status()}
-        except Exception as e:
-            logger.error("Error unpairing IR remote: %s", e)
-            raise HTTPException(status_code=500, detail=str(e))
 
     return router

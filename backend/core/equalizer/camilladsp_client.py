@@ -221,9 +221,6 @@ class CamillaDspClient:
     async def get_playback_peak(self) -> List[float]:
         return await self._query("GetPlaybackSignalPeak")
 
-    async def get_capture_peak(self) -> List[float]:
-        return await self._query("GetCaptureSignalPeak")
-
     async def get_config_file_path(self) -> Optional[str]:
         return await self._query("GetConfigFilePath")
 

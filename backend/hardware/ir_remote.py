@@ -1,6 +1,7 @@
 # backend/hardware/ir_remote.py
 """
-IR remote controller (Apple Remote 1st gen, white) via TSOP4838 on GPIO17.
+IR remote controller (Apple Remote 1st gen, white) via a TSOP4838 on the
+configured GPIO (GPIO17 by default, see hardware/registry.py).
 
 The kernel rc-core subsystem decodes the modified-NEC 32-bit scancodes emitted
 by the Apple Remote (manufacturer prefix 0x87EE | device_id | command) and,
@@ -173,17 +174,13 @@ class IrRemoteController:
     # ========================================================================
 
     async def _load_config_from_settings(self) -> None:
-        config = await self.settings_service.get_setting('hardware.ir_remote') or {}
-        self.enabled = bool(config.get('enabled', False))
-        device_id = config.get('device_id')
-        if isinstance(device_id, int) and 0 <= device_id <= 0xFF:
-            self.device_id = device_id
-            self.paired = True
-        else:
-            self.device_id = None
-            self.paired = False
-        paired_at = config.get('paired_at')
-        self.paired_at = float(paired_at) if isinstance(paired_at, (int, float)) else None
+        """Read directly: the settings validator emits the section whole, with
+        a `device_id` that fits a byte or None."""
+        config = await self.settings_service.get_setting('hardware.ir_remote')
+        self.enabled = config['enabled']
+        self.device_id = config['device_id']
+        self.paired = self.device_id is not None
+        self.paired_at = config['paired_at']
 
     async def _persist_config(
         self, enabled: bool, device_id: Optional[int], paired_at: Optional[float]
@@ -465,7 +462,13 @@ class IrRemoteController:
              "device_id": int (on success), "message": str}
 
         While pairing is active, the runtime listener is paused — both modes
-        share the same evdev device under the `_mode_lock`.
+        share the same evdev device under the `_mode_lock`. Any outcome but a
+        success leaves the controller as it found it: the listener resumes if
+        it was running (and the remote is still enabled and paired — see
+        `_resume_listener`), and a settings write refused after the new keymap
+        loaded puts the previous keymap back before it raises — the kernel
+        keymap is reloaded from disk at boot, so a keymap ahead of settings.json
+        would be a remote that works while the screen names another.
         """
         if not EVDEV_AVAILABLE:
             return {"status": "error", "message": "evdev not available"}
@@ -480,6 +483,7 @@ class IrRemoteController:
             }
 
         # Pause the runtime listener so pairing can take the evdev device exclusively.
+        was_listening = self._runtime_task is not None and not self._runtime_task.done()
         await self._stop_runtime_listener()
 
         self._pairing_in_progress = True
@@ -493,25 +497,66 @@ class IrRemoteController:
             self._pairing_cancel_event = None
             await self._broadcast_status()
 
-        if result.get("status") == "success":
-            device_id = result["device_id"]
-            try:
-                await keymap_writer.apply_keymap(device_id)
-            except Exception as e:
-                logger.error("Failed to apply keymap for device_id=0x%02X: %s", device_id, e)
-                return {"status": "error", "message": f"Failed to apply keymap: {e}"}
+        if result.get("status") != "success":
+            await self._resume_listener(was_listening)
+            return result
 
-            paired_at = time.time()
+        device_id = result["device_id"]
+        try:
+            await keymap_writer.apply_keymap(device_id)
+        except Exception as e:
+            # The helper writes its file atomically: refused, the kernel and the
+            # disk still hold the previous keymap.
+            logger.error("Failed to apply keymap for device_id=0x%02X: %s", device_id, e)
+            await self._resume_listener(was_listening)
+            return {"status": "error", "message": f"Failed to apply keymap: {e}"}
+
+        paired_at = time.time()
+        try:
             # Auto-enable on first pairing so the remote works immediately.
             await self._persist_config(True, device_id, paired_at)
-            self.device_id = device_id
-            self.paired = True
-            self.paired_at = paired_at
-            self.enabled = True
+        except Exception:
+            await self._restore_kernel_keymap()
+            await self._resume_listener(was_listening)
+            raise
+        self.device_id = device_id
+        self.paired = True
+        self.paired_at = paired_at
+        self.enabled = True
+        await self._start_runtime_listener()
+        await self._broadcast_status()
+        return result
+
+    async def _resume_listener(self, was_listening: bool) -> None:
+        """Restart the runtime listener a pairing paused, if it was running.
+
+        It runs after the capture, which can take tens of seconds: what decides
+        is the state now, not the snapshot taken before it — a remote disabled
+        or unpaired meanwhile (another screen, the API) stays silent. The
+        capture's end already broadcast `listening: false`, so a restart says
+        so itself.
+        """
+        if was_listening and self.enabled and self.paired:
             await self._start_runtime_listener()
             await self._broadcast_status()
 
-        return result
+    async def _restore_kernel_keymap(self) -> None:
+        """Put back the keymap of the pairing settings.json still holds.
+
+        Called once a new keymap has loaded and its settings write was refused.
+        A failure here is logged, not raised: the caller is already raising the
+        write's own error, which is the one the route reports.
+        """
+        try:
+            if self.paired:
+                await keymap_writer.apply_keymap(self.device_id)
+            else:
+                await keymap_writer.clear_kernel_keymap()
+        except Exception as e:
+            logger.error(
+                "IR keymap not restored after a refused settings write — the kernel "
+                "keymap is ahead of settings.json until the next pairing: %s", e,
+            )
 
     async def _capture_one_scancode(
         self, device_path: str, timeout_seconds: float

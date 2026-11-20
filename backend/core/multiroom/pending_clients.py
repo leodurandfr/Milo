@@ -74,8 +74,16 @@ class PendingClientsService:
             logger.error(f"Failed to load pending clients: {e}")
             self._clients = {}
 
-        # Remove stale entries left over from a previous run
-        await self._purge_stale()
+        # The file does not carry the last heartbeat (`register_client` keeps it
+        # in memory), so a loaded entry's timestamp says nothing about whether
+        # its satellite is still alive. Each one gets a full STALE_TIMEOUT from
+        # boot: a live satellite heartbeats within it and keeps its entry — a
+        # purge here would drop it, and its next heartbeat would come back as a
+        # brand-new speaker that wakes the screen — while a dead one expires at
+        # the sweep after.
+        now = time.time()
+        for client in self._clients.values():
+            client["registered_at"] = now
 
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         return True
@@ -102,21 +110,36 @@ class PendingClientsService:
 
         Called when a client POSTs to /api/multiroom/register-client.
         Upserts by MAC address — preserves user-set name/speaker_type on re-registration.
+
+        A satellite re-registers every 15 s. A heartbeat that changes nothing
+        but the timestamp only refreshes it in memory: no write of the file, no
+        event, no info line. The timestamp is not worth persisting: `initialize`
+        restarts every loaded entry's clock rather than reading it, so a live
+        satellite keeps its entry across a backend restart and a dead one
+        expires STALE_TIMEOUT after it.
         """
         async with self._lock:
             existing = self._clients.get(mac_id)
 
             if existing:
-                # Update connection info, preserve user-set fields
+                connection = {
+                    "ip": ip,
+                    "hardware_configured": hardware_configured,
+                    "audio_id": audio_id,
+                    "volume_control": volume_control,
+                }
+                existing["registered_at"] = time.time()
                 # The configure grace ends the moment the client reports the card
                 # it was rebooted for: the cycle is over, normal staleness resumes.
-                if hardware_configured and not existing.get("hardware_configured"):
-                    existing.pop("configuring_since", None)
-                existing["ip"] = ip
-                existing["hardware_configured"] = hardware_configured
-                existing["audio_id"] = audio_id
-                existing["volume_control"] = volume_control
-                existing["registered_at"] = time.time()
+                ends_grace = (hardware_configured and not existing.get("hardware_configured")
+                              and "configuring_since" in existing)
+                if not ends_grace and all(existing.get(k) == v for k, v in connection.items()):
+                    logger.debug(f"Pending client heartbeat: {mac_id}")
+                    return dict(existing)
+                if ends_grace:
+                    existing.pop("configuring_since")
+                # Update connection info, preserve user-set fields
+                existing.update(connection)
                 client = existing
             else:
                 client = {
@@ -149,20 +172,26 @@ class PendingClientsService:
         audio_id: Optional[str] = None,
         volume_control: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Partial update of a pending client. Returns None if not found."""
+        """Partial update of a pending client. Returns None if not found.
+
+        An update that changes nothing — an adopted satellite's heartbeat
+        carries its identity every 15 s — is neither written nor broadcast.
+        """
         async with self._lock:
             client = self._clients.get(mac_id)
             if not client:
                 return None
 
-            if name is not None:
-                client["name"] = name
-            if speaker_type is not None:
-                client["speaker_type"] = speaker_type
-            if audio_id is not None:
-                client["audio_id"] = audio_id
-            if volume_control is not None:
-                client["volume_control"] = volume_control
+            fields = {
+                "name": name,
+                "speaker_type": speaker_type,
+                "audio_id": audio_id,
+                "volume_control": volume_control,
+            }
+            changes = {k: v for k, v in fields.items() if v is not None and client.get(k) != v}
+            if not changes:
+                return dict(client)
+            client.update(changes)
 
             client_snapshot = dict(client)
             await self._persist()

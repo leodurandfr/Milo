@@ -233,7 +233,8 @@ def tuning_client():
 
     eq = Mock()
     eq.get_client_eq = AsyncMock(return_value=EqualizerSettings.default())
-    eq.set_client_eq = AsyncMock(return_value=True)
+    eq.get_zone_eq = AsyncMock(return_value=EqualizerSettings.default())
+    eq.adopt_zone_eq = AsyncMock(return_value=True)
 
     snapcast = Mock()
     snapcast.set_latency = AsyncMock(return_value=True)
@@ -254,19 +255,8 @@ class TestEqIndependentEndpoint:
         assert resp.status_code == 200
         assert resp.json()["client"]["eq_independent"] is True
         registry.set_client_eq_independent.assert_awaited_once_with("mac-1", True)
-        eq.get_client_eq.assert_not_awaited()  # no adoption on detach
-        eq.set_client_eq.assert_not_awaited()
-
-    def test_reattach_readopts_the_zone_eq_from_a_shared_member(self, tuning_client):
-        """enabled=false re-adopts the current zone EQ from a shared online member."""
-        client, registry, eq, _ = tuning_client
-        resp = client.put("/api/multiroom/clients/mac-1/eq-independent", json={"enabled": False})
-
-        assert resp.status_code == 200
-        registry.set_client_eq_independent.assert_awaited_once_with("mac-1", False)
-        eq.get_client_eq.assert_awaited_once_with("mac-2")  # the shared donor
-        eq.set_client_eq.assert_awaited_once()
-        assert eq.set_client_eq.await_args.args[0] == "mac-1"
+        eq.get_zone_eq.assert_not_awaited()  # no adoption on detach
+        eq.adopt_zone_eq.assert_not_awaited()
 
     def test_unknown_client_404(self, tuning_client):
         client, _, _, _ = tuning_client
@@ -283,7 +273,7 @@ class TestEqIndependentEndpoint:
         said the opposite, and a satellite that stays online is re-sent nothing
         by its admission. 502, at error, so the banner names the speaker."""
         client, registry, eq, _ = tuning_client
-        eq.set_client_eq = refusal()
+        eq.adopt_zone_eq = refusal()
 
         with caplog.at_level(logging.WARNING):
             resp = client.put(
@@ -975,7 +965,7 @@ class TestClientDelayEndpoint:
         _, registry, eq, _ = tuning_client
         snapserver = FakeSnapserver(clients={"mac-1": "192.168.1.2"})
         snapserver.refuse["Client.SetLatency"] = None
-        snapcast = SnapcastService(systemd_manager=Mock())
+        snapcast = SnapcastService()
         if socket == "answers-an-error":
             snapcast.set_control_channel(snapserver.control_channel())
         app = FastAPI()
@@ -1643,31 +1633,56 @@ class TestAddClientToZone:
 
 @pytest.fixture
 def eq_donor_client():
-    """A zone whose FIRST member detached its EQ, a second member still sharing
-    the zone's record, and a standalone client about to join."""
+    """A zone whose members' records diverged, with the real
+    MultiroomEqualizerService deciding what the zone's EQ is.
+
+    Members in zone order: one that detached its EQ, a shared one that is
+    offline and bypassed, a shared one online — plus "mac-back", a member
+    detached and about to re-attach, and a standalone "mac-new" about to join.
+    Only the push to the speaker (`set_client_eq`) is stubbed.
+    """
+    from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
+
     clients = {
         "mac-indep": Client(mac_id="mac-indep", name="Kitchen", ip="192.168.1.50",
                             online=True, zone_id="z1", eq_independent=True),
+        "mac-off": Client(mac_id="mac-off", name="Garage", ip="192.168.1.53",
+                          online=False, zone_id="z1"),
         "mac-shared": Client(mac_id="mac-shared", name="Living", ip="192.168.1.51",
                              online=True, zone_id="z1"),
+        "mac-back": Client(mac_id="mac-back", name="Hall", ip="192.168.1.54",
+                           online=True, zone_id="z1", eq_independent=True),
         "mac-new": Client(mac_id="mac-new", name="Bedroom", ip="192.168.1.52",
                           online=True, zone_id=None),
     }
-    zone = Zone(id="z1", name="Pair", client_ids=["mac-indep", "mac-shared"])
+    records = {
+        "mac-indep": EqualizerSettings(active_preset="rock"),
+        "mac-off": EqualizerSettings(active_preset="bass", enabled=False),
+        "mac-shared": EqualizerSettings(active_preset="vocal"),
+        "mac-back": EqualizerSettings(active_preset="rock"),
+    }
+    zone = Zone(id="z1", name="Room", client_ids=["mac-indep", "mac-off", "mac-shared", "mac-back"])
 
     registry = Mock()
     registry.get_client = Mock(side_effect=clients.get)
     registry.get_zone = Mock(side_effect=lambda zone_id: zone if zone_id == "z1" else None)
     registry.zone_to_enriched_dict = Mock(side_effect=lambda z: z.to_dict())
+    registry.is_local_client = Mock(return_value=False)
+    registry.is_client_online = Mock(side_effect=lambda mac: clients[mac].online)
+    registry.get_client_equalizer = Mock(side_effect=records.get)
 
     async def _add(zone_id, mac_id):
         zone.client_ids.append(mac_id)
         return True
 
-    registry.add_client_to_zone = AsyncMock(side_effect=_add)
+    def _set_eq_ind(mac_id, enabled):
+        clients[mac_id] = dataclasses.replace(clients[mac_id], eq_independent=enabled)
+        return clients[mac_id]
 
-    eq = Mock()
-    eq.get_client_eq = AsyncMock(return_value=EqualizerSettings.default())
+    registry.add_client_to_zone = AsyncMock(side_effect=_add)
+    registry.set_client_eq_independent = AsyncMock(side_effect=_set_eq_ind)
+
+    eq = MultiroomEqualizerService(client_registry_service=registry)
     eq.set_client_eq = AsyncMock(return_value=True)
 
     app = FastAPI()
@@ -1675,22 +1690,52 @@ def eq_donor_client():
     return TestClient(app), eq, registry
 
 
-class TestNewZoneMemberEqDonor:
-    """POST /zones/{id}/clients picks the record the new member adopts."""
+def _without_enabled(record: EqualizerSettings) -> dict:
+    return {k: v for k, v in record.to_dict().items() if k != "enabled"}
 
-    def test_the_donor_is_never_a_member_that_detached_its_eq(self, eq_donor_client):
-        """A detached member has retuned its own curve and left the zone's shared
-        record — adopting it would put two audibly different timbres in one zone.
-        The re-attach donor (PUT /clients/{mac}/eq-independent) already filters
-        it out; this path took the first member it found.
-        """
+
+class TestNewZoneMemberEqDonor:
+    """What a joining or re-attaching member adopts: the zone's EQ as the
+    zone's screen shows it (`get_zone_eq`), by one rule on both routes. They
+    used to take two different donors — the first shared member, offline or
+    not, on a join; the first shared online one on a re-attach — neither of
+    them the screen's.
+
+    Except `enabled`, which stays the member's own: the screen's is the
+    members' conjunction, and pushed onto the member (`apply_record` sends it
+    last) it would bypass the speaker as soon as any one other member is —
+    here the offline, bypassed one."""
+
+    def test_a_joining_member_adopts_the_zone_eq_the_screen_shows(self, eq_donor_client):
+        """Never a member that detached its EQ (it retuned its own curve), and
+        not the first shared one either when it is not the zone's record."""
         client, eq, _ = eq_donor_client
+        shown = asyncio.run(eq.get_zone_eq("z1"))
+        own = EqualizerSettings.default().enabled  # mac-new holds no record yet
+        assert shown.enabled != own, "the fixture no longer tells the two apart"
 
         resp = client.post("/api/multiroom/zones/z1/clients", json={"mac_id": "mac-new"})
 
         assert resp.status_code == 200
-        eq.get_client_eq.assert_awaited_once_with("mac-shared")
-        assert eq.set_client_eq.await_args.args[0] == "mac-new"
+        mac_id, adopted = eq.set_client_eq.await_args.args
+        assert mac_id == "mac-new"
+        assert _without_enabled(adopted) == _without_enabled(shown)
+        assert adopted.enabled == own
+
+    def test_a_re_attaching_member_adopts_the_same_zone_eq(self, eq_donor_client):
+        client, eq, registry = eq_donor_client
+        shown = asyncio.run(eq.get_zone_eq("z1"))
+        own = registry.get_client_equalizer("mac-back").enabled
+        assert shown.enabled != own, "the fixture no longer tells the two apart"
+
+        resp = client.put("/api/multiroom/clients/mac-back/eq-independent", json={"enabled": False})
+
+        assert resp.status_code == 200
+        registry.set_client_eq_independent.assert_awaited_once_with("mac-back", False)
+        mac_id, adopted = eq.set_client_eq.await_args.args
+        assert mac_id == "mac-back"
+        assert _without_enabled(adopted) == _without_enabled(shown)
+        assert adopted.enabled == own
 
     @pytest.mark.parametrize("refusal", [
         lambda: AsyncMock(return_value=False),

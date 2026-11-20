@@ -305,23 +305,20 @@ class TestCamillaDspReadGuards:
         svc.state_machine.broadcast = AsyncMock()
         return svc
 
-    async def test_levels_are_read_from_both_meters_at_once(self, service):
-        """Input and output are two round-trips; gathered they are one wait.
-
-        `LevelsMonitor` calls this at 10 Hz, so serialising them doubles the
-        DSP traffic of every open EQ view.
-        """
+    async def test_levels_are_one_read_of_the_playback_meter(self, service):
+        """`LevelsMonitor` samples at 10 Hz over the one socket the volume and
+        the EQ share, and keeps `output_peak` alone: a second read of the
+        capture meter doubled that traffic for a value nothing consumed."""
         client = AsyncMock()
-        client.get_capture_peak.return_value = [-30.0, -31.0]
         client.get_playback_peak.return_value = [-25.0, -26.0]
         service._client = client
         service._connected = True
 
         assert await service.get_levels() == {
             "available": True,
-            "input_peak": [-30.0, -31.0],
             "output_peak": [-25.0, -26.0],
         }
+        assert [name for name, _, _ in client.mock_calls] == ["get_playback_peak"]
 
     async def test_a_disconnected_service_reports_levels_unavailable(self, service):
         """The meters fall to the floor rather than freezing — a held meter over

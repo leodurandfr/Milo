@@ -142,10 +142,9 @@ class SnapcastService:
     # this, in any case, is no speaker (is_speaker_entry).
     SNAPWEB_NAME = "snapweb"
 
-    def __init__(self, systemd_manager, host: str = "localhost", port: int = 1780):
+    def __init__(self, host: str = "localhost", port: int = 1780):
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
-        self._systemd = systemd_manager
         self._control = None
         self.snapserver_conf = Path("/etc/snapserver.conf")
 
@@ -469,7 +468,7 @@ class SnapcastService:
     async def get_server_config(self) -> Dict[str, Any]:
         """Get the canonical stream configuration.
 
-        Returns the flat shape ``update_server_config`` consumes, so the read
+        Returns the flat shape ``write_server_config`` consumes, so the read
         and the write of this resource agree on one body. The `buffer_ms`
         field is only present in snapserver.conf (not exposed by the daemon
         JSON-RPC), so the file is parsed for it and merged with the daemon's
@@ -533,26 +532,27 @@ class SnapcastService:
         return {"parsed_config": config, "raw_content": content}
 
     @handle_errors(default=False)
-    async def update_server_config(self, config: Dict[str, Any]) -> bool:
-        """Update server configuration and restart."""
+    async def write_server_config(self, config: Dict[str, Any]) -> bool:
+        """Validate and write snapserver.conf. Restarts nothing.
+
+        snapserver reads the file only when it starts, so the caller restarts it
+        next — through `AudioRoutingService.restart_snapserver`, the owner of
+        the snapcast units' lifecycle — and only once this answered True.
+        """
         if not self.validate_config(config):
             return False
 
         # Force sampleformat to 32-bit for high-quality audio pipeline
         config["sampleformat"] = "48000:32:2"
 
-        success = await self._update_config_file(config)
-        if not success:
-            return False
-
-        return await self._restart_snapserver()
+        return await self._update_config_file(config)
 
     def validate_config(self, config: Dict[str, Any]) -> bool:
         """Validate configuration parameters.
 
         Public because the route runs it before its first write: settings.json,
         snapclient.env and the push to every satellite all come before
-        `update_server_config`, which keeps this call as its own guard.
+        `write_server_config`, which keeps this call as its own guard.
 
         An unknown key is rejected, not ignored: validating only the keys it
         recognised meant a body in the wrong shape passed, wrote nothing,
@@ -758,30 +758,18 @@ class SnapcastService:
 
         return '\n'.join(updated_lines)
 
-    @handle_errors(default=False)
-    async def _restart_snapserver(self) -> bool:
-        """Restart Snapcast server."""
-        self.logger.info("Restarting snapserver...")
+    async def wait_for_control(self) -> bool:
+        """After a restart of snapserver, wait for the control socket to be back.
 
-        if not await self._systemd.restart("milo-snapserver-multiroom.service"):
+        The restart closed the socket every request rides: a restart reported
+        done before it reconnects leaves the next read of this resource with
+        nothing to ask. Bounded past the reconnect backoff, which a snapserver
+        down before the restart (the repair case) may have reached. True at
+        once when no socket is expected (direct mode).
+        """
+        if self._control is None or not self._control.should_connect:
+            return True
+        if not await self._control.wait_for_ready(timeout=self._control.RECONNECT_MAX_DELAY_S + 10):
+            self.logger.warning("Snapserver restarted but its control WebSocket is not back yet")
             return False
-
-        # Let the old instance fully exit before probing (a lingering socket
-        # would answer as "available" and mask the restart), then wait for the
-        # fresh daemon's JSON-RPC to come up.
-        await asyncio.sleep(3)
-        if not await self.wait_until_available(timeout=10.0):
-            self.logger.warning("Snapserver restarted but API not available yet")
-            return False
-
-        # The restart closed the control socket every request rides: done once
-        # it is back, or the next read of this resource finds nothing to ask.
-        # Bounded past the reconnect backoff, which a snapserver down before
-        # this restart (the repair case) may have reached.
-        if self._control is not None and self._control.should_connect:
-            if not await self._control.wait_for_ready(timeout=self._control.RECONNECT_MAX_DELAY_S + 10):
-                self.logger.warning("Snapserver restarted but its control WebSocket is not back yet")
-                return False
-
-        self.logger.info("Snapserver restarted successfully")
         return True

@@ -263,11 +263,13 @@ class TestTheSnapclientConfigPush:
         routing.multiroom_enabled = True
         routing.get_state = Mock(return_value={"multiroom_enabled": True})
         routing.snapclient_service = "milo-snapclient-multiroom.service"
-        routing.service_manager.restart = AsyncMock(return_value=True)
+        routing.restart_snapserver = AsyncMock(return_value=True)
+        routing.restart_snapclient = AsyncMock(return_value=True)
         snapcast = MagicMock()
+        snapcast.wait_for_control = AsyncMock(return_value=True)
         snapcast.is_available = AsyncMock(return_value=True)
         snapcast.get_server_config = AsyncMock(return_value={"buffer_ms": 700})
-        snapcast.update_server_config = AsyncMock(return_value=True)
+        snapcast.write_server_config = AsyncMock(return_value=True)
         state_machine = MagicMock()
         state_machine.broadcast = AsyncMock()
         registry = MagicMock()
@@ -413,7 +415,7 @@ class TestTheSnapclientConfigPush:
         speaker is not. That is a fleet out of step with itself, not a cosmetic
         failure — it must not hide under a "services restarted" answer."""
         routing, _, _, _, _ = pieces
-        routing.service_manager.restart = AsyncMock(return_value=False)
+        routing.restart_snapclient = AsyncMock(return_value=False)
         client = self._client(pieces)
 
         with caplog.at_level(logging.ERROR, logger="backend.api.routing"):

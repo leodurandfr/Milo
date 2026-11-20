@@ -68,7 +68,7 @@ def _make_ws_service(registry, volume_service=None, snapcast_service=None):
         MagicMock(get_clients=AsyncMock(return_value=[]))
     )
     # Stub equalizer sync to isolate volume tests
-    ws._sync_standalone_equalizer_to_client = AsyncMock(return_value=True)
+    ws._sync_client_equalizer_to_satellite = AsyncMock(return_value=True)
     return ws
 
 
@@ -1022,7 +1022,7 @@ class TestReconnectSyncAppliesMonoAndEnabled:
             "cc:dd", EqualizerSettings(mono=True, enabled=False, filters=[]), broadcast=False
         )
 
-        result = await ws._sync_standalone_equalizer_to_client("cc:dd")
+        result = await ws._sync_client_equalizer_to_satellite("cc:dd")
         assert result is True
 
         by_path = {c.args[2]: c.args[3] for c in proxy.request.call_args_list}
@@ -1044,7 +1044,7 @@ class TestReconnectSyncAppliesMonoAndEnabled:
         assert registry.get_client_equalizer("ee:ff") is None
         neutral = EqualizerSettings.default()
 
-        result = await ws._sync_standalone_equalizer_to_client("ee:ff")
+        result = await ws._sync_client_equalizer_to_satellite("ee:ff")
         assert result is True
 
         by_path = {c.args[2]: c.args[3] for c in proxy.request.call_args_list}

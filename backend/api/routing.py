@@ -254,9 +254,15 @@ def create_routing_router(
             # 3. Push to remotes and AWAIT — must complete before snapserver restart
             await _push_snapclient_config_to_remotes(snapclient_buffer_time, effective_fragments)
 
-        # 4. Update snapserver.conf and restart snapserver
-        if not await snapcast_service.update_server_config(config):
+        # 4. Write snapserver.conf, then restart snapserver on it — through the
+        # routing service, which owns every systemctl verb on the snapcast units
+        # — and wait for the control socket every later request rides.
+        if not await snapcast_service.write_server_config(config):
             logger.error("snapserver rejected the config update")
+            raise HTTPException(status_code=502, detail="Snapserver config update failed")
+        if not (await routing_service.restart_snapserver()
+                and await snapcast_service.wait_for_control()):
+            logger.error("snapserver did not come back on its new config")
             raise HTTPException(status_code=502, detail="Snapserver config update failed")
 
         # 5. Restart local snapclient to pick up the new env (after
@@ -266,15 +272,14 @@ def create_routing_router(
         # it must reach the caller rather than a log line under a "services
         # restarted" answer.
         if snapclient_buffer_time is not None:
-            if routing_service.service_manager:
-                unit = routing_service.snapclient_service
-                if not await routing_service.service_manager.restart(unit):
-                    logger.error(f"Failed to restart {unit} with buffer_time={snapclient_buffer_time}ms")
-                    raise HTTPException(
-                        status_code=502,
-                        detail=f"Configuration saved but {unit} did not restart"
-                    )
-                logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
+            unit = routing_service.snapclient_service
+            if not await routing_service.restart_snapclient():
+                logger.error(f"Failed to restart {unit} with buffer_time={snapclient_buffer_time}ms")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Configuration saved but {unit} did not restart"
+                )
+            logger.info(f"Local snapclient restarted with buffer_time={snapclient_buffer_time}ms")
 
         return {
             "status": "success",

@@ -10,11 +10,11 @@ reboot.
 This controller takes the fan over at runtime instead: it disables the thermal
 governor (`thermal_zone0/mode=disabled`), puts pwm-fan into manual mode, and
 drives `pwm1` itself from a temperature setpoint (or a fixed duty) stored in
-settings.json. Retuning needs no reboot. On graceful shutdown (or when the user
-disables custom control) it hands the fan back to the kernel governor
-(`mode=enabled`) so the config.txt curve stays the safety fallback; the SoC
-hard-throttle (85 °C) and critical trip (110 °C) are independent hardware
-safety nets.
+settings.json. Retuning needs no reboot. On graceful shutdown it hands the fan
+back to the kernel governor (`mode=enabled`) so the config.txt curve stays the
+fallback while the backend is down. A fan the user disables is NOT handed back:
+the controller keeps the governor off and holds 0 %, so the SoC hard-throttle
+(85 °C) and critical trip (110 °C) are then the only protection.
 
 Write access to the root-owned sysfs nodes is granted to the milo user by a
 udev rule (rootfs/etc/udev/rules.d/99-milo-fan.rules). Off-Pi (no

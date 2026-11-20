@@ -2,10 +2,14 @@
 """
 API routes for multiroom client and zone management.
 
-Provides endpoints under /api/multiroom/ prefix for multiroom operations.
-This router delegates to ClientRegistryService for all operations:
+Provides endpoints under /api/multiroom/ prefix for multiroom operations:
 - /api/multiroom/clients/ prefix for client endpoints (PATCH updates)
 - /api/multiroom/zones/ prefix for zone CRUD operations
+- the satellite-facing routes (register-client, pending clients, remote
+  access), several of which reach a satellite with aiohttp directly
+
+Membership and client state go through ClientRegistryService, EQ through
+MultiroomEqualizerService.
 
 Features:
 - PATCH method for partial updates
@@ -432,8 +436,9 @@ def create_multiroom_router(
           byte-identical copy of the zone's EQ, so there is nothing to copy and
           no audible jump; later zone-EQ edits simply skip it.
         - enabled=False (reattach): clear the flag, then re-adopt the zone's
-          current EQ from a non-independent online member and push it, so the
-          member falls back in step with the zone.
+          current EQ — the one the zone's screen shows, `get_zone_eq` — and
+          push it (`adopt_zone_eq`, which keeps the member's own `enabled`), so
+          the member falls back in step with the zone.
 
         Returns:
             {"status": "success", "client": {...}}
@@ -450,27 +455,18 @@ def create_multiroom_router(
                     detail=f"Client with mac_id '{mac_id}' not found"
                 )
 
-            # On reattachment, capture the zone's current EQ from a member that is
-            # still shared, BEFORE clearing the flag — that is the EQ to re-adopt.
+            # On reattachment, read the zone's EQ BEFORE clearing the flag: the
+            # member is still independent, so the zone's record is its sharing
+            # members' alone — the EQ to re-adopt.
             zone_eq = None
             if not request.enabled and client.zone_id and multiroom_equalizer_service:
-                zone = registry_service.get_zone(client.zone_id)
-                donor = next(
-                    (m for m in (zone.client_ids if zone else [])
-                     if m != mac_id
-                     and (c := registry_service.get_client(m)) is not None
-                     and not c.eq_independent
-                     and c.online),
-                    None,
-                )
-                if donor:
-                    zone_eq = await multiroom_equalizer_service.get_client_eq(donor)
+                zone_eq = await multiroom_equalizer_service.get_zone_eq(client.zone_id)
 
             updated_client = await registry_service.set_client_eq_independent(mac_id, request.enabled)
 
             if zone_eq is not None:
                 try:
-                    adopted = await multiroom_equalizer_service.set_client_eq(mac_id, zone_eq)
+                    adopted = await multiroom_equalizer_service.adopt_zone_eq(mac_id, zone_eq)
                     refusal = None if adopted else "the client refused the push"
                 except Exception as e:
                     refusal = str(e)
@@ -824,7 +820,7 @@ def create_multiroom_router(
 
         When deleted:
         - All member clients have their zone_id set to None
-        - Clients retain zone equalizer settings as their standalone equalizer
+        - Clients keep their EQ records, which were the zone's (a zone holds none)
         - 'zone_deleted' WebSocket event is broadcast
 
         Args:
@@ -886,16 +882,12 @@ def create_multiroom_router(
                     detail=f"Client '{request.mac_id}' not found"
                 )
 
-            # Capture an existing member's EQ before the add, so the new member
-            # can adopt the zone's current EQ (members hold identical records).
-            # A member that detached its EQ is not the zone's any more, so it
-            # cannot speak for it — same donor rule as the re-attach path above.
-            existing_member = next(
-                (m for m in zone.client_ids
-                 if m != request.mac_id
-                 and (c := registry_service.get_client(m)) is not None
-                 and not c.eq_independent),
-                None,
+            # Read the zone's EQ before the add — the one the zone's screen
+            # shows, by the same rule as the re-attach path above — so the new
+            # member adopts it, not whichever member happens to be listed first.
+            zone_eq = (
+                await multiroom_equalizer_service.get_zone_eq(zone_id)
+                if multiroom_equalizer_service else None
             )
 
             success = await registry_service.add_client_to_zone(zone_id, request.mac_id)
@@ -905,11 +897,10 @@ def create_multiroom_router(
                     detail=f"Client '{request.mac_id}' is already in zone '{zone_id}'"
                 )
 
-            # New member adopts the zone's current EQ (unified per-client model).
-            if multiroom_equalizer_service and existing_member:
+            # New member adopts the zone's current EQ, its own `enabled` kept.
+            if zone_eq is not None:
                 try:
-                    zone_eq = await multiroom_equalizer_service.get_client_eq(existing_member)
-                    applied = await multiroom_equalizer_service.set_client_eq(
+                    applied = await multiroom_equalizer_service.adopt_zone_eq(
                         request.mac_id, zone_eq
                     )
                     refusal = None if applied else "the client refused the push"

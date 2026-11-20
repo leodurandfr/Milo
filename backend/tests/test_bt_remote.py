@@ -25,7 +25,7 @@ import pytest
 from backend.config.constants import BT_REMOTE_ACTIONS
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import BtRemoteConfigChanged, BtRemoteStatusChanged
-from backend.core.settings import SettingsWriteError
+from backend.core.settings import SettingsService, SettingsWriteError
 from backend.hardware import bt_remote as bt_remote_module
 from backend.hardware.playback_dispatch import MULTI_CLICK_WINDOW
 
@@ -80,6 +80,10 @@ class FakeEvdev:
         return self.nodes[path]
 
 
+# What settings.json holds for the remote when nobody configured it.
+DEFAULTS = SettingsService().defaults["hardware"]["bt_remote"]
+
+
 def key_event(code):
     return types.SimpleNamespace(type=FakeEcodes.EV_KEY, code=code, value=1)
 
@@ -95,6 +99,7 @@ class FakeBluez:
         self.connected = []
         self.discovered = []       # seen by a scan, not bonded — the daemon cache
         self.connect_succeeds = True
+        self.remove_succeeds = True
         self._controller = None
 
     def argv_names(self):
@@ -116,7 +121,9 @@ class FakeBluez:
             stdout = "".join(f"Device {a} {n}\n" for a, n in unique).encode()
         if len(argv) > 1 and argv[1] == "connect" and not self.connect_succeeds:
             proc.returncode = 1
-        if len(argv) > 2 and argv[1] == "remove":
+        if len(argv) > 2 and argv[1] == "remove" and not self.remove_succeeds:
+            proc.returncode = 1
+        elif len(argv) > 2 and argv[1] == "remove":
             # `bluetoothctl remove` drops the bond, so the next `devices Paired`
             # no longer lists it — what is_paired() reads back after unpairing.
             self.paired = [row for row in self.paired if row[0] != argv[2]]
@@ -160,11 +167,8 @@ def bt(monkeypatch):
     state_machine.broadcast = AsyncMock(side_effect=broadcasts.append)
 
     settings = MagicMock()
-    settings.get_setting = AsyncMock(return_value={
-        "enabled": True,
-        "device_name_filter": "ANTICATER",
-        "key_map": dict(bt_remote_module.DEFAULT_KEY_MAP),
-    })
+    settings.defaults = SettingsService().defaults
+    settings.get_setting = AsyncMock(return_value={**DEFAULTS, "enabled": True})
     settings.set_setting_strict = AsyncMock()
 
     volume_service = MagicMock()
@@ -521,6 +525,23 @@ async def test_unpairing_a_sleeping_remote_is_announced(bt):
 
 
 @pytest.mark.asyncio
+async def test_a_bond_bluez_kept_fails_the_unpair(bt):
+    """`bluetoothctl remove` refused leaves the bond, and the remote reconnects
+    by itself. Answered "success", the panel hid its Unpair button over it;
+    the route turns this `error` into a 500 that keeps it."""
+    bt.controller.running = True
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+    bt.bluez.remove_succeeds = False
+    bt.broadcasts.clear()
+
+    result = await bt.controller.forget_remote()
+
+    assert result["status"] == "error"
+    assert REMOTE_MAC in result["message"]
+    assert bt.status()[-1].paired is True
+
+
+@pytest.mark.asyncio
 async def test_status_reports_one_entry_per_remote_not_per_node(bt):
     bt.controller.running = True
     bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
@@ -650,7 +671,8 @@ async def test_the_two_volume_actions_turn_the_level_opposite_ways(bt):
     {"KEY_VOLUMEUP": "volume_up"},   # a name where an evdev code belongs
     {"115": "volume_upp"},           # an action nothing dispatches
     {"115": None},
-], ids=["non-numeric-keycode", "unknown-action", "no-action"])
+    {},                              # stored as the default, run as nothing
+], ids=["non-numeric-keycode", "unknown-action", "no-action", "empty"])
 def test_a_key_map_the_controller_cannot_use_is_refused(bad_map):
     """Accepted, these reached `_is_bt_hid_device`, where `int(k)` over the whole
     map raised inside a broad `except` logged at debug — no device matched, no
@@ -666,8 +688,8 @@ def test_a_key_map_the_controller_cannot_use_is_refused(bad_map):
 def test_a_usable_key_map_is_accepted():
     from backend.api.models import BtRemoteConfigRequest
 
-    payload = BtRemoteConfigRequest(key_map=dict(bt_remote_module.DEFAULT_KEY_MAP))
-    assert payload.key_map == bt_remote_module.DEFAULT_KEY_MAP
+    payload = BtRemoteConfigRequest(key_map=dict(DEFAULTS["key_map"]))
+    assert payload.key_map == DEFAULTS["key_map"]
 
 
 # ------------------------------------------- the name filter, the destructive one
@@ -1080,7 +1102,7 @@ class TestWhatBootDecides:
     @pytest.mark.asyncio
     async def test_a_disabled_remote_starts_no_bluetoothd(self, bt):
         """Disabled, the remote has no reason to start bluetoothd."""
-        bt.settings.get_setting = AsyncMock(return_value={"enabled": False})
+        bt.settings.get_setting = AsyncMock(return_value={**DEFAULTS, "enabled": False})
 
         await bt.controller.initialize()
 
@@ -1095,7 +1117,7 @@ class TestWhatBootDecides:
         bt.settings.get_setting = AsyncMock(return_value={
             "enabled": False,
             "device_name_filter": "ANTICATER",
-            "key_map": dict(bt_remote_module.DEFAULT_KEY_MAP),
+            "key_map": dict(DEFAULTS["key_map"]),
         })
         bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
 
@@ -1111,7 +1133,7 @@ class TestWhatBootDecides:
     async def test_the_bond_is_kept_when_the_remote_is_switched_off(self, bt):
         """Only the explicit "unpair" removes it: a toggle that also removed
         the bond would make re-enabling need a full 15 s re-pair."""
-        bt.settings.get_setting = AsyncMock(return_value={"enabled": False})
+        bt.settings.get_setting = AsyncMock(return_value={**DEFAULTS, "enabled": False})
         bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
 
         await bt.controller.initialize()
@@ -1138,58 +1160,64 @@ class TestWhatBootDecides:
 
 
 class TestTheSettingsKeysTheRemoteReadsThrough:
-    """`_load_config_from_settings` was at 0 %. Every value is a
-    `.get(key, default)`, so a renamed key does not fail — it answers the
-    default, and the remote quietly stops being the thing it was configured as.
-    """
+    """`_load_config_from_settings` reads the three keys directly, so what the
+    remote becomes is what the settings validator emits — through the real
+    SettingsService here, over a settings.json in `tmp_path`."""
 
-    async def _load(self, bt, stored):
-        bt.settings.get_setting = AsyncMock(return_value=stored)
+    @pytest.fixture
+    def disk(self, tmp_path):
+        settings = SettingsService()
+        settings.settings_file = str(tmp_path / "settings.json")
+        return settings
+
+    async def _load(self, bt, disk, stored=None):
+        if stored is not None:
+            await disk.save_settings({"hardware": {"bt_remote": stored}})
+        bt.controller.settings_service = disk
         await bt.controller._load_config_from_settings()
-        return bt.settings.get_setting.await_args.args[0]
 
     @pytest.mark.asyncio
-    async def test_the_three_values_come_from_hardware_bt_remote(self, bt):
-        key = await self._load(bt, {
+    async def test_the_three_values_come_from_hardware_bt_remote(self, bt, disk):
+        await self._load(bt, disk, {
             "enabled": True,
             "device_name_filter": "MYREMOTE",
             "key_map": {"200": "click"},
         })
 
-        assert key == "hardware.bt_remote"
         assert bt.controller.enabled is True
         assert bt.controller.device_name_filter == "MYREMOTE"
         assert bt.controller.key_map == {"200": "click"}
 
     @pytest.mark.asyncio
-    async def test_a_unit_that_never_configured_a_remote_keeps_its_defaults(self, bt):
-        """The section is absent from `SettingsService.defaults`, so a fresh
-        unit answers nothing here — and the constructor's values must survive
-        rather than be overwritten with an empty config."""
-        await self._load(bt, None)
+    async def test_a_unit_that_never_configured_a_remote_gets_the_declared_one(
+        self, bt, disk
+    ):
+        """Off — an accessory nobody configured must not start scanning and
+        pairing on its own — with the filter and map `SettingsService.defaults`
+        declares, the one declaration of both."""
+        bt.controller.device_name_filter = "STALE"
+        bt.controller.key_map = {}
+
+        await self._load(bt, disk)
 
         assert bt.controller.enabled is False
-        assert bt.controller.device_name_filter == bt_remote_module.DEFAULT_DEVICE_FILTER
-        assert bt.controller.key_map == bt_remote_module.DEFAULT_KEY_MAP
-
-    @pytest.mark.asyncio
-    async def test_a_remote_with_no_stored_switch_stays_off(self, bt):
-        """The default is False on purpose: an accessory nobody configured must
-        not start scanning and pairing on its own."""
-        await self._load(bt, {"device_name_filter": "MYREMOTE"})
-        assert bt.controller.enabled is False
+        assert bt.controller.device_name_filter == DEFAULTS["device_name_filter"]
+        assert bt.controller.key_map == DEFAULTS["key_map"]
 
     @pytest.mark.parametrize("stored_map", [{}, None, "115:volume_up"])
     @pytest.mark.asyncio
-    async def test_an_unusable_key_map_leaves_the_default_in_place(self, bt, stored_map):
+    async def test_an_unusable_stored_key_map_reaches_the_remote_as_the_declared_one(
+        self, bt, disk, stored_map
+    ):
         """`_is_bt_hid_device` intersects the device's keys with this map, so an
         empty one matches NO device — the remote would connect in BlueZ and
-        never be adopted, with nothing logged above debug. The settings
-        validator lets `key_map: {}` through, which is what makes this reachable.
-        """
-        await self._load(bt, {"enabled": True, "key_map": stored_map})
+        never be adopted, with nothing logged above debug. The validator used
+        to let `{}` through while the controller swapped in a table of its
+        own; settings.json now holds the map the remote runs."""
+        await self._load(bt, disk, {"enabled": True, "key_map": stored_map})
 
-        assert bt.controller.key_map == bt_remote_module.DEFAULT_KEY_MAP
+        assert bt.controller.key_map == DEFAULTS["key_map"]
+        assert (await disk.get_setting("hardware.bt_remote"))["key_map"] == DEFAULTS["key_map"]
 
 
 class TestBatteryOverDbus:
@@ -2145,7 +2173,7 @@ class TestTheRemainingEntryGuards:
     @pytest.mark.asyncio
     async def test_a_key_map_that_is_not_a_map_is_ignored(self, bt, bad):
         await bt.controller.update_config({"key_map": bad})
-        assert bt.controller.key_map == bt_remote_module.DEFAULT_KEY_MAP
+        assert bt.controller.key_map == DEFAULTS["key_map"]
 
     @pytest.mark.asyncio
     async def test_search_on_a_host_without_evdev_says_so(self, bt, monkeypatch):

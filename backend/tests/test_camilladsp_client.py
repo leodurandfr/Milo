@@ -194,13 +194,6 @@ class TestTheTwelveCalls:
 
         assert daemon.sent() == "GetPlaybackSignalPeak"
 
-    async def test_get_capture_peak(self, daemon, client):
-        daemon.answers("GetCaptureSignalPeak", [-30.0, -31.0])
-
-        assert await client.get_capture_peak() == [-30.0, -31.0]
-
-        assert daemon.sent() == "GetCaptureSignalPeak"
-
     @pytest.mark.parametrize(
         "measured, expected",
         [
