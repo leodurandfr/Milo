@@ -154,25 +154,38 @@ def create_routing_router(
         Capabilities are the single source the frontend builds its codec
         options and quality presets from — they are returned even when the
         snapserver itself is unavailable.
+
+        A config is either one the server reported, or absent when the read
+        failed: `status: "error"` with `config: null`. `get_server_config` flattens a failed read to {}
+        (a `Server.GetStatus` that times out on a busy Pi, the socket still
+        open), and answering that as `config: {}` let the settings page fill
+        every field with its defaults and show them as the running values —
+        then PUT them back on the next Apply, over the real snapserver.conf
+        and every satellite's buffer.
         """
         capabilities = {"codecs": SUPPORTED_CODECS, "presets": NETWORK_PRESETS}
+
+        def unavailable(reason: str) -> dict:
+            return {"status": "error", "config": None,
+                    "capabilities": capabilities, "error": reason}
+
         try:
             if not snapcast_service.control_connected:
-                return {"config": None, "capabilities": capabilities,
-                        "error": "Snapcast server not available"}
+                return unavailable("Snapcast server not available")
 
             config = await snapcast_service.get_server_config()
+            if not config:
+                return unavailable("Snapcast server did not report its configuration")
 
-            # Add snapclient_buffer_time from settings — reported as it will be
+            # snapclient_buffer_time from settings — reported as it will be
             # applied (defaulted and clamped), not as it happens to be stored.
-            if config:
-                snapclient_buffer_time, _ = await resolve_snapclient_config(settings_service)
-                config["snapclient_buffer_time"] = snapclient_buffer_time
+            snapclient_buffer_time, _ = await resolve_snapclient_config(settings_service)
+            config["snapclient_buffer_time"] = snapclient_buffer_time
 
-            return {"config": config, "capabilities": capabilities}
+            return {"status": "success", "config": config, "capabilities": capabilities}
         except Exception as e:
             logger.error(f"Error getting server config: {e}")
-            return {"config": None, "capabilities": capabilities, "error": str(e)}
+            return unavailable(str(e))
 
     @router.put("/snapcast/server-config")
     async def update_server_config(payload: SnapcastServerConfigRequest):

@@ -512,7 +512,9 @@
     "stageProbing": "Midiendo los altavoces",
     "stageComputing": "Calculando los ajustes",
     "latency": "Latencia",
-    "loss": "Pérdida"
+    "loss": "Pérdida",
+    "configUnavailable": "No se pudieron leer los ajustes actuales del servidor de audio.",
+    "retry": "Reintentar"
   },
   "analysis": {
     "title": "Ajuste automático",

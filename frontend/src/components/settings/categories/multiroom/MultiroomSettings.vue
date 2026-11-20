@@ -96,26 +96,39 @@
               </SectionHeader>
             </template>
 
-            <RangeSlider :label="t('multiroomSettings.globalBuffer')" v-model="snapcastStore.serverConfig.buffer_ms" :min="150" :max="3000" :step="10"
-              unit="ms" :disabled="busy" />
+            <!-- Drawn only over values the server reported: a form over
+                 placeholders showed them as the running config, and an Apply
+                 wrote them. -->
+            <template v-if="serverConfigReady">
+              <RangeSlider :label="t('multiroomSettings.globalBuffer')" v-model="snapcastStore.serverConfig.buffer_ms" :min="150" :max="3000" :step="10"
+                unit="ms" :disabled="busy" />
 
-            <RangeSlider :label="t('multiroomSettings.chunkSize')" v-model="snapcastStore.serverConfig.chunk_ms" :min="15" :max="50" :step="5" ticks
-              unit="ms" :disabled="busy" />
+              <RangeSlider :label="t('multiroomSettings.chunkSize')" v-model="snapcastStore.serverConfig.chunk_ms" :min="15" :max="50" :step="5" ticks
+                unit="ms" :disabled="busy" />
 
-            <RangeSlider :label="t('multiroomSettings.snapclientBuffer')" v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="60" :max="300" :step="10"
-              unit="ms" :disabled="busy" />
+              <RangeSlider :label="t('multiroomSettings.snapclientBuffer')" v-model="snapcastStore.serverConfig.snapclient_buffer_time" :min="60" :max="300" :step="10"
+                unit="ms" :disabled="busy" />
 
-            <SettingItem :label="t('multiroomSettings.codec')">
-              <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
-                :disabled="busy" mobile-layout="row" @change="selectCodec" />
-            </SettingItem>
+              <SettingItem :label="t('multiroomSettings.codec')">
+                <ButtonGroup :model-value="snapcastStore.serverConfig.codec" :options="codecOptions"
+                  :disabled="busy" mobile-layout="row" @change="selectCodec" />
+              </SettingItem>
+            </template>
+
+            <template v-else-if="snapcastStore.serverConfigStatus === 'unavailable'">
+              <NoticeBox kind="warning">{{ t('multiroomSettings.configUnavailable') }}</NoticeBox>
+              <Button variant="tinted" size="small" class="config-retry" :loading="retryingConfig"
+                :disabled="retryingConfig" @click="retryServerConfig">
+                {{ t('multiroomSettings.retry') }}
+              </Button>
+            </template>
 
           </SectionCard>
 
           <!-- The result of a run is the sliders above moving. The only thing
                they cannot say is which speaker held the house back, so that is
                what the results show. -->
-          <AnalysisSection :title="t('analysis.title')" :running="calibration.running" :disabled="busy"
+          <AnalysisSection :title="t('analysis.title')" :running="calibration.running" :disabled="busy || !serverConfigReady"
             :percent="progressPercent" :step-ms="PROGRESS_TICK_MS" :label="stageLabel"
             :hint="t('multiroomSettings.remaining', { time: formatUnit(remainingSeconds, 's') })"
             :error="analysisError" :note="analysisNote" :has-results="measuredLinks.length > 0" @start="startAnalysis">
@@ -333,6 +346,19 @@ const calibration = computed(() => snapcastStore.calibration);
 const busy = computed(() =>
   snapcastStore.isApplyingServerConfig || calibration.value.running
 );
+const serverConfigReady = computed(() => snapcastStore.serverConfigStatus === 'ready');
+
+// The status stays 'unavailable' while a retry is in flight, so a retry that
+// fails again would leave the card exactly as it was: the button says it ran.
+const retryingConfig = ref(false);
+async function retryServerConfig() {
+  retryingConfig.value = true;
+  try {
+    await snapcastStore.loadServerConfig();
+  } finally {
+    retryingConfig.value = false;
+  }
+}
 
 // The factory configuration, as the backend declares it — never restated here,
 // so "reset" restores what a freshly flashed unit actually runs.
@@ -344,7 +370,7 @@ const defaultPreset = computed(() =>
 // already at its factory values is a control that does nothing.
 const canReset = computed(() => {
   const config = defaultPreset.value?.config;
-  return Boolean(config) &&
+  return serverConfigReady.value && Boolean(config) &&
     Object.keys(config).some(key => snapcastStore.serverConfig[key] !== config[key]);
 });
 
@@ -385,7 +411,7 @@ const measuredLinks = computed(() =>
 // is what makes the sliders and the applied config the same question.
 const showsMeasuredValues = computed(() => {
   const config = calibration.value.result?.config;
-  return Boolean(config) && !snapcastStore.hasServerConfigChanges &&
+  return Boolean(config) && serverConfigReady.value && !snapcastStore.hasServerConfigChanges &&
     Object.keys(config).every(key => snapcastStore.serverConfig[key] === config[key]);
 });
 
@@ -537,6 +563,11 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
   margin-top: var(--space-03);
   margin-bottom: var(--space-01);
+}
+
+/* Retry under the notice of a config the server did not report */
+.config-retry {
+  align-self: flex-start;
 }
 
 /* Automatic analysis */

@@ -133,10 +133,13 @@
       </div>
     </div>
 
-    <!-- EXPANDED CLIENT LIST - Height wrapper for single-step ResizeObserver update -->
+    <!-- EXPANDED CLIENT LIST - height wrapper: px while it animates, then
+         auto (see toggleExpand) -->
     <div
+      ref="expandedWrapperRef"
       class="expanded-wrapper"
-      :style="{ height: expandedWrapperHeight }"
+      @transitionend.self="onWrapperTransitionEnd"
+      @transitioncancel.self="onWrapperTransitionCancel"
     >
       <!-- Content always rendered when data exists (for measurement), visibility controlled by CSS -->
       <div
@@ -263,8 +266,9 @@ const clientLocalVolumes = ref({});
 
 // Ref for measuring expanded content height
 const expandedContentRef = ref(null);
-// Explicit height for the wrapper — px both ways, since a spring needs two numbers.
-const expandedWrapperHeight = ref('0px');
+// The wrapper's height is written here, not bound: px while it animates, since
+// a spring needs two numbers, and `auto` once it has landed open.
+const expandedWrapperRef = ref(null);
 
 // A released value waits for the server to confirm it — unless a gesture that
 // moves it came after: a zone move shifts every client, a client move shifts
@@ -393,7 +397,8 @@ const COLLAPSE_TRANSITION = 'height var(--transition-medium)';
 const COLLAPSE_FOLLOW_MS = 450;
 
 function toggleExpand() {
-  if (!canExpand.value || !expandedContentRef.value) return;
+  const wrapper = expandedWrapperRef.value;
+  if (!canExpand.value || !expandedContentRef.value || !wrapper) return;
 
   // Measure BEFORE mutating: the rows sit at their natural height either way (the
   // wrapper clips them, it doesn't compress them). The delta is the rows height and
@@ -402,12 +407,36 @@ function toggleExpand() {
   const fullHeight = expandedContentRef.value.offsetHeight;
   const opening = !isExpanded.value;
 
+  // Settled open, the height is `auto`, which no transition starts from: pin what
+  // is on screen (mid-animation included) and commit it before the new target.
+  wrapper.style.height = `${wrapper.offsetHeight}px`;
+  wrapper.getBoundingClientRect();
+
   springHeightDelta?.(
     opening ? fullHeight : -fullHeight,
     opening ? {} : { transition: COLLAPSE_TRANSITION, durationMs: COLLAPSE_FOLLOW_MS }
   );
   isExpanded.value = opening;
-  expandedWrapperHeight.value = opening ? `${fullHeight}px` : '0px';
+  wrapper.style.height = opening ? `${fullHeight}px` : '0px';
+}
+
+// Landed open, the height goes back to CSS (auto), as Collapse.vue does: a px
+// height kept from the click cut the last member rows when they grew later — a
+// phone turned across MOBILE_QUERY puts each row on two lines — and hid a
+// member added from another screen until the zone was folded and unfolded.
+function onWrapperTransitionEnd(event) {
+  if (event.propertyName === 'height' && isExpanded.value) {
+    expandedWrapperRef.value.style.height = 'auto';
+  }
+}
+
+// A reversal cancels too, and keeps its new target; only a transition cut by the
+// item leaving the screen would otherwise leave the px height for good.
+function onWrapperTransitionCancel(event) {
+  const wrapper = expandedWrapperRef.value;
+  if (event.propertyName === 'height' && isExpanded.value && !wrapper.checkVisibility()) {
+    wrapper.style.height = 'auto';
+  }
 }
 
 // Released on `drag-end`, which every gesture ends with: `change` is emitted

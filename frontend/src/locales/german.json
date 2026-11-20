@@ -512,7 +512,9 @@
     "stageProbing": "Lautsprecher werden gemessen",
     "stageComputing": "Einstellungen werden berechnet",
     "latency": "Latenz",
-    "loss": "Verlust"
+    "loss": "Verlust",
+    "configUnavailable": "Die aktuellen Einstellungen des Audioservers konnten nicht gelesen werden.",
+    "retry": "Erneut versuchen"
   },
   "analysis": {
     "title": "Automatische Einstellung",

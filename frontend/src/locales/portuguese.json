@@ -512,7 +512,9 @@
     "stageProbing": "A medir as colunas",
     "stageComputing": "A calcular as definições",
     "latency": "Latência",
-    "loss": "Perda"
+    "loss": "Perda",
+    "configUnavailable": "Não foi possível ler as definições atuais do servidor de áudio.",
+    "retry": "Tentar novamente"
   },
   "analysis": {
     "title": "Definição automática",

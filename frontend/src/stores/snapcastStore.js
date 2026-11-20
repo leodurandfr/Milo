@@ -41,10 +41,11 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   let serverConfigAbortController = null;
   const isLoading = computed(() => !registryStore.isInitialized);
 
-  // Placeholder shape only — template v-models need an object before the
+  // Placeholder shape only — a buffer to stage into needs an object before the
   // first fetch; real values come from GET /server-config (backend is the
   // single source for config, codec list, and presets). Keys must match what
-  // fetchServerConfig() returns, or a slider binds undefined until it lands.
+  // fetchServerConfig() returns. Never shown and never sent: the form is drawn
+  // and the write allowed only once `serverConfigStatus` is 'ready'.
   const PLACEHOLDER_SERVER_CONFIG = {
     buffer_ms: 1000,
     codec: 'flac',
@@ -55,6 +56,17 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   const serverConfig = ref({ ...PLACEHOLDER_SERVER_CONFIG });
   const originalServerConfig = ref({ ...PLACEHOLDER_SERVER_CONFIG });
   const isApplyingServerConfig = ref(false);
+  // What the last read said: 'loading' before the first answer, 'ready' when
+  // the server reported its config, 'unavailable' when it did not. A config
+  // nobody read is not one to show or to send: the placeholder above, and every
+  // value a schema default would fill in, are 1000/20/flac/80 whatever the
+  // unit runs — and an Apply over them wrote those invented values into
+  // snapserver.conf and every satellite's buffer.
+  const serverConfigStatus = ref('loading');
+  // Whether `originalServerConfig` holds a server answer at all. A read that
+  // fails after one did keeps a staged change; one that never succeeded has
+  // nothing a staged change could have been made against.
+  let serverConfigRead = false;
   // The last write, kept so a discard landing mid-flight can wait for its
   // outcome rather than pull the buffer out from under the request. Settled,
   // awaiting it costs one microtask.
@@ -77,7 +89,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   });
 
   // === COMPUTED ===
-  const hasServerConfigChanges = computed(() => {
+  const differsFromApplied = computed(() => {
     // Key by key, not JSON.stringify: that compares insertion order too. The
     // placeholder lists its keys in one order and the API answers in another,
     // so a buffer identical in every field read as a pending change and lit
@@ -87,6 +99,12 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     const keys = new Set([...Object.keys(edited), ...Object.keys(applied)]);
     return [...keys].some((key) => edited[key] !== applied[key]);
   });
+
+  // A change is something to apply only against a config the server reported:
+  // unavailable, the fields the buffer does not stage are not the server's.
+  const hasServerConfigChanges = computed(() =>
+    serverConfigStatus.value === 'ready' && differsFromApplied.value
+  );
 
   // === API CALLS ===
 
@@ -104,7 +122,9 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       capabilities.value = caps.data;
     }
 
-    if (!result.data?.config) return null;
+    // `status` is the one signal: the server answers `config: null` with
+    // `status: "error"` whenever it has no config to report.
+    if (result.data?.status !== 'success' || !result.data.config) return null;
 
     const parsed = validateSchema(SnapcastServerConfigSchema, result.data.config, 'snapcast.server-config');
     if (!parsed.success) return null;
@@ -134,20 +154,35 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
     await apiCall('store', 'Error loading server config', async () => {
       const config = await fetchServerConfig(signal);
-      if (!config) return;
+      // Superseded by a newer read, which owns the status.
+      if (signal.aborted) return;
+      if (!config) {
+        // Not while a write is in flight: it was allowed over a config the
+        // server reported, and its PUT restarts snapserver — exactly when a
+        // read fails. Flipped here, the change being written read as nothing
+        // to apply (the lyrics offset adopted the unsent buffer on a refused
+        // PUT) and the sticky Apply vanished under its own request.
+        if (!isApplyingServerConfig.value) serverConfigStatus.value = 'unavailable';
+        return;
+      }
 
       // The applied reference always refreshes; the edit buffer only when the
       // user has nothing staged. This reload runs whenever the multiroom panel
       // refetches — which includes right after an apply, because snapserver
       // restarts — and overwriting unconditionally made a staged proposal, and
       // its Apply button, vanish on their own.
-      const pending = hasServerConfigChanges.value;
+      const pending = serverConfigRead && differsFromApplied.value;
       originalServerConfig.value = { ...config };
       if (!pending) {
         serverConfig.value = config;
       }
+      serverConfigRead = true;
+      serverConfigStatus.value = 'ready';
     });
-    serverConfigAbortController = null;
+    // Only our own: a read that started after this one holds the controller now.
+    if (serverConfigAbortController?.signal === signal) {
+      serverConfigAbortController = null;
+    }
   }
 
   /**
@@ -209,7 +244,11 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     isApplyingServerConfig.value = false;
 
     if (result.ok) {
+      // What the server took is now what it runs: a read that failed while
+      // snapserver restarted no longer stands for it.
       originalServerConfig.value = { ...serverConfig.value };
+      serverConfigRead = true;
+      serverConfigStatus.value = 'ready';
       logger.info('store', 'Multiroom server config applied successfully');
       return true;
     }
@@ -224,6 +263,11 @@ export const useSnapcastStore = defineStore('snapcast', () => {
    */
   async function startCalibration(quality = 'lossless') {
     if (calibration.value.running) return false;
+    // Its proposal is staged over the buffer the server reported. Started over
+    // a config nobody read, it landed in the placeholder, offered no Apply, and
+    // the first read that succeeded replaced it — measured cards on screen,
+    // nothing staged, no word of why.
+    if (serverConfigStatus.value !== 'ready') return false;
 
     calibration.value = {
       running: true, stage: 'probing', result: null, error: null,
@@ -335,6 +379,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     clients,
     isLoading,
     serverConfig,
+    serverConfigStatus,
     capabilities,
     calibration,
     isApplyingServerConfig,

@@ -207,7 +207,7 @@ import NetworkSettings from '@/components/settings/categories/NetworkSettings.vu
 import { preloadNetworkStatus } from '@/composables/useNetwork';
 import { preloadHardwareConfig, useHardwareConfig } from '@/composables/useHardwareConfig';
 
-const { screenType, hardwareConfig } = useHardwareConfig();
+const { hardwareConfig } = useHardwareConfig();
 const props = defineProps({
   initialView: {
     type: String,
@@ -309,8 +309,10 @@ const HOME_SECTIONS = [
     rows: [
       { view: 'languages', titleKey: 'settings.languageRegion', icon: 'languages' },
       { view: 'apps', titleKey: 'settings.dock', icon: 'dock' },
-      { view: 'screen', titleKey: 'settings.screen', icon: 'display',
-        visible: () => screenType.value !== 'none' },
+      // Offered on every unit: the theme it carries is every browser's, a
+      // phone driving a unit with no screen included. Only its kiosk settings
+      // are gated, inside the view.
+      { view: 'screen', titleKey: 'settings.screen', icon: 'display' },
     ],
   },
   {

@@ -123,6 +123,10 @@ export const VolumeStateSchema = z.object({
 // Backend: backend/core/multiroom/snapcast.py::get_server_config + route adds
 // snapclient_buffer_time (defaults to 80 from settings). Flat, and the same
 // shape PUT /server-config consumes — read and write agree on one body.
+// Parsed only under `status: "success"`, whose config is whole: the server
+// answers a config it could not read as `config: null` (snapcastStore's
+// 'unavailable'), never as an object these defaults would fill in and the
+// form would then write back.
 export const SnapcastServerConfigSchema = z.object({
   buffer_ms: z.number().int().catch(1000),
   chunk_ms: z.number().int().catch(20),

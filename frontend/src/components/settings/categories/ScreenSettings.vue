@@ -12,81 +12,85 @@
       </SettingItem>
     </SectionCard>
 
-    <!-- Brightness -->
-    <SectionCard :title="t('screenSettings.brightness')">
-      <RangeSlider :label="t('screenSettings.brightnessIntensity')" v-model="config.brightness_on" :min="1" :max="10" :step="1" ticks
-        @input="handleBrightnessChange" @change="saveBrightness" />
-    </SectionCard>
+    <!-- Everything below is the unit's own panel and the kiosk drawn on it, so
+         a unit with no screen offers the theme alone -->
+    <template v-if="hasScreen">
+      <!-- Brightness -->
+      <SectionCard :title="t('screenSettings.brightness')">
+        <RangeSlider :label="t('screenSettings.brightnessIntensity')" v-model="config.brightness_on" :min="1" :max="10" :step="1" ticks
+          @input="handleBrightnessChange" @change="saveBrightness" />
+      </SectionCard>
 
-    <!-- UI Scale: the kiosk's device scale factor, applied by a kiosk restart -->
-    <SectionCard :title="t('screenSettings.uiScale')">
-      <SettingItem :label="t('screenSettings.uiScaleLevel')">
-        <ButtonGroup
-          :model-value="config.ui_scale"
-          :options="uiScalePresets"
-          mobile-layout="grid-3"
-          @change="setUiScale"
+      <!-- UI Scale: the kiosk's device scale factor, applied by a kiosk restart -->
+      <SectionCard :title="t('screenSettings.uiScale')">
+        <SettingItem :label="t('screenSettings.uiScaleLevel')">
+          <ButtonGroup
+            :model-value="config.ui_scale"
+            :options="uiScalePresets"
+            mobile-layout="grid-3"
+            @change="setUiScale"
+          />
+        </SettingItem>
+      </SectionCard>
+
+      <!-- The strip of the panel the enclosure hides: applied live, on the kiosk
+           only, and offered only for a panel whose pitch is known -->
+      <SectionCard v-if="hasPanelPitch" :title="t('screenSettings.edgeInset')">
+        <RangeSlider :label="t('screenSettings.edgeInsetWidth')"
+          v-model="config.edge_inset_mm"
+          :min="0"
+          :max="3"
+          :step="0.25"
+          unit="mm"
+          @input="previewEdgeInset"
+          @change="saveEdgeInset"
         />
-      </SettingItem>
-    </SectionCard>
+      </SectionCard>
 
-    <!-- The strip of the panel the enclosure hides: applied live, on the kiosk
-         only, and offered only for a panel whose pitch is known -->
-    <SectionCard v-if="hasPanelPitch" :title="t('screenSettings.edgeInset')">
-      <RangeSlider :label="t('screenSettings.edgeInsetWidth')"
-        v-model="config.edge_inset_mm"
-        :min="0"
-        :max="3"
-        :step="0.25"
-        unit="mm"
-        @input="previewEdgeInset"
-        @change="saveEdgeInset"
-      />
-    </SectionCard>
+      <!-- Warm color filter (Night Shift-like) -->
+      <ToggleSection
+        :title="t('screenSettings.colorFilter')"
+        :enabled="config.color_filter_enabled"
+        @change="handleColorFilterToggle"
+      >
+        <RangeSlider :label="t('screenSettings.colorFilterWarmth')"
+          v-model="config.color_filter_warmth"
+          :min="0"
+          :max="100"
+          :step="1"
+          unit="%"
+          @input="previewColorFilterWarmth"
+          @change="saveColorFilterWarmth"
+        />
+      </ToggleSection>
 
-    <!-- Warm color filter (Night Shift-like) -->
-    <ToggleSection
-      :title="t('screenSettings.colorFilter')"
-      :enabled="config.color_filter_enabled"
-      @change="handleColorFilterToggle"
-    >
-      <RangeSlider :label="t('screenSettings.colorFilterWarmth')"
-        v-model="config.color_filter_warmth"
-        :min="0"
-        :max="100"
-        :step="1"
-        unit="%"
-        @input="previewColorFilterWarmth"
-        @change="saveColorFilterWarmth"
-      />
-    </ToggleSection>
+      <!-- Automatic full-screen player -->
+      <ToggleSection
+        :title="t('screenSettings.autoPlayer')"
+        :enabled="config.auto_player_enabled"
+        @change="handleAutoPlayerToggle"
+      >
+        <RangeSlider :label="t('screenSettings.autoPlayerDelay')"
+          :model-value="config.auto_player_delay_seconds"
+          :steps="delaySteps"
+          @change="setAutoPlayerDelay"
+        />
+      </ToggleSection>
 
-    <!-- Automatic full-screen player -->
-    <ToggleSection
-      :title="t('screenSettings.autoPlayer')"
-      :enabled="config.auto_player_enabled"
-      @change="handleAutoPlayerToggle"
-    >
-      <RangeSlider :label="t('screenSettings.autoPlayerDelay')"
-        :model-value="config.auto_player_delay_seconds"
-        :steps="delaySteps"
-        @change="setAutoPlayerDelay"
-      />
-    </ToggleSection>
-
-    <!-- Auto sleep -->
-    <ToggleSection
-      :title="t('screenSettings.autoSleep')"
-      :enabled="config.timeout_enabled"
-      @change="handleAutoSleepToggle"
-    >
-      <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
-      <RangeSlider :label="t('screenSettings.sleepDelay')"
-        :model-value="config.timeout_enabled ? config.timeout_seconds : lastNonZeroTimeout"
-        :steps="delaySteps"
-        @change="setScreenTimeout"
-      />
-    </ToggleSection>
+      <!-- Auto sleep -->
+      <ToggleSection
+        :title="t('screenSettings.autoSleep')"
+        :enabled="config.timeout_enabled"
+        @change="handleAutoSleepToggle"
+      >
+        <!-- Off is stored as 0; the section collapses on the last delay, not the first stop -->
+        <RangeSlider :label="t('screenSettings.sleepDelay')"
+          :model-value="config.timeout_enabled ? config.timeout_seconds : lastNonZeroTimeout"
+          :steps="delaySteps"
+          @change="setScreenTimeout"
+        />
+      </ToggleSection>
+    </template>
 
     <SettingsRefusal :detail="refusal" />
   </SectionStack>
@@ -123,9 +127,10 @@ const { updateSetting, refusal } = useSettingsAPI({
 });
 const timer = useTimer();
 const settingsStore = useSettingsStore();
-const { hardwareInfo } = useHardwareConfig();
+const { hardwareInfo, screenType } = useHardwareConfig();
 const DEFAULT_DELAY = 30;
 
+const hasScreen = computed(() => screenType.value !== 'none');
 const hasPanelPitch = computed(() => !!hardwareInfo.value?.screen_pixels_per_mm);
 
 // Local refs for instant responsiveness

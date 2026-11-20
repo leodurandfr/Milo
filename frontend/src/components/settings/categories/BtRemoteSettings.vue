@@ -9,8 +9,9 @@
       :details="t('btRemoteSettings.disabledDetails')"
     />
 
-    <!-- Enabled: status card. Red dot + "Search" while disconnected, green dot +
-         "Unpair" once connected. Volume step stays editable in both states. -->
+    <!-- Enabled: status card. Red dot + "Search" while disconnected, green dot
+         once connected; "Unpair" as long as a remote is bonded, asleep or not.
+         Volume step stays editable in both states. -->
     <RemoteStatusSection
       v-else
       v-model="stepBtRemoteDb"
@@ -20,7 +21,7 @@
       :cta-disabled="settingsStore.btRemote.discovering"
       :cta-click="handleBtRemoteDiscover"
       :step-label="t('btRemoteSettings.step')"
-      :show-unpair="btRemoteConnected"
+      :show-unpair="btRemotePaired"
       :unpair-label="t('btRemoteSettings.unpair')"
       :unpair-loading="unpairing"
       :unpair-click="handleUnpair"
@@ -61,6 +62,14 @@ const unpairing = ref(false);
 // Only consider "connected" when not actively discovering (avoids stale state flash)
 const btRemoteConnected = computed(() =>
   settingsStore.btRemote.connected && !settingsStore.btRemote.discovering
+);
+
+// The bond, not the link: a BLE remote drops its link within seconds of the
+// last press to save its battery, so an Unpair offered only while connected was
+// out of reach for a remote that is lost, asleep or out of batteries — the one
+// that most needs forgetting, and the one every Search pages first.
+const btRemotePaired = computed(() =>
+  settingsStore.btRemote.paired && !settingsStore.btRemote.discovering
 );
 
 // Scan/reconnect CTA while disconnected; once connected only unpair remains.

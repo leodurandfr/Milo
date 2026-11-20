@@ -512,7 +512,9 @@
     "stageProbing": "Misurazione dei diffusori",
     "stageComputing": "Calcolo delle impostazioni",
     "latency": "Latenza",
-    "loss": "Perdita"
+    "loss": "Perdita",
+    "configUnavailable": "Non è stato possibile leggere le impostazioni attuali del server audio.",
+    "retry": "Riprova"
   },
   "analysis": {
     "title": "Impostazione automatica",

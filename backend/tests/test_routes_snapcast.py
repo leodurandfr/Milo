@@ -138,12 +138,36 @@ class TestSnapcastRoutes:
         assert ({p["id"] for p in body["capabilities"]["presets"]}
                 == {p["id"] for p in NETWORK_PRESETS})
 
+    def test_a_config_snapserver_did_not_report_is_unavailable(self, client):
+        """`get_server_config` flattens a `Server.GetStatus` that timed out with
+        the socket still open to {}. Served as `config: {}`, the settings page
+        read it as a real config, filled every field with its defaults and sent
+        them back on the next Apply — over snapserver.conf and every
+        satellite's buffer. Empty is unavailable: no config, an error status."""
+        client._mock_snapcast.get_server_config = AsyncMock(return_value={})
+
+        body = client.get("/api/routing/snapcast/server-config").json()
+
+        assert body["status"] == "error"
+        assert body["config"] is None
+        assert body["error"]
+        assert body["capabilities"]["codecs"]
+
+    def test_a_reported_config_is_a_success(self, client):
+        """The page tells a real config from an unavailable one by `status`
+        alone, so the success arm must say it."""
+        body = client.get("/api/routing/snapcast/server-config").json()
+
+        assert body["status"] == "success"
+        assert body["config"]
+
     def test_get_server_config_unavailable(self, client):
         """Test GET /api/routing/snapcast/server-config when unavailable"""
         client._mock_snapcast.control_connected = False
         response = client.get("/api/routing/snapcast/server-config")
         assert response.status_code == 200
         assert response.json()["config"] is None
+        assert response.json()["status"] == "error"
         assert "error" in response.json()
         # Static capabilities are served even when snapserver is down
         assert response.json()["capabilities"]["codecs"]

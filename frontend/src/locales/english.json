@@ -512,7 +512,9 @@
     "stageProbing": "Measuring the speakers",
     "stageComputing": "Computing the settings",
     "latency": "Latency",
-    "loss": "Loss"
+    "loss": "Loss",
+    "configUnavailable": "The audio server's current settings could not be read.",
+    "retry": "Retry"
   },
   "analysis": {
     "title": "Automatic setting",

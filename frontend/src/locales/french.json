@@ -512,7 +512,9 @@
     "stageProbing": "Mesure des enceintes",
     "stageComputing": "Calcul des réglages",
     "latency": "Latence",
-    "loss": "Perte"
+    "loss": "Perte",
+    "configUnavailable": "Les réglages actuels du serveur audio n'ont pas pu être lus.",
+    "retry": "Réessayer"
   },
   "analysis": {
     "title": "Réglage automatique",

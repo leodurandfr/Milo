@@ -26,9 +26,18 @@ import { makeAudioState, makeSession, publishState } from '../helpers/audioState
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
 const serverConfig = (bufferMs) => ok({
+  status: 'success',
   config: { buffer_ms: bufferMs, codec: 'flac', chunk_ms: 40, sampleformat: '48000:32:2' },
   capabilities: { codecs: ['flac'], presets: [] },
 });
+
+// The multiroom page reads the server's config before its form can apply one.
+async function openSettingsPage(bufferMs) {
+  const snapcast = useSnapcastStore();
+  apiCall.get.mockResolvedValueOnce(serverConfig(bufferMs));
+  await snapcast.loadServerConfig();
+  return snapcast;
+}
 
 describe('lyricsStore — sync offset', () => {
   let store;
@@ -93,7 +102,7 @@ describe('lyricsStore — sync offset', () => {
     // (open x multiroom) edge fires and nothing would re-read. Re-reading is
     // also the wrong move here — the PUT restarts snapserver, so the GET would
     // answer config: null. The real snapcast store is driven, not stubbed.
-    const snapcast = useSnapcastStore();
+    const snapcast = await openSettingsPage(180);
     snapcast.serverConfig.buffer_ms = 1500;
     apiCall.get.mockClear();
     apiCall.put.mockResolvedValueOnce(ok({ status: 'success' }));
@@ -112,7 +121,7 @@ describe('lyricsStore — sync offset', () => {
     // but … did not restart"). So a failure says nothing about which buffer is
     // live, and the edit buffer must never be adopted on this path — the
     // backend is asked, and here it reports the value step 4 did take.
-    const snapcast = useSnapcastStore();
+    const snapcast = await openSettingsPage(180);
     snapcast.serverConfig.buffer_ms = 1500;
     apiCall.put.mockResolvedValueOnce(fail('Configuration saved but snapclient did not restart', 502));
     apiCall.get.mockResolvedValueOnce(serverConfig(1500));
@@ -127,7 +136,7 @@ describe('lyricsStore — sync offset', () => {
 
     // Same 502, other cause: the config was rejected before step 4, so the
     // server still runs the old buffer and says so.
-    const snapcast = useSnapcastStore();
+    const snapcast = await openSettingsPage(180);
     snapcast.serverConfig.buffer_ms = 1500;
     apiCall.put.mockResolvedValueOnce(fail('Snapserver config update failed', 502));
     apiCall.get.mockResolvedValueOnce(serverConfig(180));
@@ -135,6 +144,33 @@ describe('lyricsStore — sync offset', () => {
     await nextTick();
 
     expect(store.syncOffsetMs).toBe(-180);
+  });
+
+  it('keeps the last buffer when a read fails while the refused apply is in flight', async () => {
+    apiCall.get.mockResolvedValueOnce(serverConfig(180));
+    await store.loadSyncOffset();
+
+    // The panel reloads mid-apply while snapserver restarts, so that read
+    // answers no config. It says nothing about the write: when the PUT is then
+    // refused, the server still runs 180 and the backend is asked, never the
+    // unsent buffer adopted.
+    const snapcast = await openSettingsPage(180);
+    snapcast.serverConfig.buffer_ms = 1500;
+    let finishPut;
+    apiCall.put.mockReturnValueOnce(new Promise((resolve) => { finishPut = resolve; }));
+    const applying = snapcast.applyServerConfig();
+
+    apiCall.get.mockResolvedValueOnce(ok({ status: 'error', config: null, capabilities: { codecs: [], presets: [] } }));
+    await snapcast.loadServerConfig();
+    expect(snapcast.hasServerConfigChanges).toBe(true);
+
+    apiCall.get.mockResolvedValueOnce(serverConfig(180));
+    finishPut(fail('Snapserver config update failed', 502));
+    await applying;
+    await nextTick();
+
+    expect(store.syncOffsetMs).toBe(-180);
+    await vi.waitFor(() => expect(apiCall.get).toHaveBeenCalledTimes(4));
   });
 
   it('keeps the last known buffer when the read fails', async () => {

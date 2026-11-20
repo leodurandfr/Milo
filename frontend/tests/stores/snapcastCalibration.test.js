@@ -28,6 +28,16 @@ function event(type, data) {
   return { category: 'routing', type, data };
 }
 
+// An analysis starts only over a config the server reported.
+async function loadReadyConfig(store) {
+  apiCall.get.mockResolvedValueOnce(ok({
+    status: 'success',
+    config: { buffer_ms: 300, codec: 'flac', chunk_ms: 40, snapclient_buffer_time: 80 },
+    capabilities: { codecs: [], presets: [] },
+  }));
+  await store.loadServerConfig();
+}
+
 describe('snapcastStore — automatic analysis', () => {
   let store;
 
@@ -59,6 +69,7 @@ describe('snapcastStore — automatic analysis', () => {
   });
 
   it('refuses to start a second run while one is measuring', async () => {
+    await loadReadyConfig(store);
     apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
     await store.startCalibration();
     store.handleCalibrationEvent(event('calibration_progress', { stage: 'probing' }));
@@ -70,6 +81,7 @@ describe('snapcastStore — automatic analysis', () => {
   });
 
   it('clears the running flag when the request itself is refused', async () => {
+    await loadReadyConfig(store);
     apiCall.post.mockResolvedValueOnce(fail('conflict', 409));
 
     const started = await store.startCalibration();
@@ -145,11 +157,17 @@ describe('snapcastStore — analysis state across a refocus', () => {
     expect(store.calibration.result).toEqual(PROPOSAL);
   });
 
-  it('staging a proposal is what makes the apply button appear', () => {
+  it('staging a proposal is what makes the apply button appear', async () => {
     // The panel shows one button whose label is the answer: a run that changes
     // nothing leaves "Analyse" in place, and a run that proposes something
     // turns it into "Apply". `hasServerConfigChanges` is that switch, so
     // staging has to flip it and writing nothing must not.
+    apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success',
+      config: { buffer_ms: 300, codec: 'flac', chunk_ms: 40, snapclient_buffer_time: 80 },
+      capabilities: { codecs: [], presets: [] },
+    }));
+    await store.loadServerConfig();
     expect(store.hasServerConfigChanges).toBe(false);
 
     store.applyPreset({ config: { buffer_ms: 1234 } });
@@ -173,11 +191,15 @@ describe('snapcastStore — a staged change survives a reload', () => {
     // which includes right after an apply because snapserver restarts.
     // Overwriting the edit buffer there made a staged proposal — and the Apply
     // button with it — disappear on its own, with nothing written.
-    store.applyPreset({ config: { buffer_ms: 180, codec: 'pcm' } });
-    apiCall.get.mockResolvedValueOnce(ok({
+    const applied = ok({
+      status: 'success',
       config: { buffer_ms: 300, codec: 'flac', chunk_ms: 40, snapclient_buffer_time: 80 },
       capabilities: { codecs: [], presets: [] },
-    }));
+    });
+    apiCall.get.mockResolvedValueOnce(applied);
+    await store.loadServerConfig();
+    store.applyPreset({ config: { buffer_ms: 180, codec: 'pcm' } });
+    apiCall.get.mockResolvedValueOnce(applied);
 
     await store.loadServerConfig();
 
@@ -187,6 +209,7 @@ describe('snapcastStore — a staged change survives a reload', () => {
 
   it('takes the server values when nothing is staged', async () => {
     apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success',
       config: { buffer_ms: 300, codec: 'flac', chunk_ms: 40, snapclient_buffer_time: 80 },
       capabilities: { codecs: [], presets: [] },
     }));
@@ -209,6 +232,7 @@ describe('snapcastStore — leaving the panel drops what was never applied', () 
 
   async function loadApplied() {
     apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success',
       config: { buffer_ms: 300, codec: 'flac', chunk_ms: 40, snapclient_buffer_time: 80 },
       capabilities: { codecs: [], presets: [] },
     }));
@@ -269,6 +293,7 @@ describe('snapcastStore — leaving the panel drops what was never applied', () 
     // values" line reads — forgetting it there would delete the one thing that
     // says where those numbers came from.
     apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success',
       config: { ...PROPOSAL.config, sampleformat: '48000:32:2' },
       capabilities: { codecs: [], presets: [] },
     }));
@@ -326,6 +351,7 @@ describe('snapcastStore — the apply button only means a real change', () => {
     // another. Compared with JSON.stringify, a configuration identical in
     // every field read as a pending change and lit Apply over nothing.
     apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success',
       config: { chunk_ms: 20, snapclient_buffer_time: 60, codec: 'pcm',
                 sampleformat: '48000:32:2', buffer_ms: 180 },
       capabilities: { codecs: [], presets: [] },
@@ -340,6 +366,7 @@ describe('snapcastStore — the apply button only means a real change', () => {
 
   it('still sees a change when one field really differs', async () => {
     apiCall.get.mockResolvedValueOnce(ok({
+      status: 'success',
       config: { buffer_ms: 180, chunk_ms: 20, codec: 'pcm',
                 sampleformat: '48000:32:2', snapclient_buffer_time: 60 },
       capabilities: { codecs: [], presets: [] },
@@ -358,3 +385,118 @@ describe('snapcastStore — the apply button only means a real change', () => {
   });
 });
 
+
+describe('snapcastStore — a config the server did not report is never written', () => {
+  // The server answers `config: null` with `status: "error"` when snapserver is
+  // down or its Server.GetStatus timed out on a busy Pi. Read as a config, the
+  // form showed 1000/20/flac/80 as the running values and an Apply sent them —
+  // over snapserver.conf and every satellite's buffer.
+  let store;
+
+  const UNAVAILABLE = ok({
+    status: 'error',
+    config: null,
+    capabilities: { codecs: ['flac'], presets: [] },
+    error: 'Snapcast server did not report its configuration',
+  });
+  const APPLIED = ok({
+    status: 'success',
+    config: { buffer_ms: 300, codec: 'flac', chunk_ms: 40,
+              sampleformat: '48000:32:2', snapclient_buffer_time: 120 },
+    capabilities: { codecs: ['flac'], presets: [] },
+  });
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    resetApiCallMock();
+    store = useSnapcastStore();
+  });
+
+  it.each([
+    ['an error answer', UNAVAILABLE],
+    // The shape the route used to answer a timed-out read with: no status, an
+    // empty config every schema default would have filled in.
+    ['an empty config with no status', ok({ config: {}, capabilities: { codecs: [], presets: [] } })],
+    ['a failed request', fail('backend unreachable', 502)],
+  ])('reads %s as unavailable and sends nothing', async (_, answer) => {
+    apiCall.get.mockResolvedValueOnce(answer);
+
+    await store.loadServerConfig();
+    store.applyPreset({ config: { buffer_ms: 180, codec: 'pcm', chunk_ms: 20 } });
+    const sent = await store.applyServerConfig();
+
+    expect(store.serverConfigStatus).toBe('unavailable');
+    expect(store.hasServerConfigChanges).toBe(false);
+    expect(sent).toBe(false);
+    expect(apiCall.put).not.toHaveBeenCalled();
+  });
+
+  it('holds a staged change across a failed read, and never sends placeholder values', async () => {
+    apiCall.get.mockResolvedValueOnce(APPLIED);
+    await store.loadServerConfig();
+    store.applyPreset({ config: { buffer_ms: 180, codec: 'flac', chunk_ms: 40 } });
+
+    apiCall.get.mockResolvedValueOnce(UNAVAILABLE);
+    await store.loadServerConfig();
+    expect(store.serverConfigStatus).toBe('unavailable');
+    expect(await store.applyServerConfig()).toBe(false);
+
+    apiCall.get.mockResolvedValueOnce(APPLIED);
+    await store.loadServerConfig();
+    apiCall.put.mockResolvedValueOnce(ok({ status: 'success' }));
+    await store.applyServerConfig();
+
+    expect(store.serverConfigStatus).toBe('ready');
+    const [, body] = apiCall.put.mock.calls[0];
+    expect(body.config.buffer_ms).toBe(180);
+    // A field the user did not touch comes from a server read (120), never
+    // from the placeholder (80).
+    expect(body.config.snapclient_buffer_time).toBe(120);
+  });
+
+  it('a read that fails while a write is in flight leaves the change and its Apply standing', async () => {
+    // Snapserver restarts under the PUT, so a panel reload mid-apply answers no
+    // config. The write was allowed over one the server reported; once it is
+    // taken, the config written is the one the server runs.
+    apiCall.get.mockResolvedValueOnce(APPLIED);
+    await store.loadServerConfig();
+    store.applyPreset({ config: { buffer_ms: 180, codec: 'flac', chunk_ms: 40 } });
+    let finishPut;
+    apiCall.put.mockReturnValueOnce(new Promise((resolve) => { finishPut = resolve; }));
+    const applying = store.applyServerConfig();
+
+    apiCall.get.mockResolvedValueOnce(UNAVAILABLE);
+    await store.loadServerConfig();
+    expect(store.serverConfigStatus).toBe('ready');
+    expect(store.hasServerConfigChanges).toBe(true);
+
+    finishPut(ok({ status: 'success' }));
+    expect(await applying).toBe(true);
+    expect(store.serverConfigStatus).toBe('ready');
+    expect(store.hasServerConfigChanges).toBe(false);
+  });
+
+  it('starts no analysis over a config the server did not report', async () => {
+    // Its proposal would land in the placeholder with no Apply to show for it,
+    // and the first read that succeeded would replace it.
+    apiCall.get.mockResolvedValueOnce(UNAVAILABLE);
+    await store.loadServerConfig();
+
+    expect(await store.startCalibration()).toBe(false);
+    expect(apiCall.post).not.toHaveBeenCalled();
+    expect(store.calibration.running).toBe(false);
+  });
+
+  it('a read superseded by a newer one does not decide the status', async () => {
+    let finishFirst;
+    apiCall.get.mockReturnValueOnce(new Promise((resolve) => { finishFirst = resolve; }));
+    const first = store.loadServerConfig();
+    apiCall.get.mockResolvedValueOnce(APPLIED);
+    await store.loadServerConfig();
+
+    finishFirst(fail('aborted', 0));
+    await first;
+
+    expect(store.serverConfigStatus).toBe('ready');
+  });
+});

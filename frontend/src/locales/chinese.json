@@ -512,7 +512,9 @@
     "stageProbing": "正在测量音箱",
     "stageComputing": "正在计算设置",
     "latency": "延迟",
-    "loss": "丢包"
+    "loss": "丢包",
+    "configUnavailable": "无法读取音频服务器的当前设置。",
+    "retry": "重试"
   },
   "analysis": {
     "title": "自动调整",
