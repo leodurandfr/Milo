@@ -90,6 +90,14 @@ class VolumeStateStore:
         self._bg = BackgroundTaskSet(self.logger, "volume")
         self._PERSIST_DEBOUNCE_S = 2.0
         self._persist_lock = asyncio.Lock()
+        # The bytes last_volume.json holds, as read at load or last written:
+        # a persist that would write them again writes nothing. Every
+        # admission sets the level it read from here, and the reconcile sweep
+        # readmits a refusing speaker every 30 s — a rewrite of the same file
+        # on the card each time. Compared with the file, not with memory: a
+        # client seeded in memory alone, or the levels a restore_last_volume
+        # off reset at load, are still written by the next persist.
+        self._on_disk: Optional[bytes] = None
 
         # Concurrency control
         self._lock = asyncio.Lock()
@@ -221,7 +229,9 @@ class VolumeStateStore:
                 return
 
             async with aiofiles.open(self.STORAGE_PATH, 'r') as f:
-                data = json.loads(await f.read())
+                raw = await f.read()
+            data = json.loads(raw)
+            self._on_disk = raw.encode()
 
             # Restore local mac_id so local_volume_db property works before the
             # registry CLIENT_CONNECTED event fires.
@@ -286,15 +296,17 @@ class VolumeStateStore:
                         for mac_id, client in self._clients.items()
                     }
                 }
-                write = asyncio.create_task(
-                    write_bytes_atomically(self.STORAGE_PATH, json.dumps(data, indent=2).encode())
-                )
+                payload = json.dumps(data, indent=2).encode()
+                if payload == self._on_disk:
+                    return
+                write = asyncio.create_task(write_bytes_atomically(self.STORAGE_PATH, payload))
                 while not write.done():
                     try:
                         await asyncio.wait({write})
                     except asyncio.CancelledError:
                         cancelled = True
                 write.result()
+                self._on_disk = payload
             self.logger.debug(f"Persisted volume state: local={self.local_volume_db:.1f}dB, {len(self._clients)} clients")
 
         except Exception as e:

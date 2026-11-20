@@ -72,6 +72,11 @@ class EqualizerController:
         self._volume_channels: Dict[str, _Channel] = {}
         self._mute_channels: Dict[str, _Channel] = {}
         self._refusing: set = set()
+        # The (what, mac_id) spells of forced sends a satellite refused — an
+        # admission's, retried by the reconcile sweep for as long as the
+        # satellite's CamillaDSP stays down, or a restore's. Said once, until
+        # one is applied or the admission's outage ends (end_refusal_spell).
+        self._forced_refusing: set = set()
         self._bg = BackgroundTaskSet(self.logger, "equalizer_controller")
 
     def set_registry(self, registry):
@@ -161,7 +166,11 @@ class EqualizerController:
         (4xx), are the refusals reported. A satellite that could not be
         reached (5xx), or refused a forced send, stays a warning: an admission
         sends while the satellite's CamillaDSP may still be starting, every
-        call answers 400 until it is up, and the admission retries.
+        call answers 400 until it is up, and the admission retries. The forced
+        refusal is said once per spell (`_forced_refusing`), until a command
+        is applied or the admission service ends the outage
+        (`end_refusal_spell`): the reconcile sweep readmits a refusing speaker
+        every 30 s.
 
         The stored value is not touched either way: a satellite that answers
         a refusal has cached the value and applies it when its CamillaDSP comes
@@ -169,12 +178,21 @@ class EqualizerController:
         the store by `reapply_current_volume`. Taking the old value back here
         would show a level the speaker is about to leave.
         """
-        if isinstance(error, SatelliteUnreachable) and (
-            force or not 400 <= error.status_code < 500
-        ):
+        spell = (what, mac_id)
+        if isinstance(error, SatelliteUnreachable) and force and 400 <= error.status_code < 500:
+            # Once per spell, which an applied command or the end of the
+            # admission's outage ends: the sweep readmits a speaker whose DSP
+            # stays down every 30 s, and a line for each admission's send was
+            # a line per pass for the outage.
+            if spell in self._forced_refusing:
+                self.logger.debug(f"Failed to set {what.lower()} for {mac_id}: {error}")
+            else:
+                self._forced_refusing.add(spell)
+                self.logger.warning(f"Failed to set {what.lower()} for {mac_id}: {error}")
+            return False
+        if isinstance(error, SatelliteUnreachable) and not 400 <= error.status_code < 500:
             self.logger.warning(f"Failed to set {what.lower()} for {mac_id}: {error}")
             return False
-        spell = (what, mac_id)
         if spell not in self._refusing:
             online = self._registry.is_client_online(mac_id) if self._registry else True
             if online:
@@ -182,12 +200,24 @@ class EqualizerController:
                 self.logger.error(f"{what} not applied to {mac_id}: {error}")
         return False
 
+    def end_refusal_spell(self, mac_id: str) -> None:
+        """Make a satellite's next forced refusal news again.
+
+        Called by the admission service wherever a refused admission's outage
+        ends (the satellite left snapserver's list, connected anew, or was
+        forgotten): the outage is one, so its end is one, and a speaker back
+        still refusing is told in full, its answer included.
+        """
+        self._forced_refusing.discard(("Volume", mac_id))
+        self._forced_refusing.discard(("Mute", mac_id))
+
     def _outcome(self, mac_id: str, result: dict, what: str) -> bool:
         """Read a router answer: applied, or skipped. A speaker that applies
         again is news again the next time it refuses."""
         ok = self._is_success(result)
         if ok:
             self._refusing.discard((what, mac_id))
+            self._forced_refusing.discard((what, mac_id))
         return ok
 
     def _submit(self, channels: Dict[str, _Channel], mac_id: str, value: Any, force: bool,
@@ -195,7 +225,9 @@ class EqualizerController:
         future = asyncio.get_running_loop().create_future()
         if force:
             # A forced command is an admission or a restore: a new session with
-            # the speaker, whose first refusal is news again.
+            # the speaker, whose first refusal is news again. Its forced spell
+            # is not ended here: the sweep readmits a refusing speaker every
+            # 30 s, and the admission service says when its outage ends.
             self._refusing.discard(("Volume" if channels is self._volume_channels else "Mute", mac_id))
         channel = channels.setdefault(mac_id, _Channel())
         channel.value = value

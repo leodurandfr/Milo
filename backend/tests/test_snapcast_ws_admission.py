@@ -24,6 +24,7 @@ Measured 2026-08-27, none of these arms had run. They fall in three groups:
   like from here, and it must be loud.
 """
 import asyncio
+import json
 import logging
 import time
 from collections import Counter
@@ -1846,3 +1847,207 @@ class TestAClientSeenAgainAfterTheSocketDropped:
             MAC, -20.0, force=True
         )
         assert registry.get_client(MAC).online is True
+
+
+class _SatelliteWithItsDspDown:
+    """The router to a satellite whose CamillaDSP is down: its API answers 400
+    to a volume or a mute, as `milo-client` does while its DSP is disconnected."""
+
+    def __init__(self):
+        self.refusing = True
+        self.volumes = []
+
+    def _answer(self):
+        if self.refusing:
+            raise SatelliteUnreachable(IP, "Client error: 400", status_code=400)
+        return {"status": "success"}
+
+    async def set_volume(self, mac_id, volume_db, force=False):
+        self.volumes.append(volume_db)
+        return self._answer()
+
+    async def set_mute(self, mac_id, muted, force=False):
+        return self._answer()
+
+    async def set_gain(self, mac_id, gain_db, force=False):
+        return {"status": "success"}
+
+
+class TestAnAdmissionTheSatelliteKeepsRefusing:
+    """A speaker snapserver lists but whose DSP refuses: one outage, said once.
+
+    Its admission gives up and leaves it offline, and the reconcile sweep —
+    which brings back every listed client the registry holds offline — tries
+    it again every 30 s, on purpose: a backoff would leave a speaker whose
+    CamillaDSP comes back silent for minutes. Each pass used to be a whole
+    admission, six attempts with their lines and a rewrite of last_volume.json
+    each, plus a "False -> True" that the client never took: about sixty lines
+    and six writes to the card every 30 s for as long as the outage lasted.
+    Driven through the real registry, volume store, controller and
+    SnapcastService over a simulated snapserver and satellite, so every line
+    the server writes for a pass is counted, whichever module writes it.
+    """
+
+    @pytest.fixture
+    async def refusing(self, service, registry, store, monkeypatch):
+        from types import SimpleNamespace
+
+        from backend.core.volume import EqualizerController
+        from backend.core.volume import state as state_module
+
+        snapcast = SnapcastService(systemd_manager=MagicMock(), host="snapserver.test")
+        snapcast.set_control_channel(FakeSnapserver(clients={SNAPCAST_ID: IP}).control_channel())
+        service._snapcast_service = snapcast
+        satellite = _SatelliteWithItsDspDown()
+        service._volume_service.state_store = store
+        service._volume_service.equalizer_controller = EqualizerController(
+            equalizer_router=satellite, client_registry=registry
+        )
+
+        async def no_wait(delay, *a, **k):
+            await _REAL_SLEEP(0)
+
+        monkeypatch.setattr(asyncio, "sleep", no_wait)
+
+        writes = []
+        write = state_module.write_bytes_atomically
+
+        async def counted(path, data):
+            writes.append(json.loads(data))
+            await write(path, data)
+
+        monkeypatch.setattr(state_module, "write_bytes_atomically", counted)
+
+        await registry.register_client(MAC, "Canapé", IP, host=HOST)
+        await store.set_client_volume(MAC, -30.0)
+        await drain_background_tasks()
+        # Non-triviality: a level that moves is written, so a pass writing
+        # nothing below is the store choosing not to, not a dead counter.
+        assert writes and writes[-1]["clients"][MAC]["volume_db"] == -30.0
+        writes.clear()
+
+        async def sweep(listed=True):
+            await service._reconcile_clients([_snapcast_client()] if listed else [])
+            await drain_background_tasks()
+
+        return SimpleNamespace(satellite=satellite, writes=writes, sweep=sweep)
+
+    @staticmethod
+    def _told(caplog, level=logging.INFO):
+        return [r.getMessage() for r in caplog.records if r.levelno >= level]
+
+    async def test_the_outage_is_one_line_and_each_sweep_still_tries_once(
+        self, refusing, registry, caplog
+    ):
+        with caplog.at_level(logging.DEBUG):
+            await refusing.sweep()
+            gave_up = [m for m in self._told(caplog, logging.WARNING) if "GAVE UP" in m]
+            assert len(gave_up) == 1
+            assert len(refusing.satellite.volumes) == 6
+            caplog.clear()
+
+            for sweep in range(1, 4):
+                await refusing.sweep()
+                # Still tried at each pass, once: the sweep is the retry.
+                assert len(refusing.satellite.volumes) == 6 + sweep
+
+        assert self._told(caplog) == []
+        assert registry.get_client(MAC).online is False
+        # The level the admission sets is the one the store holds: nothing to write.
+        assert refusing.writes == []
+
+    async def test_no_pass_claims_the_client_came_online(self, refusing, caplog):
+        """The client stays offline until its hardware took the level; a line
+        saying "False -> True" at every pass said the opposite."""
+        with caplog.at_level(logging.DEBUG):
+            for _ in range(3):
+                await refusing.sweep()
+
+        assert not [r for r in caplog.records if "-> True" in r.getMessage()]
+
+    async def test_an_admission_ends_the_outage_and_the_next_one_is_told_again(
+        self, refusing, registry, caplog
+    ):
+        satellite = refusing.satellite
+        await refusing.sweep()
+        await refusing.sweep()
+
+        satellite.refusing = False
+        with caplog.at_level(logging.INFO):
+            await refusing.sweep()
+        assert registry.get_client(MAC).online is True
+        assert any("synced to -30.0 dB" in m for m in self._told(caplog))
+
+        # Gone from snapserver's list, back later, refusing again: a new
+        # outage, with the full retry budget a booting satellite needs.
+        await refusing.sweep(listed=False)
+        satellite.refusing = True
+        before = len(satellite.volumes)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            await refusing.sweep()
+
+        assert len(satellite.volumes) == before + 6
+        assert len([m for m in self._told(caplog, logging.WARNING) if "GAVE UP" in m]) == 1
+
+    @classmethod
+    def _told_in_full(cls, caplog):
+        """A whole admission's account: its give-up, and the satellite's own
+        answer, which only the volume controller's refusal line carries."""
+        warned = cls._told(caplog, logging.WARNING)
+        return (
+            len([m for m in warned if "GAVE UP" in m]) == 1
+            and any(m.startswith("Failed to set volume") and "400" in m for m in warned)
+        )
+
+    async def test_a_client_snapserver_stops_listing_opens_a_new_outage_on_its_return(
+        self, refusing, caplog
+    ):
+        """Its next connection is a new admission: one that stayed quiet after
+        a disconnect would hide a satellite that came back broken."""
+        with caplog.at_level(logging.WARNING):
+            await refusing.sweep()
+        # Non-triviality: the first outage is told in full, the same way.
+        assert self._told_in_full(caplog)
+        await refusing.sweep(listed=False)
+        caplog.clear()
+
+        with caplog.at_level(logging.WARNING):
+            await refusing.sweep()
+
+        assert self._told_in_full(caplog)
+
+    async def test_a_client_deleted_while_still_listed_is_admitted_anew(
+        self, refusing, registry, caplog
+    ):
+        """Deleting an offline speaker its snapclient still connects is how a
+        user clears one that keeps refusing; the sweep registers it again, and
+        that is a new client's admission, with the retry budget a booting
+        satellite needs — not the outage's one silent attempt."""
+        await refusing.sweep()
+        assert await registry.unregister_client(MAC)
+        before = len(refusing.satellite.volumes)
+        caplog.clear()
+
+        with caplog.at_level(logging.WARNING):
+            await refusing.sweep()
+
+        assert registry.get_client(MAC) is not None
+        assert len(refusing.satellite.volumes) == before + 6
+        assert self._told_in_full(caplog)
+
+    async def test_the_control_socket_lost_ends_every_outage(
+        self, refusing, service, caplog
+    ):
+        """A snapserver restart or a multiroom off/on: whatever is listed next
+        comes over a new connection, and is admitted in full."""
+        await refusing.sweep()
+        await service._take_every_client_offline()
+        before = len(refusing.satellite.volumes)
+        caplog.clear()
+
+        with caplog.at_level(logging.WARNING):
+            await refusing.sweep()
+
+        assert len(refusing.satellite.volumes) == before + 6
+        assert self._told_in_full(caplog)

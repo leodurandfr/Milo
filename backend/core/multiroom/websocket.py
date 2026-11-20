@@ -106,6 +106,18 @@ class SnapcastWebSocketService:
         # read, so what moved since is delivered once the client is online
         # (_deliver_what_moved_during_admission). Lives as long as the guard.
         self._admission_sent: Dict[str, Dict[str, Any]] = {}
+        # The clients whose admission gave up and that snapserver still lists:
+        # an outage in progress. The reconcile sweep tries each again at every
+        # pass — a backoff would leave a speaker whose CamillaDSP is back silent
+        # for minutes — but once a pass, and without a line: the give-up said
+        # it once. Each pass used to run six attempts in full, about sixty
+        # lines and a rewrite of last_volume.json per attempt every 30 s, for
+        # as long as the outage lasted. An outage ends when the client is
+        # admitted, snapserver stops listing it, the registry forgets it or the
+        # control socket goes (a new connection is a new admission, told in
+        # full). Ended only through `_end_outage`, which ends the volume
+        # controller's refusal spell with it: one outage, one end.
+        self._refused_admissions: set = set()
 
         # Background tasks (fire-and-forget sync, config push, etc.)
         # Tracked so they can be cancelled cleanly in stop_connection().
@@ -278,6 +290,9 @@ class SnapcastWebSocketService:
         re-admission gave up was never tried again: the sweep's online flip
         only retries a client the registry holds offline.
         """
+        # Whatever comes back after this is a new connection, admitted in full.
+        for mac_id in list(self._refused_admissions):
+            self._end_outage(mac_id)
         if self.registry:
             await self.registry.set_clients_offline(self.registry.get_client_ids())
 
@@ -516,6 +531,8 @@ class SnapcastWebSocketService:
                     mac_id, client["name"] or mac_id, client["ip"], client["host"],
                     is_local=is_local,
                 )
+                # A new connection of this socket: a new admission, told in full.
+                self._end_outage(mac_id)
 
                 # Same admission sequence as every other path, for a known client
                 # too: sync first and show the client online only once the
@@ -708,6 +725,9 @@ class SnapcastWebSocketService:
                     mac_id, client["name"], client["ip"], client["host"],
                     is_local=(client["ip"] == "127.0.0.1"),
                 )
+                # New to the registry (a client deleted while snapserver still
+                # listed it included): a new admission, told in full.
+                self._end_outage(mac_id)
 
                 # Sync volume then set online. The sync task owns the
                 # _syncing_mac_ids guard and clears it when done.
@@ -728,6 +748,10 @@ class SnapcastWebSocketService:
         wrote the same "disconnected" line every 30s for as long as a satellite
         stayed unplugged.
         """
+        # A client snapserver no longer lists has no outage in progress: its
+        # next connection is a new admission, told in full.
+        for mac_id in self._refused_admissions - current_mac_ids:
+            self._end_outage(mac_id)
         if not self.registry:
             return
         for mac_id in await self.registry.set_clients_offline(known_mac_ids - current_mac_ids):
@@ -746,7 +770,10 @@ class SnapcastWebSocketService:
             if not registry_client or registry_client.online:
                 continue
 
-            self.logger.info(f"Client {mac_id} online status: False -> True")
+            # Not "online": the admission decides that, once the hardware took
+            # its level. A client whose admission already gave up is tried
+            # again in silence (`_refused_admissions`).
+            self._say(mac_id, logging.INFO, f"CLIENT RECONNECTING: {mac_id} listed by snapserver again, admitting it")
 
             # Client reconnecting: do NOT set online yet — the sync task
             # sets online after hardware confirms volume (set_online_after=True).
@@ -831,6 +858,10 @@ class SnapcastWebSocketService:
             )
             return
 
+        # A new snapclient connection is a new admission, with its full retry
+        # budget and every line, whatever the last one gave up on.
+        self._end_outage(mac_id)
+
         # Hand the sync to a task rather than awaiting it: this runs inside the
         # snapserver message loop, and a satellite that is still booting takes the
         # sync through its full retry budget. Server.OnUpdate, on the same loop,
@@ -854,6 +885,7 @@ class SnapcastWebSocketService:
             return
 
         self.logger.info(f"CLIENT DISCONNECTED: {client_host} (mac_id: {mac_id})")
+        self._end_outage(mac_id)
 
         if self.registry:
             await self.registry.set_client_online(mac_id, False)
@@ -886,6 +918,20 @@ class SnapcastWebSocketService:
         # Update the registry so the name change persists to settings.json
         if self.registry and name:
             await self.registry.update_client(mac_id, name=name)
+
+    def _end_outage(self, mac_id: str) -> None:
+        """End a client's outage, if one is open: its next admission is told in
+        full, the volume controller's refusal lines included."""
+        self._refused_admissions.discard(mac_id)
+        if self._volume_service:
+            self._volume_service.equalizer_controller.end_refusal_spell(mac_id)
+
+    def _say(self, mac_id: str, level: int, message: str) -> None:
+        """Log one line of an admission: at `level`, or at debug while the
+        client's outage was already told (`_refused_admissions`)."""
+        self.logger.log(
+            logging.DEBUG if mac_id in self._refused_admissions else level, message, stacklevel=2
+        )
 
     def _resolve_target_volume(self, mac_id: str) -> float:
         """
@@ -920,10 +966,10 @@ class SnapcastWebSocketService:
             config = self._volume_service.volume_config
             stored = self._volume_service.state_store.get_client_volume(mac_id)
             if stored is not None:
-                self.logger.info(f"Volume store holds {stored:.1f} dB for {mac_id}")
+                self._say(mac_id, logging.INFO, f"Volume store holds {stored:.1f} dB for {mac_id}")
                 return stored
 
-            self.logger.info(f"Using startup volume {config.startup_volume_db:.1f} dB for {mac_id}")
+            self._say(mac_id, logging.INFO, f"Using startup volume {config.startup_volume_db:.1f} dB for {mac_id}")
             return config.startup_volume_db
 
         # No volume service at all: constant fallback
@@ -991,13 +1037,13 @@ class SnapcastWebSocketService:
             self.logger.debug(f"[{time.time():.3f}] MUTE_APPLY: Set {mac_id} mute={persisted_mute}")
 
             if not volume_ok:
-                self.logger.warning(f"VOLUME_APPLY: Hardware failed for {mac_id}, state updated to {target_volume_db:.1f} dB (unmute still applied)")
+                self._say(mac_id, logging.WARNING, f"VOLUME_APPLY: Hardware failed for {mac_id}, state updated to {target_volume_db:.1f} dB (unmute still applied)")
             if not mute_ok:
                 # Discarding this outcome is what admitted a client snapserver
                 # had, the UI showed online, and CamillaDSP still held muted from
                 # its -m start flag: a speaker silent for the whole session, with
                 # nothing anywhere to retry it.
-                self.logger.warning(f"MUTE_APPLY: Hardware failed for {mac_id} (mute={persisted_mute})")
+                self._say(mac_id, logging.WARNING, f"MUTE_APPLY: Hardware failed for {mac_id} (mute={persisted_mute})")
 
             if not (volume_ok and mute_ok):
                 return False
@@ -1150,21 +1196,21 @@ class SnapcastWebSocketService:
             return True
         snapcast = self._snapcast_service
         if not await snapcast.set_volume(snapcast_id, 100):
-            self.logger.warning(f"SYNC_RECONNECT: snapserver refused to lift the mute of {mac_id}")
+            self._say(mac_id, logging.WARNING, f"SYNC_RECONNECT: snapserver refused to lift the mute of {mac_id}")
             return False
         if not await snapcast.set_latency(snapcast_id, delay_ms):
-            self.logger.warning(f"SYNC_RECONNECT: snapserver refused the {delay_ms} ms delay of {mac_id}")
+            self._say(mac_id, logging.WARNING, f"SYNC_RECONNECT: snapserver refused the {delay_ms} ms delay of {mac_id}")
             return False
 
         group = snapcast.group_of(await snapcast.get_server_status(), snapcast_id)
         if group is None:
-            self.logger.warning(f"SYNC_RECONNECT: snapserver lists no group holding {mac_id}")
+            self._say(mac_id, logging.WARNING, f"SYNC_RECONNECT: snapserver lists no group holding {mac_id}")
             return False
         group_id = group["id"]
         if group["muted"]:
-            self.logger.warning(f"SYNC_RECONNECT: snapserver kept the group of {mac_id} muted, lifting it")
+            self._say(mac_id, logging.WARNING, f"SYNC_RECONNECT: snapserver kept the group of {mac_id} muted, lifting it")
             if not await snapcast.set_group_mute(group_id, False):
-                self.logger.warning(f"SYNC_RECONNECT: snapserver refused to lift the group mute of {mac_id}")
+                self._say(mac_id, logging.WARNING, f"SYNC_RECONNECT: snapserver refused to lift the group mute of {mac_id}")
                 return False
 
         # Read again past each answer: a transition meanwhile points every group
@@ -1173,8 +1219,9 @@ class SnapcastWebSocketService:
         while stream is not None and stream != playing:
             self.logger.info(f"SNAPCAST_SET_STREAM: group={group_id} {playing} -> {stream}")
             if not await snapcast.set_group_stream(group_id, stream):
-                self.logger.warning(
-                    f"SYNC_RECONNECT: snapserver refused to point {mac_id} at the {stream} stream"
+                self._say(
+                    mac_id, logging.WARNING,
+                    f"SYNC_RECONNECT: snapserver refused to point {mac_id} at the {stream} stream",
                 )
                 return False
             playing, stream = stream, self._active_stream()
@@ -1271,6 +1318,12 @@ class SnapcastWebSocketService:
         the same client. What the admission pushed (_admission_sent) lives
         exactly as long.
 
+        One that gives up says so once and opens an outage
+        (_refused_admissions): until it ends (`_end_outage`: the client is
+        admitted, leaves snapserver's list, connects anew, is forgotten by the
+        registry, or the control socket goes), each admission of it is a single
+        attempt, logged at debug.
+
         Args:
             mac_id: Client identifier
             set_online_after: If True, mark client online in registry after
@@ -1287,11 +1340,19 @@ class SnapcastWebSocketService:
             self.logger.debug(f"SYNC_RECONNECT: {mac_id} already syncing, skipping duplicate")
             return False
 
+        # Read once, here: an outage that ends while this one runs (the client
+        # left the list) must not have it give up loudly about a client gone,
+        # nor reopen the outage it ended.
+        quiet = mac_id in self._refused_admissions
+        if quiet:
+            # The sweep is this one's retry: one attempt a pass, every 30 s.
+            max_retries = 0
+
         self._syncing_mac_ids.add(mac_id)
         self._admission_sent[mac_id] = {}
         try:
             return await self._do_sync_reconnecting_client_volume(
-                mac_id, set_online_after, max_retries, retry_delay, snapcast_id
+                mac_id, set_online_after, max_retries, retry_delay, snapcast_id, quiet
             )
         finally:
             self._syncing_mac_ids.discard(mac_id)
@@ -1300,7 +1361,7 @@ class SnapcastWebSocketService:
     async def _do_sync_reconnecting_client_volume(
         self, mac_id: str, set_online_after: bool,
         max_retries: int, retry_delay: float,
-        snapcast_id: Optional[str] = None
+        snapcast_id: Optional[str] = None, quiet: bool = False
     ) -> bool:
         """Internal sync implementation (called under _syncing_mac_ids guard)."""
         target_volume: Optional[float] = None
@@ -1310,6 +1371,7 @@ class SnapcastWebSocketService:
             client = self.registry.get_client(mac_id)
             if client is None:
                 self.logger.info(f"SYNC_RECONNECT: {mac_id} removed during admission, abandoning")
+                self._end_outage(mac_id)
                 return False
             try:
                 # Pinned inside the attempt, not before them: a refusal is a
@@ -1322,6 +1384,7 @@ class SnapcastWebSocketService:
                 # answered would be undone the same way.
                 if self.registry.get_client(mac_id) is None:
                     self.logger.info(f"SYNC_RECONNECT: {mac_id} removed during admission, abandoning")
+                    self._end_outage(mac_id)
                     return False
                 # Resolved on every attempt, after the pin: a zone or global
                 # move made while this one waited moved the away room's stored
@@ -1329,7 +1392,7 @@ class SnapcastWebSocketService:
                 # it stood when the admission began. The apply writes the level
                 # back to the store, so one read before an await undid a move.
                 target_volume = self._resolve_target_volume(mac_id)
-                self.logger.info(f"SYNC_RECONNECT: {mac_id} target={target_volume:.1f} dB")
+                self._say(mac_id, logging.INFO, f"SYNC_RECONNECT: {mac_id} target={target_volume:.1f} dB")
                 volume_synced = pinned and await self._apply_target_volume_to_client(mac_id, target_volume)
                 if volume_synced:
                     # Re-push the client's EQ record now that it's reachable again.
@@ -1383,24 +1446,33 @@ class SnapcastWebSocketService:
                             )
                     if self._volume_service:
                         await self._volume_service.broadcast_volume_state(display="none")
+                    # The line that ends an outage, when one was open.
+                    self._end_outage(mac_id)
                     self.logger.info(f"SYNC_RECONNECT: {mac_id} synced to {target_volume:.1f} dB (attempt {attempt + 1})")
                     return True
                 elif pinned:
-                    self.logger.warning(
+                    self._say(
+                        mac_id, logging.WARNING,
                         f"SYNC_RECONNECT: {mac_id} hardware apply returned False "
-                        f"(attempt {attempt + 1}/{max_retries + 1})"
+                        f"(attempt {attempt + 1}/{max_retries + 1})",
                     )
             except Exception as e:
-                self.logger.warning(f"SYNC_RECONNECT: {mac_id} attempt {attempt + 1} failed: {e}")
+                self._say(mac_id, logging.WARNING, f"SYNC_RECONNECT: {mac_id} attempt {attempt + 1} failed: {e}")
 
             if attempt < max_retries:
-                self.logger.info(f"SYNC_RECONNECT: {mac_id} retrying in {retry_delay}s...")
+                self._say(mac_id, logging.INFO, f"SYNC_RECONNECT: {mac_id} retrying in {retry_delay}s...")
                 await asyncio.sleep(retry_delay)
 
         target = f" (target was {target_volume:.1f} dB)" if target_volume is not None else ""
+        if quiet:
+            self.logger.debug(f"SYNC_RECONNECT: {mac_id} still refused{target}")
+            return False
+        # Said once per outage: the sweep tries again at each pass, in silence.
+        self._refused_admissions.add(mac_id)
         self.logger.warning(
             f"SYNC_RECONNECT: {mac_id} GAVE UP after {max_retries + 1} attempts — "
-            f"client may be desynchronized{target}"
+            f"client may be desynchronized{target}; tried again at every "
+            f"{self.RECONCILE_INTERVAL_S} s sweep, without a line, until it is admitted"
         )
         return False
 

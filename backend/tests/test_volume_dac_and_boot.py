@@ -739,6 +739,37 @@ class TestStoreLoadAtStartup:
 
         assert store.get_client_volume("aa:bb") == -60.0
 
+    async def test_restore_off_writes_the_startup_level_the_first_admission_sets(
+        self, tmp_path, monkeypatch
+    ):
+        """The reset level is held in memory only until something persists it.
+        Skipped because memory already held it, the previous run's -38 stayed on
+        disk, and a unit switched to restore_last_volume later came back at the
+        run before the last rather than the level the speaker was playing."""
+        store = await self._load(tmp_path, monkeypatch, restore=False)
+
+        await store.set_client_volume("aa:bb", -60.0)
+        await store.cleanup()
+
+        on_disk = json.loads((tmp_path / "last_volume.json").read_text())
+        assert on_disk["clients"]["aa:bb"]["volume_db"] == -60.0
+
+    async def test_a_client_seeded_in_memory_reaches_the_file_with_its_admission(
+        self, tmp_path, monkeypatch
+    ):
+        """A new client is seeded at the startup level by the registry event,
+        which writes nothing; its admission setting that same level is what
+        puts it in last_volume.json."""
+        store = await self._load(tmp_path, monkeypatch, restore=True)
+        await store.register_client("cc:dd", volume_db=-60.0)
+
+        await store.set_client_volume("cc:dd", -60.0)
+        await store.cleanup()
+
+        on_disk = json.loads((tmp_path / "last_volume.json").read_text())
+        assert on_disk["clients"]["cc:dd"]["volume_db"] == -60.0
+        assert on_disk["clients"]["aa:bb"]["volume_db"] == -38.0
+
 
 class TestBootPush:
     """`_do_push_volume_to_all_clients` — one level per client, after a restart."""

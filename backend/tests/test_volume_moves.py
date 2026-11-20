@@ -631,6 +631,42 @@ async def test_an_admission_refusal_stays_a_warning(controller, caplog, what, ra
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
+@pytest.mark.parametrize("what", ["volume", "mute"])
+async def test_a_refusing_satellite_readmitted_every_sweep_is_reported_once(
+    controller, caplog, what
+):
+    """An admission refused again and again is one warning, until a command lands.
+
+    A satellite whose CamillaDSP stays down is listed by snapserver and refused
+    at every reconcile sweep, every 30 s: a line per forced send was a line per
+    pass for as long as the outage lasted. A command applied ends the spell, so
+    the next outage is news again.
+    """
+    router = controller._router
+    table = router.answer if what == "volume" else router.mute_answer
+    submit = controller.submit_volume if what == "volume" else controller.submit_mute
+    value = -50.0 if what == "volume" else True
+
+    def reported():
+        return [r for r in caplog.records
+                if r.levelno >= logging.WARNING and r.getMessage().startswith("Failed to set")]
+
+    with caplog.at_level(logging.WARNING):
+        table["sat"] = refused_by_satellite()
+        for _ in range(4):
+            assert await submit("sat", value, force=True) is False
+        assert len(reported()) == 1
+
+        del table["sat"]
+        assert await submit("sat", value, force=True) is True
+
+        table["sat"] = refused_by_satellite()
+        assert await submit("sat", value, force=True) is False
+        assert await submit("sat", value, force=True) is False
+
+    assert len(reported()) == 2
+
+
 async def test_a_move_the_local_speaker_refused_is_still_shown():
     """The levels were written and the satellites sent theirs; every screen must see it.
 

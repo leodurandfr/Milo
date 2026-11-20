@@ -25,6 +25,7 @@ The frames are real `aiohttp.WSMessage` values — the type the library hands th
 """
 import asyncio
 import json
+import logging
 
 import aiohttp
 import pytest
@@ -426,6 +427,69 @@ class TestTheReconnectLoop:
             await ws._connection_loop()
 
         assert waits == [2.0]
+
+    async def test_an_outage_is_one_line_and_the_next_outage_one_more(
+        self, events, monkeypatch, caplog
+    ):
+        """go-librespot is `Restart=always`: one that exits at every start was
+        a WARNING every 2 s — 1,800 lines an hour in the journal and in
+        errors.log, which the diagnostic report reads and which rotated down
+        to that one line. An outage is said once, at info; a connection that
+        opens ends it, and the next outage is said again."""
+        waits = []
+
+        async def no_wait(delay):
+            waits.append(delay)
+            if len(waits) >= 9:
+                raise asyncio.CancelledError
+
+        monkeypatch.setattr(
+            "backend.sources.spotify.websocket.asyncio.sleep", no_wait
+        )
+        session = FakeSession(*[_refused()] * 4, FakeWs([]), *[_refused()] * 4)
+        ws = client(session, events)
+
+        with caplog.at_level(logging.DEBUG, logger="source.spotify.websocket"), \
+                pytest.raises(asyncio.CancelledError):
+            await ws._connection_loop()
+
+        # Non-triviality: two outages of four refusals each, around one connection.
+        assert len(session.connects) == 9
+        told = [r for r in caplog.records if r.levelno >= logging.INFO]
+        assert [r.levelno for r in told] == [logging.INFO] * 3
+        assert "unreachable" in told[0].getMessage()
+        assert told[1].getMessage() == "WebSocket connected"
+        assert "unreachable" in told[2].getMessage()
+
+    async def test_a_bug_during_an_outage_still_reaches_error_once(
+        self, events, monkeypatch, caplog
+    ):
+        """A failure nothing expected is a bug, not go-librespot being down: it
+        must reach errors.log even when the daemon's absence was already told
+        at info — and once, since it retries every 2 s like any failure."""
+        waits = []
+
+        async def no_wait(delay):
+            waits.append(delay)
+            if len(waits) >= 6:
+                raise asyncio.CancelledError
+
+        monkeypatch.setattr(
+            "backend.sources.spotify.websocket.asyncio.sleep", no_wait
+        )
+        session = FakeSession(
+            _refused(), _refused(), ValueError("boom"), ValueError("boom"), _refused(), _refused()
+        )
+        ws = client(session, events)
+
+        with caplog.at_level(logging.DEBUG, logger="source.spotify.websocket"), \
+                pytest.raises(asyncio.CancelledError):
+            await ws._connection_loop()
+
+        assert len(session.connects) == 6
+        told = [r for r in caplog.records if r.levelno >= logging.INFO]
+        assert [r.levelno for r in told] == [logging.INFO, logging.ERROR]
+        assert "boom" in told[1].getMessage()
 
     async def test_stopping_ends_the_loop_without_reconnecting(self, events):
         """`stop()` sets the flag and cancels; the flag alone must already end

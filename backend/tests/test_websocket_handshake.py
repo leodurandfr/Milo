@@ -129,8 +129,9 @@ class TestLibrespotSocket:
     ):
         """go-librespot can be up but wedged after a restart. The client bounds
         its own handshake — whatever session it is handed — gives up on it, says
-        so, and dials again rather than parking on it. The bound is shortened to
-        keep the test fast; the session here has aiohttp's 300 s default."""
+        so once for the outage, and dials again rather than parking on it. The
+        bound is shortened to keep the test fast; the session here has aiohttp's
+        300 s default."""
         port, held = silent_server
         monkeypatch.setattr(LibrespotWebSocket, "CONNECT_TIMEOUT_S", 0.2, raising=False)
         monkeypatch.setattr(
@@ -141,7 +142,7 @@ class TestLibrespotSocket:
         async def on_event(_event):
             pass
 
-        with caplog.at_level(logging.WARNING, logger="source.spotify.websocket"):
+        with caplog.at_level(logging.INFO, logger="source.spotify.websocket"):
             async with aiohttp.ClientSession() as session:
                 client = LibrespotWebSocket(f"ws://127.0.0.1:{port}/events", session, on_event)
                 await client.start()
@@ -151,7 +152,9 @@ class TestLibrespotSocket:
                     await client.stop()
 
         assert client.connected is False
-        assert [r for r in caplog.records if "did not answer" in r.getMessage()]
+        told = [r for r in caplog.records
+                if r.levelno >= logging.INFO and "did not answer" in r.getMessage()]
+        assert len(told) == 1
 
 
 class TestSnapcastSocket:

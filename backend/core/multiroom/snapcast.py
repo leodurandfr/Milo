@@ -187,7 +187,9 @@ class SnapcastService:
             volume: Volume percentage (0-100)
             muted: Mute state to set (default False = unmuted passthrough)
         """
-        self.logger.info(f"SNAPCAST_SET_VOLUME: client={client_id}, volume={volume}%, muted={muted}")
+        # Debug: every admission sends it, the reconcile sweep's included, and
+        # the admission says what came of it.
+        self.logger.debug(f"SNAPCAST_SET_VOLUME: client={client_id}, volume={volume}%, muted={muted}")
         await self._request("Client.SetVolume", {
             "id": client_id,
             "volume": {"percent": max(0, min(100, volume)), "muted": muted}
@@ -207,7 +209,11 @@ class SnapcastService:
             client_id: Snapcast client id (== the client's mac_id by construction)
             ms: Latency in milliseconds
         """
-        self.logger.info(f"SNAPCAST_SET_LATENCY: client={client_id}, latency={ms}ms")
+        # Debug, as SNAPCAST_SET_VOLUME: each admission re-pushes it, the
+        # reconcile sweep's included. Its two other callers say what they did
+        # themselves: the delay PATCH logs the delay it set, and the
+        # admission's late delivery warns on a refusal.
+        self.logger.debug(f"SNAPCAST_SET_LATENCY: client={client_id}, latency={ms}ms")
         await self._request("Client.SetLatency", {
             "id": client_id,
             "latency": max(0, ms),

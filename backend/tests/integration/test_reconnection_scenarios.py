@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 from backend.tests.conftest import attach_registry_broadcaster
 from backend.tests.snapserver_world import listing_every_pinned_client
 from backend.core.models.volume import VolumeConfig
+from backend.core.volume.equalizer_controller import EqualizerController
 
 
 class TestInZoneReconnectionSyncIntegration:
@@ -63,7 +64,7 @@ class TestInZoneReconnectionSyncIntegration:
             side_effect=volume_service.stored_volumes.get
         )
         volume_service.state_store.get_client_mute = MagicMock(return_value=False)
-        volume_service.equalizer_controller = AsyncMock()
+        volume_service.equalizer_controller = AsyncMock(spec=EqualizerController)
         sm.volume_service = volume_service
 
         return sm
@@ -223,7 +224,7 @@ class TestInZoneReconnectionSyncIntegration:
         mock_client_state = MagicMock()
         mock_client_state.mute = False
         volume_service.state_store._clients = {"client-1": mock_client_state}
-        volume_service.equalizer_controller = AsyncMock()
+        volume_service.equalizer_controller = AsyncMock(spec=EqualizerController)
 
         await ws_service._sync_reconnecting_client_volume(
             "client-1", max_retries=0, retry_delay=0, snapcast_id="snapcast-client-123"
@@ -474,7 +475,7 @@ class TestStandaloneReconnectionSyncIntegration:
             side_effect=volume_service.stored_volumes.get
         )
         volume_service.state_store.get_client_mute = MagicMock(return_value=False)
-        volume_service.equalizer_controller = AsyncMock()
+        volume_service.equalizer_controller = AsyncMock(spec=EqualizerController)
         sm.volume_service = volume_service
 
         return sm
@@ -663,7 +664,7 @@ class TestWhatAReconnectReplays:
         )
         volume_service.state_store.get_client_mute = MagicMock(return_value=True)
         volume_service.state_store.set_client_volume = AsyncMock()
-        volume_service.equalizer_controller = AsyncMock()
+        volume_service.equalizer_controller = AsyncMock(spec=EqualizerController)
         volume_service.equalizer_controller.set_equalizer_volume = AsyncMock(return_value=True)
         volume_service.equalizer_controller.set_equalizer_mute = AsyncMock(return_value=True)
         sm.volume_service = volume_service

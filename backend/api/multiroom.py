@@ -521,6 +521,9 @@ def create_multiroom_router(
                     )
 
             updated_client = await registry_service.set_client_delay(mac_id, request.delay_ms)
+            # The user's action, said here: snapserver's own trace of the
+            # request is debug, since every admission sends it again.
+            logger.info(f"Delay of {mac_id} set to {request.delay_ms} ms")
 
             return {"status": "success", "client": _client_with_online(updated_client)}
 
