@@ -75,6 +75,11 @@ class CamillaDSPService:
     DEFAULT_PORT = 1234
     RECONNECT_DELAY = 5.0
     MAX_RECONNECT_DELAY = 30.0
+    # A connect nothing listened to. Every backend restart makes one: CamillaDSP
+    # is PartOf= the backend, restarts with it, and is not up yet at the first
+    # attempt. The satellite retries the same refusal from the same step
+    # (milo-client/app/services/equalizer.py::REFUSED_RETRY_DELAY).
+    REFUSED_RETRY_DELAY = 0.5
 
     # Dedicated persistence file for filters / compressor / loudness / mono /
     # active_preset / custom_gains.
@@ -102,6 +107,11 @@ class CamillaDSPService:
         self._config_lock = asyncio.Lock()
         self._reconnect_task: Optional[asyncio.Task] = None
         self._connected = False
+        # Whether the last connect attempt found nothing listening, which picks
+        # the loop's delay; and whether the process has made one yet, refused on
+        # every start and therefore no warning.
+        self._last_connect_refused = False
+        self._first_attempt = True
         self._running = True
         self._connection_ready = asyncio.Event()  # Set once the first connection is restored (or failed)
 
@@ -326,19 +336,30 @@ class CamillaDSPService:
 
         Connects to CamillaDSP, restores state, then idles until _run()
         detects a command failure and clears _connected. Follows the same
-        pattern as SnapcastWebSocketService._connection_loop().
+        pattern as SnapcastWebSocketService._connection_loop(), and retries the
+        way the satellite's loop does (milo-client/app/services/equalizer.py) —
+        two halves of one appliance, one daemon each.
         """
         reconnect_delay = self.RECONNECT_DELAY
+        refused_delay = self.REFUSED_RETRY_DELAY
 
         while self._running:
+            usable = False
             try:
                 connected = await self._connect_once()
 
                 if connected:
-                    reconnect_delay = self.RECONNECT_DELAY
                     await self._restore_after_reconnect()
                     # The boot's rendezvous, released only now: see wait_for_connection.
                     self._connection_ready.set()
+                    # A session that survived its restore: the backoff has
+                    # served its purpose and starts over. One the daemon dropped
+                    # during the restore is a connect-then-fail pass, which backs
+                    # off below like a failed connect.
+                    usable = self._connected
+                    if usable:
+                        reconnect_delay = self.RECONNECT_DELAY
+                        refused_delay = self.REFUSED_RETRY_DELAY
 
                     # Idle, keeping the connection under observation. Waiting for
                     # a command to fail is not detection: measured on the unit,
@@ -358,13 +379,28 @@ class CamillaDSPService:
             except Exception as e:
                 self.logger.error(f"Connection loop error: {e}")
 
-            if self._running:
-                if not self._connection_ready.is_set():
-                    self._connection_ready.set()
-
-                self.logger.info(f"Reconnecting to CamillaDSP in {reconnect_delay:.0f}s...")
-                await asyncio.sleep(reconnect_delay)
+            if not self._running:
+                break
+            if not self._connection_ready.is_set():
+                self._connection_ready.set()
+            # A session that worked and then lost its socket is retried at once:
+            # the daemon restarted (an update, a crash under Restart=), and it
+            # starts muted at its floor (invariant 7), so the room stays silent
+            # for as long as this loop waits. What must back off is everything
+            # else, from two steps: a connect nothing listened to retries from
+            # half a second — the daemon is usually that far from listening —
+            # and a connect that failed otherwise, or a restore the daemon
+            # dropped, from five.
+            if usable:
+                continue
+            if self._last_connect_refused:
+                delay = refused_delay
+                refused_delay = min(refused_delay * 1.5, self.MAX_RECONNECT_DELAY)
+            else:
+                delay = reconnect_delay
                 reconnect_delay = min(reconnect_delay * 1.5, self.MAX_RECONNECT_DELAY)
+            self.logger.info(f"Reconnecting to CamillaDSP in {delay:.1f}s...")
+            await asyncio.sleep(delay)
 
     async def _probe_connection(self) -> None:
         """Keepalive on the daemon connection — not a poll for state.
@@ -397,9 +433,11 @@ class CamillaDSPService:
     async def _connect_once(self) -> bool:
         """Attempt a single connection to CamillaDSP. Returns True on success."""
         async with self._lock:
+            self._last_connect_refused = False
             if self._connected:
                 return True
 
+            first_attempt, self._first_attempt = self._first_attempt, False
             try:
                 self._client = CamillaDspClient(self.host, self.port)
 
@@ -420,6 +458,14 @@ class CamillaDSPService:
                 self._connected = False
                 self._state = CamillaDspState.DISCONNECTED
                 self._drop_client()
+                if isinstance(e, ConnectionRefusedError):
+                    self._last_connect_refused = True
+                    # The process's first attempt is refused on every backend
+                    # restart, so it is no warning; any later refusal is a
+                    # daemon that went away.
+                    if first_attempt:
+                        self.logger.info(f"CamillaDSP not listening yet at {self.host}:{self.port}")
+                        return False
                 self.logger.warning(f"Failed to connect to CamillaDSP: {e}")
                 return False
 

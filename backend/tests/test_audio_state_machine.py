@@ -1153,6 +1153,83 @@ class StubbornPodcast(BaseAudioSource):
         return await self._stop_service()
 
 
+class DrainingSystemd(Systemd):
+    """A stop that systemd is still carrying out: the unit `deactivating`, its
+    daemon still running, until `daemon_exits()` — never, unless a test says.
+
+    The daemon's exit is what a pidfd hears (`process_watch`, installed in
+    place of the kernel's), never something a state read discovers.
+    """
+
+    DAEMON_PID = 4242
+
+    def __init__(self) -> None:
+        super().__init__(up={PODCAST_UNIT})
+        self.pid = self.DAEMON_PID
+        self.watches = []
+
+    async def main_pid(self, name: str) -> int:
+        return self.pid if self._state(name)[0] in ("active", "deactivating") else 0
+
+    def leave_stopping(self) -> None:
+        """systemd sent the stop and waits for the daemon: what a stop cut at
+        CONTROL_TIMEOUT leaves behind."""
+        self.calls.append(f"stop {PODCAST_UNIT}")
+        self.units[PODCAST_UNIT] = ("deactivating", "success")
+
+    def daemon_exits(self) -> None:
+        pid, self.pid = self.pid, 0
+        self.units[PODCAST_UNIT] = ("inactive", "success")
+        for watched, on_exit in list(self.watches):
+            if watched == pid:
+                on_exit()
+
+    def process_watch(self, pid, on_exit):
+        systemd = self
+
+        class Watch:
+            def __init__(self) -> None:
+                systemd.watches.append((pid, on_exit))
+                if pid != systemd.pid:
+                    asyncio.get_running_loop().call_soon(on_exit)
+
+            def close(self) -> None:
+                systemd.watches[:] = [w for w in systemd.watches if w[1] is not on_exit]
+
+        return Watch()
+
+
+class CutPodcast(BaseAudioSource):
+    """A podcast whose STOP reached its unit and ran out of budget before the
+    daemon exited, after `stop_takes` seconds: what `_control_service` answers
+    at CONTROL_TIMEOUT."""
+
+    def __init__(self, systemd: DrainingSystemd, *, stop_takes: float = 0.0) -> None:
+        super().__init__(source_id="podcast", service_name=PODCAST_UNIT,
+                         systemd_manager=systemd)
+        self.systemd = systemd
+        self.stop_takes = stop_takes
+
+    async def _do_start(self) -> bool:
+        return await self._start_service()
+
+    async def _do_stop(self) -> bool:
+        await asyncio.sleep(self.stop_takes)
+        self.systemd.leave_stopping()
+        return False
+
+
+@pytest.fixture
+def draining(monkeypatch):
+    """The systemd a podcast's cut stop leaves draining, standing in for the
+    kernel's pidfds too."""
+    import backend.core.audio_source as audio_source
+
+    systemd = DrainingSystemd()
+    monkeypatch.setattr(audio_source, "ProcessWatch", systemd.process_watch)
+    return systemd
+
+
 async def _until(predicate) -> None:
     for _ in range(1000):
         if predicate():
@@ -1274,6 +1351,7 @@ class TestASourceThatWillNotStop:
         late = Mock()
         late.stop = AsyncMock(return_value=False)
         late.probe_service_active = AsyncMock(return_value=False)
+        late.unit_active_state = AsyncMock(return_value="inactive")
         late.stop_unit = AsyncMock(return_value=True)
         state_machine.sources[AudioSource.SPOTIFY] = late
 
@@ -1282,6 +1360,205 @@ class TestASourceThatWillNotStop:
 
         assert caplog.text == ""
         late.stop_unit.assert_not_awaited()
+
+    async def test_a_stop_cut_while_its_unit_is_stopping_holds_the_next_source(
+        self, state_machine, draining, caplog
+    ):
+        """The stop's budget ran out while systemd was still waiting for the
+        daemon to exit: `deactivating`, which the is-active probe reads as
+        down. The log said "its unit is down" and the next source started
+        while the old one still held its device — audible under it."""
+        podcast = CutPodcast(draining)
+        daemon_running_at_start = []
+
+        async def start():
+            daemon_running_at_start.append(draining.pid != 0)
+            return True
+
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = make_source(
+            start=AsyncMock(side_effect=start)
+        )
+        state_machine.system_state.active_source = AudioSource.PODCAST
+
+        with caplog.at_level(logging.INFO, logger="backend.core.state"):
+            try:
+                transition = asyncio.ensure_future(
+                    state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY)
+                )
+                await _until(lambda: draining.watches)
+                draining.daemon_exits()
+                assert await transition is True
+            finally:
+                await podcast.shutdown()
+
+        assert daemon_running_at_start == [False]
+        assert "still stopping" in caplog.text
+        assert "but its unit is down" not in caplog.text
+        # Waited on, never stopped a second time: it is already going down.
+        assert draining.calls == [f"stop {PODCAST_UNIT}"]
+
+    async def test_the_wait_is_not_paid_out_of_the_transition_budget(
+        self, state_machine, draining, caplog
+    ):
+        """On a unit, a stop is found `deactivating` only once it was cut at
+        CONTROL_TIMEOUT, 12.5 of the transition's 15 s. Counted against the
+        budget, the wait failed the selection with start_timeout and never
+        started the target — the opposite of what it waits for. Scaled down:
+        the stop spends most of the budget, the daemon exits past it — 300 ms
+        on each side, so a loaded host reads the same."""
+        podcast = CutPodcast(draining, stop_takes=0.7)
+        daemon_running_at_start = []
+
+        async def start():
+            daemon_running_at_start.append(draining.pid != 0)
+            return True
+
+        state_machine.TRANSITION_TIMEOUT = 1.0
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = make_source(
+            start=AsyncMock(side_effect=start)
+        )
+        state_machine.system_state.active_source = AudioSource.PODCAST
+        asyncio.get_running_loop().call_later(1.3, draining.daemon_exits)
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.state"):
+            try:
+                assert await state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY) is True
+            finally:
+                await podcast.shutdown()
+
+        assert daemon_running_at_start == [False]
+        assert state_machine.system_state.service_error is None
+        assert caplog.text == ""
+
+    async def test_the_start_after_a_wait_is_not_held_to_what_the_stop_left(
+        self, state_machine, draining, caplog
+    ):
+        """After the wait, the old remainder was all the target's start had:
+        1.5 to 2.5 s of the 15 once a stop was cut at CONTROL_TIMEOUT, short of
+        `systemctl start`, the settle and the IPC connect (and in multiroom the
+        stream pointing too). The selection failed start_timeout anyway, the
+        outcome the wait is there to remove. Scaled down: the stop leaves 300
+        ms, the start takes 600 ms."""
+        podcast = CutPodcast(draining, stop_takes=0.7)
+
+        async def start():
+            await asyncio.sleep(0.6)
+            return True
+
+        state_machine.TRANSITION_TIMEOUT = 1.0
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        target = make_source(start=AsyncMock(side_effect=start))
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = target
+        state_machine.system_state.active_source = AudioSource.PODCAST
+        asyncio.get_running_loop().call_later(0.75, draining.daemon_exits)
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.state"):
+            try:
+                assert await state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY) is True
+            finally:
+                await podcast.shutdown()
+
+        assert state_machine.system_state.service_error is None
+        assert caplog.text == ""
+
+    async def test_the_budget_still_bounds_what_follows_the_wait(
+        self, state_machine, draining
+    ):
+        """The budget is pushed past the wait while it runs; left there, a
+        start that hangs after a quick exit held the transition lock — every
+        source press, IR key and multiroom toggle — STOPPING_UNIT_WAIT_S longer
+        before failing."""
+        podcast = CutPodcast(draining)
+        state_machine.TRANSITION_TIMEOUT = 0.2
+        state_machine.STOPPING_UNIT_WAIT_S = 5.0
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = make_source(
+            start=AsyncMock(side_effect=asyncio.Event().wait)
+        )
+        state_machine.system_state.active_source = AudioSource.PODCAST
+        loop = asyncio.get_running_loop()
+
+        try:
+            began = loop.time()
+            transition = asyncio.ensure_future(
+                state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY)
+            )
+            await _until(lambda: draining.watches)
+            draining.daemon_exits()
+            assert await asyncio.wait_for(transition, 3.0) is False
+            took = loop.time() - began
+        finally:
+            await podcast.shutdown()
+
+        assert state_machine.system_state.service_error.reason == "start_timeout"
+        assert took < 2.0
+
+    async def test_a_retry_after_a_cut_teardown_waits_for_the_daemon_too(
+        self, state_machine, draining, caplog
+    ):
+        """The budget ran out during the stop itself: the transition fails, and
+        the retry queued on the lock would start over the daemon still holding
+        its device. The failure settles only once it has exited — reported once,
+        by the state, with no line for the banner."""
+        podcast = CutPodcast(draining, stop_takes=0.1)
+        state_machine.TRANSITION_TIMEOUT = 0.05
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = make_source()
+        state_machine.system_state.active_source = AudioSource.PODCAST
+        asyncio.get_running_loop().call_later(0.3, draining.daemon_exits)
+
+        with caplog.at_level(logging.ERROR, logger="backend.core.state"):
+            try:
+                assert await state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY) is False
+            finally:
+                await podcast.shutdown()
+
+        assert draining.pid == 0
+        assert state_machine.system_state.service_error.reason == "start_timeout"
+        assert caplog.text == ""
+
+    async def test_a_daemon_that_never_exits_is_waited_for_a_bounded_time(
+        self, state_machine, draining, caplog
+    ):
+        """Past STOPPING_UNIT_WAIT_S the next source starts over it: a stop that
+        never ends must not make every source unselectable."""
+        podcast = CutPodcast(draining)
+        target = make_source()
+        state_machine.STOPPING_UNIT_WAIT_S = 0.01
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = target
+        state_machine.system_state.active_source = AudioSource.PODCAST
+
+        with caplog.at_level(logging.WARNING, logger="backend.core.state"):
+            try:
+                assert await state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY) is True
+            finally:
+                await podcast.shutdown()
+
+        assert "no longer waiting" in caplog.text
+        target.start.assert_awaited_once()
+
+    async def test_a_unit_read_neither_down_nor_stopping_is_not_called_down(
+        self, state_machine, caplog
+    ):
+        """`activating` (Restart= bringing it back) or an unreadable state: the
+        probe reads both as not active, and the line used to say the unit was
+        down."""
+        for state in ("activating", None):
+            late = Mock()
+            late.stop = AsyncMock(return_value=False)
+            late.probe_service_active = AsyncMock(return_value=False)
+            late.unit_active_state = AsyncMock(return_value=state)
+            state_machine.sources[AudioSource.SPOTIFY] = late
+
+            caplog.clear()
+            with caplog.at_level(logging.INFO, logger="backend.core.state"):
+                await state_machine._stop_source(AudioSource.SPOTIFY)
+
+            assert "unit is down" not in caplog.text
+            assert [r.levelno for r in caplog.records] == [logging.WARNING]
 
     async def test_an_unreadable_unit_is_reported_as_unconfirmed(
         self, state_machine, caplog

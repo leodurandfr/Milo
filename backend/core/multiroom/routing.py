@@ -476,12 +476,20 @@ class AudioRoutingService:
         push stale (default-zero) gains to the daemon if camilladsp was
         already up (PartOf= cycles it with milo-backend, so the sleep below
         is skipped).
+
+        Read through `unit_state`, not `is_active`, which answers False for a
+        unit `activating` — in its ExecStartPre, or waiting out RestartSec after
+        a crash — and so logged a start for a daemon already on its way up. A
+        unit going down (`deactivating`), stopped, failed, or one that cannot be
+        read is started: a start queues behind a stop, and is a no-op on a unit
+        that turns out to be up.
         """
-        camilladsp_running = await self.service_manager.is_active("milo-camilladsp.service")
-        if not camilladsp_running:
-            self.logger.info("Starting CamillaDSP service (always required for volume control)")
-            await self.service_manager.start("milo-camilladsp.service")
-            await asyncio.sleep(1.0)  # Give daemon time to start
+        state = await self.service_manager.unit_state("milo-camilladsp.service")
+        if state is not None and state[0] in ("active", "reloading", "activating"):
+            return
+        self.logger.info("Starting CamillaDSP service (always required for volume control)")
+        await self.service_manager.start("milo-camilladsp.service")
+        await asyncio.sleep(1.0)  # Give daemon time to start
 
     async def _guarded_simple_toggle(
         self,
@@ -528,22 +536,31 @@ class AudioRoutingService:
     async def set_multiroom_enabled(self, enabled: bool) -> bool:
         """Enable/disable multiroom mode via idempotent reconcile.
 
-        No phased commit, no rollback. Each step is either idempotent or a
-        single atomic write:
+        No phased commit. Each step is either idempotent or a single atomic
+        write:
           1. Pre-broadcast (UI loading state).
-          2. `_apply_transition`: stop source → reconcile snapcast (enabling:
-             open the control WS, point the groups) → write routing.env
-             (derived) → start source (best-effort).
-          3. Persist settings (strict; raises on disk failure).
-          4. Post-transition (WS close on leaving, volume sync, ready broadcast).
+          2. `_apply_transition`: release the source → reconcile snapcast →
+             persist the mode (strict; raises on disk failure) → enabling, open
+             the control WS and point the groups → write routing.env (derived)
+             → reacquire the source (best-effort).
+          3. Post-transition (WS close on leaving, volume sync, ready broadcast).
 
-        On any exception in steps 1-3: log + broadcast `multiroom_error`,
-        close a control WS the failed enable opened, return False. Step 4 is genuinely best-effort: `_apply_transition` has
-        already started snapserver + snapclient, and both snapclient and the
-        control WS auto-reconnect as the daemon finishes coming up — so a
-        WS-not-ready-yet or a transient volume-push miss is self-healing
-        (each client's admission applies its level). It is logged (warning) but does
-        NOT fail the enable — the mode IS committed, so we always broadcast
+        The mode is persisted as soon as the output is in it, and before the
+        control WS opens: its connect sweep admits every room at once, and an
+        admission reaches a satellite through the proxy, which refuses every
+        request while the setting still says direct — measured, each satellite
+        missed its first admission on every enable, logged five "Hardware
+        failed" warnings for hardware nobody had contacted, and stayed muted
+        3 s longer than the local speaker.
+
+        On any exception in steps 1-2: log + broadcast `multiroom_error`, put
+        the persisted mode back when this call had already written it, close a
+        control WS the failed enable opened, return False. Step 3 is genuinely
+        best-effort: `_apply_transition` has already started snapserver +
+        snapclient, and both snapclient and the control WS auto-reconnect as
+        the daemon finishes coming up — so a WS-not-ready-yet or a transient
+        volume-push miss is self-healing (each client's admission applies its
+        level). It is logged (warning) but does NOT fail the enable — the mode IS committed, so we always broadcast
         `state_changed` and return True. Failing here would contradict the
         committed mode (toggle stuck off, HTTP 500) with no upside. (A genuinely
         dead snapserver — unit active but JSON-RPC never answering — also fails
@@ -551,12 +568,12 @@ class AudioRoutingService:
         surfaced elsewhere, not something this best-effort step should re-raise.)
         The system is in either old-consistent or new-consistent state; next
         backend boot re-reconciles via `_detect_initial_state` and
-        `_sync_snapcast_state`. No rollback path.
+        `_sync_snapcast_state`. The output itself is never rolled back.
 
-        routing.env is regenerated before settings is persisted so the source
-        unit restarted inside `_apply_transition` picks up the new MILO_MODE.
-        If settings persist fails afterwards, the next boot re-derives
-        routing.env from the (still-old) settings.
+        routing.env is regenerated after the mode is persisted and before the
+        source is reacquired, so the source unit restarted inside
+        `_apply_transition` picks up the new MILO_MODE, and a persist that fails
+        leaves routing.env on the old mode with the setting.
         """
         if not self._initial_detection_done:
             await self._detect_initial_state()
@@ -580,12 +597,12 @@ class AudioRoutingService:
                 try:
                     await self._broadcast_transition_event(enabled)
                     await self._apply_transition(enabled)
-                    if self.settings_service:
-                        await self.settings_service.set_setting_strict(
-                            'routing.multiroom_enabled', enabled
-                        )
                 except Exception as e:
                     self.logger.error(f"multiroom transition failed: {e}")
+                    # Written by the switch, which failed after it: the lock
+                    # held here means no one else wrote it.
+                    if self.settings_service and self.multiroom_enabled != old_state:
+                        await self._restore_persisted_mode(old_state)
                     if enabled and self.snapcast_websocket_service:
                         # The mode stays direct: nothing may admit a room now.
                         try:
@@ -603,9 +620,23 @@ class AudioRoutingService:
             self.logger.info(f"Multiroom transition complete: {enabled}")
             return True
 
+    async def _restore_persisted_mode(self, old_state: bool) -> None:
+        """Put the mode a failed toggle had already persisted back to the one in
+        force: the switch did not complete, and the setting is what every
+        reader — the proxy, the volume service, the next boot — takes for the
+        output."""
+        try:
+            await self.settings_service.set_setting_strict('routing.multiroom_enabled', old_state)
+        except Exception as e:
+            self.logger.error(
+                f"Could not put routing.multiroom_enabled back to {old_state} after the "
+                f"failed toggle: {e}; the next boot reconciles the output to the setting"
+            )
+
     async def _apply_transition(self, enabled: bool) -> None:
         """Carry the active source across the mode change, switching the output
-        under it: reconcile snapcast, then regenerate routing.env.
+        under it: reconcile snapcast, persist the mode, then regenerate
+        routing.env.
 
         The source's side — reading which source is active inside the transition
         lock, RELEASE before the output moves, ACQUIRE after, settling it
@@ -628,17 +659,20 @@ class AudioRoutingService:
                 self.logger.info("Starting snapcast services")
                 if not await self._start_snapcast():
                     raise RuntimeError("Failed to start snapcast services")
-                # The groups come back on whatever stream snapserver kept; the
-                # source carried across is what they must play once reacquired.
-                # Not through point_multiroom_at: the mode is persisted only
-                # after this switch, so its direct-mode gate would still hold.
-                # Over the control socket, which direct mode closed: open first.
-                await self._open_control_socket()
-                await self._point_groups_at(self.state_machine.system_state.active_source)
             else:
                 self.logger.info("Stopping snapcast services")
                 if not await self._stop_snapcast():
                     raise RuntimeError("Failed to stop snapcast services")
+            # The output is in the new mode: the setting says so before anything
+            # can admit a room (see set_multiroom_enabled).
+            if self.settings_service:
+                await self.settings_service.set_setting_strict('routing.multiroom_enabled', enabled)
+            if enabled:
+                # The groups come back on whatever stream snapserver kept; the
+                # source carried across is what they must play once reacquired.
+                # Over the control socket, which direct mode closed: open first.
+                await self._open_control_socket()
+                await self._point_groups_at(self.state_machine.system_state.active_source)
             await RoutingEnv.regenerate(enabled)
 
         await self.state_machine.reroute_active_source(switch_output)

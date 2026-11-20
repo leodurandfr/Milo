@@ -75,6 +75,7 @@ class TestAudioRoutingService:
         with patch('backend.core.multiroom.routing.SystemdServiceManager') as mock:
             manager = Mock()
             manager.is_active = AsyncMock(return_value=False)
+            manager.unit_state = AsyncMock(return_value=("active", "success"))
             manager.start = AsyncMock(return_value=True)
             manager.stop = AsyncMock(return_value=True)
             manager.restart = AsyncMock(return_value=True)
@@ -205,6 +206,34 @@ class TestAudioRoutingService:
 
         assert routing_service.multiroom_enabled is True
         assert routing_service._initial_detection_done is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("unit_state, started", [
+        (("active", "success"), False),
+        # In its ExecStartPre, or waiting out RestartSec after a crash: on its
+        # way up. `is_active` read it as stopped and a start was logged.
+        (("activating", "success"), False),
+        (("activating", "signal"), False),
+        # Going down, down, failed, or unreadable: a start is what brings it up,
+        # and is a no-op on a unit that was up after all.
+        (("deactivating", "success"), True),
+        (("inactive", "success"), True),
+        (("failed", "exit-code"), True),
+        (None, True),
+    ])
+    async def test_camilladsp_is_started_only_when_it_is_not_on_its_way_up(
+        self, routing_service, mock_systemd_manager, unit_state, started
+    ):
+        mock_systemd_manager.unit_state = AsyncMock(return_value=unit_state)
+
+        with patch('backend.core.multiroom.routing.asyncio.sleep', new_callable=AsyncMock):
+            await routing_service._initialize_camilladsp()
+
+        mock_systemd_manager.unit_state.assert_awaited_once_with("milo-camilladsp.service")
+        if started:
+            mock_systemd_manager.start.assert_awaited_once_with("milo-camilladsp.service")
+        else:
+            mock_systemd_manager.start.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_initialize_without_settings_service(self):
@@ -377,6 +406,53 @@ class TestAudioRoutingService:
         error_events = events_of(routing_service.state_machine.broadcast,
                                  "routing", "multiroom_error")
         assert not error_events
+
+    @pytest.mark.asyncio
+    async def test_the_mode_is_persisted_before_the_control_socket_admits_a_room(
+        self, routing_service, mock_settings_service
+    ):
+        """The control socket's connect sweep admits every room at once, and an
+        admission reaches a satellite through `EqualizerClientProxyService`,
+        which refuses every request while `multiroom_enabled` reads False.
+        Persisted after the switch, each satellite missed its first admission on
+        every enable: five "Hardware failed" warnings for hardware nobody had
+        contacted, and 3 s more of silence than the local speaker."""
+        _seed_multiroom(mock_settings_service, False)
+        mode_when_opened = []
+        ws_service = Mock()
+        ws_service.start_connection = AsyncMock(
+            side_effect=lambda: mode_when_opened.append(routing_service.multiroom_enabled)
+        )
+        ws_service.wait_for_ready = AsyncMock(return_value=True)
+        ws_service.stop_connection = AsyncMock()
+        routing_service.set_snapcast_websocket_service(ws_service)
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'):
+            assert await routing_service.set_multiroom_enabled(True) is True
+
+        assert mode_when_opened == [True]
+
+    @pytest.mark.asyncio
+    async def test_a_toggle_that_fails_after_persisting_puts_the_mode_back(
+        self, routing_service, mock_settings_service
+    ):
+        """routing.env could not be rewritten: the source is reacquired under
+        the old MILO_MODE and the toggle reports failure. A setting left on the
+        new mode would tell the proxy, the volume service and the next boot an
+        output the switch never completed."""
+        _seed_multiroom(mock_settings_service, False)
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate',
+                   side_effect=OSError("read-only file system")):
+            result = await routing_service.set_multiroom_enabled(True)
+
+        assert result is False
+        assert routing_service.multiroom_enabled is False
+        assert [c.args for c in mock_settings_service.set_setting_strict.await_args_list] == [
+            ('routing.multiroom_enabled', True), ('routing.multiroom_enabled', False),
+        ]
+        assert len(events_of(routing_service.state_machine.broadcast,
+                             "routing", "multiroom_error")) == 1
 
     @staticmethod
     def _volume_service_stub(volume_control: bool = True):

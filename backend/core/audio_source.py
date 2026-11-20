@@ -1747,6 +1747,47 @@ class BaseAudioSource(ABC):
             return False
         return await self._service_manager.probe_active(self.service_name)
 
+    async def unit_active_state(self) -> Optional[str]:
+        """This source's unit's ActiveState — `inactive` when the source owns
+        no unit — or None when it cannot be read.
+
+        What `probe_service_active` cannot say: it answers False for a unit
+        still stopping (`deactivating`) as for one that is down, and a stop cut
+        by its budget while systemd waits out the daemon's exit is the first
+        case. The daemon still holds its device until then.
+        """
+        if not self.service_name:
+            return "inactive"
+        state = await self._unit_state()
+        return None if state is None else state[0]
+
+    async def wait_for_daemon_exit(self, timeout: float) -> Optional[bool]:
+        """Wait, at most `timeout` seconds, for this source's daemon process to
+        exit: what a unit read `deactivating` is waiting for, and what holds
+        the device until then. Heard through a pidfd (ProcessWatch) when it
+        happens, never polled.
+
+        True once it has exited (a unit with no main process has nothing left
+        to exit), False when `timeout` passed first, None when the daemon could
+        not be named — nothing is claimed then.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        pid = await self._service_main_pid()
+        if pid is None:
+            return None
+        if pid == 0:
+            return True
+        exited = loop.create_future()
+        watch = ProcessWatch(pid, lambda: exited.done() or exited.set_result(None))
+        try:
+            await asyncio.wait_for(exited, max(0.0, deadline - loop.time()))
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            watch.close()
+        return True
+
     async def stop_unit(self) -> bool:
         """Stop this source's unit, outside the mailbox: the state machine's
         last resort once a STOP came back False and `probe_service_active`

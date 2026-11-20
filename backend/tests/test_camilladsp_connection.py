@@ -236,6 +236,24 @@ class TestConnectOnce:
 
         assert not service._connection_ready.is_set()
 
+    async def test_only_a_later_refusal_is_a_warning(self, service, monkeypatch, caplog):
+        """The first attempt is refused on every backend restart: it reaches the
+        journal at info. A refusal after it is a daemon that went away, and
+        errors.log keeps it."""
+        client = AsyncMock()
+        client.connect.side_effect = ConnectionRefusedError(111, "Connection refused")
+        monkeypatch.setattr(service_module, "CamillaDspClient", lambda host, port: client)
+
+        with caplog.at_level(logging.INFO, logger="backend.core.equalizer.service"):
+            await service._connect_once()
+            first = [r.levelno for r in caplog.records]
+            caplog.clear()
+            await service._connect_once()
+            second = [r.levelno for r in caplog.records]
+
+        assert first == [logging.INFO]
+        assert second == [logging.WARNING]
+
     async def test_connect_is_the_public_name_for_one_attempt(self, service, client_factory):
         """`AudioRoutingService` calls `connect()` at startup, not the private twin."""
         built, _ = client_factory
@@ -390,9 +408,10 @@ class TestConnectionLoop:
     async def test_the_back_off_resets_once_a_connection_lands(self, service, sleeps):
         """A daemon that flaps must not inherit the delay grown while it was gone.
 
-        Two failures push the delay to 11.25 s; the connect that follows brings
-        it back to 5 s, so the *next* drop is noticed in five seconds and not in
-        eleven.
+        Two failures push the delay to 11.25 s; a session that lands and is lost
+        later brings it back to 5 s, so the failure after it waits five seconds
+        and not eleven. (The 5.0 in the middle is the session's idle keepalive
+        tick; the keepalive finds no client and loses it.)
         """
         service._restore_after_reconnect = AsyncMock()
         outcomes = [False, False, True, False]
@@ -403,13 +422,136 @@ class TestConnectionLoop:
             if calls["n"] > len(outcomes):
                 service._running = False
                 return False
-            return outcomes[calls["n"] - 1]
+            ok = outcomes[calls["n"] - 1]
+            service._connected = ok
+            return ok
 
         service._connect_once = _attempt
 
         await service._connection_loop()
 
-        assert sleeps == [5.0, 7.5, 5.0, 7.5]
+        assert sleeps == [5.0, 7.5, 5.0, 5.0]
+
+    @pytest.fixture
+    def daemon(self, service, monkeypatch, mock_camilla_client):
+        """CamillaDSP as the loop's connects meet it: `connects` lists what each
+        one meets — an exception to raise, or None for a daemon that answers —
+        and the loop is stopped once the list runs out. Every construction
+        hands back the same `mock_camilla_client`."""
+        script: list = []
+
+        async def connect():
+            if not script:
+                service._running = False
+                raise ConnectionRefusedError(111, "Connection refused")
+            outcome = script.pop(0)
+            if outcome is not None:
+                raise outcome
+
+        mock_camilla_client.connect.side_effect = connect
+        monkeypatch.setattr(service_module, "CamillaDspClient", lambda host, port: mock_camilla_client)
+        return script, mock_camilla_client
+
+    async def test_a_refused_connect_retries_from_half_a_second(self, service, sleeps, daemon):
+        """Every backend restart: CamillaDSP restarts with it (PartOf=) and is
+        not listening at the first attempt. The room sits muted at its floor
+        (invariant 7) until the loop gets in, so a refusal is retried from the
+        satellite's step, not from five seconds — and still backs off, since a
+        daemon that never comes back must not be hammered."""
+        script, _ = daemon
+        script.extend([ConnectionRefusedError(111, "Connection refused")] * 3)
+
+        await service._connection_loop()
+
+        assert sleeps == [
+            service.REFUSED_RETRY_DELAY,
+            service.REFUSED_RETRY_DELAY * 1.5,
+            service.REFUSED_RETRY_DELAY * 1.5 * 1.5,
+        ]
+
+    async def test_a_refusal_and_any_other_failure_back_off_apart(self, service, sleeps, daemon):
+        """Only nothing listening earns the short step: a handshake that timed
+        out is a daemon that is there and not answering, and keeps the
+        five-second ladder — each ladder growing on its own."""
+        script, _ = daemon
+        refused = ConnectionRefusedError(111, "Connection refused")
+        script.extend([refused, refused, TimeoutError("handshake timed out"), refused])
+
+        await service._connection_loop()
+
+        assert sleeps == [
+            service.REFUSED_RETRY_DELAY,
+            service.REFUSED_RETRY_DELAY * 1.5,
+            service.RECONNECT_DELAY,
+            service.REFUSED_RETRY_DELAY * 1.5 * 1.5,
+        ]
+
+    async def test_a_lost_session_is_reconnected_at_once(self, service, sleeps, daemon):
+        """The daemon restarted under a working session (an update, a crash):
+        the next attempt follows the keepalive that noticed, with no back-off
+        between them. Only the idle tick that ran the keepalive is slept."""
+        script, client = daemon
+        script.append(None)
+        sleeps_at_connect = []
+        connect = client.connect.side_effect
+
+        async def connect_recorded():
+            sleeps_at_connect.append(list(sleeps))
+            await connect()
+
+        async def get_state():
+            # Answers the connect's read; the keepalive after the idle tick
+            # finds the socket closed.
+            if sleeps:
+                raise ConnectionError("closed")
+            return "Running"
+
+        client.connect.side_effect = connect_recorded
+        client.get_state.side_effect = get_state
+
+        await service._connection_loop()
+
+        assert sleeps_at_connect == [[], [service.RECONNECT_DELAY]]
+        assert sleeps == [service.RECONNECT_DELAY]
+
+    async def test_a_session_that_landed_resets_the_refused_ladder(self, service, sleeps, daemon):
+        """A daemon that flapped earlier in the process's life must not slow the
+        next restart: its refusals retry from half a second again, not from the
+        step grown before — up to 30 s of a room muted at its floor."""
+        script, client = daemon
+        refused = ConnectionRefusedError(111, "Connection refused")
+        script.extend([refused, refused, None, refused])
+
+        async def get_state():
+            # Answers the connect's read; the keepalive after the idle tick
+            # finds the socket closed.
+            if sleeps and sleeps[-1] == service.RECONNECT_DELAY:
+                raise ConnectionError("closed")
+            return "Running"
+
+        client.get_state.side_effect = get_state
+
+        await service._connection_loop()
+
+        assert sleeps == [
+            service.REFUSED_RETRY_DELAY,
+            service.REFUSED_RETRY_DELAY * 1.5,
+            service.RECONNECT_DELAY,
+            service.REFUSED_RETRY_DELAY,
+        ]
+
+    async def test_a_restore_the_daemon_dropped_backs_off(self, service, sleeps, daemon):
+        """Connected, then the daemon closed the socket during the restore:
+        retried at once, this pass would churn a client per round trip forever."""
+        script, client = daemon
+        script.extend([None, None])
+        client.get_config.side_effect = ConnectionError("closed")
+        client.read_config_file.side_effect = ConnectionError("closed")
+        client.set_config.side_effect = ConnectionError("closed")
+
+        await service._connection_loop()
+
+        assert sleeps == [service.RECONNECT_DELAY, service.RECONNECT_DELAY * 1.5]
 
     async def test_the_idle_loop_keeps_probing_a_live_connection(self, service, sleeps):
         """Without this the loop sleeps forever on a `_connected` that nothing

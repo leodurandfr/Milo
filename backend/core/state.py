@@ -115,6 +115,12 @@ class AudioStateMachine:
     # How much longer a failed transition waits for a teardown the budget cut,
     # before giving the lock back with the unit possibly still stopping.
     TEARDOWN_GRACE = 15.0
+    # How long a stop cut while its unit was still `deactivating` waits for
+    # the daemon to exit before what follows goes ahead over it. A unit with no
+    # TimeoutStopSec of its own (the mpv sources, Mac, AirPlay, BlueALSA) may
+    # take systemd's 90 s default. Not paid out of TRANSITION_TIMEOUT: the stop
+    # that found the unit stopping has already spent most of it.
+    STOPPING_UNIT_WAIT_S = 15.0
     # Given to ALSA to release the device between a source's RELEASE and the
     # snapcast reconcile that reopens it.
     ALSA_RELEASE_SETTLE_S = 0.5
@@ -505,7 +511,7 @@ class AudioStateMachine:
             teardown: Optional[asyncio.Task] = None
 
             try:
-                async with asyncio.timeout(self.TRANSITION_TIMEOUT):
+                async with asyncio.timeout(self.TRANSITION_TIMEOUT) as budget:
                     async with self._state_lock:
                         old_source = self.system_state.active_source
                         self.system_state.transitioning = True
@@ -524,7 +530,12 @@ class AudioStateMachine:
                     if old_source != AudioSource.NONE:
                         teardown = asyncio.ensure_future(self._stop_source(old_source))
                         teardown.set_name(old_source.value)
-                        await asyncio.shield(teardown)
+                        stopping = await asyncio.shield(teardown)
+                        if stopping is not None:
+                            await self._wait_for_unit_down(stopping, budget)
+                        # Over, its wait included: a failure from here on has
+                        # nothing of it left to wait for.
+                        teardown = None
 
                     # Start new source — in multiroom, once every room is on its
                     # stream, so its first samples are heard: the meta stream
@@ -665,8 +676,10 @@ class AudioStateMachine:
         return True
 
     @handle_errors(default=None)
-    async def _stop_source(self, source: AudioSource) -> None:
+    async def _stop_source(self, source: AudioSource) -> Optional[AudioSource]:
         """Stop specified source; when its unit is seen still up, stop the unit.
+        Returns `source` when its unit was left stopping, for the caller to
+        wait on (`_wait_for_unit_down`), else None.
 
         `stop()` reports its own refusal at warning — journal-only. A STOP can
         fail before it reaches the unit (the podcast's progress save raising
@@ -674,7 +687,10 @@ class AudioStateMachine:
         it: mpv starts `--idle` with no output open, and each source writes its
         own Loopback substream. Starting the next source over it kept the old
         one audible (in multiroom, in every room), so the unit is stopped here,
-        and the end that follows is the source's own (USER_STOP, E71).
+        and the end that follows is the source's own (USER_STOP, E71). A stop
+        whose budget ran out while systemd was still waiting for the daemon to
+        exit leaves the unit `deactivating`, the daemon still holding its
+        device: that one is not stopped again, it is waited for.
 
         The verdict is deliberately *not* propagated. Refusing the transition
         would turn every unclean stop into a source selection the user cannot
@@ -682,7 +698,7 @@ class AudioStateMachine:
         """
         instance = self.sources.get(source)
         if not instance or await instance.stop():
-            return
+            return None
 
         # Selected again while this stop ran (a teardown the budget gave up on,
         # or a retry): its START comes next — queued behind this STOP, or next
@@ -701,20 +717,93 @@ class AudioStateMachine:
                 "%s would not stop; selected again, its start takes the unit over",
                 source.value,
             )
-        elif still_up is True:
+            return None
+        if still_up is True:
             logger.error("%s would not stop; stopping its unit", source.value)
             if not await instance.stop_unit():
                 logger.error(
                     "%s unit refused its stop too; it may still be playing", source.value
                 )
-        elif still_up is None:
+            return None
+        if still_up is None:
             logger.warning(
                 "%s stop went unconfirmed — the unit may still hold the device",
                 source.value,
             )
-        else:
+            return None
+
+        # Not active: down, or still on its way down — the probe cannot tell.
+        state = await instance.unit_active_state()
+        if state == "deactivating":
+            if not selected_again:
+                return source
+            logger.warning(
+                "%s stop was cut while its unit was still stopping; selected "
+                "again, its start queues behind the stop", source.value,
+            )
+        elif state in ("inactive", "failed"):
             logger.info(
                 "%s stop was reported failed, but its unit is down", source.value
+            )
+        elif state is None:
+            logger.warning(
+                "%s stop went unconfirmed — its unit's state could not be read",
+                source.value,
+            )
+        else:
+            logger.warning(
+                "%s stop was reported failed, and its unit is %s", source.value, state
+            )
+        return None
+
+    async def _wait_for_unit_down(
+        self, source: AudioSource, budget: Optional[asyncio.Timeout] = None
+    ) -> None:
+        """Wait for the daemon of `source`, whose unit a stop left `deactivating`,
+        to exit — at most STOPPING_UNIT_WAIT_S — so that what follows (the next
+        source, or a retry once a failed transition settled) does not play over
+        it.
+
+        `budget` is the transition's: the wait is not counted against it. Its
+        stop already spent most of it (a stop cut at CONTROL_TIMEOUT), and the
+        wait counted would fail the very transition it holds for. Nor is what
+        follows held to what the stop left: after a wait, the rest of the
+        transition (the multiroom pointing, the target's start) is given a
+        fresh TRANSITION_TIMEOUT — what it has behind a stop that answered at
+        once. The remainder alone was 1.5 to 2.5 s, short of one start. Still a
+        bound: a start that hangs fails start_timeout that long after the wait,
+        never STOPPING_UNIT_WAIT_S later.
+        """
+        instance = self.sources.get(source)
+        if instance is None:
+            return
+        logger.warning(
+            "%s stop was cut while its unit was still stopping; waiting for its "
+            "daemon to exit", source.value,
+        )
+        loop = asyncio.get_running_loop()
+        began = loop.time()
+        deadline = budget.when() if budget is not None and not budget.expired() else None
+        if deadline is not None:
+            budget.reschedule(deadline + self.STOPPING_UNIT_WAIT_S)
+        exited = await instance.wait_for_daemon_exit(self.STOPPING_UNIT_WAIT_S)
+        if deadline is not None and not budget.expired():
+            # Never short of what was left, since the deadline was at most
+            # TRANSITION_TIMEOUT past the wait's start.
+            budget.reschedule(loop.time() + self.TRANSITION_TIMEOUT)
+
+        if exited:
+            logger.info(
+                "%s daemon exited %.1fs into the wait", source.value, loop.time() - began
+            )
+        elif exited is None:
+            logger.warning(
+                "%s daemon could not be named; not waiting for it", source.value
+            )
+        else:
+            logger.warning(
+                "%s daemon still running %.0fs into the wait; no longer waiting "
+                "for it", source.value, self.STOPPING_UNIT_WAIT_S,
             )
 
     @handle_errors(default=False)
@@ -760,9 +849,16 @@ class AudioStateMachine:
                     "%s is still stopping %.0fs past the transition budget; "
                     "no longer waiting for it", teardown.get_name(), self.TEARDOWN_GRACE,
                 )
+        # A teardown the budget cut that left its unit stopping: the retry
+        # queued on the lock must not start over it either.
+        if teardown is not None and teardown.done() and not teardown.cancelled() \
+                and teardown.exception() is None and teardown.result() is not None:
+            await self._wait_for_unit_down(teardown.result())
 
         if target_source != AudioSource.NONE:
-            await self._stop_source(target_source)
+            stopping = await self._stop_source(target_source)
+            if stopping is not None:
+                await self._wait_for_unit_down(stopping)
 
         async with self._state_lock:
             self.system_state.active_source = target_source
