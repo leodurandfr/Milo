@@ -11,8 +11,12 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { apiCall } from '@/services/apiCall';
+import { usePresenceStore } from '@/stores/presenceStore';
 
 export const useSystemStore = defineStore('system', () => {
+  // Opening SSH and setting the password reach root: the unit waits for a
+  // gesture on itself before either (presenceStore).
+  const presence = usePresenceStore();
   const hostnameConflict = ref(false);
   const advertisedName = ref(null);
   const localIp = ref(null);
@@ -110,7 +114,7 @@ export const useSystemStore = defineStore('system', () => {
   }
 
   async function setSshEnabled(enabled, { errorRef } = {}) {
-    const result = await apiCall.put('/api/system/ssh', { enabled }, {
+    const result = await presence.request('put', '/api/system/ssh', { enabled }, {
       category: 'system',
       message: 'Failed to change SSH state',
       errorRef,
@@ -125,7 +129,7 @@ export const useSystemStore = defineStore('system', () => {
   }
 
   async function setPassword(password, { errorRef } = {}) {
-    passwordSave = apiCall.post('/api/system/password', { password }, {
+    passwordSave = presence.request('post', '/api/system/password', { password }, {
       category: 'system',
       message: 'Failed to set device password',
       errorRef,

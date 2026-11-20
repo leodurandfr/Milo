@@ -1,0 +1,309 @@
+# backend/tests/architecture/test_presence_guard.py
+"""Structural guardrail: every route that reaches root waits for a gesture on the unit.
+
+Nothing on this API authenticates, and on the server the backend is root by
+construction (CLAUDE.md, invariant 5), so these routes were, until this file,
+root for anyone on the LAN: open SSH on the factory password, or set the sudo
+password, then log in; install as root whatever GitHub serves; send the server
+back to its first boot. Owner decision, 2026-11-13: only the paths to root wait
+for a proof of presence (`core/system/presence.py`); reading and settings stay
+open to the LAN.
+
+`GUARDED` is the list, one row per `PresenceAction`, and each row is driven
+through the real router: refused without the gesture — from 127.0.0.1 too,
+which every process on the unit has — with nothing done to the box, then let
+through once with the token its 428 carried, after the gesture. Both directions
+are held from source as well: an action no row drives fails, and so does a
+`require_presence` call naming an action no row lists. A route that drops its
+guard fails the first test; a route guarded under a new action, with no row
+here, fails the last.
+"""
+import ast
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from backend.api import system as api_system
+from backend.api.programs import create_programs_router
+from backend.api.system import create_system_router
+from backend.core.models.presence import Gesture, PresenceAction
+from backend.core.system.presence import PRESENCE_GESTURES_HEADER
+from backend.tests.presence_world import World
+
+BACKEND = Path(__file__).resolve().parents[2]
+
+# (action, method, path, body) — the request that reaches root through it.
+GUARDED = [
+    (PresenceAction.SSH_OPEN, "put", "/api/system/ssh", {"enabled": True}),
+    (PresenceAction.PASSWORD, "post", "/api/system/password", {"password": "correct horse"}),
+    (PresenceAction.PROGRAM_UPSTREAM, "post", "/api/programs/go-librespot/update", {"target": "upstream"}),
+    (PresenceAction.RESET_SETUP, "post", "/api/system/reset-setup", None),
+]
+
+# The halves of the same routes that do not reach root, and stay open.
+OPEN = [
+    ("put", "/api/system/ssh", {"enabled": False}),
+    ("post", "/api/programs/go-librespot/update", {"target": "validated"}),
+]
+
+# Every process on the unit has this address, and nginx names it for the kiosk.
+LOOPBACK = {"client": ("127.0.0.1", 41000)}
+THROUGH_NGINX = {"X-Real-IP": "127.0.0.1"}
+
+
+class _Box:
+    """What the guarded routes do to the unit, recorded."""
+
+    def __init__(self, tmp_path, monkeypatch):
+        self.reset_marker = tmp_path / "reset-setup"
+        self.password_marker = tmp_path / "password-changed"
+        self.password_marker.touch()
+        monkeypatch.setattr(api_system, "RESET_SETUP_MARKER", self.reset_marker)
+        monkeypatch.setattr(api_system, "PASSWORD_CHANGED_MARKER", self.password_marker)
+
+        self.spawned = []
+
+        class _Helper:
+            returncode = 0
+
+            async def communicate(_self, payload=None):
+                return b"", b""
+
+        async def _spawn(*argv, **kwargs):
+            self.spawned.append(argv)
+            return _Helper()
+
+        monkeypatch.setattr(api_system.asyncio, "create_subprocess_exec", _spawn)
+
+        self.systemd = Mock()
+        self.systemd.power = AsyncMock(return_value=True)
+        self.systemd.set_enabled = AsyncMock(return_value=True)
+        self.systemd.is_enabled = AsyncMock(return_value=True)
+        self.systemd.is_active = AsyncMock(return_value=True)
+
+        self.updates = MagicMock()
+        self.updates.milo_update_active = False
+        self.updates.milo_update_state = MagicMock(return_value=None)
+        self.updates.can_update_program = AsyncMock(
+            return_value={"can_update": True, "available_version": "0.9.1"}
+        )
+        self.updates.update_program = AsyncMock(return_value={"success": True})
+
+    def touched(self, action) -> bool:
+        return {
+            PresenceAction.SSH_OPEN: lambda: self.systemd.set_enabled.await_count > 0,
+            PresenceAction.PASSWORD: lambda: bool(self.spawned),
+            # The check before it only reads: the install is what reaches root.
+            PresenceAction.PROGRAM_UPSTREAM: lambda: self.updates.update_program.await_count > 0,
+            PresenceAction.RESET_SETUP: lambda: (
+                self.reset_marker.exists() or self.systemd.power.await_count > 0
+            ),
+        }[action]()
+
+
+@pytest.fixture
+def unit(tmp_path, monkeypatch):
+    yield from _unit(tmp_path, monkeypatch, rotary=True)
+
+
+@pytest.fixture
+def bare_unit(tmp_path, monkeypatch):
+    """Neither an encoder nor a Pi 5: the plug is the gesture."""
+    yield from _unit(tmp_path, monkeypatch)
+
+
+def _unit(tmp_path, monkeypatch, **board):
+    box = _Box(tmp_path, monkeypatch)
+    world = World(tmp_path, monkeypatch, **board)
+    presence = world.service()
+    state_machine = Mock()
+    state_machine.broadcast = AsyncMock()
+
+    app = FastAPI()
+    app.include_router(
+        create_system_router(box.systemd, update_service=box.updates, presence_service=presence),
+        prefix="/api/system",
+    )
+    app.include_router(
+        create_programs_router(box.updates, MagicMock(), state_machine, presence_service=presence)
+    )
+    with TestClient(app, **LOOPBACK) as client:
+        client.portal.call(presence.initialize)
+        yield box, presence, client
+
+
+def _send(client, method, path, body, headers=None):
+    return getattr(client, method)(
+        path, **({"json": body} if body is not None else {}),
+        headers={**THROUGH_NGINX, **(headers or {})},
+    )
+
+
+@pytest.mark.parametrize("action,method,path,body", GUARDED, ids=[row[0].value for row in GUARDED])
+def test_without_the_gesture_nothing_reaches_root(unit, action, method, path, body):
+    """A 200 here is root for anyone on the LAN — or for any process on the
+    unit, since the request comes from 127.0.0.1 through nginx."""
+    box, presence, client = unit
+
+    response = _send(client, method, path, body)
+
+    assert response.status_code == 428, response.text
+    challenge = response.json()["detail"]["challenge"]
+    assert (challenge["action"], challenge["status"]) == (action.value, "pending")
+    assert not box.touched(action)
+
+
+@pytest.mark.parametrize("action,method,path,body", GUARDED, ids=[row[0].value for row in GUARDED])
+def test_the_gesture_lets_that_request_through_once(unit, action, method, path, body):
+    box, presence, client = unit
+    refused = _send(client, method, path, body).json()["detail"]
+    answer = {refused["header"]: refused["token"]}
+
+    client.portal.call(presence.on_gesture, Gesture.ROTARY)
+    response = _send(client, method, path, body, answer)
+
+    assert response.status_code == 200, response.text
+    assert box.touched(action)
+    assert _send(client, method, path, body, answer).status_code == 428, "a proof is spent once"
+
+
+@pytest.mark.parametrize("method,path,body", OPEN, ids=[row[1] + str(row[2]) for row in OPEN])
+def test_the_halves_that_do_not_reach_root_stay_open(unit, method, path, body):
+    """Closing SSH and returning to the manifest's pin must never wait for a
+    gesture: the decision guards the paths to root, nothing else."""
+    _, presence, client = unit
+
+    response = _send(client, method, path, body)
+
+    assert response.status_code == 200, response.text
+    assert presence.view() is None
+
+
+def test_ssh_is_not_opened_on_the_factory_password(unit):
+    """Same value on every unit, published with the source: a door opened on
+    it is open to whoever reads the repository. Refused before any challenge,
+    so the owner is never asked for a gesture the route then refuses."""
+    box, presence, client = unit
+    box.password_marker.unlink()
+
+    response = _send(client, "put", "/api/system/ssh", {"enabled": True})
+
+    assert response.status_code == 409
+    assert presence.view() is None
+    box.systemd.set_enabled.assert_not_awaited()
+
+
+# Each request a route refuses whatever the gesture, and how the unit gets there.
+REFUSED_ANYWAY = {
+    "ssh on the factory password": (
+        "put", "/api/system/ssh", {"enabled": True},
+        lambda box: box.password_marker.unlink(),
+    ),
+    "upstream with no such release": (
+        "post", "/api/programs/go-librespot/update", {"target": "upstream"},
+        lambda box: setattr(box.updates.can_update_program, "return_value", {"can_update": False}),
+    ),
+    "reset during a Milō update": (
+        "post", "/api/system/reset-setup", None,
+        lambda box: setattr(box.updates, "milo_update_active", True),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(REFUSED_ANYWAY))
+def test_a_request_the_route_refuses_anyway_asks_for_no_gesture(unit, case):
+    """Asked to turn the knob or pull the plug for a request that is then
+    refused, the owner has made the gesture for nothing — and on a power cut,
+    rebooted the unit for nothing."""
+    box, presence, client = unit
+    method, path, body, arrange = REFUSED_ANYWAY[case]
+    arrange(box)
+
+    response = _send(client, method, path, body)
+
+    assert response.status_code != 428, response.text
+    assert presence.view() is None
+
+
+def test_an_upstream_install_another_update_holds_asks_for_no_gesture(unit):
+    box, presence, client = unit
+    box.updates.milo_update_active = True
+
+    response = _send(client, "post", "/api/programs/go-librespot/update", {"target": "upstream"})
+
+    assert response.json()["status"] == "error", response.text
+    assert presence.view() is None
+
+
+def test_only_the_request_that_asked_ends_its_challenge(unit):
+    """The dialog's Cancel, through the same path the challenge is read at."""
+    _, presence, client = unit
+    refused = _send(client, "put", "/api/system/ssh", {"enabled": True}).json()["detail"]
+
+    assert client.delete("/api/system/presence", headers={refused["header"]: "not-the-token"}).status_code == 404
+    assert client.get("/api/system/presence").json()["data"]["challenge"]["id"] == refused["challenge"]["id"]
+
+    assert client.delete("/api/system/presence", headers={refused["header"]: refused["token"]}).status_code == 200
+    assert client.get("/api/system/presence").json()["data"]["challenge"] is None
+
+
+def test_the_units_own_screen_is_sent_elsewhere_for_a_power_cut(bare_unit):
+    """The screen goes down with the unit: what it asks is answered at once,
+    with nothing opened, so the phone it sends the owner to is not refused."""
+    _, presence, client = bare_unit
+    on_the_unit = {PRESENCE_GESTURES_HEADER: "rotary, power_button"}
+
+    response = _send(client, "put", "/api/system/ssh", {"enabled": True}, on_the_unit)
+
+    assert response.status_code == 428, response.text
+    assert response.json()["detail"]["gesture"] == "power_cycle"
+    assert "token" not in response.json()["detail"]
+    assert presence.view() is None
+    from_a_phone = _send(client, "put", "/api/system/ssh", {"enabled": True})
+    assert from_a_phone.status_code == 428
+    assert from_a_phone.json()["detail"]["challenge"]["gesture"] == "power_cycle"
+
+
+def test_a_gesture_the_unit_does_not_know_is_refused(unit):
+    """Read as no gesture at all, it would send the screen elsewhere with no
+    word of why."""
+    _, presence, client = unit
+
+    response = _send(client, "put", "/api/system/ssh", {"enabled": True}, {PRESENCE_GESTURES_HEADER: "knob"})
+
+    assert response.status_code == 400
+    assert presence.view() is None
+
+
+def _required_actions() -> set[str]:
+    """The `PresenceAction` members named in `require_presence(...)` calls under backend/."""
+    named = set()
+    files = [p for p in BACKEND.rglob("*.py") if "tests" not in p.relative_to(BACKEND).parts]
+    for path in files:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "require_presence"
+            ):
+                for arg in ast.walk(node):
+                    if (
+                        isinstance(arg, ast.Attribute)
+                        and isinstance(arg.value, ast.Name)
+                        and arg.value.id == "PresenceAction"
+                    ):
+                        named.add(arg.attr)
+    assert len(named) >= 4, f"only {sorted(named)} found guarded — the extractor is broken"
+    return named
+
+
+def test_every_guard_in_the_code_is_a_row_here_and_every_row_a_guard():
+    """A route guarded under an action no row drives is a guard nobody checks;
+    an action no route requires is a row that proves nothing."""
+    rows = {row[0].name for row in GUARDED}
+
+    assert rows == {member.name for member in PresenceAction}
+    assert _required_actions() == rows

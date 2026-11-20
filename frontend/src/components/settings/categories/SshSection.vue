@@ -1,16 +1,15 @@
 <!-- frontend/src/components/settings/categories/SshSection.vue -->
 <!-- The SSH switch and the way to the account password, for the server
      (System) and for a satellite (its client panel). The factory password is
-     identical on every Milō and published with the source, so an open SSH door
-     is worth a word — but as a fact, and only while the door is open. Not as a
-     precondition: nothing on the API authenticates, so refusing to open it would
-     have stopped the owner and nobody else. -->
+     identical on every Milō and published with the source: a unit that refuses
+     to open SSH on it (`opensOnOwnPassword`) keeps the switch closed and says
+     why, and a door already open on it is worth a word. -->
 <template>
   <SectionCard>
     <template #header>
       <div class="ssh-header">
         <h2 class="heading-2">{{ t('system.ssh.title') }}</h2>
-        <Toggle :model-value="switchPosition" :disabled="busy" @change="request" />
+        <Toggle :model-value="switchPosition" :disabled="busy || cannotOpen" @change="request" />
       </div>
     </template>
 
@@ -32,6 +31,7 @@
     <NoticeBox v-if="state.enabled && user && state.passwordIsDefault" kind="warning">
       {{ factoryPasswordNotice }}
     </NoticeBox>
+    <NoticeBox v-if="cannotOpen" kind="warning">{{ t('system.ssh.passwordFirst') }}</NoticeBox>
 
     <!-- A switch the unit refused: back where it was, and said why. -->
     <NoticeBox v-if="error !== null" :detail="error">{{ t('settings.writeRefused') }}</NoticeBox>
@@ -57,6 +57,8 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
   /** The server's detail for a refused switch (an apiCall errorRef), null while none. */
   error: { type: String, default: null },
+  /** The unit refuses to open SSH while its factory password is in place. */
+  opensOnOwnPassword: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['toggle', 'open-password']);
@@ -68,6 +70,9 @@ const { t } = useI18n();
 // new state, so the switch shows the request for that wait and the state again
 // once it ends: a refused request is back where it was.
 const requested = ref(null);
+const cannotOpen = computed(() =>
+  props.opensOnOwnPassword && !props.state.enabled && props.state.passwordIsDefault
+);
 const switchPosition = computed(() =>
   props.busy && requested.value !== null ? requested.value : props.state.enabled
 );

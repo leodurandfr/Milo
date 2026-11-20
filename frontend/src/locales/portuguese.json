@@ -977,7 +977,8 @@
     "ssh": {
       "title": "SSH",
       "description": "Abre uma sessão de terminal no Milō a partir de outro computador da rede local.",
-      "factoryPassword": "O Milō ainda tem a palavra-passe de fábrica."
+      "factoryPassword": "O Milō ainda tem a palavra-passe de fábrica.",
+      "passwordFirst": "Defina uma palavra-passe antes de abrir o SSH: a palavra-passe de fábrica é a mesma em todos os Milō."
     },
     "password": {
       "title": "Palavra-passe SSH",
@@ -991,6 +992,30 @@
       "done": "Pronto",
       "mismatch": "As duas palavras-passe não coincidem.",
       "tooShort": "A palavra-passe deve ter pelo menos {n} caracteres."
+    },
+    "presence": {
+      "title": "Confirme no dispositivo",
+      "confirmed": "Confirmado no dispositivo",
+      "expiredTitle": "Não confirmado",
+      "expired": "Nada foi confirmado no dispositivo a tempo, por isso nada foi alterado.",
+      "cancel": "Cancelar",
+      "remaining": "faltam {time}",
+      "waiting": "A aguardar o regresso do dispositivo…",
+      "foreignTitle": "Pedido a partir de outro dispositivo",
+      "foreign": "Só confirme neste dispositivo se o pedido for seu.",
+      "elsewhereTitle": "Confirme a partir de outro dispositivo",
+      "elsewhere": "Para confirmar, é preciso desligar o dispositivo da corrente e voltar a ligá-lo, e este ecrã apaga-se com ele. Faça o pedido a partir de um telemóvel ou de um computador.",
+      "actions": {
+        "ssh_open": "Abrir SSH",
+        "password": "Alterar a palavra-passe",
+        "program_upstream": "Instalar uma versão não validada",
+        "reset_setup": "Repor a configuração"
+      },
+      "gestures": {
+        "rotary": "Rode ou prima o botão rotativo do dispositivo. Não tem botão rotativo? Cancele, desative o codificador rotativo em Configurações › Hardware e volte a pedir daqui a {time}.",
+        "power_button": "Prima uma vez o botão de energia do dispositivo.",
+        "power_cycle": "Desligue o dispositivo da corrente e volte a ligá-lo. Mantenha esta página aberta: termina sozinha quando o dispositivo voltar."
+      }
     },
     "diagnostic": {
       "title": "Diagnóstico",

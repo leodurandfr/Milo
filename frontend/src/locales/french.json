@@ -977,7 +977,8 @@
     "ssh": {
       "title": "SSH",
       "description": "Ouvre une session terminal sur Milō depuis un autre ordinateur du réseau local.",
-      "factoryPassword": "Milō a encore son mot de passe d'usine."
+      "factoryPassword": "Milō a encore son mot de passe d'usine.",
+      "passwordFirst": "Définissez un mot de passe avant d'ouvrir SSH : le mot de passe d'usine est le même sur tous les Milō."
     },
     "password": {
       "title": "Mot de passe SSH",
@@ -991,6 +992,30 @@
       "done": "Terminé",
       "mismatch": "Les deux mots de passe ne correspondent pas.",
       "tooShort": "Le mot de passe doit contenir au moins {n} caractères."
+    },
+    "presence": {
+      "title": "Confirmez sur l'appareil",
+      "confirmed": "Confirmé sur l'appareil",
+      "expiredTitle": "Non confirmé",
+      "expired": "Rien n'a été confirmé sur l'appareil à temps : rien n'a été modifié.",
+      "cancel": "Annuler",
+      "remaining": "{time} restantes",
+      "waiting": "En attente du retour de l'appareil…",
+      "foreignTitle": "Demandé depuis un autre appareil",
+      "foreign": "Ne confirmez sur cet appareil que si c'est vous qui l'avez demandé.",
+      "elsewhereTitle": "Confirmez depuis un autre appareil",
+      "elsewhere": "Pour confirmer, il faut débrancher l'appareil puis le rebrancher, et cet écran s'éteint avec lui. Faites la demande depuis un téléphone ou un ordinateur.",
+      "actions": {
+        "ssh_open": "Ouvrir SSH",
+        "password": "Changer le mot de passe",
+        "program_upstream": "Installer une version non validée",
+        "reset_setup": "Réinitialiser la configuration"
+      },
+      "gestures": {
+        "rotary": "Tournez ou appuyez sur le bouton rotatif de l'appareil. Pas de bouton rotatif ? Annulez, désactivez l'encodeur rotatif dans Paramètres › Matériel, puis refaites la demande dans {time}.",
+        "power_button": "Appuyez une fois sur le bouton d'alimentation de l'appareil.",
+        "power_cycle": "Débranchez l'appareil, puis rebranchez-le. Gardez cette page ouverte : elle se termine seule une fois l'appareil revenu."
+      }
     },
     "diagnostic": {
       "title": "Diagnostic",

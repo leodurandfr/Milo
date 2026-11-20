@@ -977,7 +977,8 @@
     "ssh": {
       "title": "SSH",
       "description": "Opens a terminal session on Milō from another computer on your local network.",
-      "factoryPassword": "Milō still has its factory password."
+      "factoryPassword": "Milō still has its factory password.",
+      "passwordFirst": "Set a password before opening SSH: the factory password is the same on every Milō."
     },
     "password": {
       "title": "SSH password",
@@ -991,6 +992,30 @@
       "done": "Done",
       "mismatch": "The two passwords do not match.",
       "tooShort": "The password must be at least {n} characters."
+    },
+    "presence": {
+      "title": "Confirm on the device",
+      "confirmed": "Confirmed on the device",
+      "expiredTitle": "Not confirmed",
+      "expired": "Nothing was confirmed on the device in time, so nothing was changed.",
+      "cancel": "Cancel",
+      "remaining": "{time} left",
+      "waiting": "Waiting for the device to come back…",
+      "foreignTitle": "Asked from another device",
+      "foreign": "Confirm on this device only if you asked for this yourself.",
+      "elsewhereTitle": "Confirm from another device",
+      "elsewhere": "Confirming this means unplugging the device and plugging it back in, and this screen goes off with it. Ask from a phone or a computer instead.",
+      "actions": {
+        "ssh_open": "Open SSH",
+        "password": "Change the password",
+        "program_upstream": "Install an unvalidated version",
+        "reset_setup": "Reset configuration"
+      },
+      "gestures": {
+        "rotary": "Turn or press the knob on the device. No knob on it? Cancel, turn off the rotary encoder in Settings › Hardware, and ask again in {time}.",
+        "power_button": "Press the device's power button once.",
+        "power_cycle": "Unplug the device, then plug it back in. Keep this page open: it finishes on its own once the device is back."
+      }
     },
     "diagnostic": {
       "title": "Diagnostic",

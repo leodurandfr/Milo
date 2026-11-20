@@ -50,6 +50,10 @@
       </Modal>
 
       <VolumeOverlay :variant="isDarkSurface ? 'on-contrast' : 'default'" />
+
+      <!-- The gesture on the unit a request reaching root waits for, over the
+           settings it was asked from. -->
+      <PresenceDialog />
     </template>
 
     <!-- Global Virtual Keyboard (available in wizard too) -->
@@ -88,6 +92,7 @@ import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 // Not a lazy chunk: it is on screen while the update swaps dist/, after which
 // a chunk the running bundle never loaded is gone.
 import UpdateInProgressView from '@/components/system/UpdateInProgressView.vue';
+import PresenceDialog from '@/components/system/PresenceDialog.vue';
 
 const EqualizerModal = defineAsyncComponent(() =>
   import('@/components/equalizer/EqualizerModal.vue')
@@ -124,6 +129,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSystemStore } from '@/stores/systemStore';
+import { usePresenceStore } from '@/stores/presenceStore';
 import { useFanStore } from '@/stores/fanStore';
 import { useUpdatesStore } from '@/stores/updatesStore';
 import { i18n, useI18n } from '@/services/i18n';
@@ -180,6 +186,7 @@ const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
 const systemStore = useSystemStore();
+const presenceStore = usePresenceStore();
 const fanStore = useFanStore();
 const updatesStore = useUpdatesStore();
 const { on, parsedOn, onReconnect, onVisibilityChange, showDisconnectedBanner } = useWebSocket();
@@ -259,7 +266,7 @@ function processInitialState(event) {
 const deltaStores = [
   unifiedStore, multiroomStore, equalizerStore, systemStore, fanStore,
   radioStore, podcastStore, updatesStore, settingsStore,
-  musicLibraryStore, snapcastStore, macLinkStore, spotifyStore,
+  musicLibraryStore, snapcastStore, macLinkStore, spotifyStore, presenceStore,
 ];
 
 // Every resync goes through serverSync, which retries what failed and folds
@@ -683,6 +690,8 @@ const RAW_EVENTS = [
   ['source', 'state', unifiedStore.updateState],
   ['source', 'session_ended', handleSessionEnded],
   ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
+  // The gesture the unit waits for: opened, confirmed on the unit, or ended.
+  ['system', 'presence_changed', presenceStore.handleChallengeEvent],
   // The timezone's point, which the auto theme reads sunset from.
   ['system', 'timezone_changed', settingsStore.handleTimezoneEvent],
   // Live network status (cable plug/unplug, wifi associate/dissociate), pushed

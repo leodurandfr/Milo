@@ -20,6 +20,13 @@ Environment=MILO_LOG_LEVEL=INFO
 # root-owned files in the checkout.
 ExecStartPre=-/usr/local/bin/milo-update-guard start
 ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
+# A proof of presence by power cut (backend/core/system/presence.py): the
+# challenge the backend recorded is cleared at every stop of this unit — asked
+# for, crashed, killed or timed out alike — so one still recorded at a start,
+# from another boot, is a boot no stop came before. "+" since only root writes
+# the record: a hook a `milo` process could skip, or a marker it could withhold,
+# would make that proof forgeable by any of them.
+ExecStopPost=+/usr/local/bin/milo-presence-record clear
 
 Restart=always
 RestartSec=10

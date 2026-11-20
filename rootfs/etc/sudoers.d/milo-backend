@@ -15,7 +15,8 @@ Defaults:milo !syslog, !pam_session
 # as root a checkout `milo` can write, and milo-set-password asks for no old
 # password. Scoping one of them closes nothing while the other two stand, so they
 # stay unscoped on purpose. The boundary is elsewhere: the LAN, since nothing on
-# the API authenticates (api/system.py::set_ssh_state), and NoNewPrivileges=true
+# the API authenticates and the routes that hand root out wait for a gesture on
+# the unit itself (backend/core/system/presence.py), and NoNewPrivileges=true
 # on every other unit running as `milo`, which keeps a compromised daemon out of
 # this file (backend/tests/architecture/test_unit_hardening.py). Its limits: a
 # process of the same uid can still ptrace the backend, and the units without
@@ -54,6 +55,8 @@ milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-wifi-country
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-password
 # System timezone
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-set-timezone
+# Proof of presence by power cut: the challenge, kept where only root writes
+milo ALL=(root) NOPASSWD: /usr/local/bin/milo-presence-record
 # Music Library USB storage (read-only mount / unmount under /media/milo)
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-mount
 milo ALL=(root) NOPASSWD: /usr/local/bin/milo-umount

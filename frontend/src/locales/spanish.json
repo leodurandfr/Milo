@@ -977,7 +977,8 @@
     "ssh": {
       "title": "SSH",
       "description": "Abre una sesión de terminal en Milō desde otro ordenador de la red local.",
-      "factoryPassword": "Milō todavía tiene su contraseña de fábrica."
+      "factoryPassword": "Milō todavía tiene su contraseña de fábrica.",
+      "passwordFirst": "Defina una contraseña antes de abrir SSH: la contraseña de fábrica es la misma en todos los Milō."
     },
     "password": {
       "title": "Contraseña SSH",
@@ -991,6 +992,30 @@
       "done": "Listo",
       "mismatch": "Las dos contraseñas no coinciden.",
       "tooShort": "La contraseña debe tener al menos {n} caracteres."
+    },
+    "presence": {
+      "title": "Confirme en el dispositivo",
+      "confirmed": "Confirmado en el dispositivo",
+      "expiredTitle": "Sin confirmar",
+      "expired": "No se confirmó nada en el dispositivo a tiempo, así que no se cambió nada.",
+      "cancel": "Cancelar",
+      "remaining": "quedan {time}",
+      "waiting": "Esperando a que el dispositivo vuelva…",
+      "foreignTitle": "Solicitado desde otro dispositivo",
+      "foreign": "Confirme en este dispositivo solo si lo ha solicitado usted.",
+      "elsewhereTitle": "Confirme desde otro dispositivo",
+      "elsewhere": "Para confirmarlo hay que desenchufar el dispositivo y volver a enchufarlo, y esta pantalla se apaga con él. Solicítelo desde un teléfono o un ordenador.",
+      "actions": {
+        "ssh_open": "Abrir SSH",
+        "password": "Cambiar la contraseña",
+        "program_upstream": "Instalar una versión no validada",
+        "reset_setup": "Restablecer la configuración"
+      },
+      "gestures": {
+        "rotary": "Gire o pulse el mando del dispositivo. ¿No tiene mando? Cancele, desactive el codificador rotativo en Ajustes › Hardware y vuelva a solicitarlo dentro de {time}.",
+        "power_button": "Pulse una vez el botón de encendido del dispositivo.",
+        "power_cycle": "Desenchufe el dispositivo y vuelva a enchufarlo. Mantenga esta página abierta: terminará sola cuando el dispositivo vuelva."
+      }
     },
     "diagnostic": {
       "title": "Diagnóstico",

@@ -977,7 +977,8 @@
     "ssh": {
       "title": "SSH",
       "description": "Apre una sessione terminale su Milō da un altro computer della rete locale.",
-      "factoryPassword": "Milō ha ancora la password di fabbrica."
+      "factoryPassword": "Milō ha ancora la password di fabbrica.",
+      "passwordFirst": "Imposti una password prima di aprire SSH: la password di fabbrica è la stessa su ogni Milō."
     },
     "password": {
       "title": "Password SSH",
@@ -991,6 +992,30 @@
       "done": "Fatto",
       "mismatch": "Le due password non coincidono.",
       "tooShort": "La password deve contenere almeno {n} caratteri."
+    },
+    "presence": {
+      "title": "Confermi sul dispositivo",
+      "confirmed": "Confermato sul dispositivo",
+      "expiredTitle": "Non confermato",
+      "expired": "Non è stato confermato nulla sul dispositivo in tempo, quindi non è stato modificato nulla.",
+      "cancel": "Annulla",
+      "remaining": "{time} rimanenti",
+      "waiting": "In attesa che il dispositivo torni…",
+      "foreignTitle": "Richiesto da un altro dispositivo",
+      "foreign": "Confermi su questo dispositivo solo se la richiesta è sua.",
+      "elsewhereTitle": "Confermi da un altro dispositivo",
+      "elsewhere": "Per confermare bisogna staccare la spina del dispositivo e reinserirla, e questo schermo si spegne con esso. Faccia la richiesta da un telefono o da un computer.",
+      "actions": {
+        "ssh_open": "Apri SSH",
+        "password": "Cambia la password",
+        "program_upstream": "Installa una versione non convalidata",
+        "reset_setup": "Reimposta la configurazione"
+      },
+      "gestures": {
+        "rotary": "Ruoti o prema la manopola del dispositivo. Nessuna manopola? Annulli, disattivi l'encoder rotativo in Impostazioni › Hardware, poi ripeta la richiesta tra {time}.",
+        "power_button": "Prema una volta il pulsante di accensione del dispositivo.",
+        "power_cycle": "Stacchi la spina del dispositivo, poi la reinserisca. Tenga aperta questa pagina: si concluderà da sola quando il dispositivo sarà tornato."
+      }
     },
     "diagnostic": {
       "title": "Diagnostica",

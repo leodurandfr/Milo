@@ -1,0 +1,31 @@
+[Unit]
+Description=Milo proof of presence (the power key confirms instead of powering off)
+# Started by the backend when a proof of presence waits on the Raspberry Pi 5's
+# power button, stopped when that challenge ends (backend/core/system/presence.py).
+# Bound to the backend: one that dies mid-challenge releases it; one restarted
+# restarts it, and stops it again at its start, since no challenge outlives the
+# process that opened it. No After=: the backend starts this unit itself, and
+# ordered after a Type=notify backend, a start issued before READY=1 would wait
+# for it forever. No [Install]: nothing else may start it.
+BindsTo=milo-backend.service
+
+[Service]
+# Root: logind lets an inhibitor on the power key be taken by root or by an
+# active session, and the backend runs in neither. The key alone, not shutdown:
+# a reboot or a power-off asked meanwhile goes through as it always does.
+ExecStart=/usr/bin/systemd-inhibit --what=handle-power-key --mode=block --who=Milo "--why=A proof of presence waits on the power button" /usr/bin/sleep infinity
+# A simple service counts as started once systemd-inhibit is forked, whether or
+# not logind granted the lock: refused (logind or polkit down, the bus gone),
+# the dialog would still ask for the press that powers the unit off. So the
+# start fails unless logind lists this lock within a second, and the backend
+# then asks for a power cut instead. The phrase it looks for is the --why
+# above, held equal by backend/tests/architecture/test_presence_record.py.
+ExecStartPost=/bin/sh -c 'for attempt in 1 2 3 4 5 6 7 8 9 10; do /usr/bin/systemd-inhibit --list --no-legend --no-pager | grep -F "proof of presence" | grep -qF handle-power-key && exit 0; sleep 0.1; done; echo "logind lists no power-key lock from this unit" >&2; exit 1'
+# A challenge never lasts this long (two minutes for the press, two for the
+# request that follows). Past it, the backend died without stopping it, and
+# the power key must not stay dead for good.
+RuntimeMaxSec=5min
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

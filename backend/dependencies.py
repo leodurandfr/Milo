@@ -57,6 +57,7 @@ def _create_rotary_controller():
     return _import("backend.hardware.rotary", "RotaryVolumeController")(
         volume_service=get_service("volume_service"),
         state_machine=get_service("audio_state_machine"),
+        presence_service=get_service("presence_service"),
         clk_pin=clk, dt_pin=dt, sw_pin=sw
     )
 
@@ -202,6 +203,13 @@ def _create_service(name: str) -> Any:
         ),
 
         # System utilities
+        # The gesture on the unit the routes that reach root wait for. The
+        # rotary encoder, created after it, attaches itself once it runs.
+        "presence_service": lambda: _import("backend.core.system.presence", "PresenceService")(
+            hardware_service=get_service("hardware_service"),
+            systemd_manager=get_service("systemd_manager"),
+            state_machine=get_service("audio_state_machine"),
+        ),
         "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(systemd_manager=get_service("systemd_manager")),
         "connectivity_service": lambda: _import("backend.core.connectivity", "ConnectivityService")(),
 
@@ -395,6 +403,7 @@ async def initialize_services() -> None:
     push_token_registry = get_service("push_token_registry")
     apns_client = get_service("apns_client")
     push_service = get_service("push_service")
+    presence_service = get_service("presence_service")
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
@@ -613,7 +622,9 @@ async def initialize_services() -> None:
             ("network_service", network_service.initialize()),
             ("push_token_registry", push_token_registry.initialize()),
             ("apns_client", apns_client.initialize()),
-            ("push_service", push_service.initialize())
+            ("push_service", push_service.initialize()),
+            # A challenge a power cut proved, and an inhibitor left up
+            ("presence_service", presence_service.initialize()),
         ]
 
         results = await asyncio.gather(

@@ -12,6 +12,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useMultiroomStore } from '@/stores/multiroomStore';
+import { usePresenceStore } from '@/stores/presenceStore';
 
 // The phases of a Milō update that take the whole screen: the release that is
 // leaving installs the new one and reboots into it, and the new one is on
@@ -28,6 +29,7 @@ const NOTICE_CLOSED = 'milo:notice-closed';
 
 export const useUpdatesStore = defineStore('updates', () => {
   const multiroomStore = useMultiroomStore();
+  const presence = usePresenceStore();
 
   // === STATE ===
   const localPrograms = ref({});
@@ -300,7 +302,10 @@ export const useUpdatesStore = defineStore('updates', () => {
     states.value[id] = { updating: true, target: body?.target, version: body?.version };
     onDelta?.(id);
     startRefusal.value = null;
-    const result = await apiCall.post(url, body, {
+    // Through the proof of presence: an upstream install reaches root with a
+    // release nothing pinned, and the unit waits for a gesture first. Every
+    // other start answers as it would straight through apiCall.
+    const result = await presence.request('post', url, body, {
       category: 'updates',
       message,
       checkStatus: true,

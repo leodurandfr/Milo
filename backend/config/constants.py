@@ -110,9 +110,19 @@ SET_TIMEZONE_CMD = "/usr/local/bin/milo-set-timezone"
 
 # Written by milo-set-password, read here only for its existence. Absent means
 # the unit still carries the factory password `pi-gen/config` bakes — the same
-# on every unit — so `GET /api/system/ssh` reports it (`password_is_default`)
-# and the UI warns beside an open SSH door. Not a gate: see `PUT /api/system/ssh`.
+# on every unit, and published — so `PUT /api/system/ssh` refuses to open SSH
+# and `GET /api/system/ssh` reports it (`password_is_default`).
 PASSWORD_CHANGED_MARKER = MILO_DATA_DIR / "password-changed"
+
+# A proof of presence by power cut (core/system/presence.py): the challenge
+# waiting for one, recorded with the boot it was opened in by a root helper, in
+# a directory only root writes — never under MILO_DATA_DIR, which every `milo`
+# process can write. milo-backend.service's root ExecStopPost clears it at every
+# stop of the backend, so a record found at a start, from another boot, is a
+# boot no stop came before. The helper's own copy of the path is held equal to
+# this one by tests/architecture/test_presence_record.py.
+PRESENCE_RECORD_CMD = "/usr/local/bin/milo-presence-record"
+PRESENCE_RECORD_FILE = Path("/var/lib/milo-presence/challenge.json")
 
 # Dropped by POST /api/system/reset-setup and consumed by milo-first-boot on the
 # next boot, which deletes settings.json and re-runs role detection. The

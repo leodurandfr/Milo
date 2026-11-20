@@ -105,10 +105,20 @@ def hostname_conflict():
 
 
 @pytest.fixture
-def client(systemd, hostname_conflict):
+def presence():
+    """A proof of presence that admits every request. Whether the routes that
+    reach root wait for one is `tests/architecture/test_presence_guard.py`'s;
+    these tests are about what the routes do once past it."""
+    service = Mock()
+    service.require = AsyncMock()
+    return service
+
+
+@pytest.fixture
+def client(systemd, hostname_conflict, presence):
     app = FastAPI()
     app.include_router(
-        create_system_router(systemd, hostname_conflict),
+        create_system_router(systemd, hostname_conflict, presence_service=presence),
         prefix="/api/system",
     )
     return TestClient(app)
@@ -637,10 +647,11 @@ class TestResetSetup:
 class TestRemoteAccess:
     """`GET`/`PUT /api/system/ssh` — the switch, and what travels beside it.
 
-    The route enforces nothing about the factory password: it reports whether the
-    password is still the shipped one and opens the door on request. `GET` is what
-    lets the UI say so, so a `password_is_default` that stops travelling turns the
-    warning off on units that need it, in silence.
+    `GET` reports whether the password is still the shipped one, which is what
+    lets the UI say why the switch will not open: a `password_is_default` that
+    stops travelling leaves the owner in front of a refusal nothing explains.
+    The refusal itself, and the proof of presence, are held by
+    `tests/architecture/test_presence_guard.py`.
     """
 
     def test_state_reports_systemd_and_the_marker_together(self, client, systemd, marker):
@@ -654,25 +665,11 @@ class TestRemoteAccess:
         assert data == {"enabled": True, "active": True, "password_is_default": False}
         systemd.is_enabled.assert_awaited_with("ssh.service")
 
-    def test_opening_is_not_gated_on_the_factory_password(self, client, systemd, marker):
-        """The owner asked for SSH; the state of the password does not answer for
-        them. A gate here would refuse the one person it cannot protect — anyone
-        already on the LAN sets the password themselves, this API authenticates
-        nothing."""
-        assert not marker.exists()
-        systemd.set_enabled = AsyncMock(return_value=True)
-        systemd.is_enabled = AsyncMock(return_value=True)
-        systemd.is_active = AsyncMock(return_value=True)
-
-        response = client.put("/api/system/ssh", json={"enabled": True})
-
-        assert response.status_code == 200
-        systemd.set_enabled.assert_awaited_once_with("ssh.service", True)
-
     def test_a_systemd_refusal_is_a_500_and_not_a_success(self, client, systemd, marker):
         """`set_enabled` reports by return value, not by raising: answering 200
         over its False is the "success on failure" class — the UI would show a
         switch that moved on a box where nothing did."""
+        marker.touch()
         systemd.set_enabled = AsyncMock(return_value=False)
         systemd.is_enabled = AsyncMock(return_value=False)
         systemd.is_active = AsyncMock(return_value=False)
@@ -747,9 +744,12 @@ class TestRecoveryAccessPoint:
         return service
 
     @pytest.fixture
-    def reached_from(self, systemd, hostname_conflict, network, settings):
+    def reached_from(self, systemd, hostname_conflict, network, settings, presence):
         app = FastAPI()
-        app.include_router(create_system_router(systemd, hostname_conflict), prefix="/api/system")
+        app.include_router(
+            create_system_router(systemd, hostname_conflict, presence_service=presence),
+            prefix="/api/system",
+        )
         app.include_router(create_network_router(network))
         app.add_middleware(RecoveryAccessPointGuard, network_service=network, settings_service=settings)
         return lambda peer: TestClient(app, client=(peer, 41000))
@@ -759,7 +759,10 @@ class TestRecoveryAccessPoint:
         """Each write: the request that drives it, and whether it touched the box."""
         reset_marker = tmp_path / "reset-setup"
         monkeypatch.setattr(api_system, "RESET_SETUP_MARKER", reset_marker)
-        monkeypatch.setattr(api_system, "PASSWORD_CHANGED_MARKER", tmp_path / "password-changed")
+        # Set, so that opening SSH is refused by the guard under test alone.
+        password_changed = tmp_path / "password-changed"
+        password_changed.touch()
+        monkeypatch.setattr(api_system, "PASSWORD_CHANGED_MARKER", password_changed)
         systemd.set_enabled = AsyncMock(return_value=True)
         systemd.is_enabled = AsyncMock(return_value=True)
         systemd.is_active = AsyncMock(return_value=True)

@@ -1,11 +1,13 @@
 <!-- frontend/src/components/settings/categories/SystemSettings.vue -->
-<!-- SSH, with the account password one level down (SshSection says why the
-     factory password is a warning and not a precondition). -->
+<!-- SSH, with the account password one level down. Opening SSH, the password
+     and the reset reach root, so the unit waits for a gesture on itself before
+     each (presenceStore); SSH also stays closed on the factory password. -->
 <template>
   <SectionStack>
     <SystemInfoSection />
 
     <SshSection :state="ssh" host="milo.local" user="milo" :busy="sshBusy" :error="sshError"
+      opens-on-own-password
       :description="t('system.ssh.description')"
       :factory-password-notice="t('system.ssh.factoryPassword')"
       @toggle="handleSshToggle" @open-password="$emit('open-password')" />
@@ -69,6 +71,7 @@ import { useI18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
 import { useTimer } from '@/composables/useTimer';
 import { useSystemStore } from '@/stores/systemStore';
+import { usePresenceStore } from '@/stores/presenceStore';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
@@ -81,6 +84,7 @@ defineEmits(['open-password']);
 const { t } = useI18n();
 const timer = useTimer();
 const systemStore = useSystemStore();
+const presence = usePresenceStore();
 const { ssh } = storeToRefs(systemStore);
 
 const sshBusy = ref(false);
@@ -115,7 +119,9 @@ async function handleReset() {
   resetting.value = true;
   resetError.value = null;
 
-  const result = await apiCall.post('/api/system/reset-setup', null, {
+  // The unit waits for a gesture on itself first: the reset wipes the
+  // settings and leaves the speakers this unit serves without a server.
+  const result = await presence.request('post', '/api/system/reset-setup', null, {
     category: 'system',
     message: 'Failed to reset the setup',
     errorRef: resetError

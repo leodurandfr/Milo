@@ -17,6 +17,7 @@ from fastapi import BackgroundTasks
 
 from backend.api.models import LastUpdatePatch, ProgramUpdateRequest
 from backend.api.programs import create_programs_router
+from backend.api.route_helpers import PresenceAnswer
 from backend.core.updates import milo_journal as mj
 from backend.core.updates.update import UpdateService
 from backend.core.models.ws_events import (
@@ -65,7 +66,12 @@ def router():
     state_machine = MagicMock()
     state_machine.broadcast = AsyncMock()
 
-    r = create_programs_router(update_service, MagicMock(), state_machine)
+    # Admits every request: the proof of presence an upstream install waits
+    # for is tests/architecture/test_presence_guard.py's.
+    presence = MagicMock()
+    presence.require = AsyncMock()
+
+    r = create_programs_router(update_service, MagicMock(), state_machine, presence_service=presence)
     r.update_service = update_service
     r.state_machine = state_machine
     return r
@@ -268,7 +274,8 @@ async def test_a_chosen_version_reaches_the_check_and_the_install(router):
     tasks = BackgroundTasks()
     payload = ProgramUpdateRequest(target="upstream", version="0.8.1")
 
-    assert (await endpoint("go-librespot", payload, tasks))["status"] == "success"
+    proof = PresenceAnswer(token="proof", follows=None)
+    assert (await endpoint("go-librespot", payload, tasks, presence=proof))["status"] == "success"
     await tasks()
 
     router.update_service.can_update_program.assert_awaited_once_with(

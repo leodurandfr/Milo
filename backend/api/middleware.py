@@ -219,8 +219,8 @@ class RecoveryAccessPointGuard:
     of a "home" network can as well be a neighbor's, for a network of theirs that
     carries the home name. A unit set up is repaired from its touch
     screen (the kiosk is a loopback client, never one of the AP's) or over Ethernet;
-    a proof of presence, once one exists, is what would admit a write here, and here
-    is where it belongs.
+    a proof of presence (`core/system/presence.py`) is what would admit a write here,
+    and here is where it belongs.
 
     Deny by default, in one place, rather than a dependency per route: the per-route
     gate this replaced guarded three routes and left WiFi, power, hardware and

@@ -87,12 +87,12 @@ The frontend is built before the stage runs — by `build-image.yml` for a relea
 ### Image Configuration
 
 - **User**: `milo`, factory password `milo`, **SSH disabled**. The password is a local
-  convenience only, so the SSH server stays off until the owner opens it, and the UI warns
-  while the factory password is still in place (the switch does not refuse: nothing on the
-  API authenticates, so a refusal would stop nobody on the LAN). Opened from Settings →
-  System on the server, from a satellite's own panel under Multiroom for a satellite, or by
-  dropping an empty `ssh` file on the boot partition (`sshswitch.service`, shipped enabled
-  by Raspberry Pi OS).
+  convenience only, so the SSH server stays off until the owner opens it. On the server the
+  switch refuses to open it while the factory password is still in place, and otherwise
+  waits for a gesture on the unit itself (`backend/core/system/presence.py`), as setting the
+  password does. Opened from Settings → System on the server, from a satellite's own panel
+  under Multiroom for a satellite, or by dropping an empty `ssh` file on the boot partition
+  (`sshswitch.service`, shipped enabled by Raspberry Pi OS).
 - **No first-boot wizard, no cloud-init**: `DISABLE_FIRST_BOOT_USER_RENAME=1` keeps
   upstream's `rename-user` from re-enabling `userconfig.service`, whose tty8 prompt held
   `multi-user.target` forever on a flashed satellite, and `01-install-audio` purges the

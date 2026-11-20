@@ -5,12 +5,13 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-73 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+74 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
 | [`system/hostname_conflict_changed`](#systemhostname_conflict_changed) | internal |
 | [`system/timezone_changed`](#systemtimezone_changed) | internal |
+| [`system/presence_changed`](#systempresence_changed) | internal |
 | [`system/backend_error`](#systembackend_error) | internal |
 | [`system/initial_state`](#systeminitial_state) | internal |
 | [`source/state`](#sourcestate) | contracted |
@@ -106,6 +107,14 @@ The unit's time zone changed. `latitude` and `longitude` are the zone's referenc
 | `timezone` | string \| null |
 | `latitude` | number \| null |
 | `longitude` | number \| null |
+
+### system/presence_changed
+
+The gesture the unit waits for changed: a challenge opened, was confirmed on the unit, or ended (`challenge` is null). It carries no token: only the request that opened a challenge can spend it.
+
+| Field | Type |
+|---|---|
+| `challenge` | [PresenceChallenge](#presencechallenge) \| null |
 
 ### system/backend_error
 
@@ -848,6 +857,19 @@ The banner of the last Milō update was closed, for every screen (PATCH /api/pro
 
 ## Models
 
+### PresenceChallenge
+
+A gesture the unit waits for before a request that reaches root.
+
+| Field | Type |
+|---|---|
+| `id` | string |
+| `action` | [PresenceAction](#presenceaction) |
+| `gesture` | [Gesture](#gesture) |
+| `status` | "pending" \| "confirmed" |
+| `remaining_s` | integer |
+| `cooldown_s` | integer |
+
 ### VolumeLimitsConfig
 
 | Field | Type |
@@ -1052,3 +1074,15 @@ Current WiFi connection status.
 Why a session ended.
 
 `eof`, `user_stop`, `idle_timeout`, `source_switch`, `reroute`, `sender_left`, `daemon_died`, `load_failed`, `stream_lost`, `storage_gone`
+
+### PresenceAction
+
+What a challenge was opened for: one member per guarded route.
+
+`ssh_open`, `password`, `program_upstream`, `reset_setup`
+
+### Gesture
+
+What the unit waits for: the first of the three this unit can offer.
+
+`rotary`, `power_button`, `power_cycle`

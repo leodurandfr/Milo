@@ -79,6 +79,9 @@ const canSavePassword = computed(() =>
 );
 
 async function savePassword() {
+  // Enter in the confirm field submits too, and stays where it was while the
+  // unit waits for its gesture: a second save would only be refused.
+  if (savingPassword.value) return;
   passwordInvalid.value = null;
   passwordRefusal.value = null;
 

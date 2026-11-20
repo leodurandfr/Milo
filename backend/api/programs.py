@@ -5,8 +5,9 @@ API routes for program management — Full version with satellites
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from backend.core.models.audio_state import AudioSource
+from backend.core.models.presence import PresenceAction
 from backend.core.models.ws_events import (
     MiloUpdateNoticeDismissed,
     ProgramsCompleteEvent,
@@ -21,9 +22,11 @@ from backend.core.models.ws_events import (
     SatelliteUpdateProgress,
 )
 from backend.api.models import LastUpdatePatch, ProgramUpdateRequest
+from backend.api.route_helpers import PresenceAnswer, presence_answer, require_presence
 
 if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
+    from backend.core.system.presence import PresenceService
     from backend.core.updates.satellite import SatelliteUpdateService
     from backend.core.updates.update import UpdateService
 
@@ -68,7 +71,8 @@ def refuse_while_milo_updates(update_service: Optional["UpdateService"], action:
 def create_programs_router(
     update_service: "UpdateService",
     satellite_update_service: "SatelliteUpdateService",
-    state_machine: "AudioStateMachine"
+    state_machine: "AudioStateMachine",
+    presence_service: Optional["PresenceService"] = None,
 ):
     """Router for local and satellite programs
 
@@ -76,6 +80,7 @@ def create_programs_router(
         update_service: Singleton service for version checks and updates
         satellite_update_service: Singleton service for satellite updates
         state_machine: AudioStateMachine for broadcasting events and deactivating active sources
+        presence_service: the proof of presence an upstream install waits for
     """
     router = APIRouter(prefix="/api/programs", tags=["programs"])
 
@@ -131,14 +136,25 @@ def create_programs_router(
 
         Returns None once the key is claimed.
         """
+        blocker = _blocker(update_key)
+        if blocker is None:
+            active_updates.add(update_key)
+        return blocker
+
+    def _blocker(update_key: str) -> Optional[str]:
+        """The in-flight update that forbids `update_key` (`_claim_update`'s
+        policy), or None. Claims nothing."""
         scope = _scope(update_key)
         for running in _running():
             if "milo" in (running, update_key) or _scope(running) == scope:
                 return running
             if running.startswith("satellite_app_") and update_key.startswith("satellite_app_"):
                 return running
-        active_updates.add(update_key)
         return None
+
+    def _cannot_update(check: dict) -> dict:
+        """The refusal envelope of a check `can_update_program` did not pass."""
+        return {"status": "error", "message": check.get("reason", "Cannot update")}
 
     def _refuse(blocker: str, update_key: str) -> dict:
         """The refusal envelope, naming what is in the way when it is not this key."""
@@ -532,28 +548,50 @@ def create_programs_router(
     async def update_program(
         program_key: str,
         payload: ProgramUpdateRequest,
-        background_tasks: BackgroundTasks
+        background_tasks: BackgroundTasks,
+        presence: PresenceAnswer = Depends(presence_answer),
     ):
-        """Launch a local program update in the background"""
+        """Launch a local program update in the background.
 
-        blocker = _claim_update(program_key)
-        if blocker:
-            return _refuse(blocker, program_key)
-
-        try:
+        `target: "upstream"` installs, as root, a release nothing in this
+        checkout pinned — whatever GitHub serves under that name — so it
+        waits for a proof of presence (`core/system/presence.py`). The
+        validated target is the manifest's own pin, and stays open. Every
+        refusal the route can answer comes before the gesture — the owner
+        is never asked for one the request then refuses — and the key is
+        claimed after it: a request waiting for a gesture holds nothing.
+        """
+        if payload.target == "upstream":
+            blocker = _blocker(program_key)
+            if blocker:
+                return _refuse(blocker, program_key)
             can_update = await update_service.can_update_program(
                 program_key, payload.target, payload.version
             )
-        except Exception:
-            active_updates.discard(program_key)
-            raise
+            if not can_update.get("can_update"):
+                return _cannot_update(can_update)
+            await require_presence(presence_service, PresenceAction.PROGRAM_UPSTREAM, presence)
+            # The claim checks and writes with no await between: a second
+            # device that passed the same checks meanwhile is refused here.
+            blocker = _claim_update(program_key)
+            if blocker:
+                return _refuse(blocker, program_key)
+        else:
+            blocker = _claim_update(program_key)
+            if blocker:
+                return _refuse(blocker, program_key)
 
-        if not can_update.get("can_update"):
-            active_updates.discard(program_key)
-            return {
-                "status": "error",
-                "message": can_update.get("reason", "Cannot update")
-            }
+            try:
+                can_update = await update_service.can_update_program(
+                    program_key, payload.target, payload.version
+                )
+            except Exception:
+                active_updates.discard(program_key)
+                raise
+
+            if not can_update.get("can_update"):
+                active_updates.discard(program_key)
+                return _cannot_update(can_update)
 
         async def _deactivate_if_needed():
             audio_source = PROGRAM_TO_AUDIO_SOURCE.get(program_key)

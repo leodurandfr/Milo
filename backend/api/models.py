@@ -875,11 +875,9 @@ class LastUpdatePatch(BaseModel):
 class SshRequest(BaseModel):
     """Open or close the SSH server.
 
-    There is no refusal to describe: the route opens the door whatever the
-    account password is, and reports `password_is_default` beside it instead.
-    Nothing on this API authenticates, so a gate here would stop nobody
-    already on the LAN while standing in the way of the owner — the reasoning
-    lives on `set_ssh_state`.
+    Opening is refused (409) while the factory password is in place, and
+    otherwise asks for a proof of presence (428) — the reasoning lives on
+    `set_ssh_state`. Closing is never refused.
     """
     enabled: bool
 

@@ -4,6 +4,11 @@ KY-040 Rotary Encoder Controller for Volume - dB Volume API Version
 
 Uses event-triggered processing: detent detection immediately triggers
 volume adjustment via VolumeAccumulator for minimal latency.
+
+Once running, the encoder is also the unit's proof of presence
+(core/system/presence.py): while a challenge waits on it, a detent or a press
+is handed there first, and is the gesture rather than a volume step or a
+playback command.
 """
 import contextlib
 import asyncio
@@ -11,6 +16,7 @@ import logging
 from typing import Optional
 from time import monotonic
 
+from backend.core.models.presence import Gesture
 from backend.hardware.playback_dispatch import PlaybackDispatcher
 from backend.hardware.volume_accumulator import VolumeAccumulator
 
@@ -32,8 +38,9 @@ class RotaryVolumeController:
     IDLE_POLL_S = 0.016  # ~16ms at rest (detent pulses at hand speed last longer, so the first edge is still caught)
     ACTIVE_WINDOW_S = 2.0  # keep fast polling this long after the last activity
 
-    def __init__(self, volume_service, state_machine, clk_pin=22, dt_pin=27, sw_pin=23):
+    def __init__(self, volume_service, state_machine, presence_service, clk_pin=22, dt_pin=27, sw_pin=23):
         self.volume_service = volume_service
+        self._presence = presence_service
         self.CLK = clk_pin
         self.DT = dt_pin
         self.SW = sw_pin
@@ -69,6 +76,7 @@ class RotaryVolumeController:
             self.running = True
 
             self._monitor_task = asyncio.create_task(self._monitor_loop())
+            self._presence.attach_rotary(self)
 
             logger.info("Rotary controller initialized successfully")
             return True
@@ -106,10 +114,11 @@ class RotaryVolumeController:
         current_time = monotonic()
 
         if current_time - self._last_adjustment_time >= self.DEBOUNCE_TIME:
-            dt_state = lgpio.gpio_read(self.chip_handle, self.DT)
-            step = self.volume_service.volume_config.step_rotary_db
+            if not self._presence.on_gesture(Gesture.ROTARY):
+                dt_state = lgpio.gpio_read(self.chip_handle, self.DT)
+                step = self.volume_service.volume_config.step_rotary_db
 
-            self._volume.accumulate(step if dt_state != clk_state else -step)
+                self._volume.accumulate(step if dt_state != clk_state else -step)
 
             self._last_adjustment_time = current_time
 
@@ -127,7 +136,8 @@ class RotaryVolumeController:
             now = monotonic()
             if now - self._last_button_time >= self.BUTTON_DEBOUNCE_TIME:
                 self._last_button_time = now
-                await self._dispatcher.on_click()
+                if not self._presence.on_gesture(Gesture.ROTARY):
+                    await self._dispatcher.on_click()
         self._last_button_state = sw_state
         return changed
 
