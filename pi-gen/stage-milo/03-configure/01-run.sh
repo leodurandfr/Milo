@@ -23,6 +23,10 @@ systemctl enable nqptp.service
 systemctl enable seatd.service
 systemctl enable avahi-daemon
 systemctl enable nginx
+# The IPv6 firewall (00-run.sh), in both roles. Its unit comes with the base
+# image; a base image without it fails the build here rather than shipping a
+# card with no firewall.
+systemctl enable nftables.service || { echo "FATAL: nftables.service missing from the base image"; exit 1; }
 CHROOT
 
 # ── Disable conflicting default services ─────────────────────────────────────

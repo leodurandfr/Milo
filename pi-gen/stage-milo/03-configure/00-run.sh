@@ -1,6 +1,6 @@
 #!/bin/bash -e
 # Milo pi-gen stage: System configuration
-# Plymouth, boot params, fan control, udev, sudoers, kiosk, cursor theme
+# Plymouth, boot params, fan control, IPv6 firewall, udev, sudoers, kiosk, cursor theme
 
 # ── Plymouth boot splash ─────────────────────────────────────────────────────
 
@@ -114,6 +114,23 @@ CHROOT
 
 on_chroot << 'CHROOT'
 cp /home/milo/milo/rootfs/etc/sysctl.d/90-milo-linkdown.conf /etc/sysctl.d/90-milo-linkdown.conf
+CHROOT
+
+# ── IPv6 firewall: nothing from beyond the link ──────────────────────────────
+# One `ip6` table replaces Debian's /etc/nftables.conf: a new inbound IPv6
+# connection is accepted from the link and the unit's own prefixes only (see
+# the file). nftables itself is in the base image; 01-run.sh enables it. The
+# satellite tree carries the same three files, so a device converted by
+# milo-first-boot keeps them as installed here.
+
+on_chroot << 'CHROOT'
+cp /home/milo/milo/rootfs/etc/nftables.conf /etc/nftables.conf
+chmod 0755 /etc/nftables.conf
+cp /home/milo/milo/rootfs/etc/NetworkManager/dispatcher.d/50-milo-ipv6-link-prefixes /etc/NetworkManager/dispatcher.d/
+chmod 0755 /etc/NetworkManager/dispatcher.d/50-milo-ipv6-link-prefixes
+mkdir -p /etc/systemd/system/nftables.service.d
+cp /home/milo/milo/rootfs/etc/systemd/system/nftables.service.d/milo-link-prefixes.conf \
+    /etc/systemd/system/nftables.service.d/milo-link-prefixes.conf
 CHROOT
 
 # ── udev rules ───────────────────────────────────────────────────────────────

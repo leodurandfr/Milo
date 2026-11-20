@@ -1,0 +1,117 @@
+#!/usr/bin/python3 -I
+# Milō: the IPv6 firewall's `link_prefixes` set holds the prefixes this unit carries.
+#
+# Twin of rootfs/etc/NetworkManager/dispatcher.d/50-milo-ipv6-link-prefixes — server and
+# satellite are deployed from separate trees, same logic on both.
+#
+# /etc/nftables.conf accepts a new inbound IPv6 connection from a global address
+# only when that address lies in one of the prefixes the unit's own interfaces
+# carry: a LAN peer, never the Internet. Those prefixes are the router's to hand
+# out and to change, so the set is rebuilt whole, from `ip -6 addr`, in one nft
+# transaction — whichever run comes last, the set ends equal to the addresses
+# the interfaces held then, and a prefix the router took back leaves it with them.
+# Three callers, one implementation:
+#   * nftables.service, once the ruleset is loaded, at start and at reload (its
+#     milo-link-prefixes.conf drop-in): a load starts the set empty;
+#   * NetworkManager, on every dispatcher event (up, down, dhcp6-change, ...);
+#     its two arguments, interface and action, only say that it called;
+#   * this script again, SETTLE_S after each NetworkManager event, as a
+#     transient systemd timer the event arms. A link is `up` once one family is
+#     (eth0 once it has IPv4, 90-milo-ethernet-ipv4.conf), and a global address
+#     the router advertises after that (SLAAC) comes with no dispatcher event of
+#     its own. On a LAN where DHCPv4 answers first, the set would stay empty
+#     until the next event, while Avahi publishes that very address for
+#     milo.local — and a dropped SYN is a hang (ssh waits out its connect
+#     timeout), not a refusal to fall back from. A run NetworkManager did not
+#     ask for (the drop-in's, the timer's) arms nothing, so there is no loop;
+#     neither does an event that ends a link, after which no address is coming.
+# What no event announces at all, hours later — a router renumbering the link by
+# advertisement alone — reaches the set at the next event, a DHCPv4 renewal at
+# the latest.
+#
+# No lock between the callers: each run reads the addresses once and replaces
+# the set in one transaction, so runs that interleave leave the last one's read.
+#
+# Numbered below 90-milo-network: NetworkManager runs a directory's scripts one
+# after the other, in name order, and the server's can wait up to 45 s for
+# eth0's lease — the set would wait behind it.
+#
+# A firewall stopped by hand has no set to keep (the drop-in's ExecStop deletes
+# the table), and every event must then change nothing and fail nothing. A table
+# that is loaded but refuses the batch — its set renamed or gone — is a failure:
+# the exit status says so, and nft's own error reaches the journal, as does every
+# other command's here (none of their stderr is captured).
+#
+# `-I`: run as root, so nothing is imported from the working directory, the
+# user site or PYTHON* in the environment.
+
+import ipaddress
+import json
+import os
+import subprocess
+import sys
+
+FAMILY = "ip6"
+TABLE = "milo"
+SET = "link_prefixes"
+# Long enough for a few router solicitations, four seconds apart, and duplicate
+# address detection after the event that armed it. Chosen, not measured.
+SETTLE_S = 30
+# The events that end a link: they arm no run.
+LINK_ENDS = {"down", "pre-down", "vpn-down"}
+
+
+def link_prefixes(ip_json: str) -> list[ipaddress.IPv6Network]:
+    """The global prefixes every interface but loopback carries, overlaps merged.
+
+    `ip_json` is what `ip -j -6 addr show scope global` prints. Merged because an
+    interval set refuses two elements that overlap, and eth0 and wlan0 on the
+    same LAN carry the same prefix.
+    """
+    networks = []
+    for link in json.loads(ip_json or "[]"):
+        if link.get("ifname") == "lo":
+            continue
+        for address in link.get("addr_info", []):
+            if address.get("family") != "inet6" or address.get("scope") != "global":
+                continue
+            networks.append(
+                ipaddress.ip_interface(f"{address['local']}/{address['prefixlen']}").network
+            )
+    return list(ipaddress.collapse_addresses(networks))
+
+
+def main() -> int:
+    tables = subprocess.run(["nft", "list", "tables", FAMILY], stdout=subprocess.PIPE, text=True, check=False)
+    if tables.returncode != 0:
+        return tables.returncode
+    if f"table {FAMILY} {TABLE}" not in tables.stdout.splitlines():
+        return 0
+
+    addresses = subprocess.run(
+        ["ip", "-j", "-6", "addr", "show", "scope", "global"],
+        stdout=subprocess.PIPE, text=True, check=False,
+    )
+    if addresses.returncode != 0:
+        return addresses.returncode
+    prefixes = link_prefixes(addresses.stdout)
+    batch = f"flush set {FAMILY} {TABLE} {SET}\n"
+    if prefixes:
+        batch += f"add element {FAMILY} {TABLE} {SET} {{ {', '.join(map(str, prefixes))} }}\n"
+    applied = subprocess.run(["nft", "-f", "-"], input=batch, text=True, check=False)
+    if applied.returncode != 0:
+        return applied.returncode
+    print(f"{SET}: {', '.join(map(str, prefixes)) or 'none'}")
+
+    if len(sys.argv) > 2 and sys.argv[2] not in LINK_ENDS:
+        return subprocess.run(
+            ["systemd-run", "--quiet", "--collect", f"--on-active={SETTLE_S}s",
+             "--description=Milō IPv6 link prefixes, after a network event",
+             os.path.abspath(__file__)],
+            check=False,
+        ).returncode
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
