@@ -138,18 +138,16 @@ export function paint(name) {
 }
 
 /**
- * The mobile overrides (`MOBILE_QUERY`), flattened to name -> value.
+ * The mobile overrides (`MOBILE_QUERY`), name -> value.
  *
  * Shown beside the base value rather than instead of it: this page is read on a
  * desktop browser, which resolves the wide branch, so a reader who is told
  * `--space-06: 32px` and nothing else has no way to learn that it is 24 px on
- * the unit's portrait sibling.
+ * the unit's portrait sibling. Read flat, sections ignored: an override is one
+ * wherever it sits in the block, and `--card-grid-columns` sits before the
+ * block's first marker.
  */
-export const MOBILE = Object.fromEntries(
-  parseSections(rootBody(css.indexOf(`@media ${MOBILE_QUERY}`)))
-    .flatMap(section => section.tokens)
-    .map(token => [token.name, token.value])
-);
+export const MOBILE = declarations(rootBody(css.indexOf(`@media ${MOBILE_QUERY}`)));
 
 const BY_NAME = Object.fromEntries(SECTIONS.flatMap(section => section.tokens).map(t => [t.name, t.value]));
 

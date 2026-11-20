@@ -38,9 +38,12 @@ let fixtures = {};
 let report = () => {};
 
 /**
- * The GET responses the current scenario declares, keyed by URL prefix — a
- * prefix rather than an exact match because every call carries query params
- * (`?size=…&library_id=…`) that are the store's business, not the fixture's.
+ * The GET responses the current scenario declares, keyed by path. A query
+ * string (`?size=…&library_id=…`) is the store's business, not the fixture's,
+ * so it is ignored — but a longer path is another endpoint and never answered
+ * by a shorter one: served `{ subscriptions }`, `/subscriptions/latest-episodes`
+ * read no episodes and reported nothing, which is the silent empty state the
+ * unstubbed report exists to prevent.
  */
 export function setApiFixtures(map) {
   fixtures = map || {};
@@ -60,12 +63,8 @@ export function installApiHarness(reporter) {
   }
 
   apiCall.get = async (url) => {
-    // Longest prefix wins, so '/api/podcast/subscriptions' cannot answer for
-    // '/api/podcast/subscriptions/latest-episodes' whatever the key order.
-    const match = Object.keys(fixtures)
-      .filter(prefix => url.startsWith(prefix))
-      .sort((a, b) => b.length - a.length)[0];
-    if (match) return { ok: true, data: fixtures[match] };
+    const path = url.split('?')[0];
+    if (Object.hasOwn(fixtures, path)) return { ok: true, data: fixtures[path] };
 
     report(`GET ${url}`, 'unstubbed — add a fixture in sources.js');
     return { ok: false, error: 'no fixture' };

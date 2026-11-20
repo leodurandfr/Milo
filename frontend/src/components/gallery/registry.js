@@ -37,8 +37,10 @@
  * The three store-coupled primitives — Dock, VolumeBar, VirtualKeyboard — are in
  * here rather than excluded, and they need no fabricated state to be worth
  * looking at: every store they read declares real defaults (`dockApps` all true,
- * `sourceOrder` the full source list, limits −80/−20 dB), so the canvas shows
- * them as a freshly configured unit would. Their `position: fixed` also resolves
+ * `sourceOrder` the full source list), so the canvas shows them as a freshly
+ * configured unit would — VolumeBar's level aside, which a store that never
+ * heard from the server holds at 0, so its State section opens on one the
+ * server could send. Their `position: fixed` also resolves
  * honestly now, because the iframe is a viewport of its own. Their actions drive
  * the same paths a user does — the Dock's reveal action clicks its own drag pill
  * rather than reaching into the component.
@@ -128,7 +130,7 @@ import SourceStage from './SourceStage.vue';
 import { ALL_AUDIO_SOURCES, BROWSER_SOURCES } from '@/constants/audioSources';
 import { PODCAST_GENRE_IDS } from '@/constants/podcastGenres';
 import { DISPLAY_STATES, UNAVAILABLE_REASONS } from '@/composables/useSourceStatusDisplay';
-import { SOURCE_PAGES, audioState, session, anchor, replayedState } from './sources';
+import { SOURCE_PAGES, audioState, session, anchor, replayedState, settledState } from './sources';
 import stationImageTurntable from './samples/station-image-turntable.webp';
 import { musicPlaceholder, podcastPlaceholder } from '@/constants/placeholders';
 import { UNITS, formatDuration } from '@/utils/units';
@@ -136,6 +138,8 @@ import { UNITS, formatDuration } from '@/utils/units';
 /** `null` first so a nullable icon prop can be cleared from the select. */
 const OPTIONAL_ICON = { kind: 'enum', options: [null, ...ICON_NAMES] };
 const REQUIRED_ICON = { kind: 'enum', options: ICON_NAMES };
+/** The same for a prop drawn by AppIcon, whose names are the tiles', not SvgIcon's. */
+const OPTIONAL_APP_ICON = { kind: 'enum', options: [null, ...APP_ICON_NAMES] };
 /** A slider's `unit`: none, or one formatUnit() writes. */
 const UNIT_OPTIONS = { kind: 'enum', options: ['', ...UNITS] };
 
@@ -284,29 +288,12 @@ const NOW_PLAYING = {
     controls: ['resume_playback'],
     details: { kind: 'radio', station: radioStation('st-fip', 'FIP', null), track: null, artwork_pending: false }
   },
-  'CD — paused': {
-    source: 'cd',
-    session: {
-      phase: 'paused',
-      title: 'Ambre',
-      artist: 'Nils Frahm',
-      artwork: musicPlaceholder,
-      duration_ms: 264000,
-      position: anchor(64000)
-    },
-    controls: ['resume', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject']
-  },
-  'CD — loading a track': {
-    source: 'cd',
-    session: {
-      phase: 'loading',
-      title: 'Ambre',
-      artist: 'Nils Frahm',
-      duration_ms: 264000,
-      position: anchor(0)
-    },
-    controls: ['pause', 'next', 'prev', 'play_track', 'eject']
-  },
+  // The CD records are its page's own states, borrowed whole — the controls, the
+  // details and the disc as the backend publishes them — so the two surfaces
+  // cannot drift: these once lacked the shuffle and repeat every playable disc
+  // lists, and named an unidentified track the backend no longer names.
+  'CD — paused': fromPage('cd', 'Paused'),
+  'CD — loading a track': fromPage('cd', 'Loading a track'),
   'AirPlay — receiver, sender named': {
     source: 'airplay',
     session: {
@@ -321,20 +308,23 @@ const NOW_PLAYING = {
     controls: ['pause', 'next', 'prev', 'set_shuffle', 'set_repeat'],
     details: { kind: 'airplay', artwork_width: 600, shuffle: false, repeat: 'off' }
   },
-  // The one shape that reaches this player with no artist: a disc no lookup
-  // identified comes back with a real "Track N" title and nothing else, and a
-  // title is the whole of what the player needs to name it.
-  'CD — unidentified disc': {
-    source: 'cd',
-    session: {
-      phase: 'playing',
-      title: 'Track 3',
-      duration_ms: 264000,
-      position: anchor(64000)
-    },
-    controls: ['pause', 'seek', 'skip', 'next', 'prev', 'play_track', 'eject']
-  }
+  // The one shape that reaches this player with nothing named: a disc no
+  // lookup identified carries no title, artist or cover, and the player names
+  // the track by `details.current_track`, in the language of the screen.
+  'CD — unidentified disc': fromPage('cd', 'Disc not identified')
 };
+
+/**
+ * A record borrowed from a scenario of its source's page: the state it settles
+ * on. Throws on a label the page no longer carries, so a renamed scenario fails
+ * the build rather than leaving the record empty.
+ */
+function fromPage(source, label) {
+  const scenario = SOURCE_PAGES.find(page => page.source === source)?.scenarios.find(entry => entry.label === label);
+  if (!scenario) throw new Error(`No "${label}" scenario on the ${source} page`);
+  const { session, resume, controls, details } = settledState(scenario);
+  return { source, session, resume, controls, details };
+}
 
 /** RadioDetails.station, every field present. */
 function radioStation(id, name, favicon) {
@@ -666,7 +656,7 @@ export const REGISTRY = {
   NavigationHeader: {
     component: NavigationHeader,
     args: { title: 'Radio Nova', subtitle: 'Paris, France', showBack: true },
-    overrides: { icon: OPTIONAL_ICON },
+    overrides: { icon: OPTIONAL_APP_ICON },
     notes: {
       icon: 'The icon is the header\u2019s other lead-in, so it is drawn only while showBack is off.',
       titleMuted: 'Only the single-line title is muted \u2014 with a subtitle set, the pair replaces it.'
@@ -719,20 +709,19 @@ export const REGISTRY = {
         default: true,
         apply: (value, stores) => { stores.unified.showVolumeBar = value; }
       },
+      // The two halves of one volume state, as the server publishes them: the
+      // fill's 0..1 over the limits it applied, and the level the text reads.
+      // The defaults agree (-45 dB is 0.58 of the -80..-20 default span); moved
+      // apart, the bar shows what each field draws on its own.
+      global_volume: {
+        kind: 'number',
+        default: 0.58,
+        apply: (value, stores) => { stores.unified.volumeState.global_volume = value; }
+      },
       global_volume_db: {
         kind: 'number',
         default: -45,
         apply: (value, stores) => { stores.unified.volumeState.global_volume_db = value; }
-      },
-      min_db: {
-        kind: 'number',
-        default: -80,
-        apply: (value, stores) => { stores.settings.volumeLimits.min_db = value; }
-      },
-      max_db: {
-        kind: 'number',
-        default: -20,
-        apply: (value, stores) => { stores.settings.volumeLimits.max_db = value; }
       }
     },
     // `on-contrast` is the white-fill variant App.vue picks for a dark ground —
@@ -941,7 +930,7 @@ export const REGISTRY = {
     component: AudioPlayer,
     args: { source: 'spotify', visible: true },
     notes: {
-      nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it; only the four browser sources’ records are offered. The swipe carousel is the phone form: Music Library on the Phone viewport.'
+      nowPlaying: 'Each record carries the source it belongs to and moves the source prop with it; only the four browser sources’ records are offered. On the Phone viewport the bar swipes: Spotify’s record steps a track, Podcast’s skips −15 / +30. The carousel needs a queue to slide through, which no record here carries — the Music Library page’s “Playing, queue loaded” draws it.'
     },
     // What the bar draws is read from the state, through the body it shares
     // with the full player: the same records, narrowed to its four sources.
@@ -1008,7 +997,7 @@ export const REGISTRY = {
       contentKey: 'home',
       class: 'canvas-fill'
     },
-    overrides: { headerIcon: OPTIONAL_ICON },
+    overrides: { headerIcon: OPTIONAL_APP_ICON },
     notes: {
       headerIcon: 'Forwarded to NavigationHeader, which draws an icon only while headerShowBack is off.',
       headerTitleMuted: 'Forwarded too, and it mutes the single-line title only \u2014 clear headerSubtitle to see it.'

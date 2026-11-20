@@ -117,9 +117,10 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
+import { usePodcastStore } from '@/stores/podcastStore';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { useSpotifyStore } from '@/stores/spotifyStore';
-import { sourcePageById, replayedState } from './sources';
+import { sourcePageById, replayedState, stageBrowser } from './sources';
 import { setApiFixtures } from './canvasHttp';
 import { serverNowMs } from '@/services/serverClock';
 import FavoritesView from '@/components/radio/FavoritesView.vue';
@@ -180,6 +181,7 @@ const unifiedStore = useUnifiedAudioStore();
 const stationIntro = computed(() => inStationIntro(unifiedStore));
 const stores = {
   radio: useRadioStore(),
+  podcast: usePodcastStore(),
   musicLibrary: useMusicLibraryStore(),
   spotify: useSpotifyStore()
 };
@@ -257,21 +259,7 @@ watch(current, (scenario) => {
   // fetches, and the seed before it reads. Both are set even when the scenario
   // declares neither, so nothing carries over from the one before it.
   setApiFixtures(scenario.browser?.api);
-
-  const seed = scenario.browser?.seed ?? {};
-  for (const [name, fields] of Object.entries(seed)) {
-    Object.assign(stores[name], fields);
-  }
-
-  // Some state has no seedable field behind it: radio exposes its favourites as
-  // a sorted computed, so the only way in is the loader that fills the ref
-  // underneath. Calling it against the fixture above is the better half of the
-  // bargain anyway — the store parses the response by its own code path, so a
-  // change to the shape it expects shows up here rather than staying hidden
-  // behind a value the gallery wrote by hand.
-  for (const [name, action, ...args] of scenario.browser?.prime ?? []) {
-    stores[name][action](...args);
-  }
+  stageBrowser(scenario.browser, stores);
 }, { immediate: true });
 </script>
 

@@ -182,10 +182,12 @@
       <h3 class="controls__section-title text-mono-small">Events</h3>
 
       <div v-if="!events.length" class="controls__hint text-mono-small">
-        Declares none — this primitive reports through callback props instead.
+        {{ callbacks.length
+          ? 'Declares none — this primitive reports through the callback props below instead.'
+          : 'Declares none.' }}
       </div>
-      <div v-else class="controls__events">
-        <span v-for="name in events" :key="name" class="controls__event text-mono-small">
+      <div v-if="events.length || callbacks.length" class="controls__events">
+        <span v-for="name in [...events, ...callbacks]" :key="name" class="controls__event text-mono-small">
           {{ name }}<template v-if="counts[name]"> ×{{ counts[name] }}</template>
         </span>
       </div>
@@ -211,6 +213,11 @@ const props = defineProps({
   },
   /** Event names from `describeEvents()`. */
   events: {
+    type: Array,
+    default: () => []
+  },
+  /** The callback props the canvas stubs, as `callbackEventName()` names their calls. */
+  callbacks: {
     type: Array,
     default: () => []
   },

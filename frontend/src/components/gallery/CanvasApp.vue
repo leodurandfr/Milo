@@ -59,10 +59,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { REGISTRY, entryFor } from './registry';
 import { installApiHarness } from './canvasHttp';
-import { describeEvents, callbackProps } from './controls';
+import { describeEvents, callbackProps, callbackEventName } from './controls';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useSettingsStore } from '@/stores/settingsStore';
 import { useLyricsStore } from '@/stores/lyricsStore';
 
 /** Descriptors the canvas keeps on screen regardless of what is selected. */
@@ -84,7 +83,6 @@ const presetChoices = ref({});
  */
 const context = {
   unified: useUnifiedAudioStore(),
-  settings: useSettingsStore(),
   lyrics: useLyricsStore(),
   keyboard: useVirtualKeyboard()
 };
@@ -194,7 +192,7 @@ const bound = computed(() => {
   const props = { ...args.value, ...presetValues.value };
   for (const name of callbackProps(entry.value.component)) {
     if (props[name] == null) {
-      props[name] = () => post({ type: 'event', name: `${name}()` });
+      props[name] = () => post({ type: 'event', name: callbackEventName(name) });
     }
   }
   return props;

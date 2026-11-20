@@ -143,3 +143,11 @@ export function callbackProps(component) {
     .filter(([, definition]) => hasType(definition, Function))
     .map(([name]) => name);
 }
+
+/**
+ * The name a call to callback prop `name` is logged under — by the canvas's
+ * stub, and on the panel's list, so the two count the same thing.
+ */
+export function callbackEventName(name) {
+  return `${name}()`;
+}

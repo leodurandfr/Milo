@@ -108,6 +108,7 @@
       <GalleryControls
         :descriptors="descriptors"
         :events="events"
+        :callbacks="callbacks"
         :args="args"
         :slot-options="slotOptions"
         :slot-choices="slotChoices"
@@ -135,7 +136,7 @@ import { ENTRIES, entryById } from '@/components/gallery/catalog';
 import { sourcePageById } from '@/components/gallery/sources';
 import { foundationPageById, isFoundationId } from '@/components/gallery/foundations';
 import { entryFor, overridesFor, AUDIO_SOURCES_ID } from '@/components/gallery/registry';
-import { describeProps, describeEvents } from '@/components/gallery/controls';
+import { describeProps, describeEvents, callbackProps, callbackEventName } from '@/components/gallery/controls';
 import GallerySidebar from '@/components/gallery/GallerySidebar.vue';
 import GalleryCanvas from '@/components/gallery/GalleryCanvas.vue';
 import FoundationsPage from '@/components/gallery/FoundationsPage.vue';
@@ -266,6 +267,11 @@ const descriptors = computed(() =>
 
 const events = computed(() =>
   playground.value ? describeEvents(playground.value.component) : []
+);
+
+/** The callback props the canvas stubs, under the names it logs their calls by. */
+const callbacks = computed(() =>
+  playground.value ? callbackProps(playground.value.component).map(callbackEventName) : []
 );
 
 /** The props pane exists only where there is a live instance to drive. */

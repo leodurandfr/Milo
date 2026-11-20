@@ -1,7 +1,7 @@
 <!-- frontend/src/components/gallery/demos/PlayerDemo.vue -->
 <template>
   <GalleryItem id="ProgressBar">
-    <GalleryVariant label="variant=&quot;light&quot; (default) — interactive, press or drag to seek, arrows to skip" stacked>
+    <GalleryVariant label="variant=&quot;default&quot; — interactive, press or drag to seek, arrows to skip" stacked>
       <ProgressBar
         :current-position="position"
         :duration="245000"
@@ -17,7 +17,11 @@
           variant="on-contrast" :interactive="false" />
       </div>
     </GalleryVariant>
-    <GalleryVariant label=":duration=&quot;0&quot; — renders nothing at all (radio, Qobuz)" stacked>
+    <GalleryVariant label=":live — a live stream (radio): no playhead, the word over the bare track; :on-air while it plays, dimmed otherwise" stacked>
+      <ProgressBar live on-air />
+      <ProgressBar live />
+    </GalleryVariant>
+    <GalleryVariant label=":duration=&quot;0&quot; — renders nothing at all (a source that reports no duration, Qobuz)" stacked>
       <ProgressBar :current-position="0" :duration="0" :progress-percentage="0" />
     </GalleryVariant>
   </GalleryItem>
@@ -104,19 +108,26 @@
   </GalleryItem>
 
   <GalleryItem id="SkeletonDetailHeader">
-    <GalleryVariant label=":shuffle — over the DetailHeader it stands in for" stacked>
-      <SkeletonDetailHeader shuffle />
+    <GalleryVariant label="default — over the DetailHeader it stands in for" stacked>
+      <SkeletonDetailHeader />
+      <DetailHeader :image-src="musicPlaceholder" title="Morning playlist" subtitle-meta="42 tracks" />
+    </GalleryVariant>
+    <GalleryVariant label=":subtitle — the subtitle line, as an album's artists draw it" stacked>
+      <SkeletonDetailHeader subtitle />
       <DetailHeader :image-src="musicPlaceholder" title="Spaces" subtitle="Nils Frahm"
         subtitle-meta="2013 · 17 tracks · 1 h 21" />
+    </GalleryVariant>
+    <GalleryVariant label="action=&quot;small&quot; — a show's Subscribe in place of the play square" stacked>
+      <SkeletonDetailHeader subtitle action="small" />
     </GalleryVariant>
   </GalleryItem>
 
   <GalleryItem id="SkeletonDetailPage">
-    <GalleryVariant label="a playlist: :cover :artist :shuffle" stacked>
-      <SkeletonDetailPage :rows="4" cover artist shuffle />
+    <GalleryVariant label="a playlist: rows with :cover :artist" stacked>
+      <SkeletonDetailPage :rows="4" cover artist />
     </GalleryVariant>
-    <GalleryVariant label="an album: rows with neither cover nor artist line" stacked>
-      <SkeletonDetailPage :rows="4" />
+    <GalleryVariant label="an album: :subtitle on the header, rows with neither cover nor artist line" stacked>
+      <SkeletonDetailPage :rows="4" subtitle />
     </GalleryVariant>
   </GalleryItem>
 </template>

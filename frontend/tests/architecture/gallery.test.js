@@ -49,8 +49,14 @@ import {
   allEvents,
   settledState,
   scenarioId,
-  sourcePageById
+  sourcePageById,
+  stageBrowser
 } from '../../src/components/gallery/sources.js';
+import { installApiHarness, setApiFixtures } from '../../src/components/gallery/canvasHttp.js';
+import { apiCall } from '../../src/services/apiCall.js';
+import { ICON_NAMES } from '../../src/components/ui/SvgIcon.vue';
+import { APP_ICON_NAMES } from '../../src/components/ui/AppIcon.vue';
+import { MOBILE_QUERY } from '../../src/constants/layout.js';
 import {
   SECTIONS,
   MOBILE,
@@ -67,8 +73,32 @@ import { richSourceFor } from '../../src/composables/useRichDisplay.js';
 import { AudioStateSchema } from '../../src/schemas/api.js';
 import { UNTRUSTED_SENDER_MIN_ARTWORK_PX } from '../../src/constants/imageQuality.js';
 import { useRadioStore } from '../../src/stores/radioStore.js';
+import { usePodcastStore } from '../../src/stores/podcastStore.js';
 import { useMusicLibraryStore } from '../../src/stores/musicLibraryStore.js';
 import { useSpotifyStore } from '../../src/stores/spotifyStore.js';
+
+/**
+ * Runs `body` with the canvas's HTTP harness installed on the real apiCall, and
+ * puts apiCall's verbs back after: the harness replaces them for good, as the
+ * canvas wants, and the next test file must not inherit a fixture server.
+ */
+async function withCanvasHttp(body) {
+  const verbs = ['get', 'post', 'put', 'patch', 'delete'];
+  const saved = Object.fromEntries(verbs.map(verb => [verb, apiCall[verb]]));
+  const reports = [];
+  installApiHarness((name, detail) => reports.push(`${name} — ${detail}`));
+  try {
+    return await body(reports);
+  } finally {
+    setApiFixtures({});
+    Object.assign(apiCall, saved);
+  }
+}
+
+/** Lets the stores' loads, and the watchers they trip, run to the end. */
+async function settle() {
+  for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 0));
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(HERE, '../../src');
@@ -705,6 +735,88 @@ describe('component gallery playground', () => {
     // A `readBy` list that resolved to nothing would pass vacuously.
     expect(checked).toBeGreaterThan(0);
     expect(orphans).toEqual([]);
+  });
+
+  it('writes only store fields its component reads', () => {
+    // A writer with no `records` sets one store field, and the field has to be
+    // one the component reads, or the control moves nothing on screen.
+    // VolumeBar's min_db and max_db outlived the interpolation that read them:
+    // two of its four controls did nothing, and the field its fill reads had
+    // none, so the bar stayed empty whatever was picked.
+    const orphans = [];
+    let checked = 0;
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      for (const [name, state] of Object.entries(descriptor.state || {})) {
+        if (state.records) continue;
+        const field = String(state.apply).match(/stores\.\w+(?:\.\w+)*\.(\w+)\s*=(?!=)/)?.[1];
+        if (!field) {
+          orphans.push(`${id}.${name} (writes no store field)`);
+          continue;
+        }
+        checked += 1;
+        const file = entryById(id).file;
+        if (!new RegExp(`\\.${field}\\b`).test(readFileSync(join(SRC_DIR, file), 'utf8'))) {
+          orphans.push(`${id}.${name} (${field} is not read by ${file})`);
+        }
+      }
+    }
+
+    expect(checked).toBeGreaterThan(4);
+    expect(orphans).toEqual([]);
+  });
+
+  it('offers an icon prop exactly the names of the icon that draws it', () => {
+    // An icon prop is a name handed down the templates to SvgIcon or AppIcon,
+    // whose vocabularies differ — and the select offers whichever list the
+    // override names. NavigationHeader's icon is drawn by AppIcon and was
+    // offered SvgIcon's: most choices drew an empty tile, and the source icons
+    // the app passes were not on the list. The override is followed to the
+    // icon component it reaches, and its options must be that one's names.
+    const DRAWERS = { SvgIcon: ICON_NAMES, AppIcon: APP_ICON_NAMES };
+    const camelize = name => name.replace(/-(\w)/g, (_, char) => char.toUpperCase());
+
+    const vocabulary = (id, prop, depth = 0) => {
+      if (DRAWERS[id] && prop === 'name') return DRAWERS[id];
+      const file = entryById(id)?.file;
+      if (!file || depth > 3) return null;
+      const text = readFileSync(join(SRC_DIR, file), 'utf8');
+      const template = text.slice(0, text.indexOf('<script'));
+      for (const [, tag, attrs] of template.matchAll(/<([A-Z]\w*)\b([^>]*)>/g)) {
+        for (const [, attr] of attrs.matchAll(new RegExp(`:([\\w-]+)="${prop}"`, 'g'))) {
+          const found = vocabulary(tag, camelize(attr), depth + 1);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const wrong = [];
+    let checked = 0;
+
+    for (const [id, descriptor] of Object.entries(REGISTRY)) {
+      for (const [prop, override] of Object.entries(descriptor.overrides || {})) {
+        // An icon prop by name — `icon`, `leftIcon`, `headerIcon`, and the
+        // drawers' own `name`. A source prop also reaches AppIcon, but its
+        // vocabulary is the sources, a part of AppIcon's by design.
+        const iconProp = /icon$/i.test(prop) || (DRAWERS[id] && prop === 'name');
+        if (!override.options || !iconProp) continue;
+        const names = vocabulary(id, prop);
+        if (!names) continue;
+        checked += 1;
+        const offered = override.options.filter(option => option !== null);
+        const refused = offered.filter(option => !names.includes(option));
+        const missing = names.filter(name => !offered.includes(name));
+        if (refused.length || missing.length) {
+          wrong.push(`${id}.${prop} (refused: ${refused.slice(0, 4).join(', ')}; missing: ${missing.slice(0, 4).join(', ')})`);
+        }
+      }
+    }
+
+    // Button, IconButton, InputText, MessageContent, SvgIcon, AppIcon,
+    // NavigationHeader and AudioSourceLayout at the time of writing.
+    expect(checked).toBeGreaterThan(5);
+    expect(wrong).toEqual([]);
   });
 
   it('offers at least one choice per preset, on a prop that takes one', () => {
@@ -1382,6 +1494,7 @@ describe('component gallery source pages', () => {
     setActivePinia(createPinia());
     const stores = {
       radio: useRadioStore(),
+      podcast: usePodcastStore(),
       musicLibrary: useMusicLibraryStore(),
       spotify: useSpotifyStore()
     };
@@ -1599,6 +1712,108 @@ describe('component gallery source pages', () => {
     expect(CANVAS).toMatch(/installApiHarness\(/);
   });
 
+  it('answers a GET from its own path’s fixture, never from a shorter one', async () => {
+    // A query string is the store's business; a longer path is another
+    // endpoint. Served by the shorter one, the podcast home read
+    // `/subscriptions/latest-episodes` as `{ subscriptions }`: no episodes, a
+    // success, and no report — the empty state that looks deliberate.
+    const fixture = { subscriptions: [] };
+    await withCanvasHttp(async (reports) => {
+      setApiFixtures({ '/api/podcast/subscriptions': fixture });
+
+      expect((await apiCall.get('/api/podcast/subscriptions')).data).toBe(fixture);
+      expect((await apiCall.get('/api/podcast/subscriptions?limit=20')).data).toBe(fixture);
+      expect((await apiCall.get('/api/podcast/subscriptions/latest-episodes')).ok).toBe(false);
+      expect(reports).toEqual([expect.stringMatching(/^GET \/api\/podcast\/subscriptions\/latest-episodes — unstubbed/)]);
+    });
+  });
+
+  it('shows what a browser scenario serves, whatever was visited before', async () => {
+    // A scenario is a fresh screen, but the feature stores outlive it: their
+    // caches and their watchers carry state from one scenario into the next.
+    // Each scenario is staged as the stage does it, in both orders, and the
+    // store must end on what that scenario's own fixtures say. The podcast
+    // home's "new episodes" and the library's liked songs each came out of
+    // whichever scenario was visited first.
+    const served = (browser, path, key) => browser.api?.[path]?.[key];
+    const CHECKS = {
+      podcast: {
+        path: '/api/podcast/subscriptions/latest-episodes',
+        key: 'results',
+        read: store => store.latestSubscriptionEpisodes.length
+      },
+      musicLibrary: {
+        path: '/api/music-library/starred',
+        key: 'songs',
+        read: store => store.likedSongsCount
+      }
+    };
+
+    const problems = [];
+    let checked = 0;
+
+    await withCanvasHttp(async () => {
+      for (const [name, check] of Object.entries(CHECKS)) {
+        const staged = SOURCE_PAGES.flatMap(page => page.scenarios)
+          .filter(scenario => scenario.browser?.prime?.some(([store]) => store === name));
+        // Two orders, so a value carried over from the scenario before shows
+        // whichever way it is carried.
+        for (const order of [staged, [...staged].reverse()]) {
+          setActivePinia(createPinia());
+          const stores = {
+            radio: useRadioStore(),
+            podcast: usePodcastStore(),
+            musicLibrary: useMusicLibraryStore(),
+            spotify: useSpotifyStore()
+          };
+          for (const scenario of order) {
+            setApiFixtures(scenario.browser.api);
+            stageBrowser(scenario.browser, stores);
+            await settle();
+            const expected = served(scenario.browser, check.path, check.key);
+            if (expected === undefined) {
+              problems.push(`${name} ${scenario.id} (serves no ${check.path})`);
+              continue;
+            }
+            checked += 1;
+            const shown = check.read(stores[name]);
+            if (shown !== expected.length) problems.push(`${name} ${scenario.id} (${shown}, serves ${expected.length})`);
+          }
+        }
+      }
+    });
+
+    expect(checked).toBeGreaterThan(6);
+    expect(problems).toEqual([]);
+  });
+
+  it('steps between favorites exactly where the station on screen is one of several', () => {
+    // The backend lists prev and next for a station that is one of at least
+    // two favorites (`RadioSource._can_step`), and the favorite button is ✓
+    // for a station in the grid. A scenario listing no step over a favorite
+    // draws the steps disabled, a state the app never shows for one.
+    const problems = [];
+    let checked = 0;
+
+    for (const scenario of sourcePageById(`${SOURCE_PAGE_PREFIX}radio`).scenarios) {
+      const station = settledState(scenario).details?.station;
+      const favorites = scenario.browser?.api?.['/api/radio/stations']?.stations;
+      if (!station || !favorites) continue;
+      checked += 1;
+      const favorite = favorites.some(entry => entry.id === station.id);
+      const steps = favorite && favorites.length >= 2;
+      const controls = settledState(scenario).controls;
+      if (controls.includes('prev') !== steps || controls.includes('next') !== steps) {
+        problems.push(`${scenario.id} (steps listed: ${controls.includes('next')}, expected ${steps})`);
+      }
+      const button = scenario.browser.player?.controls?.favorite;
+      if (button !== undefined && button !== favorite) problems.push(`${scenario.id} (favorite button ${button}, in the grid ${favorite})`);
+    }
+
+    expect(checked).toBeGreaterThan(3);
+    expect(problems).toEqual([]);
+  });
+
   it('rests on four guards that are still there', () => {
     // The rule above is only safe because of these, and they live in files this
     // suite would otherwise never look at. Asserted as text because that is
@@ -1792,6 +2007,24 @@ describe('component gallery foundations', () => {
     }
 
     expect(problems).toEqual([]);
+  });
+
+  it('carries every override the mobile block declares', () => {
+    // Read off the raw block, comments stripped, by a plainer pattern than the
+    // parser's: a declaration that sits before the block's first section marker
+    // (`--card-grid-columns`) was dropped, and the planche showed its base value
+    // alone while promising the mobile one.
+    const start = CSS.indexOf(`@media ${MOBILE_QUERY}`);
+    expect(start).toBeGreaterThan(-1);
+    const open = CSS.indexOf('{', CSS.indexOf(':root', start));
+    const block = CSS.slice(open + 1, CSS.indexOf('}', open)).replace(/\/\*[\s\S]*?\*\//g, '');
+    const declared = [...block.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)];
+
+    expect(declared.length).toBeGreaterThan(5);
+    const lost = declared
+      .filter(([, name, value]) => MOBILE[name] !== value.trim().replace(/\s+/g, ' '))
+      .map(([, name]) => name);
+    expect(lost).toEqual([]);
   });
 
   it('overrides only tokens that exist in the mobile layout', () => {

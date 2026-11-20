@@ -86,8 +86,9 @@
  * What a scenario supplies to a browser is what the backend would, in three
  * shapes, because the stores leave three different ways in:
  *
- *   api    GET responses, keyed by URL prefix. The store parses them by its own
- *          code path, so the fixture is checked against the shape it expects.
+ *   api    GET responses, keyed by path (a query string is ignored). The store
+ *          parses them by its own code path, so the fixture is checked against
+ *          the shape it expects.
  *   seed   store fields written directly, for state with no load path worth
  *          running — and for the `*Loaded` flags, which is what stops a view
  *          fetching on mount and shimmering for ever.
@@ -402,22 +403,43 @@ const CD_DISC = {
   tracks: CD_TRACKS
 };
 
+/**
+ * The same disc with no MusicBrainz match: the TOC alone, so the real track
+ * count and durations and nothing named (`_unnamed` on the backend).
+ */
+const CD_DISC_UNIDENTIFIED = {
+  id: 'JXbxvhCUq4rHKnvNGkzZgL3xIxA-',
+  album: null,
+  artist: null,
+  year: null,
+  cover_url: null,
+  tracks: CD_TRACKS.map(track => ({ ...track, title: null }))
+};
+
 /** `details` of the CD with the sample disc in, `current` its 1-based track. */
 function cdDetails(current, disc = CD_DISC) {
   return { kind: 'cd', disc, current_track: current, artwork_pending: false, shuffle: false, repeat: 'off' };
 }
 
+/**
+ * What the backend names track `number` of `disc` by (`_track_fields`): the
+ * track's own title, null included — the album's only when the disc lists no
+ * such track — and the disc's artist, album and cover.
+ */
+function cdTrack(number, disc = CD_DISC) {
+  const track = disc.tracks[number - 1];
+  return {
+    title: track ? track.title : disc.album,
+    artist: disc.artist,
+    album: disc.album,
+    artwork: disc.cover_url,
+    duration_ms: track ? track.duration_ms : null
+  };
+}
+
 /** A CD session on track `number` of the sample disc. */
 function cdSession(number, overrides = {}) {
-  const track = CD_TRACKS[number - 1];
-  return session({
-    title: track.title,
-    artist: CD_DISC.artist,
-    album: CD_DISC.album,
-    artwork: CD_DISC.cover_url,
-    duration_ms: track.duration_ms,
-    ...overrides
-  });
+  return session({ ...cdTrack(number), ...overrides });
 }
 
 /** The track the Connect sources play in every scenario of theirs. */
@@ -592,9 +614,18 @@ const RADIO_FAVOURITES = [
   { id: 'st-nts', name: 'NTS Radio 1', favicon: '', countrycode: 'GB', genre: 'electronic' }
 ];
 
-/** The station behind every player scenario, so the grid and the pane agree. */
+/**
+ * The favorite behind the player scenarios, so the grid and the pane agree —
+ * one of six, so the backend lists the steps between favorites beside its
+ * transport.
+ */
 const RADIO_STATION_WITH_IMAGE = RADIO_FAVOURITES[0];
-const RADIO_STATION_NO_IMAGE = RADIO_FAVOURITES[1];
+
+/**
+ * A station tuned from the search and kept nowhere: no image, as most of a
+ * directory, and no favorite — so ⊕ rather than ✓, and no step to list.
+ */
+const RADIO_STATION_SEARCHED = { id: 'st-meuh', name: 'Radio Meuh', favicon: '', countrycode: 'FR', genre: 'eclectic' };
 
 /** One USB key: the single-storage case, where the picker is not drawn at all. */
 const ML_STORAGE_USB = [
@@ -633,6 +664,13 @@ const ML_PLAYLISTS = [
   { id: 'pl-2', name: 'Dimanche matin', songCount: 34 }
 ];
 
+/** The songs starred on the storage space, as `/starred` answers (Subsonic songs). */
+const ML_LIKED_SONGS = [
+  { id: 's-1', title: 'Ambre', artist: 'Nils Frahm', album: 'Spaces', albumId: 'al-2', artistId: 'ar-3', duration: 264 },
+  { id: 's-2', title: 'Says', artist: 'Nils Frahm', album: 'Spaces', albumId: 'al-2', artistId: 'ar-3', duration: 511 },
+  { id: 's-3', title: 'Hammers', artist: 'Nils Frahm', album: 'Spaces', albumId: 'al-2', artistId: 'ar-3', duration: 384 }
+];
+
 /** The shows the unit is subscribed to, as the home's first block lists them. */
 const PODCAST_SUBSCRIPTIONS = [
   { uuid: 'sub-1', name: 'Le Code a changé', publisher: 'France Inter', is_subscribed: true },
@@ -648,6 +686,26 @@ const PODCAST_LATEST_EPISODES = [
   { uuid: 'ep-lca-215', name: 'Épisode 215', podcast: { uuid: 'sub-1', name: 'Le Code a changé' }, duration: 2940, date_published: 1788170400 },
   { uuid: 'ep-as-88', name: "L'affaire des poisons", podcast: { uuid: 'sub-2', name: 'Affaires sensibles' }, duration: 3240, date_published: 1788084000 }
 ];
+
+/**
+ * What every podcast scenario serves the home, the chart aside, and the forced
+ * reload that makes each scenario show its own: `loadSubscriptions` caches what
+ * it read, and the cache survives a scenario change — so without it the first
+ * podcast scenario visited decided every later one's "new episodes" block.
+ */
+function podcastSetup(charts) {
+  return {
+    api: {
+      '/api/podcast/discover/top-charts': charts,
+      '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
+      '/api/podcast/subscriptions/latest-episodes': { results: PODCAST_LATEST_EPISODES }
+    },
+    prime: [
+      ['podcast', 'preloadSubscriptionsList', { force: true }],
+      ['podcast', 'loadSubscriptions', true]
+    ]
+  };
+}
 
 /**
  * An Apple top-charts page. `image_url` is left off so LazyImage takes
@@ -682,10 +740,10 @@ const ML_ALBUMS = [
  * response is the only way in — and the real parse runs, which is the better
  * half of the bargain.
  *
- * Everything else is a seed, and the `*Loaded` flags are the point rather than
- * an afterthought: each `loadTab` is guarded on them, so setting them is what
- * stops the view fetching. A tab left unloaded with nothing to load shows its
- * skeleton for ever.
+ * The lists go the same way — albums, artists, genres, playlists, liked
+ * songs — each served and loaded by force (below). The one seed is the storage
+ * space the scenario browses, `activeLibraryId`: the store empties every list
+ * when it moves, which is why nothing else may be seeded beside it.
  */
 function mlSetup({ storages, albums = [], scanning = false, activeLibraryId = null }) {
   return {
@@ -694,13 +752,15 @@ function mlSetup({ storages, albums = [], scanning = false, activeLibraryId = nu
       '/api/music-library/albums': { albums },
       '/api/music-library/artists': { index: albums.length ? ML_ARTIST_INDEX : [] },
       '/api/music-library/genres': { genres: albums.length ? ML_GENRES : [] },
-      '/api/music-library/playlists': { playlists: albums.length ? ML_PLAYLISTS : [] }
+      '/api/music-library/playlists': { playlists: albums.length ? ML_PLAYLISTS : [] },
+      '/api/music-library/starred': { songs: albums.length ? ML_LIKED_SONGS : [] }
     },
+    // The liked songs are served and loaded, never seeded: changing the
+    // storage space empties every list the store holds, its liked songs
+    // included, so a seed written beside `activeLibraryId` was wiped as soon
+    // as the id moved — and survived only when it did not.
     seed: {
-      musicLibrary: {
-        activeLibraryId,
-        likedSongIds: new Set(['s-1', 's-2', 's-3'])
-      }
+      musicLibrary: { activeLibraryId }
     },
     // Every loader here is guarded on a "already loaded" flag, and the flags
     // survive a scenario change — so without forcing the reads, picking the
@@ -712,7 +772,8 @@ function mlSetup({ storages, albums = [], scanning = false, activeLibraryId = nu
       ['musicLibrary', 'loadAlbums', { force: true }],
       ['musicLibrary', 'loadArtists', { force: true }],
       ['musicLibrary', 'loadGenres', { force: true }],
-      ['musicLibrary', 'loadPlaylists', { force: true }]
+      ['musicLibrary', 'loadPlaylists', { force: true }],
+      ['musicLibrary', 'loadLikedSongs', { force: true }]
     ]
   };
 }
@@ -976,14 +1037,7 @@ export const SOURCE_PAGES = [
         {
           resume: { title: null, artist: null, album: null, artwork: null, duration_ms: 312000, position_ms: 0 },
           controls: ['resume', 'seek', 'skip', 'next', 'prev', 'set_shuffle', 'set_repeat', 'play_track', 'eject'],
-          details: cdDetails(1, {
-            id: 'JXbxvhCUq4rHKnvNGkzZgL3xIxA-',
-            album: null,
-            artist: null,
-            year: null,
-            cover_url: null,
-            tracks: CD_TRACKS.map(track => ({ ...track, title: null }))
-          })
+          details: cdDetails(1, CD_DISC_UNIDENTIFIED)
         }
       ),
       published('cd', 'Loading a track', 'A play press or a track change opens a session in loading while the reader restarts: the bar snaps to 0:00 on the target track and stays there, since `seek` is not listed while loading, and the spinner replaces the glyph.', {
@@ -1086,7 +1140,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioSourceLayout + AudioPlayer',
     via: 'browser',
     summary:
-      'richSourceFor draws the three browser sources whatever the session says — their own layout handles empty and loading — so the status card is reached in exactly three places: while switching, when the service failed, and when the link is missing (a favourites grid whose every tap would fail is worse than no grid). The player is the one with no progress bar at all: a live stream has no duration, and no pause either — its transport is `stop` while tuned and `resume_playback` (re-tune) once stopped.',
+      'richSourceFor draws the three browser sources whatever the session says — their own layout handles empty and loading — so the status card is reached in exactly three places: while switching, when the service failed, and when the link is missing (a favourites grid whose every tap would fail is worse than no grid). A live stream has no playhead, so its progress bar is the live one — the word over a bare track — and no pause either: its transport is `stop` while tuned and `resume_playback` (re-tune) once stopped, with `prev`/`next` stepping between favorites whenever the station on screen is one of several (drawn disabled otherwise, so the row keeps its shape).',
     scenarios: [
       starting('radio'),
       browsing('radio', 'Favourites loading', 'favoritesInitialized false — the grid is sixteen SkeletonStationCards. It is the state a cold boot opens on, and the only one where the count on screen is a guess rather than the truth.', {
@@ -1126,7 +1180,7 @@ export const SOURCE_PAGES = [
             album: RADIO_STATION_WITH_IMAGE.name,
             artwork: RADIO_STATION_WITH_IMAGE.favicon
           }),
-          controls: ['stop'],
+          controls: ['stop', 'prev', 'next'],
           details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null, artwork_pending: false }
         },
         // The marked card in the grid, and only that: it comes from
@@ -1147,7 +1201,7 @@ export const SOURCE_PAGES = [
           controls: { favorite: true }
         }
       }),
-      browsing('radio', 'Playing a station', 'The pane animates in and the content gives up 380 px; the playing card is marked in the grid. No track recognised yet, so the station is the whole info block and its own image is the artwork. No progress bar either — a live stream has no duration, so the bar would have nothing to show.', {
+      browsing('radio', 'Playing a station', 'The pane animates in and the content gives up 380 px; the playing card is marked in the grid. No track recognised yet, so the station is the whole info block and its own image is the artwork. The bar is the live one, a live stream having no duration to show, and the steps beside the stop move to the favorite before or after this one.', {
         condition: ['currentStation', 'artwork'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
@@ -1158,7 +1212,7 @@ export const SOURCE_PAGES = [
             album: RADIO_STATION_WITH_IMAGE.name,
             artwork: RADIO_STATION_WITH_IMAGE.favicon
           }),
-          controls: ['stop'],
+          controls: ['stop', 'prev', 'next'],
           details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null, artwork_pending: false }
         },
         props: { isPlaying: true, currentStation: RADIO_STATION_WITH_IMAGE },
@@ -1187,7 +1241,7 @@ export const SOURCE_PAGES = [
             duration_ms: null,
             position_ms: null
           },
-          controls: ['resume_playback'],
+          controls: ['resume_playback', 'prev', 'next'],
           details: { kind: 'radio', station: radioStation(RADIO_STATION_WITH_IMAGE), track: null, artwork_pending: false }
         },
         props: { isPlaying: false, currentStation: RADIO_STATION_WITH_IMAGE },
@@ -1200,24 +1254,24 @@ export const SOURCE_PAGES = [
           controls: { favorite: true }
         }
       }),
-      browsing('radio', 'Playing, no station image', 'The same pane for a station that carries no image: AudioPlayer takes fallbackName and renders the generated monogram, in the artwork frame and blurred behind it both. Most of a directory looks like this, which is why the avatar is a branch rather than a placeholder.', {
+      browsing('radio', 'Playing, no station image', 'The same pane for a station tuned from the search, which carries no image: the player renders its generated monogram, in the artwork frame and blurred behind it both. Most of a directory looks like this, which is why the avatar is a branch rather than a placeholder. Not a favorite either, so no card is marked in the grid, the favorite button is ⊕, and `controls` lists no step — the two are drawn disabled.', {
         condition: ['currentStation'],
         layout: RADIO_HEADER,
         view: 'radio-favourites',
         state: {
           session: session({
             phase: 'playing',
-            title: RADIO_STATION_NO_IMAGE.name,
-            album: RADIO_STATION_NO_IMAGE.name
+            title: RADIO_STATION_SEARCHED.name,
+            album: RADIO_STATION_SEARCHED.name
           }),
           controls: ['stop'],
-          details: { kind: 'radio', station: radioStation(RADIO_STATION_NO_IMAGE), track: null, artwork_pending: false }
+          details: { kind: 'radio', station: radioStation(RADIO_STATION_SEARCHED), track: null, artwork_pending: false }
         },
-        props: { isPlaying: true, currentStation: RADIO_STATION_NO_IMAGE },
+        props: { isPlaying: true, currentStation: RADIO_STATION_SEARCHED },
         api: { '/api/radio/stations': { stations: RADIO_FAVOURITES } },
         prime: [['radio', 'loadStations', true]],
         player: {
-          station: { name: RADIO_STATION_NO_IMAGE.name, artwork: RADIO_STATION_NO_IMAGE.favicon },
+          station: { name: RADIO_STATION_SEARCHED.name, artwork: RADIO_STATION_SEARCHED.favicon },
           track: null,
           isPlaying: true,
           controls: { favorite: false }
@@ -1235,7 +1289,7 @@ export const SOURCE_PAGES = [
             album: RADIO_STATION_WITH_IMAGE.name,
             artwork: musicPlaceholder
           }),
-          controls: ['stop'],
+          controls: ['stop', 'prev', 'next'],
           details: {
             kind: 'radio',
             station: radioStation(RADIO_STATION_WITH_IMAGE),
@@ -1253,7 +1307,7 @@ export const SOURCE_PAGES = [
           // so this is the only shape that reaches either.
           track: { title: 'Ainsi parlait Zarathoustra', artist: 'Alain Bashung', artwork: musicPlaceholder },
           isPlaying: true,
-          controls: { favorite: false }
+          controls: { favorite: true }
         }
       }),
       offline(
@@ -1284,24 +1338,17 @@ export const SOURCE_PAGES = [
         condition: ['results'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
-        api: {
-          '/api/podcast/discover/top-charts': { results: PODCAST_CHARTS },
-          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS },
-          '/api/podcast/subscriptions/latest-episodes': { results: PODCAST_LATEST_EPISODES }
-        },
+        ...podcastSetup({ results: PODCAST_CHARTS }),
         player: null
       }),
       browsing('podcast', 'Catalogue unavailable', 'Apple did not answer, so the backend sets `api_error` instead of failing — a distinct branch from "no results", and the only one that says why the chart is empty. Deliberately not the status card: the loss is one block. The subscriptions above it are local data and still play, which is the whole reason this stays a per-view message with a retry.', {
         condition: ['api_error'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
-        api: {
-          '/api/podcast/discover/top-charts': { api_error: true },
-          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
-        },
+        ...podcastSetup({ api_error: true }),
         player: null
       }),
-      browsing('podcast', 'Playing an episode', 'Player pane in, progress bar drawn. On the Phone viewport this becomes a mini-bar teleported to body, with the bar as a 2 px strip on the card’s bottom edge.', {
+      browsing('podcast', 'Playing an episode', 'Player pane in, progress bar drawn. On the Phone viewport this becomes a mini-bar teleported to the bar layer BrowserSourceViews keeps for it, with the bar as a 2 px strip on the card’s bottom edge.', {
         condition: ['episodeName'],
         layout: PODCAST_HEADER,
         view: 'podcast-home',
@@ -1325,10 +1372,7 @@ export const SOURCE_PAGES = [
             }
           }
         },
-        api: {
-          '/api/podcast/discover/top-charts': { results: PODCAST_CHARTS },
-          '/api/podcast/subscriptions': { subscriptions: PODCAST_SUBSCRIPTIONS }
-        },
+        ...podcastSetup({ results: PODCAST_CHARTS }),
         player: {
           podcastName: 'Le Code a changé',
           episodeName: 'Épisode 214',
@@ -1392,7 +1436,7 @@ export const SOURCE_PAGES = [
         ...mlSetup({ storages: ML_STORAGE_USB, albums: [], activeLibraryId: 1 }),
         player: null
       }),
-      browsing('music_library', 'Playing, queue loaded', 'tracks + currentIndex are passed, so on the Phone viewport a horizontal swipe slides the neighbouring titles in locally rather than waiting for the backend echo.', {
+      browsing('music_library', 'Playing, queue loaded', 'The state carries the queue around the track (`details.queue`, `queue_index`), so on the Phone viewport the bar is a carousel: a horizontal swipe slides the neighboring titles in locally rather than waiting for the backend echo.', {
         condition: ['tracks=3'],
         layout: ML_HEADER,
         view: 'ml-home',
@@ -1443,6 +1487,27 @@ export const SOURCE_PAGES = [
     ]
   }
 ];
+
+/**
+ * A browser scenario's seed, then its primes, into `stores` (name -> store) —
+ * after its fixtures are in place, which the caller sets. The whole of what a
+ * scenario writes into the feature stores, and the same for every caller.
+ *
+ * Some state has no seedable field behind it: radio exposes its favourites as
+ * a sorted computed, so the only way in is the loader that fills the ref
+ * underneath. Calling it against the fixture is the better half of the bargain
+ * anyway — the store parses the response by its own code path, so a change to
+ * the shape it expects shows up here rather than staying hidden behind a value
+ * the gallery wrote by hand.
+ */
+export function stageBrowser(browser, stores) {
+  for (const [name, fields] of Object.entries(browser?.seed ?? {})) {
+    Object.assign(stores[name], fields);
+  }
+  for (const [name, action, ...args] of browser?.prime ?? []) {
+    stores[name][action](...args);
+  }
+}
 
 /** The source page for a `source:<id>` selection, or undefined. */
 export function sourcePageById(id) {

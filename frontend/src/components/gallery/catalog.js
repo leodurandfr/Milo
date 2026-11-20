@@ -309,7 +309,7 @@ export const ENTRIES = [
     group: 'structure',
     file: 'components/ui/VolumeBar.vue',
     coupling: 'store',
-    summary: 'The transient volume readout. position: fixed, visible only while unifiedAudioStore.showVolumeBar is set, and its fill interpolates the volume between the two configured limits — all four of those live in stores, so they are in the State section rather than the props table. Its one prop is the surface tone: the bar is fixed above every view and cannot see what it is drawn on, so App.vue reads it from the dark surface (Lyrics) that declares itself.',
+    summary: 'The transient volume readout. position: fixed, visible only while unifiedAudioStore.showVolumeBar is set. Its fill is the server\'s own 0..1 (`global_volume`, measured over the limits the server applied, so the bar never mixes a new level with old limits) and its text the level in dB (`global_volume_db`) — all three live in stores, so they are in the State section rather than the props table. Its one prop is the surface tone: the bar is fixed above every view and cannot see what it is drawn on, so App.vue reads it from the dark surface (Lyrics) that declares itself.',
   },
 
   // --- Player parts ---
@@ -317,7 +317,7 @@ export const ENTRIES = [
     id: 'ProgressBar',
     group: 'player',
     file: 'components/audio/ProgressBar.vue',
-    summary: 'The one playback bar, in five surfaces. Positions and durations are always milliseconds — the wire convention — and seek is emitted in ms too, once, on the release of a press or a drag (the track thickens while held); the arrow keys emit skip in seconds. On the phone’s mini-bar PlayerBody passes interactive=false: a readout, the whole bar being one tap to the full player. It self-hides when duration is 0 or isReady is false, which is how a source that reports no duration (radio, Qobuz) shows no bar rather than an empty one.',
+    summary: 'The one playback bar, in five surfaces. Positions and durations are always milliseconds — the wire convention — and seek is emitted in ms too, once, on the release of a press or a drag (the track thickens while held); the arrow keys emit skip in seconds. On the phone’s mini-bar PlayerBody passes interactive=false: a readout, the whole bar being one tap to the full player. A live stream (radio) is the `live` bar: no playhead, the bare track with the word over its middle, dimmed unless `onAir`, and never seeking. Otherwise it self-hides when duration is 0 or isReady is false, which is how a source that reports no duration (Qobuz) shows no bar rather than an empty one.',
   },
   {
     id: 'ArtistNames',
@@ -375,7 +375,7 @@ export const ENTRIES = [
     group: 'layout',
     file: 'components/audio/AudioPlayer.vue',
     coupling: 'store',
-    summary: 'The playing bar of the sources that have a browser, beside their navigation: one shell around PlayerBody, the body it shares with the full player, ranged left on its dark card. It reads what it draws from the state, so the now-playing state sits in the State section; what the source still adds is radio\'s favorite after the transport (transport-end) and its station behind a track on the phone (artwork-badge). Its cover on the kiosk\'s card (on the phone, a tap anywhere on the bar) emits expand, and the source answers by drawing AudioPlayerFull in place of its navigation; the title (the album) and the artist are emitted where the navigation says there is one to open. Its second form is only reachable through the Phone viewport: in the mobile layout the docked card becomes a mini-bar teleported to body, with a swipe that steps or skips, over a carousel when the source has a queue.',
+    summary: 'The playing bar of the sources that have a browser, beside their navigation: one shell around PlayerBody, the body it shares with the full player, ranged left on its dark card. It reads what it draws from the state, so the now-playing state sits in the State section; what the source still adds is radio\'s favorite after the transport (transport-end) and its station behind a track on the phone (artwork-badge). Its cover on the kiosk\'s card (on the phone, a tap anywhere on the bar) emits expand, and the source answers by drawing AudioPlayerFull in place of its navigation; the title (the album) and the artist are emitted where the navigation says there is one to open. Its second form is only reachable through the Phone viewport: in the mobile layout the docked card becomes a mini-bar teleported to the bar layer BrowserSourceViews keeps for it, with a swipe that steps or skips, over a carousel when the source has a queue.',
   },
   {
     id: 'PlayerTopRow',
