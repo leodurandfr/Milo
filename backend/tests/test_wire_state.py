@@ -298,7 +298,8 @@ SCENARIOS: List[Scenario] = [
         },
         "controls": ["pause", "seek", "skip", "next", "prev", *LIBRARY_TAIL, *LIBRARY_EDITS],
         "details": {
-            "kind": "music_library", "queue": ALBUM, "queue_index": 0, "shuffle": False,
+            "kind": "music_library", "queue": ALBUM, "queue_index": 0, "queue_offset": 0,
+            "queue_length": len(ALBUM), "shuffle": False,
             "repeat": "off", "track_id": FIRST["id"], "album_id": FIRST["albumId"], "artist_id": FIRST["artistId"],
             "context_id": None,
         },

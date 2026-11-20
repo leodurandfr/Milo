@@ -72,11 +72,12 @@ const options = computed(() => [
   { label: t('musicLibrary.previouslyPlayed'), value: 'played' },
 ]);
 
-const split = computed(() => splitQueue(store.queue, store.queueIndex));
+const split = computed(() => splitQueue(store.queue, store.queueIndex, store.queueOffset));
 
 // A state republished for anything but the queue (a pause) keeps a dropped
 // row where it was dropped.
-const queueShape = () => `${store.queueIndex}:${store.queue.map((song) => song.id).join(',')}`;
+const queueShape = () =>
+  `${store.queueOffset + store.queueIndex}:${store.queue.map((song) => song.id).join(',')}`;
 const { held: pendingUpcoming, hold } = useHeldOrder(queueShape);
 
 const rows = computed(() =>

@@ -33,6 +33,20 @@ describe('splitQueue', () => {
     expect(played).toEqual([]);
   });
 
+  it('numbers the rows of a window by the whole queue, not by the window', () => {
+    // The state carries the queue around the current track only: a window
+    // starting 40 entries in. A row numbered by its place in the window plays,
+    // removes or moves the track 40 entries earlier.
+    const whole = Array.from({ length: 50 }, (_, n) => ({ id: `t${n}` }));
+    const offset = 40;
+    const { upcoming, played } = splitQueue(whole.slice(offset), 2, offset);
+
+    for (const row of [...upcoming, ...played]) {
+      expect(whole[row.queueIndex]).toBe(row.song);
+    }
+    expect(upcoming.find((row) => row.current).queueIndex).toBe(42);
+  });
+
   it('keys a track queued twice apart, and the same across a track change', () => {
     const twice = [{ id: 'a' }, { id: 'b' }, { id: 'a' }];
     const before = splitQueue(twice, 0).upcoming.map((row) => row.key);

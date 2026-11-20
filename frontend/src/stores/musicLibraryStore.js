@@ -241,8 +241,13 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   );
   const session = computed(() => selected.value?.session ?? null);
 
+  // The queue around the current track, never the whole of it: a window,
+  // `queueIndex` the current one in it.
+  // `queueOffset` is where the window starts in the whole queue, whose index
+  // is what playIndex / removeFromQueue / moveInQueue take.
   const queue = computed(() => details.value?.queue ?? []);
   const queueIndex = computed(() => details.value?.queue_index ?? -1);
+  const queueOffset = computed(() => details.value?.queue_offset ?? 0);
   const currentTrackId = computed(() => details.value?.track_id ?? null);
   // The page the queue was played from (playContext's `contextId`).
   const currentContextId = computed(() => details.value?.context_id ?? null);
@@ -1150,6 +1155,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     nowPlaying,
     queue,
     queueIndex,
+    queueOffset,
     currentTrackId, currentContextId,
     phase,
     isPlaying,

@@ -324,6 +324,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -456,6 +458,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -602,6 +606,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -734,6 +740,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -944,6 +952,8 @@
       }
      ],
      "queue_index": 0,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-1",
@@ -1071,6 +1081,8 @@
       }
      ],
      "queue_index": 0,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-1",
@@ -1262,6 +1274,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -1394,6 +1408,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -1523,6 +1539,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -1654,6 +1672,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -1812,6 +1832,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -1944,6 +1966,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -2072,6 +2096,8 @@
        }
       ],
       "queue_index": 2,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-3",
@@ -2202,6 +2228,8 @@
        }
       ],
       "queue_index": 2,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-3",
@@ -2332,6 +2360,8 @@
        }
       ],
       "queue_index": 2,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-3",
@@ -2542,6 +2572,8 @@
       }
      ],
      "queue_index": 2,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-3",
@@ -2732,6 +2764,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -2863,6 +2897,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -3007,6 +3043,8 @@
        }
       ],
       "queue_index": 2,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-3",
@@ -3137,6 +3175,8 @@
        }
       ],
       "queue_index": 2,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-3",
@@ -3362,6 +3402,8 @@
       }
      ],
      "queue_index": 2,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-3",
@@ -3576,6 +3618,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -3707,6 +3751,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -3852,6 +3898,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -3978,6 +4026,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -4107,6 +4157,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -4238,6 +4290,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -4420,6 +4474,8 @@
       }
      ],
      "queue_index": 1,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-2",
@@ -4546,6 +4602,8 @@
       }
      ],
      "queue_index": 1,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-2",
@@ -4737,6 +4795,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -4869,6 +4929,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -5112,6 +5174,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -5339,6 +5403,8 @@
       }
      ],
      "queue_index": 0,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-1",
@@ -5553,6 +5619,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -5684,6 +5752,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -5824,6 +5894,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -6051,6 +6123,8 @@
        }
       ],
       "queue_index": 1,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-2",
@@ -6233,6 +6307,8 @@
       }
      ],
      "queue_index": 1,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-2",
@@ -6359,6 +6435,8 @@
       }
      ],
      "queue_index": 1,
+     "queue_offset": 0,
+     "queue_length": 3,
      "shuffle": false,
      "repeat": "off",
      "track_id": "tr-2",
@@ -6550,6 +6628,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",
@@ -6682,6 +6762,8 @@
        }
       ],
       "queue_index": 0,
+      "queue_offset": 0,
+      "queue_length": 3,
       "shuffle": false,
       "repeat": "off",
       "track_id": "tr-1",

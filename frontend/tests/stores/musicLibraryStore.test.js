@@ -819,7 +819,7 @@ describe('musicLibraryStore — now playing', () => {
     { id: 'tr-2', title: 'Risingson', albumId: 'al-42', artistId: 'ar-7' },
   ];
   const details = (overrides = {}) => ({
-    kind: 'music_library', queue: TRACKS, queue_index: 1, shuffle: false,
+    kind: 'music_library', queue: TRACKS, queue_index: 1, queue_offset: 0, queue_length: 2, shuffle: false,
     track_id: 'tr-2', album_id: 'al-42', artist_id: 'ar-7', ...overrides,
   });
 

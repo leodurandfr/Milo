@@ -101,6 +101,11 @@ TRACK_LOOPS = 10000
 SCROBBLE_MIN_DURATION_S = 30
 SCROBBLE_MAX_THRESHOLD_S = 240
 
+# How many tracks on either side of the one playing the state carries: the
+# queue is published as a window, as Spotify's play order is (see
+# MusicLibraryDetails), never whole.
+QUEUE_WINDOW = 32
+
 
 def _consumed(head: List[Dict[str, Any]], pristine: List[Dict[str, Any]]) -> List[bool]:
     """Which tracks of the original order the played/current head accounts for.
@@ -1625,8 +1630,10 @@ class MusicLibrarySource(MpvAudioSource):
         )
 
     def _details(self) -> Optional[MusicLibraryDetails]:
-        """The whole queue, so the frontend renders it without a round-trip,
-        and the ids its navigation opens the current track's album/artist by."""
+        """The queue around the current track (QUEUE_WINDOW on either side),
+        so the frontend renders it without a round-trip, and the ids its
+        navigation opens the current track's album/artist by. Only the window
+        is validated, compared and sent: this runs on every playhead tick."""
         session = self._session
         if isinstance(session, LibrarySession):
             tracks, index = session.queue, session.index
@@ -1641,8 +1648,10 @@ class MusicLibrarySource(MpvAudioSource):
             shuffle, repeat = content["shuffle"], content["repeat"]
             context_id = content["queue_context_id"]
         current = tracks[index]
+        start = max(0, index - QUEUE_WINDOW)
         return MusicLibraryDetails(
-            queue=tracks, queue_index=index, shuffle=shuffle, repeat=repeat,
+            queue=tracks[start:index + QUEUE_WINDOW + 1], queue_index=index - start,
+            queue_offset=start, queue_length=len(tracks), shuffle=shuffle, repeat=repeat,
             track_id=current.get("id"), album_id=current.get("albumId"),
             artist_id=current.get("artistId"), context_id=context_id,
         )

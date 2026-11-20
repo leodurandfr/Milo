@@ -150,9 +150,18 @@ class PodcastDetails(BaseModel):
 
 
 class MusicLibraryDetails(BaseModel):
+    """The library's queue around the track playing, and the ids its pages open: `queue` is a window of the whole queue (`queue_length` tracks) around the one playing, which is `queue[queue_index]`; `queue_offset` is where the window starts in the whole queue, so entry `i` is the whole queue's entry `queue_offset + i` — the index `play_index`, `remove_from_queue` and `move_in_queue` take.
+
+    A window, never the whole queue: a queue has no ceiling (every liked song,
+    a genre), and the whole of it was validated and compared on every second
+    of playback and sent to every screen on every state — 2,000 tracks cost
+    8 ms a tick and 2.5 MB a screen, measured on a Pi. Milo-Mac and Milo-iOS
+    read `track_id` alone."""
     kind: Literal["music_library"] = "music_library"
     queue: List[Dict[str, Any]]      # the Subsonic tracks as they are
     queue_index: Optional[int]
+    queue_offset: int
+    queue_length: int
     shuffle: bool
     repeat: RepeatMode
     track_id: Optional[str]

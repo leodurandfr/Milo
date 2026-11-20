@@ -312,8 +312,9 @@ class AddToQueueParams(StrictModel):
 
 
 class RemoveFromQueueParams(StrictModel):
-    """Params for ``remove_from_queue``: take entry ``index`` out of the live
-    queue, a track already played or one to come — never the one playing.
+    """Params for ``remove_from_queue``: take entry ``index`` (of the whole
+    queue, as for ``play_index``) out of the live queue, a track already played
+    or one to come — never the one playing.
 
     ``track_id`` is the song the caller saw at ``index``: a queue that moved
     since (a gapless advance, another screen's edit) is refused rather than
@@ -326,8 +327,9 @@ class RemoveFromQueueParams(StrictModel):
 
 class MoveInQueueParams(StrictModel):
     """Params for ``move_in_queue``: move entry ``from_index`` of the live queue
-    so that it ends at ``to_index``. Only the tracks to come move, among
-    themselves; ``track_id`` is checked as for ``remove_from_queue``.
+    so that it ends at ``to_index``, both indices of the whole queue. Only the
+    tracks to come move, among themselves; ``track_id`` is checked as for
+    ``remove_from_queue``.
     """
 
     from_index: int = Field(ge=0)
@@ -336,8 +338,9 @@ class MoveInQueueParams(StrictModel):
 
 
 class PlayIndexParams(StrictModel):
-    """Params for ``play_index``: jump to a 0-based position in the current queue
-    (the queue-view row tap). The upper bound is state-checked in the handler."""
+    """Params for ``play_index``: jump to a 0-based position in the whole current
+    queue — ``queue_offset`` plus the entry's place in the state's window (the
+    queue-view row tap). The upper bound is state-checked in the handler."""
 
     index: int = Field(ge=0)
 

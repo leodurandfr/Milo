@@ -259,6 +259,94 @@ class TestPlayContext:
         assert rig.errors() == ["playback_failed"]
 
 
+WINDOW = library_module.QUEUE_WINDOW
+# A queue three windows long: the window around a middle track touches neither end.
+LONG = [
+    {"id": f"t{n}", "title": f"Track {n}", "artist": "DP", "album": "Long", "coverArt": "al2", "duration": 100}
+    for n in range(3 * WINDOW)
+]
+
+
+def window_of_mpv(rig):
+    """The stretch of mpv's playlist the published window says it shows."""
+    data = details(rig)
+    start = data["queue_offset"]
+    return [e.url for e in rig.mpv.playlist][start:start + len(data["queue"])]
+
+
+class TestQueueWindow:
+    """The state carries the queue around the track playing, never the whole
+    of it: the queue has no ceiling, and the view is rebuilt, validated and
+    compared on every playhead tick and sent to every screen on every state."""
+
+    @pytest.fixture
+    def long_rig(self, rig):
+        lengths(rig, LONG)
+        return rig
+
+    async def test_a_long_queue_is_published_as_the_window_around_the_track(self, long_rig):
+        """Breaks: every second of playback validates the whole queue again (8 ms
+        a tick for 2,000 liked songs, measured on a Pi) and every state sends
+        it whole to every screen."""
+        await long_rig.select()
+
+        await play(long_rig, LONG, start_index=len(LONG) // 2)
+
+        data = details(long_rig)
+        assert len(data["queue"]) == 2 * WINDOW + 1
+        assert data["queue_index"] == WINDOW
+        assert data["queue_length"] == len(long_rig.mpv.playlist)
+        assert [url(t["id"]) for t in data["queue"]] == window_of_mpv(long_rig)
+        assert long_rig.mpv.playlist[data["queue_offset"] + data["queue_index"]] is long_rig.mpv.current
+        assert data["queue"][data["queue_index"]]["id"] == data["track_id"]
+
+    @pytest.mark.parametrize("start", [0, 3 * WINDOW - 1])
+    async def test_the_window_stops_at_either_end_of_the_queue(self, long_rig, start):
+        """Breaks: the first or the last track of a long queue is cut from the
+        window, or the window runs past the queue into nothing."""
+        await long_rig.select()
+
+        await play(long_rig, LONG, start_index=start)
+
+        data = details(long_rig)
+        assert len(data["queue"]) == WINDOW + 1
+        assert [url(t["id"]) for t in data["queue"]] == window_of_mpv(long_rig)
+        assert long_rig.mpv.playlist[data["queue_offset"] + data["queue_index"]] is long_rig.mpv.current
+
+    async def test_a_window_entry_is_played_by_its_index_in_the_whole_queue(self, long_rig):
+        """`play_index` takes the whole queue's index, `queue_offset` + the
+        entry's place in the window, and the window then moves with the track.
+        Breaks: a row of the queue view, or a swipe back, plays the track 32
+        places away from the one tapped."""
+        await long_rig.select()
+        await play(long_rig, LONG, start_index=len(LONG) // 2)
+        before = details(long_rig)
+        picked = before["queue"][before["queue_index"] + 5]
+
+        await long_rig.command("play_index", {"index": before["queue_offset"] + before["queue_index"] + 5})
+
+        after = details(long_rig)
+        assert after["track_id"] == picked["id"]
+        assert f"id={picked['id']}&" in long_rig.mpv.current.url
+        assert after["queue_offset"] == before["queue_offset"] + 5
+        assert after["queue"][after["queue_index"]] == picked
+
+    async def test_the_saved_queue_is_published_as_a_window_too(self, idle_rig):
+        """What a play press would reopen reads like the live queue. Breaks:
+        the idle timeout sends the whole queue back to every screen."""
+        lengths(idle_rig, LONG)
+        await idle_rig.select()
+        await play(idle_rig, LONG, start_index=len(LONG) // 2)
+        await idle_rig.tick()
+        live = details(idle_rig)
+
+        await idle_rig.command("pause")          # the idle timeout ends the session
+
+        assert session(idle_rig) is None
+        assert len(details(idle_rig)["queue"]) == 2 * WINDOW + 1
+        assert details(idle_rig) == live
+
+
 class TestAPausedQueueReplacedByAnother:
     """Pausing arms the auto-stop timer; starting another context must disarm
     it before anything is awaited (E49).
@@ -1580,7 +1668,8 @@ def assert_follows_mpv(rig):
     """The track on screen is the one mpv plays, and the queue is mpv's."""
     assert rig.mpv.current is not None, "the reorder left mpv idle"
     assert f"id={details(rig)['track_id']}&" in rig.mpv.current.url
-    assert [url(t["id"]) for t in details(rig)["queue"]] == [e.url for e in rig.mpv.playlist]
+    assert details(rig)["queue_length"] == len(rig.mpv.playlist)
+    assert [url(t["id"]) for t in details(rig)["queue"]] == window_of_mpv(rig)
 
 
 async def test_shuffle_racing_a_gapless_advance_keeps_the_queue_playing(rig):

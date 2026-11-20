@@ -45,11 +45,15 @@ The whole state is **contracted**. **Contracted** marks what Milo-Mac or Milo-iO
 
 ### MusicLibraryDetails
 
+The library's queue around the track playing, and the ids its pages open: `queue` is a window of the whole queue (`queue_length` tracks) around the one playing, which is `queue[queue_index]`; `queue_offset` is where the window starts in the whole queue, so entry `i` is the whole queue's entry `queue_offset + i` — the index `play_index`, `remove_from_queue` and `move_in_queue` take.
+
 | Field | Type |
 |---|---|
 | `kind` | "music_library" |
 | `queue` | object[] |
 | `queue_index` | integer \| null |
+| `queue_offset` | integer |
+| `queue_length` | integer |
 | `shuffle` | boolean |
 | `repeat` | [RepeatMode](#repeatmode) |
 | `track_id` | string \| null |

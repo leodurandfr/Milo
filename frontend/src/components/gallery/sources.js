@@ -1407,6 +1407,8 @@ export const SOURCE_PAGES = [
               { id: 's-3', title: 'Hammers', artist: 'Nils Frahm', albumId: 'al-2', artistId: 'ar-3' }
             ],
             queue_index: 1,
+            queue_offset: 0,
+            queue_length: 3,
             shuffle: true,
             repeat: 'context',
             track_id: 's-2',

@@ -230,6 +230,8 @@ const NOW_PLAYING = {
       kind: 'music_library',
       queue: [],
       queue_index: 0,
+      queue_offset: 0,
+      queue_length: 0,
       shuffle: false,
       track_id: 's-2',
       album_id: 'al-1',

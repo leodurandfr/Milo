@@ -167,11 +167,19 @@ const swipeActive = computed(() => isMobile.value && swipeEnabled.value)
 // Subsonic `name`) and an artist line.
 const tracks = computed(() => (Array.isArray(details.value?.queue) ? details.value.queue : []))
 const currentIndex = computed(() => details.value?.queue_index ?? -1)
-// What an entry is across two publishes. Spotify's queue is a window that slides
-// with the track — on a full one the playing entry keeps index 32 across a
-// step — so its entries are known by uri; Music Library's queue holds still,
-// and its index is the entry.
-const keyOf = (index) => tracks.value[index]?.uri ?? index
+// Where the window starts in the whole queue: Music Library's `queue_offset`,
+// 0 for a queue that carries none.
+const queueOffset = computed(() => details.value?.queue_offset ?? 0)
+// An entry's index in the whole queue from its place in the window, and back
+// (the song there, undefined outside the window).
+const toWhole = (index) => (index < 0 ? index : queueOffset.value + index)
+const songAt = (whole) => (whole < 0 ? undefined : tracks.value[whole - queueOffset.value])
+// What an entry is across two publishes. Both queues are windows that slide
+// with the track — on a full one the playing entry keeps its place in the
+// window across a step. Spotify's entries are known by uri; Music Library's by
+// their index in the whole queue, which is the entry.
+const keyAt = (whole) => songAt(whole)?.uri ?? whole
+const keyOf = (index) => keyAt(toWhole(index))
 const currentKey = computed(() => keyOf(currentIndex.value))
 
 const playerClasses = computed(() => ({
@@ -191,10 +199,12 @@ let touchTracking = false
 // The carousel owns its own index into the queue and reads its three cells from
 // it, NOT from the live backend index — so the skip echo (which reindexes
 // queueIndex almost instantly) can't swap cell contents out from under the
-// settle animation. It re-syncs to the store only between swipes, and keeps
-// the entry the last swipe landed on until the backend plays it: a second
-// quick swipe would otherwise see the first one's echo pull the bar back a step.
-const viewIndex = ref(currentIndex.value)
+// settle animation. The index is the entry's in the whole queue, not its place
+// in the window, for the same reason: the echo slides the window too. It
+// re-syncs to the store only between swipes, and keeps the entry the last swipe
+// landed on until the backend plays it: a second quick swipe would otherwise
+// see the first one's echo pull the bar back a step.
+const viewIndex = ref(toWhole(currentIndex.value))
 let pendingKey = null
 let pendingDirection = 0 // +1 ahead of the playing entry, -1 behind it
 let pendingHandle = null
@@ -205,13 +215,13 @@ const PENDING_MS = 3000
 function resync() {
   if (pendingKey !== null && currentKey.value === pendingKey) dropPending()
   const pendingAt = pendingKey === null ? -1 : locatePending()
-  viewIndex.value = pendingAt >= 0 ? pendingAt : currentIndex.value
+  viewIndex.value = toWhole(pendingAt >= 0 ? pendingAt : currentIndex.value)
 }
 
-// Where the entry the last swipe landed on sits now: of its copies (a song the
-// window holds both behind and ahead), the nearest to the playing entry on the
-// side the swipe went — else anywhere, which is where a wrap past the end of a
-// repeating queue lands.
+// Where the entry the last swipe landed on sits now in the window: of its copies
+// (a song the window holds both behind and ahead), the nearest to the playing
+// entry on the side the swipe went — else anywhere, which is where a wrap past
+// the end of a repeating queue lands.
 function locatePending() {
   for (let i = currentIndex.value; i >= 0 && i < tracks.value.length; i += pendingDirection) {
     if (keyOf(i) === pendingKey) return i
@@ -226,9 +236,11 @@ function dropPending() {
 
 watch([currentKey, currentIndex], () => { if (!committing) resync() })
 
-// The entries a swipe lands on either side of the one shown (utils/
-// playerControls' swipeTarget: past the last entry of a repeating queue, the
-// first again), -1 where there is none.
+// The entries a swipe lands on either side of the one shown, by their index in
+// the whole queue (utils/playerControls' swipeTarget: past the last entry of a
+// repeating queue, the first again), -1 where there is none. A wrap at the end
+// of a long queue lands outside the window: its cell is drawn empty until the
+// echo slides the window back to the head.
 const swipeTargets = computed(() => {
   const state = { controls: controls.value, details: details.value }
   const length = tracks.value.length
@@ -245,7 +257,7 @@ const shown = computed(() => held.value ?? { title: title.value || '', artist: s
 
 const CELLS = [[-1, 'prev'], [0, null], [1, 'next']]
 const cells = computed(() => !carousel.value ? [{ pos: 0, ...shown.value }] : CELLS.map(([offset, direction]) => {
-  const song = tracks.value[direction ? swipeTargets.value[direction] : viewIndex.value]
+  const song = songAt(direction ? swipeTargets.value[direction] : viewIndex.value)
   return {
     pos: offset,
     title: song ? (song.title || song.name || '') : '',
@@ -425,7 +437,7 @@ function onTouchEnd(e) {
   if (passed && hasNeighbour) {
     // Finger left → next, finger right → prev.
     if (carousel.value) {
-      committedKey = keyOf(goingNext ? swipeTargets.value.next : swipeTargets.value.prev)
+      committedKey = keyAt(goingNext ? swipeTargets.value.next : swipeTargets.value.prev)
       committedDirection = goingNext ? 1 : -1
       settle.value = goingNext ? 'next' : 'prev'
       committing = true
@@ -438,7 +450,8 @@ function onTouchEnd(e) {
     }
     // The body sends it: a step, or a −15/+30 through its own playhead. A step
     // counts from the entry the carousel shows, not the one the backend last
-    // echoed, so a second quick swipe aims one entry further.
+    // echoed, so a second quick swipe aims one entry further — by its index in
+    // the whole queue, the one `play_index` takes.
     body.value?.swipe(goingNext ? 'next' : 'prev', viewIndex.value)
   } else {
     settle.value = 'center'

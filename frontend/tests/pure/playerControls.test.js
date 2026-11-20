@@ -247,6 +247,21 @@ describe('the mini-bar swipe', () => {
     // Not repeating, the backend lists no `next` there and nothing follows.
     const ending = { controls: LIBRARY_LOADING.filter(c => c !== 'next'), details: { kind: 'music_library', repeat: 'off' } };
     expect(swipeTarget(ending, 'next', 2, 3)).toBe(-1);
+    // A window of three entries out of a longer library queue, entries named by
+    // their index in the whole queue. At the head of the queue, the window's
+    // last entry is not the queue's: nothing follows it in the window.
+    const windowed = (offset, length) => ({ ...repeating, details: { ...repeating.details, queue_offset: offset, queue_length: length } });
+    expect(swipeTarget(windowed(0, 3), 'next', 2, 3)).toBe(0);
+    expect(swipeTarget(windowed(0, 40), 'next', 2, 3)).toBe(-1);
+    // At its end, the window's last entry is the queue's, and the swipe wraps to
+    // entry 0 although the window does not hold it, as `next` does.
+    expect(swipeTarget(windowed(37, 40), 'next', 39, 3)).toBe(0);
+    expect(swipeTarget(windowed(37, 40), 'next', 38, 3)).toBe(39);
+    // Before the window's first entry, which is not the queue's, nothing to slide
+    // in; and an entry outside the window has no neighbour drawn at all.
+    expect(swipeTarget(windowed(37, 40), 'prev', 38, 3)).toBe(37);
+    expect(swipeTarget(windowed(37, 40), 'prev', 37, 3)).toBe(-1);
+    expect(swipeTarget(windowed(37, 40), 'next', 2, 3)).toBe(-1);
     // A window's first entry is not where a repeating context starts again:
     // past Spotify's last listed track the carousel slides nothing in.
     const window = { controls: SPOTIFY_LOADING, details: { kind: 'spotify', repeat: 'context' } };

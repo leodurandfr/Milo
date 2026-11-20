@@ -151,7 +151,8 @@ export function playerControls({ controls, details, phase }) {
  *
  * @param {string[]} controls - the commands the source takes now
  * @param {'next'|'prev'} direction
- * @param {number} [shownIndex] - the queue entry the bar shows, -1 without a queue
+ * @param {number} [shownIndex] - the queue entry the bar shows, by its index in
+ *   the whole queue (a window's offset plus its place in it), -1 without a queue
  * @returns {{command: string, params?: object}|{skip: number}|null}
  */
 export function swipeMove(controls, direction, shownIndex = -1) {
@@ -171,28 +172,42 @@ export function swipeMove(controls, direction, shownIndex = -1) {
 /**
  * The queue entry a swipe lands on from the entry the bar shows, or -1 where
  * there is none — what the carousel slides in, and whether it slides at all.
- * Forward it is the next entry, and past the last one the first again where the
- * source takes `next` there while the queue repeats: that press wraps (Music
- * Library goes back to entry 0, as the full player's next button does), so the
- * swipe must too — over a queue the source addresses whole (`play_index`)
- * only: the first entry of a window that slides with the track is not where a
- * repeating context starts again. Backward it never wraps: on the first entry
- * `prev` restarts the track rather than reaching the last one.
+ * Both entries are named by their index in the whole queue: the state may carry
+ * only a window of it (Music Library's `queue_offset` / `queue_length`), and a
+ * window slides with the track, so a position in it names another entry after
+ * every step.
+ *
+ * Forward it is the next entry, and past the queue's last one the first again
+ * where the source takes `next` there while the queue repeats: that press wraps
+ * (Music Library goes back to entry 0, as the full player's next button does),
+ * so the swipe must too — whether or not entry 0 is in the window, which it is
+ * not at the end of a long queue — over a queue the source addresses
+ * (`play_index`) only: the last entry of Spotify's play order is the end of
+ * what go-librespot lists, not of the context, and its first is not where a
+ * repeating context starts again. Past the last entry of a window that is not
+ * the queue's, and before its first, there is nothing to slide in. Backward it
+ * never wraps: on the first entry `prev` restarts the track rather than
+ * reaching the last one.
  *
  * @param {object} state
  * @param {string[]} state.controls - the commands the source takes now
- * @param {object|null} state.details - the source's details (`repeat`)
+ * @param {object|null} state.details - the source's details (`repeat`, and
+ *   `queue_offset` / `queue_length` where the queue is a window of a longer one)
  * @param {'next'|'prev'} direction
- * @param {number} shownIndex - the queue entry the bar shows, -1 without one
- * @param {number} length - the queue's length
- * @returns {number}
+ * @param {number} shownIndex - the entry the bar shows, by its index in the
+ *   whole queue, -1 without one
+ * @param {number} length - the length of the queue the state carries
+ * @returns {number} the entry's index in the whole queue, -1 for none
  */
 export function swipeTarget({ controls, details }, direction, shownIndex, length) {
-  if (shownIndex < 0 || shownIndex >= length) return -1;
-  if (direction === 'prev') return shownIndex - 1;
-  if (shownIndex + 1 < length) return shownIndex + 1;
+  const offset = details?.queue_offset ?? 0;
+  const at = shownIndex - offset;
+  if (shownIndex < 0 || at < 0 || at >= length) return -1;
+  if (direction === 'prev') return at > 0 ? shownIndex - 1 : -1;
+  if (at + 1 < length) return shownIndex + 1;
+  const last = shownIndex + 1 === (details?.queue_length ?? offset + length);
   const repeats = (details?.repeat ?? 'off') !== 'off';
-  return repeats && controls.includes('next') && controls.includes('play_index') ? 0 : -1;
+  return last && repeats && controls.includes('next') && controls.includes('play_index') ? 0 : -1;
 }
 
 /**
