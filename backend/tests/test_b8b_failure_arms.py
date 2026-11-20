@@ -26,6 +26,7 @@ import pytest
 from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.core.equalizer.service import CamillaDSPService
 from backend.core.volume import VolumeService, VolumeStateStore
+from backend.core.models.volume import VolumeConfig
 from backend.tests.volume_world import world
 
 
@@ -234,18 +235,35 @@ class TestVolumeStoreGuards:
         settings.set_setting = AsyncMock()
         return VolumeStateStore()
 
-    async def test_muting_a_client_the_store_does_not_know_is_reported(
-        self, store, caplog
+    @pytest.mark.parametrize("write", [
+        lambda store, mac: store.set_client_mute(mac, True),
+        lambda store, mac: store.set_client_volume(mac, -41.0),
+    ], ids=["mute", "volume"])
+    async def test_a_client_the_store_does_not_know_is_recorded_and_kept(
+        self, store, write
     ):
-        """Unlike `set_client_volume`, mute does NOT auto-register.
-
-        Silent, a mute sent to a client that has not registered yet is dropped
-        and the speaker keeps playing with the UI showing it muted.
+        """A mute or a level for a client the store lost (last_volume.json gone,
+        the speaker off since) is recorded, as the route promises when it
+        answers 200: the admission reads it back (`get_client_mute`,
+        `get_client_volume`). The mute was dropped with a warning, and the
+        speaker came back unmuted; a level was kept in memory only. Both are on
+        disk once the store shuts down, as a restart reads them.
         """
-        with caplog.at_level(logging.WARNING):
-            await store.set_client_mute("never:seen", True)
+        store.set_volume_config(VolumeConfig(startup_volume_db=-33.0))
 
-        assert "Cannot mute unknown client" in caplog.text
+        await write(store, "never:seen")
+        await store.cleanup()
+        reloaded = VolumeStateStore()
+        reloaded.set_volume_config(VolumeConfig())
+        await reloaded.initialize()
+
+        assert reloaded.has_client("never:seen")
+        assert (reloaded.get_client_mute("never:seen"), reloaded.get_client_volume("never:seen")) == (
+            (store.get_client_mute("never:seen"), store.get_client_volume("never:seen"))
+        )
+        if store.get_client_mute("never:seen"):
+            # The level a muted stranger is seeded at: the one its admission gives it.
+            assert reloaded.get_client_volume("never:seen") == -33.0
 
     async def test_seeding_a_local_client_twice_keeps_the_first_level(self, store):
         """`_seed_local_client_if_needed` runs at every boot and the persisted

@@ -13,11 +13,18 @@ Architecture:
   unit (the `LOCAL_TARGET` sentinel or the MAC the volume service keys the
   local level by, or no registry at all); any other mac is a satellite the
   registry forgot, and is refused
+
+A command answers one way and refuses one way, whichever side it reached: it
+returns its answer — applied, or skipped for a reason that is not a failure
+(`client_offline`, `external_volume_control`) — or raises `CommandNotApplied`.
+This unit's DSP refusing raises it (502) exactly as a satellite refusing does
+(`SatelliteUnreachable`, a subclass carrying the satellite's status).
 """
 import logging
 from typing import Any, Dict, Callable, Awaitable, Optional, TYPE_CHECKING
 
 from backend.config.constants import LOUDNESS_REFERENCE_DB, MAX_VOLUME_DB
+from backend.core.equalizer.client_proxy import CommandNotApplied
 from backend.core.equalizer.multiroom_service import LOCAL_TARGET
 from backend.core.multiroom.identity import get_local_mac
 
@@ -78,6 +85,19 @@ class EqualizerRouter:
     def _get_client(self, mac_id: str):
         return self._registry.get_client(mac_id) if self._registry else None
 
+    def _local_dsp(self) -> "CamillaDSPService":
+        """This unit's CamillaDSPService, or a 503 when it has none."""
+        if not self._camilladsp_service:
+            raise CommandNotApplied("Equalizer service not available", status_code=503)
+        return self._camilladsp_service
+
+    @staticmethod
+    def _applied(success: bool, action: str, **answer: Any) -> Dict[str, Any]:
+        """A local setter's verdict in the router's one shape: the answer, or a raise."""
+        if not success:
+            raise CommandNotApplied(f"The local CamillaDSP refused {action}")
+        return {"status": "success", **answer}
+
     def _is_local(self, client) -> bool:
         """Check if client is local (running on this device)."""
         return client.is_local if client else False
@@ -120,23 +140,28 @@ class EqualizerRouter:
                 sync when the client is registered but not yet marked online)
 
         Returns:
-            Action result dict with status
+            Action result dict with status: success, or skipped for an offline
+            satellite
+
+        Raises:
+            CommandNotApplied: a satellite the registry forgot (404), no proxy
+                to reach a satellite (503), or whatever the action raised
         """
         client = self._get_client(mac_id)
 
         if not client:
-            if self._camilladsp_service and self._names_this_unit(mac_id):
+            if self._names_this_unit(mac_id):
                 logger.debug(f"Client {mac_id} not in registry, falling back to local CamillaDSP for {action_name}")
                 return await local_action()
             logger.warning(f"Client {mac_id} not found for {action_name}")
-            return {"status": "error", "message": f"Client {mac_id} not found"}
+            raise CommandNotApplied(f"Client {mac_id} not found", status_code=404)
 
         if self._is_local(client):
             logger.debug(f"Routing {action_name} to local CamillaDSP for {mac_id}")
             return await local_action()
         else:
             if not self._proxy_service:
-                return {"status": "error", "message": "Proxy service not available"}
+                raise CommandNotApplied("Proxy service not available", status_code=503)
 
             if not force and not client.online:
                 logger.debug(f"Skipping offline client {mac_id} for {action_name}")
@@ -173,11 +198,9 @@ class EqualizerRouter:
             return MAX_VOLUME_DB
 
         async def local():
-            if self._camilladsp_service:
-                sent = level(self._local_volume_control())
-                success = await self._camilladsp_service.set_volume(sent)
-                return {"status": "success" if success else "error", "volume": sent}
-            return {"status": "error", "message": "Equalizer service not available"}
+            dsp = self._local_dsp()
+            sent = level(self._local_volume_control())
+            return self._applied(await dsp.set_volume(sent), "the volume", volume=sent)
 
         async def remote(ip: str):
             sent = level(client.volume_control)
@@ -188,10 +211,9 @@ class EqualizerRouter:
     async def set_mute(self, mac_id: str, muted: bool, force: bool = False) -> Dict[str, Any]:
         """Set mute for a client."""
         async def local():
-            if self._camilladsp_service:
-                success = await self._camilladsp_service.set_mute(muted)
-                return {"status": "success" if success else "error", "mute": muted}
-            return {"status": "error", "message": "Equalizer service not available"}
+            return self._applied(
+                await self._local_dsp().set_mute(muted), "the mute", mute=muted
+            )
 
         async def remote(ip: str):
             result = await self._proxy_service.request(ip, "PUT", "/equalizer/mute", {"muted": muted})
@@ -225,10 +247,9 @@ class EqualizerRouter:
             if not self._local_volume_control():
                 logger.debug(f"Skipping level trim for DAC client {mac_id}")
                 return skipped
-            if self._camilladsp_service:
-                success = await self._camilladsp_service.set_gain(gain_db)
-                return {"status": "success" if success else "error", "gain_db": gain_db}
-            return {"status": "error", "message": "Equalizer service not available"}
+            return self._applied(
+                await self._local_dsp().set_gain(gain_db), "the level trim", gain_db=gain_db
+            )
 
         async def remote(ip: str):
             if not client.volume_control:
@@ -261,17 +282,15 @@ class EqualizerRouter:
             persist: Save to settings (False for zone updates using registry)
         """
         async def local():
-            if self._camilladsp_service:
-                success = await self._camilladsp_service.set_filter(
-                    filter_id=filter_id,
-                    freq=filter_data.get("freq"),
-                    gain=filter_data.get("gain"),
-                    q=filter_data.get("q"),
-                    filter_type=filter_data.get("filter_type"),
-                    persist=persist,
-                )
-                return {"status": "success" if success else "error", "filter_id": filter_id}
-            return {"status": "error", "message": "Equalizer service not available"}
+            success = await self._local_dsp().set_filter(
+                filter_id=filter_id,
+                freq=filter_data.get("freq"),
+                gain=filter_data.get("gain"),
+                q=filter_data.get("q"),
+                filter_type=filter_data.get("filter_type"),
+                persist=persist,
+            )
+            return self._applied(success, f"band {filter_id}", filter_id=filter_id)
 
         async def remote(ip: str):
             result = await self._proxy_service.request(
@@ -291,12 +310,9 @@ class EqualizerRouter:
     ) -> Dict[str, Any]:
         """Set compressor settings for a client."""
         async def local():
-            if self._camilladsp_service:
-                success = await self._camilladsp_service.set_compressor(
-                    **settings, persist=persist
-                )
-                return {"status": "success" if success else "error"}
-            return {"status": "error", "message": "Equalizer service not available"}
+            return self._applied(
+                await self._local_dsp().set_compressor(**settings, persist=persist), "the compressor"
+            )
 
         async def remote(ip: str):
             result = await self._proxy_service.request(ip, "PUT", "/equalizer/compressor", settings)
@@ -314,12 +330,9 @@ class EqualizerRouter:
     ) -> Dict[str, Any]:
         """Set loudness settings for a client."""
         async def local():
-            if self._camilladsp_service:
-                success = await self._camilladsp_service.set_loudness(
-                    **settings, persist=persist
-                )
-                return {"status": "success" if success else "error"}
-            return {"status": "error", "message": "Equalizer service not available"}
+            return self._applied(
+                await self._local_dsp().set_loudness(**settings, persist=persist), "the loudness"
+            )
 
         async def remote(ip: str):
             # The reference is Milō's, declared once; the satellite takes it as sent.
@@ -338,12 +351,9 @@ class EqualizerRouter:
     ) -> Dict[str, Any]:
         """Set mono/stereo mixing for a client."""
         async def local():
-            if self._camilladsp_service:
-                success = await self._camilladsp_service.set_mono(
-                    **settings, persist=persist
-                )
-                return {"status": "success" if success else "error"}
-            return {"status": "error", "message": "Equalizer service not available"}
+            return self._applied(
+                await self._local_dsp().set_mono(**settings, persist=persist), "mono"
+            )
 
         async def remote(ip: str):
             result = await self._proxy_service.request(ip, "PUT", "/equalizer/mono", settings)

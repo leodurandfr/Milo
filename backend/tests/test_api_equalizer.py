@@ -20,9 +20,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.equalizer import create_equalizer_router
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
 from backend.core.models.ws_events import EqualizerZoneEnabledChanged
 from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import (
     EqualizerSettings,
     EqFilter,
@@ -71,6 +73,8 @@ def mock_mre():
     mre.resolve_preset_gains = AsyncMock(return_value=[1.0] * 10)
     mre.load_preset = AsyncMock(return_value=(True, [1.0] * 10))
     mre.save_custom_preset = AsyncMock(return_value=True)
+    # A zone's record (and so its live state) is read from this member.
+    mre.zone_record_member = Mock(return_value="local")
     return mre
 
 
@@ -760,3 +764,188 @@ class TestLevelsMonitorKeepalive:
         client.post("/api/equalizer/levels/monitor", json={"client_ids": []})
 
         self.monitor.keepalive.assert_called_once_with([])
+
+
+async def _registry_world(*, members_of_zone, local_mac, satellites):
+    """A real registry: this unit, online satellites, and one zone."""
+    settings = AsyncMock()
+    settings.get_setting = AsyncMock(return_value=None)
+    registry = ClientRegistryService(settings_service=settings)
+    await registry.initialize()
+    await registry.register_client(local_mac, "Milō", "127.0.0.1")
+    for mac, ip in satellites.items():
+        await registry.register_client(mac, mac, ip)
+        await registry.set_client_online(mac, True)
+    await registry.create_zone("salon", "Salon", members_of_zone)
+    return registry
+
+
+def _app(camilladsp, registry, router, service):
+    app = FastAPI()
+    app.include_router(create_equalizer_router(
+        camilladsp_service=camilladsp,
+        client_registry_service=registry,
+        equalizer_router_service=router,
+        multiroom_equalizer_service=service,
+    ))
+    return app
+
+
+class TestADeferredLocalWriteAnswersOneWay:
+    """This unit's CamillaDSP is restarting (an update, a crash): every write is
+    captured and applied by ``restore_effects`` on reconnect.
+
+    What breaks when these fail: a band edit answered 200 for that deferred
+    write while a preset or a custom save answered 502 for the same one — a
+    backend-error banner on every screen for a setting that applied itself
+    seconds later — and a zone preset was announced refused although its
+    satellites had taken it. The registry, the access layer, the router and the
+    route are real; the DSP is CamillaDSPService as it answers disconnected.
+    """
+
+    LOCAL_MAC = "2c:cf:67:a0:00:01"
+    REMOTE_IP = "192.168.1.153"
+
+    @pytest.fixture
+    async def world(self):
+        registry = await _registry_world(
+            members_of_zone=[self.LOCAL_MAC, REMOTE_MAC],
+            local_mac=self.LOCAL_MAC,
+            satellites={REMOTE_MAC: self.REMOTE_IP},
+        )
+        camilladsp = Mock()
+        camilladsp.connected = False
+        camilladsp.get_equalizer_settings = Mock(side_effect=EqualizerSettings.default)
+        camilladsp.get_custom_gains = AsyncMock(return_value=[0.0] * 10)
+        camilladsp.update_cache = AsyncMock()
+        camilladsp.apply_settings = AsyncMock(return_value=False)
+        camilladsp.set_filter = AsyncMock(return_value=False)
+        proxy = Mock()
+        proxy.request = AsyncMock(return_value={"status": "success"})
+        proxy.apply_record = AsyncMock(return_value=True)
+        router = EqualizerRouter(registry, camilladsp, proxy)
+        router.set_local_mac_source(lambda: self.LOCAL_MAC)
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+        service = MultiroomEqualizerService(
+            client_registry_service=registry,
+            camilladsp_service=camilladsp,
+            proxy_service=proxy,
+            equalizer_router=router,
+            state_machine=state_machine,
+        )
+        return SimpleNamespace(
+            app=_app(camilladsp, registry, router, service), camilladsp=camilladsp,
+        )
+
+    @pytest.mark.parametrize("method,path,body", [
+        ("put", "/api/equalizer/target/local/filter/eq_band_00", {"gain": 3.0}),
+        ("post", "/api/equalizer/target/local/preset", {"preset_id": "jazz"}),
+        ("post", "/api/equalizer/target/local/save-custom", None),
+        ("post", "/api/equalizer/target/zone:salon/preset", {"preset_id": "jazz"}),
+    ])
+    async def test_every_write_is_captured_and_answered_200(self, world, method, path, body):
+        transport = httpx.ASGITransport(app=world.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            response = await http.request(method.upper(), path, json=body)
+
+        assert response.status_code == 200, response.text
+        world.camilladsp.update_cache.assert_awaited_once()
+        world.camilladsp.apply_settings.assert_not_awaited()
+        world.camilladsp.set_filter.assert_not_awaited()
+
+
+class TestAZoneStateIsItsRecordsMembers:
+    """``GET /target/zone:<id>`` — the record and the live state come from the
+    same speaker.
+
+    What breaks when these fail: a zone of two satellites showed "connecting"
+    (the store holds the modal on ``state``) whenever this unit's CamillaDSP
+    restarted, although both its speakers answered; the record was a
+    satellite's, the state this unit's.
+    """
+
+    LOCAL_MAC = "2c:cf:67:a0:00:01"
+    BUREAU, BUREAU_IP = "dc:a6:32:00:00:0b", "192.168.1.60"
+    CANAPE_IP = "192.168.1.153"
+
+    @pytest.fixture
+    def camilladsp(self):
+        dsp = Mock()
+        dsp.get_status = AsyncMock(return_value={"available": False, "state": "disconnected"})
+        dsp.get_equalizer_settings = Mock(side_effect=EqualizerSettings.default)
+        return dsp
+
+    @pytest.fixture
+    def proxy(self):
+        proxy = Mock()
+        proxy.request = AsyncMock(
+            return_value={"available": True, "state": "running", "sample_rate": 48000}
+        )
+        return proxy
+
+    async def _get_zone(self, members, camilladsp, proxy, offline=()):
+        registry = await _registry_world(
+            members_of_zone=members,
+            local_mac=self.LOCAL_MAC,
+            satellites={self.BUREAU: self.BUREAU_IP, REMOTE_MAC: self.CANAPE_IP},
+        )
+        for mac in offline:
+            await registry.set_client_online(mac, False)
+        router = EqualizerRouter(registry, camilladsp, proxy)
+        router.set_local_mac_source(lambda: self.LOCAL_MAC)
+        service = MultiroomEqualizerService(
+            client_registry_service=registry, camilladsp_service=camilladsp,
+            proxy_service=proxy, equalizer_router=router,
+        )
+        transport = httpx.ASGITransport(app=_app(camilladsp, registry, router, service))
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            return await http.get("/api/equalizer/target/zone:salon")
+
+    async def test_a_zone_of_satellites_reads_its_first_member_not_this_unit(
+        self, camilladsp, proxy
+    ):
+        response = await self._get_zone([self.BUREAU, REMOTE_MAC], camilladsp, proxy)
+
+        assert response.status_code == 200
+        body = response.json()
+        proxy.request.assert_awaited_once_with(self.BUREAU_IP, "GET", "/equalizer/status")
+        assert (body["state"], body["available"]) == ("running", True)
+        camilladsp.get_status.assert_not_awaited()
+
+    async def test_a_zone_holding_this_unit_reads_this_unit_s_dsp(self, camilladsp, proxy):
+        """The local member is the record's member wherever it sits in the zone."""
+        response = await self._get_zone([REMOTE_MAC, self.LOCAL_MAC], camilladsp, proxy)
+
+        assert response.status_code == 200
+        assert response.json()["state"] == "disconnected"
+        camilladsp.get_status.assert_awaited_once()
+        proxy.request.assert_not_awaited()
+
+    async def test_an_offline_first_member_hands_the_state_to_one_that_answers(
+        self, camilladsp, proxy
+    ):
+        """A speaker unplugged for days, listed first, would hold the whole
+        zone's modal on "loading" although the other one answers — and every
+        edit would still apply to it and be stored for the absent one."""
+        response = await self._get_zone(
+            [self.BUREAU, REMOTE_MAC], camilladsp, proxy, offline=[self.BUREAU]
+        )
+
+        assert response.status_code == 200
+        proxy.request.assert_awaited_once_with(self.CANAPE_IP, "GET", "/equalizer/status")
+        assert (response.json()["state"], response.json()["available"]) == ("running", True)
+
+    async def test_a_member_that_does_not_answer_reads_disconnected_not_a_failed_read(
+        self, camilladsp, proxy
+    ):
+        """Registered online but not answering (just unplugged, milo-client
+        restarting): the record is held here and stays readable."""
+        proxy.request = AsyncMock(
+            side_effect=SatelliteUnreachable(self.BUREAU_IP, "Cannot reach", 503)
+        )
+
+        response = await self._get_zone([self.BUREAU, REMOTE_MAC], camilladsp, proxy)
+
+        assert response.status_code == 200
+        assert (response.json()["state"], response.json()["available"]) == ("disconnected", False)

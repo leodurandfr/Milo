@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import HTTPException
 
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.core.models.audio_state import AudioSource
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ async def run_source_command(source, cmd: str, data: dict, context: str = "Comma
         return result
     except HTTPException:
         raise
-    except SatelliteUnreachable as e:
+    except CommandNotApplied as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{context}: {_reason(e)}")
@@ -70,17 +70,24 @@ async def api_error_handler(context: str, log=None):
 
     Handles:
     - HTTPException: re-raised as-is (passthrough for 400/404/etc.)
-    - SatelliteUnreachable: mapped to HTTPException with the carried status_code
-      (the one place the core's satellite domain error becomes a web error)
+    - CommandNotApplied (SatelliteUnreachable among them): mapped to
+      HTTPException with the carried status_code (the one place the core's
+      speaker-command error becomes a web error)
     - Exception: optionally logged, then raised as HTTP 500
 
-    A 503 SatelliteUnreachable is logged at warning, not error: an absent
-    satellite is an expected state of a multiroom install, and the frontend
-    already renders it as "offline" from the registry. Logging it at error
-    would push it through WebSocketLogHandler (level=ERROR) and raise a
-    backend-error banner for a speaker that is merely unplugged. Every other
-    status code means the satellite answered and refused, or the proxy hit
-    something unexpected — a real failure, kept at error.
+    What the carried code means, and the level it is logged at:
+    - 503 from a satellite (``SatelliteUnreachable``): it could not be
+      reached. Warning, not error: an absent satellite is an expected state
+      of a multiroom install, and the frontend already renders it as
+      "offline" from the registry. Logging it at error would push it through
+      WebSocketLogHandler (level=ERROR) and raise a backend-error banner for
+      a speaker that is merely unplugged.
+    - 404: a client the registry no longer holds (deleted while the request
+      was in flight). Warning too — the caller named a speaker that is gone.
+    - 503 from this unit (no DSP or proxy service to carry the command): a
+      wiring fault of this unit, kept at error.
+    - Anything else: a speaker answered and refused, or the proxy hit
+      something unexpected — a real failure, kept at error.
 
     Args:
         context: Human-readable context for the error message/log
@@ -95,9 +102,12 @@ async def api_error_handler(context: str, log=None):
         yield
     except HTTPException:
         raise
-    except SatelliteUnreachable as e:
+    except CommandNotApplied as e:
         if log:
-            log_at = log.warning if e.status_code == 503 else log.error
+            expected = e.status_code == 404 or (
+                isinstance(e, SatelliteUnreachable) and e.status_code == 503
+            )
+            log_at = log.warning if expected else log.error
             log_at(f"{context}: {e.detail}")
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:

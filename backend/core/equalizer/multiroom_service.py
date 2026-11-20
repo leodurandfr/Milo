@@ -159,9 +159,23 @@ class MultiroomEqualizerService:
 
         Local client → apply to the DAC and persist equalizer.json;
         remote client → store in the registry and push to the satellite.
+
+        A write the speaker will take later is not a failure, on either side: an
+        offline satellite is sent its record at its admission, and a local
+        CamillaDSP that is not connected (restarting, reconnecting) is sent the
+        captured record by ``restore_effects`` on reconnect. Both answer True,
+        as a band edit and a volume change already did in that same window;
+        only a DSP that answered and refused answers False.
         """
         if self._is_local(mac_id):
             cds = self._camilladsp_service
+            if cds and not cds.connected:
+                # Deferred: capture the intent into the cache + equalizer.json.
+                # restore_effects() re-pushes it on reconnect, so the local record
+                # never drifts from the zone's other members (boot/reconnect window).
+                await cds.update_cache(settings)
+                self.logger.info("CamillaDSP not connected: equalizer recorded, applied on reconnect")
+                return True
             applied = await self._apply_to_local(settings)
             if applied and cds:
                 # Successful apply (connected DSP): snapshot the live cache to disk.
@@ -169,10 +183,9 @@ class MultiroomEqualizerService:
                     cds.set_custom_gains(settings.custom_gains)
                 await cds.persist_state()
             elif cds and not cds.connected:
-                # DSP disconnected: the live apply no-op'd without touching the
-                # cache, so capture the intent into the cache + equalizer.json.
-                # restore_effects() re-pushes it on reconnect, so the local record
-                # never drifts from the zone's other members (boot/reconnect window).
+                # Refused, and the refusal dropped the connection (`_run`): the
+                # apply rolled the cache back, so capture the intent for the
+                # reconnect as above. Still a refusal for the caller.
                 await cds.update_cache(settings)
             # else: connected but the apply raised → cache is uncertain, leave it.
             return applied
@@ -183,8 +196,8 @@ class MultiroomEqualizerService:
     async def get_zone_eq(self, zone_id: str) -> Optional[EqualizerSettings]:
         """Zone EQ derives from its members (kept identical).
 
-        Reads the local member if the zone contains one (most authoritative),
-        otherwise the first member. Returns None if the zone has no members.
+        Reads the member ``zone_record_member`` names (the local one, else the
+        first online, else the first). Returns None if the zone has no members.
 
         ``enabled`` is the exception: it lives in two domains — settings.json for
         the local member, the per-client record for a satellite — so one member
@@ -192,21 +205,10 @@ class MultiroomEqualizerService:
         that says ``False`` therefore means "not every member is applying
         effects", never "the local one is bypassed".
         """
-        if not self._registry:
+        member = self.zone_record_member(zone_id)
+        if member is None:
             return None
-        zone = self._registry.get_zone(zone_id)
-        if not zone or not zone.client_ids:
-            return None
-        # A member with an independent EQ has left the zone's shared record; it is
-        # neither the representative nor part of the enabled conjunction. If every
-        # member is independent the zone has no EQ of its own to report.
-        members = [m for m in zone.client_ids if not self._is_eq_independent(m)]
-        if not members:
-            return None
-        member = next(
-            (m for m in members if self._registry.is_local_client(m)),
-            members[0],
-        )
+        members = self._zone_eq_members(zone_id)
         record = await self.get_client_eq(member)
         others = [m for m in members if m != member]
         for mac_id in others:
@@ -214,6 +216,42 @@ class MultiroomEqualizerService:
                 record.enabled = False
                 break
         return record
+
+    def _zone_eq_members(self, zone_id: str) -> list[str]:
+        """The members that share the zone's EQ record, in zone order.
+
+        A member with an independent EQ has left the zone's shared record; it
+        is neither the representative nor part of the enabled conjunction.
+        """
+        zone = self._registry.get_zone(zone_id) if self._registry else None
+        if not zone:
+            return []
+        return [m for m in zone.client_ids if not self._is_eq_independent(m)]
+
+    def zone_record_member(self, zone_id: str) -> Optional[str]:
+        """The member whose record ``get_zone_eq`` reports for the zone.
+
+        The local member if the zone contains one (most authoritative), else
+        the first member the registry holds online, else the first member that
+        shares the zone's EQ. None for an unknown zone, or one whose every
+        member detached its EQ. The read of a zone's live state asks this same
+        member (``GET /target/zone:<id>``), so the state shown is the state of
+        the speaker whose record is shown — and a satellite unplugged for days
+        does not lock the zone's screen while another member answers. Every
+        member holds the same record (the fan-out stores it for an offline one
+        too), so which member answers changes nothing about the record but
+        ``enabled``, which ``get_zone_eq`` reports as the conjunction anyway.
+        """
+        members = self._zone_eq_members(zone_id)
+        if not members:
+            return None
+        return next(
+            (m for m in members if self._registry.is_local_client(m)),
+            next(
+                (m for m in members if self._registry.is_client_online(m)),
+                members[0],
+            ),
+        )
 
     def _member_record(self, mac_id: str, record: EqualizerSettings) -> EqualizerSettings:
         """A fresh per-member copy of a zone record, carrying the member's own
@@ -636,8 +674,12 @@ class MultiroomEqualizerService:
            snapshot, after the router applies below)
         3. Route the targeted update via EqualizerRouter to the local member
            whenever its DSP is connected — its DSP does not depend on its
-           snapclient — then to the online remote members
-        4. Broadcast targeted WebSocket event with only the changed sub-object
+           snapclient — then to the online remote members. A single client is
+           a fan-out of one, reconciled the same way.
+        4. Broadcast targeted WebSocket event with only the changed sub-object,
+           refusals or not: every member's record holds the edit by then (a
+           satellite's is resent until taken, the local one's is re-pushed on
+           reconnect), so the other screens must learn it.
 
         Everything up to the local member's apply runs under the target's
         ``_partial_lock``. A zone that holds this unit reads its record from the
@@ -649,9 +691,12 @@ class MultiroomEqualizerService:
         that has stopped answering holds a request for up to 10 s, and a band
         drag sends 20 a second.
 
-        Raises whatever the fan-out raised (typically ``SatelliteUnreachable``,
-        which the api/ layer maps to a 503) once the four steps are done — a
-        member that refused the command must not be reported as applied.
+        Raises whatever the fan-out raised — ``CommandNotApplied``, which the
+        api/ layer maps to its status (502 for this unit's DSP, 503 for an
+        unreachable satellite) — once the four steps are done: a member that
+        refused the command must not be reported as applied. A local DSP that
+        is not connected refuses nothing: the edit is captured and applied on
+        reconnect, like a satellite that is offline.
 
         Args:
             target_type: "zone" or "client"
@@ -716,41 +761,45 @@ class MultiroomEqualizerService:
             # snapclient, which the registry holds offline at boot and through every
             # snapclient restart, and its readmission re-pushes nothing local. A
             # disconnected DSP is captured below instead, so routing it would only
-            # log a failure for a staged write.
-            if method and local_member:
-                if target_type != "zone":
-                    await method(mac_id=target_id, persist=False, **router_kwargs)
-                elif dsp and dsp.connected:
-                    targets.append(local_member)
-                    try:
-                        results.append(
-                            await method(mac_id=local_member, persist=False, **router_kwargs)
-                        )
-                    except Exception as exc:  # reported with the satellites' outcome below
-                        results.append(exc)
+            # refuse a staged write. Addressed as the target was (the sentinel, or
+            # its MAC), which the router takes either way.
+            if method and local_member and dsp and dsp.connected:
+                targets.append(local_member)
+                try:
+                    results.append(
+                        await method(mac_id=local_member, persist=False, **router_kwargs)
+                    )
+                except Exception as exc:  # reported with the satellites' outcome below
+                    results.append(exc)
 
             # Persist the local member's record so it survives a restart. When the DSP
             # is connected the router already applied the targeted change to the live
             # cache, so we schedule a snapshot of it — debounced, because this is the
             # drag path and an immediate write here cost one full rewrite + fsync of
-            # equalizer.json per throttled request. When it is disconnected the router
-            # no-op'd, so we capture the intended record into the cache + equalizer.json
-            # instead — restore_effects() re-pushes it on reconnect (no drift from
-            # remote members), and that branch stays immediate: it is not a hot path.
+            # equalizer.json per throttled request. When it is disconnected — before
+            # the edit, or by refusing it (`_run` drops the connection) — we capture
+            # the intended record into the cache + equalizer.json instead:
+            # restore_effects() re-pushes it on reconnect (no drift from remote
+            # members), and that branch stays immediate: it is not a hot path.
             if local_member and dsp:
                 if dsp.connected:
                     dsp.schedule_persist()
                 else:
                     await dsp.update_cache(current)
 
-            # The online remote members, chosen with the records written above.
-            remote_targets = [
-                c.mac_id for c in self._registry.get_online_zone_clients(target_id)
-                if not self._is_eq_independent(c.mac_id) and not self._is_local(c.mac_id)
-            ] if method and target_type == "zone" else []
+            # The remote members, chosen with the records written above: a zone's
+            # online ones, or the client itself (the router skips it if offline).
+            if not method:
+                remote_targets = []
+            elif target_type == "zone":
+                remote_targets = [
+                    c.mac_id for c in self._registry.get_online_zone_clients(target_id)
+                    if not self._is_eq_independent(c.mac_id) and not self._is_local(c.mac_id)
+                ]
+            else:
+                remote_targets = list(remote_records)
 
-        # The satellites, past the lock. A single remote client raises straight
-        # through, before the broadcast. A satellite that refused is resent its
+        # The satellites, past the lock. A satellite that refused is resent its
         # whole record, which the registry already holds: the edit carries one
         # band, and an edit it takes later does not bring this one back.
         if remote_targets:
@@ -760,36 +809,25 @@ class MultiroomEqualizerService:
                   for mac_id in remote_targets],
                 return_exceptions=True,
             )
-        elif method and target_type != "zone" and not local_member:
-            try:
-                await method(mac_id=target_id, persist=False, **router_kwargs)
-            except Exception:
-                self._arm_resend(target_id)
-                raise
 
-        # Same outcome as the single-client branch, which lets a SatelliteUnreachable
-        # reach api_error_handler (→ 503): gather holds the exceptions back, it does
-        # not make the write succeed. Every member is named in the log first, since
-        # one raise can only carry one of them. "skipped" is not a failure — the
-        # client went offline between the online filter and the call, and its
-        # record above syncs on reconnection.
+        # A refusal is the router's raise, local or remote, which gather holds
+        # back without making the write succeed; it reaches api_error_handler
+        # after the broadcast. A zone names every member in the log first, since
+        # one raise can only carry one of them; a single client's raise is logged
+        # by the route. An answer is never a failure — "skipped" is a client that
+        # went offline between the online filter and the call, and its record
+        # above syncs on reconnection.
         fanout_error: Optional[BaseException] = None
         if targets:
-            outcomes = [
-                r if isinstance(r, BaseException) else r.get("status") != "error"
-                for r in results
-            ]
-            failed = failed_members(
-                self.logger,
-                f"Zone {target_id} {router_method}",
-                targets,
-                outcomes,
-            )
+            if target_type == "zone":
+                failed = failed_members(
+                    self.logger, f"Zone {target_id} {router_method}", targets, results
+                )
+            else:
+                failed = [m for m, r in zip(targets, results) if isinstance(r, BaseException)]
             for member in failed:
                 if not self._is_local(member):
                     self._arm_resend(member)
-            # Raised at the end, not here: the members that DID take the update
-            # still need the broadcast below.
             fanout_error = next(
                 (r for r in results if isinstance(r, BaseException)), None
             )
@@ -1136,9 +1174,9 @@ class MultiroomEqualizerService:
 
         Fans out in parallel to each member that shares the zone's EQ, through
         the per-client primitives (local → routing_service bypass/restore;
-        remote → push + persist), then broadcasts the zone-level event when at
-        least one member moved. A member that did not take it is logged by name
-        at error, like every other zone fan-out.
+        remote → persist + push), then broadcasts the zone-level event when at
+        least one member's flag moved. A member that did not take it is logged
+        by name at error, like every other zone fan-out.
 
         Args:
             zone_id: The zone ID
@@ -1185,8 +1223,11 @@ class MultiroomEqualizerService:
         # The event carries the members' flags read back, not the value asked: a
         # local DSP that refused keeps its old one and the zone reads as the
         # conjunction. A satellite's record takes the value even on a refusal
-        # (its record is resent until it takes it), so that one shows in the ERROR alone.
-        if len(failed) < len(members) and self._state_machine:
+        # (its record is resent until it takes it), so a satellite member moved
+        # whatever it answered: when every member refused, the satellites
+        # still switch by resend, and the other screens must learn it.
+        moved = [m for m in members if m not in failed or not self._is_local(m)]
+        if moved and self._state_machine:
             zone_eq = await self.get_zone_eq(zone_id)
             if zone_eq:
                 await self._state_machine.broadcast(

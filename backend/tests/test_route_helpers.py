@@ -14,7 +14,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend.api.route_helpers import api_error_handler
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 
 
 class TestApiErrorHandlerSatelliteLogLevel:
@@ -44,6 +44,21 @@ class TestApiErrorHandlerSatelliteLogLevel:
                 async with api_error_handler("Error setting volume", logger):
                     raise SatelliteUnreachable("192.168.1.60", "boom", status_code=500)
 
+        assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_this_unit_with_no_dsp_to_carry_a_command_is_an_error(self, caplog):
+        """A 503 the router raises for this unit's missing DSP or proxy service
+        is a wiring fault, not an unplugged speaker: logged at warning it would
+        never reach the banner, and a unit with no equalizer would say nothing."""
+        logger = logging.getLogger("test.route_helpers")
+
+        with caplog.at_level(logging.DEBUG, logger="test.route_helpers"):
+            with pytest.raises(HTTPException) as exc:
+                async with api_error_handler("Error setting volume", logger):
+                    raise CommandNotApplied("Equalizer service not available", status_code=503)
+
+        assert exc.value.status_code == 503
         assert any(r.levelno == logging.ERROR for r in caplog.records)
 
 

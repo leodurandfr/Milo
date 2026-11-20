@@ -839,35 +839,44 @@ class TestBootPush:
         assert pushable._equalizer_controller.set_equalizer_mute.await_count == 2
         assert "Failed to apply mute to aa:bb" in caplog.text
 
-    async def test_a_contended_push_gives_up_rather_than_queueing(self, service, caplog):
-        """Ten seconds is already long for a boot path; the lock is held by
-        another push that is doing the same work."""
-        service._do_push_volume_to_all_clients = AsyncMock()
+    @pytest.mark.parametrize("stuck,said", [
+        ("levels", "while sending the levels, before the mutes and the level trims"),
+        ("mutes", "while sending the mutes, before the level trims"),
+        ("level trims", "while sending the level trims:"),
+    ])
+    async def test_a_push_cut_by_its_budget_names_what_it_did_not_send(
+        self, pushable, caplog, stuck, said
+    ):
+        """The budget bounds the whole push, and a satellite admitted but not
+        answering holds the levels for up to 3 × 5 s: the push is then cut
+        before its mutes and trims leave. Its warning used to blame a lock
+        nothing else ever takes ("Timeout waiting for push lock"), so the
+        journal of a boot whose mutes never left by this path said nothing of
+        them.
+        """
+        pushable._online_client_ids = Mock(return_value=["aa:bb"])
+        pushable._state_store.ensure_local_client("aa:bb", -30.0)
+        never = asyncio.get_running_loop().create_future()
 
-        async def _hold():
-            async with service._push_lock:
-                await asyncio.sleep(3600)
+        async def hang(*_args, **_kwargs):
+            await never
 
-        real_timeout = asyncio.timeout
-        holder = asyncio.create_task(_hold())
-        await asyncio.sleep(0)
-        try:
-            with caplog.at_level(logging.WARNING):
-                with pytest.MonkeyPatch.context() as mp:
-                    # `service.py` does a bare `import asyncio`, so this attribute
-                    # IS asyncio.timeout for the whole process: a replacement that
-                    # calls the name it just replaced recurses into itself. The
-                    # real one is captured first, as reader.py taught in B6.
-                    mp.setattr(
-                        "backend.core.volume.service.asyncio.timeout",
-                        lambda _: real_timeout(0.01),
-                    )
-                    assert await service.push_volume_to_all_clients() is False
-        finally:
-            holder.cancel()
+        if stuck == "levels":
+            # submit_volume is synchronous and hands back the future to await.
+            pushable._equalizer_controller.submit_volume = Mock(return_value=never)
+        elif stuck == "mutes":
+            pushable._equalizer_controller.set_equalizer_mute = AsyncMock(side_effect=hang)
+        else:
+            pushable._equalizer_controller.set_equalizer_gain = AsyncMock(side_effect=hang)
+        pushable.PUSH_BUDGET_S = 0.01
 
-        assert "Timeout waiting for push lock" in caplog.text
-        service._do_push_volume_to_all_clients.assert_not_awaited()
+        with caplog.at_level(logging.WARNING):
+            assert await pushable.push_volume_to_all_clients() is False
+
+        assert said in caplog.text
+        assert "push lock" not in caplog.text
+        if stuck != "level trims":
+            pushable._equalizer_controller.set_equalizer_gain.assert_not_awaited()
 
 
 class TestLocalLevelTrim:
@@ -1055,8 +1064,9 @@ class TestEqualizerControllerRetry:
         self, controller, instant_backoff, caplog
     ):
         """Three attempts total, then error. The recursion is what makes the
-        bound necessary at all — an unbounded one would hold the push lock for
-        as long as the speaker stays away.
+        bound necessary at all — an unbounded one would hold the boot push past
+        its PUSH_BUDGET_S for as long as the speaker stays away, and the mutes
+        and level trims queued behind it would never leave.
         """
         attempts = {"n": 0}
 

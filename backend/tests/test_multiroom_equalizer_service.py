@@ -18,7 +18,8 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 
 from backend.core.equalizer import CamillaDSPService, MultiroomEqualizerService
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.equalizer.camilladsp_client import CamillaDspError
+from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.core.models.ws_events import (
     EqualizerZoneEnabledChanged,
     MultiroomEqualizerChanged,
@@ -771,10 +772,15 @@ class TestLocalDspApplication:
         """While CamillaDSP is disconnected the live apply no-ops (set_* guards on
         `connected`), so the intent is captured into the cache + equalizer.json via
         update_cache — restore_effects() re-pushes it on reconnect. persist_state is
-        NOT used here (it snapshots the live cache, which was never touched)."""
+        NOT used here (it snapshots the live cache, which was never touched).
+
+        A deferred write, so True: answered False, a preset or a custom save
+        during a CamillaDSP restart was a 502 and a banner on every screen,
+        while a band edit and a volume change in the same window answered 200
+        for the same deferral."""
         mock_camilladsp_service.connected = False
         result = await multiroom_equalizer_service.set_client_eq("local", sample_equalizer_settings)
-        assert result is False
+        assert result is True
         mock_camilladsp_service.apply_settings.assert_not_called()
         mock_camilladsp_service.update_cache.assert_awaited_once_with(sample_equalizer_settings)
         mock_camilladsp_service.persist_state.assert_not_called()
@@ -1894,6 +1900,31 @@ RESEND_CANAPE, RESEND_CANAPE_IP = "dc:a6:32:7e:d3:43", "192.168.1.153"
 RESEND_BUREAU, RESEND_BUREAU_IP = "d8:3a:dd:68:e7:e4", "192.168.1.60"
 
 
+class TestThisUnitsRefusalIsNotDropped:
+    """A band edit aimed at this unit alone, refused by its CamillaDSP.
+
+    What breaks when this fails: the router's answer for the local target was
+    the one result the partial update never read, so a band the daemon refused
+    answered 200 and was announced on every screen as applied. The registry,
+    the router and the DSP service are real; the daemon is the outside world.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target", ["local", SALON_LOCAL])
+    async def test_a_refused_band_is_answered_as_refused(
+        self, salon, mock_camilla_client, target
+    ):
+        world = await salon(local_online=True)
+        mock_camilla_client.set_config.side_effect = CamillaDspError("refused")
+
+        with pytest.raises(CommandNotApplied) as refused:
+            await world.service.update_filter("client", target, "eq_band_00", gain=6.0)
+
+        assert mock_camilla_client.set_config.await_count == 1
+        assert refused.value.status_code == 502
+        world.proxy.request.assert_not_awaited()
+
+
 class _Satellite:
     """The satellites' HTTP surface as the EQ service reaches it.
 
@@ -1941,12 +1972,16 @@ async def two_satellites(monkeypatch):
         await registry.register_client(mac, name, ip)
         await registry.set_client_online(mac, True)
     satellite = _Satellite()
+    state_machine = Mock(broadcast=AsyncMock())
     service = MultiroomEqualizerService(
         client_registry_service=registry,
         proxy_service=satellite,
         equalizer_router=EqualizerRouter(registry, None, satellite),
+        state_machine=state_machine,
     )
-    yield SimpleNamespace(service=service, registry=registry, satellite=satellite)
+    yield SimpleNamespace(
+        service=service, registry=registry, satellite=satellite, state_machine=state_machine
+    )
     await service.cleanup()
     await registry.cleanup()
 
@@ -2084,6 +2119,31 @@ class TestARefusedPushIsResent:
         stored = world.registry.get_client_equalizer(RESEND_CANAPE)
         assert stored.filters[0].gain == 6.0
         assert world.satellite.records == [(RESEND_CANAPE_IP, stored.to_dict())]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target_type", ["zone", "client"])
+    async def test_a_refused_band_edit_is_still_announced(self, two_satellites, target_type):
+        """The refused band is in the registry's record and resent until the
+        satellite takes it, so the room plays it seconds later. A single client
+        raised before the broadcast: the screen that made the edit got its 503,
+        and every other screen kept the old curve while the speaker left it,
+        until a reload. A zone already announced it."""
+        world = two_satellites
+        if target_type == "zone":
+            await world.registry.create_zone("salon", "Salon", [RESEND_CANAPE, RESEND_BUREAU])
+        target_id = "salon" if target_type == "zone" else RESEND_CANAPE
+        world.satellite.refused = {(RESEND_CANAPE_IP, "/equalizer/filter/")}
+
+        with pytest.raises(SatelliteUnreachable):
+            await world.service.update_filter(target_type, target_id, "eq_band_00", gain=6.0)
+
+        events = [
+            c.args[0] for c in world.state_machine.broadcast.await_args_list
+            if isinstance(c.args[0], MultiroomEqualizerChanged)
+        ]
+        assert [(e.target_id, e.equalizer_settings["filters"][0]["gain"]) for e in events] == [
+            (target_id, world.registry.get_client_equalizer(RESEND_CANAPE).filters[0].gain)
+        ]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("target_type", ["zone", "client"])
@@ -2344,17 +2404,41 @@ class TestZoneEnabledFanout:
         assert await service.set_zone_equalizer_effects_enabled("zone-1", True) is False
 
     @pytest.mark.asyncio
-    async def test_a_zone_whose_members_all_refuse_broadcasts_nothing(
-        self, service, mock_registry, mock_state_machine, proxy_service
+    async def test_satellites_that_all_refuse_still_announce_the_flag_they_will_take(
+        self, service, mock_registry, mock_camilladsp_service, mock_state_machine,
+        proxy_service,
+    ):
+        """A satellite's record takes the flag before the push and is resent
+        until the satellite takes it, so a toggle every satellite refused still
+        moves every one of them, seconds later. Sent only when a member took
+        it, `zone_enabled_changed` never left, and every other screen kept the
+        old tile while the room switched."""
+        self._zone(mock_registry, ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])
+        wire_enabled_stores(mock_registry, mock_camilladsp_service, service._routing_service)
+        proxy_service.request = AsyncMock(
+            side_effect=SatelliteUnreachable("192.168.1.2", "Client error: 400", 400)
+        )
+        proxy_service.apply_record = AsyncMock(return_value=False)
+
+        assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is False
+
+        assert [e.enabled for e in self._zone_events(mock_state_machine)] == [False]
+        await service.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_a_local_member_alone_that_refuses_broadcasts_nothing(
+        self, service, mock_registry, mock_camilladsp_service, mock_state_machine
     ):
         """`zone_enabled_changed` moves the zone's tile on every other screen.
-        Sent when no member moved, it draws a change that happened nowhere."""
-        self._zone(mock_registry, ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])
-        proxy_service.request = AsyncMock(return_value={"status": "error"})
+        A local DSP that refused keeps its flag, and nothing will move it later:
+        sent then, it draws a change that happened nowhere."""
+        self._zone(mock_registry, ["local"])
+        wire_enabled_stores(mock_registry, mock_camilladsp_service, service._routing_service)
+        service._routing_service.set_equalizer_effects_enabled = AsyncMock(return_value=False)
 
-        await service.set_zone_equalizer_effects_enabled("zone-1", True)
+        assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is False
 
-        mock_state_machine.broadcast.assert_not_awaited()
+        assert self._zone_events(mock_state_machine) == []
 
     @pytest.mark.asyncio
     async def test_the_zone_event_carries_what_the_members_hold_not_what_was_asked(

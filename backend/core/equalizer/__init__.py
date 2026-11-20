@@ -19,6 +19,7 @@ from backend.core.equalizer.presets import (
     BUILTIN_PRESETS,
 )
 from backend.core.equalizer.client_proxy import (
+    CommandNotApplied,
     EqualizerClientProxyService,
     SatelliteUnreachable,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "MultiroomEqualizerService",
     # Proxy
     "EqualizerClientProxyService",
+    "CommandNotApplied",
     "SatelliteUnreachable",
     # Presets
     "get_builtin_presets",

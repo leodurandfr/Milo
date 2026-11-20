@@ -32,6 +32,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 import aiohttp
 import pytest
 
+from backend.core.equalizer.client_proxy import SatelliteUnreachable
 from backend.core.models.audio_state import AudioSource
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import EqFilter, EqualizerSettings
@@ -1424,7 +1425,7 @@ class TestAClientDeletedDuringItsAdmission:
         dsp.set_volume = AsyncMock(return_value=True)
         dsp.set_mute = AsyncMock(return_value=True)
         proxy = MagicMock()
-        proxy.request = AsyncMock(return_value={"status": "error"})
+        proxy.request = AsyncMock(side_effect=SatelliteUnreachable(IP, "Client error: 400", 400))
         service._volume_service.state_store = store
         service._volume_service.equalizer_controller = EqualizerController(
             equalizer_router=EqualizerRouter(registry, dsp, proxy),

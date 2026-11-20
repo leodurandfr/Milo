@@ -12,7 +12,7 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
 
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.shared.background import BackgroundTaskSet
 
 if TYPE_CHECKING:
@@ -80,14 +80,16 @@ class EqualizerController:
 
     @staticmethod
     def _is_success(result: dict) -> bool:
-        """Interpret an EqualizerRouter result dict as "the command was applied".
+        """Interpret an EqualizerRouter answer as "the command was applied".
 
-        The router skips for two opposite reasons and only one of them is an
-        outcome. `external_volume_control` means there was nothing to send — a
-        DAC client owns its own volume, and the caller must still record the
-        level it asked for. `client_offline` means the command was *not*
-        delivered; counting it as applied is what wrote the store for a
-        satellite that never heard the change and then reported success.
+        A refusal never reaches here — the router raises `CommandNotApplied`
+        for it — so the answer is a success or a skip, and the router skips
+        for two opposite reasons, only one of which is an outcome.
+        `external_volume_control` means there was nothing to send — a DAC
+        client owns its own volume, and the caller must still record the level
+        it asked for. `client_offline` means the command was *not* delivered;
+        counting it as applied is what wrote the store for a satellite that
+        never heard the change and then reported success.
         """
         if not result:
             return False
@@ -142,31 +144,24 @@ class EqualizerController:
                     continue
                 self.logger.error(f"Timeout setting volume for {mac_id}")
                 return False
-            except SatelliteUnreachable as e:
-                return self._satellite_failed(mac_id, e, force, "Volume")
+            except CommandNotApplied as e:
+                return self._refused(mac_id, e, force, "Volume")
             except Exception as e:
                 self.logger.warning(f"Failed to set volume for {mac_id}: {e}")
                 return False
         return False
 
-    def _satellite_failed(self, mac_id: str, error: SatelliteUnreachable, force: bool,
-                          what: str) -> bool:
-        """A satellite that answered and refused (4xx) is a refusal like the
-        local DSP's, reported once by `_outcome`; the proxy raises it rather
-        than answering a dict.
+    def _refused(self, mac_id: str, error: CommandNotApplied, force: bool,
+                 what: str) -> bool:
+        """A command the router raised for: say once when a speaker that is
+        still online starts refusing — not on every step of a turn it keeps
+        refusing.
 
-        Unreachable (503), or refused during a forced send, stays a warning: an
-        admission sends while the satellite's CamillaDSP may still be starting,
-        every call answers 400 until it is up, and the admission retries.
-        """
-        if not force and 400 <= error.status_code < 500:
-            return self._outcome(mac_id, {"status": "error", "message": str(error)}, what)
-        self.logger.warning(f"Failed to set {what.lower()} for {mac_id}: {error}")
-        return False
-
-    def _outcome(self, mac_id: str, result: dict, what: str) -> bool:
-        """Read a router answer, and say once when a speaker that is still
-        online starts refusing — not on every step of a turn it keeps refusing.
+        This unit's DSP refusing, and a satellite that answered and refused
+        (4xx), are the refusals reported. A satellite that could not be
+        reached (5xx), or refused a forced send, stays a warning: an admission
+        sends while the satellite's CamillaDSP may still be starting, every
+        call answers 400 until it is up, and the admission retries.
 
         The stored value is not touched either way: a satellite that answers
         a refusal has cached the value and applies it when its CamillaDSP comes
@@ -174,15 +169,25 @@ class EqualizerController:
         the store by `reapply_current_volume`. Taking the old value back here
         would show a level the speaker is about to leave.
         """
-        ok = self._is_success(result)
+        if isinstance(error, SatelliteUnreachable) and (
+            force or not 400 <= error.status_code < 500
+        ):
+            self.logger.warning(f"Failed to set {what.lower()} for {mac_id}: {error}")
+            return False
         spell = (what, mac_id)
-        if ok:
-            self._refusing.discard(spell)
-        elif (result or {}).get("reason") != "client_offline" and spell not in self._refusing:
+        if spell not in self._refusing:
             online = self._registry.is_client_online(mac_id) if self._registry else True
             if online:
                 self._refusing.add(spell)
-                self.logger.error(f"{what} not applied to {mac_id}: {result}")
+                self.logger.error(f"{what} not applied to {mac_id}: {error}")
+        return False
+
+    def _outcome(self, mac_id: str, result: dict, what: str) -> bool:
+        """Read a router answer: applied, or skipped. A speaker that applies
+        again is news again the next time it refuses."""
+        ok = self._is_success(result)
+        if ok:
+            self._refusing.discard((what, mac_id))
         return ok
 
     def _submit(self, channels: Dict[str, _Channel], mac_id: str, value: Any, force: bool,
@@ -291,8 +296,8 @@ class EqualizerController:
                 timeout=self._timeout
             )
             return self._outcome(mac_id, result, "Mute")
-        except SatelliteUnreachable as e:
-            return self._satellite_failed(mac_id, e, force, "Mute")
+        except CommandNotApplied as e:
+            return self._refused(mac_id, e, force, "Mute")
         except Exception as e:
             self.logger.warning(f"Failed to set mute for {mac_id}: {e}")
             return False

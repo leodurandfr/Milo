@@ -69,7 +69,8 @@ class VolumeService:
         self._last_published = None
         # Called with (global_volume, global_mute) after each state broadcast.
         self._state_listeners: list = []
-        self._push_lock = asyncio.Lock()
+        # What the boot push is sending now (see push_volume_to_all_clients).
+        self._push_stage: Optional[str] = None
 
         # Volume configuration (loaded from settings in _load_volume_config)
         self._volume_config = VolumeConfig()
@@ -478,24 +479,44 @@ class VolumeService:
     # CLIENT VOLUME MANAGEMENT (VolumeStateStore architecture)
     # ============================================================================
 
+    # The whole boot push, levels, mutes and trims together.
+    PUSH_BUDGET_S = 10.0
+    _PUSH_STAGES = ("levels", "mutes", "level trims")
+
     @handle_errors(default=False)
     async def push_volume_to_all_clients(self) -> bool:
         """Push each online client's own level and mute state to its hardware.
 
         There is no target to force on everyone: a mode switch pushes nothing
-        now, so the boot sync is the only caller and every client is restored to
-        what it owns (restore_last_volume) or to startup_volume_db.
+        now, so the boot sync is the only caller, once, and every client is
+        restored to what it owns (restore_last_volume) or to startup_volume_db.
+
+        The push as a whole is bounded at PUSH_BUDGET_S, and its three stages
+        run one after the other: the levels, the mutes, the trims. A satellite
+        admitted but not answering holds the levels for up to three 5 s tries
+        (EqualizerController), so the budget can run out before the mutes and
+        the trims leave. The warning then names the stage it cut and the ones
+        it never reached; each client's admission sends its mute and its trim
+        again, so nothing is lost but this push's word for it.
         """
+        self._push_stage = None
         try:
-            async with asyncio.timeout(10.0):
-                async with self._push_lock:
-                    return await self._do_push_volume_to_all_clients()
-        except asyncio.TimeoutError:
-            self.logger.warning("Timeout waiting for push lock (>10s)")
+            async with asyncio.timeout(self.PUSH_BUDGET_S):
+                return await self._do_push_volume_to_all_clients()
+        except TimeoutError:
+            stages = self._PUSH_STAGES
+            cut = stages.index(self._push_stage) if self._push_stage in stages else 0
+            never = " and the ".join(stages[cut + 1:])
+            self.logger.warning(
+                f"PUSH_VOLUME: boot push cut after {self.PUSH_BUDGET_S:.0f}s while sending "
+                f"the {stages[cut]}{f', before the {never}' if never else ''}: "
+                "each client's admission sends its mute and trim"
+            )
             return False
 
     async def _do_push_volume_to_all_clients(self) -> bool:
-        """Internal push implementation (called under _push_lock)."""
+        """The boot push itself, bounded by push_volume_to_all_clients."""
+        self._push_stage = "levels"
         client_ids = self._online_client_ids()
         if not client_ids:
             # Benign boot-ordering case: the snapserver WS is ready but the local
@@ -543,6 +564,7 @@ class VolumeService:
             self.logger.warning(f"PUSH_VOLUME: FAILED for {len(failures)} clients: {failures} — these clients may be desynchronized")
 
         # Apply persisted mute states
+        self._push_stage = "mutes"
         for cid in client_ids:
             if self._state_store.has_client(cid):
                 try:
@@ -555,6 +577,7 @@ class VolumeService:
         # its config file holds; a satellite does not (its own file carries the
         # trim) but gets it anyway, which also catches a trim changed while it
         # was away. A trim of 0 removes nothing that is not already absent.
+        self._push_stage = "level trims"
         for cid in client_ids:
             gain_db = self._recorded_gain(cid)
             try:

@@ -39,7 +39,7 @@ from backend.api.responses import (
     ZoneOrMessageResponse,
 )
 from backend.config.constants import CLIENT_API_PORT, get_client_display_name
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.equalizer.client_proxy import CommandNotApplied
 from backend.core.network.addresses import server_addresses
 from backend.core.multiroom.models import EqualizerSettings
 from backend.hardware.registry import missing_card_label
@@ -268,22 +268,20 @@ def create_multiroom_router(
         keeps the flag where it is. `force`: a client the registry holds offline
         can still answer, and a skip here is a trim left in the DSP. An
         unreachable satellite stays the 503 every satellite route answers; any
-        other failure is the speaker refusing, a 502.
+        other failure is the speaker refusing, a 502. A skip for an external
+        amp is this unit's own DSP already in DAC mode, whose trim went with its
+        flag (VolumeService._clear_local_gain): nothing is left to clear.
         """
         if not client.volume_control or client.gain_db == 0.0:
             return
         logger.info(f"Clearing the level trim of {mac_id}: its amp now owns the level")
         if equalizer_router:
             try:
-                result = await equalizer_router.set_gain(mac_id, 0.0, force=True)
-            except SatelliteUnreachable as e:
+                await equalizer_router.set_gain(mac_id, 0.0, force=True)
+            except CommandNotApplied as e:
                 if e.status_code == 503:
                     raise
-                result = {"status": "error", "message": e.detail}
-            # A skip for an external amp is this unit's own DSP already in DAC
-            # mode, whose trim went with its flag (VolumeService._clear_local_gain).
-            if result.get("status") != "success" and result.get("reason") != "external_volume_control":
-                logger.error(f"Client {mac_id} kept its level trim, so it stays volume-managed: {result}")
+                logger.error(f"Client {mac_id} kept its level trim, so it stays volume-managed: {e.detail}")
                 raise HTTPException(
                     status_code=502,
                     detail="The speaker did not drop its level trim; its volume management was not changed",
@@ -567,17 +565,13 @@ def create_multiroom_router(
 
             # Hardware first: a refusal must not leave the registry claiming a
             # trim the DSP never took — the admission sync would then replay that
-            # record as if it were the truth. An offline client is the exception:
+            # record as if it were the truth. The router raises it, and
+            # api_error_handler answers its status (502 for this unit's DSP, the
+            # satellite's own otherwise). An offline client is the exception:
             # the router skips it, there is nothing to refuse, and that same sync
             # is what delivers the value when it comes back.
             if equalizer_router:
-                result = await equalizer_router.set_gain(mac_id, request.gain_db)
-                if result.get("status") == "error":
-                    logger.error(f"DSP refused the level trim for {mac_id}: {result}")
-                    raise HTTPException(
-                        status_code=502,
-                        detail=result.get("message", "The equalizer refused the level trim")
-                    )
+                await equalizer_router.set_gain(mac_id, request.gain_db)
 
             updated_client = await registry_service.set_client_gain(mac_id, request.gain_db)
 
@@ -1031,7 +1025,7 @@ def create_multiroom_router(
                         try:
                             if not request.volume_control:
                                 await _drop_trim_before_dac(request.mac_id, existing)
-                        except (HTTPException, SatelliteUnreachable) as e:
+                        except (HTTPException, CommandNotApplied) as e:
                             # The flag waits, and the satellite's next heartbeat
                             # retries the clear.
                             logger.warning(

@@ -21,7 +21,7 @@ from pydantic import ValidationError
 
 from backend.api.multiroom import create_multiroom_router
 from backend.api.models import ZoneCreate, ZoneUpdate, MAX_ZONE_NAME_LENGTH
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import Client, Zone, EqualizerSettings
 from backend.core.multiroom.snapcast import SnapcastService
@@ -371,9 +371,12 @@ class TestClientGainEndpoint:
         never took is what the admission sync would later replay as truth, and
         the screen would show a balance nobody is hearing."""
         client, registry, eq_router = gain_client
-        eq_router.set_gain = AsyncMock(return_value={"status": "error", "message": "nope"})
+        # The router's refusal of this unit's DSP (test_equalizer_router.py).
+        eq_router.set_gain = AsyncMock(
+            side_effect=CommandNotApplied("The local CamillaDSP refused the level trim")
+        )
 
-        resp = client.patch("/api/multiroom/clients/mac-1/gain", json={"gain_db": -3.5})
+        resp = client.patch("/api/multiroom/clients/mac-local/gain", json={"gain_db": -3.5})
 
         assert resp.status_code == 502
         registry.set_client_gain.assert_not_awaited()

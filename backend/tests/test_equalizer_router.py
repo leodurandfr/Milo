@@ -15,11 +15,15 @@ exercised, and the local closures of the six setting methods were dark with it.
 That fallback serves this unit's own targets only, the `local` sentinel and the
 MAC `/sys` gives it (patched here to LOCAL_MAC): any other mac the registry
 lacks is a satellite it forgot, and is refused.
+
+A refusal has one shape, local or remote: `CommandNotApplied` raised, never an
+error dict returned. Two shapes is how a caller came to drop the local one.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 from backend.config.constants import LOUDNESS_REFERENCE_DB
+from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.core.equalizer.multiroom_service import LOCAL_TARGET
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import Client
@@ -120,9 +124,10 @@ class TestLocalRouting:
         """
         registry.get_client.return_value = None
 
-        result = await getattr(router, method)(REMOTE_MAC, **kwargs)
+        with pytest.raises(CommandNotApplied) as refused:
+            await getattr(router, method)(REMOTE_MAC, **kwargs)
 
-        assert result["status"] == "error"
+        assert refused.value.status_code == 404
         getattr(camilladsp, dsp_method).assert_not_awaited()
         assert proxy.method_calls == []
 
@@ -178,28 +183,54 @@ class TestLocalRouting:
         camilladsp.set_volume.assert_not_awaited()
 
 
-class TestLocalVerdictReachesTheEnvelope:
-    """A DSP that refused must not be reported as a success."""
+class TestOneShapeForARefusal:
+    """A DSP that refused must not be reported as a success — and this unit's
+    DSP refuses the way a satellite does.
+
+    What breaks when these fail: `multiroom_service._apply_partial_update`
+    reconciles the router's raises; an error dict returned instead reads as an
+    answer there, and a band the local DSP refused was announced on every
+    screen as applied, with a 200. The api/ layer maps the raise to its status
+    (`api_error_handler`), 502 for this unit's DSP.
+    """
 
     @pytest.mark.parametrize("method,kwargs,dsp_method", LOCAL_SETTINGS)
-    async def test_a_refusing_dsp_makes_the_envelope_an_error(
+    async def test_a_refusing_local_dsp_raises(
         self, router, camilladsp, registry, method, kwargs, dsp_method
     ):
-        """CamillaDSPService returns False when the daemon is down, and the
-        caller (`multiroom_service`) reads `.get("status") != "error"`. A local
+        """CamillaDSPService returns False when the daemon refuses. A local
         refusal that came back as "success" is the success-on-failure class this
         repo has paid for most.
         """
         registry.get_client.return_value = None
         getattr(camilladsp, dsp_method).return_value = False
 
-        result = await getattr(router, method)(LOCAL_MAC, **kwargs)
+        with pytest.raises(CommandNotApplied) as refused:
+            await getattr(router, method)(LOCAL_MAC, **kwargs)
 
-        # Non-triviality first: an error envelope also comes out of a body that
-        # never ran, so the call has to be shown to have happened.
+        # Non-triviality first: a raise also comes out of a body that never
+        # ran, so the call has to be shown to have happened.
         assert getattr(camilladsp, dsp_method).await_count == 1
-        assert result["status"] == "error"
-        assert "success" not in result
+        assert refused.value.status_code == 502
+
+    @pytest.mark.parametrize("method,kwargs,_dsp", LOCAL_SETTINGS)
+    async def test_a_refusing_satellite_raises_the_same_type(
+        self, router, proxy, registry, method, kwargs, _dsp
+    ):
+        """The other half: a satellite that answered 400 reaches the caller as
+        the type a local refusal is, so one `except` reconciles both."""
+        registry.get_client.return_value = Client(
+            mac_id=REMOTE_MAC, name="Canape", ip="192.168.1.153", online=True
+        )
+        proxy.request.side_effect = SatelliteUnreachable(
+            "192.168.1.153", "Client error: 400", status_code=400
+        )
+
+        with pytest.raises(CommandNotApplied) as refused:
+            await getattr(router, method)(REMOTE_MAC, **kwargs)
+
+        proxy.request.assert_awaited_once()
+        assert refused.value.status_code == 400
 
 
 class TestTheDacFlag:
@@ -303,14 +334,14 @@ class TestTheDacFlag:
 class TestLocalRoutingIsRefused:
     """The case that must not reach the DSP at all."""
 
-    async def test_no_registry_and_no_dsp_reports_an_error_envelope(self, proxy):
-        """Nothing to route to is an error, never a silent success."""
+    async def test_no_registry_and_no_dsp_is_a_refusal(self, proxy):
+        """Nothing to route to is a refusal, never a silent success."""
         router = EqualizerRouter(None, None, proxy)
 
-        result = await router.set_volume(LOCAL_MAC, -18.5)
+        with pytest.raises(CommandNotApplied) as refused:
+            await router.set_volume(LOCAL_MAC, -18.5)
 
-        assert result["status"] == "error"
-        assert "success" not in result
+        assert refused.value.status_code == 503
         proxy.request.assert_not_awaited()
 
 
@@ -459,9 +490,10 @@ class TestReads:
         )
         router = EqualizerRouter(registry, camilladsp, None)
 
-        result = await router.get_status(REMOTE_MAC)
+        with pytest.raises(CommandNotApplied) as refused:
+            await router.get_status(REMOTE_MAC)
 
-        assert result["status"] == "error"
+        assert refused.value.status_code == 503
         camilladsp.get_status.assert_not_called()
 
 
@@ -473,9 +505,9 @@ class TestTheLocalArmWithoutCamillaDSP:
     lazily — so a boot that reordered the wiring, or a dev host with no daemon,
     reaches every one of these. What they must not do is answer as though the
     write landed: `EqualizerRouter` is the transport behind
-    `PUT /api/equalizer/target/local/...`, and the route's envelope is read
-    verbatim by the UI. The two getters answer `available: False` instead of an
-    error envelope because they feed a status panel, not a write.
+    `PUT /api/equalizer/target/local/...`, and the route's answer is read
+    verbatim by the UI. The two getters answer `available: False` instead of
+    refusing because they feed a status panel, not a write.
     """
 
     @pytest.fixture
@@ -488,14 +520,14 @@ class TestTheLocalArmWithoutCamillaDSP:
         return EqualizerRouter(registry, None, proxy)
 
     @pytest.mark.parametrize("method,kwargs,_dsp", LOCAL_SETTINGS)
-    async def test_a_write_without_the_daemon_is_an_error_envelope(
+    async def test_a_write_without_the_daemon_is_refused_as_unavailable(
         self, router_without_camilla, method, kwargs, _dsp
     ):
-        result = await getattr(router_without_camilla, method)(LOCAL_MAC, **kwargs)
+        with pytest.raises(CommandNotApplied) as refused:
+            await getattr(router_without_camilla, method)(LOCAL_MAC, **kwargs)
 
-        assert result["status"] == "error"
-        assert "not available" in result["message"]
-        assert "success" not in result, "the envelope rule: never a bare boolean"
+        assert refused.value.status_code == 503
+        assert "not available" in refused.value.detail
 
     async def test_the_status_read_says_unavailable_rather_than_erroring(
         self, router_without_camilla

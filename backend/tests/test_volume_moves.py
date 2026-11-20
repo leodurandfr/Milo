@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.core.models.volume import VolumeConfig
 from backend.core.volume import EqualizerController, VolumeService, VolumeStateStore
 from backend.tests.volume_world import Registry
@@ -45,9 +45,9 @@ class Router:
 
     Commands to a speaker in `hold` wait until `release` is set; `answer` (and
     `mute_answer` for the mute) maps a speaker to the router result it gets
-    back, or to the exception it raises. A satellite's refusal is an exception:
-    the proxy raises `SatelliteUnreachable` on any answer but a 200, and only
-    the local DSP answers an error dict.
+    back, or to the exception it raises. A refusal is always an exception, the
+    router's one shape: `SatelliteUnreachable` from the proxy on any answer but
+    a 200, `CommandNotApplied` from the local DSP.
     """
 
     def __init__(self):
@@ -88,6 +88,11 @@ class Router:
 
 
 SAT_IP = "192.168.1.10"
+
+
+def refused_by_local_dsp():
+    """What the router raises when this unit's CamillaDSP refused."""
+    return CommandNotApplied("The local CamillaDSP refused the volume")
 
 
 def refused_by_satellite():
@@ -633,7 +638,7 @@ async def test_a_move_the_local_speaker_refused_is_still_shown():
     UI, Milo-Mac and Milo-iOS on the old levels of rooms that had moved.
     """
     router = Router()
-    router.answer[LOCAL] = {"status": "error", "message": "refused"}
+    router.answer[LOCAL] = refused_by_local_dsp()
     service = make_service({LOCAL: -60.0, "sat": -60.0}, online=[LOCAL, "sat"], router=router)
 
     assert await service.set_volume_db(-50.0) is False
@@ -659,7 +664,7 @@ async def test_a_zone_move_the_local_speaker_refused_reports_failure(move, refus
     """
     router = Router()
     if refused:
-        router.answer[LOCAL] = {"status": "error", "message": "refused"}
+        router.answer[LOCAL] = refused_by_local_dsp()
     service = make_service({LOCAL: -60.0, "sat": -60.0}, online=[LOCAL, "sat"], router=router)
     zone(service, [LOCAL, "sat"])
 

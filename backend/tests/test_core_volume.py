@@ -27,6 +27,7 @@ from backend.core.models.volume import (
 from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 from backend.tests.volume_world import Registry, world
+from backend.core.equalizer.client_proxy import CommandNotApplied
 from backend.core.volume.state import StoredLevel
 from backend.shared import persistence
 
@@ -204,7 +205,9 @@ class TestEqualizerController:
         """Test _is_success static method."""
         assert EqualizerController._is_success({"status": "success"}) is True
         assert EqualizerController._is_success({"status": "skipped"}) is True
-        assert EqualizerController._is_success({"status": "error"}) is False
+        assert EqualizerController._is_success(
+            {"status": "skipped", "reason": "external_volume_control"}
+        ) is True
         assert EqualizerController._is_success({}) is False
         assert EqualizerController._is_success(None) is False
 
@@ -2043,7 +2046,10 @@ class TestEqualizerControllerRegistryInjection:
 
     @pytest.fixture
     def controller(self):
-        router = Mock(set_volume=AsyncMock(return_value={"status": "error", "message": "refused"}))
+        # The router's one shape for a refusal (test_equalizer_router.py).
+        router = Mock(set_volume=AsyncMock(
+            side_effect=CommandNotApplied("The local CamillaDSP refused the volume")
+        ))
         return EqualizerController(equalizer_router=router)
 
     async def test_without_a_registry_a_refusal_is_reported(self, controller, caplog):

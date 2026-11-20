@@ -30,6 +30,7 @@ from backend.api.models import (
     ZoneCrossoverRequest,
     EqualizerPresetRequest
 )
+from backend.core.equalizer.client_proxy import CommandNotApplied
 from backend.core.equalizer.presets import DEFAULT_CUSTOM_GAINS
 
 if TYPE_CHECKING:
@@ -143,13 +144,27 @@ def create_equalizer_router(
                 logger.warning(f"Equalizer target not found: {target}")
                 raise HTTPException(status_code=404, detail=f"Equalizer target not found: {target}")
 
-            # Live connection state for the UI (the record carries no runtime state).
-            # A remote client reads its satellite via the router; local and zone
-            # targets read the local CamillaDSP (the zone's representative state).
-            if target_type == "client" and target_id != "local":
-                status = await equalizer_router_service.get_status(target_id)
-            else:
+            # Live connection state for the UI (the record carries no runtime state),
+            # read from the speaker whose record this is: the client itself, or
+            # the zone member get_zone_eq read the record from. A zone of
+            # satellites has nothing to do with this unit's CamillaDSP, which
+            # restarting would otherwise hold its screen on "connecting".
+            member = (
+                target_id if target_type == "client"
+                else multiroom_equalizer_service.zone_record_member(target_id)
+            )
+            if member == "local":
                 status = await camilladsp_service.get_status()
+            else:
+                # The record is held on this unit and is readable whatever the
+                # speaker answers: one that is registered online but does not
+                # answer (just unplugged, milo-client restarting) is a
+                # disconnected state, never a failed read of the record.
+                try:
+                    status = await equalizer_router_service.get_status(member)
+                except CommandNotApplied as e:
+                    logger.warning(f"Equalizer state of {member} unreadable, shown disconnected: {e.detail}")
+                    status = {}
 
             return {
                 "enabled": record.enabled,
@@ -311,7 +326,9 @@ def create_equalizer_router(
 
         A target that did not take the preset answers 502, never a 200 carrying
         the gains it is not playing. For a zone that means at least one member
-        refused, and the service has logged which.
+        refused, and the service has logged which. A speaker that will take it
+        later is not a refusal: an offline satellite, or this unit's CamillaDSP
+        while it reconnects, records it and answers 200, as a band edit does.
         """
         async with api_error_handler(f"Error loading preset for target {target}", logger):
             target_type, target_id = _resolve_target(target)

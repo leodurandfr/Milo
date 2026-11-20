@@ -132,13 +132,7 @@ class VolumeStateStore:
                 # to decide what a client comes back at, so a fabricated -45
                 # here *is* the level the speaker gets — and it shadowed the
                 # startup_volume_db branch that exists for exactly this case.
-                await self.register_client(
-                    mac_id,
-                    volume_db=(
-                        self._volume_config.startup_volume_db
-                        if self._volume_config else DEFAULT_VOLUME_DB
-                    ),
-                )
+                await self.register_client(mac_id, volume_db=self._seed_volume_db())
 
         elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
             # Offline is the registry's to say; only a client removed from the
@@ -310,6 +304,11 @@ class VolumeStateStore:
 
     # ========== Client Management ==========
 
+    def _seed_volume_db(self) -> float:
+        """The level a client the store did not hold is seeded at: the
+        configured startup level, the one its admission would give it."""
+        return self._volume_config.startup_volume_db if self._volume_config else DEFAULT_VOLUME_DB
+
     async def register_client(self, mac_id: str, volume_db: Optional[float] = None) -> None:
         """
         Register a client, or update its level.
@@ -338,17 +337,25 @@ class VolumeStateStore:
         """
         Set client mute state.
 
+        A client the store does not hold yet is registered with it, as
+        `set_client_volume` registers one: the route answers 200 for an offline
+        client because the mute is *recorded* and its admission applies it
+        (`get_client_mute`). Dropped here, that speaker came back unmuted. Its
+        level is the one an unknown client is seeded at, the startup level.
+
         Args:
             mac_id: Client MAC identifier
             mute: New mute state
         """
         async with self._lock:
-            if mac_id in self._clients:
-                self._clients[mac_id].mute = mute
-                self._schedule_persist()
-                self.logger.debug(f"Client mute: {mac_id} -> {mute}")
-            else:
-                self.logger.warning(f"Cannot mute unknown client: {mac_id}")
+            stored = self._clients.get(mac_id)
+            if stored is None:
+                volume_db = self._clamp_db(self._seed_volume_db())
+                stored = self._clients[mac_id] = StoredLevel(volume_db=volume_db)
+                self.logger.info(f"Auto-registered client: {mac_id} at {volume_db:.1f}dB")
+            stored.mute = mute
+            self._schedule_persist()
+            self.logger.debug(f"Client mute: {mac_id} -> {mute}")
 
     async def set_client_volume(self, mac_id: str, volume_db: float) -> float:
         """
@@ -366,12 +373,14 @@ class VolumeStateStore:
 
             if mac_id in self._clients:
                 self._clients[mac_id].volume_db = volume_db
-                self._schedule_persist()
                 self.logger.debug(f"Client volume: {mac_id} -> {volume_db:.1f}dB")
             else:
                 # Auto-register client inline (avoid deadlock with register_client's lock)
                 self._clients[mac_id] = StoredLevel(volume_db=volume_db, mute=False)
                 self.logger.info(f"Auto-registered client: {mac_id} at {volume_db:.1f}dB")
+            # Persisted either way: a level asked of a client the store did not
+            # hold is the one its admission plays, and survives a restart too.
+            self._schedule_persist()
 
         return volume_db
 

@@ -19,23 +19,42 @@ from backend.config.constants import CLIENT_API_PORT, LOUDNESS_REFERENCE_DB
 from backend.core.equalizer.eq_response import record_headroom_db
 
 
-class SatelliteUnreachable(Exception):
+class CommandNotApplied(Exception):
+    """A speaker did not apply a command — this unit's CamillaDSP or a satellite's.
+
+    The one shape EqualizerRouter gives every such outcome, local or remote, so
+    a caller reconciles one thing: a command either returns its answer (applied,
+    or skipped for a reason that is not a failure) or raises this. It was two
+    shapes before — an error dict from the local DSP, an exception from a
+    satellite — and each caller glued them back together, one of them by
+    dropping the dict.
+
+    Raised by the core layer so it never depends on a web-layer exception (the
+    error-handling doctrine forbids raising HTTPException from a service). The
+    api/ layer maps it to an HTTPException with the carried ``status_code``
+    (api_error_handler in route_helpers.py): 502 when this unit's CamillaDSP
+    refused, 503 when nothing could carry the command, 404 for a satellite the
+    registry no longer holds, and a satellite's own status
+    (``SatelliteUnreachable``) for anything it answered or failed to.
+    """
+
+    def __init__(self, detail: str, status_code: int = 502):
+        self.detail = detail
+        self.status_code = status_code
+        super().__init__(detail)
+
+
+class SatelliteUnreachable(CommandNotApplied):
     """A request to a remote milo-client satellite failed.
 
-    Raised by the core proxy layer so it never depends on a web-layer
-    exception (the error-handling doctrine forbids raising HTTPException
-    from a service). The api/ layer maps this to an HTTPException with the
-    carried ``status_code`` (api_error_handler in route_helpers.py); the
-    background sync paths catch it via their generic ``except Exception``,
-    and EqualizerController reads that code to tell a satellite that answered
+    The background sync paths catch it via their generic ``except Exception``,
+    and EqualizerController reads its code to tell a satellite that answered
     and refused (4xx) from one it could not reach.
     """
 
     def __init__(self, hostname: str, detail: str, status_code: int = 503):
         self.hostname = hostname
-        self.detail = detail
-        self.status_code = status_code
-        super().__init__(detail)
+        super().__init__(detail, status_code)
 
 
 def is_ip_address(hostname: str) -> bool:
