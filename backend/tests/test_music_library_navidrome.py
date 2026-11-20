@@ -232,7 +232,6 @@ class TestNavidromeBrowse:
         client._make_request = AsyncMock(return_value=payload)
         assert await client.get_artists([2]) == []
         assert await client.get_playlists() == []
-        assert await client.get_songs_by_genre("Techno", [2]) == []
 
     async def test_a_single_item_read_that_failed_is_a_miss(self, client):
         """An API error is a server that answered: the item reads as absent and
@@ -252,6 +251,19 @@ class TestNavidromeBrowse:
         """
         client._make_request = AsyncMock(return_value=payload)
         assert await client.get_album_list([2]) is None
+
+    @pytest.mark.parametrize("payload", [None, {"_network_error": True}])
+    async def test_a_failed_genre_page_is_not_an_empty_one(self, client, payload):
+        """getSongsByGenre is paged too: the genre page walks its offsets until
+        a short page, so a failure read as [] ended the walk and the genre
+        played, counted and listed whatever came before it as the whole."""
+        client._make_request = AsyncMock(return_value=payload)
+        assert await client.get_songs_by_genre("Techno", [2]) is None
+
+    async def test_a_genre_read_to_its_end_is_still_empty(self, client):
+        """The other half: the page past the last song is a real end."""
+        client._make_request = AsyncMock(return_value={"songsByGenre": {}})
+        assert await client.get_songs_by_genre("Techno", [2], offset=500) == []
 
     async def test_a_genuinely_empty_album_list_is_still_empty(self, client):
         """The other half: an empty albumList2 is a real end of catalog, not a
@@ -596,6 +608,24 @@ class TestBrowseRoutes:
     def test_genre_songs_envelope(self, api):
         r = api.get("/api/music-library/genre-songs", params={"genre": "Techno"})
         assert r.json() == {"songs": [{"id": "s-1"}]}
+
+    def test_genre_songs_report_a_failed_page_instead_of_an_empty_one(
+        self, api, nav_client, caplog
+    ):
+        # A 200 carrying [] is a genre that ends here: the page would list,
+        # count and play what came before as the whole genre. And it is a
+        # warning, never an error: Navidrome restarts with every backend
+        # restart, and an error-level record is a banner on every screen.
+        nav_client.get_songs_by_genre = AsyncMock(return_value=None)
+        r = api.get("/api/music-library/genre-songs", params={"genre": "Techno"})
+        assert r.status_code == 503
+        assert [rec.getMessage() for rec in caplog.records if rec.levelno >= logging.ERROR] == []
+
+    def test_a_search_navidrome_did_not_answer_is_a_503(self, api, nav_client):
+        # Three empty lists here are "No results for" a term the library holds.
+        nav_client.search3 = AsyncMock(side_effect=NavidromeUnreachable("search3"))
+        r = api.get("/api/music-library/search", params={"query": "daft"})
+        assert r.status_code == 503
 
 
 class TestDescentStaysInsideMountedStorage:

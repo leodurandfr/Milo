@@ -2,8 +2,11 @@
   <div class="album-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <SkeletonDetailPage v-if="loading && !album" key="loading" subtitle />
-        <MessageContent v-else-if="!album" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
+        <MessageContent v-if="error === 'unavailable'" key="unavailable" icon="musicNote"
+          :title="t('musicLibrary.catalogUnreachable')" :cta-label="t('musicLibrary.retry')"
+          cta-variant="control" :cta-loading="loading" :cta-click="reload" />
+        <MessageContent v-else-if="error" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
+        <SkeletonDetailPage v-else-if="!album" key="loading" subtitle />
 
         <div v-else key="loaded" class="content-stack">
           <DetailHeader
@@ -54,7 +57,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { totalMinutes, formatAudioQuality } from '../format.js';
@@ -66,6 +69,7 @@ import TrackList from '@/components/audio/TrackList.vue';
 import LibraryItemMenu from '../LibraryItemMenu.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useDetailPlayback } from '@/composables/useDetailPlayback';
+import { useCatalogRead } from '@/composables/useCatalogRead';
 
 const props = defineProps({
   albumId: {
@@ -79,8 +83,7 @@ const emit = defineEmits(['select-artist']);
 const { t, formatUnit, currentLanguage } = useI18n();
 const store = useMusicLibraryStore();
 
-const album = ref(null);
-const loading = ref(false);
+const { value: album, error, loading, reload } = useCatalogRead(() => props.albumId, store.fetchAlbum);
 
 const songs = computed(() => album.value?.song || []);
 
@@ -190,12 +193,6 @@ const header = useDetailPlayback(
 function selectArtist() {
   if (albumArtistId.value) emit('select-artist', { id: albumArtistId.value, name: album.value.artist });
 }
-
-watch(() => props.albumId, async (id) => {
-  loading.value = true;
-  album.value = await store.fetchAlbum(id);
-  loading.value = false;
-}, { immediate: true });
 </script>
 
 <style scoped>

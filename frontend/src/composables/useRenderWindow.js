@@ -3,7 +3,7 @@ import { useInfiniteScroll } from './useInfiniteScroll';
 import { NAVIGATION_ENTRY_STATE } from './useNavigationStack';
 
 // Rows mounted per step. A track list arrives whole (a Spotify listing, a
-// Navidrome playlist, a genre's 500 songs): this paces the RENDER, not the
+// Navidrome playlist, every song of a genre): this paces the RENDER, not the
 // fetch — 1159 rows mounted at once is what made Spotify's Liked Songs heavy.
 // About a screen and a half of rows: the first step is the page's mount, on
 // the tap that opens it (50 rows held a playlist's first frame ~200 ms, 12 hold

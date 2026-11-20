@@ -14,8 +14,11 @@
         <template v-if="viewMode === 'tracks'">
           <div class="swap-stack">
             <Transition name="fade-slide">
-              <MessageContent v-if="loading && !songs.length" key="loading" loading />
-              <MessageContent v-else-if="!songs.length" key="notfound" icon="musicNote" :title="t('musicLibrary.noTracks')" />
+              <MessageContent v-if="songsError" key="unavailable" icon="musicNote"
+                :title="t('musicLibrary.catalogUnreachable')" :cta-label="t('musicLibrary.retry')"
+                cta-variant="control" :cta-loading="songsLoading" :cta-click="reloadSongs" />
+              <MessageContent v-else-if="!songsRead" key="loading" loading />
+              <MessageContent v-else-if="!songs.length" key="empty" icon="musicNote" :title="t('musicLibrary.noTracks')" />
               <div v-else key="loaded" class="content-stack">
                 <div class="genre-actions">
                   <div class="genre-buttons">
@@ -52,8 +55,11 @@
         <template v-else>
           <div class="swap-stack">
             <Transition name="fade-slide">
-              <MessageContent v-if="loading && !albums.length" key="loading" loading />
-              <MessageContent v-else-if="!albums.length" key="notfound" icon="musicNote" :title="t('musicLibrary.noTracks')" />
+              <MessageContent v-if="albumsError" key="unavailable" icon="musicNote"
+                :title="t('musicLibrary.catalogUnreachable')" :cta-label="t('musicLibrary.retry')"
+                cta-variant="control" :cta-loading="albumsLoading" :cta-click="reloadAlbums" />
+              <MessageContent v-else-if="!albumsRead" key="loading" loading />
+              <MessageContent v-else-if="!albums.length" key="empty" icon="musicNote" :title="t('musicLibrary.noAlbums')" />
               <div v-else key="loaded" class="albums-grid">
                 <AlbumCard v-for="album in albums" :key="album.id" :album="album" @click="$emit('select-album', album)" />
               </div>
@@ -66,7 +72,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -78,6 +84,7 @@ import TrackList from '@/components/audio/TrackList.vue';
 import LibraryItemMenu from '../LibraryItemMenu.vue';
 import AlbumCard from '../cards/AlbumCard.vue';
 import { useRenderWindow } from '@/composables/useRenderWindow';
+import { useCatalogRead } from '@/composables/useCatalogRead';
 
 const props = defineProps({
   genre: {
@@ -92,9 +99,20 @@ const { t } = useI18n();
 const store = useMusicLibraryStore();
 
 const viewMode = ref('tracks');
-const songs = ref([]);
-const albums = ref([]);
-const loading = ref(false);
+
+// The two tabs are two reads, and one can fail while the other lands: each
+// says so on its own tab. A genre does not "not exist" — a 404 here is a
+// failure like any other, so the only error a tab tells apart is the read's.
+const {
+  value: songsRead, error: songsError, loading: songsLoading, reload: reloadSongs,
+} = useCatalogRead(() => props.genre, store.fetchGenreSongs);
+const {
+  value: albumsRead, error: albumsError, loading: albumsLoading, reload: reloadAlbums,
+} = useCatalogRead(() => props.genre, store.fetchGenreAlbums);
+
+// The whole genre, every page of it: the count, Play and Shuffle all read it.
+const songs = computed(() => songsRead.value || []);
+const albums = computed(() => albumsRead.value || []);
 const { visible: visibleSongs, hasMore, sentinelRef } = useRenderWindow(songs);
 
 function playFrom(index) {
@@ -104,15 +122,6 @@ function playFrom(index) {
 function shufflePlay() {
   store.playShuffled(songs.value);
 }
-
-watch(() => props.genre, async (genre) => {
-  loading.value = true;
-  [songs.value, albums.value] = await Promise.all([
-    store.fetchGenreSongs(genre),
-    store.fetchGenreAlbums(genre),
-  ]);
-  loading.value = false;
-}, { immediate: true });
 </script>
 
 <style scoped>

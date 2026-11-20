@@ -2,13 +2,16 @@
   <div class="artist-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <div v-if="loading && !artist" key="loading" class="content-stack swap-skeleton" aria-hidden="true">
+        <MessageContent v-if="error === 'unavailable'" key="unavailable" icon="musicNote"
+          :title="t('musicLibrary.catalogUnreachable')" :cta-label="t('musicLibrary.retry')"
+          cta-variant="control" :cta-loading="loading" :cta-click="reload" />
+        <MessageContent v-else-if="error" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
+        <div v-else-if="!artist" key="loading" class="content-stack swap-skeleton" aria-hidden="true">
           <SkeletonDetailHeader />
           <div class="albums-grid">
             <SkeletonAlbumCard v-for="i in 12" :key="i" />
           </div>
         </div>
-        <MessageContent v-else-if="!artist" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
         <div v-else key="loaded" class="content-stack">
           <DetailHeader
             :image-src="store.coverUrl(artist.coverArt, 600)"
@@ -36,7 +39,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -47,6 +50,7 @@ import LibraryItemMenu from '../LibraryItemMenu.vue';
 import SkeletonAlbumCard from '../cards/SkeletonAlbumCard.vue';
 import { musicPlaceholder } from '@/constants/placeholders';
 import { useDetailPlayback } from '@/composables/useDetailPlayback';
+import { useCatalogRead } from '@/composables/useCatalogRead';
 
 const props = defineProps({
   artistId: {
@@ -60,8 +64,7 @@ defineEmits(['select-album']);
 const { t } = useI18n();
 const store = useMusicLibraryStore();
 
-const artist = ref(null);
-const loading = ref(false);
+const { value: artist, error, loading, reload } = useCatalogRead(() => props.artistId, store.fetchArtist);
 
 const albums = computed(() => artist.value?.album || []);
 
@@ -103,18 +106,16 @@ const subtitleMeta = computed(() => {
   return parts.join(' · ');
 });
 
-// Every album, in the order the page shows them. The artist payload holds no
-// tracks at all (getArtist answers albums only), so the list is assembled here
-// with one album fetch per release — merged multi-disc ids included, which
-// fetchAlbum expands into their concatenated tracks. Null when the page moved
-// to another artist while the fetches were in flight: playing or queueing then
-// would act on an artist the user has left behind.
+// Every album's songs, in the order the page shows them — all of them or
+// none (fetchAlbumsSongs). Null when the page moved to another artist while the
+// fetches were in flight: playing or queueing then would act on an artist the
+// user has left behind.
 async function artistSongs() {
   if (!albums.value.length) return null;
   const requested = props.artistId;
-  const fetched = await Promise.all(albums.value.map((album) => store.fetchAlbum(album.id)));
+  const { value } = await store.fetchAlbumsSongs(albums.value.map((album) => album.id));
   if (props.artistId !== requested) return null;
-  return fetched.flatMap((album) => album?.song || []);
+  return value;
 }
 
 // The header's spinner covers the fetches too: it turns from the press.
@@ -128,12 +129,6 @@ async function playAll(shuffle) {
 const header = useDetailPlayback(
   'music_library', () => store.currentContextId === `artist:${props.artistId}`, playAll,
 );
-
-watch(() => props.artistId, async (id) => {
-  loading.value = true;
-  artist.value = await store.fetchArtist(id);
-  loading.value = false;
-}, { immediate: true });
 </script>
 
 <style scoped>

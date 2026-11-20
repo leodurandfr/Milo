@@ -2,8 +2,11 @@
   <div class="playlist-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <SkeletonDetailPage v-if="loading && !playlist" key="loading" cover artist />
-        <MessageContent v-else-if="!playlist" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
+        <MessageContent v-if="error === 'unavailable'" key="unavailable" icon="musicNote"
+          :title="t('musicLibrary.catalogUnreachable')" :cta-label="t('musicLibrary.retry')"
+          cta-variant="control" :cta-loading="loading" :cta-click="reload" />
+        <MessageContent v-else-if="error" key="notfound" icon="musicNote" :title="t('musicLibrary.notFound')" />
+        <SkeletonDetailPage v-else-if="!playlist" key="loading" cover artist />
 
         <div v-else key="loaded" class="content-stack">
           <DetailHeader
@@ -108,6 +111,7 @@ import { musicPlaceholder } from '@/constants/placeholders';
 import { useRenderWindow } from '@/composables/useRenderWindow';
 import { useDetailPlayback } from '@/composables/useDetailPlayback';
 import { useDragReorder } from '@/composables/useDragReorder';
+import { useCatalogRead } from '@/composables/useCatalogRead';
 
 const props = defineProps({
   playlistId: {
@@ -121,8 +125,7 @@ const emit = defineEmits(['deleted']);
 const { t, formatUnit } = useI18n();
 const store = useMusicLibraryStore();
 
-const playlist = ref(null);
-const loading = ref(false);
+const { value: playlist, error, loading, reload } = useCatalogRead(() => props.playlistId, store.fetchPlaylist);
 
 // Local, mutable copy of the ordered entries — the edit surface (reorder/remove)
 // works on this and persists its new order through setPlaylistTracks, with the
@@ -169,7 +172,9 @@ async function handleRename(name) {
   const ok = await store.renamePlaylist(props.playlistId, name);
   renaming.value = false;
   if (ok) {
-    playlist.value = { ...playlist.value, name };
+    // In place: a new object would be a new read, and reset the rows to the
+    // order it was read in, over a reorder saved since.
+    playlist.value.name = name;
     renameOpen.value = false;
   }
 }
@@ -212,18 +217,18 @@ const { rows: dragRows, dragState, getDragItemStyle, onGripDown } = useDragReord
 });
 
 // === Load ===
-async function reload() {
-  playlist.value = await store.fetchPlaylist(props.playlistId);
-  tracks.value = playlist.value?.entry ? [...playlist.value.entry] : [];
-}
+// Every read that lands resets the edit surface to it: a first load, a retry,
+// and the re-read after a write that failed. One that fails leaves the page on
+// "the catalog is not responding" with its Retry — never on "Not found",
+// which is what a failed re-read in the middle of an edit used to show.
+watch(playlist, (read) => {
+  tracks.value = read?.entry ? [...read.entry] : [];
+});
 
-watch(() => props.playlistId, async () => {
-  loading.value = true;
+watch(() => props.playlistId, () => {
   editing.value = false;
   confirmDelete.value = false;
-  await reload();
-  loading.value = false;
-}, { immediate: true });
+});
 </script>
 
 <style scoped>

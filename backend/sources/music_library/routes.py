@@ -428,7 +428,13 @@ async def get_genre_songs(
     offset: int = Query(0, ge=0),
     library_id: Optional[int] = Query(None, description=LIBRARY_ID_DESC),
 ) -> Dict[str, Any]:
-    """Songs tagged with a genre (Subsonic getSongsByGenre) — a play context.
+    """A page of the songs tagged with a genre (Subsonic getSongsByGenre) — a
+    play context.
+
+    Paged, at most 500 a page as Subsonic caps it: the genre page walks the
+    offsets until a short page, so it lists, counts and plays the whole genre.
+    A page Navidrome did not answer is a 503, never an empty page — that would
+    end the walk on a genre cut short.
 
     Genre is a query param (not a path segment) because genre names carry
     slashes and spaces (e.g. "Folk/Rock").
@@ -438,6 +444,11 @@ async def get_genre_songs(
         songs = await client.get_songs_by_genre(
             genre, await source.browse_scope(library_id), count=count, offset=offset
         )
+        if songs is None:
+            logger.warning("Navidrome gave no songs page for genre %s", genre)
+            raise HTTPException(
+                status_code=503, detail="Music library catalog not ready"
+            )
         return {"songs": songs}
 
 

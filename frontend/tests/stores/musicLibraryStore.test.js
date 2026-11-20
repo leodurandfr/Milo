@@ -1059,3 +1059,178 @@ describe('musicLibraryStore — reloads around a scan', () => {
     expect(reads('/albums')).toBe(2);
   });
 });
+
+/**
+ * A drill-down page (an album, an artist, a playlist, a genre) folded every
+ * failure into "nothing": a 503 while Navidrome restarts — with every backend
+ * restart — or a dropped link read "Not found" over an album that exists, with
+ * no way to ask again. The page needs to know which it is.
+ */
+describe('musicLibraryStore — a drill-down read that failed', () => {
+  let store;
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+  });
+
+  it.each([
+    ['fetchAlbum', 'al-1'],
+    ['fetchArtist', 'ar-1'],
+    ['fetchPlaylist', 'pl-1'],
+  ])('%s tells a catalog that did not answer from an item it does not hold', async (fetch, id) => {
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    expect((await store[fetch](id)).error).toBe('unavailable');
+
+    apiCall.get.mockResolvedValueOnce(fail('Network Error', null));
+    expect((await store[fetch](id)).error).toBe('unavailable');
+
+    apiCall.get.mockResolvedValueOnce(fail('Album not found', 404));
+    expect(await store[fetch](id)).toEqual({ value: null, error: 'absent' });
+  });
+
+  it('plays an artist\'s albums whole or not at all', async () => {
+    // One album that did not answer, and the others played as the artist.
+    const album = (id, songs) => ok({ album: { id, song: songs.map((s) => ({ id: s })) } });
+    apiCall.get
+      .mockResolvedValueOnce(album('al-1', ['s-1', 's-2']))
+      .mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    expect(await store.fetchAlbumsSongs(['al-1', 'al-2']))
+      .toEqual({ value: null, error: 'unavailable' });
+
+    apiCall.get
+      .mockResolvedValueOnce(album('al-1', ['s-1', 's-2']))
+      .mockResolvedValueOnce(album('al-2', ['s-3']));
+    const { value, error } = await store.fetchAlbumsSongs(['al-1', 'al-2']);
+    expect(error).toBeNull();
+    expect(value.map((s) => s.id)).toEqual(['s-1', 's-2', 's-3']);
+  });
+
+  it('says a genre whose tabs did not load failed, not that it is empty', async () => {
+    apiCall.get.mockResolvedValue(fail('Music library catalog not ready', 503));
+
+    expect((await store.fetchGenreSongs('Jazz')).error).toBe('unavailable');
+    expect((await store.fetchGenreAlbums('Jazz')).error).toBe('unavailable');
+  });
+});
+
+/**
+ * A genre's songs came in one page of 500, the route's ceiling, and the page
+ * counted, played and shuffled that page as the whole genre: a genre of 3,412
+ * tracks opened on "500 tracks", and the rest never played.
+ */
+describe('musicLibraryStore — every song of a genre', () => {
+  let store;
+  const page = (from, n) => ok({ songs: Array.from({ length: n }, (_, i) => ({ id: `s-${from + i}` })) });
+  const genreReads = () => apiCall.get.mock.calls.filter(([url]) => url.endsWith('/genre-songs'));
+
+  beforeEach(async () => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    apiCall.get.mockResolvedValueOnce(ok({ storages: [NAS, USB] }));
+    await store.loadStorages();
+    await nextTick();
+  });
+
+  it('reads page after page until a short one', async () => {
+    apiCall.get
+      .mockResolvedValueOnce(page(0, 500))
+      .mockResolvedValueOnce(page(500, 500))
+      .mockResolvedValueOnce(page(1000, 12));
+
+    const { value, error } = await store.fetchGenreSongs('Jazz');
+
+    expect(error).toBeNull();
+    expect(value).toHaveLength(1012);
+    expect(value.at(-1).id).toBe('s-1011');
+    expect(genreReads().map(([, { params }]) => params.offset)).toEqual([0, 500, 1000]);
+  });
+
+  it('asks every page of the storage space the walk began in', async () => {
+    // A switch while the walk is under way must not mix two spaces' songs.
+    const first = deferred();
+    apiCall.get.mockReturnValueOnce(first.promise).mockResolvedValueOnce(page(500, 3));
+    const walk = store.fetchGenreSongs('Jazz');
+    store.activeLibraryId = USB.library_id;
+    first.settle(page(0, 500));
+    await walk;
+
+    expect(genreReads().map(([, { params }]) => params.library_id))
+      .toEqual([NAS.library_id, NAS.library_id]);
+  });
+
+  it('fails the whole genre when a later page fails, rather than cut it short', async () => {
+    apiCall.get
+      .mockResolvedValueOnce(page(0, 500))
+      .mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+
+    expect(await store.fetchGenreSongs('Jazz')).toEqual({ value: null, error: 'unavailable' });
+  });
+
+  it('stops on a full page it has already read, rather than walk forever', async () => {
+    // An offset lost between the store and Navidrome answers the first page
+    // again at every offset: the walk would never reach a short page.
+    apiCall.get.mockResolvedValue(page(0, 500));
+
+    expect(await store.fetchGenreSongs('Jazz')).toEqual({ value: null, error: 'unavailable' });
+    expect(genreReads()).toHaveLength(2);
+  });
+
+  it('stops walking once told its page has moved on or closed', async () => {
+    // A large genre left at once went on reading every page behind it.
+    let current = true;
+    apiCall.get.mockImplementation(async () => {
+      current = false;
+      return page(0, 500);
+    });
+
+    await store.fetchGenreSongs('Jazz', () => current);
+
+    expect(genreReads()).toHaveLength(1);
+  });
+});
+
+/**
+ * A search that failed changed nothing: the results of the term before stayed
+ * on screen under the new one, without a word — Bach's albums listed under
+ * "beatles" while Navidrome restarted.
+ */
+describe('musicLibraryStore — a search that failed', () => {
+  let store;
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+  });
+
+  it('drops the previous term\'s results and says the search failed', async () => {
+    apiCall.get.mockResolvedValueOnce(ok({ artists: [], albums: [], songs: [{ id: 's-bach' }] }));
+    store.searchTerm = 'bach';
+    await store.search();
+
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    store.searchTerm = 'beatles';
+    await store.search();
+
+    expect(store.searchFailed).toBe(true);
+    expect(store.lastSearchTerm).toBe('beatles');
+    expect(store.searchResults.songs).toEqual([]);
+    expect(store.hasSearched).toBe(false);
+  });
+
+  it('clears the failure once a search goes through, and with the field', async () => {
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    store.searchTerm = 'beatles';
+    await store.search();
+
+    apiCall.get.mockResolvedValueOnce(ok({ artists: [], albums: [], songs: [{ id: 's-1' }] }));
+    await store.search();
+    expect(store.searchFailed).toBe(false);
+    expect(store.searchResults.songs.map((s) => s.id)).toEqual(['s-1']);
+
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    await store.search();
+    store.clearSearch();
+    expect(store.searchFailed).toBe(false);
+  });
+});

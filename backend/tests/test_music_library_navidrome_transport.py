@@ -402,7 +402,8 @@ class TestWhatTheSentinelDecides:
         lambda client: client.get_artist("ar-1"),
         lambda client: client.get_playlist("pl-1"),
         lambda client: client.get_starred([2]),
-    ], ids=["album", "artist", "playlist", "starred"])
+        lambda client: client.search3("daft", [2]),
+    ], ids=["album", "artist", "playlist", "starred", "search"])
     async def test_a_read_of_an_unreachable_catalog_raises_instead_of_reading_as_absent(
         self, client, failure, read
     ):

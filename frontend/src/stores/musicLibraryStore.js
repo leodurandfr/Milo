@@ -748,14 +748,36 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   }
 
   // =========================================================================
-  // CATALOG — single-item fetches (drill-down views hold their own result)
+  // CATALOG — drill-down fetches (the views hold their own result)
+  //
+  // Each answers `{ value, error }`: the thing read, or why there is none.
+  // 'absent' is the catalog saying it does not exist (a 404); 'unavailable' is
+  // any other failure — a 503 while Navidrome restarts, a dropped link — which
+  // a retry can mend. Folded into one null, a restart read "Not found".
   // =========================================================================
+  const readFailure = (result) =>
+    ({ value: null, error: result.error?.status === 404 ? 'absent' : 'unavailable' });
+  const readItem = (result, item) =>
+    (!result.ok ? readFailure(result)
+      : item ? { value: item, error: null } : { value: null, error: 'absent' });
+
   async function fetchAlbum(albumId) {
     const result = await apiCall.get(`${BASE}/album/${albumId}`, {
       category: 'musicLibrary',
       message: 'Error loading album',
     });
-    return result.ok ? result.data?.album || null : null;
+    return readItem(result, result.data?.album);
+  }
+
+  // The songs of these albums, in their order: an artist's whole work, which
+  // getArtist does not carry (it answers albums only), so one album read per
+  // release — merged multi-disc ids included, which fetchAlbum expands. Every
+  // album or none: the albums that did load would play as the whole artist.
+  async function fetchAlbumsSongs(albumIds) {
+    const reads = await Promise.all(albumIds.map((id) => fetchAlbum(id)));
+    const failed = reads.find((read) => read.error);
+    if (failed) return { value: null, error: failed.error };
+    return { value: reads.flatMap((read) => read.value.song || []), error: null };
   }
 
   async function fetchArtist(artistId) {
@@ -763,16 +785,41 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       category: 'musicLibrary',
       message: 'Error loading artist',
     });
-    return result.ok ? result.data?.artist || null : null;
+    return readItem(result, result.data?.artist);
   }
 
-  async function fetchGenreSongs(genre) {
-    const result = await apiCall.get(`${BASE}/genre-songs`, {
-      category: 'musicLibrary',
-      message: 'Error loading genre',
-      params: scoped({ genre, count: 500 }),
-    });
-    return result.ok ? result.data?.songs || [] : [];
+  // Navidrome caps getSongsByGenre at 500 a page, and routes.py's `count` takes
+  // no more (`le=500`). The walk below ends on the first page shorter than
+  // this, so a lower cap on either side reads as the genre's end, or as a 422.
+  const GENRE_SONGS_PAGE = 500;
+
+  // Every song of the genre, page after page until a short one: the genre page
+  // plays and shuffles this list and announces its length, so a first page
+  // alone was a genre of "500 tracks" whose rest never played. One failed page
+  // fails the whole read — a list cut short would tell that same lie again. The
+  // scope is fixed once, so a storage switch mid-walk cannot mix two spaces'
+  // pages. A full page holding only songs already read is an offset lost on
+  // the way, which would answer the same page forever: a failure, not a genre.
+  // `isCurrent` (useCatalogRead's) stops the walk between two pages once its
+  // page has moved on or closed; what it answers then is discarded.
+  async function fetchGenreSongs(genre, isCurrent = () => true) {
+    const params = scoped({ genre, count: GENRE_SONGS_PAGE });
+    const songs = [];
+    const seen = new Set();
+    for (;;) {
+      const result = await apiCall.get(`${BASE}/genre-songs`, {
+        category: 'musicLibrary',
+        message: 'Error loading genre',
+        params: { ...params, offset: songs.length },
+      });
+      if (!result.ok) return readFailure(result);
+      const page = result.data?.songs || [];
+      if (page.length < GENRE_SONGS_PAGE) return { value: [...songs, ...page], error: null };
+      if (page.every((song) => seen.has(song.id))) return { value: null, error: 'unavailable' };
+      page.forEach((song) => seen.add(song.id));
+      songs.push(...page);
+      if (!isCurrent()) return { value: null, error: null };
+    }
   }
 
   async function fetchGenreAlbums(genre) {
@@ -781,7 +828,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       message: 'Error loading genre',
       params: scoped({ type: 'byGenre', genre, size: 500 }),
     });
-    return result.ok ? result.data?.albums || [] : [];
+    return result.ok ? { value: result.data?.albums || [], error: null } : readFailure(result);
   }
 
   async function fetchPlaylist(playlistId) {
@@ -789,7 +836,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
       category: 'musicLibrary',
       message: 'Error loading playlist',
     });
-    return result.ok ? result.data?.playlist || null : null;
+    return readItem(result, result.data?.playlist);
   }
 
   // Which playlists already hold every one of these songs, for the picker's
@@ -818,6 +865,10 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const searchResults = ref({ artists: [], albums: [], songs: [] });
   const searchLoading = ref(false);
   const hasSearched = ref(false);
+  // The search of `lastSearchTerm` failed (Navidrome did not answer it). Its
+  // results are not the previous term's: a failure drops them, or the list of
+  // the term before stayed on screen under the new one, without a word.
+  const searchFailed = ref(false);
   // Each keystroke past the debounce issues its own search3, whose time depends
   // on the term, so two can invert — and unlike a catalog list, results are
   // only right for the term in the field. Held locally too: after the await,
@@ -845,14 +896,17 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     if (searchAbortController !== ctrl) return;
     searchAbortController = null;
     searchLoading.value = false;
-    if (!inScope(scope) || !result.ok) return;
-    searchResults.value = {
-      artists: result.data?.artists || [],
-      albums: result.data?.albums || [],
-      songs: result.data?.songs || [],
-    };
-    hasSearched.value = true;
+    if (!inScope(scope)) return;
     lastSearchTerm.value = query;
+    searchFailed.value = !result.ok;
+    hasSearched.value = result.ok;
+    searchResults.value = result.ok
+      ? {
+        artists: result.data?.artists || [],
+        albums: result.data?.albums || [],
+        songs: result.data?.songs || [],
+      }
+      : { artists: [], albums: [], songs: [] };
   }
 
   function clearSearch() {
@@ -864,6 +918,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     lastSearchTerm.value = '';
     searchResults.value = { artists: [], albums: [], songs: [] };
     hasSearched.value = false;
+    searchFailed.value = false;
     searchLoading.value = false;
   }
 
@@ -1277,8 +1332,9 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     requestAddToPlaylist,
     closeAddToPlaylist,
 
-    // Single-item fetches
+    // Drill-down fetches
     fetchAlbum,
+    fetchAlbumsSongs,
     fetchArtist,
     fetchGenreSongs,
     fetchGenreAlbums,
@@ -1291,6 +1347,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     searchResults,
     searchLoading,
     hasSearched,
+    searchFailed,
     searchEmpty,
     search,
     clearSearch,

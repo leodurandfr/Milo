@@ -422,7 +422,12 @@ class NavidromeClient:
         album_count: int = 20,
         artist_count: int = 20,
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Fuzzy search across artists/albums/songs (Subsonic ``search3``)."""
+        """Fuzzy search across artists/albums/songs (Subsonic ``search3``).
+
+        Raises NavidromeUnreachable when Navidrome did not answer: read as three
+        empty lists, a search typed while it restarts said "No results" for a
+        term the library holds, and the route can only answer 503 if it knows.
+        """
         if not music_folder_ids:
             return {"artist": [], "album": [], "song": []}
         response = await self._make_request(
@@ -435,7 +440,9 @@ class NavidromeClient:
                 "musicFolderId": music_folder_ids,
             },
         )
-        if not response or response.get("_network_error"):
+        if response and response.get("_network_error"):
+            raise NavidromeUnreachable("search3")
+        if not response:
             return {"artist": [], "album": [], "song": []}
         result = response.get("searchResult3", {})
         return {
@@ -550,8 +557,14 @@ class NavidromeClient:
         music_folder_ids: List[int],
         count: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
-        """Songs tagged with ``genre`` (Subsonic ``getSongsByGenre``)."""
+    ) -> Optional[List[Dict[str, Any]]]:
+        """A page of the songs tagged with ``genre`` (Subsonic ``getSongsByGenre``).
+
+        None when the request failed, like get_album_list and for the same
+        reason: it is a paged call, walked until a short page ends it, so a
+        failure read as an empty page would end the walk on a genre cut short
+        and indistinguishable from the whole one.
+        """
         if not music_folder_ids:
             return []
         response = await self._make_request(
@@ -564,7 +577,7 @@ class NavidromeClient:
             },
         )
         if not response or response.get("_network_error"):
-            return []
+            return None
         return response.get("songsByGenre", {}).get("song", []) or []
 
     @staticmethod

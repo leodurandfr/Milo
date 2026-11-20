@@ -11,6 +11,10 @@
       <Transition name="fade-slide">
         <MessageContent v-if="store.searchLoading" key="loading" loading :loading-delay="0" />
 
+        <MessageContent v-else-if="store.searchFailed" key="failed" icon="search"
+          :title="t('musicLibrary.searchFailed', { query: store.lastSearchTerm })"
+          :cta-label="t('musicLibrary.retry')" cta-variant="control" :cta-click="store.search" />
+
         <div v-else-if="store.hasSearched && !store.searchEmpty" key="results" class="content-stack">
           <!-- Artists -->
           <section v-if="results.artists.length" class="section">
