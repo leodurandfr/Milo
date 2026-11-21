@@ -386,7 +386,7 @@ class TestTheTransferAndTheRefusals:
         self, clock, storage, caplog
     ):
         """This file carries no `schema_version` — it is a staging area, not
-        persisted state — so the fail-loud protocol does not apply and a
+        persisted state — so nothing is set aside, and a
         half-written file must not keep the backend from starting. The wizard
         entries are rebuilt by the next heartbeat, 15 s later.
         """

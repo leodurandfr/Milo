@@ -33,8 +33,8 @@ correct string 404s forever and every lookup for it fell through to the fuzzy
 `/search`. Duration is the discriminator instead, and LRCLIB matches it within
 ±2 s, which is the tolerance free text does not have.
 
-The disk cache is a disposable derived cache — no schema_version / fail-loud
-protocol. A file not carrying the expected keys reads as a miss, so a shape
+The disk cache is a disposable derived cache — no schema_version, nothing set
+aside. A file not carrying the expected keys reads as a miss, so a shape
 change costs one refetch per track rather than a migration.
 """
 import asyncio

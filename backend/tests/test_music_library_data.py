@@ -2,8 +2,8 @@
 
 Covers the versioned-JSON CRUD that backs /api/music-library/shares: default
 seeding, add/list/get/update/remove, id generation, the immutability of id/
-created_at across updates, and the fail-loud schema-version protocol. The file is
-redirected to a tmp path so nothing touches /var/lib/milo.
+created_at across updates (an unreadable file is set aside: test_unreadable_files.py).
+The file is redirected to a tmp path so nothing touches /var/lib/milo.
 """
 import asyncio
 import json
@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.shared.persistence import SchemaVersionMismatch, save_versioned_json
 from backend.sources.music_library import data as library_data
 from backend.sources.music_library.data import MusicLibraryDataService
 
@@ -38,21 +37,6 @@ async def test_load_data_on_fresh_install_returns_defaults(service):
     data = await service.load_data()
     assert data == {"shares": [], "known_usb": {}, "playlist_storages": {}}
     assert not service._data_file.exists()
-
-
-async def test_schema_mismatch_raises(service):
-    await save_versioned_json(service._data_file, {"shares": []}, version=999)
-    with pytest.raises(SchemaVersionMismatch):
-        await service.initialize()
-
-
-async def test_missing_required_key_raises(service):
-    # A file at the right version but missing "shares" must fail loud, not heal.
-    await save_versioned_json(
-        service._data_file, {"something_else": 1}, MusicLibraryDataService.SCHEMA_VERSION
-    )
-    with pytest.raises(RuntimeError, match="missing required keys"):
-        await service.initialize()
 
 
 # === CRUD =========================================================================

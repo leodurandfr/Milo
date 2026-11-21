@@ -3,11 +3,8 @@
 Settings management service - OPTIM version with async I/O
 """
 import copy
-import json
-import os
 import logging
 import re
-import aiofiles
 import asyncio
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, get_args
@@ -36,11 +33,11 @@ from backend.hardware.fan import (
 )
 from backend.shared.decorators import handle_errors
 from backend.shared.persistence import (
-    SchemaVersionMismatch,
-    check_schema_version,
     load_versioned_json,
     load_versioned_json_sync,
     save_versioned_json,
+    set_aside,
+    set_aside_sync,
 )
 
 
@@ -50,6 +47,14 @@ VERSION_PATTERN = re.compile(r"^\d+(?:\.\d+)*$")
 
 # Tells an absent key from one whose stored value is None.
 _MISSING = object()
+
+# What `_validate_and_merge` raises on a stored value of the wrong shape: a
+# section that is not an object (`"volume": null`), an entry missing a field it
+# reads, a number that is a word or a list (`"timeout_seconds": "never"`), one
+# no int can hold (an infinite float). A file holding one is set aside: left
+# in place, it would read as the defaults and refuse every write, at every
+# boot — the setup wizard's last step included.
+_VALUE_IT_CANNOT_TAKE = (AttributeError, KeyError, TypeError, ValueError, OverflowError)
 
 
 class SettingsWriteError(RuntimeError):
@@ -226,45 +231,34 @@ class SettingsService:
         return copy.deepcopy(self.defaults)
 
     async def initialize(self) -> None:
-        """Pre-load settings.json so a schema mismatch surfaces at boot.
+        """Pre-load settings.json, so the boot reads it before anyone asks.
 
-        Raises SchemaVersionMismatch on version drift; the handler in
-        dependencies.py::init_async logs the banner and SystemExit(1)s.
+        Never raises on its content: an unreadable file is set aside by the
+        loader and the defaults are written in its place (``load_settings``).
         """
         await self.load_settings()
 
     async def load_settings(self) -> Dict[str, Any]:
         """Loads and validates settings with async lock.
 
-        Raises SchemaVersionMismatch on schema_version drift (caller is
-        responsible for logging the banner and exiting). Corrupted JSON falls
-        back to defaults (same behaviour as before).
+        No file — a fresh install, or one just set aside as unreadable or as
+        holding a value the validator cannot take — is the defaults, written
+        at once. A card that cannot be read at all, or a file that cannot be
+        renamed aside, is the defaults too, kept in memory only: nothing is
+        written over a file that may still be fine.
         """
         try:
             async with self._file_lock:
-                data = await load_versioned_json(Path(self.settings_file), self.SCHEMA_VERSION)
+                validated = await self._load_locked()
 
-            if not data:
-                # Fresh install — write defaults stamped with schema_version
+            if validated is None:
                 self._cache = self._default_settings()
                 await self.save_settings(self.defaults)
                 return self._cache
 
-            validated = self._validate_and_merge(data)
             self._cache = validated
             return validated
 
-        except SchemaVersionMismatch:
-            raise
-        except json.JSONDecodeError as e:
-            self.logger.error(f"JSON decode error in settings file: {e}")
-            if os.path.exists(self.settings_file):
-                async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as src:
-                    content = await src.read()
-                await self._backup_corrupted_file(content)
-            self._cache = self._default_settings()
-            await self.save_settings(self.defaults)
-            return self._cache
         except Exception as e:
             self.logger.error(f"Error loading settings: {e}")
             self._cache = self._default_settings()
@@ -572,19 +566,16 @@ class SettingsService:
         so missing keys (e.g. older installs without a ``routing`` block)
         resolve to validated defaults rather than ``None``.
 
-        Raises SchemaVersionMismatch on version drift, exactly like
-        ``load_settings``: this is the first reader of settings.json on every
-        boot, and a stale shape consumed here is a stale shape written into the
-        three env files before any consumer gets the chance to refuse it.
+        Reads exactly as ``load_settings`` does: this is the first reader of
+        settings.json on every boot, so an unreadable file — or one holding a
+        value the validator cannot take — is set aside here, before a shape
+        nobody validated is derived into the three env files, which are then
+        derived from the defaults.
         """
         if not self._cache:
             try:
-                data = load_versioned_json_sync(
-                    Path(self.settings_file), self.SCHEMA_VERSION
-                )
-                self._cache = self._validate_and_merge(data) if data else self._default_settings()
-            except SchemaVersionMismatch:
-                raise
+                validated = self._load_sync()
+                self._cache = validated if validated is not None else self._default_settings()
             except Exception as e:
                 self.logger.warning(f"get_setting_sync fallback to defaults: {e}")
                 self._cache = self._default_settings()
@@ -727,51 +718,45 @@ class SettingsService:
 
         self._cache = None
 
-    async def _backup_corrupted_file(self, content: str) -> str:
-        """Snapshot corrupt settings content to a sibling ``.corrupted`` file.
-
-        Never clobbers an existing backup: falls through to ``.corrupted.1``,
-        ``.corrupted.2`` … so the first (often most recoverable) snapshot is
-        preserved across repeated corruption events. Returns the path written.
-        """
-        backup = self.settings_file + '.corrupted'
-        n = 1
-        while os.path.exists(backup):
-            backup = f"{self.settings_file}.corrupted.{n}"
-            n += 1
-        async with aiofiles.open(backup, 'w', encoding='utf-8') as dst:
-            await dst.write(content)
-        self.logger.warning(f"Corrupted settings snapshot saved to: {backup}")
-        return backup
-
     async def _read_locked(self) -> Dict[str, Any]:
         """Read + validate settings. Caller must hold self._file_lock.
 
-        Falls back to defaults on missing/empty/corrupt files so that a write
-        operation can recover the file rather than fail. On corruption the raw
-        content is snapshotted to ``.corrupted`` first — otherwise the caller's
-        subsequent ``_write_locked`` would overwrite the (possibly recoverable)
-        corrupt file with defaults, silently losing every setting.
-
-        A version it did not verify is the one thing it must not fall back on:
-        ``_write_locked`` re-stamps whatever this returns at the current
-        ``SCHEMA_VERSION``, so consuming a drifted file here would migrate it in
-        silence. Raises SchemaVersionMismatch instead, and the write is refused.
+        No file — absent, or set aside as unreadable or as holding a value the
+        validator cannot take — is the defaults, so a write recovers the file
+        rather than fails, and lands the defaults plus what it writes. The
+        set-aside is what makes that safe: the bytes the write replaces are
+        kept beside it, never consumed — re-stamping a drifted file at the
+        current version would be a migration in silence.
         """
-        if not os.path.exists(self.settings_file):
-            return self._default_settings()
+        validated = await self._load_locked()
+        return validated if validated is not None else self._default_settings()
+
+    async def _load_locked(self) -> Optional[Dict[str, Any]]:
+        """settings.json, validated; None when there is none to take in.
+        Caller must hold self._file_lock.
+
+        None is no file, or one set aside: by the loader (not JSON, another
+        version), or here, for a value ``_validate_and_merge`` cannot take.
+        """
+        data = await load_versioned_json(Path(self.settings_file), self.SCHEMA_VERSION)
+        if not data:
+            return None
         try:
-            async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as f:
-                content = await f.read()
-            if not content.strip():
-                return self._default_settings()
-            data = json.loads(content)
-            check_schema_version(Path(self.settings_file), data, self.SCHEMA_VERSION)
             return self._validate_and_merge(data)
-        except json.JSONDecodeError:
-            self.logger.error("settings.json corrupt during locked read; backing up and using defaults")
-            await self._backup_corrupted_file(content)
-            return self._default_settings()
+        except _VALUE_IT_CANNOT_TAKE as e:
+            await set_aside(Path(self.settings_file), f"a value it cannot take: {e!r}")
+            return None
+
+    def _load_sync(self) -> Optional[Dict[str, Any]]:
+        """Blocking twin of ``_load_locked``, for ``get_setting_sync``."""
+        data = load_versioned_json_sync(Path(self.settings_file), self.SCHEMA_VERSION)
+        if not data:
+            return None
+        try:
+            return self._validate_and_merge(data)
+        except _VALUE_IT_CANNOT_TAKE as e:
+            set_aside_sync(Path(self.settings_file), f"a value it cannot take: {e!r}")
+            return None
 
     async def _write_locked(
         self, settings: Dict[str, Any], written_paths: Iterable[str] = ()

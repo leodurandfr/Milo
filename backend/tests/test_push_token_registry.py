@@ -20,7 +20,6 @@ from backend.api.push import create_push_router
 from backend.core.push import token_registry as token_registry_module
 from backend.core.push.models import ApnsEnvironment, PushTokenKind
 from backend.core.push.token_registry import PushTokenRegistry
-from backend.shared.persistence import SchemaVersionMismatch
 
 WIDGET = PushTokenKind.WIDGET
 PTS = PushTokenKind.PUSH_TO_START
@@ -104,18 +103,11 @@ class TestPersistence:
         assert not registry.tokens_file.exists()
         assert registry.tokens_for(WIDGET) == []
 
-    async def test_a_version_drift_is_fail_loud(self, registry):
-        """The schema-bump protocol: refuse and let dependencies.py print the
-        reset banner, rather than read a shape this code does not know."""
-        registry.tokens_file.write_text(json.dumps({"schema_version": 0, "tokens": {}}))
-
-        with pytest.raises(SchemaVersionMismatch):
-            await registry.initialize()
-
-    async def test_a_record_missing_a_field_is_fail_loud(self, registry):
+    async def test_a_record_missing_a_field_is_never_filled_in(self, registry):
         """`registered_at` decides the 410 race. Defaulting it in the loader
         would answer that race with "now", which keeps every dead token
-        forever — so an incomplete record raises instead."""
+        forever — so an incomplete record sets the file aside instead, and the
+        registry takes the next registration rather than refusing every one."""
         registry.tokens_file.write_text(json.dumps({
             "schema_version": PushTokenRegistry.SCHEMA_VERSION,
             "tokens": {"tok": {
@@ -124,8 +116,11 @@ class TestPersistence:
             }},
         }))
 
-        with pytest.raises(KeyError):
-            await registry.initialize()
+        await registry.initialize()
+        await registry.register("tok-w", WIDGET, ApnsEnvironment.SANDBOX, "phone-1")
+
+        assert [t.token for t in registry.tokens_for(WIDGET)] == ["tok-w"]
+        assert len(list(registry.tokens_file.parent.glob("push_tokens.json.*.bad"))) == 1
 
 
 class TestReplacement:
@@ -494,8 +489,8 @@ class TestAnUnwritableFile:
     async def test_a_registry_that_never_read_the_file_reads_it_before_writing(
         self, registry, monkeypatch
     ):
-        """`initialize` failing on anything but a schema mismatch is logged
-        and the backend carries on. Writing from an empty memory then would
+        """`initialize` failing on a card that cannot be read is logged and
+        the backend carries on. Writing from an empty memory then would
         overwrite every device's tokens with the one being registered."""
         await registry.register("tok-p", PTS, ApnsEnvironment.SANDBOX, "phone-1")
         never_loaded = reopened(registry)

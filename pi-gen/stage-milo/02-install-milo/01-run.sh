@@ -272,5 +272,6 @@ CHROOT
 # (save_versioned_json, which always stamps the current schema_version) when the
 # user picks hardware in the setup wizard. A bash-seeded file cannot be kept in
 # sync with the schema: it shipped a stale, unversioned file that crash-looped the
-# backend with SchemaVersionMismatch. Absent file → backend uses its in-code
-# defaults (see backend/hardware/registry.py).
+# backend on a schema mismatch (today the backend would set it aside at the first
+# boot). Absent file → backend uses its in-code defaults (see
+# backend/hardware/registry.py).

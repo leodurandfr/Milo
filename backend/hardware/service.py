@@ -3,10 +3,9 @@
 
 Handles screen type, audio card, rotary encoder GPIO pins, IR remote and power
 button configuration. Uses the schema_version protocol — see CLAUDE.md
-§"Persistence & schema-version protocol".
+§"Persistence & the schema-version protocol".
 """
 import asyncio
-import json
 import logging
 import signal
 from pathlib import Path
@@ -22,7 +21,11 @@ from backend.hardware.registry import (
     alsa_card_ids,
     missing_card_label,
 )
-from backend.shared.persistence import load_versioned_json, save_versioned_json
+from backend.shared.persistence import (
+    load_versioned_json,
+    load_versioned_json_sync,
+    save_versioned_json,
+)
 
 
 class HardwareService:
@@ -40,28 +43,23 @@ class HardwareService:
     # =========================================================================
 
     async def initialize(self) -> None:
-        """Pre-load hardware.json so a schema mismatch surfaces at boot.
-
-        Raises SchemaVersionMismatch on version drift; the handler in
-        dependencies.py::init_async logs the banner and SystemExit(1)s.
-        """
+        """Pre-load hardware.json. An unreadable file is set aside by the loader
+        and read as absent: the in-code defaults (``hardware/registry.py``)."""
         self._cache = await load_versioned_json(self.hardware_file, self.SCHEMA_VERSION)
 
     def _ensure_cache(self) -> Dict:
         """Sync access path for bootstrap getters called before ``initialize()``.
 
-        Reads the file leniently — schema validation happens in async
-        ``initialize()``. If the file is missing or unreadable, returns ``{}``.
+        Through the blocking twin of the same loader, so a getter asked first
+        meets what ``initialize()`` would: an unreadable file set aside, and
+        ``{}``. A card that cannot be read at all is ``{}`` too, the file left
+        where it is for ``initialize()`` to meet.
         """
         if self._cache is None:
-            if self.hardware_file.exists():
-                try:
-                    with open(self.hardware_file, 'r') as f:
-                        self._cache = json.load(f)
-                except (json.JSONDecodeError, OSError) as e:
-                    self.logger.warning(f"hardware sync read fallback: {e}")
-                    self._cache = {}
-            else:
+            try:
+                self._cache = load_versioned_json_sync(self.hardware_file, self.SCHEMA_VERSION)
+            except OSError as e:
+                self.logger.warning(f"hardware sync read fallback: {e}")
                 self._cache = {}
         return self._cache
 
@@ -165,8 +163,14 @@ class HardwareService:
         return config.get('audio', {}).get('volume_control', True)
 
     async def set_volume_control(self, enabled: bool) -> None:
-        """Persist volume_control override in hardware.json without reboot."""
-        config = self._ensure_cache()
+        """Persist volume_control override in hardware.json without reboot.
+
+        Read from the file, not from the cache: a cache that stands for a file
+        the card refused is ``{}``, and written back with this one key it would
+        replace the card, the screen and the pins with nothing. A card that
+        cannot be read raises, and nothing is written.
+        """
+        config = await load_versioned_json(self.hardware_file, self.SCHEMA_VERSION)
         if 'audio' not in config:
             config['audio'] = {}
         config['audio']['volume_control'] = enabled

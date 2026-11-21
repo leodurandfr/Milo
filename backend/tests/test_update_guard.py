@@ -448,9 +448,10 @@ def test_what_the_update_never_replaced_is_left_alone(server):
 
 
 def test_the_data_snapshot_is_put_back_and_files_the_new_release_created_removed(server):
-    """A release that wrote its data in a schema the previous one refuses would
-    keep the previous one from starting (fail loud, no migration): the data
-    the update began with comes back, and a file it did not have goes."""
+    """A release that wrote its data in a schema the previous one does not
+    take would have the previous one set it aside and start from its defaults
+    (no migration): the data the update began with comes back, and a file it
+    did not have goes."""
     server.on_trial()
     (server.state / mj.ATTEMPTS_NAME).write_text("2\n")
 

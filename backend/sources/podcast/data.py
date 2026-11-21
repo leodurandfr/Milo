@@ -7,7 +7,7 @@ This service manages:
 - Playback progress with episode context
 
 Data is persisted to /var/lib/milo/podcast_data.json — uses the
-schema_version protocol (see CLAUDE.md §"Persistence & schema-version protocol").
+schema_version protocol (see CLAUDE.md §"Persistence & the schema-version protocol").
 """
 import asyncio
 import time
@@ -37,7 +37,7 @@ class PodcastDataService:
 
     # v3: a podcast is keyed by its Apple id and an episode by
     # `{itunes_id}:{guid hash}`. v2 files hold the ids of the catalogue Milō used
-    # before, which name nothing here, so they must be reset (fail-loud protocol).
+    # before, which name nothing here, so the loader sets them aside.
     SCHEMA_VERSION: int = 3
 
     def __init__(self, state_machine=None):
@@ -46,35 +46,32 @@ class PodcastDataService:
         self._state_machine = state_machine
 
     async def initialize(self) -> None:
-        """Pre-load podcast_data.json so a schema mismatch surfaces at boot.
+        """Pre-load podcast_data.json, seeding the defaults when there is none.
 
-        Seeds defaults on fresh install. Raises SchemaVersionMismatch on
-        version drift or RuntimeError on missing required keys; the handler
-        in dependencies.py::init_async logs the banner and SystemExit(1)s.
+        An unreadable file (another schema_version, a required key missing,
+        not JSON) is set aside by the loader and read as none: the
+        subscriptions and the progress start empty.
         """
         async with self._file_lock:
-            data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
+            data = await self._read_locked()
 
         if not data:
             await self.save_data(self._get_default_structure())
-            return
-
-        self._validate_required_keys(data)
 
     async def load_data(self) -> Dict[str, Any]:
-        """Load podcast_data.json. Trusts shape (validated at boot in initialize())."""
+        """Load podcast_data.json."""
         async with self._file_lock:
             return await self._load_locked()
 
+    async def _read_locked(self) -> Dict[str, Any]:
+        """The file as the loader reads it: ``{}`` when absent or set aside."""
+        return await load_versioned_json(
+            self._data_file, self.SCHEMA_VERSION, required=REQUIRED_TOP_LEVEL_KEYS
+        )
+
     async def _load_locked(self) -> Dict[str, Any]:
-        """Read + validate. The caller must already hold ``_file_lock``."""
-        data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
-
-        if not data:
-            return self._get_default_structure()
-
-        self._validate_required_keys(data)
-        return data
+        """Read, or the defaults. The caller must already hold ``_file_lock``."""
+        return await self._read_locked() or self._get_default_structure()
 
     async def _mutate(self, apply: Callable[[Dict[str, Any]], Tuple[bool, Any]]) -> Any:
         """Read → mutate → write under a single hold of ``_file_lock``.
@@ -97,15 +94,6 @@ class PodcastDataService:
             if changed:
                 await save_versioned_json(self._data_file, data, self.SCHEMA_VERSION)
         return result
-
-    def _validate_required_keys(self, data: Dict[str, Any]) -> None:
-        """Fail-loud if any expected top-level key is missing."""
-        missing = [k for k in REQUIRED_TOP_LEVEL_KEYS if k not in data]
-        if missing:
-            raise RuntimeError(
-                f"podcast_data.json missing required keys: {missing} — "
-                f"delete it to reset (rm {self._data_file})"
-            )
 
     def _get_default_structure(self) -> Dict[str, Any]:
         """Get default data structure."""

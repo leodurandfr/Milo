@@ -996,10 +996,9 @@ class TestFavoritesListener:
 
 class TestAnUnloadedFileIsNeverOverwritten:
     """A file that failed to load is the user's favorites, edits and custom
-    stations, waiting to be repaired: the service holds nothing of it, so a
-    save from that empty memory wrote `{favorites: [new]}` at the current
-    schema over everything. Consumer: every favorites route, Milo-Mac and
-    Milo-iOS's lists."""
+    stations: a save from an empty memory wrote `{favorites: [new]}` at the
+    current schema over everything. Consumer: every favorites route, Milo-Mac
+    and Milo-iOS's lists."""
 
     @pytest.mark.parametrize("content", [
         '{"schema_version": 1, "favorites": ["keep-me"',
@@ -1009,12 +1008,38 @@ class TestAnUnloadedFileIsNeverOverwritten:
                     "favorites": ["keep-me"], "modified_metadata": {},
                     "manual_stations": {}, "favorites_cache": {}}),
     ], ids=["truncated", "missing-key", "newer-schema"])
-    async def test_a_corrupt_file_is_never_overwritten_by_a_later_favorite(self, tmp_path, content):
+    async def test_a_corrupt_file_is_set_aside_before_a_later_favorite_is_saved(
+        self, tmp_path, content
+    ):
+        """Refused, as it was, the radio took no favorite until someone deleted
+        the file over SSH. Set aside, it takes the next one, and the old list
+        is still there, byte for byte, beside the new file."""
         data = _unloaded(tmp_path)
         data._data_file.write_text(content, encoding="utf-8")
         before = data._data_file.read_bytes()
-        with pytest.raises((json.JSONDecodeError, RuntimeError)):
-            await data.initialize()
+        await data.initialize()
+
+        await data.add_favorite("newone", {"name": "New", "url": "http://example.invalid/n"})
+
+        assert data.favorite_ids == ["newone"]
+        (kept,) = tmp_path.glob("radio_data.json.*.bad")
+        assert kept.read_bytes() == before
+
+    async def test_a_file_the_card_cannot_read_is_never_overwritten_by_a_later_favorite(
+        self, tmp_path, monkeypatch
+    ):
+        """The one load that leaves the file in place: an I/O error says
+        nothing about its bytes, so they are neither set aside nor replaced."""
+        data = _unloaded(tmp_path)
+        data._data_file.write_text(json.dumps({"favorites": ["keep-me"]}), encoding="utf-8")
+        before = data._data_file.read_bytes()
+        with monkeypatch.context() as card:
+            card.setattr(
+                "backend.sources.radio.data.load_versioned_json",
+                AsyncMock(side_effect=OSError(5, "Input/output error")),
+            )
+            with pytest.raises(OSError):
+                await data.initialize()
 
         new = {"name": "New", "url": "http://example.invalid/n"}
         for _ in range(2):

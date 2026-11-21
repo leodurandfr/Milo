@@ -300,8 +300,8 @@ class TestBootRemountRetry:
         self, remounting
     ):
         """A pass whose config read fails mounts nothing and does not end the
-        loop: the next pass reads it again. It never propagates either — the
-        gather that awaits initialize() would turn it into the reset banner."""
+        loop: the next pass reads it again. It never propagates either: the
+        remount runs in the background, and a raise there would end it."""
         reads = []
 
         async def _list():
@@ -651,8 +651,8 @@ class TestBoot:
     """initialize() — the method that mounts the owner's NAS on every boot.
 
     Measured green by evisceration (2026-08-24): replaced by `return None`, the
-    whole suite still passed. It loads the share config (the one fail-loud step
-    of the source), brings the storage layer up, remounts every configured
+    whole suite still passed. It loads the share config (the one step of the
+    source that raises, and only on a card it cannot read), brings the storage layer up, remounts every configured
     share, reconciles the Navidrome libraries, and starts the two watchers that
     keep `scanning` and `mounted` honest afterwards. Nothing observed any of it.
     """

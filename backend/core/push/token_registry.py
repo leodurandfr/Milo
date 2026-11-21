@@ -19,7 +19,10 @@ from typing import Callable, Collection, Dict, List, Optional, Set
 
 from backend.config.constants import PUSH_TOKENS_FILE
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
-from backend.shared.persistence import load_versioned_json, save_versioned_json
+from backend.shared.persistence import load_versioned_json, save_versioned_json, set_aside
+
+# The top-level keys every file written here holds; one missing sets the file aside.
+REQUIRED_TOP_LEVEL_KEYS = ("tokens",)
 
 
 class PushTokenRegistry:
@@ -42,13 +45,14 @@ class PushTokenRegistry:
         self._write_failing = False
 
     async def initialize(self) -> None:
-        """Load the file so a schema mismatch surfaces at boot, not at first push.
+        """Load the file at boot, not at the first push.
 
-        Raises SchemaVersionMismatch on version drift; the handler in
-        dependencies.py::init_async logs the banner and SystemExit(1)s. A
-        missing file is a fresh install and stays unwritten until the first
-        registration — an empty registry is a valid state, so seeding one on
-        disk would only create a file to back up.
+        An unreadable file — to the loader, or a record ``PushToken`` cannot
+        rebuild — is set aside and the registry starts empty: every install
+        registers its tokens again at its next launch. A missing file is a
+        fresh install and stays unwritten until the first registration — an
+        empty registry is a valid state, so seeding one on disk would only
+        create a file to back up.
         """
         async with self._file_lock:
             if not self._loaded:
@@ -449,11 +453,24 @@ class PushTokenRegistry:
         self._loaded = True
 
     async def _load_locked(self) -> Dict[str, PushToken]:
-        """Read and decode the file. The caller must already hold ``_file_lock``."""
-        data = await load_versioned_json(self.tokens_file, self.SCHEMA_VERSION)
+        """Read and decode the file. The caller must already hold ``_file_lock``.
+
+        A record ``from_dict`` refuses sets the whole file aside: keeping the
+        records around it would make the next save drop it with no copy, and
+        refusing to load would leave the registry unable to take a token until
+        someone deletes the file. A card that cannot be read raises, and the
+        registry stays unloaded — it never writes over what it could not read.
+        """
+        data = await load_versioned_json(
+            self.tokens_file, self.SCHEMA_VERSION, required=REQUIRED_TOP_LEVEL_KEYS
+        )
         if not data:
             return {}
-        return {
-            token: PushToken.from_dict(token, record)
-            for token, record in data["tokens"].items()
-        }
+        try:
+            return {
+                token: PushToken.from_dict(token, record)
+                for token, record in data["tokens"].items()
+            }
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            await set_aside(self.tokens_file, f"a token record it cannot rebuild: {e!r}")
+            return {}

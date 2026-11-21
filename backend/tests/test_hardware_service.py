@@ -31,7 +31,6 @@ from backend.hardware.registry import (
     missing_card_label,
 )
 from backend.hardware.service import HardwareService
-from backend.shared.persistence import SchemaVersionMismatch
 
 
 @pytest.fixture
@@ -43,7 +42,9 @@ def service(tmp_path):
 
 
 def _write(service, config):
-    service.hardware_file.write_text(json.dumps(config))
+    service.hardware_file.write_text(
+        json.dumps({"schema_version": HardwareService.SCHEMA_VERSION, **config})
+    )
     service._cache = None
     return service
 
@@ -317,8 +318,8 @@ class TestWritingBackToHardwareJson:
         assert reloaded.get_volume_control() is True
 
     async def test_the_file_is_stamped_with_the_schema_version(self, service):
-        """The fail-loud protocol keys off it; an unstamped file makes the next
-        boot read a version-0 hardware.json and SystemExit(1)."""
+        """The loader keys off it; an unstamped file is set aside at the next
+        boot, and the card, the screen and the encoder go back to defaults."""
         _write(service, {"audio": {"id": "hifiberry_amp2"}})
 
         await service.save_config({"audio": {"id": "hifiberry_amp2"}})
@@ -347,32 +348,40 @@ class TestTheBootLoad:
 
         assert service._cache["audio"]["id"] == "hifiberry_amp2"
 
-    async def test_a_version_drift_is_raised_rather_than_read_around(self, service):
-        """The banner + SystemExit(1) in dependencies.py hangs off this raise.
-        Swallowing it would boot a unit against a hardware.json whose shape it
-        does not know — a screen or card silently reconfigured."""
-        service.hardware_file.write_text(json.dumps({
-            "schema_version": HardwareService.SCHEMA_VERSION + 1,
-            "audio": {"id": "hifiberry_amp2"},
-        }))
-
-        with pytest.raises(SchemaVersionMismatch):
-            await service.initialize()
-
     async def test_a_fresh_unit_with_no_file_loads_empty(self, service):
         await service.initialize()
         assert service._cache == {}
 
-    def test_an_unreadable_file_is_read_as_empty_by_the_sync_path(self, service, caplog):
-        """The sync getters run before `initialize`, so they are lenient by
-        design — the strict read is the async one, which fails loud."""
-        service.hardware_file.write_text("{ this is not json")
+    def test_the_sync_path_sets_aside_what_initialize_would(self, service):
+        """The getters run before `initialize`. Read leniently, as they were, a
+        drifted file answered them in a shape this code does not know — a
+        screen or a card silently reconfigured — while `initialize` refused it."""
+        service.hardware_file.write_text(json.dumps({
+            "schema_version": HardwareService.SCHEMA_VERSION + 1,
+            "screen": {"type": "waveshare_8_dsi"},
+        }))
         service._cache = None
 
+        fresh = HardwareService()
+        fresh.hardware_file = service.hardware_file.with_name("absent.json")
+
+        assert service.get_screen_type() == fresh.get_screen_type()
+        assert len(list(service.hardware_file.parent.glob("hardware.json.*.bad"))) == 1
+
+    def test_a_card_the_sync_path_cannot_read_answers_empty_and_moves_nothing(
+        self, service, caplog
+    ):
+        service.hardware_file.mkdir()  # read → IsADirectoryError, an OSError
+        service._cache = None
+
+        fresh = HardwareService()
+        fresh.hardware_file = service.hardware_file.with_name("absent.json")
+
         with caplog.at_level(logging.WARNING):
-            assert service.get_screen_type() == "none"
+            assert service.get_screen_type() == fresh.get_screen_type()
 
         assert "hardware sync read fallback" in caplog.text
+        assert service.hardware_file.is_dir()
 
 
 class TestApply:

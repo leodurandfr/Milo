@@ -114,7 +114,7 @@ class PodcastSource(MpvAudioSource):
         self._podcast_api = PodcastCatalog(cache_duration_minutes=60)
 
     async def initialize(self) -> bool:
-        """Pre-load podcast_data.json so a schema mismatch surfaces at boot."""
+        """Pre-load podcast_data.json at boot (an unreadable one is set aside)."""
         await self._podcast_data.initialize()
         return await super().initialize()
 

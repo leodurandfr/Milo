@@ -4,8 +4,8 @@
 `initialize_services`'s lines and 18 of `init_async`'s had never run. What lives
 only there is the wiring itself — every A↔B cycle the constructors cannot close,
 the subscription ORDER the registry bus depends on, the env files that must
-reach disk before any source unit starts, and the two fail-loud paths that decide
-whether a drifted `settings.json` stops the boot or is silently derived from.
+reach disk before any source unit starts, and what the parallel init does with a
+service that failed.
 
 None of that is visible to a guardrail: `test_service_wiring` reads the source
 and runs nothing, so it can prove a setter is *written* here and never that it is
@@ -22,13 +22,11 @@ asserts afterwards that it was not.
 """
 import asyncio
 import logging
-import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import backend.dependencies as deps
-from backend.shared.persistence import SchemaVersionMismatch
 
 
 class BuiltARealService(BaseException):
@@ -349,43 +347,6 @@ class TestEnvFilesBeforeAnything:
 
         assert order[0] == "env"
 
-    async def test_a_drifted_settings_file_stops_the_boot_before_deriving_from_it(
-        self, registry, caplog
-    ):
-        """Fail loud + reset, never migrate.
-
-        This is the first read of `settings.json`, so a schema drift is caught
-        here — before `routing.env` is derived from a shape nobody validated and
-        written over the file the running units read.
-        """
-        registry["audio_routing_service"].regenerate_env_files = AsyncMock(
-            side_effect=SchemaVersionMismatch("settings.json", 1, 2)
-        )
-
-        with caplog.at_level(logging.ERROR):
-            with pytest.raises(SystemExit) as exit_info:
-                await deps.initialize_services()
-
-        assert exit_info.value.code == 1
-        assert "Schema version mismatch while deriving the env files" in caplog.text
-
-    async def test_the_bailing_boot_flushes_stderr_so_systemd_keeps_the_banner(
-        self, registry, monkeypatch
-    ):
-        """systemd loops the unit on SystemExit(1); the operator only ever sees
-        the journal. An unflushed stderr on a process about to exit is a banner
-        that never reaches it, and the loop then looks like a silent crash."""
-        flushed = []
-        monkeypatch.setattr(sys.stderr, "flush", lambda: flushed.append(1))
-        registry["audio_routing_service"].regenerate_env_files = AsyncMock(
-            side_effect=SchemaVersionMismatch("settings.json", 1, 2)
-        )
-
-        with pytest.raises(SystemExit):
-            await deps.initialize_services()
-
-        assert flushed
-
 
 class TestAsyncInit:
     """STEP 4 — the parallel gather, and what it does with what comes back."""
@@ -521,49 +482,6 @@ class TestAsyncInit:
             for r in caplog.records
         )
         registry["hostname_conflict_service"].start_periodic.assert_called_once()
-
-    def test_a_schema_mismatch_during_init_bails_and_names_the_service(
-        self, registry, caplog
-    ):
-        """The banner has to say WHICH file, since the operator's next action is
-        an `rm`. Reported as an ordinary failure instead, the boot would carry on
-        and the next persist would overwrite the evidence.
-
-        Driven from a synchronous test through its own `asyncio.run`: a
-        `SystemExit` raised inside a Task is re-raised into the event loop by
-        `Task.__step` as well as being stored on the future, so it escapes
-        `run_until_complete` and never reaches an `await` inside the test
-        coroutine. That is also exactly why it stops the boot on the unit.
-        """
-        async def _boot():
-            registry["podcast_source"].initialize = AsyncMock(
-                side_effect=SchemaVersionMismatch("podcast_data.json", 1, 2)
-            )
-            await deps.initialize_services()
-            await deps.get_init_task()
-
-        with caplog.at_level(logging.ERROR):
-            with pytest.raises(SystemExit) as exit_info:
-                asyncio.run(_boot())
-
-        assert exit_info.value.code == 1
-        assert "during podcast_source init" in caplog.text
-
-    def test_the_schema_check_beats_the_critical_check(self, registry):
-        """Both loops walk the same results. A `volume_service` that failed on a
-        schema mismatch must exit(1) with the banner, not re-raise the mismatch
-        as an ordinary critical failure — one tells the operator what to delete,
-        the other does not.
-        """
-        async def _boot():
-            registry["volume_service"].initialize = AsyncMock(
-                side_effect=SchemaVersionMismatch("last_volume.json", 1, 2)
-            )
-            await deps.initialize_services()
-            await deps.get_init_task()
-
-        with pytest.raises(SystemExit):
-            asyncio.run(_boot())
 
     async def test_the_periodic_hostname_recheck_starts_after_the_boot_check(
         self, registry

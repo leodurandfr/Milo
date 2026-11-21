@@ -187,7 +187,7 @@ class TestStationDataService:
 
 
 class TestStationDataPersistence:
-    """WI-6: fail-loud loading — never a silent wipe of favorites."""
+    """Loading — never a silent wipe of favorites, never a radio that will not start."""
 
     def _service(self, tmp_path):
         from pathlib import Path
@@ -225,81 +225,31 @@ class TestStationDataPersistence:
 
         assert service._favorites == ["s1", "s2"]
 
-    @pytest.mark.asyncio
-    async def test_schema_mismatch_fails_loud(self, tmp_path):
-        """A file with the wrong schema_version raises instead of wiping."""
-        import json
-        from backend.shared.persistence import SchemaVersionMismatch
-        service = self._service(tmp_path)
-        service._data_file.write_text(json.dumps({
-            "schema_version": StationDataService.SCHEMA_VERSION + 1,
-            "favorites": ["keep-me"],
-            "modified_metadata": {},
-            "manual_stations": {},
-            "favorites_cache": {},
-        }), encoding="utf-8")
-
-        with pytest.raises(SchemaVersionMismatch):
-            await service.initialize()
-
-    @pytest.mark.asyncio
-    async def test_missing_schema_version_fails_loud(self, tmp_path):
-        """A pre-versioning file (no schema_version) fails loud, never wiped."""
-        import json
-        from backend.shared.persistence import SchemaVersionMismatch
-        service = self._service(tmp_path)
-        service._data_file.write_text(json.dumps({
-            "favorites": ["keep-me"],
-            "modified_metadata": {},
-            "manual_stations": {},
-            "favorites_cache": {},
-        }), encoding="utf-8")
-
-        with pytest.raises(SchemaVersionMismatch):
-            await service.initialize()
-
-    @pytest.mark.asyncio
-    async def test_corrupt_json_fails_loud(self, tmp_path):
-        """Invalid JSON raises rather than silently returning empty favorites."""
-        import json
-        service = self._service(tmp_path)
-        service._data_file.write_text("{ this is not valid json", encoding="utf-8")
-
-        with pytest.raises(json.JSONDecodeError):
-            await service.initialize()
-
-    @pytest.mark.asyncio
-    async def test_missing_required_key_fails_loud(self, tmp_path):
-        """A versioned file missing a required top-level key raises."""
-        import json
-        service = self._service(tmp_path)
-        service._data_file.write_text(json.dumps({
-            "schema_version": StationDataService.SCHEMA_VERSION,
-            "favorites": ["keep-me"],
-        }), encoding="utf-8")
-
-        with pytest.raises(RuntimeError, match="missing required keys"):
-            await service.initialize()
-
-    async def test_source_initialize_lets_a_schema_mismatch_reach_the_boot_gather(self, tmp_path):
-        """`initialize_services` exits on a `SchemaVersionMismatch` only when the
-        gather hands it the exception: a source that turned it into False booted
-        with empty favorites, and the first one added rewrote the file at the
-        current schema over the user's list."""
-        from backend.shared.persistence import SchemaVersionMismatch
+    async def test_an_unreadable_file_boots_the_source_and_its_favorites_outlive_the_next_save(
+        self, tmp_path
+    ):
+        """A source that refused to start over it left the radio dead until a
+        `rm`; one that started over it in memory, with the file left in place,
+        had the first favorite added rewrite the file at the current schema
+        over the user's list. Set aside, the list is kept whatever is saved
+        next."""
         source = RadioSource(settings_service=make_settings(), systemd_manager=make_systemd())
-        source.station_data._data_file = tmp_path / "radio_data.json"
-        source.station_data._data_file.write_text(json.dumps({
+        path = source.station_data._data_file = tmp_path / "radio_data.json"
+        content = json.dumps({
             "schema_version": StationDataService.SCHEMA_VERSION + 1,
             "favorites": ["keep-me"],
             "modified_metadata": {},
             "manual_stations": {},
             "favorites_cache": {},
-        }), encoding="utf-8")
+        })
+        path.write_text(content, encoding="utf-8")
 
-        results = await asyncio.gather(source.initialize(), return_exceptions=True)
+        assert await source.initialize() is True
+        await source.station_data.add_favorite("new-one", {"name": "New", "url": "http://x"})
 
-        assert isinstance(results[0], SchemaVersionMismatch)
+        (kept,) = tmp_path.glob("radio_data.json.*.bad")
+        assert kept.read_text(encoding="utf-8") == content
+        assert source.station_data.favorite_ids == ["new-one"]
 
 
 

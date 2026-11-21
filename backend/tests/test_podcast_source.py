@@ -17,7 +17,6 @@ from unittest.mock import Mock, AsyncMock, patch
 from backend.sources.podcast.source import PodcastSource
 from backend.sources.podcast.data import PodcastDataService
 from backend.shared.mpv_audio_source import MpvAudioSource
-from backend.shared.persistence import SchemaVersionMismatch
 from backend.tests.golden.harness import settle
 from backend.tests.golden.test_wire_podcast import EPISODE_A, SHOW
 from backend.tests.test_mpv_sessions import PodcastRig
@@ -238,17 +237,6 @@ class TestPodcastDataService:
         assert structure["subscriptions"] == []
         assert structure["playback_progress"] == {}
 
-    def test_validate_required_keys_passes_on_full_structure(self):
-        """Validation accepts a complete top-level shape."""
-        service = PodcastDataService()
-        service._validate_required_keys(service._get_default_structure())
-
-    def test_validate_required_keys_raises_on_missing_keys(self):
-        """Validation fails loud when a top-level key is missing."""
-        service = PodcastDataService()
-        with pytest.raises(RuntimeError, match="missing required keys"):
-            service._validate_required_keys({"subscriptions": []})
-
     @pytest.mark.asyncio
     async def test_initialize_seeds_defaults_on_fresh_install(self, tmp_path):
         """Fresh install (no file): initialize() seeds defaults stamped with schema_version."""
@@ -262,16 +250,6 @@ class TestPodcastDataService:
         assert payload["schema_version"] == PodcastDataService.SCHEMA_VERSION
         assert payload["subscriptions"] == []
         assert payload["playback_progress"] == {}
-
-    @pytest.mark.asyncio
-    async def test_initialize_raises_on_schema_mismatch(self, tmp_path):
-        """Existing file without schema_version triggers SchemaVersionMismatch."""
-        service = PodcastDataService()
-        service._data_file = tmp_path / "podcast_data.json"
-        service._data_file.write_text(json.dumps({"subscriptions": []}))
-
-        with pytest.raises(SchemaVersionMismatch):
-            await service.initialize()
 
     @pytest.mark.asyncio
     async def test_resubscribing_refreshes_metadata_without_losing_the_row(

@@ -70,7 +70,7 @@ EOF
 # Note: hardware.json is intentionally NOT seeded here. The backend creates it
 # (save_versioned_json, always stamping the current schema_version) when the user
 # picks hardware in the setup wizard. A bash-seeded file cannot track the schema
-# and shipped a stale, unversioned file that crash-looped the backend with
-# SchemaVersionMismatch. Absent file → backend uses in-code defaults
-# (see backend/hardware/registry.py).
+# and shipped a stale, unversioned file that crash-looped the backend on a
+# schema mismatch (today the backend would set it aside at the first boot).
+# Absent file → backend uses in-code defaults (see backend/hardware/registry.py).
 

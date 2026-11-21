@@ -405,7 +405,7 @@ check "snapserver.conf written"     "[ -f '${ROOT%/}/etc/snapserver.conf' ]"
 check "routing.env written"         "[ -f '${ROOT%/}/var/lib/milo/routing.env' ]"
 check "snapclient.env written"      "[ -f '${ROOT%/}/var/lib/milo/snapclient.env' ]"
 check "mac.env written"             "[ -f '${ROOT%/}/var/lib/milo/mac.env' ]"
-# Seeding this is what crash-looped the backend with SchemaVersionMismatch. Only
+# Seeding this is what crash-looped the backend on a schema mismatch. Only
 # meaningful on an image: on a unit in service the backend has legitimately
 # written it from the setup wizard.
 if [[ "$ROOT" == "/" ]]; then

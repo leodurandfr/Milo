@@ -23,13 +23,14 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 from pathlib import Path
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 import aiofiles
 
 from backend.shared.background import BackgroundTaskSet
-from backend.shared.persistence import write_bytes_atomically
+from backend.shared.persistence import set_aside, write_bytes_atomically
 
 # Use existing domain models
 from backend.core.models.volume import VolumeConfig
@@ -98,6 +99,10 @@ class VolumeStateStore:
         # client seeded in memory alone, or the levels a restore_last_volume
         # off reset at load, are still written by the next persist.
         self._on_disk: Optional[bytes] = None
+        # Set when the load could neither read the file nor set it aside: its
+        # bytes are still at STORAGE_PATH, unread, and no persist of this run
+        # writes over them — the next start reads them again.
+        self._file_unread = False
 
         # Concurrency control
         self._lock = asyncio.Lock()
@@ -221,47 +226,82 @@ class VolumeStateStore:
         """
         Load persisted volume state from disk.
 
-        Format: {"local_mac_id": str | null, "clients": {...}}
+        Format: {"local_mac_id": str | null, "clients": {mac: {"volume_db":
+        float, "mute": bool}}}, every key always written. A file that does not
+        hold that — not JSON, a key missing, a level that is not a finite
+        number — is set aside (``shared/persistence.py::set_aside``) and the
+        store starts empty: each room comes back at the startup level, unmuted.
+        Nothing is filled in, since a level made up here is the level a room is
+        sent; and the bytes are kept, since the next persist rewrites the file.
+        A card that cannot be read at all, or a file that cannot be moved
+        aside, is logged and left where it is: the store starts empty and
+        writes nothing over it until the next start.
         """
         try:
-            if not self.STORAGE_PATH.exists():
-                self.logger.debug("No persisted volume state found")
-                return
-
-            async with aiofiles.open(self.STORAGE_PATH, 'r') as f:
+            async with aiofiles.open(self.STORAGE_PATH, 'rb') as f:
                 raw = await f.read()
-            data = json.loads(raw)
-            self._on_disk = raw.encode()
+        except FileNotFoundError:
+            self.logger.debug("No persisted volume state found")
+            return
+        except OSError as e:
+            self._file_unread = True
+            self.logger.error(
+                f"Cannot read the persisted volume state {self.STORAGE_PATH}: {e}. Every room "
+                "comes back at the startup level, and no level of this run is written over it"
+            )
+            return
 
-            # Restore local mac_id so local_volume_db property works before the
-            # registry CLIENT_CONNECTED event fires.
-            local_mac_id = data.get("local_mac_id")
-            if isinstance(local_mac_id, str) and local_mac_id:
-                self._local_mac_id = local_mac_id
-
-            # Restore client volumes. With restore_last_volume off, the levels
-            # of the previous run are forgotten here, once: this *is* the
-            # startup, and every later reader — a satellite coming back after
-            # an update or a reboot — then gets the level it was left at in
-            # this run rather than being sent back to the startup level.
-            forget = self._volume_config is not None and not self._volume_config.restore_last_volume
-            clients_data = data.get("clients", {})
-            for mac_id, client_data in clients_data.items():
-                volume_db = (
-                    self._volume_config.startup_volume_db if forget
-                    else client_data.get("volume_db", DEFAULT_VOLUME_DB)
+        try:
+            local_mac_id, levels = self._decode_persisted_state(json.loads(raw))
+        # Never raised from here: the volume service is critical at boot, and a
+        # store that could not load must start empty, not stop it. OverflowError:
+        # a level too large for a float; RecursionError: nesting deeper than the
+        # decoder's stack.
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError, RecursionError) as e:
+            try:
+                await set_aside(self.STORAGE_PATH, f"{type(e).__name__}: {e}")
+            except OSError as move_error:
+                self._file_unread = True
+                self.logger.error(
+                    f"Cannot set {self.STORAGE_PATH} aside ({type(e).__name__}: {e}): "
+                    f"{move_error}. Every room comes back at the startup level, and no "
+                    "level of this run is written over it"
                 )
-                volume_db = self._clamp_db(volume_db)
+            return
 
-                self._clients[mac_id] = StoredLevel(
-                    volume_db=volume_db,
-                    mute=client_data.get("mute", False),
-                )
+        self._on_disk = raw
+        # Restore local mac_id so local_volume_db property works before the
+        # registry CLIENT_CONNECTED event fires.
+        if local_mac_id:
+            self._local_mac_id = local_mac_id
+        self._clients.update(levels)
+        self.logger.info(f"Restored volume state: local={self.local_volume_db:.1f}dB, {len(self._clients)} clients")
 
-            self.logger.info(f"Restored volume state: local={self.local_volume_db:.1f}dB, {len(self._clients)} clients")
+    def _decode_persisted_state(self, data: dict) -> Tuple[Optional[str], Dict[str, StoredLevel]]:
+        """The local MAC and the levels a file holds; raises on any other shape.
 
-        except Exception as e:
-            self.logger.error(f"Error loading persisted volume state: {e}", exc_info=True)
+        With restore_last_volume off, the levels of the previous run are
+        forgotten here, once: this *is* the startup, and every later reader —
+        a satellite coming back after an update or a reboot — then gets the
+        level it was left at in this run rather than being sent back to the
+        startup level.
+        """
+        local_mac_id = data["local_mac_id"]
+        if local_mac_id is not None and not isinstance(local_mac_id, str):
+            raise TypeError(f"local_mac_id is a {type(local_mac_id).__name__}")
+        forget = self._volume_config is not None and not self._volume_config.restore_last_volume
+        levels = {}
+        for mac_id, client_data in data["clients"].items():
+            saved_db = client_data["volume_db"]
+            # bool is an int to Python, and NaN would clamp to the upper limit.
+            if type(saved_db) not in (int, float) or not math.isfinite(saved_db):
+                raise TypeError(f"the level of {mac_id} is {saved_db!r}, not a finite number")
+            mute = client_data["mute"]
+            if not isinstance(mute, bool):
+                raise TypeError(f"the mute of {mac_id} is a {type(mute).__name__}")
+            volume_db = self._volume_config.startup_volume_db if forget else saved_db
+            levels[mac_id] = StoredLevel(volume_db=self._clamp_db(float(volume_db)), mute=mute)
+        return local_mac_id, levels
 
     def _schedule_persist(self) -> None:
         """Schedule a debounced persist (2s after last change). Safe to call rapidly."""
@@ -281,8 +321,12 @@ class VolumeStateStore:
         The write runs in a worker thread, which a cancellation does not stop:
         a cancelled persist still waits for its file to land, and the lock
         keeps every later write behind it, so the newest state is the last
-        one renamed into place.
+        one renamed into place. Nothing is written over a file the load could
+        neither read nor set aside (``_file_unread``).
         """
+        if self._file_unread:
+            self.logger.debug(f"Not persisting over the unread {self.STORAGE_PATH}")
+            return
         cancelled = False
         try:
             async with self._persist_lock:

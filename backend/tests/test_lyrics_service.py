@@ -917,7 +917,7 @@ class TestLookup:
 class TestDiskCache:
     """The disposable derived cache under /var/lib/milo/lyrics/.
 
-    No schema_version and no fail-loud protocol by design — every failure arm
+    No schema_version and nothing set aside, by design — every failure arm
     here has to degrade to "fetch again", never to an exception that reaches the
     route.
     """

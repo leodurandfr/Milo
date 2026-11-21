@@ -763,7 +763,7 @@ class TestCoverArtFallback:
 class TestTheDiscCacheOnDisk:
     """`cd_data.json` carries no schema_version on purpose: it is a disposable
     derived cache (CLAUDE.md, persistence). So it must degrade to empty rather
-    than fail loud — the opposite rule from a versioned store."""
+    than be set aside, as a versioned store's file is."""
 
     ENTRY = {"album": "Spaces", "artist": "Nils Frahm", "year": "2013",
              "release_mbid": "rel-1", "release_group_mbid": "rg-1", "cover_missing": False,

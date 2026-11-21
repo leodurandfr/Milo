@@ -1,7 +1,7 @@
 # backend/tests/test_podcast_queue.py
 """`podcast/data.py` — the in-progress queue and unsubscribe.
 
-`test_podcast_data.py` covers the boot path, the schema-mismatch banner and the
+`test_podcast_data.py` covers the boot path, the unreadable file and the
 `itunes_id` capture. What it never ran is `get_in_progress_episodes` — 11 lines,
 zero of them — which *is* the "continue listening" screen, plus the unsubscribe
 mutation.

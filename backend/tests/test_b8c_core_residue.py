@@ -15,10 +15,10 @@ Four clusters, chosen by what they cost rather than by how many lines they are:
   queues every detent behind the first one instead of dropping the ones that no
   longer describe where the knob is.
 * **`SettingsService`'s fail-open reads.** `settings.json` is the store every
-  service reads its configuration from. A load that raised on a corrupt file
-  would take the boot with it — and the schema-version protocol is deliberately
-  *not* this path: it fails loud with a banner, while an unreadable file falls
-  back to declared defaults.
+  service reads its configuration from. A load that raised on a card that
+  cannot be read would take the boot with it, so it falls back to the declared
+  defaults — in memory only, the file left where it is. (A file that reads but
+  cannot be used is set aside by the loader: test_unreadable_files.py.)
 * **the OTA rollbacks.** They run after an update has already failed. Reporting
   a rollback that did not happen is what leaves a source with no working binary
   and a UI that says it was restored.
@@ -237,10 +237,9 @@ class TestTheSettingsFailOpenReads:
     async def test_an_unreadable_store_falls_back_to_the_declared_defaults(
         self, service, caplog
     ):
-        """Not the schema-version path: that one fails loud with a banner and
-        stops the boot on purpose. A file that is merely unreadable must not,
-        because every service reads through here — the appliance would refuse to
-        start over a truncated write."""
+        """Not the set-aside path, which moves a file whose bytes are wrong:
+        a card that refuses the read says nothing about them. The boot must
+        not stop over it either, because every service reads through here."""
         with patch("backend.core.settings.load_versioned_json",
                    AsyncMock(side_effect=OSError("input/output error"))):
             with caplog.at_level(logging.ERROR, logger="backend.core.settings"):

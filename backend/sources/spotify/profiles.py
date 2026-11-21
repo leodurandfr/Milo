@@ -18,6 +18,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
+# The top-level keys every file written here holds; one missing sets the file aside.
+REQUIRED_TOP_LEVEL_KEYS = ("profiles",)
+
 
 class SpotifyProfiles:
     SCHEMA_VERSION = 2
@@ -28,8 +31,12 @@ class SpotifyProfiles:
         self._profiles: Dict[str, Dict[str, Any]] = {}
 
     async def initialize(self) -> None:
-        """Load the file; a schema drift raises SchemaVersionMismatch at boot."""
-        data = await load_versioned_json(self._file, self.SCHEMA_VERSION)
+        """Load the file. An unreadable one is set aside by the loader and the
+        profiles start empty — each account comes back at its next cast — so
+        it costs the profiles, never the source, nor the history beside it."""
+        data = await load_versioned_json(
+            self._file, self.SCHEMA_VERSION, required=REQUIRED_TOP_LEVEL_KEYS
+        )
         self._profiles = data["profiles"] if data else {}
 
     def list(self) -> List[Dict[str, Any]]:

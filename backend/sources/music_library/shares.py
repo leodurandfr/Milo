@@ -201,9 +201,8 @@ class NetworkShareService:
     async def initialize(self) -> None:
         """Load the share config, start the USB watcher, then remount the shares.
 
-        The config load runs first and is the one **fail-loud** step: a
-        schema_version drift raises SchemaVersionMismatch, which the gather in
-        dependencies.py turns into the reset banner + SystemExit(1). USB detection
+        The config load runs first (an unreadable file is set aside and the
+        shares start empty; only a card that cannot be read raises). USB detection
         is **fail-open** (no udev on a dev host just disables auto-mount), and the
         network remount runs in the background, so neither can block startup: a
         NAS that does not answer used to hold the API for one mount timeout per

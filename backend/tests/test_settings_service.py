@@ -50,17 +50,16 @@ class TestSettingsService:
         """A settings path inside pytest's own temp directory.
 
         Not `NamedTemporaryFile` in /tmp: the service writes *siblings* of this
-        path — `.tmp` while saving, and `.corrupted[.N]` when it snapshots an
-        unparseable file — so a teardown unlinking a hand-listed set misses
-        whichever suffix it was never told about. It missed `.corrupted`, and
-        every run of the two corruption tests left two files in /tmp. That
+        path — `.tmp` while saving, and `.<stamp>.bad` when it sets an
+        unreadable file aside — so a teardown unlinking a hand-listed set misses
+        whichever suffix it was never told about. It missed `.corrupted`, as
+        the copy was named then, and every run of the two corruption tests
+        left two files in /tmp. That
         matters here because the dev host *is* the appliance and its /tmp is
         tmpfs. A directory pytest owns takes every sibling with it, whatever
         the service decides to write next.
         """
-        path = tmp_path / "settings.json"
-        path.write_text("")
-        return str(path)
+        return str(tmp_path / "settings.json")
 
     @pytest.fixture
     def service(self, temp_settings_file):
@@ -77,11 +76,8 @@ class TestSettingsService:
         hands that dict straight to `_apply_key`. A shallow copy shares every
         section, so the write landed inside `self.defaults` itself and every
         later fallback served the written value instead of the default, for the
-        life of the process. Nothing else in the suite reaches that path: every
-        other write test starts from a file that exists.
+        life of the process. The fixture leaves no file, as on a fresh unit.
         """
-        os.unlink(service.settings_file)
-
         await service.set_setting('volume.limit_min_db', -33.0)
 
         assert service.defaults['volume']['limit_min_db'] == -80.0
@@ -132,24 +128,6 @@ class TestSettingsService:
         assert settings['language'] == 'english'
         assert settings['volume']['limit_min_db'] == -50.0
         assert settings['volume']['limit_max_db'] == -15.0
-
-    @pytest.mark.asyncio
-    async def test_load_settings_raises_on_schema_mismatch(
-        self, service, temp_settings_file
-    ):
-        """A legacy file without `schema_version` (or a stale one) must fail loud
-        so dependencies.py::init_async can log the banner and SystemExit(1)."""
-        from backend.shared.persistence import SchemaVersionMismatch
-
-        legacy_settings = {
-            'language': 'english',
-            'spotify': {'auto_stop_delay': 300.0},
-        }
-        with open(temp_settings_file, 'w') as f:
-            json.dump(legacy_settings, f)
-
-        with pytest.raises(SchemaVersionMismatch):
-            await service.load_settings()
 
     @pytest.mark.asyncio
     async def test_save_settings_success(self, service):
@@ -568,54 +546,90 @@ class TestSettingsService:
 
         assert value is False
 
-    def test_get_setting_sync_raises_on_schema_mismatch(
-        self, service, temp_settings_file
+    @pytest.mark.parametrize("stored", [
+        {'schema_version': SettingsService.SCHEMA_VERSION + 1},
+        {'schema_version': SettingsService.SCHEMA_VERSION, 'volume': None},
+    ], ids=["drifted", "a_value_it_cannot_take"])
+    def test_the_bootstrap_reader_sets_a_drifted_file_aside_before_deriving_from_it(
+        self, service, temp_settings_file, tmp_path, stored
     ):
-        """The bootstrap reader fails loud like `load_settings` does.
-
-        It is the *first* reader on every boot — `dependencies.py` STEP 3b
+        """It is the *first* reader on every boot — `dependencies.py` STEP 3b
         derives routing.env / mac.env / snapclient.env from it before any async
-        init runs. Consuming a drifted file here would rewrite the three env
-        files from a shape the protocol is supposed to refuse, on every restart
-        of the banner loop.
+        init runs. Consuming a drifted file here would write the three env
+        files from a shape nobody validated; refusing it, as it did, looped
+        the boot until someone deleted the file over SSH. A value the
+        validator cannot take is set aside here too, not left for STEP 4 to
+        find: the env files and the file are then the same defaults.
         """
-        from backend.shared.persistence import SchemaVersionMismatch
-
-        legacy_settings = {'language': 'english'}
+        drifted = json.dumps({**stored, 'routing': {'multiroom_enabled': True}})
         with open(temp_settings_file, 'w') as f:
-            json.dump(legacy_settings, f)
-
+            f.write(drifted)
         service._cache = None
+        fresh = SettingsService()
+        fresh.settings_file = str(tmp_path / "absent.json")
 
-        with pytest.raises(SchemaVersionMismatch):
-            service.get_setting_sync('routing.multiroom_enabled')
+        assert service.get_setting_sync('routing.multiroom_enabled') == (
+            fresh.get_setting_sync('routing.multiroom_enabled')
+        )
+        (kept,) = tmp_path.glob("settings.json.*.bad")
+        assert kept.read_text() == drifted
 
     @pytest.mark.asyncio
-    async def test_a_write_refuses_to_restamp_a_drifted_file(
-        self, service, temp_settings_file
+    async def test_a_write_over_a_drifted_file_keeps_its_bytes_and_restamps_nothing(
+        self, service, temp_settings_file, tmp_path
     ):
         """`_read_locked` must not hand a drifted file to `_write_locked`.
 
-        The write path re-stamps whatever it reads at the current
-        SCHEMA_VERSION, so a version it never verified would be migrated in
-        silence — the exact opposite of the fail-loud protocol. The file must
-        come out of a refused write byte-for-byte unchanged, so the operator's
-        `rm` is still a choice they get to make.
+        The write path stamps whatever it reads at the current SCHEMA_VERSION,
+        so a version it never verified would be migrated in silence. Set aside
+        instead, its bytes are kept as they were, and the write lands on the
+        defaults: the language the drifted file held is not carried over.
         """
-        from backend.shared.persistence import SchemaVersionMismatch
-
-        legacy_settings = {'language': 'english'}
+        drifted = json.dumps({
+            'schema_version': SettingsService.SCHEMA_VERSION + 1,
+            'language': 'french',
+        })
         with open(temp_settings_file, 'w') as f:
-            json.dump(legacy_settings, f)
-        before = open(temp_settings_file).read()
+            f.write(drifted)
 
-        with pytest.raises(SchemaVersionMismatch):
-            await service.set_setting_strict('routing.multiroom_enabled', True)
+        await service.set_setting_strict('routing.multiroom_enabled', True)
 
-        # The lossy variant reports the failure instead of raising, and is
-        # equally forbidden from writing.
-        assert await service.set_setting('routing.multiroom_enabled', True) is False
-        assert open(temp_settings_file).read() == before
+        (kept,) = tmp_path.glob("settings.json.*.bad")
+        assert kept.read_text() == drifted
+        reread = SettingsService()
+        reread.settings_file = temp_settings_file
+        assert await reread.get_setting('routing.multiroom_enabled') is True
+        assert await reread.get_setting('language') == service.defaults['language']
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("stored", [
+        {"volume": None},
+        {"screen": {"timeout_seconds": "never"}},
+    ], ids=["section_not_an_object", "number_a_word"])
+    async def test_the_setup_wizard_finishes_over_a_value_the_validator_cannot_take(
+        self, service, temp_settings_file, tmp_path, stored
+    ):
+        """A file at the right version holding one value `_validate_and_merge`
+        raises on. Left in place, it read as the defaults and refused every
+        write, at every boot: the kiosk showed the wizard, and the wizard's
+        last step (`api/setup.py`: `set_setting("setup_completed", True)`)
+        could never land — the unit stuck until someone deleted the file over
+        SSH. Set aside, the write lands on the defaults."""
+        content = json.dumps({
+            "schema_version": SettingsService.SCHEMA_VERSION,
+            **service.defaults, "language": "french", **stored,
+        })
+        with open(temp_settings_file, 'w') as f:
+            f.write(content)
+
+        assert await service.set_setting("setup_completed", True) is True
+
+        (kept,) = tmp_path.glob("settings.json.*.bad")
+        assert kept.read_text() == content
+        reread = SettingsService()
+        reread.settings_file = temp_settings_file
+        assert await reread.get_setting("setup_completed") is True
+        assert await reread.get_setting("language") == service.defaults["language"]
 
     @pytest.mark.asyncio
     async def test_get_setting_sync_followed_by_get_setting_is_consistent(

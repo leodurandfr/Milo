@@ -2,17 +2,18 @@
 """The user data a Milō update keeps a copy of, and the copy itself.
 
 Every file persisted through `shared/persistence.py`'s versioned API is read by
-a release that refuses any other `schema_version` than its own, by design
-(fail loud + reset, never migrate). A release that bumps one rewrites the file
-in the new schema on its first save, so the release a rollback puts back would
-refuse it and exit at every start. The update therefore copies each of these
-files before the checkout, and `milo-update-guard` copies them back when it
-restores the previous release.
+a release that takes no other `schema_version` than its own, by design (never
+migrate): it sets any other aside and starts that section from its defaults. A
+release that bumps one rewrites the file in the new schema on its first save, so
+the release a rollback puts back would set it aside — the user's data reaching
+it only as a `.bad` copy. The update therefore copies each of these files before
+the checkout, and `milo-update-guard` copies them back when it restores the
+previous release.
 
 The set is declared here once, keyed by the class that owns the file, and
 `tests/architecture/test_update_data_snapshot.py` holds it equal to the classes
 that declare a `SCHEMA_VERSION`: a versioned file this set misses is a rollback
-that boots into a schema mismatch.
+that boots on that file's defaults.
 """
 import os
 import shutil

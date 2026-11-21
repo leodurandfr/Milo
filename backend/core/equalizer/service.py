@@ -36,10 +36,9 @@ from backend.core.multiroom.models import (
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.shared.persistence import (
-    SchemaVersionMismatch,
     load_versioned_json,
     save_versioned_json,
-    snapshot_corrupt_file,
+    set_aside,
 )
 
 
@@ -168,6 +167,11 @@ class CamillaDSPService:
         # Debounced persistence for equalizer.json (EQ rotary is a hot path)
         self._persist_debounce_task: Optional[asyncio.Task] = None
         self._persist_lock = asyncio.Lock()
+        # Set when initialize() could not take the saved curve in — the card
+        # refused the read, or the file could not be moved aside: its bytes are
+        # still at STORAGE_PATH, unread, and no persist of this run writes over
+        # them. The next start reads them again.
+        self._file_unread = False
         self._bg = BackgroundTaskSet(self.logger, "equalizer")
 
         # Owned state: equalizer effects on/off. Loaded from
@@ -287,45 +291,33 @@ class CamillaDSPService:
     async def initialize(self) -> bool:
         """Load the saved curve, then start the connection loop whatever it held.
 
-        Answers False when the curve could not be read. The loop starts anyway:
-        it is the only thing that unmutes the daemon, which starts muted at its
-        floor (invariant 7), so the boot loses the EQ rather than the sound.
+        An unreadable equalizer.json is set aside (by the loader, or by
+        ``_load_saved_config`` for a value it cannot take) and the default
+        curve is loaded: that is a load, reported once where it is set aside.
+        Answers False only when the curve could not be taken in at all — the
+        card refused the read, or the file could not be moved aside: the file
+        stays where it is, and no EQ change of this run is written over it.
+        The loop starts either way: it is the only thing that unmutes the
+        daemon, which starts muted at its floor (invariant 7), so the boot
+        loses the EQ rather than the sound.
         """
         self.logger.info("Initializing CamillaDSP service...")
         loaded = True
         try:
             await self._load_saved_config()
-        except SchemaVersionMismatch:
-            # Let dependencies.py::init_async log the banner + SystemExit(1)
-            self._connection_ready.set()
-            raise
         except Exception as e:
-            await self._report_unreadable_config(e)
+            self._file_unread = True
+            self.logger.error(
+                f"Cannot load the saved equalizer from {self.STORAGE_PATH} "
+                f"({type(e).__name__}: {e}). CamillaDSP opens on the default "
+                "curve, and no EQ change of this run is written over the file"
+            )
             loaded = False
 
         # Handles the initial connect + reconnection, and releases the boot's
         # rendezvous once the graph is restored (see wait_for_connection).
         self._reconnect_task = asyncio.create_task(self._connection_loop())
         return loaded
-
-    async def _report_unreadable_config(self, error: Exception) -> None:
-        """Keep the unreadable file beside itself and say so, once, at error.
-
-        The next EQ change persists the defaults over it, so the copy is what is
-        left of the curve.
-        """
-        try:
-            kept = f"its bytes are kept in {await snapshot_corrupt_file(self.STORAGE_PATH)}"
-        except FileNotFoundError:
-            kept = "there is no file to keep"
-        except OSError as copy_error:
-            kept = "no copy kept"
-            self.logger.warning(f"Could not copy {self.STORAGE_PATH} aside: {copy_error}")
-        self.logger.error(
-            f"Cannot load the saved equalizer from {self.STORAGE_PATH} "
-            f"({type(error).__name__}: {error}); {kept}. CamillaDSP opens on the "
-            "default curve, and the next EQ change rewrites the file"
-        )
 
     async def connect(self) -> bool:
         """Public connect method for external callers (e.g., routing.py startup)."""
@@ -1239,9 +1231,10 @@ class CamillaDSPService:
     async def _load_saved_config(self) -> None:
         """Load persisted equalizer state from /var/lib/milo/equalizer.json.
 
-        Raises SchemaVersionMismatch on version drift (caller in dependencies.py
-        logs the banner and SystemExit(1)s). The effects-enabled toggle lives
-        in settings.json under routing.equalizer_effects_enabled.
+        A file the loader cannot read, or one holding a gain that is not a
+        number, is set aside and the in-memory defaults stay. The
+        effects-enabled toggle lives in settings.json under
+        routing.equalizer_effects_enabled.
         """
         if self.settings_service:
             saved_effects_enabled = await self.settings_service.get_setting(
@@ -1256,12 +1249,16 @@ class CamillaDSPService:
             return  # Fresh install — in-memory defaults stay
 
         # The one conversion that can raise (a null gain) runs before anything is
-        # kept, so a file that fails keeps none of its values, as initialize says.
+        # kept, so a file that fails keeps none of its values.
         saved_gains = data.get("custom_gains")
-        custom_gains = (
-            [float(g) for g in saved_gains]
-            if isinstance(saved_gains, list) and len(saved_gains) >= 10 else None
-        )
+        try:
+            custom_gains = (
+                [float(g) for g in saved_gains]
+                if isinstance(saved_gains, list) and len(saved_gains) >= 10 else None
+            )
+        except (TypeError, ValueError) as e:
+            await set_aside(self.STORAGE_PATH, f"a gain that is not a number: {e}")
+            return
 
         saved_filters = data.get("filters")
         if isinstance(saved_filters, list) and saved_filters:
@@ -1314,8 +1311,12 @@ class CamillaDSPService:
         The write runs in a worker thread, which a cancellation does not stop:
         a cancelled persist still waits for its file to land, and the lock
         keeps every later write behind it, so the newest state is the last
-        one renamed into place.
+        one renamed into place. Nothing is written over a file initialize()
+        could not take in (``_file_unread``).
         """
+        if self._file_unread:
+            self.logger.debug(f"Not persisting over the unread {self.STORAGE_PATH}")
+            return
         cancelled = False
         try:
             async with self._persist_lock:

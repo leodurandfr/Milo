@@ -4,7 +4,7 @@
 Persists the list of SMB/NFS shares the user has added, so they can be re-mounted
 under /media/milo at every boot. Versioned JSON at
 ``/var/lib/milo/music_library_data.json`` (schema_version protocol — see CLAUDE.md
-§"Persistence & schema-version protocol").
+§"Persistence & the schema-version protocol").
 
 This file holds **non-secret metadata only** — id, type, host, path, display
 name, and a ``has_credentials`` flag. Share passwords never touch this file (nor
@@ -51,35 +51,32 @@ class MusicLibraryDataService:
         self._file_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
-        """Pre-load the shares file so a schema mismatch surfaces at boot.
+        """Pre-load the shares file, seeding the defaults when there is none.
 
-        Seeds defaults on fresh install. Raises SchemaVersionMismatch on version
-        drift or RuntimeError on missing required keys; the handler in
-        dependencies.py::init_async logs the banner and SystemExit(1)s.
+        An unreadable file (another schema_version, a required key missing,
+        not JSON) is set aside by the loader and read as none: no share and
+        no USB key is remembered, and each has to be added again.
         """
         async with self._file_lock:
-            data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
+            data = await self._read_locked()
 
         if not data:
             await self.save_data(self._get_default_structure())
-            return
-
-        self._validate_required_keys(data)
 
     async def load_data(self) -> Dict[str, Any]:
-        """Load the shares file. Trusts shape (validated at boot in initialize())."""
+        """Load the shares file."""
         async with self._file_lock:
             return await self._load_locked()
 
+    async def _read_locked(self) -> Dict[str, Any]:
+        """The file as the loader reads it: ``{}`` when absent or set aside."""
+        return await load_versioned_json(
+            self._data_file, self.SCHEMA_VERSION, required=REQUIRED_TOP_LEVEL_KEYS
+        )
+
     async def _load_locked(self) -> Dict[str, Any]:
-        """Read + validate. The caller must already hold ``_file_lock``."""
-        data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
-
-        if not data:
-            return self._get_default_structure()
-
-        self._validate_required_keys(data)
-        return data
+        """Read, or the defaults. The caller must already hold ``_file_lock``."""
+        return await self._read_locked() or self._get_default_structure()
 
     async def _mutate(self, apply: Callable[[Dict[str, Any]], Tuple[bool, Any]]) -> Any:
         """Read → mutate → write under a single hold of ``_file_lock``.
@@ -103,15 +100,6 @@ class MusicLibraryDataService:
             if changed:
                 await save_versioned_json(self._data_file, data, self.SCHEMA_VERSION)
         return result
-
-    def _validate_required_keys(self, data: Dict[str, Any]) -> None:
-        """Fail-loud if any expected top-level key is missing."""
-        missing = [k for k in REQUIRED_TOP_LEVEL_KEYS if k not in data]
-        if missing:
-            raise RuntimeError(
-                f"music_library_data.json missing required keys: {missing} — "
-                f"delete it to reset (rm {self._data_file})"
-            )
 
     def _get_default_structure(self) -> Dict[str, Any]:
         return {"shares": [], "known_usb": {}, "playlist_storages": {}}

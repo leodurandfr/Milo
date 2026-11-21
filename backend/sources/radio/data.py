@@ -349,11 +349,11 @@ class StationDataService:
     async def initialize(self) -> None:
         """Load state from disk.
 
-        Seeds defaults on fresh install. Raises SchemaVersionMismatch on version
-        drift, which dependencies.py turns into a banner and SystemExit(1), and
-        RuntimeError / JSONDecodeError on a corrupt file (missing keys, invalid
-        JSON), which fails the radio init with an error logged. Until a load
-        succeeds `_save` refuses to write, so favorites are never silently wiped.
+        Seeds defaults on fresh install, and on a file the loader set aside as
+        unreadable (another schema_version, a required key missing, not JSON),
+        whose bytes it kept. A card that cannot be read at all fails the radio
+        init with an error logged, and until a load succeeds `_save` refuses to
+        write, so favorites are never wiped over a file nobody read.
         """
         if self._loaded:
             return
@@ -376,31 +376,20 @@ class StationDataService:
             await self._state_machine.broadcast(event)
 
     async def _load_data(self) -> Dict[str, Any]:
-        """Load radio_data.json, seeding defaults on fresh install.
-
-        Raises SchemaVersionMismatch on version drift and RuntimeError / JSON
-        errors on a corrupt file — a corrupt file fails loud, never a silent wipe.
-        """
+        """Load radio_data.json, seeding defaults when there is none — a fresh
+        install, or a file the loader just set aside."""
         async with self._file_lock:
-            data = await load_versioned_json(self._data_file, self.SCHEMA_VERSION)
+            data = await load_versioned_json(
+                self._data_file, self.SCHEMA_VERSION, required=REQUIRED_TOP_LEVEL_KEYS
+            )
 
         if not data:
-            self.logger.info("radio_data.json not found, creating new file")
+            self.logger.info("No readable radio_data.json, seeding the defaults")
             default_data = self._get_default_structure()
             await self._save_data(default_data)
             return default_data
 
-        self._validate_required_keys(data)
         return data
-
-    def _validate_required_keys(self, data: Dict[str, Any]) -> None:
-        """Fail-loud if any expected top-level key is missing."""
-        missing = [k for k in REQUIRED_TOP_LEVEL_KEYS if k not in data]
-        if missing:
-            raise RuntimeError(
-                f"radio_data.json missing required keys: {missing} — "
-                f"delete it to reset (rm {self._data_file})"
-            )
 
     def _get_default_structure(self) -> Dict[str, Any]:
         """Default structure for a fresh install."""
@@ -424,8 +413,8 @@ class StationDataService:
         its change back and raises RadioWriteFailed."""
         if not self._loaded:
             self.logger.error(
-                f"radio_data.json is not loaded; refusing to overwrite it — "
-                f"if its load failed at boot, fix or delete it (rm {self._data_file})"
+                f"{self._data_file} is not loaded; refusing to overwrite a file "
+                f"nobody read — its load failed at boot"
             )
             return False
         data = {

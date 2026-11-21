@@ -7,11 +7,9 @@ Supports lazy singleton creation and circular dependency resolution.
 """
 import asyncio
 import logging
-import sys
 from typing import Any, Dict, Optional
 
 from backend.config.constants import SPOTIFY_HISTORY_FILE, SPOTIFY_PROFILES_FILE
-from backend.shared.persistence import SchemaVersionMismatch
 
 logger = logging.getLogger(__name__)
 
@@ -551,17 +549,9 @@ async def initialize_services() -> None:
     # guarantees the three env files match settings.json before any service starts.
     #
     # This is also the boot's first read of settings.json, through the sync
-    # reader — so the schema check fires here, before a drifted shape is
-    # derived into routing.env. Same fail-loud handling as init_async below.
-    try:
-        await routing_service.regenerate_env_files()
-    except SchemaVersionMismatch as mismatch:
-        logger.error(
-            "Schema version mismatch while deriving the env files — bailing.\n%s",
-            mismatch,
-        )
-        sys.stderr.flush()
-        raise SystemExit(1) from mismatch
+    # reader — so an unreadable file is set aside here, and the env files are
+    # derived from the defaults rather than from a shape nobody validated.
+    await routing_service.regenerate_env_files()
 
     # =========================================================================
     # STEP 4: Parallel async initialization
@@ -589,10 +579,10 @@ async def initialize_services() -> None:
             # that buys no ordering: gather() below starts every entry at once,
             # so routing_service.initialize() reads settings concurrently with
             # settings_service.initialize(). That is fine, and reordering this
-            # list would not have made it otherwise: the schema check is not
-            # positional. Every reader of settings.json performs it — the sync
-            # bootstrap one included — so STEP 3b above is where a mismatch
-            # actually stops the boot, before any artifact is derived from it.
+            # list would not have made it otherwise: every reader of
+            # settings.json goes through the same loader — the sync bootstrap
+            # one included — so STEP 3b above is where an unreadable file is
+            # set aside, before any artifact is derived from it.
             ("settings_service", settings_service.initialize()),
             ("hardware_service", hardware_service.initialize()),
             ("client_registry_service", client_registry_service.initialize()),
@@ -611,7 +601,7 @@ async def initialize_services() -> None:
             ("radio_source", radio_source.initialize()),
             # CD disc watcher needs early init for auto-detection
             ("cd_source", cd_source.initialize()),
-            # Podcast persistence schema check (fail-loud on schema_version drift)
+            # Podcast persistence (an unreadable file is set aside, never refused)
             ("podcast_source", podcast_source.initialize()),
             # USB storage watcher (pyudev) — mounts a plugged-in key under
             # /media/milo + triggers a Navidrome rescan, independent of playback.
@@ -619,7 +609,7 @@ async def initialize_services() -> None:
             # The account cache: `availability.qobuz` answers from it from boot,
             # not from the first time Qobuz is selected.
             ("qobuz_source", qobuz_source.initialize()),
-            # The kept Spotify profiles (fail-loud on schema_version drift)
+            # The kept Spotify profiles and history (an unreadable file is set aside)
             ("spotify_source", spotify_source.initialize()),
             # The exposure a backend killed outright left open (fail-open
             # without bluetoothd)
@@ -644,19 +634,6 @@ async def initialize_services() -> None:
             *[coro for _, coro in services],
             return_exceptions=True
         )
-
-        # Fail-loud on persisted-data schema mismatch: log the banner, flush stderr
-        # so the journal captures it, then SystemExit(1) to trigger a systemd-restart
-        # loop with a stable error until the operator deletes the offending file.
-        for (service_name, _), result in zip(services, results):
-            if isinstance(result, SchemaVersionMismatch):
-                logger.error(
-                    "Schema version mismatch during %s init — bailing.\n%s",
-                    service_name,
-                    result,
-                )
-                sys.stderr.flush()
-                raise SystemExit(1)
 
         # Nothing retries a volume service that answered False: its registry
         # subscriber stays off for the life of the process. Routing's False is

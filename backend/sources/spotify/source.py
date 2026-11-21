@@ -822,8 +822,8 @@ class SpotifySource(BaseAudioSource):
         return self._crossfade_applied
 
     async def initialize(self) -> bool:
-        """Load the profiles and the history, so a schema drift stops the boot
-        with its banner."""
+        """Load the profiles and the history. An unreadable file of either is
+        set aside and starts empty, and never keeps the source from starting."""
         if self._profiles is not None:
             await self._profiles.initialize()
         if self._history is not None:

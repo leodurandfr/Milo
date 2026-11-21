@@ -17,11 +17,11 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from backend.shared.persistence import SchemaVersionMismatch
 from backend.sources.spotify import routes
 from backend.sources.spotify import source as spotify_module
 from backend.sources.spotify.catalog import spotify_gid
 from backend.sources.spotify.models import ActiveProfileRequest
+from backend.sources.spotify.history import SpotifyHistory
 from backend.sources.spotify.profiles import SpotifyProfiles
 from backend.tests.golden.harness import settle
 from backend.tests.spotify_world import ACCOUNT, SpotifyWorld
@@ -667,7 +667,7 @@ async def test_refused_credentials_while_the_daemon_restarts_itself_sign_in_nobo
 
 # === Persistence ===
 
-async def test_profiles_round_trip_and_fail_loud_on_a_schema_drift(tmp_path):
+async def test_profiles_round_trip(tmp_path):
     file = tmp_path / "profiles.json"
     profiles = SpotifyProfiles(file)
     await profiles.initialize()
@@ -679,9 +679,29 @@ async def test_profiles_round_trip_and_fail_loud_on_a_schema_drift(tmp_path):
     assert reloaded.list()[0]["name"] == "Léo"
     assert reloaded.credentials(ACCOUNT) == "blob"
 
-    file.write_text(json.dumps({"schema_version": 1, "profiles": {}}))
-    with pytest.raises(SchemaVersionMismatch):
-        await SpotifyProfiles(file).initialize()
+
+async def test_an_unreadable_profiles_file_neither_stops_spotify_nor_costs_the_history(tmp_path):
+    """The profiles load first. When an unreadable file raised there, the
+    source's `initialize` stopped before the history and before the base
+    marked it initialized, so every selection ran it again and raised again:
+    Spotify never started until someone deleted the file over SSH."""
+    history_file = tmp_path / "spotify" / "history.json"
+    history = SpotifyHistory(history_file)
+    history.add(ACCOUNT, {"uri": "spotify:track:1"})
+    await history.save()
+    profiles_file = tmp_path / "spotify" / "profiles.json"
+    profiles_file.write_text('{"schema_version": 2, "profiles": {"31')
+    source = spotify_module.SpotifySource({
+        "config_path": str(tmp_path / "config.yml"),
+        "profiles_path": str(profiles_file),
+        "history_path": str(history_file),
+    })
+
+    assert await source.initialize() is True
+
+    assert source.is_initialized
+    assert len(source.profiles) == 0
+    assert source.history.tracks(ACCOUNT) == history.tracks(ACCOUNT) != []
 
 
 async def test_the_successor_is_the_profile_signed_in_last(tmp_path):

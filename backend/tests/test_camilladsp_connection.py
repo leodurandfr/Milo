@@ -40,7 +40,6 @@ import backend.core.equalizer.service as service_module
 from backend.core.equalizer.service import CamillaDSPService, CamillaDspState
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.volume import VolumeStateStore
-from backend.shared.persistence import SchemaVersionMismatch
 from backend.tests.test_volume_dac_and_boot import LOCAL, _wired_service
 
 
@@ -862,35 +861,6 @@ class TestInitialize:
 
         assert order == ["load", "loop"]
 
-    async def test_a_schema_mismatch_is_re_raised_for_the_boot_banner(self, service):
-        """`dependencies.py::init_async` turns this into the banner + SystemExit(1).
-
-        Swallowed into the generic arm below it, the boot would continue with the
-        in-memory defaults and the very next persist would overwrite the file the
-        operator was told to inspect.
-        """
-        service._load_saved_config = AsyncMock(
-            side_effect=SchemaVersionMismatch("equalizer.json", 1, 2)
-        )
-
-        with pytest.raises(SchemaVersionMismatch):
-            await service.initialize()
-
-    async def test_a_schema_mismatch_still_releases_the_startup_waiter(self, service):
-        """The boot is dying, but it must not hang on the way out.
-
-        `VolumeService` is in the same `asyncio.gather`; left waiting it holds
-        the whole init for its 10 s timeout before the banner can be printed.
-        """
-        service._load_saved_config = AsyncMock(
-            side_effect=SchemaVersionMismatch("equalizer.json", 1, 2)
-        )
-
-        with pytest.raises(SchemaVersionMismatch):
-            await service.initialize()
-
-        assert service._connection_ready.is_set()
-
 
 class TestWaitForConnection:
     """The boot rendezvous, read from the waiting side."""
@@ -1259,7 +1229,7 @@ class TestPersistState:
         assert reloaded._filters[0]["gain"] == 6.0
 
     async def test_a_file_that_fails_halfway_leaves_the_defaults_whole(self, service, tmp_path):
-        """The boot reports an unreadable file as "opens on the default curve".
+        """A file set aside is reported as "starts again from its defaults".
 
         Kept field by field up to the value that raised, the cache would hold the
         file's bands and mono over default gains — a curve nobody set, which the
@@ -1274,10 +1244,10 @@ class TestPersistState:
 
         fresh = CamillaDSPService(settings_service=service.settings_service)
         fresh.STORAGE_PATH = Path(tmp_path / "equalizer.json")
-        with pytest.raises(TypeError):
-            await fresh._load_saved_config()
+        await fresh._load_saved_config()
 
         assert fresh.get_equalizer_settings() == CamillaDSPService().get_equalizer_settings()
+        assert not (tmp_path / "equalizer.json").exists()
 
 
 async def _a_trimmed_unit_under_a_subwoofer(
@@ -1472,8 +1442,8 @@ class TestBootOrder:
         reconnect's volume callback opens the room. A boot that gave up on the
         loop because the saved curve could not be read left the server's speaker
         silent at every boot, behind a UI showing a source playing — the EQ is
-        worth losing, the sound is not. The unreadable bytes are kept beside the
-        file, since the next EQ change rewrites it with the defaults.
+        worth losing, the sound is not. The unreadable file is set aside, so its
+        bytes outlive the next EQ change, which writes the defaults.
         """
         client = a_daemon_that_answers_over_a_socket
         dsp, _ = await _a_trimmed_unit_under_a_subwoofer(
@@ -1487,7 +1457,7 @@ class TestBootOrder:
 
         try:
             with caplog.at_level(logging.ERROR):
-                assert await dsp.initialize() is False
+                assert await dsp.initialize() is True
             assert await dsp.wait_for_connection(timeout=2.0) is True
         finally:
             dsp._running = False
@@ -1500,4 +1470,36 @@ class TestBootOrder:
         assert any(
             r.levelno == logging.ERROR and str(saved) in r.getMessage() for r in caplog.records
         )
-        assert (tmp_path / "equalizer.json.corrupted").read_text() == content
+        (kept,) = tmp_path.glob("equalizer.json.*.bad")
+        assert kept.read_text() == content
+
+    async def test_an_equalizer_json_the_card_cannot_read_still_opens_the_dsp(
+        self, a_daemon_that_answers_over_a_socket, camilla_daemon, tmp_path, monkeypatch
+    ):
+        """The one load that is not a set-aside: the card refused the read, so
+        the file stays where it is and the boot reports a service that did not
+        complete. The connection loop starts anyway and unmutes the room, as
+        on a boot that read its curve: the EQ is worth losing, the sound is not.
+        """
+        client = a_daemon_that_answers_over_a_socket
+        dsp, _ = await _a_trimmed_unit_under_a_subwoofer(
+            client, camilla_daemon, tmp_path, monkeypatch
+        )
+        dsp._connected = False
+        dsp._client = None
+        dsp.RECONNECT_DELAY = 0.001
+        saved = tmp_path / "equalizer.json"
+        saved.mkdir()  # read → IsADirectoryError, an OSError like EIO
+
+        try:
+            assert await dsp.initialize() is False
+            assert await dsp.wait_for_connection(timeout=2.0) is True
+        finally:
+            dsp._running = False
+            if dsp._reconnect_task:
+                dsp._reconnect_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await dsp._reconnect_task
+
+        assert call.set_mute(False) in client.mock_calls
+        assert saved.is_dir() and list(tmp_path.glob("equalizer.json.*.bad")) == []

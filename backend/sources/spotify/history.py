@@ -10,13 +10,13 @@ Connect device, so Milō keeps its own the same way: a track is listed when it
 starts playing here, newest first, per account, duplicates kept.
 """
 import asyncio
-import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
 from backend.shared.persistence import load_versioned_json, save_versioned_json
 
-logger = logging.getLogger("source.spotify.history")
+# The top-level keys every file written here holds; one missing sets the file aside.
+REQUIRED_TOP_LEVEL_KEYS = ("accounts",)
 
 
 class SpotifyHistory:
@@ -30,14 +30,11 @@ class SpotifyHistory:
         self._accounts: Dict[str, List[Dict[str, Any]]] = {}
 
     async def initialize(self) -> None:
-        """Load the file; a schema drift raises SchemaVersionMismatch at boot.
-        A file that is not JSON (written atomically, so never half a write)
+        """Load the file. An unreadable one is set aside by the loader and
         costs the list, not the source: the next play writes a new one."""
-        try:
-            data = await load_versioned_json(self._file, self.SCHEMA_VERSION)
-        except ValueError as e:
-            logger.error(f"Spotify history unreadable, starting a new one: {self._file}: {e}")
-            data = {}
+        data = await load_versioned_json(
+            self._file, self.SCHEMA_VERSION, required=REQUIRED_TOP_LEVEL_KEYS
+        )
         self._accounts = data["accounts"] if data else {}
 
     def tracks(self, account: str) -> List[Dict[str, Any]]:

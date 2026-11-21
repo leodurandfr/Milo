@@ -410,16 +410,22 @@ class TestValueValidation:
 
 
 # ==============================================================================
-# BACKUP/RESTORE ON CORRUPTION
+# SET ASIDE ON CORRUPTION
 # ==============================================================================
 
 
-class TestBackupRestore:
-    """Test backup/restore on corruption."""
+def _set_aside(settings_file):
+    """The copies the loader kept of `settings_file`, oldest name first."""
+    path = Path(settings_file)
+    return sorted(path.parent.glob(f"{path.name}.*.bad"))
+
+
+class TestSetAsideOnCorruption:
+    """A corrupt settings.json is set aside, never consumed nor lost."""
 
     @pytest.mark.asyncio
-    async def test_corrupted_json_creates_backup(self, temp_settings_file):
-        """Test that corrupted JSON creates a .corrupted backup file."""
+    async def test_corrupted_json_is_set_aside(self, temp_settings_file):
+        """Test that corrupted JSON is renamed to a .bad file beside it."""
         # Create a corrupted settings file
         with open(temp_settings_file, 'w') as f:
             f.write('{"invalid json": ')
@@ -430,10 +436,7 @@ class TestBackupRestore:
 
         await service.load_settings()
 
-        # Backup file should exist
-        corrupted_file = Path(str(temp_settings_file) + '.corrupted')
-
-        assert corrupted_file.exists()
+        assert len(_set_aside(temp_settings_file)) == 1
 
     @pytest.mark.asyncio
     async def test_corrupted_json_resets_to_defaults(self, temp_settings_file):
@@ -473,8 +476,8 @@ class TestBackupRestore:
         assert value == 'french'
 
     @pytest.mark.asyncio
-    async def test_backup_file_contains_original_content(self, temp_settings_file):
-        """Test that backup file contains the original corrupted content."""
+    async def test_the_file_set_aside_holds_the_original_content(self, temp_settings_file):
+        """Test that the .bad file holds the original corrupted content."""
         corrupted_content = '{"broken": true, missing_quote: }'
 
         # Create a corrupted settings file
@@ -487,12 +490,8 @@ class TestBackupRestore:
 
         await service.load_settings()
 
-        # Read backup file
-        corrupted_file = Path(str(temp_settings_file) + '.corrupted')
-        with open(corrupted_file) as f:
-            backup_content = f.read()
-
-        assert backup_content == corrupted_content
+        (kept,) = _set_aside(temp_settings_file)
+        assert kept.read_text() == corrupted_content
 
     @pytest.mark.asyncio
     async def test_read_locked_corruption_preserves_and_recovers(self, settings_service, temp_settings_file):
@@ -500,9 +499,9 @@ class TestBackupRestore:
 
         Reproduces the crash/corruption scenario: a healthy service whose
         settings.json becomes corrupt at runtime (external tampering / FS
-        damage), then a set_setting write. The corrupt content must be
-        snapshotted to .corrupted (recoverable) BEFORE the write overwrites
-        the file with the new value.
+        damage), then a set_setting write. The corrupt content must be set
+        aside (recoverable) BEFORE the write replaces the file with the new
+        value.
         """
         original = temp_settings_file.read_text()
         assert '"language"' in original
@@ -514,10 +513,9 @@ class TestBackupRestore:
         result = await settings_service.set_setting('language', 'french')
         assert result is True
 
-        # Corrupt snapshot preserved, not silently discarded.
-        corrupted_file = Path(str(temp_settings_file) + '.corrupted')
-        assert corrupted_file.exists()
-        assert corrupted_file.read_text() == '{"language": "french", TRUNCATED'
+        # Corrupt bytes preserved, not silently discarded.
+        (kept,) = _set_aside(temp_settings_file)
+        assert kept.read_text() == '{"language": "french", TRUNCATED'
 
         # File is valid JSON again and carries the new value.
         with open(temp_settings_file) as f:
@@ -525,18 +523,18 @@ class TestBackupRestore:
         assert data['language'] == 'french'
 
     @pytest.mark.asyncio
-    async def test_second_corruption_does_not_clobber_first_backup(self, settings_service, temp_settings_file):
-        """A second corruption event must not overwrite the first snapshot."""
+    async def test_second_corruption_does_not_clobber_the_first_copy(self, settings_service, temp_settings_file):
+        """A second corruption event — in the same second, here — must not
+        land on the first copy."""
         temp_settings_file.write_text('first corrupt payload {')
         await settings_service.set_setting('language', 'french')
 
         temp_settings_file.write_text('second corrupt payload [')
         await settings_service.set_setting('language', 'german')
 
-        first = Path(str(temp_settings_file) + '.corrupted')
-        second = Path(str(temp_settings_file) + '.corrupted.1')
-        assert first.read_text() == 'first corrupt payload {'
-        assert second.read_text() == 'second corrupt payload ['
+        assert sorted(k.read_text() for k in _set_aside(temp_settings_file)) == [
+            'first corrupt payload {', 'second corrupt payload [',
+        ]
 
     @pytest.mark.asyncio
     async def test_empty_file_handled_gracefully(self, temp_settings_file):
