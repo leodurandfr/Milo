@@ -4,7 +4,7 @@
  * accepts (utils/hardwarePins.js), which is the backend's rule restated on the
  * frontend. When a peripheral or a pin field joins the request, the page must
  * learn it too: otherwise its dropdowns offer a pin the PUT refuses, or let two
- * enabled peripherals share one, and Apply & Reboot answers a 422 after two
+ * enabled peripherals share one, and Apply and reboot answers a 422 after two
  * confirmations. So every pin of an enabled-flag section of the request, read
  * from backend/api/models.py, is a field pinOptionsByField knows, reached
  * through the page's own payload, and it is held from every other field

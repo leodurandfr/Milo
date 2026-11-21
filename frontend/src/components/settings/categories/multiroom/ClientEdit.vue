@@ -188,7 +188,7 @@
     </template>
 
     <!-- What the server refused (a setting put back, the delete of an offline
-         speaker) and Apply & Reboot (two-step confirm, only when the audio card
+         speaker) and Apply and reboot (two-step confirm, only when the audio card
          changed), in one sticky footer: two at bottom 0 would overlap. -->
     <div v-if="!isRebooting" class="sticky-footer">
       <SettingsRefusal :detail="refusal">{{ t(refusalMessage) }}</SettingsRefusal>

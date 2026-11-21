@@ -2,7 +2,7 @@
 /**
  * What breaks when these fail: the Hardware page offers a GPIO that
  * HardwareConfigRequest refuses (two encoder lines on one pin, the IR data
- * line on an encoder pin, the power LED on the IR pin), and Apply & Reboot
+ * line on an encoder pin, the power LED on the IR pin), and Apply and reboot
  * answers a 422 after two confirmations. Or it offers too few, and a wiring
  * the unit accepts cannot be chosen.
  */

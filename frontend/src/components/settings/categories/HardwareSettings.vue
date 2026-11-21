@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/HardwareSettings.vue -->
 <template>
   <SectionStack>
-    <!-- Live, outside isDirty: the fan never waits for Apply & Reboot. -->
+    <!-- Live, outside isDirty: the fan never waits for Apply and reboot. -->
     <FanSection v-if="fanStore.available" />
 
     <SectionCard :title="t('hardwareSettings.audioCard')">
@@ -135,7 +135,7 @@
     <!-- A pin the PUT would refuse: why Apply waits. -->
     <NoticeBox v-if="isDirty && unsetPins.length" kind="warning">{{ t('hardwareSettings.pinsUnset') }}</NoticeBox>
 
-    <!-- What the server refused, and Apply & Reboot (two-step confirm), in one
+    <!-- What the server refused, and Apply and reboot (two-step confirm), in one
          sticky footer: two at bottom 0 would overlap. -->
     <div class="sticky-footer">
       <SettingsRefusal :detail="volumeControlRefusal" />
@@ -219,7 +219,7 @@ const volumeControlRefusal = ref(null);
 // nothing on screen.
 watch(config, () => { applyRefusal.value = null; }, { deep: true });
 
-// What waits for Apply & Reboot. The volume management switch is not in it: on
+// What waits for Apply and reboot. The volume management switch is not in it: on
 // the running card it is saved at once (toggleVolumeControl), and on another
 // card it rides with the card change, which is.
 const isDirty = computed(() => {

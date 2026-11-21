@@ -4,7 +4,7 @@
  * translated sentence, with the server's own words folded under it (NoticeBox
  * or SettingsRefusal, `:detail`). Three ways coexisted before — the backend's
  * English line drawn as the message, a translated sentence with the cause
- * thrown away, and nothing at all: a refused Apply & Reboot put the button back
+ * thrown away, and nothing at all: a refused Apply and reboot put the button back
  * without a word, the card left unapplied and the reader none the wiser.
  *
  * The detail reaches a screen through apiCall's `errorRef`, so the rule is read
