@@ -33,6 +33,7 @@ import logging
 import types
 
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 
@@ -139,8 +140,9 @@ class FakeNetworkManager:
     what counts is what NM is left holding rather than which argv was sent.
 
     Only what the recovery path touches is modelled: eth0's lease, the radio,
-    the wireless profiles (name → `802-11-wireless.mode`) and which of them is
-    up or still activating. `unreachable` names the station profiles whose
+    the wireless profiles (name → `802-11-wireless.mode`, each with a UUID drawn
+    from its name, as a save reads it back) and which of them is up or still
+    activating. `unreachable` names the station profiles whose
     network is out of range, with how many more activations of each fail before
     it comes back. `hold(*prefix)` keeps every
     command starting with `prefix` in flight until `release()`, and NM applies
@@ -160,6 +162,10 @@ class FakeNetworkManager:
         self._held: tuple[str, ...] = ()
         self._released = asyncio.Event()
         self._failing: tuple | None = None
+
+    @staticmethod
+    def uuid_of(name: str) -> str:
+        return str(uuid5(NAMESPACE_URL, name))
 
     def hold(self, *prefix: str) -> None:
         self._held = prefix
@@ -222,6 +228,10 @@ class FakeNetworkManager:
             return (0, _device_show("--", None), "")
         if "NAME,TYPE" in args:
             return (0, "\n".join(f"{name}:802-11-wireless" for name in sorted(self.profiles)), "")
+        if "NAME,UUID,TYPE" in args:
+            return (0, "\n".join(
+                f"{name}:{self.uuid_of(name)}:802-11-wireless" for name in sorted(self.profiles)
+            ), "")
         if "802-11-wireless.mode" in args:
             name = args[-1]
             if name not in self.profiles:
@@ -229,8 +239,9 @@ class FakeNetworkManager:
             return (0, f"802-11-wireless.mode:{self.profiles[name]}", "")
         if args[:2] == ("connection", "add"):
             mode = args[args.index("wifi.mode") + 1] if "wifi.mode" in args else "infrastructure"
-            self.profiles[args[args.index("con-name") + 1]] = mode
-            return (0, "", "")
+            name = args[args.index("con-name") + 1]
+            self.profiles[name] = mode
+            return (0, f"Connection '{name}' ({self.uuid_of(name)}) successfully added.", "")
         if args[:2] in (("connection", "delete"), ("connection", "up")):
             name = args[2]
             if name not in self.profiles:
@@ -1598,6 +1609,31 @@ async def test_every_saved_network_gets_its_turn(service):
 
     tries = [call[2] for call in fake.calls if call[:2] == ("connection", "up") and call[2] != HOTSPOT_NAME]
     assert tries == ["milo-Ancienne", STATION]
+
+
+@pytest.mark.asyncio
+async def test_a_network_saved_over_the_access_point_is_the_next_one_tried(service):
+    """A server whose home WiFi changed is repaired by a phone on its AP, which
+    saves the new network (Settings › Network) and cannot forget the old one
+    over it. The old profile stays, and took the turn that was its own: while
+    the phone held tries off, one came every quarter of an hour, so the network
+    saved was tried a turn late, half the time."""
+    nm = FakeNetworkManager(
+        profiles={"milo-Ancienne": "infrastructure"},
+        unreachable={"milo-Ancienne": 1000},
+    )
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 0.001), \
+         patch("backend.core.network.service.STATION_RETRY_MAX_HOLDS", 1000):
+        with service.serving_recovery_client():
+            await service.evaluate_reachability()
+            await settle_until(lambda: HOTSPOT_NAME in nm.active)
+            await service.save_network("Maison", "secret")
+        await settle_until(lambda: STATION in nm.active)
+        await service.cleanup()
+
+    tries = [call[2] for call in fake.calls if call[:2] == ("connection", "up") and call[2] != HOTSPOT_NAME]
+    assert tries == [STATION]
 
 
 @pytest.mark.asyncio

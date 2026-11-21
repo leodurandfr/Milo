@@ -860,13 +860,18 @@ state_machine.system_state.active_source = source
    (`milo-client/app/tests/test_{set_timezone,join_wifi,set_password}_helper.py`).
 
 5. **A write over the recovery access point is refused unless it is listed.** A client of the AP
-   may only read, and before setup send `PRE_SETUP_WRITES` (`api/middleware.py`; see
+   may only read, before setup send `PRE_SETUP_WRITES`, and once set up send `PRESENCE_WRITES`
+   on a proof of presence the guard asks itself (`api/middleware.py`; see
    [architecture.md § Recovery access point](architecture.md#recovery-access-point)). A new
-   wizard or adoption call that must work over the AP joins that list, as an exact path with no
-   parameter, or it answers 403 there; `tests/architecture/test_recovery_ap_guard.py` refuses an
+   wizard or adoption call that must work over the AP joins the first list, as an exact path with
+   no parameter, or it answers 403 there; `tests/architecture/test_recovery_ap_guard.py` refuses an
    entry that is not one route of the app or has no caller in `components/setup/`,
-   `composables/useNetwork.js` or `core/multiroom/wifi_adoption.py`. Nothing else is added to it:
-   once set up, a unit is repaired from its screen or over Ethernet.
+   `composables/useNetwork.js` or `core/multiroom/wifi_adoption.py`. The second holds the WiFi
+   save alone, the one repair of a unit with no screen and no Ethernet, from the unit's own AP
+   only, with the dialog's Cancel beside it in `PRESENCE_CANCELS`; an entry there needs a
+   `PresenceAction` of its own, a frontend caller on `presenceStore.request()`, and a row in
+   `test_presence_guard.py`. Nothing else is added to either: once set up, a unit is repaired
+   from its screen or over Ethernet.
 
 ### Frontend
 

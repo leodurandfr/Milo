@@ -972,7 +972,7 @@
       "thisDevice": "Este dispositivo: {name} ({ip})",
       "recheck": "Verificar novamente",
       "shutdown": "Desligar este dispositivo",
-      "speakerHint": "Se este aparelho deve ser uma coluna e não um segundo Milō, desligue-o e adicione-o em Definições → Multiroom do seu Milō principal."
+      "speakerHint": "Um só Milō por rede. Para fazer deste dispositivo uma coluna, reponha-o ou volte a gravar o seu cartão."
     },
     "ssh": {
       "title": "SSH",
@@ -1009,7 +1009,8 @@
         "ssh_open": "Abrir SSH",
         "password": "Alterar a palavra-passe",
         "program_upstream": "Instalar uma versão não validada",
-        "reset_setup": "Repor a configuração"
+        "reset_setup": "Repor a configuração",
+        "wifi_save": "Guardar uma rede WiFi"
       },
       "gestures": {
         "rotary": "Rode ou prima o botão rotativo do dispositivo. Não tem botão rotativo? Cancele, desative o codificador rotativo em Configurações › Hardware e volte a pedir daqui a {time}.",

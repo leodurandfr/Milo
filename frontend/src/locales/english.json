@@ -972,7 +972,7 @@
       "thisDevice": "This device: {name} ({ip})",
       "recheck": "Check again",
       "shutdown": "Turn off this device",
-      "speakerHint": "If this device should be a speaker rather than a second Milō, turn it off, then add it from Settings → Multiroom on your main Milō."
+      "speakerHint": "One Milō per network. To make this device a speaker, reset it or reflash it."
     },
     "ssh": {
       "title": "SSH",
@@ -1009,7 +1009,8 @@
         "ssh_open": "Open SSH",
         "password": "Change the password",
         "program_upstream": "Install an unvalidated version",
-        "reset_setup": "Reset configuration"
+        "reset_setup": "Reset configuration",
+        "wifi_save": "Save a WiFi network"
       },
       "gestures": {
         "rotary": "Turn or press the knob on the device. No knob on it? Cancel, turn off the rotary encoder in Settings › Hardware, and ask again in {time}.",

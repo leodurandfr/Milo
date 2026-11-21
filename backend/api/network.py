@@ -67,7 +67,12 @@ def create_network_router(network_service: "NetworkService"):
 
     @router.post("/wifi/save", response_model=WifiSaveEnvelope)
     async def save_network(request: WifiConnectRequest):
-        """Save WiFi credentials without connecting (for hotspot setup mode)."""
+        """Save WiFi credentials without connecting: what a client of the recovery
+        access point sends, which taking the radio to connect would cut off. The
+        setup wizard's write over it, and once the unit is set up, its one repair
+        over it — admitted then on a proof of presence alone, by
+        `api/middleware.py::RecoveryAccessPointGuard`, which this route leaves the
+        judging to."""
         async with api_error_handler("WiFi save", logger):
             await network_service.save_network(request.ssid, request.password)
             return {"status": "success", "data": {"ssid": request.ssid}}

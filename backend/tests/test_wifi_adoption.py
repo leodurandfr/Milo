@@ -434,6 +434,17 @@ class TestAdoptionOrchestration:
         assert "connection.autoconnect" in added[0]
         assert added[0][added[0].index("connection.autoconnect") + 1] == "no"
 
+    async def test_the_temp_profile_carries_no_ipv6(self, adopting, spawns):
+        """On the speaker's open hotspot this server is one client among
+        whoever joined it. sshd refuses them by their IPv4 subnet
+        (milo-recovery-ap.conf); a link-local IPv6 address on wlan0 is reached
+        past that refusal, by sshd and every other listener."""
+        await _adopt(adopting)
+
+        added = spawns.argv_containing("connection", "add")[0]
+        assert "ipv6.method" in added
+        assert added[added.index("ipv6.method") + 1] == "disabled"
+
     async def test_the_speaker_is_handed_the_home_credentials_at_its_gateway(
         self, adopting, speaker
     ):

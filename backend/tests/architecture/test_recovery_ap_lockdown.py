@@ -8,7 +8,9 @@ a daemon CI never runs:
   * the polkit rule, which grants NetworkManager to the backend's user and to no
     one else — though every daemon Milō runs, and every SSH login, is that user
     too: bound to the backend's unit, it refused the backend itself (measured);
-  * the sshd drop-in, which refuses a connection made to the AP's address;
+  * the sshd drop-in, which refuses a connection from the AP's subnet — a client
+    of this unit's recovery AP, or of the speaker's hotspot an adoption takes
+    this unit onto;
   * the nginx site, whose `X-Forwarded-For` is how the gate learns who is asking —
     a proxied path without it hands the backend nginx's loopback address.
 
@@ -19,7 +21,7 @@ on an empty surface.
 import re
 from pathlib import Path
 
-from backend.config.constants import RECOVERY_AP_ADDRESS
+from backend.config.constants import RECOVERY_AP_SUBNET
 from backend.tests.architecture.test_proxy_timeouts import _locations
 from backend.tests.architecture.test_rootfs_deployment import INSPECT_IMAGE_SH, _stage_text
 
@@ -91,17 +93,28 @@ def _sshd_matches() -> list[tuple[str, list[str]]]:
     return blocks
 
 
-def test_sshd_refuses_connections_to_the_recovery_ap_address():
-    """The drop-in refuses a connection made to the address the AP pins on wlan0.
+def test_sshd_refuses_every_client_of_the_recovery_ap_subnet():
+    """The drop-in refuses a connection *from* the AP's subnet, whatever it dialed.
 
-    Fails when the address drifts from `RECOVERY_AP_ADDRESS` — the profile moves,
-    the drop-in matches nothing, and a stranger on the open AP reaches a login
-    prompt — or when the block stops refusing.
+    Matched on the address dialed (`LocalAddress 10.42.0.1`), it let through
+    every client of a speaker's open hotspot while an adoption held this unit on
+    it — there this unit is a 10.42.0.x client itself — and any client of either
+    AP that dialed this unit's LAN address over wlan0. The HTTP guard refused
+    them in the same case. Fails when the criterion is the dialed address
+    again, when the subnet drifts from `RECOVERY_AP_SUBNET` (the AP moves, the
+    drop-in matches nothing, and a stranger on the open AP reaches a login
+    prompt), when the match narrows to some of its clients, or when the block
+    stops refusing.
+
+    The match is IPv4 only, which is why both links carry no IPv6: the AP's
+    profile is pinned by test_network_service.py, the adoption's by
+    test_wifi_adoption.py.
     """
     matches = _sshd_matches()
-    criteria = {m.split()[0].lower(): m.split()[1] for m, _ in matches if len(m.split()) == 2}
-    assert criteria.get("localaddress") == RECOVERY_AP_ADDRESS, matches
-    refused = next(body for m, body in matches if m.split()[0].lower() == "localaddress")
+    criteria = [m.split() for m, _ in matches]
+    assert all(c[0].lower() != "localaddress" for c in criteria), matches
+    assert ["address", RECOVERY_AP_SUBNET] in [[c[0].lower(), *c[1:]] for c in criteria], matches
+    refused = next(body for m, body in matches if m.split()[0].lower() == "address")
     assert [d.lower() for d in refused] == ["refuseconnection yes"], refused
 
 

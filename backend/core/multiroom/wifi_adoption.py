@@ -305,12 +305,18 @@ class WifiAdoptionService:
         # autoconnect=no: this profile is torn down in a `finally`, but a crash
         # or power cut before that would otherwise leave the server permanently
         # re-joining the speaker's hotspot instead of the home network.
+        # IPv6 off: on that open hotspot this server is one client among
+        # whoever joined it, and sshd refuses them by their IPv4 subnet
+        # (rootfs/etc/ssh/sshd_config.d/milo-recovery-ap.conf). A link-local
+        # address on wlan0 would hand them every listener past that refusal —
+        # the speaker's own AP carries no IPv6 for the same reason.
         rc, _, stderr = await self._run_nmcli(
             "connection", "add",
             "type", "wifi",
             "ifname", WLAN_INTERFACE,
             "con-name", ADOPTION_PROFILE,
             "ssid", ssid,
+            "ipv6.method", "disabled",
             "connection.autoconnect", "no",
         )
         if rc != 0:

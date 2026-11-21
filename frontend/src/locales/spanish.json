@@ -972,7 +972,7 @@
       "thisDevice": "Este dispositivo: {name} ({ip})",
       "recheck": "Volver a comprobar",
       "shutdown": "Apagar este dispositivo",
-      "speakerHint": "Si este dispositivo debe ser un altavoz y no un segundo Milō, apáguelo y añádalo desde Ajustes → Multiroom de su Milō principal."
+      "speakerHint": "Un solo Milō por red. Para convertir este dispositivo en un altavoz, restablézcalo o vuelva a flashearlo."
     },
     "ssh": {
       "title": "SSH",
@@ -1009,7 +1009,8 @@
         "ssh_open": "Abrir SSH",
         "password": "Cambiar la contraseña",
         "program_upstream": "Instalar una versión no validada",
-        "reset_setup": "Restablecer la configuración"
+        "reset_setup": "Restablecer la configuración",
+        "wifi_save": "Guardar una red WiFi"
       },
       "gestures": {
         "rotary": "Gire o pulse el mando del dispositivo. ¿No tiene mando? Cancele, desactive el codificador rotativo en Ajustes › Hardware y vuelva a solicitarlo dentro de {time}.",

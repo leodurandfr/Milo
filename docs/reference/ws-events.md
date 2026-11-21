@@ -1079,7 +1079,7 @@ Why a session ended.
 
 What a challenge was opened for: one member per guarded route.
 
-`ssh_open`, `password`, `program_upstream`, `reset_setup`
+`ssh_open`, `password`, `program_upstream`, `reset_setup`, `wifi_save`
 
 ### Gesture
 

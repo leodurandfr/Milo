@@ -1453,7 +1453,8 @@ rate limiting anywhere in the stack. What protects a unit is that nothing reache
 the local network. Do not expose a Milō to the internet.
 
 One network a unit serves is not that LAN: its recovery access point, which is open to anyone in
-radio range (below). Its clients are confined to reading.
+radio range (below). Its clients are confined to reading, but for a WiFi save on a proof of
+presence.
 
 ### Rate limiting
 **None.** There is no rate limiter in the backend and none in the nginx config — no `slowapi`, no
@@ -1521,22 +1522,43 @@ client among whoever else joined it. It may:
 - before setup only (`setup_completed` reads exactly `false`), send `PRE_SETUP_WRITES`: the
   wizard's `PUT /api/network/wifi/country`, `POST /api/network/wifi/save` and
   `POST /api/setup/complete`, and the adoption's `POST /api/setup/become-client`, which the
-  adopting server sends from a `10.42.0.x` address straight to the fresh speaker's :8000.
+  adopting server sends from a `10.42.0.x` address straight to the fresh speaker's :8000;
+- once set up, and from the unit's own AP only (`recovery_ap_possible`, never a speaker's
+  hotspot during an adoption, where the owner at the unit would prove a stranger's challenge),
+  send `PRESENCE_WRITES` — `POST /api/network/wifi/save` alone — on a proof of presence
+  (`backend/core/system/presence.py`, action `wifi_save`): the guard asks for it itself, through
+  the same `require_presence` the guarded routes call, and answers as they do (428 with the
+  challenge, 409, 503; 503 too when built without a presence service). It asks before the route
+  validates the body, so a body the route refuses costs a gesture; the UI sends none. The route
+  asks nothing of the kiosk or the LAN, where saving a network is a setting like any other. The
+  dialog's Cancel, `PRESENCE_CANCELS` (`DELETE /api/system/presence`), is admitted there with no
+  proof: it ends only the challenge whose token it carries.
 
 Every other request answers 403 `{"detail": "Not available over the recovery access point"}`,
-SSH and the password included, before setup too. A `setup_completed` that cannot be read counts
-as set up. The list is matched on the exact decoded path, which is the router's own match since no
-entry takes a parameter; a spelling the router would normalize is refused, never admitted. A
-refused client is logged once at WARNING per AP episode, then at DEBUG. Middleware order at
-runtime: `RequestOriginGate` → CORS → `RecoveryAccessPointGuard` → `RecoveryClientTracker` → app;
-the guard sits outside the tracker so a refused request never holds off the home-network retry.
-`tests/architecture/test_recovery_ap_guard.py` sends every write in the live route table as an AP
-client and expects 403 for all but the list, and requires every entry to be one route with a
-caller in the wizard or `wifi_adoption.py`.
+SSH and the password included, before setup too, whatever proof it carries. A `setup_completed`
+that cannot be read counts as set up. The lists are matched on the exact decoded path, which is
+the router's own match since no entry takes a parameter; a spelling the router would normalize is
+refused, never admitted. A refused client is logged once at WARNING per AP episode, then at DEBUG.
+Middleware order at runtime: `RequestOriginGate` → CORS → `RecoveryAccessPointGuard` →
+`RecoveryClientTracker` → app; the guard sits outside the tracker so a refused request never holds
+off the home-network retry. `tests/architecture/test_recovery_ap_guard.py` sends every write in the
+live route table as an AP client and expects 403 for all but the lists, holds the save over the AP
+both ways (refused without the gesture and from a speaker's hotspot, admitted once with it,
+nothing else admitted by its token), checks that `main.py` hands the guard the presence service,
+and requires every entry to be one route with a caller: in the wizard or `wifi_adoption.py`, the
+store's Cancel, or, for a write on a proof, sent by every caller through
+`presenceStore.request()`.
 
-So a unit that is set up is never repaired over its AP: its WiFi is repaired from the touch
-screen (the kiosk is loopback, not an AP client) or over Ethernet. A proof of presence that would
-admit a write over the AP belongs in that guard; none exists yet.
+So a unit that is set up is repaired over its AP in one way only: Settings › Network, from a
+browser on the AP, *saves* a network rather than joining it (joining would take the one radio
+from under that browser), the unit waits for the gesture, and the home-network retry
+(`STATION_RETRY_S`) tries the saved network on its next turn, ahead of the networks saved before
+it, the old home's among them. That is the repair of a server with no screen and no Ethernet whose
+home WiFi changed. With neither a knob nor a Pi 5 power key the gesture is a power cut, and the AP
+is back only some 80 s after the backend starts: a proof made that way waits `PROOF_S` past
+`RECOVERY_AP_RAISED_WITHIN_S`, so the phone that asked can still come back over the AP and spend
+it. Everything else is repaired from the touch
+screen (the kiosk is loopback, not an AP client, and joins at once) or over Ethernet.
 
 Both repair paths go through `POST /api/network/wifi/connect`, which never deletes before it
 tries. It writes a trial profile in memory with autoconnect off and brings it up by UUID; on
@@ -1549,22 +1571,24 @@ carries (a `milo-*` profile by its name, which carries it), so an Imager `precon
 one written by hand is replaced and forgotten with Milō's own; the satellite's
 `milo-client-join-wifi` matches the same way.
 
-Below HTTP, sshd refuses every connection made to the AP's address
-(`rootfs/etc/ssh/sshd_config.d/milo-recovery-ap.conf`: `Match LocalAddress 10.42.0.1` /
-`RefuseConnection yes`, OpenSSH ≥ 10.0), so the shell is reachable only over the home network or
-Ethernet. sshd reads its config at start; a Milō update installs the drop-in only once
+Below HTTP, sshd refuses every connection from the AP's subnet
+(`rootfs/etc/ssh/sshd_config.d/milo-recovery-ap.conf`: `Match Address 10.42.0.0/24` /
+`RefuseConnection yes`, OpenSSH ≥ 10.0), whatever address it dialed, so the shell is reachable
+only over the home network or Ethernet. Matched on the source, it also covers the two cases a match
+on the dialed `10.42.0.1` left open: a client of the AP that dials the unit's LAN address over
+wlan0, and, while an adoption holds the server on a speaker's open hotspot, that hotspot's other
+clients, among which the server is a `10.42.0.x` client itself. The match is IPv4, so neither link
+carries IPv6: the AP's profile and the adoption's (`wifi_adoption.py`) both set
+`ipv6.method disabled`, or a link-local address would reach sshd past it. The price: a home LAN
+numbered `10.42.0.0/24`, like NetworkManager's `shared` default, has no SSH from its clients. sshd reads its config at start; a Milō update installs the drop-in only once
 `sshd -t` accepts the whole config (the previous copy is put back otherwise, since sshd refuses to
 start on a config it cannot parse), then reloads a running sshd (`try-reload-or-restart`, which
-starts none). `tests/architecture/test_recovery_ap_lockdown.py` holds its address
-equal to `RECOVERY_AP_ADDRESS`, checks that the image ships it and `inspect-image.sh` compares it,
-pins the polkit rule (Permissions, below) and requires `X-Forwarded-For` on every nginx location
-that proxies to the backend, `/ws` included. Known limits: the other ports under Exposure stay
-reachable from the AP at L4, each with its own gate or none; and a client that addresses the unit's
-LAN address over wlan0 reaches sshd under that address, a small window since the AP rises only
-with no other link; and while an adoption holds the server on a speaker's hotspot, it is a
-`10.42.0.x` client there, not `10.42.0.1`, so sshd does not refuse that hotspot's other clients
-(the HTTP guard does). Matching all of `10.42.0.0/24` would close it, and take SSH away from a home
-LAN numbered like the AP.
+starts none). `tests/architecture/test_recovery_ap_lockdown.py` holds its subnet
+equal to `RECOVERY_AP_SUBNET` and refuses a match on the dialed address, checks that the image
+ships it and `inspect-image.sh` compares it, pins the polkit rule (Permissions, below) and requires
+`X-Forwarded-For` on every nginx location that proxies to the backend, `/ws` included. Known
+limit: the other ports under Exposure stay reachable from the AP at L4, each with its own gate or
+none.
 
 ### The home WiFi key
 The key of the network the server is on never leaves it through the API. One reader decides what

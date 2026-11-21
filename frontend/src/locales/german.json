@@ -972,7 +972,7 @@
       "thisDevice": "Dieses Gerät: {name} ({ip})",
       "recheck": "Erneut prüfen",
       "shutdown": "Dieses Gerät ausschalten",
-      "speakerHint": "Wenn dieses Gerät ein Lautsprecher und kein zweiter Milō sein soll, schalten Sie es aus und fügen Sie es unter Einstellungen → Multiroom Ihres Haupt-Milō hinzu."
+      "speakerHint": "Ein Milō pro Netzwerk. Um dieses Gerät zu einem Lautsprecher zu machen, setzen Sie es zurück oder flashen Sie es neu."
     },
     "ssh": {
       "title": "SSH",
@@ -1009,7 +1009,8 @@
         "ssh_open": "SSH öffnen",
         "password": "Passwort ändern",
         "program_upstream": "Nicht validierte Version installieren",
-        "reset_setup": "Konfiguration zurücksetzen"
+        "reset_setup": "Konfiguration zurücksetzen",
+        "wifi_save": "WLAN-Netzwerk speichern"
       },
       "gestures": {
         "rotary": "Drehen oder drücken Sie den Drehknopf am Gerät. Kein Drehknopf vorhanden? Brechen Sie ab, deaktivieren Sie den Drehregler unter Einstellungen › Hardware und versuchen Sie es in {time} erneut.",

@@ -386,10 +386,12 @@ app = FastAPI(
 app.add_middleware(RecoveryClientTracker, network_service=network_service)
 
 # Outside the tracker for that reason, inside CORS so an admitted reader reads its
-# 403 like any route's. See backend/api/middleware.py.
+# 403 — or the 428 of the one write it admits on a proof of presence — like any
+# route's. See backend/api/middleware.py.
 app.add_middleware(
     RecoveryAccessPointGuard,
     network_service=network_service, settings_service=settings_service,
+    presence_service=presence_service,
 )
 
 # CORS configuration - restricted to authorized origins

@@ -24,10 +24,13 @@
         :cta-secondary-click="handleShutdown"
       />
 
-      <!-- The other reading of this screen, and the likelier one on a fresh
-           unit: a speaker powered on before the server it should have joined
-           finds no milo.local, stays a server, and shows its own wizard. Both
-           CTAs above are dead ends in that case — this is the way out. -->
+      <!-- The other reading of this screen: a speaker powered on before the
+           server it should have joined finds no milo.local and stays a
+           server. Two servers on one network are not supported, and a server
+           never turns into a speaker in place — adding it from Multiroom only
+           works on a unit that is not set up. So this says the way there, a
+           reset (first boot again, role detection included) or a reflash, and
+           offers no button for it. -->
       <p class="text-mono-medium conflict-speaker-hint">
         {{ t('system.hostnameConflict.speakerHint') }}
       </p>

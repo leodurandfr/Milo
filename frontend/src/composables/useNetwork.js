@@ -1,6 +1,7 @@
 // frontend/src/composables/useNetwork.js
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
+import { usePresenceStore } from '@/stores/presenceStore';
 
 /**
  * Module-level singleton state (persists across component instances).
@@ -208,12 +209,16 @@ export function useNetwork() {
     connecting.value = false;
   }
 
+  // Through the proof of presence: a client of the recovery access point saves
+  // a network only once a gesture on the unit confirms it, the unit being set
+  // up (backend/api/middleware.py::RecoveryAccessPointGuard). Everyone else's
+  // save answers as it would straight through apiCall.
   async function saveNetwork(network, t) {
     connecting.value = true;
     connectError.value = '';
     connectDetail.value = null;
     const payload = { ssid: network.ssid, password: network.security ? password.value : null };
-    const result = await apiCall.post('/api/network/wifi/save', payload, {
+    const result = await usePresenceStore().request('post', '/api/network/wifi/save', payload, {
       category: 'network',
       message: 'WiFi save failed',
       errorRef: connectDetail
@@ -226,7 +231,8 @@ export function useNetwork() {
         ...status.value,
         wifi: { ...status.value.wifi, saved_ssid: network.ssid },
       };
-    } else {
+    } else if (result.error) {
+      // No error: the gesture was not made, and the presence dialog said so.
       connectError.value = t('network.saveFailed');
     }
     connecting.value = false;

@@ -972,7 +972,7 @@
       "thisDevice": "此设备：{name}（{ip}）",
       "recheck": "重新检测",
       "shutdown": "关闭此设备",
-      "speakerHint": "如果这台设备应该作为音箱而不是第二台 Milō，请将其关机，然后在主 Milō 的「设置 → 多房间」中添加它。"
+      "speakerHint": "每个网络只能有一台 Milō。要将此设备用作音箱，请重置它或重新刷写系统。"
     },
     "ssh": {
       "title": "SSH",
@@ -1009,7 +1009,8 @@
         "ssh_open": "打开 SSH",
         "password": "更改密码",
         "program_upstream": "安装未经验证的版本",
-        "reset_setup": "重置配置"
+        "reset_setup": "重置配置",
+        "wifi_save": "保存 WiFi 网络"
       },
       "gestures": {
         "rotary": "请转动或按下设备上的旋钮。没有旋钮？请取消，在“设置 › 硬件”中关闭旋转编码器，然后在 {time} 后重新请求。",

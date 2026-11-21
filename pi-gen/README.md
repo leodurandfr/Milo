@@ -103,9 +103,14 @@ The frontend is built before the stage runs — by `build-image.yml` for a relea
   encryption that needs no password (OWE) in access-point mode — so the home WiFi key typed in
   the wizard crosses it in clear, and so does the key the server hands a fresh speaker during a
   WiFi adoption from Settings › Multiroom. An **Ethernet cable avoids both and is the
-  recommended path**, for the first boot and for the adoption alike. SSH is never served over
-  the access point, and before setup its clients may send only the wizard's writes. Once the
-  unit is set up they can only read, and WiFi is repaired from the touch screen or over
+  recommended path**, for the first boot and for the adoption alike. SSH is never served to a
+  client of the access point's subnet: sshd refuses `10.42.0.0/24` whatever address it dialed,
+  which also covers the speaker's own open hotspot while the server is on it for an adoption,
+  and neither link carries IPv6, so no link-local address gets around that. Before setup the
+  access point's clients may send only the wizard's writes. Once the unit is set up they can
+  read, and save a WiFi network only after a gesture on the unit itself
+  (`backend/core/system/presence.py`): that is how a server with no screen and no Ethernet whose
+  home WiFi changed is repaired. Anything else is repaired from the touch screen or over
   Ethernet.
 - **Hostname**: `milo` (renamed to `milo-client` on first boot if an existing `milo.local` is detected on the network)
 - **Locale**: `en_US.UTF-8`

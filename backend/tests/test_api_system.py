@@ -42,7 +42,9 @@ from backend.api import system as api_system
 from backend.api.middleware import RECOVERY_AP_REFUSAL, RecoveryAccessPointGuard
 from backend.api.network import create_network_router
 from backend.api.system import create_system_router
+from backend.core.models.presence import PresenceAction
 from backend.core.system import localtime as localtime_module
+from backend.core.system.presence import PresenceBusy
 from backend.tests.conftest import shortened_wait_for
 
 
@@ -727,10 +729,11 @@ class TestRecoveryAccessPoint:
 
     @pytest.fixture
     def network(self):
-        """The guard's half of NetworkService (whether the AP may be up) and the
-        network router's (the two wizard writes, recorded)."""
+        """The guard's half of NetworkService (whether an open AP, and this unit's
+        own, may be up) and the network router's (the two wizard writes, recorded)."""
         service = Mock()
         service.open_ap_reachable = True
+        service.recovery_ap_possible = True
         service.set_country = AsyncMock()
         service.save_network = AsyncMock()
         return service
@@ -751,7 +754,10 @@ class TestRecoveryAccessPoint:
             prefix="/api/system",
         )
         app.include_router(create_network_router(network))
-        app.add_middleware(RecoveryAccessPointGuard, network_service=network, settings_service=settings)
+        app.add_middleware(
+            RecoveryAccessPointGuard,
+            network_service=network, settings_service=settings, presence_service=presence,
+        )
         return lambda peer: TestClient(app, client=(peer, 41000))
 
     @pytest.fixture
@@ -796,6 +802,9 @@ class TestRecoveryAccessPoint:
 
     OUTLIVE_THE_OUTAGE = ["ssh", "password", "reset-setup", "restart"]
     WIZARD = ["wifi-country", "wifi-save"]
+    # The wizard's writes a unit set up still takes over the AP, on a proof of
+    # presence for this action.
+    ON_A_PROOF = {"wifi-save": PresenceAction.WIFI_SAVE}
 
     THROUGH = [
         pytest.param("127.0.0.1", "10.42.0.5", id="through-nginx"),
@@ -825,24 +834,34 @@ class TestRecoveryAccessPoint:
     @pytest.mark.parametrize("name", WIZARD)
     @pytest.mark.parametrize("peer,real_ip", THROUGH)
     def test_the_wizard_writes_over_the_ap_until_setup_is_done(
-        self, reached_from, routes, network, settings, name, peer, real_ip,
+        self, reached_from, routes, network, settings, presence, name, peer, real_ip,
     ):
         """The first-boot wizard runs over this AP from a phone; refused, a fresh unit
-        cannot be given its home network. Once set up, the same write is a
-        neighbor's way to point the unit at a network of theirs."""
+        cannot be given its home network. Once set up, the same write on its own
+        word is a neighbor's way to point the unit at a network of theirs: the
+        save waits for a gesture on the unit, the rest is refused."""
         settings.stored["setup_completed"] = False
         assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
+        presence.require.assert_not_awaited()
 
         settings.stored["setup_completed"] = True
         network.reset_mock()
-        assert self._send(reached_from(peer), routes[name], real_ip) == (403, False)
+        if name not in self.ON_A_PROOF:
+            assert self._send(reached_from(peer), routes[name], real_ip) == (403, False)
+            presence.require.assert_not_awaited()
+            return
+        presence.require.side_effect = PresenceBusy("no gesture yet")
+        assert self._send(reached_from(peer), routes[name], real_ip) == (409, False)
+        presence.require.side_effect = None
+        assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
+        assert presence.require.await_args.args[0] is self.ON_A_PROOF[name]
 
     @pytest.mark.parametrize("failure", [
         pytest.param(OSError("settings.json unreadable"), id="read-raises"),
         pytest.param(None, id="read-answers-nothing"),
     ])
     def test_a_setting_that_cannot_be_read_counts_as_set_up(
-        self, reached_from, routes, settings, failure,
+        self, reached_from, routes, settings, presence, failure,
     ):
         """Opening on a failed read would hand the wizard's writes to the AP of a unit
         set up whenever its settings misbehave."""
@@ -850,8 +869,11 @@ class TestRecoveryAccessPoint:
             settings.get_setting = AsyncMock(return_value=None)
         else:
             settings.get_setting = AsyncMock(side_effect=failure)
+        presence.require.side_effect = PresenceBusy("no gesture yet")
 
-        assert self._send(reached_from("10.42.0.5"), routes["wifi-save"], None) == (403, False)
+        assert self._send(reached_from("10.42.0.5"), routes["wifi-country"], None) == (403, False)
+        assert self._send(reached_from("10.42.0.5"), routes["wifi-save"], None) == (409, False)
+        assert presence.require.await_args.args[0] is PresenceAction.WIFI_SAVE
 
     def test_a_client_of_the_ap_may_still_read(self, reached_from, routes):
         """The AP exists so the owner can see what is wrong; status reads are its point.
@@ -875,13 +897,16 @@ class TestRecoveryAccessPoint:
         pytest.param("10.42.0.5", None, False, id="lan-numbered-like-the-ap"),
     ])
     def test_everyone_else_is_served(
-        self, reached_from, routes, network, name, peer, real_ip, ap_up,
+        self, reached_from, routes, network, presence, name, peer, real_ip, ap_up,
     ):
         """The kiosk is the owner at the unit itself, and the way to repair it once
-        set up; a home LAN may well be 10.42.0.0/24."""
+        set up; a home LAN may well be 10.42.0.0/24. Neither is asked for a
+        gesture by the guard (the routes that reach root ask it themselves)."""
         network.open_ap_reachable = ap_up
 
         assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
+        asked = [call.args[0] for call in presence.require.await_args_list]
+        assert PresenceAction.WIFI_SAVE not in asked
 
     def test_one_warning_per_client_per_access_point_episode(
         self, reached_from, routes, network, caplog,

@@ -27,6 +27,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api import system as api_system
+from backend.api.middleware import PRESENCE_WRITES, RecoveryAccessPointGuard
+from backend.api.network import create_network_router
 from backend.api.programs import create_programs_router
 from backend.api.system import create_system_router
 from backend.core.models.presence import Gesture, PresenceAction
@@ -41,6 +43,8 @@ GUARDED = [
     (PresenceAction.PASSWORD, "post", "/api/system/password", {"password": "correct horse"}),
     (PresenceAction.PROGRAM_UPSTREAM, "post", "/api/programs/go-librespot/update", {"target": "upstream"}),
     (PresenceAction.RESET_SETUP, "post", "/api/system/reset-setup", None),
+    # Over the recovery AP only, on a unit set up: the guard asks it, not the route.
+    (PresenceAction.WIFI_SAVE, "post", "/api/network/wifi/save", {"ssid": "Maison", "password": "correct horse"}),
 ]
 
 # The halves of the same routes that do not reach root, and stay open.
@@ -52,6 +56,8 @@ OPEN = [
 # Every process on the unit has this address, and nginx names it for the kiosk.
 LOOPBACK = {"client": ("127.0.0.1", 41000)}
 THROUGH_NGINX = {"X-Real-IP": "127.0.0.1"}
+# The paths guarded for a client of the recovery AP alone, sent from one.
+FROM_THE_AP = {"/api/network/wifi/save": {"X-Real-IP": "10.42.0.5"}}
 
 
 class _Box:
@@ -92,6 +98,10 @@ class _Box:
         )
         self.updates.update_program = AsyncMock(return_value={"success": True})
 
+        # A set-up unit with its recovery AP up.
+        self.network = Mock(open_ap_reachable=True, recovery_ap_possible=True, save_network=AsyncMock())
+        self.settings = Mock(get_setting=AsyncMock(return_value=True))
+
     def touched(self, action) -> bool:
         return {
             PresenceAction.SSH_OPEN: lambda: self.systemd.set_enabled.await_count > 0,
@@ -101,6 +111,7 @@ class _Box:
             PresenceAction.RESET_SETUP: lambda: (
                 self.reset_marker.exists() or self.systemd.power.await_count > 0
             ),
+            PresenceAction.WIFI_SAVE: lambda: self.network.save_network.await_count > 0,
         }[action]()
 
 
@@ -130,6 +141,11 @@ def _unit(tmp_path, monkeypatch, **board):
     app.include_router(
         create_programs_router(box.updates, MagicMock(), state_machine, presence_service=presence)
     )
+    app.include_router(create_network_router(box.network))
+    app.add_middleware(
+        RecoveryAccessPointGuard,
+        network_service=box.network, settings_service=box.settings, presence_service=presence,
+    )
     with TestClient(app, **LOOPBACK) as client:
         client.portal.call(presence.initialize)
         yield box, presence, client
@@ -138,7 +154,7 @@ def _unit(tmp_path, monkeypatch, **board):
 def _send(client, method, path, body, headers=None):
     return getattr(client, method)(
         path, **({"json": body} if body is not None else {}),
-        headers={**THROUGH_NGINX, **(headers or {})},
+        headers={**THROUGH_NGINX, **FROM_THE_AP.get(path, {}), **(headers or {})},
     )
 
 
@@ -250,6 +266,25 @@ def test_only_the_request_that_asked_ends_its_challenge(unit):
     assert client.get("/api/system/presence").json()["data"]["challenge"] is None
 
 
+def test_a_phone_on_the_ap_ends_the_challenge_its_save_opened(unit):
+    """The dialog's Cancel, from the phone that asked over the recovery AP.
+    Refused there, the unit stayed armed after the phone gave up: the knob
+    swallowed as the gesture, a Pi 5's power key held, and a power cut proving
+    a challenge nobody would spend."""
+    _, presence, client = unit
+    save = next(row for row in GUARDED if row[0] is PresenceAction.WIFI_SAVE)
+    refused = _send(client, *save[1:]).json()["detail"]
+    from_the_ap = FROM_THE_AP[save[2]]
+
+    stranger = client.delete("/api/system/presence", headers={**from_the_ap, refused["header"]: "not-the-token"})
+    assert stranger.status_code == 404, stranger.text
+    assert client.get("/api/system/presence").json()["data"]["challenge"]["id"] == refused["challenge"]["id"]
+
+    own = client.delete("/api/system/presence", headers={**from_the_ap, refused["header"]: refused["token"]})
+    assert own.status_code == 200, own.text
+    assert presence.view() is None
+
+
 def test_the_units_own_screen_is_sent_elsewhere_for_a_power_cut(bare_unit):
     """The screen goes down with the unit: what it asks is answered at once,
     with nothing opened, so the phone it sends the owner to is not refused."""
@@ -279,7 +314,8 @@ def test_a_gesture_the_unit_does_not_know_is_refused(unit):
 
 
 def _required_actions() -> set[str]:
-    """The `PresenceAction` members named in `require_presence(...)` calls under backend/."""
+    """The `PresenceAction` members named in `require_presence(...)` calls under backend/,
+    and the ones the recovery AP guard asks from its table (`PRESENCE_WRITES`)."""
     named = set()
     files = [p for p in BACKEND.rglob("*.py") if "tests" not in p.relative_to(BACKEND).parts]
     for path in files:
@@ -296,6 +332,7 @@ def _required_actions() -> set[str]:
                         and arg.value.id == "PresenceAction"
                     ):
                         named.add(arg.attr)
+    named |= {action.name for action in PRESENCE_WRITES.values()}
     assert len(named) >= 4, f"only {sorted(named)} found guarded — the extractor is broken"
     return named
 

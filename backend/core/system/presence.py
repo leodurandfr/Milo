@@ -1,5 +1,6 @@
 # backend/core/system/presence.py
-"""Proof of presence: a gesture on the unit itself before a route that reaches root.
+"""Proof of presence: a gesture on the unit itself before a route that reaches root,
+or before a WiFi save over the recovery access point.
 
 Nothing on this API authenticates — the LAN is the boundary — and on the server
 the backend is root by construction (CLAUDE.md, invariant 5). So the routes
@@ -47,7 +48,11 @@ only thing that spends the proof, so the gesture made for one device proves
 nothing for another that asks for the same action meanwhile. One challenge at a
 time: a second asker is refused (409) rather than replacing the first, since a
 replacement would hand the owner's gesture to whoever asked last. A challenge
-waits `CHALLENGE_S` for its gesture, then `PROOF_S` for its token.
+waits `CHALLENGE_S` for its gesture, then `PROOF_S` for its token — one a power
+cut proved, `PROOF_S` past the longest the unit takes to be reachable again: a
+WiFi-only unit whose home network is gone puts its recovery access point back
+up to `RECOVERY_AP_RAISED_WITHIN_S` after it starts, and the phone that asked
+over it comes back only then.
 
 The three gestures are things the owner does anyway: turning the knob is the
 volume, the power button and the plug are how a unit is silenced. So a challenge
@@ -82,6 +87,7 @@ from typing import TYPE_CHECKING, Optional
 from backend.config.constants import PRESENCE_RECORD_CMD, PRESENCE_RECORD_FILE
 from backend.core.models.presence import Gesture, PresenceAction, PresenceChallenge
 from backend.core.models.ws_events import SystemPresenceChanged
+from backend.core.network.service import RECOVERY_AP_RAISED_WITHIN_S
 from backend.hardware import power_key
 from backend.shared.background import BackgroundTaskSet
 
@@ -171,6 +177,9 @@ class PresenceService:
 
     CHALLENGE_S = 120.0
     PROOF_S = 120.0
+    # What a proof made by a power cut waits for before its `PROOF_S`: the unit
+    # reachable again, over its recovery access point at worst.
+    UNREACHABLE_AFTER_START_S = RECOVERY_AP_RAISED_WITHIN_S
     # After a challenge that ended unspent: long enough that a stranger who
     # opens one again the moment it ends keeps the knob armed a fraction of
     # the time, not all of it.
@@ -514,7 +523,13 @@ class PresenceService:
 
     async def _restore(self, record: dict) -> None:
         """A recorded challenge found at start: proven if it comes from
-        another boot, since every stop in between would have cleared it."""
+        another boot, since every stop in between would have cleared it.
+
+        Its token waits `PROOF_S` past the longest the unit takes to be
+        reachable again, not past this start: over the recovery access point,
+        the phone that asked comes back only once the AP is up again, some
+        80 s after a start, and a proof timed from the start expired before
+        that phone could spend it."""
         boot = await self._boot_id()
         recorded_boot = record.get("boot_id")
         if boot is None:
@@ -536,7 +551,7 @@ class PresenceService:
                 action=action,
                 gesture=Gesture.POWER_CYCLE,
                 token_hash=str(record["token_sha256"]),
-                deadline=asyncio.get_running_loop().time() + self.PROOF_S,
+                deadline=asyncio.get_running_loop().time() + self.UNREACHABLE_AFTER_START_S + self.PROOF_S,
                 proven=True,
             )
         except (KeyError, ValueError) as e:
@@ -544,4 +559,7 @@ class PresenceService:
             return
         self._challenge = challenge
         challenge.tasks.append(self._bg.spawn(self._expire(challenge), label="expire"))
-        logger.info(f"Presence proven by a power cut for {action.value}; waiting {self.PROOF_S:.0f} s for its request")
+        logger.info(
+            f"Presence proven by a power cut for {action.value}; waiting "
+            f"{self.UNREACHABLE_AFTER_START_S + self.PROOF_S:.0f} s for its request"
+        )

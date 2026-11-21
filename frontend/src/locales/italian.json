@@ -972,7 +972,7 @@
       "thisDevice": "Questo dispositivo: {name} ({ip})",
       "recheck": "Ricontrolla",
       "shutdown": "Spegni questo dispositivo",
-      "speakerHint": "Se questo dispositivo deve essere un diffusore e non un secondo Milō, lo spenga e lo aggiunga da Impostazioni → Multiroom del suo Milō principale."
+      "speakerHint": "Un solo Milō per rete. Per trasformare questo dispositivo in un diffusore, lo reimposti o ne riscriva la scheda."
     },
     "ssh": {
       "title": "SSH",
@@ -1009,7 +1009,8 @@
         "ssh_open": "Apri SSH",
         "password": "Cambia la password",
         "program_upstream": "Installa una versione non convalidata",
-        "reset_setup": "Reimposta la configurazione"
+        "reset_setup": "Reimposta la configurazione",
+        "wifi_save": "Salva una rete WiFi"
       },
       "gestures": {
         "rotary": "Ruoti o prema la manopola del dispositivo. Nessuna manopola? Annulli, disattivi l'encoder rotativo in Impostazioni › Hardware, poi ripeta la richiesta tra {time}.",

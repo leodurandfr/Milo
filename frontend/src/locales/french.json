@@ -972,7 +972,7 @@
       "thisDevice": "Cet appareil : {name} ({ip})",
       "recheck": "Vérifier à nouveau",
       "shutdown": "Éteindre cet appareil",
-      "speakerHint": "Si cet appareil doit être une enceinte et non un second Milō, éteignez-le, puis ajoutez-le depuis Réglages → Multiroom de votre Milō principal."
+      "speakerHint": "Un seul Milō par réseau. Pour faire de cet appareil une enceinte, réinitialisez-le ou reflashez-le."
     },
     "ssh": {
       "title": "SSH",
@@ -1009,7 +1009,8 @@
         "ssh_open": "Ouvrir SSH",
         "password": "Changer le mot de passe",
         "program_upstream": "Installer une version non validée",
-        "reset_setup": "Réinitialiser la configuration"
+        "reset_setup": "Réinitialiser la configuration",
+        "wifi_save": "Enregistrer un réseau WiFi"
       },
       "gestures": {
         "rotary": "Tournez ou appuyez sur le bouton rotatif de l'appareil. Pas de bouton rotatif ? Annulez, désactivez l'encodeur rotatif dans Paramètres › Matériel, puis refaites la demande dans {time}.",

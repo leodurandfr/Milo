@@ -127,6 +127,20 @@ RADIO_SETTLE_INTERVAL_S = 0.5
 AUTOCONNECT_POLLS = 30
 AUTOCONNECT_INTERVAL_S = 1.0
 
+# The longest a unit that starts with no usable link waits before its access
+# point is on air, from the waits `_raise_recovery_ap_after_delay` makes: the
+# settle window, the radio brought back, a saved network's chance, then the AP's
+# two nmcli calls at their bound. About 80 s in practice, with the radio on and
+# an old network saved. A proof of presence made by a power cut waits this long
+# on top of its own window (`core/system/presence.py`): over the AP, its owner's
+# phone can come back only once the AP is there.
+RECOVERY_AP_RAISED_WITHIN_S = (
+    RECOVERY_AP_DELAY_S
+    + RADIO_SETTLE_POLLS * RADIO_SETTLE_INTERVAL_S
+    + AUTOCONNECT_POLLS * AUTOCONNECT_INTERVAL_S
+    + 2 * HOTSPOT_NMCLI_TIMEOUT_S
+)
+
 # NM's own DHCPv4 timeout (the `ipv4.dhcp-timeout` default; its journal says
 # "timeout in 45 seconds"). An activated wlan0 still without a lease past it is
 # no longer joining: under `ipv4.may-fail` it can stay activated on IPv6 alone
@@ -195,6 +209,11 @@ class NetworkService:
         self._station_retry: Optional[asyncio.Task] = None
         # How many tries have been made, so each saved network gets its turn.
         self._station_tries: int = 0
+        # The profile `save_network` wrote last, tried first at the next try
+        # (`_retry_station`): over the AP, a save is how a client repairs a unit
+        # whose home network changed, and the old network's profile is still
+        # there to take the turn.
+        self._station_saved: Optional[str] = None
         # Requests and sockets from the AP's clients open right now, and when
         # the last one ended — a try is skipped under either.
         self._recovery_clients: int = 0
@@ -418,7 +437,9 @@ class NetworkService:
         Creates a NM profile for the given SSID so NetworkManager will
         auto-connect on next boot.  The current connection (e.g. hotspot)
         is left untouched, so nothing validates the key: the profiles the SSID
-        had before are replaced only once the new one is written.
+        had before are replaced only once the new one is written. While the AP
+        holds the radio, the home-network retry tries this profile first at
+        its next turn, ahead of the ones saved before it.
         """
         async with self._connect_lock:
             # Saving a network is choosing the radio as much as connecting is:
@@ -431,6 +452,7 @@ class NetworkService:
             except RuntimeError as e:
                 self.logger.error("Failed to save WiFi profile for '%s': %s", ssid, e)
                 raise RuntimeError(f"WiFi save failed: {e}") from e
+            self._station_saved = _station_profile_name(ssid)
 
             # Best effort: the network is saved, and a profile left over is
             # one more NM tries.
@@ -514,7 +536,7 @@ class NetworkService:
         args += [
             "type", "wifi",
             "ifname", self.WIFI_INTERFACE,
-            "con-name", f"milo-{ssid}",
+            "con-name", _station_profile_name(ssid),
             "ssid", ssid,
         ]
         if password is not None:
@@ -862,8 +884,9 @@ class NetworkService:
         in the one situation this exists for, cannot be reached, and brcmfmac
         offers neither OWE nor SAE in AP mode anyway. What its clients may do
         is the request guard's (`api/middleware.py::RecoveryAccessPointGuard`):
-        once the unit is set up, only read — a repair goes through the touch
-        screen or Ethernet — and before setup, only the wizard's writes.
+        before setup, the wizard's writes; once the unit is set up, only read,
+        and save a WiFi network on a proof of presence — any other repair goes
+        through the touch screen or Ethernet.
         """
         # A status the caller already computed is a free first look, and it is
         # used in one direction only: `connected` there is sound (ethernet has
@@ -1149,9 +1172,10 @@ class NetworkService:
 
     async def _retry_station(self) -> None:
         """One try: the AP down, one saved network asked for — each in turn, as
-        nmcli lists them by name and the first may be a box long gone — and the
-        AP back at once if it does not join, not after the settle window: the
-        home network just had its chance, and the AP is how the unit is reached."""
+        nmcli lists them by name and the first may be a box long gone, the one
+        `save_network` wrote last before the others — and the AP back at once
+        if it does not join, not after the settle window: the home network just
+        had its chance, and the AP is how the unit is reached."""
         async with self._connect_lock:
             if not self._hotspot_active:
                 return
@@ -1164,13 +1188,23 @@ class NetworkService:
             profiles = await self._station_profiles()
             if not profiles:
                 return
-            profile = profiles[self._station_tries % len(profiles)]
+            # The network just saved goes first, wherever the turn stands: saved
+            # over the AP, it is the repair of a home network that changed, and
+            # the old one's profile, still there, would otherwise take every
+            # other turn — each one up to (STATION_RETRY_MAX_HOLDS + 1) ×
+            # STATION_RETRY_S apart while a client of the AP holds them off.
+            if self._station_saved in profiles:
+                index = profiles.index(self._station_saved)
+            else:
+                index = self._station_tries % len(profiles)
+            profile = profiles[index]
             ssid = _ssid_from_profile(profile)
 
             # An AP NM still carries holds the radio: no station under it.
             if not await self._stop_hotspot(f"trying the home network '{ssid}' again"):
                 return
-            self._station_tries += 1
+            self._station_saved = None
+            self._station_tries = index + 1
             try:
                 rc, _, stderr = await self._run_nmcli("connection", "up", profile, timeout=STATION_UP_TIMEOUT_S)
             except asyncio.TimeoutError:
@@ -2038,6 +2072,11 @@ def is_rebuildable_wifi_profile(profile: dict) -> bool:
     would keep a profile that never associates.
     """
     return not profile["hidden"] and profile["key_mgmt"] in ("", "wpa-psk")
+
+
+def _station_profile_name(ssid: str) -> str:
+    """The name of the profile Milō writes for `ssid` (`_write_station_profile`)."""
+    return f"milo-{ssid}"
 
 
 def _ssid_from_profile(connection: str) -> str:

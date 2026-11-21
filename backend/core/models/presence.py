@@ -29,6 +29,9 @@ class PresenceAction(str, Enum):
     PASSWORD = "password"
     PROGRAM_UPSTREAM = "program_upstream"
     RESET_SETUP = "reset_setup"
+    # Asked only of a client of the recovery access point, once the unit is set
+    # up (`api/middleware.py::RecoveryAccessPointGuard`).
+    WIFI_SAVE = "wifi_save"
 
 
 class PresenceChallenge(BaseModel):

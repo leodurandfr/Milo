@@ -104,13 +104,15 @@
                   class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
               </div>
 
-              <!-- Expand: password + connect -->
+              <!-- Expand: password + connect, or save over the recovery AP -->
               <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
                 <InputText v-if="network.security" v-model="password" type="password"
-                  :placeholder="t('network.password')" @submit="connectToNetwork(network, t)" />
+                  :placeholder="t('network.password')" @submit="choose(network)" />
                 <Button variant="brand" :loading="connecting" :disabled="connecting || (network.security && !password)"
-                  @click="connectToNetwork(network, t)">
-                  {{ connecting ? t('network.connecting') : t('network.connect') }}
+                  @click="choose(network)">
+                  {{ connecting
+                    ? (overRecoveryAp ? t('network.saving') : t('network.connecting'))
+                    : (overRecoveryAp ? t('network.save') : t('network.connect')) }}
                 </Button>
                 <NoticeBox v-if="connectError" :detail="connectDetail">{{ connectError }}</NoticeBox>
               </div>
@@ -140,6 +142,8 @@ import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
 import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { isKiosk } from '@/utils/kiosk';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
 import { COLLAPSE_TRANSITION, COLLAPSE_FOLLOW_MS } from '@/constants/collapse';
 import SectionStack from '@/components/ui/SectionStack.vue';
@@ -170,10 +174,24 @@ const {
   selectNetwork,
   scanNetworks,
   connectToNetwork,
+  saveNetwork,
   forgetNetwork,
   toggleWifi,
   initialize,
 } = useNetwork();
+
+// A browser on the unit's recovery access point saves the network rather than
+// joining it: joining takes the one radio from under that browser, and the
+// unit refuses it. The save waits for a gesture on the unit itself, and the
+// unit tries the network on its next turn back to the home network. The
+// kiosk, a loopback client, joins at once.
+const settingsStore = useSettingsStore();
+const overRecoveryAp = computed(() => settingsStore.hotspotActive && !isKiosk());
+
+function choose(network) {
+  if (overRecoveryAp.value) saveNetwork(network, t);
+  else connectToNetwork(network, t);
+}
 
 // From setup, not onMounted: the view's first frame is then the skeletons, never
 // the last scan swapped for them a tick later.

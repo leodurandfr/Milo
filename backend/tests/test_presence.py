@@ -337,6 +337,30 @@ class TestThePowerCut:
             await after.require(SSH, "not-the-token")
         await after.require(SSH, token)
 
+    async def test_a_power_cut_proof_outlasts_the_access_point_coming_back(self, bare):
+        """A WiFi-only server whose home network changed is repaired by a phone
+        on its recovery access point (Settings › Network's save), and with
+        neither a knob nor a Pi 5 the plug is the gesture. The AP is back only
+        some 80 s after the start, the phone after it: a proof timed from the
+        start expired unspent, the save never happened and the unit refused
+        any other request for COOLDOWN_S, on every retry alike."""
+        before = bare.service()
+        await before.initialize()
+        challenge, token = await _open(before, PresenceAction.WIFI_SAVE)
+        assert challenge["gesture"] == "power_cycle"
+
+        bare.power_cut()
+        after = bare.service()
+        after.UNREACHABLE_AFTER_START_S = 0.2
+        after.PROOF_S = 0.2
+        await after.initialize()
+
+        # The AP is up, and the phone back on it: later than a PROOF_S from the start.
+        await asyncio.sleep(0.25)
+        await _settle()
+
+        await after.require(PresenceAction.WIFI_SAVE, token)
+
     async def test_a_reboot_proves_nothing(self, bare):
         """POST /api/system/restart is open to the LAN: whoever opened the
         challenge could otherwise reboot the unit into their own proof. The

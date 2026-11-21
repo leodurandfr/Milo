@@ -46,13 +46,17 @@ import logging
 import re
 from urllib.parse import urlsplit
 
+from fastapi import HTTPException
 from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.websockets import WebSocketClose
 
+from backend.api.route_helpers import presence_answer, require_presence
 from backend.config.constants import RECOVERY_AP_REFUSAL, RECOVERY_AP_SUBNET
+from backend.core.models.presence import PresenceAction
 from backend.core.system.hostname_conflict import EXPECTED_SERVER_HOSTNAME
+from backend.core.system.presence import PRESENCE_GESTURES_HEADER, PRESENCE_HEADER
 
 logger = logging.getLogger(__name__)
 
@@ -205,8 +209,32 @@ PRE_SETUP_WRITES = frozenset({
     ("POST", "/api/setup/become-client"),
 })
 
+# The writes a client of the unit's own AP may send once the unit is set up, each
+# under a proof of presence (`core/system/presence.py`) for its action: saving a WiFi
+# network, the one repair of a unit with no screen and no Ethernet whose home network
+# changed (Settings › Network, composables/useNetwork.js). Saved, never joined: the AP
+# stays up under the client that sent it, and the home-network retry
+# (`STATION_RETRY_S`, core/network/service.py) tries the network saved at its next
+# turn, ahead of those saved before it. Spelled as PRE_SETUP_WRITES is, and held the
+# same way.
+PRESENCE_WRITES = {
+    ("POST", "/api/network/wifi/save"): PresenceAction.WIFI_SAVE,
+}
+
+# The write that ends early a challenge one of PRESENCE_WRITES opened: the presence
+# dialog's Cancel (stores/presenceStore.js::cancel). Admitted with no proof, since it
+# ends only the challenge whose token it carries (`PresenceService.cancel`), which only
+# the request that opened it holds. Refused, a phone that gave up would leave the unit
+# armed until the challenge expires: the knob swallowed as the gesture, a Pi 5's power
+# key held, every other guarded request refused.
+PRESENCE_CANCELS = frozenset({
+    ("DELETE", "/api/system/presence"),
+})
+
+
 class RecoveryAccessPointGuard:
-    """Refuses, with 403, every write a client of the recovery access point sends.
+    """Refuses, with 403, every write a client of the recovery access point sends
+    but the few listed above.
 
     The AP is open — brcmfmac offers neither OWE nor SAE in AP mode — so its clients
     are anyone in radio range of an outage, and this API authenticates nobody. The
@@ -214,13 +242,32 @@ class RecoveryAccessPointGuard:
     it is one client among whoever else joined (`NetworkService.open_ap_reachable`,
     which a refusal is judged on). Such a
     client may read (GET, HEAD, OPTIONS, and `/ws`, which takes no command once its
-    `ready` handshake is in) and, before setup only, send `PRE_SETUP_WRITES`. Nothing
-    else, the wizard's writes included once setup is done: over an open AP, the key
-    of a "home" network can as well be a neighbor's, for a network of theirs that
-    carries the home name. A unit set up is repaired from its touch
-    screen (the kiosk is a loopback client, never one of the AP's) or over Ethernet;
-    a proof of presence (`core/system/presence.py`) is what would admit a write here,
-    and here is where it belongs.
+    `ready` handshake is in) and send `PRE_SETUP_WRITES` before setup. A client of
+    the unit's own AP (`NetworkService.recovery_ap_possible`) may also send
+    `PRESENCE_CANCELS` and, once the unit is set up, `PRESENCE_WRITES` with a proof
+    of presence (`core/system/presence.py`). Nothing else, and none of
+    the wizard's writes on its word alone once setup is done: over an open AP, the
+    key of a "home" network can as well be a neighbor's, for a network of theirs that
+    carries the home name. The proof is a gesture made on the unit itself, so the
+    network saved is the owner's. Everything else a unit set up needs is repaired
+    from its touch screen (the kiosk is a loopback client, never one of the AP's) or
+    over Ethernet.
+
+    Never a speaker's hotspot: while an adoption holds this unit on one, nobody
+    legitimate saves this unit's WiFi from there, and a challenge a stranger on it
+    opened would be proven by the owner's next turn of the knob, at the unit for the
+    adoption — the network saved would be theirs, under the home name, and
+    `save_network` deletes that name's other profiles.
+
+    The proof is asked here, never by the route: `POST /api/network/wifi/save` asks
+    none of the kiosk or the LAN, where it is a setting like any other. The guard
+    answers as a guarded route would (`route_helpers.require_presence`): a 428
+    carrying the challenge, a 409 while another is open, a 503 — and, without a
+    presence service, a 503 rather than the write. Unlike a guarded route, it asks
+    before the route has validated the body, which stays the route's to read: a
+    body the route then refuses (422) costs a gesture. The UI sends none — it saves
+    a network it scanned —, and a copy of the route's model here would be a second
+    spelling of its contract, free to drift from the first.
 
     Deny by default, in one place, rather than a dependency per route: the per-route
     gate this replaced guarded three routes and left WiFi, power, hardware and
@@ -239,10 +286,11 @@ class RecoveryAccessPointGuard:
     like any other answer.
     """
 
-    def __init__(self, app, network_service, settings_service):
+    def __init__(self, app, network_service, settings_service, presence_service=None):
         self.app = app
         self.network_service = network_service
         self.settings_service = settings_service
+        self.presence_service = presence_service
         self._warned: set[str] = set()
 
     async def __call__(self, scope, receive, send):
@@ -253,13 +301,24 @@ class RecoveryAccessPointGuard:
             self._warned.clear()
             await self.app(scope, receive, send)
             return
-        if (
-            scope["method"] in _READ_METHODS
-            or not is_recovery_ap_client(scope)
-            or await self._admits(scope)
-        ):
+        if scope["method"] in _READ_METHODS or not is_recovery_ap_client(scope):
             await self.app(scope, receive, send)
             return
+        write = (scope["method"], scope["path"])
+        if write in PRE_SETUP_WRITES and not await self._set_up():
+            await self.app(scope, receive, send)
+            return
+        if self.network_service.recovery_ap_possible:
+            if write in PRESENCE_WRITES:
+                refusal = await self._presence_refusal(scope, PRESENCE_WRITES[write])
+                if refusal is None:
+                    await self.app(scope, receive, send)
+                else:
+                    await refusal(scope, receive, send)
+                return
+            if write in PRESENCE_CANCELS:
+                await self.app(scope, receive, send)
+                return
 
         address = client_address(scope)
         if address in self._warned:
@@ -275,17 +334,32 @@ class RecoveryAccessPointGuard:
             scope, receive, send,
         )
 
-    async def _admits(self, scope) -> bool:
-        if (scope["method"], scope["path"]) not in PRE_SETUP_WRITES:
-            return False
+    async def _set_up(self) -> bool:
+        """Whether the unit is set up; a setting that cannot be read counts as set up."""
         if self.settings_service is None:
-            return False
+            return True
         try:
             completed = await self.settings_service.get_setting("setup_completed")
         except Exception as e:
             logger.warning("Recovery AP guard: setup_completed unreadable, counted as set up: %s", e)
-            return False
-        return completed is False
+            return True
+        return completed is not False
+
+    async def _presence_refusal(self, scope, action: PresenceAction) -> JSONResponse | None:
+        """None once the request spends a proof of presence for `action`; else the
+        answer the route's own guard would give (`route_helpers.require_presence`),
+        in the shape apiCall reads an HTTPException in."""
+        headers = Headers(scope=scope)
+        try:
+            answer = presence_answer(headers.get(PRESENCE_HEADER), headers.get(PRESENCE_GESTURES_HEADER))
+            await require_presence(self.presence_service, action, answer)
+        except HTTPException as refusal:
+            return JSONResponse(status_code=refusal.status_code, content={"detail": refusal.detail})
+        logger.info(
+            "Admitted %s %s to %s, a client of the recovery access point, on a proof of presence",
+            scope["method"], scope["path"], client_address(scope),
+        )
+        return None
 
 
 class RecoveryClientTracker:
