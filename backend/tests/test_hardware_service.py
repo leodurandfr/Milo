@@ -418,7 +418,7 @@ class TestApply:
         the box still up when the apply is refused."""
         await service.apply()
 
-        assert spawn.calls == [("sudo", "/usr/local/bin/milo-apply-hardware", "--no-reboot")]
+        assert spawn.calls == [("sudo", "-n", "/usr/local/bin/milo-apply-hardware", "--no-reboot")]
 
     async def test_a_helper_that_fails_is_raised_with_what_it_printed(
         self, service, spawn

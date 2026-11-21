@@ -41,7 +41,7 @@ from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
 from backend.config.constants import (
-    RECOVERY_AP_ADDRESS, RECOVERY_AP_PREFIX, WIFI_RADIO_FORCED_FILE,
+    RECOVERY_AP_ADDRESS, RECOVERY_AP_PREFIX, SET_WIFI_COUNTRY_CMD, WIFI_RADIO_FORCED_FILE,
 )
 from backend.core.models.ws_events import NetworkStatusChanged
 from backend.shared.background import BackgroundTaskSet
@@ -845,7 +845,7 @@ class NetworkService:
             proc = None
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "sudo", "/usr/local/bin/milo-set-wifi-country", country_code,
+                    "sudo", "-n", SET_WIFI_COUNTRY_CMD, country_code,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )

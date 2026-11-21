@@ -639,7 +639,7 @@ class SnapcastService:
         temp_file = await asyncio.to_thread(_stage, content)
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", DEPLOY_UPDATE_CMD,
+                "sudo", "-n", DEPLOY_UPDATE_CMD,
                 "write-config", temp_file, str(self.snapserver_conf),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE

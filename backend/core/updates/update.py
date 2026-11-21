@@ -1400,7 +1400,7 @@ class UpdateService(VersionService):
         """
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", DEPLOY_UPDATE_CMD, *args,
+                "sudo", "-n", DEPLOY_UPDATE_CMD, *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )

@@ -217,18 +217,6 @@ def create_settings_router(
         source = state_machine.get_source(AudioSource.SPOTIFY)
         return source.crossfade_applied_duration if source else None
 
-    def _get_services_for_source(source: str) -> list:
-        """Return the list of systemd services for an audio source"""
-        services_map = {
-            'spotify': ['milo-spotify.service'],
-            'mac': ['milo-mac.service'],
-            'bluetooth': ['milo-bluealsa-aplay.service', 'milo-bluealsa.service'],
-            'radio': ['milo-radio.service'],
-            'podcast': ['milo-podcast.service'],
-            'airplay': ['milo-airplay.service']
-        }
-        return services_map.get(source, [])
-
     # Bulk settings (all categories in one response)
     @router.get("/bulk", response_model=BulkSettingsResponse, openapi_extra=CONTRACTED)
     async def get_bulk_settings():
@@ -489,14 +477,18 @@ def create_settings_router(
                                 if not success:
                                     raise ValueError(f"Failed to transition from {app} to none")
                             else:
-                                # Inactive source: stop services directly
-                                services_to_stop = _get_services_for_source(app)
-                                for service in services_to_stop:
-                                    operations_log.append(f"Stopping service {service}")
-                                    logger.info(f"Stopping service {service}")
-                                    success = await systemd_manager.stop(service)
-                                    if not success:
-                                        raise ValueError(f"Failed to stop service {service}")
+                                # Inactive source: stop its unit directly — the
+                                # one it declares (`service_name`), the same
+                                # declaration the boot sweep (stop_lingering_units)
+                                # reads, so no second unit table exists.
+                                # Bluetooth's writer, bluealsa-aplay, is BindsTo=
+                                # that unit and stops with it.
+                                service = state_machine.get_source(AudioSource(app)).service_name
+                                operations_log.append(f"Stopping service {service}")
+                                logger.info(f"Stopping service {service}")
+                                success = await systemd_manager.stop(service)
+                                if not success:
+                                    raise ValueError(f"Failed to stop service {service}")
 
                             # The catalog outlives the player, so stopping the source
                             # left it running. Not awaited: see set_catalog_running.

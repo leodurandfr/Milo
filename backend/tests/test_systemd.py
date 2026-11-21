@@ -32,7 +32,7 @@ class TestPower:
             result = await manager.power(action)
         assert result is True
         exec_mock.assert_called_once()
-        assert exec_mock.call_args.args[:3] == ("sudo", "systemctl", action)
+        assert exec_mock.call_args.args[:4] == ("sudo", "-n", "systemctl", action)
 
     @pytest.mark.asyncio
     async def test_power_failure_is_loud(self, manager):
@@ -80,7 +80,7 @@ class TestRestartSelf:
             with patch.object(manager.logger, "error") as log_error:
                 assert await manager.restart_self("milo-backend.service") is True
         args = exec_mock.call_args.args
-        assert args == ("sudo", "systemctl", "restart", "--no-block", "milo-backend.service")
+        assert args == ("sudo", "-n", "systemctl", "restart", "--no-block", "milo-backend.service")
         log_error.assert_not_called()
 
     @pytest.mark.asyncio
@@ -125,10 +125,10 @@ class TestRestartSelf:
 # ============================================================================
 # The read paths and the failure arms — invariant #1's other half.
 #
-# `get_status` had not run at all, and every timeout arm in the file was at
-# zero. Both matter for the same reason the argv does: this class is the ONLY
-# privileged-exec path in the backend, and each of these arms decides whether a
-# refused sudoers rule or a wedged systemctl surfaces or is swallowed.
+# Every timeout arm in the file was at zero. It matters for the same reason the
+# argv does: this class is the ONLY privileged-exec path in the backend, and
+# each of these arms decides whether a refused sudoers rule or a wedged
+# systemctl surfaces or is swallowed.
 #
 # The suite's appliance probe blocks a real `sudo`/`systemctl` spawn, so a test
 # that loses its double fails here instead of restarting the machine.
@@ -178,159 +178,6 @@ def _short_wait_for(monkeypatch):
     a mutation that removes it is still visible.
     """
     monkeypatch.setattr("backend.core.systemd.asyncio.wait_for", shortened_wait_for())
-
-
-class TestGetStatus:
-    """`systemctl show` — the read behind `GET /api/system/...` service panels."""
-
-    @pytest.mark.asyncio
-    async def test_the_three_properties_asked_for_are_the_three_parsed(self, manager):
-        """argv and the parse are two statements of one contract, written 20 lines
-        apart. Drop a property from the query and the reader answers its default
-        forever — `exit_code` 0 on a unit that died with 1, `state` "unknown" on a
-        unit that is running.
-        """
-        proc = _make_mock_proc(
-            returncode=0,
-            stdout=b"ActiveState=active\nSubState=running\nExecMainStatus=0\n",
-        )
-        with patch("asyncio.create_subprocess_exec", return_value=proc) as exec_mock:
-            status = await manager.get_status("milo-radio")
-
-        argv = exec_mock.call_args.args
-        assert argv[:3] == ("systemctl", "show", "milo-radio")
-        asked = argv[3].removeprefix("--property=").split(",")
-        assert set(asked) == {"ActiveState", "SubState", "ExecMainStatus"}
-        assert status == {
-            "active": True,
-            "running": True,
-            "exit_code": 0,
-            "state": "active",
-            "substate": "running",
-        }
-
-    @pytest.mark.asyncio
-    async def test_the_status_read_is_not_privileged(self, manager):
-        """A read must not go through sudo. Every sudo argv is pinned by
-        `/etc/sudoers.d/milo-backend`, and `systemctl show` is not in it — added,
-        it would be a grant nothing needs and the contract test would flag it.
-        """
-        proc = _make_mock_proc(returncode=0, stdout=b"ActiveState=active\n")
-        with patch("asyncio.create_subprocess_exec", return_value=proc) as exec_mock:
-            await manager.get_status("milo-radio")
-
-        assert exec_mock.call_args.args[0] == "systemctl"
-
-    @pytest.mark.asyncio
-    async def test_a_failed_dead_unit_reports_its_exit_code(self, manager):
-        """`ExecMainStatus` is the only field that says WHY a source died.
-
-        Read as a string it would still be truthy and the panel would show a
-        plausible-looking status for a unit that crashed.
-        """
-        proc = _make_mock_proc(
-            returncode=0,
-            stdout=b"ActiveState=failed\nSubState=failed\nExecMainStatus=203\n",
-        )
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            status = await manager.get_status("milo-go-librespot")
-
-        assert status["exit_code"] == 203
-        assert status["active"] is False
-        assert status["running"] is False
-        assert status["state"] == "failed"
-
-    @pytest.mark.asyncio
-    async def test_an_activating_unit_is_neither_active_nor_running(self, manager):
-        """`milo-kiosk` sits ~90 s in `deactivating` on a restart, and a source
-        unit passes through `activating`. Both must read as not-running, or the
-        UI declares a source ready before it can take a command."""
-        proc = _make_mock_proc(
-            returncode=0,
-            stdout=b"ActiveState=activating\nSubState=start\nExecMainStatus=0\n",
-        )
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            status = await manager.get_status("milo-radio")
-
-        assert status["active"] is False
-        assert status["running"] is False
-        assert status["state"] == "activating"
-        assert status["substate"] == "start"
-
-    @pytest.mark.asyncio
-    async def test_a_oneshot_that_finished_is_active_but_not_running(self, manager):
-        """`active` and `running` are read from two different properties.
-
-        A oneshot with `RemainAfterExit` — which is what the ALSA passthrough pin
-        and the keytable setup are — sits at `ActiveState=active`,
-        `SubState=exited` forever. Deriving `running` from `ActiveState` would
-        report a process that exited seconds ago as still running, and the two
-        fields would stop being able to disagree at all.
-        """
-        proc = _make_mock_proc(
-            returncode=0,
-            stdout=b"ActiveState=active\nSubState=exited\nExecMainStatus=0\n",
-        )
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            status = await manager.get_status("milo-alsa-passthrough")
-
-        assert status["active"] is True
-        assert status["running"] is False
-        assert status["substate"] == "exited"
-
-    @pytest.mark.asyncio
-    async def test_an_unparsable_line_does_not_take_the_others_with_it(self, manager):
-        """`systemctl show` emits one `key=value` per line and nothing else, but
-        a blank trailing line is normal. Splitting unconditionally would raise on
-        it and lose the whole status."""
-        proc = _make_mock_proc(
-            returncode=0,
-            stdout=b"ActiveState=active\n\nSubState=running\nExecMainStatus=0\n",
-        )
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            status = await manager.get_status("milo-radio")
-
-        assert status["state"] == "active"
-        assert status["substate"] == "running"
-
-    @pytest.mark.asyncio
-    async def test_a_value_containing_an_equals_sign_keeps_it(self, manager):
-        """`split('=', 1)` and not `split('=')`. Not hypothetical for
-        `--property` reads in general, and truncating a value silently produces a
-        state string that matches nothing."""
-        proc = _make_mock_proc(
-            returncode=0,
-            stdout=b"ActiveState=active\nSubState=running=fast\nExecMainStatus=0\n",
-        )
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            status = await manager.get_status("milo-radio")
-
-        assert status["substate"] == "running=fast"
-
-    @pytest.mark.asyncio
-    async def test_a_non_zero_systemctl_reports_an_error_envelope(self, manager, caplog):
-        """An unknown unit is the common case (a source whose unit was renamed).
-
-        Answered with the default dict, the panel would show "inactive, exit 0" —
-        a healthy-looking stopped service — instead of surfacing the mistake.
-        """
-        proc = _make_mock_proc(returncode=1, stderr=b"Unit milo-nope.service not loaded.")
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            with caplog.at_level(logging.ERROR):
-                status = await manager.get_status("milo-nope")
-
-        assert status == {"error": "Unable to retrieve status"}
-        assert "Error retrieving status" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_a_spawn_that_raises_answers_the_reason(self, manager, caplog):
-        """`api/system.py` renders this dict; a raise would 500 the whole
-        settings page because one unit could not be probed."""
-        with patch("asyncio.create_subprocess_exec", side_effect=OSError("no systemctl")):
-            with caplog.at_level(logging.ERROR):
-                status = await manager.get_status("milo-radio")
-
-        assert status["error"] == "no systemctl"
 
 
 class TestIsActive:
@@ -648,7 +495,7 @@ class TestEnablement:
                 result = await manager.set_enabled("ssh.service", enabled)
 
         assert result is True
-        assert exec_mock.call_args.args == ("sudo", "systemctl", verb, "--now", "ssh.service")
+        assert exec_mock.call_args.args == ("sudo", "-n", "systemctl", verb, "--now", "ssh.service")
 
     @pytest.mark.asyncio
     async def test_a_unit_that_did_not_move_is_a_failure_not_a_success(self, manager):

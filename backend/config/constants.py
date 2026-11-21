@@ -52,8 +52,8 @@ SYSFS_NET = "/sys/class/net"
 # and exposing a localhost Subsonic API, for as long as the dock enables Music
 # Library — the backend starts and stops it, nothing else does. The
 # music_library source talks to it over HTTP — never over the LAN (respects
-# "local network only"). DataFolder lives under MILO_DATA_DIR so backup/restore
-# captures it.
+# "local network only"). Its DataFolder lives under MILO_DATA_DIR, with the
+# rest of the unit's durable state.
 NAVIDROME_SERVICE = "milo-navidrome.service"
 MUSIC_LIBRARY_MOUNT_ROOT = Path("/media/milo")     # Navidrome MusicFolder (mounts appear here)
 # Network-share config (SMB/NFS). Non-secret only — id/type/host/path/name.
@@ -102,7 +102,16 @@ CD_PREV_RESTART_THRESHOLD_S = 3.0
 # =============================================================================
 # SYSTEM SCRIPTS
 # =============================================================================
+# Pinned helpers the backend runs as root. Like every privileged call here,
+# each goes through `sudo -n`, never a bare `sudo`, which run from a terminal
+# waits on a password prompt instead of failing (held by
+# tests/contracts/test_privileged_exec_contract.py::test_every_backend_sudo_is_non_interactive).
+# Each path is the one /etc/sudoers.d/milo-backend grants.
 DEPLOY_UPDATE_CMD = "/usr/local/bin/milo-deploy-update"
+# config.txt and the bootloader EEPROM from hardware.json (setup, Hardware page).
+APPLY_HARDWARE_CMD = "/usr/local/bin/milo-apply-hardware"
+# The WiFi regulatory domain, in cmdline.txt and for the running kernel.
+SET_WIFI_COUNTRY_CMD = "/usr/local/bin/milo-set-wifi-country"
 
 # The two pinned helpers behind Settings > Appareil > Système. Both are
 # root-only work the backend must not do inline: setting the account password

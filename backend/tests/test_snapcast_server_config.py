@@ -196,7 +196,7 @@ def deploy(monkeypatch, staging):
 
     async def _exec(*args, **kwargs):
         calls.append(args)
-        staged.append(Path(args[3]).read_text())
+        staged.append(Path(args[4]).read_text())
         return outcome["proc"]
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _exec)
@@ -385,9 +385,9 @@ class TestTheWriteToEtc:
         assert await service._update_config_file({"buffer_ms": 1500}) is True
 
         assert len(calls) == 1
-        sudo, helper, verb, source, destination = calls[0]
-        assert (sudo, helper, verb, destination) == (
-            "sudo", DEPLOY_UPDATE_CMD, "write-config", str(service.snapserver_conf),
+        sudo, option, helper, verb, source, destination = calls[0]
+        assert (sudo, option, helper, verb, destination) == (
+            "sudo", "-n", DEPLOY_UPDATE_CMD, "write-config", str(service.snapserver_conf),
         )
         assert Path(source).parent == staging
         assert Path(source).name.startswith("snapserver.conf.")
@@ -463,7 +463,7 @@ class TestTheWriteToEtc:
         modes = []
 
         async def _helper(*args, **kwargs):
-            modes.append(os.stat(args[3]).st_mode)
+            modes.append(os.stat(args[4]).st_mode)
             return FakeProc()
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _helper)
@@ -494,7 +494,7 @@ class TestTheWriteToEtc:
             if len(calls) == 2:
                 both_in_flight.set()
             await asyncio.wait_for(both_in_flight.wait(), timeout=5)
-            source = Path(args[3])
+            source = Path(args[4])
             if not source.exists():
                 return FakeProc(returncode=1, stderr=b"Source file does not exist")
             copies.append(source.read_text())
@@ -508,7 +508,7 @@ class TestTheWriteToEtc:
             service._update_config_file(first), service._update_config_file(second)
         ) == [True, True]
 
-        assert len({args[3] for args in calls}) == 2
+        assert len({args[4] for args in calls}) == 2
         assert sorted(copies) == sorted(
             service._modify_config_content(LIVE_CONF, config) for config in (first, second)
         )
@@ -540,7 +540,7 @@ class TestTheCaptureMapReconcile:
         assert _source_lines(staged) == _source_lines(flashed_conf())
         assert _control(staged) == _control(flashed_conf())
         assert _unowned(staged) == _unowned(UNIT_CONF)
-        verb, source, destination = calls[0][2:]
+        verb, source, destination = calls[0][3:]
         assert (verb, destination) == ("write-config", str(service.snapserver_conf))
         assert Path(source).parent == staging
 

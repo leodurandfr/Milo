@@ -2834,7 +2834,7 @@ async def test_the_country_helper_is_called_by_the_exact_path_sudoers_grants(ser
     with patcher:
         await service.set_country("FR")
 
-    assert fake.argv == ("sudo", "/usr/local/bin/milo-set-wifi-country", "FR")
+    assert fake.argv == ("sudo", "-n", "/usr/local/bin/milo-set-wifi-country", "FR")
 
 
 @pytest.mark.asyncio

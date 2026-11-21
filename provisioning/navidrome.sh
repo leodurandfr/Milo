@@ -28,7 +28,7 @@ MILO_DATA_DIR="${MILO_DATA_DIR:-/var/lib/milo}"
 # device-agnostic settings live here; the generated admin password comes from the
 # first-boot provisioning env file, never this config.
 configure_navidrome() {
-    # DataFolder (DB + cache) under /var/lib/milo so backup/restore captures it.
+    # DataFolder (DB + cache) under /var/lib/milo, with the unit's other durable state.
     mkdir -p "$MILO_DATA_DIR/navidrome"
     # Where the music actually is: one Navidrome library per mount under this
     # root, created and retired by the backend (backend/sources/music_library/
@@ -51,7 +51,7 @@ configure_navidrome() {
 # created per mount (USB / SMB / NFS) under /media/milo by the backend, and a
 # library on the mount root would index all of them a second time.
 MusicFolder = "/var/lib/milo/navidrome/default-library"
-# DB + cache; under /var/lib/milo so Milō backup/restore includes it.
+# DB + cache, under /var/lib/milo with the unit's other durable state.
 DataFolder = "/var/lib/milo/navidrome"
 
 # Localhost only — internal service, honours "local network only". The backend

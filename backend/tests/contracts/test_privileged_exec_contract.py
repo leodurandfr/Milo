@@ -292,8 +292,9 @@ def _resolve(node, consts, params, loops) -> set:
     return {UNKNOWN}
 
 
-def _argv_sources(tree: ast.Module):
-    """Every node sequence that looks like an argv starting with `sudo`.
+def _sudo_sites(tree: ast.Module):
+    """(line, words after `sudo`) for every node sequence that looks like an argv
+    starting with `sudo`.
 
     Both spellings are in use: the args of a `create_subprocess_exec(...)` call,
     and a `cmd = ["sudo", ...]` list splatted into one (keymap_writer.py). Match
@@ -306,7 +307,13 @@ def _argv_sources(tree: ast.Module):
         elif isinstance(node, (ast.List, ast.Tuple)) and node.elts:
             elements = node.elts
         if elements and _string_of(elements[0]) in SUDO_SPELLINGS:
-            yield elements[1:]
+            yield node.lineno, elements[1:]
+
+
+def _argv_sources(tree: ast.Module):
+    """The words after `sudo` of every argv `_sudo_sites` finds."""
+    for _, words in _sudo_sites(tree):
+        yield words
 
 
 def _argvs_of(tree: ast.Module, consts, params, loops) -> list[tuple]:
@@ -541,6 +548,72 @@ def test_every_sudo_argv_has_a_resolvable_command(tree_name):
         "site, or resolve the helper's call sites in this extractor:\n"
         + "\n".join(unnamed)
     )
+
+
+def _sudo_options(words) -> list[str]:
+    """sudo's own options at the head of one argv: its leading literal `-x` words."""
+    options = []
+    for word in words:
+        literal = _string_of(word)
+        if literal is None or not literal.startswith("-"):
+            break
+        options.append(literal)
+    return options
+
+
+def _interactive_sudo_sites(trees) -> list[str]:
+    """`file:line` of every sudo call in these modules that lacks `-n`."""
+    return [
+        f"{where}:{line}"
+        for where, tree in trees
+        for line, words in _sudo_sites(tree)
+        if "-n" not in _sudo_options(words)
+    ]
+
+
+def _backend_modules():
+    return [
+        (str(path.relative_to(REPO_ROOT)), ast.parse(path.read_text(encoding="utf-8")))
+        for path in _modules("backend")
+    ]
+
+
+def test_every_backend_sudo_is_non_interactive():
+    """`sudo -n` at every call site of the server's tree, its rootfs programs included.
+
+    A grant that is missing or moved must fail at once. Under systemd the
+    backend has no terminal and a bare `sudo` fails as fast as `-n` does; run
+    from one (`python main.py` on a dev host), a bare `sudo` sits on a
+    password prompt — for as long as its caller's timeout, and forever where
+    there is none (the hardware apply, the snapserver config write, every
+    milo-deploy-update step). Half the call sites carried the flag and half
+    did not, so which behavior a call had was an accident of who wrote it.
+    """
+    trees = _backend_modules()
+    sites = [site for where, tree in trees for site in _sudo_sites(tree)]
+    assert len(sites) >= 10, f"only {len(sites)} sudo call(s) found — the extractor is broken"
+
+    interactive = _interactive_sudo_sites(trees)
+    assert not interactive, (
+        "these sudo calls can wait on a password prompt; write `\"sudo\", \"-n\", …`:\n  "
+        + "\n  ".join(interactive)
+    )
+
+
+@pytest.mark.parametrize(
+    "source, flagged",
+    [
+        ('create_subprocess_exec("sudo", "systemctl", "stop", unit)\n', True),
+        ('cmd = ["sudo", HELPER, "--clear"]\n', True),
+        ('create_subprocess_exec("sudo", "-u", "milo", "npm")\n', True),
+        ('create_subprocess_exec("sudo", "-n", "systemctl", "stop", unit)\n', False),
+        ("create_subprocess_exec('sudo', '-n', HELPER, '--no-reboot')\n", False),
+    ],
+    ids=["bare-call", "bare-list", "other-option", "flagged-call", "single-quoted"],
+)
+def test_the_non_interactive_check_reads_the_flag(source, flagged):
+    """Run the check on drifts it must see, so its green above means something."""
+    assert bool(_interactive_sudo_sites([("x.py", ast.parse(source))])) is flagged
 
 
 # --------------------------------------------------------------------------- #

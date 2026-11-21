@@ -11,7 +11,7 @@ import signal
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 
-from backend.config.constants import HARDWARE_FILE
+from backend.config.constants import APPLY_HARDWARE_CMD, HARDWARE_FILE
 from backend.hardware.registry import (
     DEFAULT_IR_REMOTE,
     DEFAULT_POWER_BUTTON,
@@ -293,7 +293,7 @@ class HardwareService:
         """
         self.logger.info("Applying hardware configuration...")
         proc = await asyncio.create_subprocess_exec(
-            'sudo', '/usr/local/bin/milo-apply-hardware', '--no-reboot',
+            'sudo', '-n', APPLY_HARDWARE_CMD, '--no-reboot',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

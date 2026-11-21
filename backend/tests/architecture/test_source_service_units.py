@@ -18,8 +18,8 @@ own output is non-trivial first, so a broken glob or a renamed attribute fails
 loudly instead of passing on an empty list.
 
 `service_name` is not the only unit the backend spells: `bluealsa_aplay_service`,
-`QOBUZ_SERVICE`, the settings `services_map`, the update catalog and the
-multiroom routing all name units as literals of their own. The tests at the end
+`QOBUZ_SERVICE`, the update catalog and the multiroom routing all name units
+as literals of their own. The tests at the end
 read every one of them out of the backend source and hold it to the same tree.
 """
 import ast

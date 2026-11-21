@@ -694,7 +694,7 @@ class TestDevicePassword:
 
         assert response.status_code == 200
         argv = spawn.calls[0]
-        assert argv == ("sudo", "/usr/local/bin/milo-set-password")
+        assert argv == ("sudo", "-n", "/usr/local/bin/milo-set-password")
         assert "correct horse" not in " ".join(argv)
         assert spawn.proc.stdin_bytes == b"correct horse"
 
@@ -1038,7 +1038,7 @@ class TestTimezone:
         response = client.put("/api/system/timezone", json={"timezone": "Asia/Singapore"})
 
         assert response.status_code == 200
-        assert spawn.calls[0] == ("sudo", "/usr/local/bin/milo-set-timezone", "Asia/Singapore")
+        assert spawn.calls[0] == ("sudo", "-n", "/usr/local/bin/milo-set-timezone", "Asia/Singapore")
 
     def test_a_legacy_name_is_set_as_the_zone_it_links_to(
         self, client, spawn, localtime, tmp_path, monkeypatch
@@ -1058,7 +1058,7 @@ class TestTimezone:
         response = client.put("/api/system/timezone", json={"timezone": "Asia/Calcutta"})
 
         assert response.status_code == 200
-        assert spawn.calls == [("sudo", "/usr/local/bin/milo-set-timezone", "Asia/Kolkata")]
+        assert spawn.calls == [("sudo", "-n", "/usr/local/bin/milo-set-timezone", "Asia/Kolkata")]
 
     def test_a_link_to_a_zone_the_list_does_not_offer_is_refused(
         self, client, spawn, localtime, tmp_path, monkeypatch

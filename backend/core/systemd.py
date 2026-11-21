@@ -5,7 +5,7 @@ import asyncio
 import os
 import signal
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Optional, Tuple
 
 from dbus_next import Message, MessageType
 from dbus_next.aio import MessageBus
@@ -67,7 +67,7 @@ class SystemdServiceManager:
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", action, "--now", service,
+                "sudo", "-n", "systemctl", action, "--now", service,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -129,7 +129,7 @@ class SystemdServiceManager:
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", "--no-block", service,
+                "sudo", "-n", "systemctl", "restart", "--no-block", service,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -169,7 +169,7 @@ class SystemdServiceManager:
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", action,
+                "sudo", "-n", "systemctl", action,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -442,40 +442,6 @@ class SystemdServiceManager:
         """
         return await self.probe_active(service) is True
 
-    async def get_status(self, service: str) -> Dict[str, Any]:
-        """Retrieves detailed status of a service."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "systemctl", "show", service,
-                "--property=ActiveState,SubState,ExecMainStatus",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-
-            if proc.returncode != 0:
-                self.logger.error(f"Error retrieving status: {stderr.decode().strip()}")
-                return {"error": "Unable to retrieve status"}
-
-            lines = stdout.decode().strip().split('\n')
-            status = {}
-
-            for line in lines:
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                    status[key] = value
-
-            return {
-                "active": status.get("ActiveState") == "active",
-                "running": status.get("SubState") == "running",
-                "exit_code": int(status.get("ExecMainStatus", "0")),
-                "state": status.get("ActiveState", "unknown"),
-                "substate": status.get("SubState", "unknown")
-            }
-        except Exception as e:
-            self.logger.error(f"Error retrieving status: {e}")
-            return {"error": str(e)}
-
     async def _control_service(self, service: str, action: str) -> bool:
         """Controls a systemd service, under one deadline for the whole call.
 
@@ -494,7 +460,7 @@ class SystemdServiceManager:
                 self.logger.info(f"{action.capitalize()} service {service}")
 
                 proc = await asyncio.create_subprocess_exec(
-                    "sudo", "systemctl", action, service,
+                    "sudo", "-n", "systemctl", action, service,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.PIPE
                 )

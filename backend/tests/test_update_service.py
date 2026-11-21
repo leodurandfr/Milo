@@ -573,7 +573,7 @@ class TestInstallDebPackage:
             result = await update_service._install_deb_package("/tmp/snapserver.deb", "e" * 64)
         assert result["success"] is True
         # The wrapper checks its own copy against the digest before apt runs.
-        assert spawn.call_args.args == ("sudo", DEPLOY_UPDATE_CMD, "install-deb", "/tmp/snapserver.deb", "e" * 64)
+        assert spawn.call_args.args == ("sudo", "-n", DEPLOY_UPDATE_CMD, "install-deb", "/tmp/snapserver.deb", "e" * 64)
 
     @pytest.mark.asyncio
     async def test_no_declared_digest_is_said_in_the_wrappers_word(self, update_service):
@@ -3838,7 +3838,7 @@ class TestRunDeployVerdict:
         bin_dir.mkdir()
         sudo = bin_dir / "sudo"
         # Like the real sudo: the command is a child that inherits the pipes.
-        sudo.write_text('#!/bin/sh\n"$@" &\nwait $!\nexit $?\n')
+        sudo.write_text('#!/bin/sh\n[ "$1" = -n ] && shift\n"$@" &\nwait $!\nexit $?\n')
         sudo.chmod(0o755)
         helper = tmp_path / "milo-deploy-update"
         text = expected[1]
@@ -4492,12 +4492,12 @@ class MiloUnit:
             return 0, b"", b""
         if program == str(self.venv / "bin" / "python") and argv[1:3] in (("-I", "-c"), ("-I", "-m")):
             return 0, b"", b""
-        if argv[:2] == ("sudo", DEPLOY_UPDATE_CMD) and argv[2] in ("sync-system-files", "reboot"):
+        if argv[:3] == ("sudo", "-n", DEPLOY_UPDATE_CMD) and argv[3] in ("sync-system-files", "reboot"):
             return 0, b"", b""
-        if argv[:3] in (("sudo", "systemctl", "start"), ("sudo", "systemctl", "stop")):
-            self.units[argv[3]] = argv[2] == "start"
+        if argv[:4] in (("sudo", "-n", "systemctl", "start"), ("sudo", "-n", "systemctl", "stop")):
+            self.units[argv[4]] = argv[3] == "start"
             return 0, b"", b""
-        if argv[:4] == ("sudo", "systemctl", "restart", "--no-block"):
+        if argv[:5] == ("sudo", "-n", "systemctl", "restart", "--no-block"):
             return 0, b"", b""
         if argv[:2] == ("systemctl", "is-active"):
             return 0, b"active\n" if self.units.get(argv[2]) else b"inactive\n", b""
@@ -4554,11 +4554,11 @@ def _git(*command):
 
 
 def _deploy(subcommand):
-    return lambda argv: argv[:3] == ("sudo", DEPLOY_UPDATE_CMD, subcommand)
+    return lambda argv: argv[:4] == ("sudo", "-n", DEPLOY_UPDATE_CMD, subcommand)
 
 
 def _systemctl(*command):
-    return lambda argv: argv[:2 + len(command)] == ("sudo", "systemctl", *command)
+    return lambda argv: argv[:3 + len(command)] == ("sudo", "-n", "systemctl", *command)
 
 
 _RESTART_SELF = _systemctl("restart", "--no-block", "milo-backend.service")
@@ -4734,7 +4734,7 @@ class TestTheMiloInstall:
         trial = unit.events.index(next(e for e in unit.events if e[:2] == ("journal", TRIAL_STEP)))
         assert opened < start < unit.index_of(_git("checkout"))
         assert trial < stop < reboot
-        assert unit.events[-1] == ("spawn", ("sudo", DEPLOY_UPDATE_CMD, "reboot"))
+        assert unit.events[-1] == ("spawn", ("sudo", "-n", DEPLOY_UPDATE_CMD, "reboot"))
 
     @pytest.mark.asyncio
     async def test_a_refused_reboot_restarts_the_backend_into_the_trial(self, update_service, tmp_path):

@@ -29,6 +29,8 @@ writes spied, so the dock the route announces is the one the validator stored.
 """
 import asyncio
 import copy
+import functools
+import importlib
 import logging
 import re
 import subprocess
@@ -41,9 +43,33 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.api.settings import create_settings_router
+from backend.config.constants import AUDIO_SOURCE_APPS
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.ws_events import DockAppsChanged
 from backend.core.settings import SettingsService
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@functools.cache
+def declared_unit(source: AudioSource) -> str:
+    """The unit a source declares, read off a real instance of its class.
+
+    What `stop_lingering_units` stops at boot, and what the dock must stop
+    too: a second table naming the units is how four sources fell out of it.
+    """
+    package = importlib.import_module(f"backend.sources.{source.value}")
+    (exported,) = package.__all__
+    unit = getattr(package, exported)().service_name
+    assert unit and unit.endswith(".service"), f"{source.value} declares {unit!r}"
+    return unit
+
+
+def _registered(source: AudioSource):
+    """A registered source as the route sees it: its declared unit, and the
+    rest of its surface (catalog, runtime) a mock collaborator."""
+    return Mock(service_name=declared_unit(source))
 
 
 @pytest.fixture
@@ -53,6 +79,8 @@ def state_machine():
     sm.transition_to_source = AsyncMock(return_value=True)
     sm.system_state.active_source = AudioSource.RADIO
     sm.get_current_state = Mock(return_value={"active_source": "radio"})
+    sources = {s: _registered(s) for s in AudioSource if s is not AudioSource.NONE}
+    sm.get_source = Mock(side_effect=sources.__getitem__)
     return sm
 
 
@@ -216,19 +244,53 @@ class TestTheDockDisables:
 
         assert response.status_code == 200
         state_machine.transition_to_source.assert_not_called()
-        assert [c.args[0] for c in systemd.stop.await_args_list] == ["milo-spotify.service"]
+        assert [c.args[0] for c in systemd.stop.await_args_list] == [
+            declared_unit(AudioSource.SPOTIFY)
+        ]
 
-    def test_disabling_bluetooth_stops_both_of_its_units(self, client, settings, systemd):
+    @pytest.mark.parametrize("app", sorted(AUDIO_SOURCE_APPS))
+    def test_every_idle_source_disabled_stops_the_unit_it_declares(
+        self, app, client, settings, state_machine, systemd
+    ):
+        """Every source, from the enum: the unit table the dock used to keep had
+        lost Tidal, Qobuz, CD and Music Library, so switching one of them off
+        while it was not selected left its daemon up — castable, and holding
+        its loopback leg against the next source picked."""
+        state_machine.system_state.active_source = AudioSource.NONE
+        # The dock keeps one audio source at least: another one stays.
+        kept = "podcast" if app == "radio" else "radio"
+        _dock(settings, [kept, app])
+
+        response = client.put("/api/settings/dock-apps", json={"enabled_apps": [kept]})
+
+        assert response.status_code == 200
+        assert [c.args[0] for c in systemd.stop.await_args_list] == [
+            declared_unit(AudioSource(app))
+        ]
+
+    def test_disabling_bluetooth_takes_its_writer_down_with_it(self, client, settings, systemd):
         """BlueALSA answers *who is connected* and bluealsa-aplay carries the
         audio; leaving either up keeps the phone paired and streaming into a
-        source the dock says is off."""
+        source the dock says is off. The dock stops the unit the source
+        declares, and the writer goes with it only because its unit is
+        `BindsTo=` that one — read here from the file the image ships."""
         _dock(settings, ["radio", "bluetooth", "multiroom"])
 
         client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio", "multiroom"]})
 
-        assert [c.args[0] for c in systemd.stop.await_args_list] == [
-            "milo-bluealsa-aplay.service", "milo-bluealsa.service"
+        stopped = [c.args[0] for c in systemd.stop.await_args_list]
+        writer = REPO_ROOT / "system" / "milo-bluealsa-aplay.service"
+        binds_to = [
+            unit
+            for line in writer.read_text().splitlines()
+            if line.strip().startswith("BindsTo=")
+            for unit in line.split("=", 1)[1].split()
         ]
+        assert binds_to, f"no BindsTo= read from {writer}"
+        assert stopped == [declared_unit(AudioSource.BLUETOOTH)]
+        assert stopped[0] in binds_to, (
+            f"bluealsa-aplay binds to {binds_to}, not to {stopped[0]}: it outlives the stop"
+        )
 
     def test_disabling_multiroom_goes_through_the_routing_service(
         self, client, settings, routing
@@ -311,11 +373,7 @@ class TestTheDockAndTheLibraryCatalog:
 
     @pytest.fixture
     def library(self, state_machine):
-        source = Mock(set_catalog_running=Mock())
-        state_machine.get_source = Mock(
-            side_effect=lambda s: source if s is AudioSource.MUSIC_LIBRARY else None
-        )
-        return source
+        return state_machine.get_source(AudioSource.MUSIC_LIBRARY)
 
     def test_disabling_the_library_stops_its_catalog(self, client, settings, library):
         _dock(settings, ["radio", "music_library"])
@@ -361,11 +419,7 @@ class TestTheDockAndTheTidalRuntime:
 
     @pytest.fixture
     def tidal(self, state_machine):
-        source = Mock()
-        state_machine.get_source = Mock(
-            side_effect=lambda s: source if s is AudioSource.TIDAL else None
-        )
-        return source
+        return state_machine.get_source(AudioSource.TIDAL)
 
     def test_enabling_tidal_prepares_its_runtime(self, client, settings, tidal):
         _dock(settings, ["radio"])

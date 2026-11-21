@@ -518,7 +518,7 @@ def create_system_router(
         await require_presence(presence_service, PresenceAction.PASSWORD, presence)
         async with api_error_handler("Error setting the device password", logger):
             proc = await asyncio.create_subprocess_exec(
-                "sudo", SET_PASSWORD_CMD,
+                "sudo", "-n", SET_PASSWORD_CMD,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
@@ -669,7 +669,7 @@ def create_system_router(
 
         async with api_error_handler("Error setting the timezone", logger):
             proc = await asyncio.create_subprocess_exec(
-                "sudo", SET_TIMEZONE_CMD, zone,
+                "sudo", "-n", SET_TIMEZONE_CMD, zone,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
