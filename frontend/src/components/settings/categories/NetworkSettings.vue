@@ -60,8 +60,8 @@
                 <WifiSignal :signal="wifiShown.signal" :size="24" />
                 <span class="text-body-medium network-item__ssid">{{ preferredNetwork.ssid }}</span>
               </div>
-              <Button variant="important" size="small" @click="forgetNetwork(preferredNetwork.ssid)">
-                {{ t('network.forget') }}
+              <Button variant="important" size="small" @click="handleForget(preferredNetwork.ssid)">
+                {{ confirmForget === preferredNetwork.ssid ? t('network.forgetConfirm') : t('network.forget') }}
               </Button>
             </div>
           </div>
@@ -191,6 +191,21 @@ const overRecoveryAp = computed(() => settingsStore.hotspotActive && !isKiosk())
 function choose(network) {
   if (overRecoveryAp.value) saveNetwork(network, t);
   else connectToNetwork(network, t);
+}
+
+// Two-step, like every other irreversible action here: the first press only
+// changes the label. The network forgotten is the one the unit is on — on a
+// WiFi-only unit with no screen, the way back is an Ethernet cable. Kept as the
+// SSID it was armed for, so a status that moves to another network disarms it.
+const confirmForget = ref(null);
+
+function handleForget(ssid) {
+  if (confirmForget.value !== ssid) {
+    confirmForget.value = ssid;
+    return;
+  }
+  confirmForget.value = null;
+  forgetNetwork(ssid);
 }
 
 // From setup, not onMounted: the view's first frame is then the skeletons, never

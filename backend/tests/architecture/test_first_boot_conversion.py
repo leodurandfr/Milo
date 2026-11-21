@@ -457,3 +457,27 @@ def test_every_boot_unit_running_as_milo_waits_for_first_boot():
     assert len(at_boot) >= 5, f"found only {at_boot} as boot units running as milo; the extractor is broken"
     late = sorted(name for name in at_boot if not waits(name, set()))
     assert not late, f"{late} run as milo at boot without waiting for {FIRST_BOOT_UNIT}"
+
+
+def test_every_settings_key_first_boot_spells_is_one_the_backend_declares():
+    """`milo-first-boot` reads settings.json by hand, in inline Python: its keys
+    are strings no import ties to `SettingsService.defaults`. One renamed on the
+    backend alone reads as absent there, in silence — `setup_completed` as never
+    set up (role detection on every boot of a set-up unit), and
+    `setup_awaiting_network` as not waiting (a unit set up over its AP, then
+    cabled to a LAN where another Milō answers, converted to a satellite).
+    """
+    from backend.core.settings import SettingsService
+
+    text = FIRST_BOOT.read_text()
+    read = set(re.findall(r"\bd\.get\('(\w+)'\)", text))
+    written = set(re.findall(r'\bdata\["(\w+)"\]', text))
+    spelled = read | written
+    assert {"setup_completed", "setup_awaiting_network"} <= spelled, (
+        f"could not read the settings keys milo-first-boot spells ({sorted(spelled)}); "
+        "the extractor is broken"
+    )
+
+    declared = SettingsService().defaults
+    undeclared = sorted(spelled - declared.keys())
+    assert not undeclared, f"milo-first-boot reads settings keys the backend does not declare: {undeclared}"

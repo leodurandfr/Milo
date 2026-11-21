@@ -31,21 +31,22 @@
         <div class="connection-row connection-row--wifi">
           <WifiSignal :signal="wifiCardSignal" :size="24" />
           <span class="text-body-medium connection-row__ssid">{{ wifiDisplaySsid || t('network.wifi') }}</span>
-          <Badge class="connection-badge" :tone="wifiBadgeTone" :pulse="wifiBadgeTone === 'warning'">
+          <Badge class="connection-badge" :tone="wifiBadgeTone" :pulse="status.wifi.connecting">
             {{ wifiBadgeLabel }}
           </Badge>
         </div>
       </template>
     </div>
 
+    <!-- The wizard went through once, and the unit did not join the network saved -->
+    <NoticeBox v-if="joinFailedSsid" kind="warning">{{ t('setup.wifi.joinFailed', { ssid: joinFailedSsid }) }}</NoticeBox>
+
     <!-- A browser on the open setup AP sends the key it types in clear; the kiosk types it locally -->
     <p v-if="showEthernetHint" class="text-body-small ethernet-hint">{{ t('setup.wifi.ethernetHint') }}</p>
 
-    <!-- Network selector (country + scan + password) -->
-    <NetworkSelector
-      :exclude-ssid="wifiDisplaySsid || undefined"
-      :submit-action="hotspotActive ? 'save' : 'connect'"
-    >
+    <!-- Network selector (country + scan + password). The network saved stays
+         in the list: a key mistyped over the AP is typed again there. -->
+    <NetworkSelector :submit-action="hotspotActive ? 'save' : 'connect'" @saved="triedSsid = ''">
       <template #action="{ network, password, connecting, connect, save }">
         <Button variant="brand" :loading="connecting"
           :disabled="connecting || (network.security && !password)"
@@ -60,7 +61,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
@@ -70,6 +71,7 @@ import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
@@ -89,6 +91,26 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // The wizard was sent once and the unit has joined no network since.
+  awaitingNetwork: {
+    type: Boolean,
+    default: false,
+  },
+});
+
+// The network saved when the step opened: the one the unit tried at its last
+// start and could not join. Read once, so a network saved here since is not
+// named in its place; cleared by a save here, the same SSID with its key typed
+// again included, since what failed is no longer what the unit will try.
+const triedSsid = ref(null);
+watch(loading, (busy) => {
+  if (!busy && triedSsid.value === null) triedSsid.value = status.value.wifi.saved_ssid || '';
+}, { immediate: true });
+
+const joinFailedSsid = computed(() => {
+  if (!props.awaitingNetwork || !triedSsid.value) return null;
+  if (status.value.wifi.connected || status.value.ethernet.connected) return null;
+  return triedSsid.value;
 });
 
 const showEthernetHint = computed(() =>
@@ -106,10 +128,16 @@ const wifiCardSignal = computed(() => {
   return ssid ? (networks.value.find(n => n.ssid === ssid)?.signal ?? null) : null;
 });
 
+// The network shown is the one the unit could not join: not "Ready".
+const wifiJoinFailed = computed(() =>
+  !!joinFailedSsid.value && wifiDisplaySsid.value === joinFailedSsid.value
+);
+
 // Disconnected stays neutral: at setup an unplugged cable is not an error.
 const wifiBadgeTone = computed(() => {
   if (status.value.wifi.connected) return 'success';
   if (status.value.wifi.connecting) return 'warning';
+  if (wifiJoinFailed.value) return 'warning';
   if (wifiDisplaySsid.value) return 'brand';
   return 'neutral';
 });
@@ -117,6 +145,7 @@ const wifiBadgeTone = computed(() => {
 const wifiBadgeLabel = computed(() => {
   if (status.value.wifi.connected) return t('network.connected');
   if (status.value.wifi.connecting) return t('network.connecting');
+  if (wifiJoinFailed.value) return t('network.notConnected');
   if (wifiDisplaySsid.value) return t('network.ready');
   return t('network.notConnected');
 });

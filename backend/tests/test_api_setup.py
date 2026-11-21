@@ -24,10 +24,11 @@ What breaks when one of these fails:
   overlay out of config.txt — dropping it disables the receiver on a unit that
   has one, silently, at the one moment the user cannot yet notice.
 """
+import asyncio
 import logging
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from fastapi import FastAPI
@@ -35,9 +36,12 @@ from fastapi.testclient import TestClient
 
 from backend.api import setup as api_setup
 from backend.api.setup import create_setup_router
+from backend.api.system import create_system_router
 from backend.config.constants import SELECTABLE_GPIO_PINS
+from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
 from backend.core.settings import VALID_LANGUAGES
 from backend.hardware.registry import AUDIO_CARDS, SCREENS, is_dac_card, reserved_pins
+from backend.hardware.service import HardwareService
 
 
 FIRST_BOOT = Path(__file__).resolve().parents[2] / "rootfs/usr/local/bin/milo-first-boot"
@@ -90,7 +94,12 @@ def services():
     settings = Mock()
     settings.get_setting = AsyncMock(return_value=False)
     settings.set_setting = AsyncMock(return_value=True)
+    settings.set_settings = AsyncMock(return_value=True)
 
+    # `replace_config` is the transaction the Hardware page runs too: written,
+    # applied, or the previous config put back. What it does with a refusal is
+    # the real service's, run on a scratch file where a test needs it
+    # (`test_a_refused_apply_puts_the_previous_hardware_config_back`).
     hardware = Mock()
     hardware.get_full_config = Mock(return_value={
         "audio": {"id": "none"},
@@ -99,12 +108,14 @@ def services():
         "ir_remote": {"enabled": True, "gpio_pin": 17},
         "power_button": {"enabled": True, "led_gpio_pin": 5},
     })
-    hardware.save_config = AsyncMock()
-    hardware.apply = AsyncMock()
+    hardware.replace_config = AsyncMock()
 
     network = Mock()
     network.save_network = AsyncMock()
     network.forget_network = AsyncMock()
+    # Linked by default: the wizard run from the LAN or the kiosk. The recovery
+    # AP's case — no link — is TestFirstLink's.
+    network.get_network_status = AsyncMock(return_value=_status(ethernet=True))
 
     systemd = Mock()
     systemd.power = AsyncMock()
@@ -114,16 +125,37 @@ def services():
     )
 
 
-@pytest.fixture
-def client(services):
+def _status(ethernet=False, wifi=False):
+    return NetworkStatus(
+        wifi_enabled=True,
+        ethernet=EthernetStatus(connected=ethernet, ip_address="192.168.1.20" if ethernet else None),
+        wifi=WifiConnectionStatus(connected=wifi, ssid="Maison" if wifi else None),
+        hotspot_active=False,
+    )
+
+
+def _written(services):
+    """Every (key, value) the route wrote, one key at a time or several at once."""
+    single = [call.args for call in services.settings.set_setting.await_args_list]
+    many = [
+        item
+        for call in services.settings.set_settings.await_args_list
+        for item in call.args[0].items()
+    ]
+    return single + many
+
+
+def _client(services):
     app = FastAPI()
     app.include_router(create_setup_router(
         services.settings, services.hardware, services.network, services.systemd
     ))
-    # `_delayed_apply` sleeps a second to let the response flush; nothing here
-    # asserts on the delay, and paying it once per test is a minute of suite.
-    with patch("backend.api.setup.asyncio.sleep", new=AsyncMock()):
-        yield TestClient(app)
+    return TestClient(app)
+
+
+@pytest.fixture
+def client(services):
+    return _client(services)
 
 
 # =============================================================================
@@ -336,6 +368,22 @@ class TestBecomeClientGuards:
         assert not marker.exists()
         services.systemd.power.assert_not_called()
 
+    def test_a_server_waiting_for_its_first_link_is_not_adopted(self, client, marker, services):
+        """Its wizard ran over the AP, as a server, and it waits for its first
+        link to count as set up: still on its AP, a server adopting speakers
+        nearby would otherwise convert it to a satellite, reboot it and lose the
+        wizard's choices."""
+        services.settings.get_setting = AsyncMock(
+            side_effect=lambda key: key == "setup_awaiting_network"
+        )
+
+        response = client.post("/api/setup/become-client", json=ADOPT)
+
+        assert response.status_code == 409
+        assert not marker.exists()
+        services.network.save_network.assert_not_awaited()
+        services.systemd.power.assert_not_called()
+
     @pytest.mark.parametrize("audio_id", ["none", "not-a-card", ""])
     def test_a_device_with_no_usable_card_is_refused_before_anything_is_written(
         self, client, marker, services, audio_id
@@ -377,7 +425,7 @@ class TestCompleteSetup:
         """
         client.post("/api/setup/complete", json=self._payload())
 
-        saved = services.hardware.save_config.await_args.args[0]
+        saved = services.hardware.replace_config.await_args.args[0]
         current = services.hardware.get_full_config.return_value
         assert saved["ir_remote"] == current["ir_remote"]
         assert saved["rotary_encoder"] == current["rotary_encoder"]
@@ -392,7 +440,7 @@ class TestCompleteSetup:
 
         client.post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp100"))
 
-        saved = services.hardware.save_config.await_args.args[0]
+        saved = services.hardware.replace_config.await_args.args[0]
         assert saved["ir_remote"] == {"enabled": False, "gpio_pin": 17}
 
     def test_the_wizard_keeps_the_ir_on_a_card_that_leaves_its_pin_free(self, client, services):
@@ -400,7 +448,7 @@ class TestCompleteSetup:
 
         client.post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp4pro"))
 
-        saved = services.hardware.save_config.await_args.args[0]
+        saved = services.hardware.replace_config.await_args.args[0]
         assert saved["ir_remote"] == {"enabled": True, "gpio_pin": 17}
 
     @pytest.mark.parametrize("block, pin_key", [
@@ -425,9 +473,11 @@ class TestCompleteSetup:
                 services.hardware.get_full_config.return_value = {
                     **current, block: {**current[block], "enabled": True, pin_key: pin},
                 }
-                client.post("/api/setup/complete", json=self._payload(audio_id=audio_id))
+                # A fresh router per submit: one that answered "rebooting" holds
+                # every submit after it until the unit is down.
+                _client(services).post("/api/setup/complete", json=self._payload(audio_id=audio_id))
 
-                saved = services.hardware.save_config.await_args.args[0]
+                saved = services.hardware.replace_config.await_args.args[0]
                 assert saved[block] == {**current[block], "enabled": False, pin_key: pin}
                 for other in api_setup.WIZARD_KEPT_PERIPHERALS.keys() - {block}:
                     assert saved[other] == current[other]
@@ -441,7 +491,7 @@ class TestCompleteSetup:
         offered."""
         client.post("/api/setup/complete", json=self._payload())
 
-        saved = services.hardware.save_config.await_args.args[0]
+        saved = services.hardware.replace_config.await_args.args[0]
         assert saved["power_button"] == services.hardware.get_full_config.return_value["power_button"]
 
     def test_the_chosen_card_reaches_the_file_with_its_overlay(self, client, services):
@@ -451,7 +501,7 @@ class TestCompleteSetup:
         """
         client.post("/api/setup/complete", json=self._payload())
 
-        saved = services.hardware.save_config.await_args.args[0]
+        saved = services.hardware.replace_config.await_args.args[0]
         assert saved["audio"] == {
             "id": AMP_CARD,
             "overlay": AUDIO_CARDS[AMP_CARD]["overlay"],
@@ -472,7 +522,7 @@ class TestCompleteSetup:
             json=self._payload(audio_id=audio_id, volume_control=volume_control),
         )
 
-        saved = services.hardware.save_config.await_args.args[0]
+        saved = services.hardware.replace_config.await_args.args[0]
         assert saved["audio"]["volume_control"] is volume_control
 
     @pytest.mark.parametrize("audio_id", ["none", "not-a-card"])
@@ -484,8 +534,9 @@ class TestCompleteSetup:
         response = client.post("/api/setup/complete", json=self._payload(audio_id=audio_id))
 
         assert response.status_code == 422
-        services.hardware.save_config.assert_not_awaited()
+        services.hardware.replace_config.assert_not_awaited()
         services.settings.set_setting.assert_not_awaited()
+        services.settings.set_settings.assert_not_awaited()
         services.systemd.power.assert_not_awaited()
 
     @staticmethod
@@ -505,8 +556,13 @@ class TestCompleteSetup:
             store[key] = value
             return True
 
+        async def _set_many(updates):
+            store.update(updates)
+            return True
+
         services.settings.get_setting = AsyncMock(side_effect=_get)
         services.settings.set_setting = AsyncMock(side_effect=_set)
+        services.settings.set_settings = AsyncMock(side_effect=_set_many)
         return store
 
     async def test_a_second_submit_inside_the_apply_window_applies_nothing(self, services):
@@ -518,23 +574,19 @@ class TestCompleteSetup:
         with no MILO AUDIO block, a mute unit marked configured — then two
         reboots, the first one killing the second helper mid-script.
 
-        Only the first apply is slow: httpx's ASGI transport returns a response
-        once its background tasks are done, so a second apply that also waited
-        would never let the second request answer. The route's one-second delay
-        is kept rather than patched: `asyncio.sleep` is the asyncio module's own,
-        so a patch would reach the transport too, running in this test's loop.
+        Only the first apply is slow: the second request must answer while the
+        first is still inside its apply, which now runs within the request.
         """
-        import asyncio
         import httpx
 
         self._reflecting_store(services)
         entered, release = asyncio.Event(), asyncio.Event()
 
-        async def _apply(**_):
-            if services.hardware.apply.await_count == 1:
+        async def _apply(_config):
+            if services.hardware.replace_config.await_count == 1:
                 entered.set()
                 await release.wait()
-        services.hardware.apply.side_effect = _apply
+        services.hardware.replace_config.side_effect = _apply
 
         app = FastAPI()
         app.include_router(create_setup_router(
@@ -554,9 +606,8 @@ class TestCompleteSetup:
         assert first.status_code == 200
         assert second.status_code == 200
         assert second.json() == {"status": "rebooting"}
-        assert services.hardware.apply.await_count == 1
-        assert services.hardware.save_config.await_count == 1
-        services.systemd.power.assert_awaited_once_with("reboot")
+        assert services.hardware.replace_config.await_count == 1
+        services.systemd.power.assert_awaited_once_with("reboot", 1.0)
 
     def test_a_submit_after_setup_completed_applies_nothing(self, client, services):
         """The wizard's Finish button is reachable again on a slow first boot,
@@ -569,23 +620,23 @@ class TestCompleteSetup:
 
         assert response.status_code == 200
         assert response.json() == {"status": "rebooting"}
-        services.hardware.apply.assert_awaited_once()
-        services.systemd.power.assert_awaited_once_with("reboot")
+        services.hardware.replace_config.assert_awaited_once()
+        services.systemd.power.assert_awaited_once_with("reboot", 1.0)
 
     def test_a_failed_apply_lets_the_wizard_be_submitted_again(self, client, services):
         """The wizard stays on screen after a failed apply; a submit refused
         there forever would leave a fresh unit with no way to finish its setup
         short of a backend restart."""
         self._reflecting_store(services)
-        services.hardware.apply.side_effect = [
+        services.hardware.replace_config.side_effect = [
             RuntimeError("config.txt is read-only"), None,
         ]
 
         client.post("/api/setup/complete", json=self._payload())
         client.post("/api/setup/complete", json=self._payload())
 
-        assert services.hardware.apply.await_count == 2
-        services.systemd.power.assert_awaited_once_with("reboot")
+        assert services.hardware.replace_config.await_count == 2
+        services.systemd.power.assert_awaited_once_with("reboot", 1.0)
 
     def test_a_refused_payload_does_not_hold_the_wizard(self, client, services):
         """A 400 is answered before anything is scheduled, so nothing would
@@ -596,7 +647,7 @@ class TestCompleteSetup:
         client.post("/api/setup/complete", json=self._payload())
 
         assert refused.status_code == 400
-        services.hardware.apply.assert_awaited_once()
+        services.hardware.replace_config.assert_awaited_once()
 
     def test_the_reboot_runs_after_the_response_and_not_during_it(self, client, services):
         """Rewriting config.txt and rebooting inline would take the box down
@@ -607,8 +658,8 @@ class TestCompleteSetup:
 
         assert response.status_code == 200
         assert response.json() == {"status": "rebooting"}
-        services.hardware.apply.assert_awaited_once()
-        services.systemd.power.assert_awaited_once_with("reboot")
+        services.hardware.replace_config.assert_awaited_once()
+        services.systemd.power.assert_awaited_once_with("reboot", 1.0)
 
     def test_a_hardware_write_that_fails_never_marks_setup_done(self, client, services):
         """A unit that reboots believing setup is done, on hardware that was
@@ -619,15 +670,12 @@ class TestCompleteSetup:
         The flag is now only ever written after config.txt has been rewritten,
         so the guarantee is that it is never set at all here.
         """
-        services.hardware.save_config.side_effect = OSError("read-only filesystem")
+        services.hardware.replace_config.side_effect = OSError("read-only filesystem")
 
         response = client.post("/api/setup/complete", json=self._payload())
 
         assert response.status_code == 500
-        assert ("setup_completed", True) not in [
-            call.args for call in services.settings.set_setting.await_args_list
-        ]
-        services.hardware.apply.assert_not_awaited()
+        assert ("setup_completed", True) not in _written(services)
 
     def test_the_overlay_lands_before_the_flag_and_the_flag_before_the_reboot(
         self, client, services
@@ -644,19 +692,26 @@ class TestCompleteSetup:
         pinned with it.
         """
         order = []
-        services.hardware.apply = AsyncMock(side_effect=lambda: order.append("apply"))
+        services.hardware.replace_config = AsyncMock(side_effect=lambda _config: order.append("apply"))
         services.settings.set_setting = AsyncMock(
             side_effect=lambda key, value: order.append(f"{key}={value}") or True
+        )
+        services.settings.set_settings = AsyncMock(
+            side_effect=lambda updates: order.append(
+                " ".join(f"{key}={value}" for key, value in updates.items())
+            ) or True
         )
         services.systemd.power = AsyncMock(side_effect=lambda *_: order.append("reboot"))
 
         response = client.post("/api/setup/complete", json=self._payload())
 
         assert response.status_code == 200
+        # The flag and the end of the wait are one write: torn apart, a unit
+        # counted as set up would still skip role detection at every boot.
         assert order == [
             "language=" + self._payload()["language"],
             "apply",
-            "setup_completed=True",
+            "setup_completed=True setup_awaiting_network=False",
             "reboot",
         ]
 
@@ -665,54 +720,61 @@ class TestCompleteSetup:
     ):
         """config.txt was not rewritten, so rebooting would only lose the
         user's answers: the wizard must still be there on the next boot."""
-        services.hardware.apply.side_effect = RuntimeError("config.txt is read-only")
+        services.hardware.replace_config.side_effect = RuntimeError("config.txt is read-only")
 
         client.post("/api/setup/complete", json=self._payload())
 
-        assert ("setup_completed", True) not in [
-            call.args for call in services.settings.set_setting.await_args_list
-        ]
+        assert ("setup_completed", True) not in _written(services)
         services.systemd.power.assert_not_awaited()
 
-    def test_a_refused_apply_puts_the_previous_hardware_config_back(self, client, services):
+    def test_a_refused_apply_puts_the_previous_hardware_config_back(self, services, tmp_path):
         """The helper reads hardware.json, so the wizard writes it before the
         apply — and the next submit reads it back as the unit's current state.
         Left as written after a refusal, it names a card config.txt never
         loaded, and the peripherals that card's pins turned off stay off:
         an IR receiver on GPIO 17, refused with an Amp100, stayed disabled on
         the Amp4 Pro applied next, which leaves 17 free.
+
+        The real service on a scratch hardware.json, `sudo milo-apply-hardware`
+        alone stood in for: what is asserted is the file the next boot reads.
         """
+        import json
+
         assert 17 in reserved_pins("hifiberry_amp100")
         assert 17 not in reserved_pins("hifiberry_amp4pro")
-        stored = {"config": services.hardware.get_full_config.return_value}
-        original = stored["config"]
-        services.hardware.get_full_config.side_effect = lambda: stored["config"]
-        services.hardware.save_config.side_effect = lambda cfg: stored.update(config=cfg)
-        services.hardware.apply.side_effect = [
-            RuntimeError("EEPROM write refused"), None,
-        ]
+        original = services.hardware.get_full_config.return_value
+        hardware = HardwareService()
+        hardware.hardware_file = tmp_path / "hardware.json"
+        asyncio.run(hardware.save_config(original))
+        hardware.apply = AsyncMock(side_effect=[RuntimeError("EEPROM write refused"), None])
+        services.hardware = hardware
 
-        client.post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp100"))
+        def stored():
+            data = json.loads(hardware.hardware_file.read_text())
+            data.pop("schema_version")
+            return data
 
-        assert services.hardware.save_config.await_args.args[0] == original
-        assert stored["config"]["ir_remote"] == {"enabled": True, "gpio_pin": 17}
+        refused = _client(services).post(
+            "/api/setup/complete", json=self._payload(audio_id="hifiberry_amp100")
+        )
 
-        client.post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp4pro"))
+        assert refused.status_code == 500
+        assert stored() == original
 
-        applied = services.hardware.save_config.await_args.args[0]
-        assert applied["audio"]["id"] == "hifiberry_amp4pro"
-        assert applied["ir_remote"] == {"enabled": True, "gpio_pin": 17}
+        _client(services).post("/api/setup/complete", json=self._payload(audio_id="hifiberry_amp4pro"))
+
+        assert stored()["audio"]["id"] == "hifiberry_amp4pro"
+        assert stored()["ir_remote"] == {"enabled": True, "gpio_pin": 17}
 
     def test_a_flag_that_will_not_persist_does_not_reboot(self, client, services):
         """Rebooting on an unwritten flag is a unit that shows the wizard again
         with its hardware already applied — recoverable, but the reboot bought
         nothing and hid the settings write that failed."""
-        services.settings.set_setting = AsyncMock(
-            side_effect=lambda key, value: key != "setup_completed"
-        )
+        services.settings.set_settings = AsyncMock(return_value=False)
 
-        client.post("/api/setup/complete", json=self._payload())
+        response = client.post("/api/setup/complete", json=self._payload())
 
+        assert response.status_code == 500
         services.systemd.power.assert_not_awaited()
 
     @pytest.mark.parametrize("bad", [
@@ -729,5 +791,174 @@ class TestCompleteSetup:
         response = client.post("/api/setup/complete", json=self._payload(**bad))
 
         assert response.status_code == 400
-        services.hardware.save_config.assert_not_awaited()
+        services.hardware.replace_config.assert_not_awaited()
         services.settings.set_setting.assert_not_awaited()
+        services.settings.set_settings.assert_not_awaited()
+
+    def test_a_refused_apply_answers_its_reason_and_reboots_nothing(self, client, services):
+        """The apply runs inside the request, as on the Hardware page: the
+        wizard used to answer "rebooting" first and apply in the background,
+        so a refusal reached nobody — the wizard waited three minutes for a
+        reboot that never came and said it had timed out."""
+        services.hardware.replace_config.side_effect = RuntimeError("Hardware apply failed: EEPROM write refused")
+
+        response = client.post("/api/setup/complete", json=self._payload())
+
+        assert response.status_code == 500
+        assert "EEPROM write refused" in response.json()["detail"]
+        services.systemd.power.assert_not_awaited()
+
+
+# =============================================================================
+# The first link: when a unit set up over its recovery AP counts as set up
+# =============================================================================
+
+class TestFirstLink:
+    """Over the recovery AP the wizard saves the home network without joining it,
+    so nothing has tried the key when the unit reboots. Counted as set up then, a
+    mistyped key left a unit whose AP refuses the wizard's writes: the key could
+    not be typed again without a cable. The unit now counts as set up at its
+    first link, and the wizard comes back on the AP until then."""
+
+    PAYLOAD = {
+        "language": "english",
+        "audio_id": AMP_CARD,
+        "volume_control": True,
+        "screen_type": "none",
+    }
+
+    @pytest.fixture
+    def settings(self, tmp_path):
+        """The real settings service on a scratch file: what the guard, the
+        status read and the next boot read is what the route wrote."""
+        from backend.core.settings import SettingsService
+
+        service = SettingsService()
+        service.settings_file = str(tmp_path / "settings.json")
+        return service
+
+    @pytest.fixture
+    def unit(self, services, settings):
+        """A unit on its recovery AP: no link. `link_up()` is the network service
+        telling its listeners that a link came up; `boot()` a new backend."""
+        services.settings = settings
+        services.network.get_network_status = AsyncMock(return_value=_status())
+        listeners = []
+        services.network.add_link_listener = Mock(side_effect=listeners.append)
+
+        class Unit:
+            def boot(self):
+                listeners.clear()
+                app = FastAPI()
+                app.include_router(create_setup_router(
+                    settings, services.hardware, services.network, services.systemd
+                ))
+                app.include_router(
+                    create_system_router(services.systemd, settings_service=settings),
+                    prefix="/api/system",
+                )
+                self.http = TestClient(app)
+                return self
+
+            async def link_up(self):
+                for listener in listeners:
+                    await listener()
+
+            def awaiting(self):
+                return self.http.get("/api/system/status").json()["data"]["setup_awaiting_network"]
+
+        return Unit().boot()
+
+    async def test_over_the_ap_the_unit_is_set_up_at_its_first_link(self, unit, settings, services):
+        response = unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+
+        assert response.json() == {"status": "rebooting"}
+        services.systemd.power.assert_awaited_once_with("reboot", 1.0)
+        assert await settings.get_setting("setup_completed") is False
+        assert unit.awaiting() is True
+
+        unit.boot()
+        await unit.link_up()
+
+        assert await settings.get_setting("setup_completed") is True
+        assert unit.awaiting() is False
+
+    async def test_until_then_the_wizard_can_be_sent_again(self, unit, services):
+        """The key was wrong: the unit reboots onto its AP, the wizard reopens
+        on its Network step, the key is typed again and the wizard sent again —
+        applied and rebooted again, the network tried at that boot."""
+        unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+        unit.boot()
+
+        response = unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+
+        assert response.json() == {"status": "rebooting"}
+        assert services.hardware.replace_config.await_count == 2
+        assert services.systemd.power.await_count == 2
+
+    async def test_a_second_submit_before_the_reboot_applies_nothing(self, unit, services):
+        """`setup_completed` does not guard these seconds any more: the flag
+        waits for the link. A second Finish on its way down would run
+        milo-apply-hardware under the shutdown."""
+        unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+
+        response = unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+
+        assert response.json() == {"status": "rebooting"}
+        services.hardware.replace_config.assert_awaited_once()
+        services.systemd.power.assert_awaited_once()
+
+    async def test_a_reboot_that_did_not_happen_releases_the_wizard(self, unit, services):
+        """Held for good, the wizard on screen answers "rebooting" to every
+        submit of a unit that stayed up."""
+        services.systemd.power = AsyncMock(return_value=False)
+        unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+
+        unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+
+        assert services.hardware.replace_config.await_count == 2
+
+    async def test_a_link_on_a_unit_whose_wizard_never_ran_sets_nothing_up(self, unit, settings):
+        """An Ethernet cable on a fresh unit is a link too: its wizard stays."""
+        await unit.link_up()
+
+        assert await settings.get_setting("setup_completed") is False
+        assert unit.awaiting() is False
+
+    async def test_a_wizard_run_with_a_link_is_set_up_at_once(self, unit, settings, services):
+        """From the LAN or a kiosk on a network, the network shown is the one
+        the unit has: nothing is left to confirm."""
+        services.network.get_network_status = AsyncMock(return_value=_status(wifi=True))
+
+        unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+
+        assert await settings.get_setting("setup_completed") is True
+        assert unit.awaiting() is False
+
+    async def test_a_status_that_cannot_be_read_counts_as_no_link(self, unit, settings, services):
+        """nmcli timing out under the AP is no proof of a link: counted as one,
+        the key typed over the AP — never tried — would set the unit up, and a
+        mistyped one leave it on an AP with no wizard. Raised, the wizard would
+        answer 500 to a submit that only has to wait for the link."""
+        services.network.get_network_status = AsyncMock(side_effect=asyncio.TimeoutError())
+
+        response = unit.http.post("/api/setup/complete", json=self.PAYLOAD)
+
+        assert response.json() == {"status": "rebooting"}
+        assert await settings.get_setting("setup_completed") is False
+        assert unit.awaiting() is True
+
+    async def test_a_unit_set_up_never_reopens_its_wizard_on_the_network_step(self, unit, settings):
+        """The waiting flag is a step of a setup in progress: left set beside
+        `setup_completed` (a file another release wrote, a write torn by a power
+        cut), it must not send a set-up unit's clients back to the wizard."""
+        await settings.set_settings({"setup_completed": True, "setup_awaiting_network": True})
+
+        assert unit.awaiting() is False
+
+    def test_the_router_listens_to_the_network_service(self, services):
+        """Without the listener nothing ever confirms the setup: a unit set up
+        over its AP shows the wizard for good, on a network it joined."""
+        create_setup_router(services.settings, services.hardware, services.network, services.systemd)
+
+        services.network.add_link_listener.assert_called_once()

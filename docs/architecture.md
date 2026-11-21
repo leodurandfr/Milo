@@ -1588,7 +1588,8 @@ is one whose address — `X-Real-IP` when nginx is the peer, the peer otherwise 
 carrying clients, or an adoption holds wlan0 on a speaker's open hotspot, where the unit is a
 client among whoever else joined it. It may:
 - read: `GET`, `HEAD`, `OPTIONS`, and `/ws`, which takes no command;
-- before setup only (`setup_completed` reads exactly `false`), send `PRE_SETUP_WRITES`: the
+- before setup only (`setup_completed` reads exactly `false` — which, for a wizard sent over the
+  AP, lasts until the unit's first link to a network, below), send `PRE_SETUP_WRITES`: the
   wizard's `PUT /api/network/wifi/country`, `POST /api/network/wifi/save` and
   `POST /api/setup/complete`, and the adoption's `POST /api/setup/become-client`, which the
   adopting server sends from a `10.42.0.x` address straight to the fresh speaker's :8000;
@@ -1616,7 +1617,26 @@ both ways (refused without the gesture and from a speaker's hotspot, admitted on
 nothing else admitted by its token), checks that `main.py` hands the guard the presence service,
 and requires every entry to be one route with a caller: in the wizard or `wifi_adoption.py`, the
 store's Cancel, or, for a write on a proof, sent by every caller through
-`presenceStore.request()`.
+`presenceStore.request()`. The other way too: every write the wizard can send — read from the
+components it renders and the store or composable functions they name — is in `PRE_SETUP_WRITES`
+or in the test's `OFF_AP_WIZARD_WRITES`, each with the condition that keeps it off the AP.
+
+**A wizard sent over the AP counts as set up at the unit's first link.** Over the AP the wizard
+*saves* the home network (`save_network`), so nothing has tried the key when it reboots. Counted
+as set up then, a mistyped key left a unit whose AP refused the wizard's writes. So
+`POST /api/setup/complete` applies the hardware inside the request (a refusal answers 500 with the
+helper's reason, the previous hardware config put back by `HardwareService.replace_config`, the
+Hardware page's transaction), then sets `setup_completed` at once when the unit has a link, else
+`setup_awaiting_network`, and reboots. The setup router listens to the network service
+(`NetworkService.add_link_listener`, awaited before the status is broadcast); the first link that
+comes up while `setup_awaiting_network` holds sets `setup_completed`. Until then the wizard comes
+back on the AP, on its Network step (`GET /api/system/status` carries `setup_awaiting_network`),
+naming the network it could not join, which stays in the list so its key can be typed again.
+Meanwhile the unit is a server already: `POST /api/setup/become-client` refuses it (409) and
+`milo-first-boot` skips its role detection. Once set up, a unit back on its AP says *WiFi lost* on
+every client for as long as the AP stands (App.vue, from `hotspot_active`, which the network status
+carries and `network/status_changed` sends whenever the AP rises or ends — the kiosk's socket, over
+localhost, outlives every network change).
 
 So a unit that is set up is repaired over its AP in one way only: Settings › Network, from a
 browser on the AP, *saves* a network rather than joining it (joining would take the one radio

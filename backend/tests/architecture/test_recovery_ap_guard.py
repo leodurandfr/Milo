@@ -18,7 +18,10 @@ screen and no Ethernet whose home network changed has, with it, its one repair
 The lists themselves are held the other way: every entry names a route the app
 serves, under the one spelling the guard compares, and one that its caller
 actually sends — an entry that outlived its caller is a write handed to the
-neighbors for nothing.
+neighbors for nothing. And the wizard's writes are held against the list: each
+one it can send (read from its components and the functions of theirs they
+name, never by substring) is listed, or kept off the AP by a named condition —
+one it sends and the list lacks stops a WiFi-only unit's first setup at a 403.
 
 Never through the live endpoints: this checkout is the appliance, and a guard
 that let `POST /api/system/restart` through would reboot it. The installed guard
@@ -44,13 +47,20 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 READS = {"GET", "HEAD", "OPTIONS"}
 
-# Where a pre-setup write may come from: the wizard's screens and the network
-# composable they call, and the adopting server's request to a fresh unit.
-CALLERS = (
-    *sorted((REPO_ROOT / "frontend/src/components/setup").glob("*.vue")),
-    REPO_ROOT / "frontend/src/composables/useNetwork.js",
-    REPO_ROOT / "backend/core/multiroom/wifi_adoption.py",
-)
+# Where a pre-setup write may come from: the wizard (read from its entry, below),
+# and the adopting server's request to a fresh unit.
+WIZARD_ENTRY = REPO_ROOT / "frontend/src/components/setup/SetupWizard.vue"
+ADOPTION = REPO_ROOT / "backend/core/multiroom/wifi_adoption.py"
+
+# Writes the wizard sends that a client of the AP never does, each with the
+# condition that keeps it off the AP. Every other write the wizard sends must be
+# in PRE_SETUP_WRITES, or the first setup of a WiFi-only unit is refused (403)
+# over the AP, which no CI run and no unit on Ethernet sees.
+OFF_AP_WIZARD_WRITES = {
+    ("POST", "/api/network/wifi/connect"):
+        "NetworkStep joins only while `hotspotActive` is false (`hotspotActive ? save() : connect()`,"
+        " and NetworkSelector's Enter key through `submit-action`): over the AP it saves",
+}
 
 # Where a write admitted on a proof may come from: the frontend, through the
 # presence store, which holds the challenge and sends the request again with
@@ -286,13 +296,135 @@ def test_every_listed_write_is_one_route_spelled_as_the_router_matches_it(writes
         assert WRITES.count((method, path)) == 1, f"{method} {path} is not one route"
 
 
-def test_every_pre_setup_write_is_one_the_wizard_or_the_adoption_sends():
-    sources = {f: f.read_text() for f in CALLERS}
-    assert len(sources) > 3 and all(sources.values()), "wizard sources not found"
+_IMPORT = re.compile(r"""^\s*import\s+(?:[\w{}\s,*]+?\s+from\s+)?['"]([^'"]+)['"]""", re.M)
+_WRITE = re.compile(
+    r"""(?:apiCall\.(post|put|patch|delete)\(\s*|\.request\(\s*['"](post|put|patch|delete)['"]\s*,\s*)"""
+    r"""[`'"]([^`'"]+)[`'"]"""
+)
+_FUNCTION = re.compile(r"(?:function\s+(\w+)\s*(?=\()|(\w+)\s*=\s*(?:async\s*)?(?=\())")
 
+
+def _resolve(spec, importer):
+    """The file an import names inside frontend/src, or None (a package)."""
+    if spec.startswith("@/"):
+        path = FRONTEND / spec[2:]
+    elif spec.startswith("."):
+        path = (importer.parent / spec).resolve()
+    else:
+        return None
+    if not path.suffix:
+        path = path.with_suffix(".js")
+    return path if path.is_file() else None
+
+
+def _writes_in(text):
+    return {((verb or request_verb).upper(), path) for verb, request_verb, path in _WRITE.findall(text)}
+
+
+def _bodies(text):
+    """{function name: its own body}, every function the module declares, nested
+    ones included (a store's are inside `defineStore`, a composable's inside
+    `useNetwork()`) — and each without the functions nested in it, or the
+    composable that holds them all would write everything they write."""
+    spans = {}
+    for match in _FUNCTION.finditer(text):
+        # Past the parameters, which may hold braces of their own (`{ errorRef } = {}`).
+        depth, i = 0, match.end()
+        for i in range(match.end(), len(text)):
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            if depth == 0:
+                break
+        head = re.match(r"\s*(?:=>\s*)?\{", text[i + 1:])
+        if head is None:  # a call (`x = useFoo()`), or an arrow with no block
+            continue
+        start = i + head.end()
+        depth = 0
+        for i in range(start, len(text)):
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+            if depth == 0:
+                spans[match[1] or match[2]] = (match.start(), i + 1)
+                break
+    bodies = {}
+    for name, (start, end) in spans.items():
+        inner = sorted((a, b) for other, (a, b) in spans.items() if other != name and start < a and b <= end)
+        own, at = [], start
+        for a, b in inner:
+            if a >= at:
+                own.append(text[at:a])
+                at = b
+        own.append(text[at:end])
+        bodies[name] = "".join(own)
+    return bodies
+
+
+def _wizard_writes():
+    """(method, path) of every write the wizard can send: written in a component
+    it renders (SetupWizard and down, through its imports), or in a function of a
+    module they import that one of them names — never every write such a module
+    holds: useNetwork is the Settings page's too, and a write only Settings calls
+    is none of the wizard's.
+
+    One hop only: a module's functions are followed within that module, never
+    into a module it imports. A wizard-named function that hands its write to
+    another module's function (a store action wrapping `presenceStore.request`)
+    is not traced, so such a write must be sent from the module the wizard
+    imports, or this extractor taught to follow it."""
+    components, modules, todo = {}, set(), [WIZARD_ENTRY]
+    while todo:
+        component = todo.pop()
+        if component in components:
+            continue
+        components[component] = component.read_text(encoding="utf-8")
+        for spec in _IMPORT.findall(components[component]):
+            path = _resolve(spec, component)
+            if path is None or path.name == "apiCall.js":
+                continue
+            (todo.append(path) if path.suffix == ".vue" else modules.add(path))
+    assert len(components) > 8 and modules, f"wizard tree not found: {sorted(c.name for c in components)}"
+
+    sent = set().union(*(_writes_in(text) for text in components.values()))
+    named = "\n".join(components.values())
+    for module in modules:
+        bodies = _bodies(module.read_text(encoding="utf-8"))
+        writes = {name: _writes_in(body) for name, body in bodies.items()}
+        # A function that calls one of its module's writing functions writes too.
+        changed = True
+        while changed:
+            changed = False
+            for name, body in bodies.items():
+                for other, other_writes in writes.items():
+                    if other != name and other_writes - writes[name] and re.search(rf"\b{other}\(", body):
+                        writes[name] |= other_writes
+                        changed = True
+        for name, function_writes in writes.items():
+            if function_writes and re.search(rf"\b{name}\b", named):
+                sent |= function_writes
+    return sent
+
+
+WIZARD_WRITES = _wizard_writes()
+
+
+def test_every_write_the_wizard_sends_is_one_the_ap_admits_before_setup():
+    """A write added to the wizard and missing from PRE_SETUP_WRITES is refused
+    (403) to every phone on the AP: the first setup of a WiFi-only unit stops
+    there, and nothing in CI or on a unit set up over Ethernet ever sees it."""
+    assert {("POST", "/api/setup/complete"), ("POST", "/api/network/wifi/save")} <= WIZARD_WRITES, (
+        f"the extractor reads no wizard write: {sorted(WIZARD_WRITES)}"
+    )
+    for write in OFF_AP_WIZARD_WRITES:
+        assert write in WIZARD_WRITES, f"{write} is no longer sent by the wizard: drop it from OFF_AP_WIZARD_WRITES"
+
+    refused = WIZARD_WRITES - PRE_SETUP_WRITES - OFF_AP_WIZARD_WRITES.keys()
+    assert refused == set(), f"the wizard sends writes the AP refuses before setup: {sorted(refused)}"
+
+
+def test_every_pre_setup_write_is_one_the_wizard_or_the_adoption_sends():
+    """An entry with no caller is a write handed to the AP's neighbors for nothing."""
+    adoption = ADOPTION.read_text()
     for method, path in PRE_SETUP_WRITES:
-        callers = [f.name for f, text in sources.items() if path in text]
-        assert callers, f"{method} {path} has no caller left: drop it from PRE_SETUP_WRITES"
+        sent = (method, path) in WIZARD_WRITES or path in adoption
+        assert sent, f"{method} {path} has no caller left: drop it from PRE_SETUP_WRITES"
 
 
 def _frontend_sources():

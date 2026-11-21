@@ -36,6 +36,20 @@ class NetworkStatus(BaseModel):
     wifi_enabled: bool
     ethernet: EthernetStatus
     wifi: WifiConnectionStatus
+    # The recovery access point is up: the unit has no link, and the AP carries
+    # the clients that reach it (`NetworkService.hotspot_active`). In the status
+    # so a client that stays connected — the kiosk, over localhost — is told
+    # when it rises and when it ends.
+    hotspot_active: bool
+
+    @property
+    def linked(self) -> bool:
+        """Whether the unit is linked to a network: an Ethernet lease, or WiFi
+        associated to a network that is not a Milō access point (the service's
+        `_get_wifi_info` excludes both). The one rule for "a link came up"
+        (`NetworkService.add_link_listener`) and for the setup wizard's "linked
+        now" (`api/setup.py`)."""
+        return self.ethernet.connected or self.wifi.connected
 
 
 class WifiConnectRequest(BaseModel):

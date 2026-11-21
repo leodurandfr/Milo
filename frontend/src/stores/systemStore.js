@@ -30,6 +30,10 @@ export const useSystemStore = defineStore('system', () => {
   // or none). Per tab, never stored — the backend wants the banner back on
   // every load.
   const dismissedAudioCardMissing = ref(null);
+  // The wizard's choices are applied and the unit has not joined a network
+  // since: the wizard opens on its Network step (backend/api/setup.py). Read
+  // with the status, on every load.
+  const setupAwaitingNetwork = ref(false);
   const audioCardMissing = computed(() => (
     reportedAudioCardMissing.value === dismissedAudioCardMissing.value
       ? null
@@ -53,6 +57,9 @@ export const useSystemStore = defineStore('system', () => {
     }
     if (state.local_ip !== undefined) {
       localIp.value = state.local_ip;
+    }
+    if (typeof state.setup_awaiting_network === 'boolean') {
+      setupAwaitingNetwork.value = state.setup_awaiting_network;
     }
     if (state.audio_card_missing !== undefined) {
       reportedAudioCardMissing.value = state.audio_card_missing;
@@ -159,6 +166,7 @@ export const useSystemStore = defineStore('system', () => {
     rechecking,
     audioCardMissing,
     dismissAudioCardMissing,
+    setupAwaitingNetwork,
     ssh,
     fetchStatus,
     loadSsh,

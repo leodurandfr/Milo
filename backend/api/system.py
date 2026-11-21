@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
     from backend.core.system.presence import PresenceService
+    from backend.core.settings import SettingsService
     from backend.core.systemd import SystemdServiceManager
     from backend.core.updates.update import UpdateService
     from backend.hardware.service import HardwareService
@@ -99,6 +100,7 @@ def create_system_router(
     satellite_timezone_service: Optional["SatelliteTimezoneService"] = None,
     update_service: Optional["UpdateService"] = None,
     presence_service: Optional["PresenceService"] = None,
+    settings_service: Optional["SettingsService"] = None,
 ):
     router = APIRouter()
 
@@ -121,12 +123,16 @@ def create_system_router(
 
     @router.get("/status")
     async def get_system_status():
-        """System-level status: hostname conflict, audio card.
+        """System-level status: hostname conflict, audio card, setup waiting for a link.
 
         `audio_card_missing` carries the *label* of the configured card rather
         than a boolean, because the banner has to name it — "HiFiBerry Amp2 is
         configured but not detected" is actionable where "no audio card" is
         just the symptom the user already has. None when all is well.
+
+        `setup_awaiting_network`: the wizard's choices are applied and the unit
+        has not joined a network since (`api/setup.py`), so the wizard opens on
+        its Network step — the key typed over the AP is the one thing to fix.
 
         A state and not an event, deliberately: a HAT is not hot-pluggable, so
         the answer is settled at boot, and the UI needs it on every load rather
@@ -135,11 +141,16 @@ def create_system_router(
         data = {
             "hostname_conflict": False,
             "audio_card_missing": None,
+            "setup_awaiting_network": False,
         }
         if hostname_conflict_service is not None:
             data.update(hostname_conflict_service.get_state())
         if hardware_service is not None:
             data["audio_card_missing"] = hardware_service.get_missing_audio_card()
+        if settings_service is not None:
+            awaiting = await settings_service.get_setting("setup_awaiting_network")
+            completed = await settings_service.get_setting("setup_completed")
+            data["setup_awaiting_network"] = bool(awaiting) and not completed
         return {"status": "success", "data": data}
 
     @router.post("/recheck-hostname")

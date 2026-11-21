@@ -387,9 +387,8 @@ class TestTheBootLoad:
 class TestApply:
     """The privileged apply, at 0 %. `sudo /usr/local/bin/milo-apply-hardware
     --no-reboot` rewrites config.txt and leaves the reboot to the caller. The
-    setup wizard runs it after its response has flushed; `PUT /hardware-config`
-    runs it within the request, so a refused apply can restore the previous
-    config.
+    setup wizard and `PUT /hardware-config` both run it within the request
+    (`replace_config`), so a refused apply can restore the previous config.
 
     The subprocess is replaced rather than watched: on this host the real one
     would rewrite the appliance's config.txt.
@@ -477,6 +476,59 @@ PI5_WITH_HAT = (
     " 2 [LoopbackDLNA   ]: Loopback - Loopback\n"
     "                      Loopback 2\n"
 )
+
+
+class TestReplaceConfig:
+    """The transaction the setup wizard and the Hardware page share: write,
+    apply, or put the previous config back. `milo-apply-hardware` is stood in
+    for at the subprocess, the one thing it touches outside this process."""
+
+    async def test_two_replacements_one_refused_leave_the_file_on_what_config_txt_loads(
+        self, service, monkeypatch
+    ):
+        """The kiosk and a phone each send a card. The first apply is refused
+        while the second waits: interleaved, the second reads the first's
+        unapplied card as "previous", applies its own, and the first's restore
+        then writes the original back over it — hardware.json naming a card
+        config.txt does not load, and the next submit reading that as the
+        unit's state."""
+        _write(service, {"audio": {"id": "hifiberry_amp2"}})
+        entered, release = asyncio.Event(), asyncio.Event()
+        runs = []
+
+        async def spawn(*_argv, **_kwargs):
+            run = len(runs)
+            runs.append(run)
+            proc = MagicMock()
+
+            async def communicate():
+                if run == 0:
+                    entered.set()
+                    await release.wait()
+                    return b"", b"EEPROM write refused"
+                return b"", b""
+
+            proc.communicate = communicate
+            proc.returncode = 1 if run == 0 else 0
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+
+        refused = asyncio.create_task(service.replace_config({"audio": {"id": "hifiberry_amp100"}}))
+        await entered.wait()
+        applied = asyncio.create_task(service.replace_config({"audio": {"id": "hifiberry_amp4pro"}}))
+        for _ in range(20):
+            await asyncio.sleep(0)
+        release.set()
+
+        with pytest.raises(RuntimeError, match="EEPROM write refused"):
+            await refused
+        await applied
+
+        assert len(runs) == 2
+        reloaded = HardwareService()
+        reloaded.hardware_file = service.hardware_file
+        assert reloaded.get_audio_id() == "hifiberry_amp4pro"
 
 
 class TestTheOutputCardInProcAsound:

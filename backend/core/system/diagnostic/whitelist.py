@@ -64,6 +64,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
 SETTINGS_ALLOWED = frozenset({
     "setup_completed",
+    "setup_awaiting_network",
     "language",
     "volume.limit_min_db",
     "volume.limit_max_db",

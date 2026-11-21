@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
  * Module-level singleton state (persists across component instances).
@@ -11,6 +12,7 @@ const _status = ref({
   wifi_enabled: true,
   ethernet: { connected: false, ip_address: null },
   wifi: { connected: false, connecting: false, ssid: null, ip_address: null, signal: null, saved_ssid: null },
+  hotspot_active: false,
 });
 const _networks = ref([]);
 const _savedSsids = ref(new Set());
@@ -18,6 +20,18 @@ const _scanning = ref(false);
 const _country = ref('');
 let _statusLoaded = false;
 let _countryLoaded = false;
+
+/**
+ * A whole status the backend sent. `hotspot_active` is the recovery AP, which
+ * settingsStore holds for the app (the "WiFi lost" banner, the wizard's save):
+ * `system/initial_state` carries it only when the socket opens, and the kiosk's
+ * socket outlives every network change, so the status keeps it current.
+ */
+function _setStatus(next) {
+  _status.value = next;
+  _statusLoaded = true;
+  useSettingsStore().updateHotspotActive(next.hotspot_active);
+}
 
 /**
  * Pre-load network status for instant rendering when NetworkSettings opens.
@@ -33,10 +47,7 @@ export async function preloadNetworkStatus({ force = false } = {}) {
     category: 'network',
     message: 'Failed to preload network status'
   });
-  if (result.ok) {
-    _status.value = result.data.data;
-    _statusLoaded = true;
-  }
+  if (result.ok) _setStatus(result.data.data);
   return result.ok;
 }
 
@@ -70,10 +81,7 @@ export async function refreshWifiSignal() {
  * view reflects the new state in real time.
  */
 export function handleNetworkStatusChanged(event) {
-  if (event?.data) {
-    _status.value = event.data;
-    _statusLoaded = true;
-  }
+  if (event?.data) _setStatus(event.data);
 }
 
 /**
@@ -136,10 +144,7 @@ export function useNetwork() {
       category: 'network',
       message: 'Failed to load network status'
     });
-    if (result.ok) {
-      status.value = result.data.data;
-      _statusLoaded = true;
-    }
+    if (result.ok) _setStatus(result.data.data);
   }
 
   async function loadCountry() {
@@ -236,6 +241,7 @@ export function useNetwork() {
       connectError.value = t('network.saveFailed');
     }
     connecting.value = false;
+    return result.ok;
   }
 
   async function forgetNetwork(ssid) {
@@ -284,7 +290,7 @@ export function useNetwork() {
       errorRef: wifiRefusal
     });
     if (result.ok) {
-      status.value = result.data.data;
+      _setStatus(result.data.data);
       if (enabled) {
         await Promise.all([scanNetworks(), loadSavedNetworks()]);
       }

@@ -19,7 +19,9 @@
     "sourceErrorTitle": "{source} 错误",
     "commandFailed": "命令失败",
     "audioCardMissingTitle": "未检测到声卡",
-    "audioCardMissingDescription": "已配置 {card}，但未检测到。请检查扩展板是否插紧，或在设置中选择其他声卡。"
+    "audioCardMissingDescription": "已配置 {card}，但未检测到。请检查扩展板是否插紧，或在设置中选择其他声卡。",
+    "wifiLostTitle": "WiFi 已断开",
+    "wifiLostDescription": "Milō 无法连接到其 WiFi 网络。请插入以太网线，或在“设置 › 网络”中重新保存您的网络。"
   },
   "settings": {
     "title": "Milō 设置",
@@ -603,6 +605,7 @@
     "saving": "保存中…",
     "saveFailed": "保存网络失败",
     "forget": "忘记",
+    "forgetConfirm": "忘记此网络？",
     "refresh": "刷新",
     "wifiNetworks": "WiFi 网络",
     "wifiCountry": "WiFi 国家",
@@ -943,7 +946,8 @@
     "wifi": {
       "title": "配置网络",
       "continueHint": "请选择国家并将 Milō 连接到网络后继续。",
-      "ethernetHint": "通过 WiFi 设置时，您的 WiFi 密码会经由开放网络传送到 Milō：使用以太网线更安全。"
+      "ethernetHint": "通过 WiFi 设置时，您的 WiFi 密码会经由开放网络传送到 Milō：使用以太网线更安全。",
+      "joinFailed": "Milō 无法连接到 {ssid}。请在下方选择该网络，并重新输入其密码。"
     },
     "language": {
       "title": "选择您的语言"

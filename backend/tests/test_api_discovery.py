@@ -51,6 +51,7 @@ def _status(ethernet: bool, wifi: bool) -> NetworkStatus:
         wifi_enabled=True,
         ethernet=EthernetStatus(connected=ethernet, ip_address="192.168.1.10" if ethernet else None),
         wifi=WifiConnectionStatus(connected=wifi, ssid="Maison" if wifi else None),
+        hotspot_active=False,
     )
 
 

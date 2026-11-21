@@ -134,7 +134,6 @@ def create_settings_router(
     settings = settings_service
     # One lock per settings.json section: read, effects, write and broadcast run under it.
     section_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-    hardware_lock = asyncio.Lock()
 
     def _from_kiosk(request: Request) -> bool:
         """Whether a request comes from the Pi's own kiosk.
@@ -939,28 +938,16 @@ def create_settings_router(
                 },
             }
 
-            # Held from the write to the end of the apply: a second request
-            # interleaved with a refused one would restore the first's "previous"
-            # over a config.txt the second just applied.
-            async with hardware_lock:
-                # The helper reads hardware.json, so the new config is written
-                # first; the previous one is what a refused apply puts back, so the
-                # file never names a card config.txt does not load.
-                previous = hardware_service.get_full_config()
-                await hardware_service.save_config(config)
-                logger.info(f"Hardware config saved: audio={payload.audio.id}, screen={payload.screen.type}")
+            # The wizard's transaction too (`api/setup.py`): written, applied,
+            # or the previous config put back and the refusal answered 500 by
+            # the handler around this route.
+            await hardware_service.replace_config(config)
+            logger.info(f"Hardware config applied: audio={payload.audio.id}, screen={payload.screen.type}")
 
-                try:
-                    await hardware_service.apply()
-                except Exception as e:
-                    logger.error(f"{e} — restoring the previous hardware config")
-                    await hardware_service.save_config(previous)
-                    raise HTTPException(status_code=500, detail=str(e)) from e
+            # Only the reboot is deferred, so the response reaches the browser first.
+            background_tasks.add_task(systemd_manager.power, "reboot", 1.0)
 
-                # Only the reboot is deferred, so the response reaches the browser first.
-                background_tasks.add_task(systemd_manager.power, "reboot", 1.0)
-
-                return {"status": "rebooting"}
+            return {"status": "rebooting"}
 
     # What the Mac panel may offer. Read here so the page never restates a bound
     # the validator enforces.

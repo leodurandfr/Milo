@@ -2,7 +2,8 @@
 """
 Setup wizard API routes — first-boot configuration.
 
-POST /api/setup/complete → atomic wizard completion (language + hardware + setup_completed)
+POST /api/setup/complete → wizard completion (language + hardware + setup_completed, or
+                           setup_awaiting_network over the recovery AP until the first link)
 POST /api/setup/become-client → adopt this fresh device as a multiroom client (wifi flow)
 
 Client mode is normally handled automatically at first boot by
@@ -106,20 +107,72 @@ def create_setup_router(
     """Create setup wizard router with injected services."""
     router = APIRouter(prefix="/api/setup", tags=["setup"])
 
-    # A wizard completion in flight, from the route's first line to the end of
-    # its apply. `setup_completed` cannot guard that window: it is written only
-    # once milo-apply-hardware has rewritten config.txt, seconds after the
-    # route answered.
+    # A wizard completion in flight, from the route's first line to the reboot.
+    # Left set once the reboot is on its way: over the AP the unit is not set up
+    # yet (below), so `setup_completed` cannot guard the seconds before it goes
+    # down.
     completing = False
+
+    async def _has_a_link() -> bool:
+        """Whether the unit is linked to a network now (`NetworkStatus.linked`,
+        the rule the link listener below is called on) — its first connection,
+        if the wizard was run on it. A status nmcli could not read is no link:
+        the listener confirms the setup when one comes up."""
+        try:
+            status = await network_service.get_network_status()
+        except (asyncio.TimeoutError, OSError) as e:
+            logger.warning(f"Setup wizard: network status unreadable, counted as no link: {e!r}")
+            return False
+        return status.linked
+
+    async def _confirm_on_first_link() -> None:
+        """The unit gained a link: if the wizard's choices wait for it, it is set up.
+
+        Over the recovery AP the wizard saves the home network without joining it
+        (`NetworkService.save_network`), so nothing has validated the key when it
+        reboots. Counted as set up then, a mistyped key left a unit whose AP
+        serves set-up rules: no wizard, and the key could not be typed again.
+        A unit that never got through the wizard is left alone: an Ethernet
+        cable on a fresh unit is a link too, and its wizard stays.
+        """
+        if not await settings_service.get_setting("setup_awaiting_network"):
+            return
+        # One write: set up and still waiting, torn apart, would skip role
+        # detection at every boot of a unit counted as set up.
+        if not await settings_service.set_settings(
+            {"setup_completed": True, "setup_awaiting_network": False}
+        ):
+            logger.error("Setup wizard: the first link came up, but setup_completed could not be written")
+            return
+        logger.info("Setup wizard: the unit joined its network — setup completed")
+
+    network_service.add_link_listener(_confirm_on_first_link)
+
+    async def _reboot() -> None:
+        """The reboot, after the response. One that does not happen releases the
+        submit, so the wizard on screen can be sent again."""
+        nonlocal completing
+        try:
+            rebooting = await systemd_manager.power("reboot", 1.0)
+        except Exception as e:
+            logger.error(f"Setup wizard: reboot failed: {e}")
+            rebooting = False
+        if rebooting is False:
+            completing = False
 
     @router.post("/complete")
     async def complete_setup(payload: SetupCompleteRequest, background_tasks: BackgroundTasks):
         """
-        Atomic wizard completion: set language, save hardware config, mark setup complete, reboot.
+        Wizard completion: set language, save and apply the hardware config, mark setup, reboot.
 
-        On failure setup_completed stays false, so the wizard reappears. A submit
-        arriving while another is in flight, or once setup is complete, answers
-        "rebooting" and applies nothing.
+        The apply runs within the request, so a refusal answers 500 with the
+        helper's reason and leaves the previous hardware config, the wizard on
+        screen. The unit counts as set up once it has a link: at once when it
+        has one now, else at the first one after the reboot (over the recovery
+        AP, where the network was saved, not joined) — until then the wizard
+        comes back, on its Network step. A submit arriving while another is in
+        flight, or once setup is complete, answers "rebooting" and applies
+        nothing.
         """
         nonlocal completing
         from backend.hardware.registry import AUDIO_CARDS, SCREENS, audio_config, reserved_pins
@@ -152,7 +205,7 @@ def create_setup_router(
                 raise RuntimeError("Failed to persist language setting")
             logger.info(f"Setup wizard: language set to {payload.language}")
 
-            # 2. Save hardware config
+            # 2. The hardware config
             card = AUDIO_CARDS[payload.audio_id]
             screen = SCREENS[payload.screen_type]
 
@@ -190,49 +243,38 @@ def create_setup_router(
                 "power_button": kept["power_button"],
             }
 
-            await hardware_service.save_config(config)
-            logger.info(f"Setup wizard: hardware saved (audio={payload.audio_id}, screen={payload.screen_type})")
-
-            # 3. Write config.txt, THEN flip the flag, THEN reboot.
+            # 3. Write config.txt, THEN mark the setup, THEN reboot.
             #
             # The order is the whole point and it is not the obvious one. The
-            # flag used to be persisted here, before the overlay reached
-            # config.txt — so a power cut in that window (the user pulls the
-            # plug because "it is taking a while") left a unit that considered
-            # itself configured, booting with no dtoverlay: no sound, no
-            # wizard, no message anywhere. Applying first makes every cut before
-            # the flag bring the wizard back, and a cut after it lands on a
-            # config.txt that is already correct.
-            #
-            # The submit is released however this ends: once the flag is
-            # written it guards on its own, and an apply that failed leaves the
-            # wizard on screen, to be submitted again.
-            async def _delayed_apply():
-                nonlocal completing
-                try:
-                    await asyncio.sleep(1)  # Allow HTTP response to flush to the client
-                    try:
-                        await hardware_service.apply()
-                    except Exception as e:
-                        # The next submit reads hardware.json as the current
-                        # state: left as written, it names a card config.txt
-                        # never loaded, with the peripherals its pins turned off.
-                        logger.error(
-                            f"Setup wizard: hardware apply failed: {e} — restoring the previous hardware config"
-                        )
-                        await hardware_service.save_config(current)
-                        return
+            # flag used to be persisted before the overlay reached config.txt —
+            # so a power cut in that window (the user pulls the plug because
+            # "it is taking a while") left a unit that considered itself
+            # configured, booting with no dtoverlay: no sound, no wizard, no
+            # message anywhere. Applying first makes every cut before the flag
+            # bring the wizard back, and a cut after it lands on a config.txt
+            # that is already correct. The Hardware page's transaction, the
+            # previous config put back on a refusal.
+            # A refusal reaches the handler below: 500, the helper's reason.
+            await hardware_service.replace_config(config)
+            logger.info(f"Setup wizard: hardware applied (audio={payload.audio_id}, screen={payload.screen_type})")
 
-                    if not await settings_service.set_setting("setup_completed", True):
-                        logger.error("Setup wizard: failed to persist setup_completed — not rebooting")
-                        return
-                    logger.info("Setup wizard: setup_completed set to true")
+            # Linked now, the network the wizard showed is the one it has: set
+            # up. Else the network was saved over the AP, its key untried: the
+            # first link after the reboot sets the unit up, and until then the
+            # wizard comes back.
+            if await _has_a_link():
+                if not await settings_service.set_settings(
+                    {"setup_completed": True, "setup_awaiting_network": False}
+                ):
+                    raise RuntimeError("Failed to persist setup_completed")
+                logger.info("Setup wizard: setup_completed set to true")
+            else:
+                if not await settings_service.set_setting("setup_awaiting_network", True):
+                    raise RuntimeError("Failed to persist setup_awaiting_network")
+                logger.info("Setup wizard: no link yet — set up once the unit joins its network")
 
-                    await systemd_manager.power("reboot")
-                finally:
-                    completing = False
-
-            background_tasks.add_task(_delayed_apply)
+            # Only the reboot is deferred, so the response reaches the browser first.
+            background_tasks.add_task(_reboot)
             scheduled = True
 
             return {"status": "rebooting"}
@@ -240,11 +282,9 @@ def create_setup_router(
         except HTTPException:
             raise
         except Exception as e:
-            # No rollback of `setup_completed`: nothing here sets it any more.
-            # It is written by the background task above, after config.txt has
-            # been rewritten, so a failure on this path leaves it false and the
-            # wizard reappears on its own — which is what the old rollback
-            # existed to guarantee.
+            # No rollback of `setup_completed`: it is written last, after
+            # config.txt has been rewritten, so a failure before it leaves it
+            # false and the wizard reappears on its own.
             logger.error(f"Setup wizard failed: {e}")
             raise HTTPException(status_code=500, detail=f"Setup failed: {e}")
         finally:
@@ -292,6 +332,13 @@ def create_setup_router(
                 raise HTTPException(
                     status_code=409,
                     detail="Device already configured (setup_completed=true)",
+                )
+            # Its wizard ran, as a server, and it waits for its first link to
+            # count as set up (`complete_setup`): not a fresh unit to adopt.
+            if await settings_service.get_setting("setup_awaiting_network"):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Device already configured as a server (setup waits for its first link)",
                 )
 
             audio = audio_config(payload.audio_id)

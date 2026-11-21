@@ -39,6 +39,7 @@ import pytest
 
 from backend.api.middleware import RecoveryAccessPointGuard
 from backend.config.constants import RECOVERY_AP_ADDRESS, RECOVERY_AP_PREFIX
+from backend.core.models.ws_events import NetworkStatusChanged
 from backend.core.network.models import EthernetStatus, NetworkStatus, WifiConnectionStatus
 from backend.core.network.service import (
     ADOPTION_PROFILE,
@@ -226,6 +227,12 @@ class FakeNetworkManager:
             if self.ethernet:
                 return (0, _device_show("Wired connection 1", "192.168.1.55"), "")
             return (0, _device_show("--", None), "")
+        if args[-3:] == ("device", "show", "wlan0"):
+            # What the status broadcast reads: the profile wlan0 carries, if any.
+            if not self.active:
+                return (0, _device_show("--", None), "")
+            name = sorted(self.active)[0]
+            return (0, _device_show(name, "10.42.0.1" if name == HOTSPOT_NAME else "192.168.1.11"), "")
         if "NAME,TYPE" in args:
             return (0, "\n".join(f"{name}:802-11-wireless" for name in sorted(self.profiles)), "")
         if "NAME,UUID,TYPE" in args:
@@ -864,6 +871,7 @@ async def test_a_status_that_already_shows_a_link_costs_no_extra_nmcli(service):
         wifi_enabled=True,
         ethernet=EthernetStatus(connected=True, ip_address="192.168.1.10"),
         wifi=WifiConnectionStatus(connected=False),
+        hotspot_active=False,
     )
 
     fake, patcher = with_nmcli()
@@ -889,6 +897,7 @@ async def test_a_status_showing_no_link_is_confirmed_before_acting(service):
         wifi_enabled=True,
         ethernet=EthernetStatus(connected=False),
         wifi=WifiConnectionStatus(connected=False),
+        hotspot_active=False,
     )
 
     def router(args):
@@ -1173,6 +1182,7 @@ async def test_the_restore_reads_ethernet_from_the_status_it_is_handed(service):
         wifi_enabled=True,
         ethernet=EthernetStatus(connected=True, ip_address="192.168.1.55"),
         wifi=WifiConnectionStatus(connected=False),
+        hotspot_active=False,
     )
 
     fake, patcher = with_nmcli()
@@ -1192,6 +1202,7 @@ async def test_a_restore_that_fails_is_tried_again(service):
         wifi_enabled=True,
         ethernet=EthernetStatus(connected=True, ip_address="192.168.1.55"),
         wifi=WifiConnectionStatus(connected=False),
+        hotspot_active=False,
     )
 
     def router(args):
@@ -1354,6 +1365,7 @@ async def test_an_access_point_left_up_by_a_previous_process_is_adopted_and_take
         wifi_enabled=True,
         ethernet=EthernetStatus(connected=True, ip_address="192.168.1.55"),
         wifi=WifiConnectionStatus(connected=False),
+        hotspot_active=False,
     )
     fake, patcher = with_nmcli(nm.route)
     with patcher, patch("backend.core.network.service.MessageBus") as bus:
@@ -4042,6 +4054,182 @@ async def test_a_link_change_is_harmless_before_the_service_is_wired(service):
     with patcher:
         await service._refresh_and_broadcast()
         await _settle_bg(service)
+
+
+# --------------------------------------------------------------------------- #
+# A link coming up, told to its listeners (the setup wizard's first link)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_a_link_listener_hears_each_link_that_comes_up_and_only_then(service):
+    """A unit set up over its AP counts as set up at its first link
+    (`api/setup.py`). Heard on the AP alone, a mistyped key is set up again; not
+    heard on a link that came up, the wizard stays on a unit that joined."""
+    heard = []
+
+    async def listener():
+        heard.append(1)
+
+    service.add_link_listener(listener)
+    links = {"eth": ("--", None), "wlan": ("--", None)}
+    _fake, patcher = with_nmcli(lambda args: _status_router(**links)(args))
+
+    async def link_change(**moved):
+        links.update(moved)
+        await service._refresh_and_broadcast()
+        await _settle_bg(service)
+        return len(heard)
+
+    with patcher:
+        assert await link_change() == 0                                         # no link at boot
+        assert await link_change(wlan=(HOTSPOT_NAME, "10.42.0.1")) == 0         # its own AP
+        assert await link_change(wlan=("milo-Home", "192.168.1.11")) == 1       # WiFi joins
+        assert await link_change(eth=("Wired connection 1", "192.168.1.10")) == 1  # still linked
+        assert await link_change(wlan=("--", None)) == 1                        # WiFi out, cable in
+        assert await link_change(eth=("--", None)) == 1                         # no link
+        assert await link_change(eth=("Wired connection 1", "192.168.1.10")) == 2  # cable back
+        await service.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_the_listener_has_written_before_the_link_is_broadcast(service):
+    """A wizard that sees the link come up reads whether the unit is set up:
+    read before the listener wrote it, it stays on the wizard of a unit set up."""
+    order = []
+
+    async def listener():
+        order.append("listener")
+
+    async def broadcast(_event):
+        order.append("broadcast")
+
+    service.add_link_listener(listener)
+    service.state_machine.broadcast = AsyncMock(side_effect=broadcast)
+    _fake, patcher = with_nmcli(_status_router(eth=("Wired connection 1", "192.168.1.10")))
+    with patcher:
+        await service._refresh_and_broadcast()
+        await _settle_bg(service)
+
+    assert order == ["listener", "broadcast"]
+
+
+@pytest.mark.asyncio
+async def test_the_access_point_rising_and_ending_is_broadcast(service):
+    """The "WiFi lost" banner reads `hotspot_active` from the status. The AP
+    rising over a unit already without a link moves no link, so the status the
+    NM signals produce is the one already sent, deduplicated: the kiosk, whose
+    socket outlives every network change, never heard of the AP — and once it
+    had, never heard that it ended. Nothing here drives a refresh but the AP."""
+    nm = FakeNetworkManager()
+    fake, patcher = with_nmcli(nm.route)
+
+    def hotspot_broadcasts():
+        return [
+            call.args[0].hotspot_active
+            for call in service.state_machine.broadcast.await_args_list
+            if isinstance(call.args[0], NetworkStatusChanged)
+        ]
+
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: HOTSPOT_NAME in nm.active)
+        await _settle_bg(service)
+        assert hotspot_broadcasts()[-1:] == [True]
+
+        nm.ethernet = True
+        await service.evaluate_reachability()
+        await settle_until(lambda: not service.hotspot_active)
+        await _settle_bg(service)
+        await service.cleanup()
+
+    assert hotspot_broadcasts()[-1:] == [False]
+
+
+@pytest.mark.asyncio
+async def test_an_access_point_adopted_late_is_broadcast(service):
+    """A backend restarted under its own AP, no link, NM too busy to answer the
+    restart's look: the clients were sent `hotspot_active: false`, and the AP
+    adopted at the read again moves no link, so no NM signal brings a new
+    status. Unsent, the kiosk keeps no "WiFi lost" banner on a unit on its AP."""
+    nm = FakeNetworkManager(profiles={HOTSPOT_NAME: "ap"}, active={HOTSPOT_NAME})
+
+    def hotspot_broadcasts():
+        return [
+            call.args[0].hotspot_active
+            for call in service.state_machine.broadcast.await_args_list
+            if isinstance(call.args[0], NetworkStatusChanged)
+        ]
+
+    _fake, patcher = with_nmcli(nm.route)
+    with patcher:
+        await service._refresh_and_broadcast(evaluate=False)
+    assert hotspot_broadcasts() == [False]
+
+    _fake, patcher = with_nmcli(refusing(nm, READ_DEVICES, 1))
+    with patcher, no_delay(), patch("backend.core.network.service.MessageBus") as bus, \
+         patch("backend.core.network.service.ADOPTION_READ_RETRY_S", 0):
+        bus.side_effect = OSError("no system bus")
+        await service.initialize()
+        await settle_until(lambda: service.hotspot_active)
+        await _settle_bg(service)
+        await service.cleanup()
+
+    assert hotspot_broadcasts()[-1:] == [True]
+
+
+@pytest.mark.asyncio
+async def test_a_status_superseded_while_its_listener_runs_is_not_sent_last(service):
+    """A cable plugged into a unit on its AP: the refresh that sees the link
+    spawns the evaluation that takes the AP down, whose own refresh sends
+    `hotspot_active: False` while the setup listener still writes. Sent after
+    it, the older `True` would be the last word on every client — the "WiFi
+    lost" banner on a unit set up on Ethernet — and the dedup would keep it."""
+    nm = FakeNetworkManager()
+    fake, patcher = with_nmcli(nm.route)
+
+    async def slow_listener():
+        # settings.json written twice, on a slow card: longer than the AP's
+        # removal and the refresh that follows it.
+        for _ in range(200):
+            await asyncio.sleep(0)
+
+    service.add_link_listener(slow_listener)
+
+    def hotspot_broadcasts():
+        return [
+            call.args[0].hotspot_active
+            for call in service.state_machine.broadcast.await_args_list
+            if isinstance(call.args[0], NetworkStatusChanged)
+        ]
+
+    with patcher, no_delay():
+        await service.evaluate_reachability()
+        await settle_until(lambda: HOTSPOT_NAME in nm.active)
+        await _settle_bg(service)
+        assert hotspot_broadcasts()[-1:] == [True]
+
+        nm.ethernet = True
+        await service._refresh_and_broadcast()
+        await settle_until(lambda: not service.hotspot_active)
+        await _settle_bg(service)
+        await service.cleanup()
+
+    assert hotspot_broadcasts()[-1:] == [False]
+
+
+@pytest.mark.asyncio
+async def test_a_listener_that_fails_costs_the_broadcast_nothing(service, caplog):
+    async def listener():
+        raise OSError("settings.json is read-only")
+
+    service.add_link_listener(listener)
+    _fake, patcher = with_nmcli(_status_router(eth=("Wired connection 1", "192.168.1.10")))
+    with patcher, caplog.at_level(logging.ERROR):
+        await service._refresh_and_broadcast()
+        await _settle_bg(service)
+
+    service.state_machine.broadcast.assert_awaited_once()
+    assert any("read-only" in r.getMessage() for r in caplog.records)
 
 
 # --------------------------------------------------------------------------- #

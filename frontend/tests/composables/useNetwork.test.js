@@ -13,6 +13,12 @@
  * new home network from a phone on its AP, which the unit admits only after a
  * gesture on it (428). What breaks if it stops holding: the save fails on the
  * 428, the owner makes the gesture for nothing, and the unit stays on its AP.
+ *
+ * Every full status feeds `settingsStore.hotspotActive`, which the "WiFi lost"
+ * banner, the wizard's save-or-connect choice and the timezone adoption read.
+ * What breaks if it stops holding: they keep the value `system/initial_state`
+ * gave when the socket opened — the kiosk's never reopens — so the banner never
+ * shows on a unit that fell back to its AP, or never leaves once it is off it.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -22,14 +28,18 @@ vi.mock('@/utils/kiosk', () => ({ isKiosk: () => false }));
 
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
-import { refreshWifiSignal, handleNetworkStatusChanged, useNetwork } from '@/composables/useNetwork';
+import {
+  refreshWifiSignal, handleNetworkStatusChanged, preloadNetworkStatus, useNetwork,
+} from '@/composables/useNetwork';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 const { status } = useNetwork();
 
-function linkEvent({ wifiConnected, ssid, signal }) {
+function linkEvent({ wifiConnected, ssid, signal, hotspotActive = false }) {
   return {
     data: {
+      hotspot_active: hotspotActive,
       wifi_enabled: true,
       ethernet: { connected: false, ip_address: null },
       wifi: {
@@ -143,5 +153,36 @@ describe('saveNetwork over the recovery access point', () => {
     await saveNetwork(network, t);
 
     expect(connectError.value).toBe('network.saveFailed');
+  });
+});
+
+describe('the recovery AP, as every full status says it', () => {
+  const onAp = () => linkEvent({ wifiConnected: false, ssid: null, signal: null, hotspotActive: true });
+  const offAp = () => linkEvent({ wifiConnected: false, ssid: null, signal: null, hotspotActive: false });
+
+  beforeEach(() => resetApiCallMock());
+
+  it('follows the status event both ways', () => {
+    const settings = useSettingsStore();
+
+    handleNetworkStatusChanged(onAp());
+    expect(settings.hotspotActive).toBe(true);
+
+    handleNetworkStatusChanged(offAp());
+    expect(settings.hotspotActive).toBe(false);
+  });
+
+  it('follows the status a resync reads both ways', async () => {
+    // A tab back from the background missed the events in between.
+    const settings = useSettingsStore();
+    apiCall.get
+      .mockResolvedValueOnce(ok({ status: 'success', data: onAp().data }))
+      .mockResolvedValueOnce(ok({ status: 'success', data: offAp().data }));
+
+    await preloadNetworkStatus({ force: true });
+    expect(settings.hotspotActive).toBe(true);
+
+    await preloadNetworkStatus({ force: true });
+    expect(settings.hotspotActive).toBe(false);
   });
 });

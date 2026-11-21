@@ -21,7 +21,8 @@
         <div v-else :key="currentStep" class="setup-card__body">
           <LanguageStep v-if="currentStep === 1" v-model="wizardState.language" />
 
-          <NetworkStep v-else-if="currentStep === 2" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive" />
+          <NetworkStep v-else-if="currentStep === 2" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive"
+            :awaiting-network="systemStore.setupAwaitingNetwork" />
 
           <AudioStep v-else-if="currentStep === 3" :model-value="wizardState.audioId" @update:model-value="pickAudio"
             v-model:volume-control="wizardState.volumeControl" :audio-cards="audioCards" />
@@ -77,10 +78,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useSystemStore } from '@/stores/systemStore';
 import { useNetwork } from '@/composables/useNetwork';
 import { apiCall } from '@/services/apiCall';
 import StepIndicator from './StepIndicator.vue';
@@ -99,7 +101,8 @@ const { t } = useI18n();
 const timer = useTimer();
 const { loadHardwareConfig } = useHardwareConfig();
 const settingsStore = useSettingsStore();
-const { country: wifiCountry } = useNetwork();
+const systemStore = useSystemStore();
+const { country: wifiCountry, status: networkStatus } = useNetwork();
 
 const currentStep = ref(0);
 const isApplying = ref(false);
@@ -258,8 +261,28 @@ async function applySetup() {
   }, 3000);
 }
 
+// Applied once already, over the AP, and the unit did not join the network it
+// was given: the key typed there is the one thing to fix, so the wizard opens on
+// the Network step. The other steps keep what the unit holds, and the wizard is
+// sent again from its summary.
+watch(() => systemStore.setupAwaitingNetwork, (awaiting) => {
+  if (awaiting && currentStep.value === 0) currentStep.value = 2;
+}, { immediate: true });
+
+// The unit counts as set up at its first link, which no event tells a page
+// already here (the kiosk, after the reboot): it asks at every status that
+// names a link, not once — a status read before the backend's listener ran
+// names the link while the unit is not set up yet, and the next one, sent
+// after it, would otherwise leave the wizard on a unit set up.
+watch([networkStatus, () => systemStore.setupAwaitingNetwork], ([status, awaiting]) => {
+  if (awaiting && (status.ethernet.connected || status.wifi.connected)) {
+    settingsStore.refreshSetupCompleted();
+  }
+}, { immediate: true });
+
 onMounted(async () => {
   document.documentElement.classList.add('setup-active');
+  systemStore.fetchStatus();
   const data = await loadHardwareConfig(true);
   if (data) {
     audioCards.value = data.options.audio_cards;

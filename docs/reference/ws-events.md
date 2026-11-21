@@ -756,6 +756,7 @@ The network status changed: Wi-Fi on or off, and the state of the Ethernet and W
 | `wifi_enabled` | boolean |
 | `ethernet` | [EthernetStatus](#ethernetstatus) |
 | `wifi` | [WifiConnectionStatus](#wificonnectionstatus) |
+| `hotspot_active` | boolean |
 
 ## programs
 

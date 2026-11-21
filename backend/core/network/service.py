@@ -35,7 +35,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import AsyncIterator, Iterator, List, Literal, Optional, Set, Tuple
+from typing import AsyncIterator, Awaitable, Callable, Iterator, List, Literal, Optional, Set, Tuple
 
 from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
@@ -267,12 +267,25 @@ class NetworkService:
         # Set after construction, for the same reason: this service is the one
         # that sees the server's WiFi come up or change network.
         self._satellite_wifi_service = None
+        # Called, in order, each time the unit gains a link (`add_link_listener`).
+        self._link_listeners: List[Callable[[], Awaitable[None]]] = []
 
     def set_connectivity_service(self, connectivity_service) -> None:
         self._connectivity_service = connectivity_service
 
     def set_satellite_wifi_service(self, satellite_wifi_service) -> None:
         self._satellite_wifi_service = satellite_wifi_service
+
+    def add_link_listener(self, listener: Callable[[], Awaitable[None]]) -> None:
+        """Await `listener()` each time the unit gains a link to a network: an
+        Ethernet lease, or WiFi associated to a network that is not a Milō access
+        point (`_get_wifi_info` excludes both). Once per gain, the first status
+        read included, and before that status is broadcast, so a client that
+        reads anything after the broadcast reads what the listener wrote. What a
+        link means beyond that is the listener's: this layer knows nothing of
+        the setup wizard (`api/setup.py`, the only one).
+        """
+        self._link_listeners.append(listener)
 
     @property
     def hotspot_active(self) -> bool:
@@ -408,6 +421,7 @@ class NetworkService:
             wifi_enabled=wifi_enabled,
             ethernet=ethernet,
             wifi=wifi,
+            hotspot_active=self.hotspot_active,
         )
 
     async def get_wifi_enabled(self) -> bool:
@@ -439,7 +453,9 @@ class NetworkService:
         is left untouched, so nothing validates the key: the profiles the SSID
         had before are replaced only once the new one is written. While the AP
         holds the radio, the home-network retry tries this profile first at
-        its next turn, ahead of the ones saved before it.
+        its next turn, ahead of the ones saved before it. The wizard that saves
+        a network this way counts the unit as set up only once a link has come
+        up (`api/setup.py`), so a mistyped key brings the wizard back on the AP.
         """
         async with self._connect_lock:
             # Saving a network is choosing the radio as much as connecting is:
@@ -1077,6 +1093,7 @@ class NetworkService:
         """
         self._hotspot_active = True
         self._hotspot_unread = False
+        self._hotspot_changed()
         try:
             await self._activate_hotspot()
         except Exception as e:
@@ -1121,6 +1138,7 @@ class NetworkService:
                 return False
             self._hotspot_active = False
             self._cancel_station_retry()
+        self._hotspot_changed()
         self.logger.info("Access point '%s' removed (%s)", HOTSPOT_NAME, reason)
         return True
 
@@ -1258,7 +1276,17 @@ class NetworkService:
 
     def _adopt_hotspot(self) -> None:
         self._hotspot_active = True
+        self._hotspot_changed()
         self.logger.info("Access point '%s' is up from a previous run — adopted", HOTSPOT_NAME)
+
+    def _hotspot_changed(self) -> None:
+        """Broadcast the status again: `hotspot_active` is part of it, and the AP
+        rising or ending moves no link, so the NetworkManager signals that drive
+        the broadcast may not follow (deduplicated, a status naming no link
+        twice is not sent again). The "WiFi lost" banner reads it on every
+        client, the kiosk's socket included, which outlives every network
+        change."""
+        self._bg.spawn(self._refresh_and_broadcast(evaluate=False), label="hotspot_status")
 
     async def _retry_hotspot_adoption(self) -> None:
         """Read again whether NM kept an AP up, after a restart that could not
@@ -1904,12 +1932,14 @@ class NetworkService:
             self.logger.debug("Failed to read AP info: %s", exc)
             return None, None
 
-    async def _refresh_and_broadcast(self) -> None:
+    async def _refresh_and_broadcast(self, *, evaluate: bool = True) -> None:
         """Re-read full network status and broadcast it, dedup against last sent.
 
         The WS broadcast runs OUTSIDE the lock: a slow client would otherwise
         keep the lock held while D-Bus signal handlers pile up new refresh
-        tasks behind it.
+        tasks behind it. `evaluate` False when the AP itself moved
+        (`_hotspot_changed`): the evaluation is what raised or removed it, and
+        one run again from there would raise a failed AP again at once, forever.
         """
         async with self._broadcast_lock:
             try:
@@ -1921,7 +1951,8 @@ class NetworkService:
             # Before the dedup, deliberately: an unchanged status is exactly
             # what a unit stuck with no link looks like, and returning early
             # there would mean the rule only ever sees transitions.
-            self._bg.spawn(self.evaluate_reachability(status), label="reachability")
+            if evaluate:
+                self._bg.spawn(self.evaluate_reachability(status), label="reachability")
 
             if status == self._last_broadcast:
                 return
@@ -1949,6 +1980,23 @@ class NetworkService:
             )
             if joined and self._satellite_wifi_service is not None:
                 self._bg.spawn(self._satellite_wifi_service.push_all(), label="satellite_wifi")
+
+            gained_link = status.linked and not (previous is not None and previous.linked)
+
+        # Outside the lock with the broadcast, and before it (`add_link_listener`).
+        if gained_link:
+            for listener in self._link_listeners:
+                try:
+                    await listener()
+                except Exception as e:
+                    self.logger.error("A listener to the link that came up failed: %s", e)
+
+            # Superseded while the listeners ran: a newer refresh read another
+            # status (the AP this link took down, say) and has sent it or will.
+            # Sent now, this older one would be the last word, and the dedup
+            # would keep it there.
+            if self._last_broadcast is not status:
+                return
 
         await self.state_machine.broadcast(
             NetworkStatusChanged(**status.model_dump())

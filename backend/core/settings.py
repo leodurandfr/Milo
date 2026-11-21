@@ -84,6 +84,9 @@ class SettingsService:
         # holds that property.
         self.defaults = {
             "setup_completed": False,
+            # The wizard's choices are applied, and the unit waits for its first
+            # link to its network before it counts as set up (`api/setup.py`).
+            "setup_awaiting_network": False,
             "language": "english",
             "volume": {
                 "limit_min_db": -80.0,
@@ -324,6 +327,9 @@ class SettingsService:
 
         # Setup completed flag (first-boot wizard)
         validated['setup_completed'] = bool(settings.get('setup_completed', d['setup_completed']))
+        validated['setup_awaiting_network'] = bool(
+            settings.get('setup_awaiting_network', d['setup_awaiting_network'])
+        )
 
         # Language
         validated['language'] = settings.get('language') if settings.get('language') in VALID_LANGUAGES else d['language']

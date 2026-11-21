@@ -1010,7 +1010,10 @@ class NetworkStatusChanged(NetworkStatus, WsEvent):
     """The network status changed: Wi-Fi on or off, and the state of the Ethernet
     and Wi-Fi links.
 
-    networkStore — flat NetworkStatus payload (wifi_enabled, ethernet, wifi).
+    Consumers: `composables/useNetwork.js` (`_setStatus`, the whole NetworkStatus
+    payload — wifi_enabled, ethernet, wifi, hotspot_active), which hands
+    `hotspot_active` to `settingsStore.hotspotActive`, read by App.vue's "WiFi
+    lost" banner, SetupWizard and NetworkSettings.
     """
     CATEGORY = "network"
     TYPE = "status_changed"

@@ -591,6 +591,24 @@ export const useSettingsStore = defineStore('settings', () => {
     hotspotActive.value = value;
   }
 
+  /**
+   * Ask the backend again whether setup is complete. A unit set up over its
+   * recovery AP counts as set up at its first link (backend/api/setup.py), and
+   * a page already on the wizard — the kiosk after the reboot — is told of it
+   * by no event.
+   */
+  async function refreshSetupCompleted() {
+    const result = await apiCall.get('/api/initial-state', {
+      category: 'setup',
+      message: 'Could not read whether setup is complete',
+      logLevel: 'warn',
+    });
+    if (result.ok && typeof result.data?.setup_completed === 'boolean') {
+      setupCompleted.value = result.data.setup_completed;
+    }
+    return result.ok;
+  }
+
   // Also re-applies language: the locale watcher reacts to settingsStore.language.
   // btRemote, irRemote and the screen's sleep sit outside the settings/bulk payload
   // and are delta-fed (bt_remote_*/ir_remote_status_changed/screen_sleep_changed),
@@ -643,6 +661,7 @@ export const useSettingsStore = defineStore('settings', () => {
     // Actions
     loadAllSettings,
     updateSetupCompleted,
+    refreshSetupCompleted,
     updateHotspotActive,
     updateLanguage,
     updateVolumeLimits,

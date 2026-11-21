@@ -148,6 +148,7 @@ def test_network_status_envelope_preserves_nested_nulls():
                 "connected": False, "connecting": False, "ssid": None,
                 "ip_address": None, "signal": None, "saved_ssid": "HomeNet",
             },
+            "hotspot_active": False,
         },
     }
     out = emit(R.NetworkStatusEnvelope, data)

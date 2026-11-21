@@ -82,10 +82,11 @@ def equalizer():
 
 @pytest.fixture
 def hardware():
-    """`apply` shells `sudo milo-apply-hardware`, which rewrites this Pi's config.txt."""
+    """`replace_config` shells `sudo milo-apply-hardware`, which rewrites this
+    Pi's config.txt. What it does with the file is the real service's, run on a
+    scratch hardware.json in `TestTheHardwareConfig.real_hardware`."""
     svc = Mock()
-    svc.save_config = AsyncMock()
-    svc.apply = AsyncMock()
+    svc.replace_config = AsyncMock()
     svc.get_screen_info = Mock(
         return_value={"type": "none", "resolution": {"width": None, "height": None}}
     )
@@ -652,15 +653,6 @@ class TestTheHardwareConfig:
         "power_button": {"enabled": False, "led_gpio_pin": 26},
     }
 
-    def test_the_config_is_saved_before_anything_is_applied(self, client, hardware):
-        """The helper reads `hardware.json`: a config applied before it was
-        stored is `config.txt` rewritten from the previous one, and a box that
-        reboots onto the old hardware while the page shows the new one."""
-        response = client.put("/api/settings/hardware-config", json=self.PAYLOAD)
-
-        assert response.status_code == 200
-        assert response.json() == {"status": "rebooting"}
-        hardware.save_config.assert_awaited_once()
 
     def test_the_card_properties_are_resolved_from_the_registry_not_the_payload(
         self, client, hardware
@@ -670,7 +662,7 @@ class TestTheHardwareConfig:
         line into the boot config."""
         client.put("/api/settings/hardware-config", json=self.PAYLOAD)
 
-        saved = hardware.save_config.await_args.args[0]
+        saved = hardware.replace_config.await_args.args[0]
         assert saved["audio"]["id"] == "hifiberry_amp2"
         assert saved["audio"]["overlay"], "the overlay was not resolved"
         assert saved["screen"]["resolution"] is not None
@@ -685,7 +677,7 @@ class TestTheHardwareConfig:
 
         client.put("/api/settings/hardware-config", json=payload)
 
-        saved = hardware.save_config.await_args.args[0]["power_button"]
+        saved = hardware.replace_config.await_args.args[0]["power_button"]
         assert saved == {"enabled": True, "led_gpio_pin": 5}
 
     def test_a_dac_card_is_stored_as_not_managing_its_own_volume(self, client, hardware):
@@ -700,7 +692,7 @@ class TestTheHardwareConfig:
 
         client.put("/api/settings/hardware-config", json=payload)
 
-        assert hardware.save_config.await_args.args[0]["audio"]["volume_control"] is False
+        assert hardware.replace_config.await_args.args[0]["audio"]["volume_control"] is False
 
     def test_an_explicit_override_wins_over_the_auto_detection(self, client, hardware):
         """A DAC board wired to powered speakers rather than an amp; the operator
@@ -712,7 +704,7 @@ class TestTheHardwareConfig:
 
         client.put("/api/settings/hardware-config", json=payload)
 
-        assert hardware.save_config.await_args.args[0]["audio"]["volume_control"] is True
+        assert hardware.replace_config.await_args.args[0]["audio"]["volume_control"] is True
 
     @pytest.fixture
     def real_hardware(self, tmp_path):
@@ -761,6 +753,37 @@ class TestTheHardwareConfig:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
+
+    def test_the_config_is_saved_before_anything_is_applied(
+        self, real_hardware, systemd, state_machine, routing, equalizer, settings, monkeypatch
+    ):
+        """The helper reads `hardware.json`: a config applied before it was
+        stored is `config.txt` rewritten from the previous one, and a box that
+        reboots onto the old hardware while the page shows the new one."""
+        from backend.hardware.registry import AUDIO_CARDS, is_dac_card
+        from backend.hardware.service import HardwareService
+
+        read_by_the_helper = []
+        proc = Mock()
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+        proc.returncode = 0
+
+        async def helper(*argv, **kwargs):
+            reader = HardwareService()
+            reader.hardware_file = real_hardware.hardware_file
+            read_by_the_helper.append(reader.get_audio_id())
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", helper)
+        dac_id = next(cid for cid in AUDIO_CARDS if is_dac_card(cid))
+        client = self._client_over(real_hardware, systemd, state_machine, routing, equalizer, settings)
+
+        response = client.put(
+            "/api/settings/hardware-config", json={**self.PAYLOAD, "audio": {"id": dac_id}}
+        )
+
+        assert response.json() == {"status": "rebooting"}
+        assert read_by_the_helper == [dac_id]
 
     def test_a_successful_apply_reboots_only_after_it_returned(
         self, real_hardware, systemd, state_machine, routing, equalizer, settings, monkeypatch
@@ -857,7 +880,7 @@ class TestTheHardwareConfig:
         self, client, hardware, audio_id
     ):
         """The id indexes the registry directly; an unknown one must not reach
-        `save_config` with a half-built record. `none` is in the registry, as a
+        `replace_config` with a half-built record. `none` is in the registry, as a
         satellite's "not configured yet", and is refused all the same: the
         server plays through a HAT or not at all."""
         payload = {**self.PAYLOAD, "audio": {"id": audio_id}}
@@ -865,8 +888,7 @@ class TestTheHardwareConfig:
         response = client.put("/api/settings/hardware-config", json=payload)
 
         assert response.status_code == 422
-        hardware.save_config.assert_not_called()
-        hardware.apply.assert_not_called()
+        hardware.replace_config.assert_not_called()
 
 
 class TestTheHardwareRead:

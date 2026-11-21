@@ -20,7 +20,9 @@
 # Once setup_completed is true in settings.json none of the above runs, with
 # one exception: a WiFi adoption marker (pending_client_role.json, written with
 # the flag by POST /api/setup/become-client) makes configure_client_with_hardware
-# convert the card. The flag is written by the server wizard, by that endpoint,
+# convert the card. The flag is written by the server wizard (once the unit has
+# a link: a wizard sent over the AP waits for its first one, and the boots
+# before it skip role detection), by that endpoint,
 # or here by step 10 of _apply_client_filesystem — the conversion
 # configure_client, resume_client_conversion and configure_client_with_hardware
 # all run — so a converted card stays a satellite before its audio card is set.
@@ -913,6 +915,21 @@ fi
 # it — otherwise a hotspot raised on a network-less boot keeps broadcasting (and
 # keeps mDNS pinned to it) once the device has a real link.
 reset_setup_network_state
+
+# The wizard went through, over the recovery AP, and the unit waits for its
+# first link to count as set up (backend/api/setup.py): it was made a server,
+# so a cable to a LAN where another Milō server answers converts nothing.
+if python3 -c "
+import json, sys
+try:
+    d = json.load(open('${MILO_DATA_DIR}/settings.json'))
+    sys.exit(0 if d.get('setup_awaiting_network') else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+    log "Setup waits for its first link — a server by its wizard, no role detection"
+    exit 0
+fi
 
 if has_ethernet_carrier 15 && wait_for_ethernet_ip; then
     # Let multicast/IGMP fully settle on the freshly-up interface before probing

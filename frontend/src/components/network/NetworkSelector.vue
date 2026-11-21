@@ -47,7 +47,7 @@
             :connecting="connecting"
             :connect-error="connectError"
             :connect="() => connectToNetwork(network, t)"
-            :save="() => saveNetwork(network, t)"
+            :save="() => save(network)"
           />
           <NoticeBox v-if="showConnectError && connectError" :detail="connectDetail">{{ connectError }}</NoticeBox>
         </div>
@@ -78,8 +78,6 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 const { t } = useI18n();
 
 const props = defineProps({
-  // Hide a specific SSID from the list (e.g., the currently-connected one).
-  excludeSsid: { type: String, default: null },
   showCountry: { type: Boolean, default: true },
   showLabel: { type: Boolean, default: true },
   // Action triggered when user presses Enter in the password field.
@@ -96,7 +94,8 @@ const props = defineProps({
   showConnectError: { type: Boolean, default: true },
 });
 
-const emit = defineEmits(['update:wifi']);
+// `saved`: a network was saved here (its SSID), the key typed with it untried.
+const emit = defineEmits(['update:wifi', 'saved']);
 
 const {
   networks,
@@ -116,15 +115,19 @@ const {
   initialize,
 } = useNetwork();
 
-const visibleNetworks = computed(() =>
-  networks.value.filter(n => !n.in_use && n.ssid !== props.excludeSsid)
-);
+// Every network but the one in use: a network only saved stays, so its key can
+// be typed again.
+const visibleNetworks = computed(() => networks.value.filter(n => !n.in_use));
+
+async function save(network) {
+  if (await saveNetwork(network, t)) emit('saved', network.ssid);
+}
 
 function onPasswordSubmit(network) {
   if (props.submitAction === 'connect') {
     connectToNetwork(network, t);
   } else if (props.submitAction === 'save') {
-    saveNetwork(network, t);
+    save(network);
   }
 }
 

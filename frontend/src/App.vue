@@ -416,6 +416,17 @@ const miloUpdateNotice = computed(() => {
   return null;
 });
 
+// A unit set up that runs its recovery AP lost its network: a client of the AP
+// can then only read, and save a network on a gesture at the unit
+// (backend/api/middleware.py::RecoveryAccessPointGuard). Said on every client,
+// for as long as the AP stands: it ends only with a link, never dismissed.
+// Before setup the AP is the wizard's, which says what to do itself.
+const showWifiLost = computed(() =>
+  isBootComplete.value
+  && settingsStore.setupCompleted === true
+  && settingsStore.hotspotActive
+);
+
 // Connectivity is deliberately absent from this banner. A missing link is only
 // worth telling the user about when it blocks the source they selected, and
 // that judgement needs the source — which the status card has and the banner
@@ -430,7 +441,9 @@ const notificationTitle = computed(() => {
   if (currentError.value?.title) return currentError.value.title;
   // Priority 3: a Milō update finishing, or put back
   if (miloUpdateNotice.value) return miloUpdateNotice.value.title;
-  // Priority 4: the configured audio card is not there. Last because it is the
+  // Priority 4: the unit lost its network and is on its recovery AP
+  if (showWifiLost.value) return t('notification.wifiLostTitle');
+  // Priority 5: the configured audio card is not there. Last because it is the
   // only one that does not go away: a wrong pick in the wizard is a unit with
   // no sound and nothing anywhere saying why, and the banner is what turns
   // that into a sentence naming the card and the page that fixes it.
@@ -448,6 +461,7 @@ const notificationDetail = computed(() => {
   // A transient error without a detail must not borrow the update's.
   if (currentError.value) return null;
   if (miloUpdateNotice.value) return miloUpdateNotice.value.detail;
+  if (showWifiLost.value) return t('notification.wifiLostDescription');
   if (systemStore.audioCardMissing) {
     return t('notification.audioCardMissingDescription', { card: systemStore.audioCardMissing });
   }
@@ -463,6 +477,7 @@ const isNotificationDismissable = computed(() => {
   if (currentError.value !== null) return true;
   // The update's progress ends by itself; its rollback is closed once read.
   if (miloUpdateNotice.value) return miloUpdateNotice.value.dismissable;
+  if (showWifiLost.value) return false;
   return !!systemStore.audioCardMissing;
 });
 

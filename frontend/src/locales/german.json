@@ -19,7 +19,9 @@
     "sourceErrorTitle": "{source}-Fehler",
     "commandFailed": "Befehl fehlgeschlagen",
     "audioCardMissingTitle": "Audiokarte nicht erkannt",
-    "audioCardMissingDescription": "{card} ist konfiguriert, wird aber nicht erkannt. Prüfen Sie den Sitz der Platine oder wählen Sie in den Einstellungen eine andere Karte."
+    "audioCardMissingDescription": "{card} ist konfiguriert, wird aber nicht erkannt. Prüfen Sie den Sitz der Platine oder wählen Sie in den Einstellungen eine andere Karte.",
+    "wifiLostTitle": "WLAN verloren",
+    "wifiLostDescription": "Milō kann sich nicht mit seinem WLAN verbinden. Schließen Sie ein Ethernet-Kabel an oder speichern Sie Ihr Netzwerk erneut unter Einstellungen › Netzwerk."
   },
   "settings": {
     "title": "Milō Einstellungen",
@@ -603,6 +605,7 @@
     "saving": "Speichern…",
     "saveFailed": "Netzwerk konnte nicht gespeichert werden",
     "forget": "Vergessen",
+    "forgetConfirm": "Dieses Netzwerk vergessen?",
     "refresh": "Aktualisieren",
     "wifiNetworks": "WLAN-Netzwerke",
     "wifiCountry": "WLAN-Land",
@@ -943,7 +946,8 @@
     "wifi": {
       "title": "Netzwerk einrichten",
       "continueHint": "Wählen Sie ein Land und verbinden Sie Milō mit einem Netzwerk, um fortzufahren.",
-      "ethernetHint": "Per WLAN gelangt Ihr WLAN-Passwort über ein offenes Netzwerk zu Milō: Ein Ethernet-Kabel ist sicherer."
+      "ethernetHint": "Per WLAN gelangt Ihr WLAN-Passwort über ein offenes Netzwerk zu Milō: Ein Ethernet-Kabel ist sicherer.",
+      "joinFailed": "Milō konnte sich nicht mit {ssid} verbinden. Wählen Sie es unten aus und geben Sie das Passwort erneut ein."
     },
     "language": {
       "title": "Wählen Sie Ihre Sprache"

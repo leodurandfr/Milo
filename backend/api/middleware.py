@@ -196,7 +196,9 @@ def is_recovery_ap_client(scope) -> bool:
 
 _READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
-# The writes a client of the AP may send while the unit is not set up: the first-boot
+# The writes a client of the AP may send while the unit is not set up — which lasts
+# until its first link to a network once the wizard is through (api/setup.py), so a
+# key mistyped over the AP is typed again there: the first-boot
 # wizard's three (frontend/src/components/setup/, composables/useNetwork.js) and the
 # adoption's one, which the adopting server sends straight to :8000 from a 10.42.0.x
 # address (core/multiroom/wifi_adoption.py). Exact paths: none takes a parameter, so a

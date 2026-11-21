@@ -19,7 +19,9 @@
     "sourceErrorTitle": "{source} त्रुटि",
     "commandFailed": "कमांड विफल",
     "audioCardMissingTitle": "ऑडियो कार्ड नहीं मिला",
-    "audioCardMissingDescription": "{card} कॉन्फ़िगर है लेकिन मिल नहीं रहा। जाँचें कि बोर्ड ठीक से लगा है, या सेटिंग्स में दूसरा कार्ड चुनें।"
+    "audioCardMissingDescription": "{card} कॉन्फ़िगर है लेकिन मिल नहीं रहा। जाँचें कि बोर्ड ठीक से लगा है, या सेटिंग्स में दूसरा कार्ड चुनें।",
+    "wifiLostTitle": "WiFi खो गया",
+    "wifiLostDescription": "Milō अपने WiFi नेटवर्क से नहीं जुड़ पा रहा। Ethernet केबल लगाएँ, या सेटिंग्स › नेटवर्क में अपना नेटवर्क फिर से सहेजें।"
   },
   "settings": {
     "title": "Milō सेटिंग्स",
@@ -603,6 +605,7 @@
     "saving": "सहेज रहे हैं…",
     "saveFailed": "नेटवर्क सहेजने में विफल",
     "forget": "भूल जाएं",
+    "forgetConfirm": "इस नेटवर्क को भूल जाएँ?",
     "refresh": "रीफ़्रेश",
     "wifiNetworks": "WiFi नेटवर्क",
     "wifiCountry": "WiFi देश",
@@ -943,7 +946,8 @@
     "wifi": {
       "title": "नेटवर्क सेट करें",
       "continueHint": "जारी रखने के लिए देश चुनें और Milō को किसी नेटवर्क से जोड़ें।",
-      "ethernetHint": "WiFi पर, आपका WiFi पासवर्ड एक खुले नेटवर्क के ज़रिए Milō तक पहुँचता है: Ethernet केबल अधिक सुरक्षित है।"
+      "ethernetHint": "WiFi पर, आपका WiFi पासवर्ड एक खुले नेटवर्क के ज़रिए Milō तक पहुँचता है: Ethernet केबल अधिक सुरक्षित है।",
+      "joinFailed": "Milō {ssid} से नहीं जुड़ सका। नीचे इसे चुनें और इसका पासवर्ड फिर से डालें।"
     },
     "language": {
       "title": "अपनी भाषा चुनें"

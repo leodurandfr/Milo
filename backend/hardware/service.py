@@ -37,6 +37,8 @@ class HardwareService:
         self.hardware_file: Path = HARDWARE_FILE
         self.logger = logging.getLogger(__name__)
         self._cache: Optional[Dict] = None
+        # Held by `replace_config` from the write to the end of the apply.
+        self._replace_lock = asyncio.Lock()
 
     # =========================================================================
     # PRIVATE — load
@@ -236,6 +238,30 @@ class HardwareService:
         await save_versioned_json(self.hardware_file, config, self.SCHEMA_VERSION)
         self._cache = None
 
+    async def replace_config(self, config: Dict) -> None:
+        """Write `config` to hardware.json and apply it, or leave the previous one.
+
+        The one transaction both writers run — the setup wizard and the
+        Hardware page —, inside their request, so a refusal reaches the screen
+        that asked. The helper reads hardware.json, so the new config is
+        written first; a refused apply puts the previous one back and raises,
+        so the file never names a card config.txt does not load (config.txt is
+        then the old one too, unless the helper failed after it staged the
+        EEPROM or began rewriting config.txt). Held from the write to the end
+        of the apply: a second call interleaved with a refused one would put
+        the first's "previous" back over a config.txt the second just applied.
+        The reboot stays the caller's.
+        """
+        async with self._replace_lock:
+            previous = self.get_full_config()
+            await self.save_config(config)
+            try:
+                await self.apply()
+            except Exception as e:
+                self.logger.error(f"{e} — restoring the previous hardware config")
+                await self.save_config(previous)
+                raise
+
     async def apply(self) -> None:
         """Apply hardware config to config.txt and the bootloader EEPROM via milo-apply-hardware.
 
@@ -244,8 +270,8 @@ class HardwareService:
         the reboot — doing it before the overlay reached config.txt left a
         window where a power cut produced a unit that believed it was
         configured and had no audio card, silent and with the wizard gone —
-        and the Hardware page must restore the previous hardware.json when
-        the apply is refused, answering the failure rather than "rebooting".
+        and a refused apply must put the previous hardware.json back
+        (`replace_config`), answering the failure rather than "rebooting".
         So any non-zero return code is a failure, a signal included: the
         helper never reboots here, so a signal came from outside, and a
         helper that died after it began rewriting config.txt can leave it

@@ -116,3 +116,25 @@ describe('systemStore missing audio card', () => {
     expect(store.audioCardMissing).toBe('HiFiBerry Amp2');
   });
 });
+
+/**
+ * A unit set up over its recovery AP and not joined to its network since opens
+ * the wizard on its Network step. The hostname-conflict event is applied
+ * through the same path as the status read and carries no such key: read as
+ * "not waiting", it would send the wizard back to its first step.
+ */
+describe('systemStore setup waiting for a link', () => {
+  beforeEach(() => {
+    resetApiCallMock();
+  });
+
+  it('is left as read by a hostname-conflict event', async () => {
+    const store = useSystemStore();
+    apiCall.get.mockResolvedValue(ok({ status: 'success', data: { hostname_conflict: false, setup_awaiting_network: true } }));
+    await store.fetchStatus();
+
+    store.handleConflictEvent({ data: { hostname_conflict: false, advertised_name: 'milo.local' } });
+
+    expect(store.setupAwaitingNetwork).toBe(true);
+  });
+});

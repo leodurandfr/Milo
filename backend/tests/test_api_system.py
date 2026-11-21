@@ -225,6 +225,7 @@ class TestSystemStatus:
         assert data == {
             "hostname_conflict": False,
             "audio_card_missing": None,
+            "setup_awaiting_network": False,
         }
 
     def test_status_carries_the_missing_card_label(self, systemd):

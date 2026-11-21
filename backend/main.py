@@ -486,6 +486,7 @@ system_router = create_system_router(
     satellite_timezone_service=get_service("satellite_timezone_service"),
     update_service=update_service,
     presence_service=presence_service,
+    settings_service=settings_service,
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 
