@@ -315,6 +315,15 @@
                         <span class="version-new">> {{ satelliteByMacId[client.mac_id].latest_version }}</span>
                       </template>
                     </span>
+                    <div v-if="shownFailure(satelliteUpdateFailure(client.mac_id), isSatelliteUpdating(client.mac_id))"
+                      class="program-failure">
+                      <span v-if="failureCause(satelliteUpdateFailure(client.mac_id))" class="text-body-small failure-cause">
+                        {{ failureCause(satelliteUpdateFailure(client.mac_id)) }}
+                      </span>
+                      <span v-if="satelliteUpdateFailure(client.mac_id).detail" class="text-mono-small failure-detail">
+                        {{ satelliteUpdateFailure(client.mac_id).detail }}
+                      </span>
+                    </div>
                   </div>
 
                   <div class="program-actions">
@@ -323,10 +332,11 @@
                         :loading="isSatelliteUpdating(client.mac_id)"
                         @click="startSatelliteUpdate(client.mac_id)"
                         :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)">
-                        {{ isSatelliteUpdating(client.mac_id) ? t('updates.updating') : t('updates.update') }}
+                        {{ programButtonLabel(satelliteUpdateFailure(client.mac_id), isSatelliteUpdating(client.mac_id)) }}
                       </Button>
-                      <IconButton icon="downloadSimple" variant="brand" size="small"
-                        class="action-compact row-icon-button" :aria-label="isSatelliteUpdating(client.mac_id) ? t('updates.updating') : t('updates.update')"
+                      <IconButton :icon="shownFailure(satelliteUpdateFailure(client.mac_id), isSatelliteUpdating(client.mac_id)) ? 'arrowClockwise' : 'downloadSimple'"
+                        variant="brand" size="small"
+                        class="action-compact row-icon-button" :aria-label="programButtonLabel(satelliteUpdateFailure(client.mac_id), isSatelliteUpdating(client.mac_id))"
                         :loading="isSatelliteUpdating(client.mac_id)"
                         @click="startSatelliteUpdate(client.mac_id)"
                         :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
@@ -349,6 +359,15 @@
                         <span class="version-new">> {{ satelliteByMacId[client.mac_id].camilladsp_latest_version }}</span>
                       </template>
                     </span>
+                    <div v-if="shownFailure(satelliteCamillaFailure(client.mac_id), isSatelliteCamillaUpdating(client.mac_id))"
+                      class="program-failure">
+                      <span v-if="failureCause(satelliteCamillaFailure(client.mac_id))" class="text-body-small failure-cause">
+                        {{ failureCause(satelliteCamillaFailure(client.mac_id)) }}
+                      </span>
+                      <span v-if="satelliteCamillaFailure(client.mac_id).detail" class="text-mono-small failure-detail">
+                        {{ satelliteCamillaFailure(client.mac_id).detail }}
+                      </span>
+                    </div>
                   </div>
 
                   <div class="program-actions">
@@ -357,10 +376,11 @@
                         :loading="isSatelliteCamillaUpdating(client.mac_id)"
                         @click="startSatelliteCamillaUpdate(client.mac_id)"
                         :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)">
-                        {{ isSatelliteCamillaUpdating(client.mac_id) ? t('updates.updating') : t('updates.update') }}
+                        {{ programButtonLabel(satelliteCamillaFailure(client.mac_id), isSatelliteCamillaUpdating(client.mac_id)) }}
                       </Button>
-                      <IconButton icon="downloadSimple" variant="brand" size="small"
-                        class="action-compact row-icon-button" :aria-label="isSatelliteCamillaUpdating(client.mac_id) ? t('updates.updating') : t('updates.update')"
+                      <IconButton :icon="shownFailure(satelliteCamillaFailure(client.mac_id), isSatelliteCamillaUpdating(client.mac_id)) ? 'arrowClockwise' : 'downloadSimple'"
+                        variant="brand" size="small"
+                        class="action-compact row-icon-button" :aria-label="programButtonLabel(satelliteCamillaFailure(client.mac_id), isSatelliteCamillaUpdating(client.mac_id))"
                         :loading="isSatelliteCamillaUpdating(client.mac_id)"
                         @click="startSatelliteCamillaUpdate(client.mac_id)"
                         :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
@@ -462,7 +482,8 @@ const {
   isSatelliteUpdating, isSatelliteUpdateCompleted,
   isSatelliteAppUpdating, isSatelliteAppUpdateCompleted,
   isSatelliteCamillaUpdating, isSatelliteCamillaUpdateCompleted,
-  isSatelliteAwaitingReturn, satelliteAppFailure, localUpdateTarget, localUpdateVersion,
+  isSatelliteAwaitingReturn, satelliteAppFailure, satelliteUpdateFailure, satelliteCamillaFailure,
+  localUpdateTarget, localUpdateVersion,
   isMiloUpdating, isLocalUpdateBusy, isAnySatelliteUpdating, isSatelliteBusy, isSatelliteAppBlocked,
 } = updatesStore;
 
@@ -579,8 +600,23 @@ const miloFailureCause = computed(() => {
 });
 
 function appFailureCause(macId) {
-  const key = APP_FAILURE_CAUSES[satelliteAppFailure(macId)?.verdict];
+  return failureCause(satelliteAppFailure(macId));
+}
+
+// A satellite's snapclient and CamillaDSP rows say how their last install
+// ended the way its app row does, and a press is then a retry.
+function failureCause(failure) {
+  const key = APP_FAILURE_CAUSES[failure?.verdict];
   return key ? t(key) : null;
+}
+
+function shownFailure(failure, updating) {
+  return !!failure && !updating;
+}
+
+function programButtonLabel(failure, updating) {
+  if (updating) return t('updates.updating');
+  return failure ? t('updates.retry') : t('updates.update');
 }
 
 function appButtonLabel(macId) {

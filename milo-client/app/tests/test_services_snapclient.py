@@ -37,7 +37,7 @@ class TestSnapclientServiceProperties:
 class TestInstalledVersionParsing:
     """The string the server compares against the target to call an update done.
 
-    `SatelliteUpdateService._wait_for_update_completion` polls this value and
+    `SatelliteUpdateService._wait_for_program_update` polls this value and
     stops when it equals the target. A parse that returns None therefore reads as
     "the update never took" on a satellite that updated correctly, and the
     operator is sent after a fault that is not there.
@@ -244,6 +244,80 @@ class TestOnlyOneUpdateRunsAtATime:
 
         assert result["success"] is False
         assert snapclient_service.update_in_progress is False
+
+
+class TestWhatTheServerReadsOnceTheFlagDrops:
+    """The server's waiter reads `update_in_progress` down as "the attempt
+    ended", then the version and `last_result` as how. Down before the stopped
+    unit is started back, the server read a version mid-restart; with no
+    `last_result`, a failed install reached the row as "still runs 0.28.0"
+    and never why."""
+
+    @pytest.mark.asyncio
+    async def test_a_failed_install_leaves_the_wrappers_own_line(self, snapclient_service, patched_world):
+        machine = patched_world
+        machine.install_returncode = 1
+
+        await snapclient_service.update_snapclient("0.29.0", None)
+
+        last = snapclient_service.last_result
+        assert last["target_version"] == "0.29.0" and last["success"] is False
+        assert "dpkg: dependency problems" in last["error"]
+
+    @pytest.mark.asyncio
+    async def test_the_status_route_hands_the_server_that_line(self, snapclient_service, patched_world):
+        """The waiter reads it off `GET /update/status`: a route that stopped
+        carrying it leaves the row with "still runs 0.28.0" again."""
+        from routes import create_snapclient_router
+
+        patched_world.install_returncode = 1
+        await snapclient_service.update_snapclient("0.29.0", None)
+        router = create_snapclient_router(snapclient_service)
+        status = next(r.endpoint for r in router.routes if r.path == "/update/status")
+
+        data = await status()
+
+        assert data["update_in_progress"] is False
+        assert "dpkg: dependency problems" in data["last_result"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_the_flag_stays_up_while_the_stopped_unit_is_started_back(
+        self, snapclient_service, patched_world
+    ):
+        machine = patched_world
+        machine.install_returncode = 1
+        seen = []
+
+        async def _at_start(argv):
+            if argv == FakeMachine.START:
+                seen.append(snapclient_service.update_in_progress)
+
+        machine.on_spawn = _at_start
+
+        await snapclient_service.update_snapclient("0.29.0", None)
+
+        assert seen == [True], "the restart of the stopped unit ran with the flag already down"
+        assert snapclient_service.update_in_progress is False
+
+    @pytest.mark.asyncio
+    async def test_a_refused_second_call_leaves_the_first_ones_result(
+        self, snapclient_service, patched_world
+    ):
+        """A refusal ran nothing: it must not stand in for the run in flight."""
+        machine = patched_world
+        refused = []
+
+        async def _call_again(argv):
+            if argv == FakeMachine.STOP:
+                refused.append(await snapclient_service.update_snapclient("0.30.0", None))
+
+        machine.on_spawn = _call_again
+
+        await snapclient_service.update_snapclient("0.29.0", None)
+
+        assert refused and refused[0]["success"] is False
+        assert snapclient_service.last_result["target_version"] == "0.29.0"
+        assert snapclient_service.last_result["success"] is True
 
 
 class TestSnapclientUpdateLeavesTheServiceRunning:

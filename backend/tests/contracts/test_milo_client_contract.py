@@ -134,8 +134,12 @@ def _path_candidates(node, param_values) -> set[str]:
         return {node.value}
     if not isinstance(node, ast.JoinedStr):
         return set()
+    return _resolve_template(_join(node), param_values)
 
-    template = _join(node)
+
+def _resolve_template(template: str, param_values) -> set[str]:
+    """`template` with each `{name}` that names a parameter given literals in
+    this module replaced by each of them; any other stays a template."""
     names = re.findall(r"\{([^}]*)\}", template)
     # A single interpolation of a value that is itself a path parameter
     # (`{filter_id}`) stays a template; one carrying a *segment* resolves.
@@ -214,14 +218,17 @@ def _literal_dict_keys(node, bindings):
     return frozenset(k.value for k in node.keys)
 
 
-def _raw_aiohttp_calls(tree, markers, bindings):
+def _raw_aiohttp_calls(tree, markers, bindings, param_values):
     """(method, path, body keys) for `session.<verb>(f"http://…:{PORT}/x")` calls.
 
     A few callers bypass the proxy service and build the URL inline, either
     passing the f-string straight to the verb or binding it to a local first.
-    Both forms are resolved here; the generic transport in client_proxy.py,
-    whose suffix is a bare `{path}` placeholder, is skipped — its concrete paths
-    come from the request()/try_request() call sites instead.
+    Both forms are resolved here, and a path segment interpolated into the
+    URL resolves through the literals this module passes to it (`/{route}`,
+    which the satellite update service is called with per program); the
+    generic transport in client_proxy.py, whose suffix is a bare `{path}`
+    placeholder, is skipped — its concrete paths come from the
+    request()/try_request() call sites instead.
 
     The third slot is the key set of a `json=` body written as a dict literal, or
     None when there is no body or it cannot be enumerated.
@@ -255,9 +262,11 @@ def _raw_aiohttp_calls(tree, markers, bindings):
             suffix = url.split(marker, 1)[1]
             if re.fullmatch(r"\{[^}]*\}", suffix):
                 continue  # generic transport, not a concrete endpoint
+            candidates = _resolve_template(suffix, param_values)
             body = next((kw.value for kw in node.keywords if kw.arg == "json"), None)
             keys = _literal_dict_keys(body, bindings) if body is not None else None
-            calls.add((verb, _normalise(suffix), keys))
+            for candidate in candidates:
+                calls.add((verb, _normalise(candidate), keys))
     return calls
 
 
@@ -294,8 +303,9 @@ def _satellite_surface():
         except SyntaxError as exc:  # pragma: no cover - a broken tree is a real failure
             pytest.fail(f"cannot parse {path}: {exc}")
         bindings = _dict_bindings(tree)
-        records |= _proxy_calls(tree, _literal_values_by_param_name(tree), bindings)
-        records |= _raw_aiohttp_calls(tree, _port_markers(tree), bindings)
+        param_values = _literal_values_by_param_name(tree)
+        records |= _proxy_calls(tree, param_values, bindings)
+        records |= _raw_aiohttp_calls(tree, _port_markers(tree), bindings, param_values)
     return records
 
 

@@ -52,6 +52,7 @@ def mock_snapclient_service():
     """Mock SnapclientService for route tests."""
     service = Mock(spec=SnapclientService)
     service.update_in_progress = False
+    service.last_result = None
 
     # Async methods
     service.get_installed_version = AsyncMock(return_value="0.28.0")
@@ -74,6 +75,7 @@ def mock_camilladsp_update_service():
     """Mock CamillaDSPUpdateService for route tests."""
     service = Mock(spec=CamillaDSPUpdateService)
     service.update_in_progress = False
+    service.last_result = None
     service.get_installed_version = AsyncMock(return_value="2.0.0")
     service.update_camilladsp = AsyncMock(return_value={"success": True})
     return service

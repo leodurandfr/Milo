@@ -193,3 +193,28 @@ async def test_an_archive_that_is_not_the_declared_one_stops_nothing(machine):
     assert "checksum mismatch" in result["error"]
     assert FakeMachine.STOP not in machine.calls
     assert not [argv for argv in machine.calls if argv[:2] == ("sudo", camilladsp_update.INSTALL_WRAPPER)]
+
+
+@pytest.mark.asyncio
+async def test_the_flag_stays_up_through_the_rollback_and_the_error_is_kept(machine):
+    """The server reads the flag down as "the attempt ended", then the version
+    and `last_result`: down during the rollback's start, it read a unit still
+    coming back; without `last_result`, the row never said why."""
+    machine.install_returncodes = [1]
+    service = CamillaDSPUpdateService()
+    seen = []
+    spawn = machine.spawn
+
+    async def _watching(*argv, **kwargs):
+        if argv == FakeMachine.START:
+            seen.append(service.update_in_progress)
+        return await spawn(*argv, **kwargs)
+
+    with patch.object(camilladsp_update.asyncio, "create_subprocess_exec", _watching):
+        await service.update_camilladsp("3.0.2", None)
+
+    assert seen and all(seen), "the rollback's start ran with the flag already down"
+    assert service.update_in_progress is False
+    last = service.last_result
+    assert last["target_version"] == "3.0.2" and last["success"] is False
+    assert "not an aarch64 ELF" in last["error"]

@@ -4,7 +4,7 @@ API routes for program management — Full version with satellites
 """
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from backend.core.models.audio_state import AudioSource
 from backend.core.models.presence import PresenceAction
@@ -90,6 +90,24 @@ def create_programs_router(
     # it are membership and which keys are local, and a per-key status/progress
     # payload lived here unread for as long as it existed.
     active_updates: set[str] = set()
+
+    # Set, then replaced, whenever a claim may have ended — a key released, a
+    # Milō update finished —, so a push the admission owes a satellite waits
+    # for its blocker instead of being dropped (`_push_app_at_admission`).
+    # Every path that ends a claim goes through `_release` or the Milō
+    # update's completion listener: a reboot is the only other end, and it
+    # takes the waiter with it.
+    claims_moved = asyncio.Event()
+
+    def _claims_moved() -> None:
+        nonlocal claims_moved
+        claims_moved.set()
+        claims_moved = asyncio.Event()
+
+    def _release(update_key: str) -> None:
+        """Give a claimed key back, and wake whoever waits on a claim."""
+        active_updates.discard(update_key)
+        _claims_moved()
 
     # An update key belongs to the server ("local") or to one satellite. The
     # longest prefix first: a MAC never contains "app_" or "camilladsp_", but
@@ -189,6 +207,30 @@ def create_programs_router(
             return complete_event_cls(**identifier, success=result["success"], **extra)
 
         async def do_update():
+            # The claim is given back exactly once. The run gives it back as
+            # soon as the update returns, before the completion is broadcast,
+            # and a second claim on the same key may land during that
+            # broadcast — a press on another device, or the admission push the
+            # release just woke: releasing again would discard that claim and
+            # leave its push running unclaimed.
+            held = True
+
+            def release_once() -> None:
+                nonlocal held
+                if held:
+                    held = False
+                    _release(update_key)
+
+            try:
+                await _run_update(release_once)
+            finally:
+                # Whatever ended it — a cancellation included, which skips
+                # every `except Exception` —, the key is free: a claim left
+                # behind refuses every app push and the Milō update itself
+                # until the backend restarts.
+                release_once()
+
+        async def _run_update(release: Callable[[], None]):
             try:
                 # Announced once, at the start: the event's whole payload is the
                 # identifier plus a constant status, so firing it again at each
@@ -199,7 +241,7 @@ def create_programs_router(
                     await pre_update_fn()
 
                 result = await update_fn()
-                active_updates.discard(update_key)
+                release()
 
                 if result.get("pending"):
                     # A Milō update handed the unit to a restart: the release
@@ -214,7 +256,7 @@ def create_programs_router(
 
             except Exception as e:
                 logger.error(f"Update {update_key} failed: {e}")
-                active_updates.discard(update_key)
+                release()
                 # Whatever raised, no final state was seen.
                 await state_machine.broadcast(_completion({
                     "success": False,
@@ -236,6 +278,7 @@ def create_programs_router(
         ))
 
     async def _announce_milo_complete(success: bool) -> None:
+        _claims_moved()
         await state_machine.broadcast(ProgramUpdateComplete(program="milo", success=success))
 
     # The install, the reboot and the post-commit phase run in two processes,
@@ -465,6 +508,68 @@ def create_programs_router(
             return _refuse(blocker, satellite_key)
         return target
 
+    def _verdict_fields(result: dict) -> dict:
+        """What a satellite update's completion carries beyond `success`."""
+        return {"verdict": result.get("verdict"), "detail": result.get("detail")}
+
+    def _app_push(mac_id: str):
+        """The background update that pushes the client app to one satellite:
+        the row's button and the satellite's admission run the same one."""
+        return _create_background_update(
+            update_key=f"satellite_app_{mac_id}",
+            update_fn=lambda: satellite_service.update_satellite_app(mac_id),
+            progress_event_cls=SatelliteAppUpdateProgress,
+            complete_event_cls=SatelliteAppUpdateComplete,
+            identifier={"mac_id": mac_id},
+            complete_fields=_verdict_fields,
+        )
+
+    # The satellites whose admission push waits for a claim to end: a second
+    # admission of one of them (a reconnect meanwhile) adds nothing.
+    admissions_waiting: set[str] = set()
+
+    async def _push_app_at_admission(mac_id: str, owed: Callable[[], Awaitable[bool]]) -> None:
+        """The push a satellite's admission owes it (`catch_up_app`), under the
+        claim the row's button takes.
+
+        A Milō update — its trial, its own fleet push, which read the fleet
+        before this satellite was back — or another app push in flight holds
+        it back, as it would hold back a press, and it waits for that claim to
+        end rather than being dropped: two speakers plugged back in together
+        are pushed one after the other. Each time the way is clear the
+        satellite is asked again whether it is owed one (the claim that held
+        it back may have pushed it), and the claim is taken after, with no
+        await between its check and its write.
+        """
+        if mac_id in admissions_waiting:
+            return
+        satellite_key = f"satellite_app_{mac_id}"
+        admissions_waiting.add(mac_id)
+        try:
+            waiting_for = None
+            while True:
+                # Taken before the checks: a claim that ends during `owed()`
+                # has already set it, so the wait below cannot miss it.
+                moved = claims_moved
+                blocker = _blocker(satellite_key)
+                if blocker is None:
+                    if not await owed():
+                        return
+                    blocker = _claim_update(satellite_key)
+                    if blocker is None:
+                        break
+                if blocker != waiting_for:
+                    logger.info(
+                        f"Satellite {mac_id}: its client app push waits for {blocker} to finish"
+                    )
+                    waiting_for = blocker
+                await moved.wait()
+        finally:
+            admissions_waiting.discard(mac_id)
+        await _app_push(mac_id)()
+
+    satellite_service.set_admission_push_runner(_push_app_at_admission)
+
     @router.post("/satellites/{mac_id}/update")
     async def update_satellite(
         mac_id: str,
@@ -487,6 +592,7 @@ def create_programs_router(
             progress_event_cls=SatelliteUpdateProgress,
             complete_event_cls=SatelliteUpdateComplete,
             identifier={"mac_id": mac_id},
+            complete_fields=_verdict_fields,
         )
 
         background_tasks.add_task(do_update)
@@ -506,19 +612,7 @@ def create_programs_router(
         if blocker:
             return _refuse(blocker, satellite_key)
 
-        do_update = _create_background_update(
-            update_key=satellite_key,
-            update_fn=lambda: satellite_service.update_satellite_app(mac_id),
-            progress_event_cls=SatelliteAppUpdateProgress,
-            complete_event_cls=SatelliteAppUpdateComplete,
-            identifier={"mac_id": mac_id},
-            complete_fields=lambda result: {
-                "verdict": result.get("verdict"),
-                "detail": result.get("detail"),
-            },
-        )
-
-        background_tasks.add_task(do_update)
+        background_tasks.add_task(_app_push(mac_id))
 
         return {
             "status": "success",
@@ -549,6 +643,7 @@ def create_programs_router(
             progress_event_cls=SatelliteCamillaDspUpdateProgress,
             complete_event_cls=SatelliteCamillaDspUpdateComplete,
             identifier={"mac_id": mac_id},
+            complete_fields=_verdict_fields,
         )
 
         background_tasks.add_task(do_update)
@@ -620,11 +715,11 @@ def create_programs_router(
                     program_key, payload.target, payload.version
                 )
             except Exception:
-                active_updates.discard(program_key)
+                _release(program_key)
                 raise
 
             if not can_update.get("can_update"):
-                active_updates.discard(program_key)
+                _release(program_key)
                 return _cannot_update(can_update)
 
         async def _deactivate_if_needed():

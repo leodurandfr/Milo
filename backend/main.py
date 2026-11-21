@@ -328,6 +328,12 @@ async def lifespan(app: FastAPI):
         # start.
         ("after_listening", _after_listening.cancel_all),
         ("snapcast_websocket", snapcast_websocket_service.cleanup),
+        # The client app pushes satellites' admissions owe them: each restarts
+        # a speaker, and a cut one is read back from its status at the next
+        # start. After snapcast_websocket, whose admissions spawn them: cut
+        # first, an admission still running would spawn one into a set
+        # nothing cancels any more.
+        ("satellite_updates", get_service("satellite_update_service").cleanup),
         ("client_registry", client_registry_service.cleanup),
         ("volume", volume_service.cleanup),
         ("camilladsp", camilladsp_service.cleanup),

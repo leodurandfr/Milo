@@ -90,18 +90,17 @@ const SatelliteUpdateProgressSchema = z.object({
   mac_id: z.string(),
   status: z.string(),
 });
+// Backend: SatelliteUpdateVerdict — how one update of a satellite ended, its
+// app, its snapclient or its CamillaDSP alike.
+const SatelliteUpdateVerdictSchema = z.enum([
+  'committed', 'rolled_back', 'did_not_return', 'rejected',
+]);
+// Each of the three says how it ended and why; updatesStore keeps a failure on
+// the satellite's row.
 const SatelliteUpdateCompleteSchema = z.object({
   mac_id: z.string(),
   success: z.boolean(),
-});
-// Backend: SatelliteAppVerdict — how one push of the client app ended.
-const SatelliteAppVerdictSchema = z.enum([
-  'committed', 'rolled_back', 'did_not_return', 'rejected',
-]);
-// The app push alone says how it ended; updatesStore keeps a failure on the
-// satellite's row.
-const SatelliteAppUpdateCompleteSchema = SatelliteUpdateCompleteSchema.extend({
-  verdict: SatelliteAppVerdictSchema.nullable().optional(),
+  verdict: SatelliteUpdateVerdictSchema.nullable().optional(),
   detail: z.string().nullable().optional(),
 });
 
@@ -165,7 +164,7 @@ export const wsEventRegistry = {
   'programs.satellite_update_progress': SatelliteUpdateProgressSchema,
   'programs.satellite_update_complete': SatelliteUpdateCompleteSchema,
   'programs.satellite_app_update_progress': SatelliteUpdateProgressSchema,
-  'programs.satellite_app_update_complete': SatelliteAppUpdateCompleteSchema,
+  'programs.satellite_app_update_complete': SatelliteUpdateCompleteSchema,
   'programs.satellite_camilladsp_update_progress': SatelliteUpdateProgressSchema,
   'programs.satellite_camilladsp_update_complete': SatelliteUpdateCompleteSchema,
   // Backend: SourcePosition — the playhead's anchor alone moved (a seek, a

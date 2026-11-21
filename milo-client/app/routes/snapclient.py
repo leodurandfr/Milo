@@ -71,6 +71,7 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
         """Gets the status of the ongoing update."""
         return {
             "update_in_progress": snapclient_service.update_in_progress,
+            "last_result": snapclient_service.last_result,
             "timestamp": int(time.time())
         }
 

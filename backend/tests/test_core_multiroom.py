@@ -3199,12 +3199,12 @@ class TestAdmissionPathConvergence:
     async def test_the_production_service_hands_each_admitted_satellite_its_pushes(self, monkeypatch):
         """Built by `dependencies._create_service`, not by hand.
 
-        The push services and the secret are optional collaborators and the
-        admission runs the same without them, so a creator that stopped passing
-        one would leave every test that builds the service itself green while
-        no satellite was handed the server's WiFi, timezone or secret again —
-        and without the secret, a satellite reflashed since its last admission
-        refuses every update push. The creator's collaborators are doubles; one
+        The push services, the secret and the app catch-up are optional
+        collaborators and the admission runs the same without them, so a
+        creator that stopped passing one would leave every test that builds the
+        service itself green while no satellite was handed the server's WiFi,
+        timezone, secret or client app again — and without the secret, a
+        satellite reflashed since its last admission refuses every update push. The creator's collaborators are doubles; one
         it asks for that this test does not know fails here rather than
         building a real service against this machine's daemons.
         """
@@ -3221,8 +3221,14 @@ class TestAdmissionPathConvergence:
         pending.remove_client = AsyncMock()
         state_machine = MagicMock()
         state_machine.broadcast = AsyncMock()
-        wifi, timezone, secret = MagicMock(), MagicMock(), MagicMock()
-        wifi.push, timezone.push, secret.hand_over = AsyncMock(), AsyncMock(), AsyncMock()
+        wifi, timezone, secret, updates = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+        wifi.push, timezone.push = AsyncMock(), AsyncMock()
+        # The order the two chained pushes ran in: the app push carries the
+        # secret, so a satellite reflashed since its last admission refuses it
+        # (403, recorded as refused for good) unless the hand-over came first.
+        order = []
+        secret.hand_over = AsyncMock(side_effect=lambda *a: order.append("hand_over"))
+        updates.catch_up_app = AsyncMock(side_effect=lambda *a: order.append("catch_up_app"))
 
         class _Doubles(dict):
             def __contains__(self, name):
@@ -3241,6 +3247,7 @@ class TestAdmissionPathConvergence:
             "satellite_wifi_service": wifi,
             "satellite_timezone_service": timezone,
             "satellite_secret": secret,
+            "satellite_update_service": updates,
         }))
         service = deps._create_service("snapcast_websocket_service")
         registry = ClientRegistryService(settings_service=settings)
@@ -3257,6 +3264,8 @@ class TestAdmissionPathConvergence:
         wifi.push.assert_awaited_once_with(self.IP)
         timezone.push.assert_awaited_once_with(self.IP)
         secret.hand_over.assert_awaited_once_with(self.MAC, self.IP)
+        updates.catch_up_app.assert_awaited_once_with(self.MAC)
+        assert order == ["hand_over", "catch_up_app"]
 
     @pytest.mark.asyncio
     async def test_a_zone_changed_while_the_satellite_comes_online_still_reaches_it(self, tmp_path, monkeypatch):

@@ -25,7 +25,7 @@ from backend.config.constants import (
     VALID_DOCK_APPS,
     VALID_LANGUAGES,
 )
-from backend.core.models.ws_events import SatelliteAppVerdict
+from backend.core.models.ws_events import SatelliteUpdateVerdict
 from backend.hardware.fan import (
     TARGET_TEMP_DEFAULT_C,
     VALID_MODES,
@@ -285,16 +285,19 @@ class SettingsService:
     @staticmethod
     def _validated_app_failures(stored: Any, default: Dict[str, Any]) -> Dict[str, Any]:
         """`updates.satellite_app_failures`, entry by entry: a malformed entry
-        is dropped rather than repaired."""
+        is dropped rather than repaired. `refused` is whether the satellite
+        itself said no to that payload (an answered refusal, a rollback), which
+        holds back the push its next admission would make."""
         if not isinstance(stored, dict):
             return dict(default)
-        failure_verdicts = set(get_args(SatelliteAppVerdict)) - {"committed"}
+        failure_verdicts = set(get_args(SatelliteUpdateVerdict)) - {"committed"}
         return {
             str(mac): {
                 "payload": entry["payload"],
                 "verdict": entry["verdict"],
                 "detail": entry.get("detail") if isinstance(entry.get("detail"), str) else None,
                 "at": int(entry["at"]),
+                "refused": entry["refused"],
             }
             for mac, entry in stored.items()
             if isinstance(entry, dict)
@@ -303,6 +306,7 @@ class SettingsService:
             and entry.get("verdict") in failure_verdicts
             and isinstance(entry.get("at"), (int, float))
             and not isinstance(entry.get("at"), bool)
+            and isinstance(entry.get("refused"), bool)
         }
 
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:

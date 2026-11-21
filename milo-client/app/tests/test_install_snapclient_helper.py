@@ -171,3 +171,35 @@ def test_an_install_apt_refuses_is_a_failure(world):
     result, _ = _run(world, apt_install_rc=100)
 
     assert result.returncode != 0, result.stdout
+
+
+def _stub(world, name, body):
+    stub = world["stubs"] / name
+    stub.write_text("#!/bin/sh\n" f'echo "{name} $*" >> "$STUB_LOG"\n' f"{body}\n")
+    stub.chmod(0o755)
+
+
+def test_apt_update_runs_under_its_bound(world):
+    """`apt-get update` is the one step a stalled mirror holds open, and the
+    server waits on this install for a bounded time (PROGRAM_UPDATE_CEILING_S):
+    run unbounded, the server reported a failure for an install still going."""
+    _stub(world, "timeout", 'shift; exec "$@"')
+
+    _, log = _run(world)
+
+    bounded = [line.split() for line in log if line.startswith("timeout ")]
+    assert bounded and bounded[0][2:4] == ["apt-get", "update"], log
+    assert int(bounded[0][1]) > 0, bounded
+
+
+def test_an_apt_update_cut_by_its_bound_installs_nothing(world):
+    """Past its bound the update is said in words and stops before the install:
+    the lists are as they were, and the satellite reports why to the server."""
+    _stub(world, "timeout", "exit 124")
+    sha256 = hashlib.sha256(world["deb"].read_bytes()).hexdigest()
+
+    result, log = _invoke(world, sha256)
+
+    assert result.returncode != 0
+    assert "did not finish within" in result.stderr
+    assert not [line for line in log if line.startswith("apt-get install")], log

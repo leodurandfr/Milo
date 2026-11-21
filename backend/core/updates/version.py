@@ -94,11 +94,29 @@ class VersionService:
             except Exception as e:
                 result["errors"].append(f"{cmd_name}: {str(e)}")
 
-        # If no version detected, mark as not installed
+        # No version read is two answers: the program is not on this unit, or
+        # it is and its version could not be read (a timeout on a cold card, a
+        # banner the regex no longer matches). Only the first means "nothing to
+        # update"; a Milō update reinstalls the second.
         if not result["versions"]:
-            result["status"] = "not_installed"
+            present = await self._installed_on_disk(program_config, result["errors"])
+            result["status"] = "unreadable" if present else "not_installed"
 
         return result
+
+    @staticmethod
+    async def _installed_on_disk(program_config: Dict[str, Any], errors: List[str]) -> bool:
+        """Whether a program whose version was not read is on this unit at all.
+
+        Its installed file says so where the catalog names one (`binary_path`,
+        `venv_path`): a `sh -c` pipeline over a missing binary prints nothing,
+        exactly as one over a binary whose banner moved. Otherwise a program
+        is absent only when every version command was not found.
+        """
+        path = program_config.get("binary_path") or program_config.get("venv_path")
+        if path:
+            return await asyncio.to_thread(os.path.lexists, path)
+        return not errors or any(not error.endswith("Command not found") for error in errors)
 
     async def _execute_version_command(self, cmd_args: List[str], version_regex: str) -> tuple:
         """Executes a version command and extracts the version number.

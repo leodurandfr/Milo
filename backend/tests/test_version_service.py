@@ -179,6 +179,47 @@ class TestGetInstalledVersion:
         assert "Command not found" in result["errors"][0]
 
 
+class TestUnreadableIsNotAbsent:
+    """No version read is two answers, and only one is "nothing to update".
+
+    The Milō update's reconciliation skips a program the unit does not have and
+    reinstalls one whose version it could not read. Folded together, a version
+    command that timed out on a cold card left the old daemon in place with
+    nothing logged, under code written for the new one.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("on_disk, status", [(True, "unreadable"), (False, "not_installed")])
+    async def test_a_binary_program_is_judged_by_its_file(self, version_service, on_disk, status):
+        """go-librespot's version is a `sh -c` pipeline: over a missing binary
+        and over one whose banner moved it prints the same nothing."""
+        binary = version_service.programs["go-librespot"]["binary_path"]
+        with patch.object(version_service, "_execute_version_command", return_value=("", None)), \
+                patch("backend.core.updates.version.os.path.lexists",
+                      side_effect=lambda path: on_disk and path == binary):
+            result = await version_service.get_installed_version("go-librespot")
+
+        assert result["status"] == status
+
+    @pytest.mark.asyncio
+    async def test_a_command_that_timed_out_is_unreadable(self, version_service):
+        """Multiroom names no file: its commands are found, so one that did not
+        answer in time is a version unread, not a program absent."""
+        with patch.object(version_service, "_execute_version_command",
+                          side_effect=Exception("Execution error: Command timeout")):
+            result = await version_service.get_installed_version("multiroom")
+
+        assert result["status"] == "unreadable"
+
+    @pytest.mark.asyncio
+    async def test_commands_that_are_not_there_are_absent(self, version_service):
+        with patch.object(version_service, "_execute_version_command",
+                          side_effect=Exception("Command not found")):
+            result = await version_service.get_installed_version("multiroom")
+
+        assert result["status"] == "not_installed"
+
+
 class TestGetLatestGithubVersion:
     """Tests for get_latest_github_version()"""
 
@@ -1174,13 +1215,15 @@ class TestVersionDetectionResidue:
     async def test_output_the_regex_cannot_read_is_an_error_not_a_version(
             self, version_service):
         """A binary that prints an unexpected banner after an upstream change
-        must read as not-installed, so the panel offers a reinstall — rather
-        than as installed at some version nobody parsed."""
+        must read as unreadable, so a Milō update reinstalls it — rather than
+        as installed at some version nobody parsed."""
         with patch.object(version_service, "_execute_version_command",
-                          return_value=("shairport-sync unknown build", None)):
+                          return_value=("shairport-sync unknown build", None)), \
+                patch("backend.core.updates.version.os.path.lexists", return_value=True):
             result = await version_service.get_installed_version("shairport-sync")
 
-        assert result["status"] == "not_installed"
+        assert result["status"] == "unreadable"
+        assert result["versions"] == {}
         assert result["errors"] == ["main: Version not detected"]
 
     @pytest.mark.asyncio

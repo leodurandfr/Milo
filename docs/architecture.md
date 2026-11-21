@@ -903,6 +903,32 @@ Milō update's fleet push stops at the first satellite that rolls back or does n
 return: the rest are held back on the app they run, and a satellite that already
 went back from this payload is not pushed again.
 
+**A satellite left behind is caught up at its admission.** One unplugged while a
+Milō update pushed the fleet keeps the old app, and the server then sends it
+request keys its handlers do not read. So once the admission counts it online,
+after the secret's hand-over, `SatelliteUpdateService.catch_up_app` asks whether
+it is owed the push: it answers, its payload differs from the server's, no trial
+is open on it, it does not answer another server, no failure recorded for it
+says it `refused` this payload, it did not record a rollback of it itself, and no
+other satellite went back from it (the fleet push's halt). `refused` is kept with
+each failure: an error the satellite answered about the payload, or a rollback —
+never a 409 (busy) or a 403 (the secret of a server it does not follow, which
+the next hand-over replaces), and never a push that reached nothing or saw no
+end. The push runs through the programs router, under the claim the row's button
+takes, and announced the same way; a Milō update or another app push in flight
+holds it back until that claim ends, then the question is asked again. It runs
+in the satellite update service's own task set, cancelled only by the backend's
+teardown, never by a multiroom toggle.
+
+**snapclient and CamillaDSP installs** answer `started` and run in the
+background on the satellite; the server follows `GET :8001/update/status` (or
+`/camilladsp/update/status`) as long as it says the install runs, up to
+`PROGRAM_UPDATE_CEILING_S` (held above the satellite's own budget, read from its
+source, by `backend/tests/architecture/test_satellite_program_ceiling.py`), and
+gives up after `PROGRAM_SILENCE_S` without an answer. The satellite's
+`last_result` names the step that failed, and the completion event carries it as
+`verdict` and `detail`.
+
 ## DSP Processing (CamillaDSP)
 
 **What is it?**

@@ -639,9 +639,20 @@ class UpdateService(VersionService):
                     raise RuntimeError(status.get("message"))
                 installed = self.installed_version(status)
                 # Not installed is the catalog's "no update offered" (a venv or
-                # a binary this unit never had), whatever GitHub answers.
+                # a binary this unit never had), whatever GitHub answers. A
+                # version that is there but could not be read (a command that
+                # timed out on a cold card, a banner the regex no longer
+                # matches) is not that: it reads as off the pin, so it is
+                # reinstalled, and said — skipping it in silence left the old
+                # daemon under code written for the new one.
                 if installed is None:
-                    continue
+                    if status["installed"].get("status") != "unreadable":
+                        continue
+                    self.update_logger.error(
+                        f"{program_key}: the installed version could not be read "
+                        f"({'; '.join(status['installed'].get('errors') or []) or 'no error recorded'}); "
+                        "reinstalling the validated version."
+                    )
                 # Not `update_available`: the manifest is authoritative in both
                 # directions, so a unit sitting *above* what it declares — a
                 # yanked release, a manifest deliberately rolled back — is
@@ -1584,10 +1595,10 @@ class UpdateService(VersionService):
         snapclient holding hw:Loopback,0,0, so the next direct-mode source opens a
         busy device and plays silence until a reboot or a manual multiroom toggle.
 
-        Returns whether every unit multiroom needs is running again. The recovery
-        branches report it; the success path does not, on purpose — there the
-        caller has nothing better to say than the per-unit error already logged
-        here.
+        Returns whether every unit multiroom needs is running again: the
+        recovery branches word their failure on it, and the install itself is
+        a success only when it is true — a snapserver that does not start on
+        the new package is every room mute, however well the package went in.
         """
         if not await self.settings_service.get_setting("routing.multiroom_enabled"):
             self.update_logger.info("Leaving the multiroom units stopped (multiroom is off)")
@@ -1690,14 +1701,23 @@ class UpdateService(VersionService):
                 )
 
             # Phase 5: Restart services (80-95%)
-            await self._restore_multiroom_services()
+            restored = await self._restore_multiroom_services()
 
             # Phase 6: Cleanup (95-100%)
             await self._cleanup_temp_files(server_download.get("temp_dir"))
             await self._cleanup_temp_files(client_download.get("temp_dir"))
 
-            # A service that failed to come back up is reported by the per-service
-            # error log above; the caller only distinguishes success from failure.
+            # Installed is not done: a unit that does not start on the new
+            # package leaves every room mute, and the row, the reconciliation
+            # of a Milō update and its outcome must say so.
+            if not restored:
+                return {
+                    "success": False,
+                    "error": (
+                        f"Snapcast {latest_version} installed, but some multiroom services did "
+                        "not start on it - manual intervention required."
+                    ),
+                }
             return {"success": True}
 
         except Exception as e:

@@ -81,6 +81,7 @@ class SnapcastWebSocketService:
         satellite_wifi_service=None,
         satellite_timezone_service=None,
         satellite_secret=None,
+        satellite_update_service=None,
     ):
         self.state_machine = state_machine
         self.routing_service = routing_service
@@ -143,6 +144,7 @@ class SnapcastWebSocketService:
         self._satellite_wifi_service = satellite_wifi_service
         self._satellite_timezone_service = satellite_timezone_service
         self._satellite_secret = satellite_secret
+        self._satellite_update_service = satellite_update_service
         self._volume_service = None
 
     @property
@@ -1360,6 +1362,14 @@ class SnapcastWebSocketService:
             self._syncing_mac_ids.discard(mac_id)
             self._admission_sent.pop(mac_id, None)
 
+    async def _hand_over_then_catch_up(self, mac_id: str, client_ip: str) -> None:
+        """The admission's two pushes that go in order: the secret, then the
+        client app it authorizes. Neither raises."""
+        if self._satellite_secret is not None:
+            await self._satellite_secret.hand_over(mac_id, client_ip)
+        if self._satellite_update_service is not None:
+            await self._satellite_update_service.catch_up_app(mac_id)
+
     async def _do_sync_reconnecting_client_volume(
         self, mac_id: str, set_online_after: bool,
         max_retries: int, retry_delay: float,
@@ -1440,11 +1450,16 @@ class SnapcastWebSocketService:
                     # so a satellite reflashed since pins it again, one just
                     # plugged back in follows this server if it answered
                     # another, and Multiroom hears which (`other_server`).
+                    # Then the client app, to a satellite that runs another
+                    # than this server's (`catch_up_app`): one unplugged while
+                    # a Milō update pushed the fleet would otherwise keep
+                    # ignoring what the server sends it. After the hand-over,
+                    # whose secret the push carries.
                     if client and not client.is_local:
-                        if self._satellite_secret is not None:
+                        if self._satellite_secret is not None or self._satellite_update_service is not None:
                             self._bg.spawn(
-                                self._satellite_secret.hand_over(mac_id, client.ip),
-                                label=f"hand_over_secret_{client.ip}",
+                                self._hand_over_then_catch_up(mac_id, client.ip),
+                                label=f"hand_over_then_catch_up_{client.ip}",
                             )
                         if self._satellite_wifi_service is not None:
                             self._bg.spawn(

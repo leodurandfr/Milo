@@ -74,7 +74,16 @@ echo "Finishing any interrupted dpkg run..."
 dpkg --configure -a --force-confdef --force-confold \
     || echo "WARNING: dpkg --configure -a failed; apt-get decides below" >&2
 
-apt-get update -qq
+# Bounded: the server waits on this install (PROGRAM_UPDATE_CEILING_S, held
+# above this by test_satellite_program_ceiling.py), and a mirror that stalls
+# would otherwise hold the room's snapclient stopped for as long as it lasts.
+# Killing `apt-get update` leaves the lists as they were, so it is the step
+# that can be cut; the install below is never.
+APT_UPDATE_TIMEOUT_S=120
+rc=0
+timeout "$APT_UPDATE_TIMEOUT_S" apt-get update -qq || rc=$?
+[ "$rc" -ne 124 ] || error_exit "apt-get update did not finish within ${APT_UPDATE_TIMEOUT_S} s"
+[ "$rc" -eq 0 ] || exit "$rc"
 
 # One apt transaction. --no-remove makes apt abort where it would otherwise
 # remove an installed package to satisfy the new one's dependencies, and exit 0.

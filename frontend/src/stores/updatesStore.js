@@ -77,6 +77,12 @@ export const useUpdatesStore = defineStore('updates', () => {
   // The server keeps it until that satellite's next success and lists it with
   // the satellite, so a unit that never came back still has a row to say so.
   const satelliteAppFailures = ref({});
+  // The last snapclient and CamillaDSP install each satellite did not take, by
+  // MAC: {verdict, detail}, from its completion. The server records app pushes
+  // alone, so these live here: until that program's next success, or a read
+  // of the inventory with nothing more to install on that row.
+  const satelliteUpdateFailures = ref({});
+  const satelliteCamillaFailures = ref({});
 
   // === COMPUTED ===
 
@@ -261,6 +267,17 @@ export const useUpdatesStore = defineStore('updates', () => {
       .map(s => [s.mac_id, { verdict: s.app_update_failure.verdict, detail: s.app_update_failure.detail ?? null }]));
   }
 
+  // A program failure is about an install still on offer: once a read shows
+  // nothing left to install on that row (updated since, from another screen),
+  // its failure would describe a state the row no longer is in.
+  function forgetSettledProgramFailures(list) {
+    for (const sat of list) {
+      if (!sat.online) continue;
+      if (!sat.update_available) delete satelliteUpdateFailures.value[sat.mac_id];
+      if (!sat.camilladsp_update_available) delete satelliteCamillaFailures.value[sat.mac_id];
+    }
+  }
+
   async function loadSatellites() {
     // `null` is the never-loaded state, and it is what draws the skeleton —
     // re-entering it on a refresh flashed every satellite section back to
@@ -288,6 +305,7 @@ export const useUpdatesStore = defineStore('updates', () => {
       forgetAnsweredCompletions(satelliteAppCompletedUpdates, answered, newer[1]);
       forgetAnsweredCompletions(satelliteCamillaCompletedUpdates, answered, newer[2]);
       reconcileAppFailures(list);
+      forgetSettledProgramFailures(list);
     } else {
       satellitesError.value = true;
     }
@@ -394,6 +412,12 @@ export const useUpdatesStore = defineStore('updates', () => {
   }
   function satelliteAppFailure(macId) {
     return satelliteAppFailures.value[macId] || null;
+  }
+  function satelliteUpdateFailure(macId) {
+    return satelliteUpdateFailures.value[macId] || null;
+  }
+  function satelliteCamillaFailure(macId) {
+    return satelliteCamillaFailures.value[macId] || null;
   }
 
   // Closed at once here, then for every screen by the server, which announces
@@ -548,7 +572,22 @@ export const useUpdatesStore = defineStore('updates', () => {
     completeProgramUpdate(payload);
   }
   const handleSatelliteUpdateProgress = makeProgressHandler(satelliteUpdateStates, 'mac_id', satClock.touch);
-  const handleSatelliteUpdateComplete = makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', awaitSatelliteReturn, satClock.touch);
+  // A snapclient or CamillaDSP install says how it ended too: its failure stays
+  // on the row, the satellite's own error line under it.
+  function keepingFailure(failures, complete) {
+    return (payload) => {
+      const id = payload.mac_id;
+      if (!id) return;
+      if (payload.success) {
+        delete failures.value[id];
+      } else {
+        failures.value[id] = { verdict: payload.verdict ?? null, detail: payload.detail ?? null };
+      }
+      complete(payload);
+    };
+  }
+  const handleSatelliteUpdateComplete = keepingFailure(satelliteUpdateFailures,
+    makeCompleteHandler(satelliteUpdateStates, satelliteCompletedUpdates, 'mac_id', awaitSatelliteReturn, satClock.touch));
   const handleSatelliteAppUpdateProgress = makeProgressHandler(satelliteAppUpdateStates, 'mac_id', satAppClock.touch);
   const completeSatelliteAppUpdate = makeCompleteHandler(satelliteAppUpdateStates, satelliteAppCompletedUpdates, 'mac_id', awaitSatelliteReturn, satAppClock.touch);
   // A failed app push is not the end of the row: a satellite that went back to
@@ -566,7 +605,8 @@ export const useUpdatesStore = defineStore('updates', () => {
     if (!payload.success) awaitSatelliteReturn(id);
   }
   const handleSatelliteCamillaUpdateProgress = makeProgressHandler(satelliteCamillaUpdateStates, 'mac_id', satCamillaClock.touch);
-  const handleSatelliteCamillaUpdateComplete = makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', awaitSatelliteReturn, satCamillaClock.touch);
+  const handleSatelliteCamillaUpdateComplete = keepingFailure(satelliteCamillaFailures,
+    makeCompleteHandler(satelliteCamillaUpdateStates, satelliteCamillaCompletedUpdates, 'mac_id', awaitSatelliteReturn, satCamillaClock.touch));
 
   // Reconciles in-flight update flags so "updating" survives a reconnect/foreground.
   // Where a Milō update stands is read on every resync, the boot's included:
@@ -630,6 +670,8 @@ export const useUpdatesStore = defineStore('updates', () => {
     isSatelliteCamillaUpdateCompleted,
     isSatelliteAwaitingReturn,
     satelliteAppFailure,
+    satelliteUpdateFailure,
+    satelliteCamillaFailure,
     localUpdateTarget,
     localUpdateVersion,
     isMiloUpdating,

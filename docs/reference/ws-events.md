@@ -817,13 +817,15 @@ An update of `program` on this unit finished; `success` says whether it worked.
 
 ### programs/satellite_update_complete
 
-An update of a satellite's multiroom player finished; `success` says whether it worked.
+An update of a satellite's multiroom player (snapclient) finished; `success` says whether it worked, `verdict` how it ended (`committed` — it runs the version named —, `rolled_back` — it still runs its previous one —, `did_not_return` or `rejected`) and `detail` the satellite's own error line, if any.
 
 | Field | Type |
 |---|---|
 | `success` | boolean |
 | `source` | "satellite_update" |
 | `mac_id` | string |
+| `verdict` | "committed" \| "rolled_back" \| "did_not_return" \| "rejected" \| null |
+| `detail` | string \| null |
 
 ### programs/satellite_app_update_complete
 
@@ -839,13 +841,15 @@ An update of a satellite's Milō app finished; `success` says whether it worked,
 
 ### programs/satellite_camilladsp_update_complete
 
-An update of a satellite's CamillaDSP finished; `success` says whether it worked.
+An update of a satellite's CamillaDSP finished; `success` says whether it worked, `verdict` how it ended (`committed`, `rolled_back` — it still runs its previous version —, `did_not_return` or `rejected`) and `detail` the satellite's own error line, if any.
 
 | Field | Type |
 |---|---|
 | `success` | boolean |
 | `source` | "satellite_update" |
 | `mac_id` | string |
+| `verdict` | "committed" \| "rolled_back" \| "did_not_return" \| "rejected" \| null |
+| `detail` | string \| null |
 
 ### programs/milo_update_notice_dismissed
 

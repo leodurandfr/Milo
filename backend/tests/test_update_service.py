@@ -1132,6 +1132,21 @@ class TestUpdateMultiroom:
         mock_cleanup.assert_called_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("down", PROGRAMS["multiroom"]["services"])
+    async def test_an_install_whose_units_do_not_start_is_not_a_success(self, update_service, down):
+        """Installed is not done: a snapserver that does not start on the new
+        package leaves every room mute, while the row read "up to date" and a
+        Milō update closed "committed" with nothing about multiroom."""
+        with self._flow(update_service, multiroom=True) as mocks:
+            mocks["_start_service"].side_effect = lambda unit: unit != down
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is False
+        assert self.STATUS["latest"]["version"] in result["error"]
+        assert "manual intervention" in result["error"].lower()
+        assert down in self._started(mocks), "the restart was not attempted"
+
+    @pytest.mark.asyncio
     async def test_snapclient_install_failure_partial_success(self, update_service):
         install = [{"success": True}, {"success": False, "error": "install failed"}]
 
@@ -1172,7 +1187,9 @@ class TestDependencyReconciliation:
         argv it is given) and `tag` every GitHub fetch, so each program's own
         regex decides which of them read as installed — the same filter
         production applies. `unreadable` maps a repo to the HTTP status GitHub
-        answers its release with instead.
+        answers its release with instead. No program's file is on disk unless
+        a test patches `os.path.lexists` itself: a version nothing could read
+        is then a program the unit does not have.
         """
         dispatched = []
         answer = dispatch or (lambda *_a: {"success": True})
@@ -1221,6 +1238,7 @@ class TestDependencyReconciliation:
                 patch("backend.core.updates.update.aiohttp.ClientSession", return_value=_Session())
             )
             stack.enter_context(patch.object(service, "_dispatch_update", side_effect=record))
+            stack.enter_context(patch("backend.core.updates.version.os.path.lexists", return_value=False))
             yield dispatched
 
     @pytest.mark.asyncio
@@ -1414,6 +1432,42 @@ class TestDependencyReconciliation:
         assert "go-librespot" in failed, "the outage reached no installed dependency"
         assert "navidrome" not in failed
         assert "navidrome" not in [k for k, _ in dispatched]
+
+    @pytest.mark.asyncio
+    async def test_a_dependency_whose_version_cannot_be_read_is_reinstalled_and_said(
+            self, update_service, caplog):
+        """Installed but unreadable — a version command that timed out on a cold
+        card, a banner the regex no longer matches — is not "not installed".
+        Skipped in silence, the unit kept the old daemon under code written for
+        the new one, and the outcome said "committed" with no detail."""
+        validated = update_service.programs["go-librespot"]["validated_version"]
+        binary = update_service.programs["go-librespot"]["binary_path"]
+        with self._reconciling(
+            update_service, installed=lambda argv: b"" if "go-librespot" in " ".join(argv) else b"1.0.0",
+            tag=f"v{validated}",
+        ) as dispatched, patch(
+            "backend.core.updates.version.os.path.lexists", side_effect=lambda path: path == binary,
+        ), caplog.at_level(logging.ERROR, logger="backend.core.updates.update.update"):
+            failed = await update_service._reconcile_dependencies()
+
+        assert ("go-librespot", validated) in dispatched
+        assert "go-librespot" not in failed
+        assert "go-librespot: the installed version could not be read" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_dependency_absent_from_disk_is_still_left_alone(self, update_service, caplog):
+        """The other half: no binary where the catalog names one is a program
+        this unit does not have, and installing it is no update's business."""
+        with self._reconciling(
+            update_service, installed=lambda argv: b"" if "go-librespot" in " ".join(argv) else b"1.0.0",
+        ) as dispatched, patch(
+            "backend.core.updates.version.os.path.lexists", return_value=False,
+        ), caplog.at_level(logging.ERROR, logger="backend.core.updates.update.update"):
+            failed = await update_service._reconcile_dependencies()
+
+        assert "go-librespot" not in [k for k, _ in dispatched]
+        assert "go-librespot" not in failed
+        assert "go-librespot" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_a_dependency_on_its_pin_needs_no_offer(self, update_service):
@@ -5074,8 +5128,15 @@ class TestTheMiloPostCommit:
     def _arrived(self, service, tmp_path, *, journal, installed=(), pushed=(), rooms=()):
         """The arriving release's world; the fleet push announces `rooms` and
         answers `pushed` (the rooms left behind), or raises it."""
-        unit = MiloUnit(service, tmp_path, other=lambda argv: (
-            0, b"0.0.1\n" if any(name in " ".join(map(str, argv)) for name in installed) else b"", b""))
+        def other(argv):
+            if any(name in " ".join(map(str, argv)) for name in installed):
+                return 0, b"0.0.1\n", b""
+            # What a version command over a program the unit does not have
+            # meets: no executable (multiroom's two), or a `sh -c` that prints
+            # nothing over a file that is not there (the binary paths, below).
+            raise FileNotFoundError(argv[0])
+
+        unit = MiloUnit(service, tmp_path, other=other)
         _write_journal(unit.state, **journal)
         progress, complete = [], []
 
@@ -5095,7 +5156,8 @@ class TestTheMiloPostCommit:
 
         service.set_milo_update_listener(on_progress, on_complete)
         service._satellites.push_client_app_to_fleet = AsyncMock(side_effect=push)
-        with unit.running(), github_unreachable():
+        with unit.running(), github_unreachable(), \
+                patch("backend.core.updates.version.os.path.lexists", return_value=False):
             yield unit, progress, complete
 
     @pytest.mark.asyncio

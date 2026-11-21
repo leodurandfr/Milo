@@ -1139,8 +1139,8 @@ class TestFleetPush:
         assert left_behind == []
 
     async def test_a_satellite_that_does_not_answer_is_reported_and_the_rest_still_get_it(self, fleet):
-        """Unplugged during the update: naming it is all that is left, since its
-        own row is what offers the catch-up once it is back."""
+        """Unplugged during the update: naming it is all that is left here, since
+        its admission is what pushes it the app once it is back."""
         left_behind = await self._push_to(fleet, {
             "192.168.1.60": self._status("0ae3872", "v0.1.0"),
         })
@@ -1317,14 +1317,16 @@ class TestUpdateSatelliteDispatch:
         with _patch_satellite(fake):
             result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET, None)
 
-        assert result == {"success": False, "error": "Already at the latest version"}
+        assert result["success"] is False and result["verdict"] == "rejected"
+        assert result["error"] == result["detail"] == "Already at the latest version"
 
     async def test_a_declined_update_with_no_message_still_says_something(self, satellite_service):
         fake = _FakeSatellite(self.STATUS, post_payload={"started": False})
         with _patch_satellite(fake):
             result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET, None)
 
-        assert result == {"success": False, "error": "Update failed"}
+        assert result["success"] is False and result["verdict"] == "rejected"
+        assert result["error"] == "Update failed"
 
     async def test_a_refused_post_is_reported_with_its_status(self, satellite_service):
         """A satellite mid-reboot answers 502 through its own nginx."""
@@ -1336,7 +1338,8 @@ class TestUpdateSatelliteDispatch:
         with _patch_satellite(_Refusing(self.STATUS)):
             result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET, None)
 
-        assert result == {"success": False, "error": "HTTP 502"}
+        assert result["success"] is False and result["verdict"] == "rejected"
+        assert result["detail"].startswith("HTTP 502")
 
     async def test_a_transport_that_dies_mid_update_is_reported_not_raised(
             self, satellite_service, caplog):
@@ -1389,6 +1392,7 @@ class TestSatelliteUpdateRecoveryArms:
             result = await satellite_service.update_satellite("dc:a6:32:7e:d3:43", SNAPCLIENT_TARGET, None)
 
         assert result["success"] is False
+        assert result["verdict"] == "did_not_return"
         assert "timeout" in result["error"]
 
     async def test_a_camilladsp_update_is_dispatched_to_its_own_endpoint(
@@ -1418,7 +1422,8 @@ class TestSatelliteUpdateRecoveryArms:
         with _patch_satellite(fake):
             result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET, None)
 
-        assert result == {"success": False, "error": "CamillaDSP is already at 3.0.1"}
+        assert result["success"] is False and result["verdict"] == "rejected"
+        assert result["error"] == "CamillaDSP is already at 3.0.1"
 
     async def test_a_refused_camilladsp_post_reports_its_status(self, satellite_service):
         class _Refusing(_FakeSatellite):
@@ -1428,7 +1433,8 @@ class TestSatelliteUpdateRecoveryArms:
         with _patch_satellite(_Refusing(self.STATUS)):
             result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET, None)
 
-        assert result == {"success": False, "error": "HTTP 500"}
+        assert result["success"] is False and result["verdict"] == "rejected"
+        assert result["detail"].startswith("HTTP 500")
 
     async def test_a_camilladsp_transport_failure_is_reported_not_raised(
             self, satellite_service, caplog):
@@ -1455,6 +1461,7 @@ class TestSatelliteUpdateRecoveryArms:
         with _patch_satellite(fake), patch("asyncio.sleep", new=AsyncMock()):
             result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET, None)
 
+        assert result["verdict"] == "did_not_return"
         assert "CamillaDSP update timeout" in result["error"]
 
     async def test_an_unknown_satellite_is_never_sent_a_tarball(self, satellite_service):
@@ -1599,6 +1606,7 @@ class TestSatelliteUpdateRecoveryArms:
 
 OLD_PAYLOAD = "0ae3872"
 CANAPE = "dc:a6:32:7e:d3:43"
+SALON = "dc:a6:32:7e:d3:44"
 
 
 def _app(payload, started_at, *, trial=False, last=None, deploying=False):
@@ -1925,6 +1933,7 @@ class TestAppFailureRecord:
         assert kept[CANAPE]["verdict"] == "rolled_back"
         assert kept[CANAPE]["payload"] == SERVER_PAYLOAD
         assert kept[CANAPE]["detail"] == cause
+        assert kept[CANAPE]["refused"] is True, "a rollback is the satellite's own answer"
 
         await self._push(satellite_service, _TrialSatellite(
             _app(OLD_PAYLOAD, 2100, last=_record(SERVER_PAYLOAD, "rolled_back", 2100, cause)),
@@ -2039,3 +2048,284 @@ class TestSatelliteRows:
         assert (failure["payload"], failure["verdict"], failure["detail"]) == (
             SERVER_PAYLOAD, "rolled_back", cause)
         assert CANAPE in service.settings_service.values["updates.satellite_app_failures"]
+
+
+class _InstallingSatellite:
+    """A satellite running a snapclient or CamillaDSP install: its
+    `/<program>/update/status` answers `update_in_progress` for `polls` polls,
+    then down with `last_result`; its `/status` then reports `version`. An
+    exception in `silence_after` polls stands for a unit that went away."""
+
+    def __init__(self, status_key, update_path, *, polls, version, last_result=None, silence_after=None):
+        self.status_key = status_key
+        self.update_path = update_path
+        self.polls = polls
+        self.version = version
+        self.last_result = last_result
+        self.silence_after = silence_after
+        self.seen = 0
+        self.posts = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def get(self, url, **kwargs):
+        if url.endswith(f"{self.update_path}/status"):
+            self.seen += 1
+            if self.silence_after is not None and self.seen > self.silence_after:
+                raise ConnectionRefusedError("Connection refused")
+            busy = self.seen <= self.polls
+            return _FakeResponse(200, {"update_in_progress": busy,
+                                       "last_result": None if busy else self.last_result})
+        if not self.posts:
+            return _FakeResponse(200, {"snapclient": {"version": "0.27.0", "running": True},
+                                       "camilladsp": {"version": "3.0.0"}})
+        return _FakeResponse(200, {self.status_key: {"version": self.version}})
+
+    def post(self, url, **kwargs):
+        self.posts.append(url)
+        return _FakeResponse(200, {"status": "success", "started": True})
+
+
+@pytest.mark.parametrize("push, status_key, update_path, target", [
+    pytest.param("update_satellite", "snapclient", "/update", SNAPCLIENT_TARGET, id="snapclient"),
+    pytest.param("update_satellite_camilladsp", "camilladsp", "/camilladsp/update", CAMILLADSP_TARGET,
+                 id="camilladsp"),
+])
+class TestProgramInstallFollowsTheSatellite:
+    """The satellite's word ends the wait on a snapclient or CamillaDSP install.
+
+    The server used to give up at a fixed 180 s on an install its satellite
+    allowed past 300 s (the download alone), and the row said "Update timeout"
+    over an install that then landed. And a failed install reached the row as
+    "still runs 0.27.0", never with the satellite's reason.
+    """
+
+    async def _run(self, satellite_service, satellite, push, target):
+        with _patch_satellite(satellite), patch("asyncio.sleep", new_callable=AsyncMock):
+            return await getattr(satellite_service, push)(CANAPE, target, None)
+
+    async def test_an_install_longer_than_the_old_budget_is_waited_on_to_its_end(
+            self, satellite_service, push, status_key, update_path, target):
+        from backend.core.updates.satellite import PROGRAM_UPDATE_POLL_S
+
+        busy_polls = 400 // PROGRAM_UPDATE_POLL_S
+        satellite = _InstallingSatellite(status_key, update_path, polls=busy_polls, version=target)
+
+        result = await self._run(satellite_service, satellite, push, target)
+
+        assert satellite.seen > busy_polls, "the wait ended while the satellite still installed"
+        assert result["verdict"] == "committed" and result["success"] is True
+        assert result["new_version"] == target
+
+    async def test_an_install_that_left_the_old_version_says_why_in_the_satellites_words(
+            self, satellite_service, push, status_key, update_path, target):
+        cause = "Installation failed: dpkg: dependency problems prevent configuration"
+        satellite = _InstallingSatellite(
+            status_key, update_path, polls=2, version="0.0.1",
+            last_result={"target_version": target, "success": False, "error": cause},
+        )
+
+        result = await self._run(satellite_service, satellite, push, target)
+
+        assert result["verdict"] == "rolled_back" and result["success"] is False
+        assert result["detail"] == cause
+
+    async def test_another_targets_result_is_not_this_installs_reason(
+            self, satellite_service, push, status_key, update_path, target):
+        """A `last_result` naming another version is an earlier attempt's."""
+        satellite = _InstallingSatellite(
+            status_key, update_path, polls=1, version="0.0.1",
+            last_result={"target_version": "0.0.2", "success": False, "error": "an older failure"},
+        )
+
+        result = await self._run(satellite_service, satellite, push, target)
+
+        assert result["verdict"] == "rolled_back"
+        assert "an older failure" not in result["detail"] and "0.0.1" in result["detail"]
+
+    async def test_a_satellite_gone_silent_is_given_up_on_well_before_the_ceiling(
+            self, satellite_service, push, status_key, update_path, target):
+        from backend.core.updates.satellite import (
+            PROGRAM_SILENCE_S, PROGRAM_UPDATE_CEILING_S, PROGRAM_UPDATE_POLL_S,
+        )
+
+        satellite = _InstallingSatellite(status_key, update_path, polls=10**6, version=target,
+                                         silence_after=3)
+
+        result = await self._run(satellite_service, satellite, push, target)
+
+        assert result["verdict"] == "did_not_return"
+        polls_after_silence = satellite.seen - 3
+        assert polls_after_silence * PROGRAM_UPDATE_POLL_S >= PROGRAM_SILENCE_S
+        assert satellite.seen * PROGRAM_UPDATE_POLL_S < PROGRAM_UPDATE_CEILING_S
+
+
+class TestAppPushRefusal:
+    """`refused` is whether the satellite itself said no to a payload. Recorded
+    with the failure, it holds back the push the satellite's next admission
+    would make: the same payload at every reconnect would cut the room each
+    time for an answer already given — while a push that never reached the
+    satellite, or a busy one, is owed again once it is back."""
+
+    @pytest.fixture
+    def client_tree(self, tmp_path):
+        tree = tmp_path / "milo-client"
+        (tree / "app").mkdir(parents=True)
+        (tree / "app" / "main.py").write_text("app\n")
+        return tree
+
+    async def _push(self, satellite_service, satellite, client_tree):
+        with _patch_satellite(satellite), \
+                patch("asyncio.sleep", new_callable=AsyncMock), \
+                patch("backend.core.updates.satellite.MILO_CLIENT_DIR", client_tree), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", _fake_git()):
+            await satellite_service.update_satellite_app(CANAPE)
+        return (await satellite_service.get_app_update_failures())[CANAPE]
+
+    @pytest.mark.parametrize("status, refused", [
+        pytest.param(500, True, id="deploy-failed"),
+        pytest.param(409, False, id="busy"),
+        # The secret of a server it does not follow: once unplugged and plugged
+        # back in it takes this one's again, and must be caught up then.
+        pytest.param(403, False, id="another-server"),
+    ])
+    async def test_an_answered_refusal_is_refused_unless_it_was_not_about_the_payload(
+            self, satellite_service, client_tree, status, refused):
+        satellite = _TrialSatellite(_app(OLD_PAYLOAD, 1000), [_app(OLD_PAYLOAD, 1000)],
+                                    post_status=status, post_body='{"detail": "no"}')
+
+        record = await self._push(satellite_service, satellite, client_tree)
+
+        assert record["verdict"] == "rejected"
+        assert record["refused"] is refused
+
+    async def test_a_push_that_never_connected_is_not_a_refusal(self, satellite_service, client_tree):
+        """Unplugged between the fleet's discovery and its turn: it is the
+        satellite the admission catch-up exists for."""
+        from aiohttp.client_reqrep import ConnectionKey
+
+        key = ConnectionKey("192.168.1.153", 8001, False, True, None, None, None)
+        satellite = _TrialSatellite(
+            _app(OLD_PAYLOAD, 1000), [_app(OLD_PAYLOAD, 1000)],
+            post_raises=aiohttp.ClientConnectorError(key, OSError(113, "No route to host")),
+        )
+
+        record = await self._push(satellite_service, satellite, client_tree)
+
+        assert record["verdict"] == "rejected"
+        assert record["refused"] is False
+
+
+class TestAdmissionCatchUp:
+    """What a satellite's admission decides about its client app.
+
+    A Milō update pushes the fleet once; a satellite unplugged during it keeps
+    the old app and is sent request keys it ignores — its EQ or level stop
+    answering, with no error. Its admission pushes it, exactly when its payload
+    differs from the server's, no trial is open on it, and it refused that
+    payload neither to a recorded push nor by a rollback of its own.
+    """
+
+    def _service(self, failures=None, other_server=False):
+        registry = Mock()
+        canape = Mock(is_local=False, ip="192.168.1.153", online=True, host="milo-client",
+                      other_server=other_server)
+        canape.name = "Canapé"
+        registry.get_all_clients = Mock(return_value={CANAPE: canape})
+        service = SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
+                                         settings_service=_MemorySettings(failures))
+        service.owed = []
+        service.decided = asyncio.Event()
+
+        async def runner(mac_id, owed):
+            service.owed.append((mac_id, await owed()))
+            service.decided.set()
+
+        service.set_admission_push_runner(runner)
+        return service
+
+    async def _admit(self, service, app):
+        status = {"snapclient": {"version": "0.35.0", "running": True}, "app": app}
+        with _patch_satellite(_FakeSatellite(status)), \
+                patch("backend.core.updates.satellite.asyncio.create_subprocess_exec", _fake_git()):
+            await service.catch_up_app(CANAPE)
+            # The push runs in the service's own task set, not the admission's.
+            await asyncio.wait_for(service.decided.wait(), timeout=5)
+        assert len(service.owed) == 1, "the runner was not handed the decision"
+        return service.owed[0][1]
+
+    async def test_a_satellite_behind_the_server_is_owed_the_push(self):
+        assert await self._admit(self._service(), _app(OLD_PAYLOAD, 1000)) is True
+
+    async def test_the_admission_does_not_wait_for_the_push_and_teardown_cuts_it(self):
+        """A push takes minutes, and the admission runs in the multiroom
+        connection's task set, which a multiroom toggle cancels: run inline, a
+        push would be cut there with nothing to say how it ended. It is the
+        service's own, so the admission returns at once and only the
+        backend's teardown (`cleanup`) cancels it."""
+        service = self._service()
+        started, cut = asyncio.Event(), asyncio.Event()
+
+        async def runner(mac_id, owed):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cut.set()
+                raise
+
+        service.set_admission_push_runner(runner)
+        await asyncio.wait_for(service.catch_up_app(CANAPE), timeout=5)
+        await asyncio.wait_for(started.wait(), timeout=5)
+        assert not cut.is_set()
+
+        await service.cleanup()
+        assert cut.is_set(), "the teardown left the admission push running"
+
+    async def test_a_satellite_on_the_servers_payload_is_owed_nothing(self):
+        assert await self._admit(self._service(), _app(SERVER_PAYLOAD, 1000)) is False
+
+    async def test_never_during_an_open_trial(self):
+        assert await self._admit(self._service(), _app(OLD_PAYLOAD, 1000, trial=True)) is False
+
+    async def test_a_payload_it_refused_is_not_pushed_again(self):
+        failures = {CANAPE: {"payload": SERVER_PAYLOAD, "verdict": "rejected", "detail": "HTTP 500",
+                             "at": 1, "refused": True}}
+        assert await self._admit(self._service(failures), _app(OLD_PAYLOAD, 1000)) is False
+
+    @pytest.mark.parametrize("verdict", ["did_not_return", "rejected"])
+    async def test_a_push_it_never_answered_is_owed_again(self, verdict):
+        failures = {CANAPE: {"payload": SERVER_PAYLOAD, "verdict": verdict, "detail": "gone",
+                             "at": 1, "refused": False}}
+        assert await self._admit(self._service(failures), _app(OLD_PAYLOAD, 1000)) is True
+
+    async def test_a_refusal_of_another_payload_holds_nothing_back(self):
+        failures = {CANAPE: {"payload": "1111111", "verdict": "rolled_back", "detail": None,
+                             "at": 1, "refused": True}}
+        assert await self._admit(self._service(failures), _app(OLD_PAYLOAD, 1000)) is True
+
+    async def test_a_rollback_the_satellite_recorded_itself_holds_it_back(self):
+        """The wait that would have recorded it was cut by a restart of this
+        backend: the satellite's own record is the refusal."""
+        app = _app(OLD_PAYLOAD, 2100, last=_record(SERVER_PAYLOAD, "rolled_back", 2100))
+        assert await self._admit(self._service(), app) is False
+
+    async def test_a_satellite_that_answers_another_server_is_owed_nothing(self):
+        assert await self._admit(self._service(other_server=True), _app(OLD_PAYLOAD, 1000)) is False
+
+    async def test_another_satellites_rollback_of_the_payload_holds_it_back(self):
+        """The fleet push's halt: a payload one room went back from is not
+        pushed to the next room that returns."""
+        failures = {SALON: {"payload": SERVER_PAYLOAD, "verdict": "rolled_back", "detail": None,
+                            "at": 1, "refused": True}}
+        assert await self._admit(self._service(failures), _app(OLD_PAYLOAD, 1000)) is False
+
+    async def test_another_satellite_that_never_came_back_holds_nothing_back(self):
+        """A unit unplugged under its push says nothing about the payload."""
+        failures = {SALON: {"payload": SERVER_PAYLOAD, "verdict": "did_not_return", "detail": "gone",
+                            "at": 1, "refused": False}}
+        assert await self._admit(self._service(failures), _app(OLD_PAYLOAD, 1000)) is True

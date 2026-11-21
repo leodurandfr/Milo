@@ -26,6 +26,9 @@ from backend.core.models.ws_events import (
     ProgramUpdateComplete,
     ProgramUpdateProgress,
     SatelliteAppUpdateComplete,
+    SatelliteAppUpdateProgress,
+    SatelliteCamillaDspUpdateComplete,
+    SatelliteUpdateComplete,
 )
 
 
@@ -420,6 +423,241 @@ async def test_an_app_push_that_raised_still_names_a_verdict(router):
     assert complete[0].success is False
     assert complete[0].verdict == "did_not_return"
     assert complete[0].detail.startswith("TimeoutError")
+
+
+async def test_a_claim_taken_during_the_completion_broadcast_is_kept(router):
+    """An update gives its key back before it broadcasts how it ended, so a
+    second press — another device, or the admission push that release woke —
+    can claim the key during that broadcast. The first update's own end must
+    not give that claim back too: the second push would then run unclaimed,
+    and a third press, or an app push to another room, would start beside it."""
+    mac, other = "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"
+    satellite_service = MagicMock()
+    satellite_service.update_satellite_app = AsyncMock(return_value={
+        "success": True, "verdict": "committed", "detail": None,
+    })
+    in_broadcast, gate = asyncio.Event(), asyncio.Event()
+
+    async def broadcast(event):
+        if isinstance(event, SatelliteAppUpdateComplete) and not in_broadcast.is_set():
+            in_broadcast.set()
+            await gate.wait()
+
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock(side_effect=broadcast)
+    r = create_programs_router(router.update_service, satellite_service, state_machine)
+    app = _endpoint(r, "/api/programs/satellites/{mac_id}/update-app")
+
+    first = BackgroundTasks()
+    assert (await app(mac, first))["status"] == "success"
+    finishing = asyncio.create_task(first())
+    await asyncio.wait_for(in_broadcast.wait(), timeout=5)
+
+    assert (await app(mac, BackgroundTasks()))["status"] == "success"
+    gate.set()
+    await asyncio.wait_for(finishing, timeout=5)
+
+    assert (await app(mac, BackgroundTasks()))["status"] == "error"
+    assert (await app(other, BackgroundTasks()))["status"] == "error"
+
+
+@pytest.mark.parametrize("path, push, event", [
+    ("/api/programs/satellites/{mac_id}/update", "update_satellite", SatelliteUpdateComplete),
+    ("/api/programs/satellites/{mac_id}/update-camilladsp", "update_satellite_camilladsp",
+     SatelliteCamillaDspUpdateComplete),
+], ids=["snapclient", "camilladsp"])
+async def test_a_program_install_says_how_it_ended_and_why(router, path, push, event):
+    """The row keeps the failure only if the completion carries it: without
+    `verdict` and `detail`, a satellite that kept its old snapclient was one
+    more "update failed" with nothing to say which step refused."""
+    satellite_service = MagicMock()
+    setattr(satellite_service, push, AsyncMock(return_value={
+        "success": False, "verdict": "rolled_back", "detail": "Installation failed: dpkg: dependency problems",
+        "error": "Satellite still runs 0.27.0",
+    }))
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(router.update_service, satellite_service, state_machine)
+
+    tasks = BackgroundTasks()
+    await _endpoint(r, path)("aa:bb:cc:dd:ee:01", tasks)
+    await tasks()
+
+    complete = [c.args[0] for c in state_machine.broadcast.await_args_list if isinstance(c.args[0], event)]
+    assert len(complete) == 1
+    assert (complete[0].success, complete[0].verdict) == (False, "rolled_back")
+    assert complete[0].detail == "Installation failed: dpkg: dependency problems"
+
+
+class TestTheAdmissionPush:
+    """The client app a satellite's admission owes it runs through the router,
+    under the claim the row's button takes: a Milō update (its trial, its own
+    fleet push) or another app push in flight holds it back, and it is
+    announced as a press is, so every screen shows it running and how it ended."""
+
+    MAC = "aa:bb:cc:dd:ee:01"
+
+    @pytest.fixture
+    def admission(self, router):
+        satellite_service = MagicMock()
+        satellite_service.update_satellite_app = AsyncMock(return_value={
+            "success": True, "verdict": "committed", "detail": None,
+        })
+        state_machine = MagicMock()
+        state_machine.broadcast = AsyncMock()
+        r = create_programs_router(router.update_service, satellite_service, state_machine)
+        (runner,), _ = satellite_service.set_admission_push_runner.call_args
+        r.runner, r.satellites, r.state_machine = runner, satellite_service, state_machine
+        r.update_service = router.update_service
+        return r
+
+    async def test_an_owed_push_is_run_and_announced(self, admission):
+        owed = AsyncMock(return_value=True)
+
+        await admission.runner(self.MAC, owed)
+
+        admission.satellites.update_satellite_app.assert_awaited_once_with(self.MAC)
+        events = [c.args[0] for c in admission.state_machine.broadcast.await_args_list]
+        assert [type(e) for e in events] == [SatelliteAppUpdateProgress, SatelliteAppUpdateComplete]
+        assert events[1].verdict == "committed"
+        # Released: the row's button can push the next one.
+        app = _endpoint(admission, "/api/programs/satellites/{mac_id}/update-app")
+        assert (await app(self.MAC, BackgroundTasks()))["status"] == "success"
+
+    async def test_nothing_owed_claims_and_announces_nothing(self, admission):
+        await admission.runner(self.MAC, AsyncMock(return_value=False))
+
+        admission.satellites.update_satellite_app.assert_not_awaited()
+        assert not admission.state_machine.broadcast.await_args_list
+        app = _endpoint(admission, "/api/programs/satellites/{mac_id}/update-app")
+        assert (await app(self.MAC, BackgroundTasks()))["status"] == "success"
+
+    async def test_a_milo_update_holds_it_back_until_it_ends(self, admission):
+        """The release on trial may be put back, and its own fleet push read
+        the fleet before this satellite was back: the push waits for the
+        update's end, then asks again whether it is owed."""
+        admission.update_service.milo_update_active = True
+        owed = AsyncMock(return_value=True)
+
+        waiting = asyncio.create_task(admission.runner(self.MAC, owed))
+        await asyncio.sleep(0)
+        owed.assert_not_awaited()
+        admission.satellites.update_satellite_app.assert_not_awaited()
+
+        admission.update_service.milo_update_active = False
+        (_, on_complete), _ = admission.update_service.set_milo_update_listener.call_args
+        await on_complete(True)
+        await asyncio.wait_for(waiting, timeout=5)
+
+        owed.assert_awaited_once()
+        admission.satellites.update_satellite_app.assert_awaited_once_with(self.MAC)
+
+    async def test_another_app_push_holds_it_back_until_it_ends(self, admission):
+        """One room cut at a time, whatever the satellite: the admission waits
+        for the press, then pushes."""
+        app = _endpoint(admission, "/api/programs/satellites/{mac_id}/update-app")
+        press = BackgroundTasks()
+        assert (await app("aa:bb:cc:dd:ee:02", press))["status"] == "success"
+        owed = AsyncMock(return_value=True)
+
+        waiting = asyncio.create_task(admission.runner(self.MAC, owed))
+        await asyncio.sleep(0)
+        owed.assert_not_awaited()
+
+        await press()
+        await asyncio.wait_for(waiting, timeout=5)
+
+        pushed = [c.args[0] for c in admission.satellites.update_satellite_app.await_args_list]
+        assert pushed == ["aa:bb:cc:dd:ee:02", self.MAC]
+
+    async def test_two_admissions_together_are_both_pushed_one_after_the_other(self, admission):
+        """Two speakers on one power strip are admitted seconds apart: the
+        second must not be dropped behind the first."""
+        other = "aa:bb:cc:dd:ee:02"
+        gate = asyncio.Event()
+        running = []
+
+        async def push(mac_id):
+            running.append(mac_id)
+            assert len(running) == 1, "two app pushes ran at once"
+            await gate.wait()
+            running.remove(mac_id)
+            return {"success": True, "verdict": "committed", "detail": None}
+
+        admission.satellites.update_satellite_app = AsyncMock(side_effect=push)
+        first = asyncio.create_task(admission.runner(self.MAC, AsyncMock(return_value=True)))
+        await asyncio.sleep(0)
+        second = asyncio.create_task(admission.runner(other, AsyncMock(return_value=True)))
+        await asyncio.sleep(0)
+        gate.set()
+        await asyncio.wait_for(asyncio.gather(first, second), timeout=5)
+
+        pushed = [c.args[0] for c in admission.satellites.update_satellite_app.await_args_list]
+        assert pushed == [self.MAC, other]
+
+    async def test_a_second_admission_of_a_waiting_satellite_adds_nothing(self, admission):
+        """A satellite that reconnects while its push waits for a claim is
+        admitted again: the second admission must not queue a second wait,
+        which asks the satellite once more whether it is owed a push once the
+        first has run, and pushes it again if its answer is still yes."""
+        app = _endpoint(admission, "/api/programs/satellites/{mac_id}/update-app")
+        press = BackgroundTasks()
+        assert (await app("aa:bb:cc:dd:ee:02", press))["status"] == "success"
+        owed = AsyncMock(return_value=True)
+
+        first = asyncio.create_task(admission.runner(self.MAC, owed))
+        await asyncio.sleep(0)
+        second = asyncio.create_task(admission.runner(self.MAC, owed))
+        await asyncio.sleep(0)
+
+        await press()
+        await asyncio.wait_for(asyncio.gather(first, second), timeout=5)
+
+        owed.assert_awaited_once()
+        pushed = [c.args[0] for c in admission.satellites.update_satellite_app.await_args_list]
+        assert pushed == ["aa:bb:cc:dd:ee:02", self.MAC]
+
+    async def test_a_press_landing_during_the_check_wins(self, admission):
+        """The check awaits the satellite; a button pressed meanwhile claimed
+        the key, and the admission must not push a second time over it: once
+        the press ends it asks again, and the satellite is owed nothing."""
+        app = _endpoint(admission, "/api/programs/satellites/{mac_id}/update-app")
+        press = BackgroundTasks()
+        answers = iter([True, False])
+
+        async def owed():
+            if not press.tasks:
+                assert (await app(self.MAC, press))["status"] == "success"
+            return next(answers)
+
+        waiting = asyncio.create_task(admission.runner(self.MAC, owed))
+        await asyncio.sleep(0)
+        admission.satellites.update_satellite_app.assert_not_awaited()
+
+        await press()
+        await asyncio.wait_for(waiting, timeout=5)
+
+        admission.satellites.update_satellite_app.assert_awaited_once_with(self.MAC)
+
+    async def test_a_push_cut_mid_way_gives_its_claim_back(self, admission):
+        """Cancelled — the backend's teardown — a push still frees its key: one
+        left claimed refused every app push and the Milō update itself until
+        the backend restarted."""
+        started = asyncio.Event()
+
+        async def hang(mac_id):
+            started.set()
+            await asyncio.Event().wait()
+
+        admission.satellites.update_satellite_app = AsyncMock(side_effect=hang)
+        pushing = asyncio.create_task(admission.runner(self.MAC, AsyncMock(return_value=True)))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        pushing.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pushing
+
+        app = _endpoint(admission, "/api/programs/satellites/{mac_id}/update-app")
+        assert (await app("aa:bb:cc:dd:ee:02", BackgroundTasks()))["status"] == "success"
 
 
 # --------------------------------------------------------------------------- #

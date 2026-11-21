@@ -59,6 +59,7 @@ def create_camilladsp_update_router(camilladsp_update_service: CamillaDSPUpdateS
         """Gets the status of the ongoing CamillaDSP update."""
         return {
             "update_in_progress": camilladsp_update_service.update_in_progress,
+            "last_result": camilladsp_update_service.last_result,
             "timestamp": int(time.time())
         }
 

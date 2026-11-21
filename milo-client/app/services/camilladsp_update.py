@@ -41,11 +41,19 @@ class CamillaDSPUpdateService:
     def __init__(self):
         self.logger = logging.getLogger(f"{__name__}.CamillaDSPUpdateService")
         self._update_in_progress = False
+        self._last_result: Optional[Dict[str, Any]] = None
 
     @property
     def update_in_progress(self) -> bool:
         """Returns whether an update is currently in progress."""
         return self._update_in_progress
+
+    @property
+    def last_result(self) -> Optional[Dict[str, Any]]:
+        """How the last update this process ran ended: `{target_version,
+        success, error}`, or None before the first. The server reads `error`
+        once `update_in_progress` drops, as the reason its row shows."""
+        return self._last_result
 
     async def get_installed_version(self) -> Optional[str]:
         """Gets the installed version of CamillaDSP."""
@@ -80,11 +88,27 @@ class CamillaDSPUpdateService:
         if self._update_in_progress:
             return {"success": False, "error": "Update already in progress"}
 
+        # Up for the whole run, the rollback included, and its outcome recorded
+        # before it drops: the server reads the version, and `last_result`, the
+        # moment it reads the flag down.
+        self._update_in_progress = True
+        result: Dict[str, Any] = {"success": False, "error": "The update ended without a result"}
+        try:
+            result = await self._update(target_version, sha256)
+            return result
+        finally:
+            self._last_result = {
+                "target_version": target_version,
+                "success": bool(result.get("success")),
+                "error": result.get("error"),
+            }
+            self._update_in_progress = False
+
+    async def _update(self, target_version: str, sha256: Optional[str]) -> Dict[str, Any]:
         temp_dir = None
         service_stopped = False
 
         try:
-            self._update_in_progress = True
             self.logger.info(f"Starting CamillaDSP update to version {target_version}")
 
             old_version = await self.get_installed_version()
@@ -146,7 +170,6 @@ class CamillaDSPUpdateService:
             return {"success": False, "error": str(e)}
 
         finally:
-            self._update_in_progress = False
             if temp_dir:
                 shutil.rmtree(temp_dir, ignore_errors=True)
 

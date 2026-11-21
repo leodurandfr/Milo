@@ -606,6 +606,59 @@ describe('updatesStore satellite app push failure', () => {
 });
 
 
+describe('updatesStore satellite program install failure', () => {
+  // A snapclient or CamillaDSP install that left the old version reached the
+  // row as nothing at all: the spinner went, the button came back, and the
+  // satellite's reason was never shown. The server records app pushes alone,
+  // so the completion is the only word of it.
+  const MAC = 'd8:3a:dd:68:e7:e4';
+  let store;
+
+  const fleet = (row = {}) => ok({ satellites: [{
+    mac_id: MAC, online: true, app_update_failure: null,
+    update_available: true, camilladsp_update_available: true, ...row,
+  }] });
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useUpdatesStore();
+    useMultiroomStore().clients.set(MAC, { mac_id: MAC, online: true });
+  });
+
+  it.each([
+    ['snapclient', 'handleSatelliteUpdateComplete', 'satelliteUpdateFailure', 'update_available'],
+    ['camilladsp', 'handleSatelliteCamillaUpdateComplete', 'satelliteCamillaFailure', 'camilladsp_update_available'],
+  ])('%s: the failure stays on the row until a success or a read with nothing left to install',
+    async (_kind, complete, failureOf, offered) => {
+      const detail = 'Installation failed: dpkg: dependency problems';
+      store[complete]({ mac_id: MAC, success: false, verdict: 'rolled_back', detail });
+      expect(store[failureOf](MAC)).toEqual({ verdict: 'rolled_back', detail });
+
+      // Still offered: the version did not move, the failure is still the row's.
+      apiCall.get.mockResolvedValue(fleet());
+      await store.loadSatellites();
+      expect(store[failureOf](MAC)).toEqual({ verdict: 'rolled_back', detail });
+
+      // Installed since, from another screen: the row is up to date.
+      apiCall.get.mockResolvedValue(fleet({ [offered]: false }));
+      await store.loadSatellites();
+      expect(store[failureOf](MAC)).toBeNull();
+
+      store[complete]({ mac_id: MAC, success: false, verdict: 'did_not_return', detail: null });
+      apiCall.get.mockResolvedValue(fleet());
+      store[complete]({ mac_id: MAC, success: true, verdict: 'committed', detail: null });
+      expect(store[failureOf](MAC)).toBeNull();
+    });
+
+  it('a failure of one program says nothing about the other', () => {
+    store.handleSatelliteUpdateComplete({ mac_id: MAC, success: false, verdict: 'rejected', detail: 'HTTP 409' });
+
+    expect(store.satelliteCamillaFailure(MAC)).toBeNull();
+    expect(store.satelliteAppFailure(MAC)).toBeNull();
+  });
+});
+
+
 describe('updatesStore Milō update', () => {
   let store;
 

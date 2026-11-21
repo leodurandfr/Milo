@@ -184,16 +184,21 @@ describe('WS payload semantics', () => {
     expect(schema.safeParse({ ...base, mode: 'auto' }).success).toBe(false);
   });
 
-  it('programs.satellite_app_update_complete knows exactly the verdicts the backend sends', () => {
+  it.each([
+    'programs.satellite_app_update_complete',
+    'programs.satellite_update_complete',
+    'programs.satellite_camilladsp_update_complete',
+  ])('%s knows exactly the verdicts the backend sends', (key) => {
     // A verdict the schema lacks rejects the whole completion: the spinner is
     // never cleared and the satellite's failure never reaches its row. One it
     // keeps after the backend dropped it is a cause the row can never show.
-    const verdicts = /^Literal\[(.+)\]$/.exec(literalAliases().SatelliteAppVerdict ?? '');
-    expect(verdicts, `no SatelliteAppVerdict alias in ${WS_EVENTS_PATH}`).not.toBeNull();
+    const verdicts = /^Literal\[(.+)\]$/.exec(literalAliases().SatelliteUpdateVerdict ?? '');
+    expect(verdicts, `no SatelliteUpdateVerdict alias in ${WS_EVENTS_PATH}`).not.toBeNull();
     const backend = verdicts[1].split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
     expect(backend.length).toBeGreaterThan(1);
 
-    const verdict = wsEventRegistry['programs.satellite_app_update_complete'].shape.verdict;
+    const verdict = wsEventRegistry[key].shape.verdict;
+    expect(verdict, `${key} carries no verdict`).toBeDefined();
     expect([...verdict.unwrap().unwrap().options].sort()).toEqual([...backend].sort());
   });
 });

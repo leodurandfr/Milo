@@ -123,6 +123,7 @@ def _create_service(name: str) -> Any:
             satellite_wifi_service=get_service("satellite_wifi_service"),
             satellite_timezone_service=get_service("satellite_timezone_service"),
             satellite_secret=get_service("satellite_secret"),
+            satellite_update_service=get_service("satellite_update_service"),
         ),
         "equalizer_client_proxy_service": lambda: _import("backend.core.equalizer", "EqualizerClientProxyService")(
             routing_service=get_service("audio_routing_service")
