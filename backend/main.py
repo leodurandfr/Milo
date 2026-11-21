@@ -112,8 +112,12 @@ network_service = get_service("network_service")
 wifi_adoption_service = get_service("wifi_adoption_service")
 update_service = get_service("update_service")
 presence_service = get_service("presence_service")
+notice_service = get_service("notice_service")
 ws_manager = get_service("websocket_manager")
-websocket_server = WebSocketServer(ws_manager, state_machine, volume_service, settings_service, network_service)
+websocket_server = WebSocketServer(
+    ws_manager, state_machine, volume_service, settings_service, network_service,
+    notice_service=notice_service,
+)
 
 # Per-entry ceiling for the shutdown teardown below
 CLEANUP_TIMEOUT_S = 3.0
@@ -355,6 +359,7 @@ async def lifespan(app: FastAPI):
         ("music_library_shares", get_service("music_library_source").shares.cleanup),
         ("push_service", get_service("push_service").cleanup),
         ("presence", presence_service.cleanup),
+        ("notices", notice_service.cleanup),
         ("apns", get_service("apns_client").cleanup),
         # Each source's mailbox: its task is ended and a caller still waiting
         # is answered, so nothing is left pending on a closing loop.
@@ -487,6 +492,7 @@ system_router = create_system_router(
     update_service=update_service,
     presence_service=presence_service,
     settings_service=settings_service,
+    notice_service=notice_service,
 )
 app.include_router(system_router, prefix="/api/system", tags=["system"])
 
@@ -502,7 +508,8 @@ health_router = create_health_router(
     state_machine, routing_service,
     settings_service=settings_service, network_service=network_service,
     camilladsp_service=camilladsp_service,
-    snapcast_websocket_service=snapcast_websocket_service
+    snapcast_websocket_service=snapcast_websocket_service,
+    notice_service=notice_service,
 )
 app.include_router(health_router)
 

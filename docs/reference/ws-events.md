@@ -5,13 +5,14 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-74 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+75 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
 | [`system/hostname_conflict_changed`](#systemhostname_conflict_changed) | internal |
 | [`system/timezone_changed`](#systemtimezone_changed) | internal |
 | [`system/presence_changed`](#systempresence_changed) | internal |
+| [`system/notices_changed`](#systemnotices_changed) | internal |
 | [`system/backend_error`](#systembackend_error) | internal |
 | [`system/initial_state`](#systeminitial_state) | internal |
 | [`source/state`](#sourcestate) | contracted |
@@ -116,6 +117,14 @@ The gesture the unit waits for changed: a challenge opened, was confirmed on the
 |---|---|
 | `challenge` | [PresenceChallenge](#presencechallenge) \| null |
 
+### system/notices_changed
+
+The files Milō could not read and set aside, as far as the owner has not acknowledged them: the whole list, after one was added or acknowledged. Each started again from its defaults, and its bytes are kept beside it.
+
+| Field | Type |
+|---|---|
+| `notices` | [SetAsideNotice](#setasidenotice)[] |
+
 ### system/backend_error
 
 An error the backend logged, forwarded as it was written.
@@ -126,13 +135,14 @@ An error the backend logged, forwarded as it was written.
 
 ### system/initial_state
 
-The answer to a client's `ready`, sent to that client only: the audio state in `state`, whether first-boot setup is complete, whether the unit is running its own Wi-Fi access point, and `server_instance`, which changes every time the backend starts. `GET /api/initial-state` answers the same object.
+The answer to a client's `ready`, sent to that client only: the audio state in `state`, whether first-boot setup is complete, whether the unit is running its own Wi-Fi access point, the files set aside that the owner has not acknowledged (`notices`), and `server_instance`, which changes every time the backend starts. `GET /api/initial-state` answers the same object.
 
 | Field | Type |
 |---|---|
 | `state` | object |
 | `setup_completed` | boolean |
 | `hotspot_active` | boolean |
+| `notices` | [SetAsideNotice](#setasidenotice)[] |
 | `server_instance` | string |
 
 ## source
@@ -874,6 +884,18 @@ A gesture the unit waits for before a request that reaches root.
 | `status` | "pending" \| "confirmed" |
 | `remaining_s` | integer |
 | `cooldown_s` | integer |
+
+### SetAsideNotice
+
+A file Milō could not read: it was set aside and what it held started again from its defaults. `file` is where it lived, `kept_as` the name its bytes are kept under beside it, `reason` what was wrong with it, `at` when (Unix time).
+
+| Field | Type |
+|---|---|
+| `id` | string |
+| `file` | string |
+| `kept_as` | string |
+| `reason` | string |
+| `at` | number |
 
 ### VolumeLimitsConfig
 

@@ -45,7 +45,7 @@ async def test_one_process_names_itself_the_same_on_every_handshake_and_path():
     manager.connect = AsyncMock()
     manager.disconnect = Mock()
     manager.active_connections = set()
-    server = WebSocketServer(manager, state_machine)
+    server = WebSocketServer(manager, state_machine, notice_service=Mock(notices=Mock(return_value=[])))
 
     handshakes = []
     for _ in range(2):
@@ -61,7 +61,7 @@ async def test_one_process_names_itself_the_same_on_every_handshake_and_path():
     app = FastAPI()
     settings = Mock(get_setting=AsyncMock(return_value=True))
     network = Mock(hotspot_active=False)
-    app.include_router(create_health_router(state_machine, Mock(), settings, network, Mock(), Mock()))
+    app.include_router(create_health_router(state_machine, Mock(), settings, network, Mock(), Mock(), Mock(notices=Mock(return_value=[]))))
     fallback = TestClient(app).get("/api/initial-state").json()["server_instance"]
 
     assert handshakes[0]

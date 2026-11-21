@@ -150,6 +150,7 @@ import { handleNetworkStatusChanged, preloadNetworkStatus } from '@/composables/
 import { adoptBrowserTimezone } from '@/composables/useTimezone';
 import { createServerSync } from '@/services/serverSync';
 import { isBackendRestart, isStaleBuild } from '@/utils/serverInstance';
+import { clearRescueSince, isBackendDown, rescuePageUrl } from '@/utils/backendDown';
 import { stripTagPrefix } from '@/utils/miloRelease';
 
 // === Constants ===
@@ -157,6 +158,10 @@ const BOOT_TIMEOUT_MS = 2000;        // Show "connecting" after 2s (roughly when
 const BOOT_FAILED_MS = 12000;        // Show "unavailable" after 12s total
 const DOM_REMOVE_DELAY = 400;
 const DOCK_AUTO_SHOW_DELAY = 1000;
+// How long the app waits on a backend it cannot reach — at boot, or with the
+// connection lost — before it asks whether nginx says it is gone, and how
+// often it asks again while it is not.
+const RESCUE_PROBE_AFTER_MS = 30000;
 
 // The boot screen only draws a logo on a remote browser's first load of the
 // session. A refresh has already shown it, and the kiosk never does: there
@@ -172,7 +177,7 @@ const SCREEN_FADE_DELAY = hasBootLogo ? 500 : 100;
 // past the initial state at most, so a route that fails cannot hold the screen.
 const BOOT_INSET_WAIT_MS = 1500;
 
-const { t } = useI18n();
+const { t, formatList } = useI18n();
 const route = useRoute();
 const unifiedStore = useUnifiedAudioStore();
 const lyricsStore = useLyricsStore();
@@ -250,6 +255,9 @@ function processInitialState(event) {
   if (event.data?.hotspot_active !== undefined) {
     settingsStore.updateHotspotActive(event.data.hotspot_active);
   }
+  systemStore.applyNotices(event.data?.notices);
+  // Milō answered: the rescue page's clock, if it ran, is over.
+  clearRescueSince();
 
   isReady.value = true;
 
@@ -302,6 +310,7 @@ function handleOnline() {
 // === Boot timeout handling ===
 function startBootTimeout() {
   clearBootTimeout();
+  armRescueProbe();
   // Stage 1: Show "connecting" after first timeout
   bootTimeoutId = timer.setTimeout(async () => {
     if (!isReady.value) {
@@ -380,6 +389,38 @@ watch(showDisconnectedBanner, (lost) => {
   if (lost) updatesStore.handleBackendLost();
 });
 
+// === The rescue page (utils/backendDown.js) ===
+// A backend that does not come back leaves the screen on "Connecting" or
+// "Connection lost" for good, on the kiosk too, and nothing there says what to
+// do. Once nginx answers for it — the unit is up, Milō is not — the app gives
+// way to the static page that says so, which comes back here by itself.
+// Never while a Milō update is on screen: its restarts are the update's own.
+const isBackendUnreachable = () => !isReady.value || showConnectionLost.value;
+let rescueProbeTimer = null;
+
+function armRescueProbe() {
+  timer.clear(rescueProbeTimer);
+  rescueProbeTimer = timer.setTimeout(async () => {
+    rescueProbeTimer = null;
+    if (!isBackendUnreachable()) return;
+    const { error } = await apiCall.get('/api/health', {
+      category: 'boot',
+      message: 'Health probe while the backend is unreachable',
+      logLevel: 'debug',
+    });
+    if (isBackendDown(error?.status) && isBackendUnreachable()) {
+      // The language is the backend's to say; the one on screen goes along.
+      window.location.replace(rescuePageUrl(i18n.isInitialized ? i18n.getCurrentLanguage() : null));
+    } else {
+      armRescueProbe();
+    }
+  }, RESCUE_PROBE_AFTER_MS);
+}
+
+watch(showConnectionLost, (lost) => {
+  if (lost) armRescueProbe();
+});
+
 // What a Milō update says once it has left the screen: the dependency set and
 // the satellites the arriving release finishes with, or the release that did
 // not hold and was put back. Nothing when it went well.
@@ -416,6 +457,20 @@ const miloUpdateNotice = computed(() => {
   return null;
 });
 
+// The files the backend could not read and set aside, each started again from
+// its defaults (backend/core/system/notices.py). Kept until this banner is
+// closed, so it outlives the boot it happened at — and the setup wizard a
+// set-aside settings.json brings back, which is why it waits for setup.
+const setAsideNotice = computed(() => {
+  if (!isBootComplete.value || settingsStore.setupCompleted !== true) return null;
+  const files = [...new Set(systemStore.notices.map((notice) => notice.file.split('/').pop()))];
+  if (!files.length) return null;
+  return {
+    title: t('notification.setAsideTitle'),
+    detail: t('notification.setAsideDescription', { files: formatList(files), count: files.length }),
+  };
+});
+
 // A unit set up that runs its recovery AP lost its network: a client of the AP
 // can then only read, and save a network on a gesture at the unit
 // (backend/api/middleware.py::RecoveryAccessPointGuard). Said on every client,
@@ -443,7 +498,9 @@ const notificationTitle = computed(() => {
   if (miloUpdateNotice.value) return miloUpdateNotice.value.title;
   // Priority 4: the unit lost its network and is on its recovery AP
   if (showWifiLost.value) return t('notification.wifiLostTitle');
-  // Priority 5: the configured audio card is not there. Last because it is the
+  // Priority 5: files set aside at a boot nobody was watching
+  if (setAsideNotice.value) return setAsideNotice.value.title;
+  // Priority 6: the configured audio card is not there. Last because it is the
   // only one that does not go away: a wrong pick in the wizard is a unit with
   // no sound and nothing anywhere saying why, and the banner is what turns
   // that into a sentence naming the card and the page that fixes it.
@@ -462,6 +519,7 @@ const notificationDetail = computed(() => {
   if (currentError.value) return null;
   if (miloUpdateNotice.value) return miloUpdateNotice.value.detail;
   if (showWifiLost.value) return t('notification.wifiLostDescription');
+  if (setAsideNotice.value) return setAsideNotice.value.detail;
   if (systemStore.audioCardMissing) {
     return t('notification.audioCardMissingDescription', { card: systemStore.audioCardMissing });
   }
@@ -478,6 +536,8 @@ const isNotificationDismissable = computed(() => {
   // The update's progress ends by itself; its rollback is closed once read.
   if (miloUpdateNotice.value) return miloUpdateNotice.value.dismissable;
   if (showWifiLost.value) return false;
+  // Closing it acknowledges the notices it names, on every screen.
+  if (setAsideNotice.value) return true;
   return !!systemStore.audioCardMissing;
 });
 
@@ -488,6 +548,8 @@ function dismissNotification() {
     currentError.value = null;
   } else if (miloUpdateNotice.value) {
     updatesStore.dismissRollbackNotice();
+  } else if (setAsideNotice.value) {
+    systemStore.acknowledgeNotices();
   } else {
     systemStore.dismissAudioCardMissing();
   }
@@ -705,6 +767,8 @@ const RAW_EVENTS = [
   ['source', 'state', unifiedStore.updateState],
   ['source', 'session_ended', handleSessionEnded],
   ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
+  // The files set aside, as far as no screen has acknowledged them.
+  ['system', 'notices_changed', systemStore.handleNoticesEvent],
   // The gesture the unit waits for: opened, confirmed on the unit, or ended.
   ['system', 'presence_changed', presenceStore.handleChallengeEvent],
   // The timezone's point, which the auto theme reads sunset from.

@@ -17,6 +17,7 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.core.models.audio_wire import AudioState, PositionAnchor
+from backend.core.models.notices import SetAsideNotice
 from backend.core.models.presence import PresenceChallenge
 from backend.core.models.session import EndReason
 from backend.core.network.models import NetworkStatus
@@ -138,6 +139,22 @@ class SystemPresenceChanged(WsEvent):
     challenge: Optional[PresenceChallenge]
 
 
+class SystemNoticesChanged(WsEvent):
+    """The files Milō could not read and set aside, as far as the owner has not
+    acknowledged them: the whole list, after one was added or acknowledged. Each
+    started again from its defaults, and its bytes are kept beside it.
+
+    App.vue → systemStore.notices, the banner naming the files. The list is
+    persisted (core/system/notices.py) and read again by
+    `GET /api/system/notices` at every resync, and it rides in
+    `system/initial_state`: the set-asides of a boot happen before any client
+    listens.
+    """
+    CATEGORY = "system"
+    TYPE = "notices_changed"
+    notices: List[SetAsideNotice]
+
+
 class SystemBackendError(WsEvent):
     """An error the backend logged, forwarded as it was written.
 
@@ -151,21 +168,23 @@ class SystemBackendError(WsEvent):
 class SystemInitialState(WsEvent):
     """The answer to a client's `ready`, sent to that client only: the audio state
     in `state`, whether first-boot setup is complete, whether the unit is running
-    its own Wi-Fi access point, and `server_instance`, which changes every time the
+    its own Wi-Fi access point, the files set aside that the owner has not
+    acknowledged (`notices`), and `server_instance`, which changes every time the
     backend starts. `GET /api/initial-state` answers the same object.
 
     Handshake reply (ws/manager) — sent to the single ready client, never
     broadcast — and the body of its HTTP fallback, `GET /api/initial-state`
     (api/health, for the captive-portal browser). App.vue → unifiedAudioStore (`state`, the AudioState),
-    settingsStore (`setup_completed`, `hotspot_active`), and App.vue itself
-    (`server_instance`: a new one means the backend restarted, and the dock is
-    revealed).
+    settingsStore (`setup_completed`, `hotspot_active`), systemStore
+    (`notices`), and App.vue itself (`server_instance`: a new one means the
+    backend restarted, and the dock is revealed).
     """
     CATEGORY = "system"
     TYPE = "initial_state"
     state: Dict[str, Any]
     setup_completed: bool
     hotspot_active: bool
+    notices: List[SetAsideNotice]
     server_instance: str
 
 

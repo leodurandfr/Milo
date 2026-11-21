@@ -894,3 +894,27 @@ def golden_wall(request, monkeypatch):
     GOLDEN_WALL[0] = EPOCH
     monkeypatch.setattr(audio_source, "wall_time", lambda: GOLDEN_WALL[0])
     monkeypatch.setattr(audio_source, "step_reference", lambda: GOLDEN_WALL[0] - EPOCH)
+
+
+@pytest.fixture(autouse=True)
+def no_set_aside_crosses_tests():
+    """Each test starts and ends with no keeper and no unclaimed set-aside.
+
+    `report_set_aside` keeps a record of every file set aside, for the notice
+    service (core/system/notices.py) to claim: a module-level list, filled by
+    every test that sets a file aside. Left there, the next test that
+    initializes a notice service would claim another test's files — or a
+    keeper a test left installed would receive them. Drained through the
+    public pair, which is also what a notice service does.
+    """
+    from backend.shared.persistence import claim_set_asides, release_set_asides
+
+    def drain():
+        def discard(_record):
+            return None
+        claim_set_asides(discard)
+        release_set_asides(discard)
+
+    drain()
+    yield
+    drain()

@@ -1,0 +1,33 @@
+/* The rescue page (milo-down.html): the logo and two lines, centered on the
+   ground, readable in either theme. Layout and color only: the type is the
+   design system's classes, set in the markup. */
+.milo-down {
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-04);
+  padding: var(--space-06) var(--space-04);
+  background: var(--color-ground);
+  color: var(--color-text);
+  text-align: center;
+}
+
+.milo-down-logo {
+  height: 48px;
+  width: auto;
+  margin-bottom: var(--space-04);
+  color: var(--color-text-tertiary);
+}
+
+.milo-down-title {
+  margin: 0;
+}
+
+.milo-down-text {
+  margin: 0;
+  max-width: 36em;
+  color: var(--color-text-secondary);
+}

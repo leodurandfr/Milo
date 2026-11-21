@@ -119,12 +119,14 @@ class WebSocketServer:
     """WebSocket endpoint handler with handshake and heartbeat."""
 
     def __init__(self, ws_manager: WebSocketManager, state_machine,
-                 volume_service=None, settings_service=None, network_service=None):
+                 volume_service=None, settings_service=None, network_service=None,
+                 *, notice_service):
         self.manager = ws_manager
         self.state_machine = state_machine
         self.volume_service = volume_service
         self.settings_service = settings_service
         self.network_service = network_service
+        self.notice_service = notice_service
 
     async def _send_ping(self, websocket: WebSocket):
         """Send periodic pings to keep the connection alive."""
@@ -195,6 +197,7 @@ class WebSocketServer:
                     state=current_state,
                     setup_completed=setup_completed,
                     hotspot_active=hotspot_active,
+                    notices=self.notice_service.notices(),
                     server_instance=SERVER_INSTANCE,
                 )
                 await websocket.send_text(json.dumps(event.to_envelope()))

@@ -40,7 +40,7 @@ else is the static SPA).
 | Discovery | `/api/discovery` | Find & adopt Wi-Fi speakers (multiroom client onboarding) |
 | Settings | `/api/settings` | Read/write app settings |
 | Network | `/api/network` | Wi-Fi scan / connect / saved networks |
-| System | `/api/system` | Reboot, poweroff, status, host checks, diagnostic report |
+| System | `/api/system` | Reboot, poweroff, status, host checks, diagnostic report, the notices of files set aside (`/notices`) |
 | Setup | `/api/setup` | First-boot wizard (`/complete`, `/become-client`) |
 | Errors | `/api/errors` | Receive frontend error reports → `errors.log` |
 | Health | `/api/health`, `/api/ping`, `/api/initial-state` | Liveness + initial-state snapshot |

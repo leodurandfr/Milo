@@ -105,7 +105,7 @@ async def test_a_second_set_aside_never_lands_on_the_first(tmp_path: Path, monke
     Listed by name, they come in the order they were made."""
     frozen = time.gmtime(1_800_000_000)
     monkeypatch.setattr(
-        persistence, "time", SimpleNamespace(gmtime=lambda *_: frozen, strftime=time.strftime)
+        persistence, "time", SimpleNamespace(gmtime=lambda *_: frozen, strftime=time.strftime, time=time.time)
     )
     file = tmp_path / "data.json"
 

@@ -18,8 +18,9 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +82,30 @@ def _move_aside(file: Path) -> Optional[Path]:
         return kept
 
 
+@dataclass(frozen=True)
+class SetAside:
+    """One file set aside: where it was, where its bytes went, why, and when."""
+
+    file: Path
+    kept: Path
+    reason: str
+    at: float
+
+
+# Who keeps the lasting notice of each set-aside (core/system/notices.py). The
+# boot's first set-asides come before any service exists — settings.json is
+# read synchronously in STEP 3b — so until a keeper claims them they wait here.
+_keeper: Optional[Callable[[SetAside], None]] = None
+_unclaimed: List[SetAside] = []
+
+
 def report_set_aside(file: Path, kept: Path, reason: str) -> None:
     """Say that ``file`` was set aside as ``kept``: one ERROR line, and the only one.
 
     Every set-aside — the two loaders' and the two ``set_aside``'s — is
-    reported here and nowhere else, so a lasting notice of it belongs here and nowhere else.
-    The ERROR alone reaches the screen only through the live banner
+    reported here and nowhere else, so its lasting notice hangs from here too:
+    the record goes to the keeper ``claim_set_asides`` installed, or waits for
+    one. The ERROR alone reaches the screen only through the live banner
     (``WebSocketLogHandler``), which no client hears at boot, when most
     set-asides happen.
     """
@@ -95,6 +114,31 @@ def report_set_aside(file: Path, kept: Path, reason: str) -> None:
         "again from its defaults",
         file, reason, kept.name,
     )
+    record = SetAside(file=Path(file), kept=Path(kept), reason=reason, at=time.time())
+    if _keeper is None:
+        _unclaimed.append(record)
+    else:
+        _keeper(record)
+
+
+def claim_set_asides(keeper: Callable[[SetAside], None]) -> List[SetAside]:
+    """Hand every later set-aside to ``keeper``; return the ones made before it.
+
+    ``keeper`` is called on the thread that reports, synchronously, and must
+    not raise: it is handed the record in the middle of a load.
+    """
+    global _keeper
+    _keeper = keeper
+    claimed = list(_unclaimed)
+    _unclaimed.clear()
+    return claimed
+
+
+def release_set_asides(keeper: Callable[[SetAside], None]) -> None:
+    """Stop handing set-asides to ``keeper``, if it is still the one that holds them."""
+    global _keeper
+    if _keeper == keeper:
+        _keeper = None
 
 
 def _load(

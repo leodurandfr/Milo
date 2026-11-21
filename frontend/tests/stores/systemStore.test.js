@@ -138,3 +138,77 @@ describe('systemStore setup waiting for a link', () => {
     expect(store.setupAwaitingNetwork).toBe(true);
   });
 });
+
+/**
+ * The files the backend set aside are kept there until the owner closes the
+ * banner naming them: a boot's set-asides happen before any page listens, so
+ * the resync is how a page learns of them, and a read that failed must say so
+ * or serverSync never asks again — the banner would never come.
+ */
+describe('systemStore set-aside notices', () => {
+  const NOTICE_A = { id: 'a', file: '/var/lib/milo/settings.json', kept_as: 'settings.json.x.bad', reason: 'not JSON', at: 1 };
+  const NOTICE_B = { id: 'b', file: '/var/lib/milo/radio_data.json', kept_as: 'radio_data.json.x.bad', reason: 'not JSON', at: 2 };
+
+  const answers = ({ notices }) => (url) => Promise.resolve(url === '/api/system/notices'
+    ? notices
+    : ok({ status: 'success', data: { hostname_conflict: false, audio_card_missing: null } }));
+
+  beforeEach(() => {
+    resetApiCallMock();
+  });
+
+  it('a resync reads the notices, and fails when they could not be read', async () => {
+    const store = useSystemStore();
+    apiCall.get.mockImplementation(answers({ notices: ok({ status: 'success', data: { notices: [NOTICE_A] } }) }));
+    expect(await store.resync()).toBe(true);
+    expect(store.notices).toEqual([NOTICE_A]);
+
+    apiCall.get.mockImplementation(answers({ notices: fail('backend restarting', 502) }));
+    expect(await store.resync()).toBe(false);
+    expect(store.notices).toEqual([NOTICE_A]);
+  });
+
+  it('closing the banner acknowledges every notice it named', async () => {
+    const store = useSystemStore();
+    store.applyNotices([NOTICE_A, NOTICE_B]);
+    apiCall.delete.mockResolvedValue(ok({ status: 'success' }));
+
+    await store.acknowledgeNotices();
+
+    expect(apiCall.delete.mock.calls.map(([url]) => url))
+      .toEqual(['/api/system/notices/a', '/api/system/notices/b']);
+    expect(store.notices).toEqual([]);
+    expect(apiCall.get).not.toHaveBeenCalled();
+  });
+
+  it('the announcement of one acknowledgement does not bring back the others in flight', async () => {
+    const store = useSystemStore();
+    store.applyNotices([NOTICE_A, NOTICE_B]);
+    const shownDuring = [];
+    apiCall.delete.mockImplementation((url) => {
+      // The backend announces each acknowledgement with what is left.
+      if (url.endsWith('/a')) store.handleNoticesEvent({ data: { notices: [NOTICE_B] } });
+      shownDuring.push(store.notices.map(({ id }) => id));
+      return Promise.resolve(ok({ status: 'success' }));
+    });
+
+    await store.acknowledgeNotices();
+    store.handleNoticesEvent({ data: { notices: [] } });
+
+    expect(shownDuring).toEqual([[], []]);
+    expect(store.notices).toEqual([]);
+  });
+
+  it('an acknowledgement refused for another reason than a 404 reads the list back', async () => {
+    const store = useSystemStore();
+    store.applyNotices([NOTICE_A, NOTICE_B]);
+    apiCall.delete
+      .mockResolvedValueOnce(fail('already acknowledged elsewhere', 404))
+      .mockResolvedValueOnce(fail('card full', 500));
+    apiCall.get.mockResolvedValueOnce(ok({ status: 'success', data: { notices: [NOTICE_B] } }));
+
+    await store.acknowledgeNotices();
+
+    expect(store.notices).toEqual([NOTICE_B]);
+  });
+});

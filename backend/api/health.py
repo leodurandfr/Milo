@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from backend.core.network.service import NetworkService
     from backend.core.settings import SettingsService
     from backend.core.state import AudioStateMachine
+    from backend.core.system.notices import SetAsideNotices
 
 
 # Health only ever gets worse across one response: each probe reports the worst
@@ -35,7 +36,8 @@ def create_health_router(state_machine: "AudioStateMachine",
                          settings_service: "SettingsService",
                          network_service: "NetworkService",
                          camilladsp_service: "CamillaDSPService",
-                         snapcast_websocket_service: "SnapcastWebSocketService"):
+                         snapcast_websocket_service: "SnapcastWebSocketService",
+                         notice_service: "SetAsideNotices"):
     """Creates health check router"""
     router = APIRouter(prefix="/api", tags=["health"])
 
@@ -163,6 +165,7 @@ def create_health_router(state_machine: "AudioStateMachine",
             state=current_state,
             setup_completed=setup_completed,
             hotspot_active=hotspot_active,
+            notices=notice_service.notices(),
             server_instance=SERVER_INSTANCE,
         )
         return {"status": "success", **event.wire_data()}

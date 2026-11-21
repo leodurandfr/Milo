@@ -19,6 +19,9 @@ MILO_DATA_DIR = Path("/var/lib/milo")
 SETTINGS_FILE = MILO_DATA_DIR / "settings.json"
 HARDWARE_FILE = MILO_DATA_DIR / "hardware.json"
 ERROR_LOG_FILE = MILO_DATA_DIR / "errors.log"
+# The files set aside because they could not be read, until the owner has read
+# the banner that says so (core/system/notices.py).
+NOTICES_FILE = MILO_DATA_DIR / "notices.json"
 # APNs device tokens (widget / push-to-start / Now Playing session), per iOS install.
 PUSH_TOKENS_FILE = MILO_DATA_DIR / "push_tokens.json"
 # APNs provider signing key, provisioned per device and deliberately NOT baked

@@ -77,7 +77,7 @@ def _health(**kwargs):
     state_machine, routing, camilladsp, snapcast_ws = _services(**kwargs)
     app = FastAPI()
     app.include_router(create_health_router(
-        state_machine, routing, Mock(), Mock(), camilladsp, snapcast_ws
+        state_machine, routing, Mock(), Mock(), camilladsp, snapcast_ws, Mock(notices=Mock(return_value=[]))
     ))
     return TestClient(app).get("/api/health").json()
 
@@ -233,7 +233,7 @@ class TestTheTwoFallbackReads:
         network.hotspot_active = over.get("hotspot_active", False)
         app = FastAPI()
         app.include_router(create_health_router(
-            state_machine, routing, settings, network, camilladsp, snapcast_ws
+            state_machine, routing, settings, network, camilladsp, snapcast_ws, Mock(notices=Mock(return_value=[]))
         ))
         return TestClient(app)
 

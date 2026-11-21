@@ -47,7 +47,15 @@ Environment=WLR_XCURSOR_SIZE=24
 # answers, applied as Chromium's default page zoom by milo-kiosk-zoom (see why
 # there, not --force-device-scale-factor); restarting the kiosk is how a new
 # value reaches Chromium. The default covers a first boot that has not written it.
+# The same file sets MILO_ACCEPT_LANG, handed to --accept-lang so
+# navigator.languages names the household's language: the rescue page reads it
+# when the backend never came up to say it. Not LANGUAGE: Chromium takes a UI
+# locale only where its .pak is installed, the image has no chromium-l10n, and
+# a locale that falls back to en-US hands pages en-US too. No restart for it —
+# it matters only to the next kiosk started without a backend. The default is
+# the setting's own (english) for a first boot that has not written it.
 Environment=MILO_UI_SCALE=1
+Environment=MILO_ACCEPT_LANG=en
 EnvironmentFile=-/var/lib/milo/kiosk.env
 ExecStartPre=/usr/local/bin/milo-kiosk-zoom
 
@@ -81,6 +89,7 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --touch-slop-distance=10 \
   --enable-features=TouchpadAndWheelScrollLatching \
   --force-device-scale-factor=1 \
+  --accept-lang=${MILO_ACCEPT_LANG} \
   --disable-pinch \
   --ignore-gpu-blocklist \
   --enable-gpu-rasterization \
@@ -88,7 +97,14 @@ ExecStart=/usr/bin/cage -- /usr/bin/chromium \
   --app=http://localhost
 
 Restart=always
+# Each automatic restart waits longer than the last, from 3 s to 2 min over ten
+# steps: cage against a DRM device with no connected output (a screen declared
+# but unplugged) failed and came back every 3 s for the life of the unit. A
+# restart the backend asks for (a new interface scale) is not automatic and
+# starts over at 3 s.
 RestartSec=3
+RestartSteps=10
+RestartMaxDelaySec=2min
 # A cage stopped while still starting ignored SIGTERM until the default 90 s
 # stop timeout, a black screen all along (measured 2026-10-07). The profile is
 # ephemeral, so a SIGKILL loses nothing.

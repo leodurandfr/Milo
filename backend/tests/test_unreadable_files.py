@@ -30,6 +30,7 @@ import pytest
 
 import backend.core.equalizer.service as equalizer_service_module
 import backend.core.push.token_registry as push_tokens_module
+import backend.core.system.notices as notices_module
 import backend.sources.music_library.data as music_library_data_module
 import backend.sources.podcast.data as podcast_data_module
 import backend.sources.radio.data as radio_data_module
@@ -39,6 +40,7 @@ from backend.core.equalizer.service import CamillaDSPService
 from backend.core.push.models import PushTokenKind
 from backend.core.push.token_registry import PushTokenRegistry
 from backend.core.settings import SettingsService
+from backend.core.system.notices import SetAsideNotices
 from backend.core.updates.data_snapshot import VERSIONED_DATA_FILES
 from backend.core.volume.state import VolumeStateStore
 from backend.hardware.service import HardwareService
@@ -188,6 +190,32 @@ async def _load_data(svc):
     return await svc.load_data()
 
 
+def _notices(tmp_path):
+    svc = SetAsideNotices(state_machine=Mock(broadcast=AsyncMock()))
+    svc.notices_file = tmp_path / "notices.json"
+    return svc
+
+
+async def _notices_boot(svc):
+    """The boot, then the shutdown's release: one keeper of set-asides at a
+    time, so the fresh instance a case boots first must not be the one handed
+    the set-aside of the unit it boots next."""
+    await svc.initialize()
+    await svc.cleanup()
+
+
+async def _notices_state(svc):
+    """What it holds of other files: its own set-aside is a notice too, which a
+    fresh install does not hold, and is what the case asserts it kept."""
+    return [n for n in svc.notices() if n.file != str(svc.notices_file)]
+
+
+_NOTICE = {
+    "id": "n1", "file": "/var/lib/milo/settings.json",
+    "kept_as": "settings.json.20261121T000000Z.bad", "reason": "not JSON", "at": 1.0,
+}
+
+
 async def _profiles_state(profiles):
     return profiles.list()
 
@@ -254,6 +282,13 @@ OWNERS = [
         {"schema_version": SpotifyHistory.SCHEMA_VERSION,
          "accounts": {"alice": [{"uri": "spotify:track:1"}]}},
         required=spotify_history_module.REQUIRED_TOP_LEVEL_KEYS,
+    ),
+    Owner(
+        SetAsideNotices, _notices, lambda s: s.notices_file, _notices_boot, _notices_state,
+        {"schema_version": SetAsideNotices.SCHEMA_VERSION, "set_aside": [_NOTICE]},
+        required=notices_module.REQUIRED_TOP_LEVEL_KEYS,
+        unusable={"schema_version": SetAsideNotices.SCHEMA_VERSION,
+                  "set_aside": [{k: v for k, v in _NOTICE.items() if k != "kept_as"}]},
     ),
 ]
 

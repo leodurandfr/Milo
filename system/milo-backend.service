@@ -29,7 +29,20 @@ ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
 ExecStopPost=+/usr/local/bin/milo-presence-record clear
 
 Restart=always
+# Each automatic restart waits longer than the last, from 10 s to 5 min over
+# ten steps (systemd's geometric progression: 10, 14, 20, 28, 39, 55 s… then
+# 5 min). A backend that cannot start — a venv the card damaged — otherwise
+# came back every ~15 s for good, re-importing everything from the card each
+# time; the rescue page (frontend/milo-down.html) says meanwhile that it is
+# restarting, then that it no longer starts. The first two restarts stay fast:
+# they are the trial's second start and the previous release's, which
+# milo-update-guard counts. The count runs from the last start that was not
+# automatic (a boot, a `systemctl restart`, which every restart the backend
+# asks for is): a backend that crashed now and then since waits longer, never
+# more than 5 min.
 RestartSec=10
+RestartSteps=10
+RestartMaxDelaySec=5min
 # The guard and the lifespan up to READY=1, together. Measured on the server's
 # card: a checkout between two releases plus a full sync, ~1 s warm; the
 # lifespan, 3 s warm and 10 s at boot. The rest of a rollback is two renames, a

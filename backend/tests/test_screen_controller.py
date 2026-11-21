@@ -10,6 +10,7 @@ same success as one that took everything.
 import asyncio
 import json
 import logging
+import re
 import types
 from pathlib import Path
 from time import monotonic
@@ -21,7 +22,8 @@ from backend.core.models.audio_wire import SessionView, SourceView
 from backend.core.models.ws_events import ScreenSleepChanged
 from backend.core.settings import SettingsService
 from backend.core.state import SystemAudioState
-from backend.hardware.screen import ScreenController
+from backend.config.constants import VALID_LANGUAGES
+from backend.hardware.screen import KIOSK_ACCEPT_LANGS, ScreenController
 
 
 def _make_proc(returncode=0, stderr=b""):
@@ -299,7 +301,7 @@ class TestInitializeReportsThePanel:
     async def test_a_refused_boot_backlight_is_reported(self, controller):
         controller.settings_service.invalidate_cache = Mock()
         controller.settings_service.load_settings = AsyncMock(
-            return_value={"screen": controller.settings_service.defaults["screen"]}
+            return_value={"screen": controller.settings_service.defaults["screen"], "language": "english"}
         )
         with patch("asyncio.create_subprocess_shell", return_value=_make_proc(returncode=1)):
             assert await controller.initialize() is False
@@ -312,7 +314,7 @@ class TestInitializeReportsThePanel:
         controller.screen_type = "none"
         controller.settings_service.invalidate_cache = Mock()
         controller.settings_service.load_settings = AsyncMock(
-            return_value={"screen": controller.settings_service.defaults["screen"]}
+            return_value={"screen": controller.settings_service.defaults["screen"], "language": "english"}
         )
         assert await controller.initialize() is True
         await controller.cleanup()
@@ -332,7 +334,7 @@ class TestReloadingTheConfigAtRuntime:
         section = {**controller.settings_service.defaults["screen"], **overrides}
         controller.settings_service.invalidate_cache = Mock()
         controller.settings_service.load_settings = AsyncMock(
-            return_value={"screen": section}
+            return_value={"screen": section, "language": "english"}
         )
         return section
 
@@ -450,7 +452,8 @@ class TestTheBootGracePeriod:
             controller.settings_service.invalidate_cache = Mock()
             controller.settings_service.load_settings = AsyncMock(return_value={
                 "screen": {**controller.settings_service.defaults["screen"],
-                           "timeout_seconds": configured}
+                           "timeout_seconds": configured},
+                "language": "english",
             })
             with patch("asyncio.create_subprocess_shell", return_value=_make_proc()):
                 await controller.initialize()
@@ -817,6 +820,51 @@ class TestKioskScale:
         zoom.main()
 
         assert 1.2 ** _stored_level(tmp_path) == pytest.approx(1.25)
+
+    async def test_the_language_reaches_the_languages_chromium_hands_pages(
+        self, controller, tmp_path, monkeypatch
+    ):
+        """A kiosk started while the backend never comes up shows the rescue
+        page, whose only clue to the household's language is
+        `navigator.languages`, which `--accept-lang` sets: the variable written
+        for the setting must be the one the unit hands that switch, or the page
+        opens in the unit's default, English."""
+        env = tmp_path / "kiosk.env"
+        monkeypatch.setattr(ScreenController, "KIOSK_ENV_PATH", str(env))
+        await controller.write_kiosk_env(1.25)
+        await controller.write_kiosk_env(language="french")
+
+        written = dict(
+            line.split("=", 1) for line in env.read_text().splitlines()
+            if line and not line.startswith("#")
+        )
+        assert written["MILO_UI_SCALE"] == "1.25"
+        (name,) = set(written) - {"MILO_UI_SCALE"}
+        assert written[name] == KIOSK_ACCEPT_LANGS["french"]
+
+        unit = (_REPO / "system" / "milo-kiosk.service").read_text()
+        exec_start = re.search(r"^ExecStart=(.*?)(?<!\\)\n", unit, re.M | re.S)
+        assert exec_start and "/usr/bin/chromium" in exec_start.group(1), "ExecStart not found"
+        switches = re.findall(r"--accept-lang=(\S+)", exec_start.group(1))
+        assert switches == [f"${{{name}}}"], switches
+        # The unit's default stands for a kiosk.env not written yet: the setting's default.
+        default = re.search(rf"^Environment={name}=(\S+)$", unit, re.M)
+        assert default, f"milo-kiosk.service declares no default for {name}"
+        assert default.group(1) == KIOSK_ACCEPT_LANGS[controller.settings_service.defaults["language"]]
+
+    def test_every_language_hands_the_tag_the_rescue_page_reads(self):
+        """The rescue page matches `navigator.languages` against the tag
+        `bcp47For` gives each language. A language with no tag here raises at
+        the write and leaves kiosk.env stale; a tag that differs from the
+        frontend's can open the page in English."""
+        countries = (_REPO / "frontend" / "src" / "constants" / "countries.js").read_text()
+        table = re.search(r"const LANGUAGE_TO_BCP47 = \{(.*?)\};", countries, re.S)
+        assert table, "LANGUAGE_TO_BCP47 not found in countries.js: the extraction is broken"
+        frontend = dict(re.findall(r"^\s*(\w+): '([\w-]+)'", table.group(1), re.M))
+        assert len(frontend) >= 8, frontend
+
+        assert set(KIOSK_ACCEPT_LANGS) == set(VALID_LANGUAGES)
+        assert KIOSK_ACCEPT_LANGS == frontend
 
     def test_the_kiosk_zoom_keeps_the_rest_of_the_profile(self, tmp_path, monkeypatch):
         """The profile survives restarts and Chromium keeps its own state in the

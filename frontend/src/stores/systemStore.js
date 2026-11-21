@@ -5,8 +5,8 @@
  * Tracks whether another Milō server has claimed `milo.local` on the local
  * network (mDNS hostname conflict; the backend re-checks every 5 minutes and
  * broadcasts state changes via WebSocket), the audio card hardware.json names
- * when ALSA cannot see it, and the SSH / account password panel of
- * Réglages › Système.
+ * when ALSA cannot see it, the files the backend could not read and set
+ * aside, and the SSH / account password panel of Réglages › Système.
  */
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
@@ -34,6 +34,16 @@ export const useSystemStore = defineStore('system', () => {
   // since: the wizard opens on its Network step (backend/api/setup.py). Read
   // with the status, on every load.
   const setupAwaitingNetwork = ref(false);
+  // The files the backend could not read and set aside, each started again
+  // from its defaults (backend/core/system/notices.py). Kept there until
+  // acknowledged, so they come with the initial state, `system/notices_changed`
+  // and every resync — a boot's set-asides happen before any page listens.
+  const notices = ref([]);
+  // The ids this page has closed. Each acknowledgement is announced with the
+  // list still left, so with two or more in flight the first announcement
+  // names the others: kept out until their own DELETE says otherwise, or the
+  // banner just closed comes back for a moment. Ids are never reused.
+  const acknowledged = new Set();
   const audioCardMissing = computed(() => (
     reportedAudioCardMissing.value === dismissedAudioCardMissing.value
       ? null
@@ -66,6 +76,42 @@ export const useSystemStore = defineStore('system', () => {
       if (state.audio_card_missing !== dismissedAudioCardMissing.value) {
         dismissedAudioCardMissing.value = null;
       }
+    }
+  }
+
+  function applyNotices(list) {
+    if (Array.isArray(list)) notices.value = list.filter((notice) => !acknowledged.has(notice.id));
+  }
+
+  function handleNoticesEvent(event) {
+    applyNotices(event?.data?.notices);
+  }
+
+  async function fetchNotices() {
+    const result = await apiCall.get('/api/system/notices', {
+      category: 'system',
+      message: 'Error fetching the set-aside notices',
+      checkStatus: true,
+    });
+    if (result.ok) applyNotices(result.data.data.notices);
+    return result.ok;
+  }
+
+  // The banner closed: every notice it named is read, on every screen. Hidden
+  // at once. A 404 is another screen having acknowledged it first; any other
+  // refusal (a card that takes no write) puts it back, as the backend kept it.
+  async function acknowledgeNotices() {
+    const ids = notices.value.map((notice) => notice.id);
+    ids.forEach((id) => acknowledged.add(id));
+    notices.value = [];
+    const results = await Promise.all(ids.map((id) => apiCall.delete(
+      `/api/system/notices/${encodeURIComponent(id)}`,
+      { category: 'system', message: 'Error acknowledging a set-aside notice' },
+    )));
+    const refused = ids.filter((_, i) => !results[i].ok && results[i].error?.status !== 404);
+    if (refused.length) {
+      refused.forEach((id) => acknowledged.delete(id));
+      await fetchNotices();
     }
   }
 
@@ -155,7 +201,8 @@ export const useSystemStore = defineStore('system', () => {
   }
 
   async function resync() {
-    return fetchStatus();
+    const [status, kept] = await Promise.all([fetchStatus(), fetchNotices()]);
+    return status && kept;
   }
 
   return {
@@ -167,6 +214,10 @@ export const useSystemStore = defineStore('system', () => {
     audioCardMissing,
     dismissAudioCardMissing,
     setupAwaitingNetwork,
+    notices,
+    applyNotices,
+    handleNoticesEvent,
+    acknowledgeNotices,
     ssh,
     fetchStatus,
     loadSsh,

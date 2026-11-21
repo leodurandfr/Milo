@@ -138,7 +138,7 @@ def websocket_manager():
 @pytest.fixture
 def websocket_server(websocket_manager, mock_state_machine_for_ws, mock_volume_service):
     """Create WebSocket server with mocked dependencies."""
-    return WebSocketServer(websocket_manager, mock_state_machine_for_ws, mock_volume_service)
+    return WebSocketServer(websocket_manager, mock_state_machine_for_ws, mock_volume_service, notice_service=Mock(notices=Mock(return_value=[])))
 
 
 
@@ -453,7 +453,7 @@ class TestReconnection:
         Validates:
         - State reflects changes made while disconnected
         """
-        server = WebSocketServer(websocket_manager, mock_state_machine_for_ws)
+        server = WebSocketServer(websocket_manager, mock_state_machine_for_ws, notice_service=Mock(notices=Mock(return_value=[])))
 
         # First connection
         client = MockWebSocket()

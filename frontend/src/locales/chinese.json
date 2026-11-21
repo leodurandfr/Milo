@@ -10,7 +10,11 @@
   },
   "app": {
     "connectionUnavailable": "连接不可用",
-    "connecting": "正在连接…"
+    "connecting": "正在连接…",
+    "restartingTitle": "Milō 正在重新启动…",
+    "restartingDescription": "Milō 准备就绪后，此页面会自动返回。",
+    "stuckTitle": "Milō 无法再启动",
+    "stuckDescription": "请拔下电源再重新插上，以重新启动它。重新刷写存储卡会清除您的设置。"
   },
   "notification": {
     "connectionLostTitle": "连接丢失",
@@ -21,7 +25,9 @@
     "audioCardMissingTitle": "未检测到声卡",
     "audioCardMissingDescription": "已配置 {card}，但未检测到。请检查扩展板是否插紧，或在设置中选择其他声卡。",
     "wifiLostTitle": "WiFi 已断开",
-    "wifiLostDescription": "Milō 无法连接到其 WiFi 网络。请插入以太网线，或在“设置 › 网络”中重新保存您的网络。"
+    "wifiLostDescription": "Milō 无法连接到其 WiFi 网络。请插入以太网线，或在“设置 › 网络”中重新保存您的网络。",
+    "setAsideTitle": "部分已保存的数据已重置",
+    "setAsideDescription": "无法读取 {files}，已恢复为默认值。副本保存在原文件旁边。"
   },
   "settings": {
     "title": "Milō 设置",

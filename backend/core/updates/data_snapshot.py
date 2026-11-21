@@ -24,6 +24,7 @@ from backend.config.constants import (
     HARDWARE_FILE,
     MILO_DATA_DIR,
     MUSIC_LIBRARY_DATA_FILE,
+    NOTICES_FILE,
     PUSH_TOKENS_FILE,
     SETTINGS_FILE,
     SPOTIFY_HISTORY_FILE,
@@ -47,6 +48,7 @@ VERSIONED_DATA_FILES: dict[str, Path] = {
     "backend.sources.music_library.data.MusicLibraryDataService": MUSIC_LIBRARY_DATA_FILE,
     "backend.sources.spotify.profiles.SpotifyProfiles": SPOTIFY_PROFILES_FILE,
     "backend.sources.spotify.history.SpotifyHistory": SPOTIFY_HISTORY_FILE,
+    "backend.core.system.notices.SetAsideNotices": NOTICES_FILE,
 }
 
 

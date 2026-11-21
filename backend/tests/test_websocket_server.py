@@ -222,7 +222,7 @@ class TestWebSocketServer:
     @pytest.fixture
     def server(self, mock_manager, mock_state_machine):
         """Fixture to create a WebSocket server"""
-        return WebSocketServer(mock_manager, mock_state_machine)
+        return WebSocketServer(mock_manager, mock_state_machine, notice_service=Mock(notices=Mock(return_value=[])))
 
     @pytest.fixture
     def mock_websocket(self):
@@ -362,7 +362,7 @@ class TestWebSocketIntegration:
         volume_service.wait_for_availability = AsyncMock()
         volume_service.get_volume_state = AsyncMock(return_value=Mock(to_dict=Mock(return_value={"volume": -30})))
 
-        server = WebSocketServer(manager, state_machine, volume_service)
+        server = WebSocketServer(manager, state_machine, volume_service, notice_service=Mock(notices=Mock(return_value=[])))
 
         # WebSocket mock
         ws = AsyncMock()

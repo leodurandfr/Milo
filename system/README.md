@@ -12,6 +12,7 @@ This directory contains all systemd service files for the Milo Audio System. The
 - **Type**: notify — started once `main.py` sends `READY=1`, when uvicorn listens; a start not ready within `TimeoutStartSec=180` fails
 - **Dependencies**: NetworkManager.service, network-online.target, avahi-daemon.service; ordered `After=` milo-camilladsp, milo-snapserver-multiroom and milo-snapclient-multiroom (ordering only, it pulls none of them in)
 - **Startup**: Enabled at boot
+- **Restart**: `Restart=always`, each automatic restart waiting longer than the last (`RestartSec=10`, `RestartSteps=10`, `RestartMaxDelaySec=5min`: 10 s, 14 s, 20 s… then 5 min), so a backend that cannot start stops re-reading the card every few seconds; the first two restarts, the ones `milo-update-guard` counts, stay fast. While it is down, nginx answers for it with the rescue page (`frontend/milo-down.html`), which says it is restarting, then that it no longer starts
 - **Notes**: Main application logic, WebSocket server, REST API. `ExecStartPre=-/usr/local/bin/milo-update-guard start` runs before every start (as `milo`): it judges a Milō app update from its journal (`backend/core/updates/milo_journal.py`) — an install cut before its reboot is put back at once, a release on trial gets two starts and the third runs the previous release, put back by the guard (checkout, venv, frontend, versioned data, then `milo-deploy-update sync-system-files`). With no journal it does nothing. Its time counts against `TimeoutStartSec`. `ExecStopPost=+/usr/local/bin/milo-presence-record clear` runs as root after every stop, crash and SIGKILL included: it clears a proof-of-presence challenge waiting for a power cut, so a record found at the next start, from another boot, can only be one (`backend/core/system/presence.py`). A unit ordered `After=` this one must never be started with a blocking `systemctl start` before `READY=1`: the start would wait for the backend that issued it
 
 #### milo-update-inhibit.service
@@ -31,43 +32,45 @@ This directory contains all systemd service files for the Milo Audio System. The
 #### milo-readiness.service
 - **Role**: Waits for backend and nginx to be ready before dismissing Plymouth splash
 - **Type**: oneshot
-- **Dependencies**: milo-backend.service, nginx.service
+- **Dependencies**: `Wants=` milo-backend.service and nginx.service, without `After=`: it polls both, and fails open on its own deadline
 - **Startup**: Enabled at boot
 - **Notes**: Ensures smooth boot experience with splash screen
 
 #### milo-kiosk.service
 - **Role**: Launches Chromium in kiosk mode via Cage (Wayland compositor)
 - **Target**: graphical.target
-- **Dependencies**: milo-readiness.service, seatd.service
-- **Startup**: Enabled at boot (if screen is configured)
-- **Notes**: Controls tty1, conflicts with getty@tty1
+- **Dependencies**: `Wants=` + `After=` milo-readiness.service, `Requires=` seatd.service
+- **Startup**: Enabled by the image for a first boot, then enabled or disabled by `milo-apply-hardware` for the screen the unit is given
+- **Restart**: `Restart=always`, from 3 s to 2 min over ten steps (`RestartSteps=`, `RestartMaxDelaySec=`), so a screen declared but unplugged no longer restarts cage every 3 s; a restart the backend asks for (a new interface scale) starts over at 3 s
+- **Notes**: Controls tty1, conflicts with getty@tty1. Loads `http://localhost`, which shows the rescue page while the backend does not answer. Reads `/var/lib/milo/kiosk.env`, written by the backend: the interface scale (`MILO_UI_SCALE`, applied by `milo-kiosk-zoom`) and the language Chromium hands pages (`MILO_ACCEPT_LANG`, passed to `--accept-lang`: the language the rescue page speaks when no backend came up to say it)
 
 ### Audio Source Services (Managed Dynamically)
 
-These services are **NOT enabled at boot**. They are started/stopped by the Milo backend based on active audio source selection. All bind to `milo-backend.service` and stop when backend stops.
+These services are **NOT enabled at boot** (their `[Install]` section is never applied: `system-manifest.env` does not list them). They are started/stopped by the Milo backend based on active audio source selection. All bind to `milo-backend.service` and stop when backend stops. The one exception is Bluetooth, below.
 
 #### milo-spotify.service
 - **Role**: Spotify Connect via go-librespot
 - **Device Name**: "Milō"
 - **Port**: 3678 (API)
-- **Dependencies**: milo-backend.service, network-online.target, sound.service
+- **Dependencies**: `BindsTo=` milo-backend.service; after network-online.target, sound.target, milo-camilladsp.service
 - **ALSA Device**: milo_spotify (dynamic routing via routing.env)
-- **Managed By**: SpotifyPlugin
+- **Managed By**: SpotifySource
 
 #### milo-bluealsa.service + milo-bluealsa-aplay.service
 - **Role**: Bluetooth A2DP sink
 - **Device Name**: "Milō · Bluetooth"
-- **Dependencies**: dbus.service, bluetooth.service, milo-backend.service
+- **Dependencies**: milo-bluealsa: `Requires=` dbus.service, `Wants=` bluetooth.service, `BindsTo=` milo-backend.service; milo-bluealsa-aplay: `Requires=` milo-bluealsa.service and sound.target, `BindsTo=` milo-backend.service and milo-bluealsa.service
+- **Startup**: **Enabled at boot** (`system-manifest.env`), unlike the other sources: a phone can link at any time, whatever source is selected
 - **ALSA Device**: milo_bluetooth (dynamic routing via routing.env)
-- **Managed By**: BluetoothPlugin
+- **Managed By**: BluetoothSource, which also starts milo-bluealsa-aplay again when BlueALSA dies under it (systemd does not: `BindsTo=` stops it, and nothing starts it back)
 - **Notes**: Two services work together (daemon + player)
 
 #### milo-mac.service
 - **Role**: Mac audio receiver via ROC toolkit
 - **Ports**: 10001-10003 (RTP, RS8M, RTCP)
-- **Dependencies**: milo-backend.service, network.target, sound.service
+- **Dependencies**: `BindsTo=` milo-backend.service, `Requires=` sound.target; after network.target, milo-camilladsp.service
 - **ALSA Device**: milo_roc (dynamic routing via routing.env)
-- **Managed By**: MacPlugin
+- **Managed By**: MacSource
 
 The four mpv units (radio, podcast, CD, music library) carry no audio filter.
 The loudness normalization (`loudnorm`) is a per-source setting,
@@ -78,24 +81,24 @@ every load and whenever the setting changes.
 #### milo-radio.service
 - **Role**: Internet radio player via mpv
 - **IPC Socket**: /run/milo/radio-ipc.sock
-- **Dependencies**: sound.target
+- **Dependencies**: `BindsTo=` milo-backend.service, `Requires=` sound.target; after milo-camilladsp.service
 - **ALSA Device**: milo_radio (dynamic routing via routing.env)
-- **Managed By**: RadioPlugin
+- **Managed By**: RadioSource
 - **Notes**: mpv runs in daemon mode, controlled via JSON-IPC
 
 #### milo-podcast.service
 - **Role**: Podcast player via mpv (separate instance from radio)
 - **IPC Socket**: /run/milo/podcast-ipc.sock
-- **Dependencies**: sound.target
+- **Dependencies**: `BindsTo=` milo-backend.service, `Requires=` sound.target; after milo-camilladsp.service
 - **ALSA Device**: milo_podcast (dynamic routing via routing.env)
-- **Managed By**: PodcastPlugin
+- **Managed By**: PodcastSource
 - **Notes**: Independent mpv instance for podcast playback with progress tracking
 
 #### milo-airplay.service
 - **Role**: AirPlay 2 receiver via shairport-sync
 - **Dependencies**: milo-backend.service, network-online.target, sound.target, nqptp.service (PTP clock sync, required via `Requires=`), milo-camilladsp.service
 - **ALSA Device**: milo_airplay (dynamic routing via routing.env)
-- **Managed By**: AirplaySource
+- **Managed By**: AirPlaySource
 - **Notes**: Config comes from `rootfs/etc/shairport-sync.conf` at image-build time, not runtime-managed by the backend
 
 #### nqptp.service
@@ -135,19 +138,21 @@ every load and whenever the setting changes.
 
 ### Multiroom Services (Managed Dynamically)
 
+Both have no `[Install]` section and use `PartOf=milo-backend.service`. Their only start and stop are `AudioRoutingService._start_snapcast` / `_stop_snapcast` (`backend/core/multiroom/routing.py`), called by the boot reconcile (`_sync_snapcast_state`) and the multiroom toggle, so snapcast never holds the loopback while the backend believes it is in direct mode.
+
 #### milo-snapserver-multiroom.service
 - **Role**: Snapcast server for multiroom audio synchronization
 - **Port**: 1704 (streaming, on the LAN), 1780 (JSON-RPC over HTTP and WebSocket, on 127.0.0.1 for the backend alone)
 - **Config**: /etc/snapserver.conf
-- **Dependencies**: network-online.target
-- **Managed By**: SnapcastService
+- **Dependencies**: network-online.target; `PartOf=` milo-backend.service
+- **Managed By**: AudioRoutingService
 - **Notes**: Started only when multiroom mode is enabled
 
 #### milo-snapclient-multiroom.service
 - **Role**: Snapcast client (local playback in multiroom mode)
 - **Port**: 1704 (connects to local snapserver)
-- **Dependencies**: network-online.target, milo-snapserver-multiroom.service
-- **Managed By**: SnapcastService
+- **Dependencies**: network-online.target; after milo-snapserver-multiroom.service and milo-camilladsp.service; `PartOf=` milo-backend.service
+- **Managed By**: AudioRoutingService
 - **Notes**: Plays synchronized audio from snapserver
 
 ### Infrastructure Services (backend-linked)
@@ -180,14 +185,14 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 - **Role**: Detects server vs. multiroom-client mode on first boot and applies the corresponding setup
 - **Type**: oneshot
 - **Dependencies**: After NetworkManager.service; Before avahi-daemon.service, milo-backend.service, milo-readiness.service
-- **Startup**: Enabled by the pi-gen image build (`pi-gen/stage-milo/03-configure/01-run.sh`)
+- **Startup**: Enabled at boot (`system-manifest.env`)
 - **Notes**: `TimeoutStartSec=180` to allow for network wait + multi-attempt mDNS probe + client setup. Ordered before `avahi-daemon.service` only (never `avahi-daemon.socket` — see the unit file comment on the ordering-cycle risk that can otherwise strand NetworkManager).
 
 #### milo-ir-keytable.service
 - **Role**: Enables NEC IR decoding on the kernel's rc-core, before the backend's IR controller starts
 - **Type**: oneshot (`RemainAfterExit=yes`)
 - **Dependencies**: `ConditionPathExists=/sys/class/rc`; After systemd-modules-load.service; Before milo-backend.service
-- **Startup**: Enabled at boot (`provisioning/ir-remote.sh`)
+- **Startup**: Enabled at boot (`system-manifest.env`)
 
 ### Utility Services (Always Enabled)
 
@@ -201,40 +206,40 @@ Unlike the per-source units above (`BindsTo=milo-backend.service`, started/stopp
 ## Service Dependencies Graph
 
 ```
-(boot-time oneshots, pi-gen image build or provisioning/*.sh — see Boot-Time Oneshot Services)
-  milo-first-boot.service → milo-ir-keytable.service
+graphical.target (the default target)
+  └─ milo-kiosk.service (seeded by the image, then milo-apply-hardware)
+       ├─ milo-readiness.service (Wants= + After=)
+       └─ seatd.service (Requires=)
 
-graphical.target
-  └─ milo-kiosk.service
-       ├─ milo-readiness.service
-       │    ├─ milo-backend.service
-       │    └─ nginx.service
-       └─ seatd.service
-
-multi-user.target
+multi-user.target (system-manifest.env: SYSTEM_UNITS_ENABLED)
+  ├─ milo-first-boot.service (oneshot, before avahi-daemon, the backend and the readiness)
+  ├─ milo-ir-keytable.service (oneshot, before the backend)
   ├─ milo-backend.service
   │    ├─ milo-update-inhibit.service (BindsTo=, started by the updater only)
   │    └─ milo-presence-inhibit.service (BindsTo=, started for a power-button challenge only)
-  ├─ milo-camilladsp.service
-  ├─ milo-navidrome.service
-  │    └─ milo-navidrome-config.service (Wants=, reconciles TOML before each start)
+  ├─ milo-readiness.service (Wants= milo-backend, nginx)
+  ├─ milo-camilladsp.service (PartOf= milo-backend)
+  ├─ milo-bluealsa.service (BindsTo= milo-backend)
+  │    └─ milo-bluealsa-aplay.service (BindsTo= milo-backend, milo-bluealsa)
   ├─ milo-cpu-governor.service
-  │
-  └─ (dynamically started by backend)
-       ├─ milo-spotify.service
-       ├─ milo-bluealsa.service
-       │    └─ milo-bluealsa-aplay.service
-       ├─ milo-mac.service
-       ├─ milo-radio.service
-       ├─ milo-podcast.service
-       ├─ milo-airplay.service
-       ├─ milo-cd.service
-       ├─ milo-music-library.service
-       ├─ milo-qobuz.service
-       ├─ milo-tidal.service
-       └─ (multiroom mode only)
-            ├─ milo-snapserver-multiroom.service
-            └─ milo-snapclient-multiroom.service
+  ├─ nqptp.service
+  └─ nginx, avahi-daemon, seatd, nftables, unattended-upgrades (Debian's units)
+
+(started by the backend — never enabled)
+  ├─ milo-spotify.service        (BindsTo= milo-backend, like each source below)
+  ├─ milo-mac.service
+  ├─ milo-radio.service
+  ├─ milo-podcast.service
+  ├─ milo-airplay.service
+  ├─ milo-cd.service
+  ├─ milo-music-library.service
+  ├─ milo-qobuz.service
+  ├─ milo-tidal.service
+  ├─ milo-navidrome.service (PartOf=, while the dock enables Music Library)
+  │    └─ milo-navidrome-config.service (Wants=, reconciles TOML before each start)
+  └─ (multiroom mode only, PartOf=)
+       ├─ milo-snapserver-multiroom.service
+       └─ milo-snapclient-multiroom.service
 ```
 
 ## Dynamic ALSA Routing
@@ -262,7 +267,7 @@ Services are installed by the pi-gen image build (`pi-gen/stage-milo/02-install-
 
 Which units are enabled at boot (and which are masked) is declared once, in `system-manifest.env` (`SYSTEM_UNITS_ENABLED`, `SYSTEM_UNITS_MASKED`), and applied by both paths through `milo-deploy-update`. One unit is a seed instead: `milo-kiosk.service`, enabled by the image for a first boot, then enabled or disabled by `milo-apply-hardware` for the screen the unit is given.
 
-Audio source services (librespot, roc, radio, podcast) and multiroom services (snapcast) are **NOT enabled** - they are managed dynamically by the backend.
+Audio source services (every `milo-<source>.service` but Bluetooth's two), Navidrome and the multiroom services (snapcast) are **NOT enabled** - they are managed dynamically by the backend.
 
 ## Manual Service Control
 

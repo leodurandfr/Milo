@@ -10,7 +10,11 @@
   },
   "app": {
     "connectionUnavailable": "Conexão indisponível",
-    "connecting": "A conectar…"
+    "connecting": "A conectar…",
+    "restartingTitle": "O Milō está a reiniciar…",
+    "restartingDescription": "Esta página volta sozinha assim que o Milō estiver pronto.",
+    "stuckTitle": "O Milō já não arranca",
+    "stuckDescription": "Reinicie-o desligando-o da corrente e voltando a ligá-lo. Regravar o cartão apagaria as suas definições."
   },
   "notification": {
     "connectionLostTitle": "Conexão perdida",
@@ -21,7 +25,9 @@
     "audioCardMissingTitle": "Placa de áudio não detetada",
     "audioCardMissingDescription": "{card} está configurada mas não é detetada. Verifique se a placa está bem encaixada ou escolha outra nas Definições.",
     "wifiLostTitle": "WiFi perdido",
-    "wifiLostDescription": "O Milō não consegue ligar-se à sua rede WiFi. Ligue um cabo Ethernet ou guarde novamente a sua rede em Configurações › Rede."
+    "wifiLostDescription": "O Milō não consegue ligar-se à sua rede WiFi. Ligue um cabo Ethernet ou guarde novamente a sua rede em Configurações › Rede.",
+    "setAsideTitle": "Foram repostos dados guardados",
+    "setAsideDescription": "{files} não pôde ser lido e volta aos valores predefinidos. É mantida uma cópia ao lado. | {files} não puderam ser lidos e voltam aos valores predefinidos. É mantida uma cópia de cada um ao lado."
   },
   "settings": {
     "title": "Configuração do Milō",

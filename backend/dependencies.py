@@ -217,6 +217,11 @@ def _create_service(name: str) -> Any:
             systemd_manager=get_service("systemd_manager"),
             state_machine=get_service("audio_state_machine"),
         ),
+        # The files set aside because they could not be read, kept until the
+        # owner acknowledges the banner that names them.
+        "notice_service": lambda: _import("backend.core.system.notices", "SetAsideNotices")(
+            state_machine=get_service("audio_state_machine"),
+        ),
         "hostname_conflict_service": lambda: _import("backend.core.system", "HostnameConflictService")(systemd_manager=get_service("systemd_manager")),
         "connectivity_service": lambda: _import("backend.core.connectivity", "ConnectivityService")(),
 
@@ -413,6 +418,7 @@ async def initialize_services() -> None:
     push_service = get_service("push_service")
     presence_service = get_service("presence_service")
     satellite_secret = get_service("satellite_secret")
+    notice_service = get_service("notice_service")
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
@@ -629,6 +635,9 @@ async def initialize_services() -> None:
             # The satellites' key, made at the first start (fail-open: without
             # it every satellite refuses this server's paths to root, nothing else)
             ("satellite_secret", satellite_secret.initialize()),
+            # The set-asides kept from earlier boots, and this boot's so far
+            # (STEP 3b's among them)
+            ("notice_service", notice_service.initialize()),
         ]
 
         results = await asyncio.gather(

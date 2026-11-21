@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
     from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
+    from backend.core.system.notices import SetAsideNotices
     from backend.core.system.presence import PresenceService
     from backend.core.settings import SettingsService
     from backend.core.systemd import SystemdServiceManager
@@ -101,6 +102,7 @@ def create_system_router(
     update_service: Optional["UpdateService"] = None,
     presence_service: Optional["PresenceService"] = None,
     settings_service: Optional["SettingsService"] = None,
+    notice_service: Optional["SetAsideNotices"] = None,
 ):
     router = APIRouter()
 
@@ -557,6 +559,33 @@ def create_system_router(
         if presence_service is None or not await presence_service.cancel(presence_token):
             logger.debug("No open challenge for this token")
             raise HTTPException(status_code=404, detail="No challenge open for this token")
+        return {"status": "success"}
+
+    # =========================================================================
+    # Notices: the files set aside, until the owner has read the banner
+    # =========================================================================
+
+    @router.get("/notices")
+    async def get_notices():
+        """The files Milō could not read and set aside, not yet acknowledged.
+
+        What a page reads back at every resync: the set-asides of a boot happen
+        before any client listens, so the event announcing one is heard by none.
+        """
+        notices = notice_service.notices() if notice_service is not None else []
+        return {"status": "success", "data": {"notices": [n.model_dump() for n in notices]}}
+
+    @router.delete("/notices/{notice_id}")
+    async def acknowledge_notice(notice_id: str):
+        """Drop one notice once its banner was read, on every screen at once."""
+        # A write that fails (the card this notice is about may be full) is a
+        # logged 500, and the notice stays listed.
+        async with api_error_handler("Error acknowledging a set-aside notice", logger):
+            acknowledged = notice_service is not None and await notice_service.acknowledge(notice_id)
+        if not acknowledged:
+            # Another screen acknowledged it first: expected, not a failure.
+            logger.debug("No notice %s to acknowledge", notice_id)
+            raise HTTPException(status_code=404, detail="No such notice")
         return {"status": "success"}
 
     # =========================================================================

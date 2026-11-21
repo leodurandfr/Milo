@@ -3,7 +3,7 @@
 
 # REST operations
 
-The 222 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
+The 224 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
 
 **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
@@ -347,6 +347,8 @@ The 222 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | `POST` | `/api/system/password` | DevicePasswordRequest | untyped JSON | internal |
 | `GET` | `/api/system/presence` |  | untyped JSON | internal |
 | `DELETE` | `/api/system/presence` |  | untyped JSON | internal |
+| `GET` | `/api/system/notices` |  | untyped JSON | internal |
+| `DELETE` | `/api/system/notices/{notice_id}` |  | untyped JSON | internal |
 | `GET` | `/api/system/timezone` |  | untyped JSON | internal |
 | `PUT` | `/api/system/timezone` | TimezoneRequest | untyped JSON | internal |
 | `GET` | `/api/system/daylight-location` |  | untyped JSON | internal |

@@ -21,6 +21,22 @@ server {
     root /home/milo/milo/frontend/dist;
     index index.html;
 
+    # The rescue page (frontend/milo-down.html, built into dist/ beside the
+    # app): what a screen shows while the backend does not answer. These three
+    # are the statuses nginx gives itself when it cannot reach the backend —
+    # refused while it restarts, or no answer in time — and with the page as
+    # their body the code stays as it was, which is how the app tells "Milō is
+    # gone" from "the unit is out of reach" (frontend/src/utils/backendDown.js).
+    # A 503 the backend sends is its own answer and passes through untouched:
+    # proxy_intercept_errors is off.
+    error_page 502 503 504 /milo-down.html;
+
+    # Not internal: the app also navigates to it. Never cached, like index.html,
+    # so an update that renames its scripts never leaves a stale copy.
+    location = /milo-down.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    }
+
     # Captive-portal probes. Every OS fetches a vendor URL on joining a network
     # to decide whether it is behind a portal; the setup hotspot's dnsmasq
     # answers *every* name with the AP address, so those fetches land here.

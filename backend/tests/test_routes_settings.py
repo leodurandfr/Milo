@@ -908,6 +908,15 @@ class TestSettingsRoutes:
         mock_screen_controller.write_kiosk_env.assert_awaited_once_with(1.15)
         mock_screen_controller.restart_kiosk.assert_awaited_once()
 
+    def test_set_language_reaches_the_kiosk_env(self, client, mock_screen_controller):
+        """The rescue page a kiosk shows when the backend never comes up reads
+        Chromium's languages, which kiosk.env sets: a language stored but not
+        written there opens that page in the previous one."""
+        client.put("/api/settings/language", json={"language": "german"})
+
+        mock_screen_controller.write_kiosk_env.assert_awaited_once_with(language="german")
+        mock_screen_controller.restart_kiosk.assert_not_awaited()
+
     def test_only_a_scale_changed_on_the_kiosk_reopens_its_screen_settings(
         self, client, mock_screen_controller
     ):

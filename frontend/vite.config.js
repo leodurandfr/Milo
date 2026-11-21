@@ -25,6 +25,11 @@ export default defineConfig(({ mode }) => ({
         // browser. nginx serves it directly: `try_files $uri` finds the file
         // before the SPA fallback.
         canvas: path.resolve(__dirname, 'canvas.html'),
+        // The rescue page, shown while the backend does not answer. A document
+        // of its own for the same reason: it must boot nothing that needs the
+        // backend. nginx serves it without one, and as the body of the
+        // 502/503/504 it answers when the backend is not there.
+        down: path.resolve(__dirname, 'milo-down.html'),
       },
     },
   },

@@ -10,7 +10,11 @@
   },
   "app": {
     "connectionUnavailable": "Connection unavailable",
-    "connecting": "Connecting…"
+    "connecting": "Connecting…",
+    "restartingTitle": "Milō is restarting…",
+    "restartingDescription": "This page comes back on its own as soon as Milō is ready.",
+    "stuckTitle": "Milō no longer starts",
+    "stuckDescription": "Restart it by unplugging it and plugging it back in. Reflashing its card would erase your settings."
   },
   "notification": {
     "connectionLostTitle": "Connection lost",
@@ -21,7 +25,9 @@
     "audioCardMissingTitle": "Audio card not detected",
     "audioCardMissingDescription": "{card} is configured but not detected. Check that the board is properly seated, or pick another card in Settings.",
     "wifiLostTitle": "WiFi lost",
-    "wifiLostDescription": "Milō cannot join its WiFi network. Plug in an Ethernet cable, or save your network again in Settings › Network."
+    "wifiLostDescription": "Milō cannot join its WiFi network. Plug in an Ethernet cable, or save your network again in Settings › Network.",
+    "setAsideTitle": "Saved data was reset",
+    "setAsideDescription": "{files} could not be read and starts again from its defaults. A copy is kept beside it. | {files} could not be read and start again from their defaults. A copy of each is kept beside the original."
   },
   "settings": {
     "title": "Milō Settings",

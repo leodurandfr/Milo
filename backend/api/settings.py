@@ -316,10 +316,13 @@ def create_settings_router(
 
     @router.put("/language")
     async def set_language(payload: LanguageRequest):
+        # Into kiosk.env too: a kiosk started while the backend never comes up
+        # shows the rescue page, which has only Chromium's languages to go by.
         return await _handle_setting_update(
             setter=lambda: settings.set_setting('language', payload.language),
             section='language',
             build_event=lambda language: LanguageChanged(language=language),
+            reload_callback=lambda: screen_controller.write_kiosk_env(language=payload.language),
         )
 
     # Volume limits (in dB)
