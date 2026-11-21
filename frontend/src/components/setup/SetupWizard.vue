@@ -24,6 +24,17 @@
           <NetworkStep v-else-if="currentStep === 2" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive"
             :awaiting-network="systemStore.setupAwaitingNetwork" />
 
+          <!-- The cards come from one read at mount: failed, this step had no
+               card to pick and a Continue grayed out for good, under a hint
+               asking for the pick it did not offer. The screen step is past a
+               card picked, so past a read that succeeded. -->
+          <div v-else-if="currentStep === 3 && hardwareLoadFailed" class="setup-card__load-failed">
+            <NoticeBox>{{ t('setup.hardwareLoadFailed') }}</NoticeBox>
+            <Button variant="tinted" :loading="isLoadingHardware" @click="loadHardwareOptions">
+              {{ t('setup.retry') }}
+            </Button>
+          </div>
+
           <AudioStep v-else-if="currentStep === 3" :model-value="wizardState.audioId" @update:model-value="pickAudio"
             v-model:volume-control="wizardState.volumeControl" :audio-cards="audioCards" />
 
@@ -56,7 +67,7 @@
         </template>
 
         <template v-else-if="currentStep === 3">
-          <span v-if="!wizardState.audioId" class="text-mono-small setup-card__hint">
+          <span v-if="!wizardState.audioId && !hardwareLoadFailed" class="text-mono-small setup-card__hint">
             {{ t('setup.audio.continueHint') }}
           </span>
           <Button floating variant="brand" :disabled="!wizardState.audioId" @click="nextStep">
@@ -94,6 +105,7 @@ import ScreenStep from './ScreenStep.vue';
 import SummaryStep from './SummaryStep.vue';
 import Button from '@/components/ui/Button.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import NoticeBox from '@/components/ui/NoticeBox.vue';
 import { useTimer } from '@/composables/useTimer';
 import { nextRebootStep } from '@/utils/rebootPoll';
 
@@ -114,6 +126,8 @@ let pollIntervalId = null;
 // Hardware options from API
 const audioCards = ref([]);
 const screens = ref([]);
+const hardwareLoadFailed = ref(false);
+const isLoadingHardware = ref(false);
 
 // Wizard local state (not persisted until apply)
 const wizardState = reactive({
@@ -280,10 +294,14 @@ watch([networkStatus, () => systemStore.setupAwaitingNetwork], ([status, awaitin
   }
 }, { immediate: true });
 
-onMounted(async () => {
-  document.documentElement.classList.add('setup-active');
-  systemStore.fetchStatus();
+// The cards and the screens the unit offers, and what it already names. A
+// failure says so on the steps that need them, with a retry: nothing else reads
+// them again (App.vue::resyncStores does not), and the kiosk has no reload.
+async function loadHardwareOptions() {
+  isLoadingHardware.value = true;
   const data = await loadHardwareConfig(true);
+  isLoadingHardware.value = false;
+  hardwareLoadFailed.value = !data;
   if (data) {
     audioCards.value = data.options.audio_cards;
     screens.value = data.options.screens;
@@ -301,6 +319,12 @@ onMounted(async () => {
       wizardState.screenType = screen.type;
     }
   }
+}
+
+onMounted(() => {
+  document.documentElement.classList.add('setup-active');
+  systemStore.fetchStatus();
+  loadHardwareOptions();
 });
 
 onUnmounted(() => {
@@ -397,6 +421,12 @@ onUnmounted(() => {
 
 .setup-card__body--welcome> :first-child {
   margin-top: 0;
+}
+
+.setup-card__load-failed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
 }
 
 /* Footer: absolute positioned at bottom of card */

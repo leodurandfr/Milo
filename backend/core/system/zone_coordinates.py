@@ -1,5 +1,5 @@
 # backend/core/system/zone_coordinates.py
-"""Where a timezone is, from the tz database's own tables.
+"""Where a timezone is, and which one a country is, from the tz database's own tables.
 
 The kiosk's automatic theme turns dark between sunset and sunrise, and needs a
 latitude and longitude for that — offline, with no location service. The tz
@@ -14,10 +14,25 @@ answers for those. A name in neither may be a link — `PUT /timezone` offers
 every name zoneinfo knows, America/Montreal and Asia/Istanbul among them — so
 it is resolved through `tzdata.zi`'s `L <target> <link>` lines and the target
 looked up instead. A zone with no point at all (`Etc/UTC`) has no location: None.
+
+The same links answer `PUT /timezone`, which takes a legacy name a browser
+reports (Chromium's `Asia/Calcutta`, a link tzdata ships only as a line of
+tzdata.zi) as the zone it names (`Asia/Kolkata`).
+
+And the kiosk, whose browser is this system and so reports nothing new, is
+given the zone of the unit's WiFi country instead: `zone.tab`, which keeps one
+line per zone of each country, names it when the country keeps one clock —
+every zone it lists for the country on the same UTC offsets, winter and summer
+(Germany's Berlin and Busingen). A country with several clocks (the United
+States, Spain with the Canaries) names none: a guess there would read as a
+choice and stop the next phone from handing the unit its exact zone.
 """
+import asyncio
 import logging
 import re
-from typing import Iterable, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Iterable, List, Optional, Tuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiofiles
 
@@ -28,6 +43,8 @@ ZONE_TABLES = (
     "/usr/share/zoneinfo/zone.tab",
 )
 ZONE_LINKS = "/usr/share/zoneinfo/tzdata.zi"
+# One line per zone of each country, the zones merged out of zone1970.tab kept.
+COUNTRY_TABLE = "/usr/share/zoneinfo/zone.tab"
 
 # ISO 6709 as the tz tables write it: ±DDMM±DDDMM or ±DDMMSS±DDDMMSS.
 _ISO6709 = re.compile(
@@ -69,6 +86,37 @@ def find_link_target(zi: str, zone: str) -> Optional[str]:
     return None
 
 
+def find_country_zones(table: str, country: str) -> List[str]:
+    """The zones one tz table lists for `country`, in the table's order."""
+    zones = []
+    for line in table.splitlines():
+        if line.startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) >= 3 and country in fields[0].split(","):
+            zones.append(fields[2])
+    return zones
+
+
+def keep_one_clock(zones: Iterable[str], year: int) -> bool:
+    """Whether every zone shows the same UTC offset in January and in July of `year`.
+
+    A name this system cannot load (a table newer than the zoneinfo tree) is
+    not one clock: nothing can say it agrees.
+    """
+    instants = [datetime(year, month, 15, 12, tzinfo=timezone.utc) for month in (1, 7)]
+    offsets = set()
+    for zone in zones:
+        try:
+            info = ZoneInfo(zone)
+        except (ZoneInfoNotFoundError, ValueError):
+            return False
+        offsets.add(tuple(instant.astimezone(info).utcoffset() for instant in instants))
+        if len(offsets) > 1:
+            return False
+    return len(offsets) == 1
+
+
 async def _read(path: str) -> Optional[str]:
     """A missing file is skipped: the theme then stays light, which is the
     setting's safe side."""
@@ -101,6 +149,36 @@ async def read_zone_coordinates(
     found = lookup(zone)
     if found is not None:
         return found
-    zi = await _read(links if links is not None else ZONE_LINKS)
-    target = find_link_target(zi, zone) if zi else None
+    target = await read_link_target(zone, links)
     return lookup(target) if target else None
+
+
+async def read_link_target(zone: str, links: Optional[str] = None) -> Optional[str]:
+    """The zone tzdata.zi makes `zone` a link to, or None (a zone, or no name)."""
+    zi = await _read(links if links is not None else ZONE_LINKS)
+    return find_link_target(zi, zone) if zi else None
+
+
+async def read_country_zone(
+    country: Optional[str],
+    table: Optional[str] = None,
+    year: Optional[int] = None,
+) -> Optional[str]:
+    """The zone `country` keeps, when it keeps one clock: the first zone.tab lists.
+
+    None for no country (the wizard has not asked yet), a country the table does
+    not list, or one whose zones keep different clocks.
+    """
+    if not country:
+        return None
+    contents = await _read(table if table is not None else COUNTRY_TABLE)
+    zones = find_country_zones(contents, country) if contents else []
+    if not zones:
+        return None
+    # Off the loop: each ZoneInfo reads a tzfile, and the United States lists 29.
+    one_clock = await asyncio.to_thread(
+        keep_one_clock, zones, year if year is not None else datetime.now(timezone.utc).year
+    )
+    if not one_clock:
+        return None
+    return zones[0]

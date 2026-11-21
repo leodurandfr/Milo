@@ -583,6 +583,45 @@ class TestTheStorefront:
         assert "country" not in session.requests[0][1]
 
 
+    async def test_a_country_with_no_store_is_searched_in_the_default_one(
+        self, http, no_throttle
+    ):
+        """Every regulatory domain can be `wifi.country`, and Apple answers 400
+        for a country it has no store in (Réunion, Guadeloupe, Iran). A 400 is
+        never cached, so a household there had no cover for any track, each
+        track change a failed request. Asked again without the country, and
+        never asked with it after that."""
+        session = http([
+            (400, None),
+            (200, _itunes([])),
+            (200, _itunes([])),
+        ])
+        resolver = ArtworkResolver(_Settings("RE"))
+
+        await resolver._request("https://itunes.apple.com/search", {"term": "A"})
+        await resolver._request("https://itunes.apple.com/search", {"term": "B"})
+
+        assert [params.get("country") for _, params in session.requests] == ["RE", None, None]
+
+    async def test_a_400_the_default_store_also_answers_costs_the_country_nothing(
+        self, http, no_throttle
+    ):
+        """A 400 that is not about the country (a query iTunes refuses in any
+        store) must not stop the next search reading the household's store."""
+        session = http([
+            (400, None),
+            (400, None),
+            (200, _itunes([])),
+        ])
+        resolver = ArtworkResolver(_Settings("FR"))
+
+        with pytest.raises(_LookupUnavailable):
+            await resolver._request("https://itunes.apple.com/search", {"term": "A"})
+        await resolver._request("https://itunes.apple.com/search", {"term": "B"})
+
+        assert session.requests[2][1]["country"] == "FR"
+
+
 class TestTheThrottle:
     async def test_the_calls_are_spaced_by_the_politeness_interval(
         self, monkeypatch, http

@@ -944,6 +944,8 @@
     "stepLabel": "Schritt {n}",
     "back": "Zurück",
     "continue": "Weiter",
+    "retry": "Erneut versuchen",
+    "hardwareLoadFailed": "Milō konnte seine Liste der Audiokarten nicht lesen.",
     "welcome": {
       "title": "Willkommen bei Milō",
       "subtitle": "Richten wir Ihr Audiosystem ein!",
@@ -977,7 +979,7 @@
       "screen": "Bildschirm",
       "applyAndReboot": "Anwenden und neu starten",
       "confirmReboot": "Neustart bestätigen",
-      "accessHint": "Verbinden Sie sich nach dem Neustart mit dem Netzwerk {ssid} und öffnen Sie milo.local in Ihrem Browser, um auf Milō zuzugreifen.",
+      "accessHint": "Verbinden Sie sich nach dem Neustart mit dem Netzwerk {ssid} und öffnen Sie milo.local in Ihrem Browser, um auf Milō zuzugreifen. Falls sich die Seite nicht öffnet, suchen Sie milo in der Geräteliste Ihres Routers und öffnen Sie die dort angezeigte Adresse.",
       "rebooting": "Neustart…",
       "rebootingDescription": "Bitte warten Sie, während das System neu startet.",
       "rebootTimeout": "Zeitüberschreitung beim Neustart. Bitte laden Sie die Seite neu.",

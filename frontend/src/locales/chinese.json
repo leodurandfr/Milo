@@ -944,6 +944,8 @@
     "stepLabel": "步骤 {n}",
     "back": "返回",
     "continue": "继续",
+    "retry": "重试",
+    "hardwareLoadFailed": "Milō 无法读取其音频卡列表。",
     "welcome": {
       "title": "欢迎使用 Milō",
       "subtitle": "让我们配置您的音频系统！",
@@ -977,7 +979,7 @@
       "screen": "屏幕",
       "applyAndReboot": "应用并重启",
       "confirmReboot": "确认重启",
-      "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。",
+      "accessHint": "重启后，连接到网络 {ssid} 并在浏览器中打开 milo.local 以访问 Milō。如果无法打开，请在您的路由器的已连接设备列表中查找 milo，然后打开其中显示的地址。",
       "rebooting": "正在重启…",
       "rebootingDescription": "请等待系统重启。",
       "rebootTimeout": "重启超时。请刷新页面。",

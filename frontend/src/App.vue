@@ -147,7 +147,7 @@ import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { useTimer } from '@/composables/useTimer';
 import { handleNetworkStatusChanged, preloadNetworkStatus } from '@/composables/useNetwork';
-import { adoptBrowserTimezone } from '@/composables/useTimezone';
+import { adoptTimezone } from '@/composables/useTimezone';
 import { createServerSync } from '@/services/serverSync';
 import { isBackendRestart, isStaleBuild } from '@/utils/serverInstance';
 import { clearRescueSince, isBackendDown, rescuePageUrl } from '@/utils/backendDown';
@@ -627,9 +627,21 @@ watch(isReady, (ready) => {
 // Once the initial state says whether this unit is on its recovery access point:
 // a write from a client of it is refused (api/middleware.py), so a phone running
 // the wizard there would only log a refusal. The next browser on the home network
-// adopts its zone, while the zone is still the default.
+// adopts its zone, while the zone is still the default. The kiosk is a loopback
+// client, never one of the AP's, and adopts its WiFi country's zone once the unit
+// is set up — which can be at the first link, after the wizard's reboot and with
+// no reload: the backend offers no country zone before it.
 function adoptTimezoneOnceReady() {
-  const adopt = () => { if (!settingsStore.hotspotActive) adoptBrowserTimezone(); };
+  if (isKiosk()) {
+    let adopted = false;
+    watch(() => settingsStore.setupCompleted, (completed) => {
+      if (completed !== true || adopted) return;
+      adopted = true;
+      adoptTimezone();
+    }, { immediate: true });
+    return;
+  }
+  const adopt = () => { if (!settingsStore.hotspotActive) adoptTimezone(); };
   if (isReady.value) adopt();
   else watch(isReady, adopt, { once: true });
 }

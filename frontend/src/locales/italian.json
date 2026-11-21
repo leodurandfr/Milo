@@ -944,6 +944,8 @@
     "stepLabel": "Passo {n}",
     "back": "Indietro",
     "continue": "Continua",
+    "retry": "Riprova",
+    "hardwareLoadFailed": "Milō non è riuscito a leggere l'elenco delle sue schede audio.",
     "welcome": {
       "title": "Benvenuto su Milō",
       "subtitle": "Configuriamo il suo sistema audio!",
@@ -977,7 +979,7 @@
       "screen": "Schermo",
       "applyAndReboot": "Applica e riavvia",
       "confirmReboot": "Conferma riavvio",
-      "accessHint": "Dopo il riavvio, si connetta alla rete {ssid} e apra milo.local nel suo browser per accedere a Milō.",
+      "accessHint": "Dopo il riavvio, si connetta alla rete {ssid} e apra milo.local nel suo browser per accedere a Milō. Se non si apre, cerchi milo nell'elenco dei dispositivi del suo router e apra l'indirizzo indicato.",
       "rebooting": "Riavvio…",
       "rebootingDescription": "Attenda il riavvio del sistema.",
       "rebootTimeout": "Riavvio scaduto. Aggiorni la pagina.",

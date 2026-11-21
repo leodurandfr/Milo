@@ -1,8 +1,9 @@
 <!-- frontend/src/components/settings/categories/LanguageSettings.vue -->
 <!-- Language and timezone: the two answers to "where am I, how do I read
      things". The timezone is normally already right — the first browser to
-     open the UI reports its own and the backend adopts it while nothing has
-     been chosen (App.vue::adoptBrowserTimezone) — so this is the correction,
+     open the UI reports its own, or the kiosk its WiFi country's, and the
+     backend adopts it while nothing has been chosen
+     (composables/useTimezone.js::adoptTimezone) — so this is the correction,
      not the question. -->
 <template>
   <SectionStack>

@@ -39,6 +39,9 @@ class HardwareService:
         self._cache: Optional[Dict] = None
         # Held by `replace_config` from the write to the end of the apply.
         self._replace_lock = asyncio.Lock()
+        # The missing card last logged, so the log line marks a change of answer
+        # rather than every reading of it (`get_missing_audio_card`).
+        self._logged_missing_card: Optional[str] = None
 
     # =========================================================================
     # PRIVATE — load
@@ -203,6 +206,10 @@ class HardwareService:
         part of that is silent from the UI, which is the reason this exists.
         Diagnosis is a state, not an event: a HAT is not hot-pluggable, so the
         answer is settled at boot and read back through `GET /api/system/status`.
+        It is logged when it changes, never at each reading: every browser asks
+        at each load, reconnection and return to its tab, and an error logged
+        there became a second, generic "system error" banner each time, beside
+        the notice that names the card, and the same line in errors.log.
 
         Fails open in both directions that are not a real answer — no card
         configured yet, or /proc/asound unreadable (a dev host has no such tree)
@@ -212,21 +219,28 @@ class HardwareService:
         """
         audio_id = self.get_audio_id()
         if not audio_id:
+            # No answer is not an answer of "present": forgotten, so the card
+            # missing again after it is logged again.
+            self._logged_missing_card = None
             return None
 
         try:
             cards = Path("/proc/asound/cards").read_text()
         except OSError:
+            self._logged_missing_card = None
             return None
 
         label = missing_card_label(audio_id, alsa_card_ids(cards))
-        if label is None:
-            return None
-        self.logger.error(
-            "Audio card '%s' (%s) is configured but ALSA does not see it — "
-            "check that the board is seated, or pick another card in Settings",
-            label, OUTPUT_CARD,
-        )
+        if label != self._logged_missing_card:
+            if label is None:
+                self.logger.info("Audio card '%s' is no longer reported missing", self._logged_missing_card)
+            else:
+                self.logger.error(
+                    "Audio card '%s' (%s) is configured but ALSA does not see it — "
+                    "check that the board is seated, or pick another card in Settings",
+                    label, OUTPUT_CARD,
+                )
+            self._logged_missing_card = label
         return label
 
     # =========================================================================

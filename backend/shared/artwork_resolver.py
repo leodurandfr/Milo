@@ -44,7 +44,7 @@ import re
 import time
 import unicodedata
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
@@ -193,6 +193,8 @@ class ArtworkResolver:
         self._lock = asyncio.Lock()
         self._last_call = 0.0
         self._settings_service = settings_service
+        # Countries Apple has no store in (`_request`): searched without one.
+        self._storeless: set = set()
 
     async def _storefront(self) -> Optional[str]:
         """The iTunes store to search, or None for the API's own default (US).
@@ -380,17 +382,27 @@ class ArtworkResolver:
             # reported the one way, so a settings read that ever raises does not
             # escape as something the caller has no arm for.
             storefront = await self._storefront()
-            if storefront:
+            if storefront and storefront not in self._storeless:
                 params["country"] = storefront
             timeout = aiohttp.ClientTimeout(total=_HTTP_TIMEOUT)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                await self._throttle()
-                async with session.get(url, params=params) as resp:
-                    if resp.status != 200:
-                        logger.info(f"iTunes {url} -> HTTP {resp.status}")
-                        raise _LookupUnavailable(url)
-                    # iTunes returns text/javascript; parse leniently.
-                    data = await resp.json(content_type=None)
+                status, data = await self._get(session, url, params)
+                if status == 400 and "country" in params:
+                    # Apple answers 400 for a country it has no store in
+                    # (Réunion, Guadeloupe, Iran — any regulatory domain can be
+                    # `wifi.country`), and a 400 is never cached: every track
+                    # would fail again. The question is put again with the
+                    # API's own store, and the country remembered as store-less
+                    # only once that answered, so a 400 about anything else
+                    # costs a country nothing.
+                    country = params.pop("country")
+                    status, data = await self._get(session, url, params)
+                    if status == 200:
+                        logger.info(f"No iTunes store for '{country}', searching the default one")
+                        self._storeless.add(country)
+                if status != 200:
+                    logger.info(f"iTunes {url} -> HTTP {status}")
+                    raise _LookupUnavailable(url)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             logger.info(f"Artwork lookup failed ({params}): {e}")
             raise _LookupUnavailable(url) from e
@@ -402,6 +414,15 @@ class ArtworkResolver:
             logger.info(f"iTunes answered {data!r}, not a result set")
             raise _LookupUnavailable(url)
         return data
+
+    async def _get(self, session, url: str, params: Dict[str, str]) -> Tuple[int, Any]:
+        """One throttled GET: its status, and its body when that is 200."""
+        await self._throttle()
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                return resp.status, None
+            # iTunes returns text/javascript; parse leniently.
+            return resp.status, await resp.json(content_type=None)
 
     async def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_call

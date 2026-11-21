@@ -944,6 +944,8 @@
     "stepLabel": "Passo {n}",
     "back": "Voltar",
     "continue": "Continuar",
+    "retry": "Tentar novamente",
+    "hardwareLoadFailed": "O Milō não conseguiu ler a sua lista de placas de áudio.",
     "welcome": {
       "title": "Bem-vindo ao Milō",
       "subtitle": "Vamos configurar o seu sistema de áudio!",
@@ -977,7 +979,7 @@
       "screen": "Ecrã",
       "applyAndReboot": "Aplicar e reiniciar",
       "confirmReboot": "Confirmar reinício",
-      "accessHint": "Após o reinício, ligue-se à rede {ssid} e abra milo.local no seu navegador para aceder ao Milō.",
+      "accessHint": "Após o reinício, ligue-se à rede {ssid} e abra milo.local no seu navegador para aceder ao Milō. Se não abrir, procure milo na lista de dispositivos do seu router e abra o endereço indicado.",
       "rebooting": "A reiniciar…",
       "rebootingDescription": "Aguarde enquanto o sistema reinicia.",
       "rebootTimeout": "O tempo de espera do reinício expirou. Atualize a página.",

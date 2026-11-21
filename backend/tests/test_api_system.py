@@ -1007,10 +1007,9 @@ class TestTimezone:
     ):
         """A zone the unit does not offer is the caller's mistake, not a fault.
 
-        Chromium reports bare `UTC` and legacy CLDR ids (`Asia/Calcutta`,
-        absent without tzdata-legacy), which the list does not carry, and
-        `Etc/UTC` on a computer kept in UTC. Only the first two `UTC`s are
-        refused on every host. Logged at error, the refusal
+        Chromium reports bare `UTC` (a link to `Etc/UTC`, which names no
+        place) and `Etc/UTC` on a computer kept in UTC; a legacy CLDR id with a
+        link to an offered zone is set as that zone (below). Logged at error, the refusal
         became `system/backend_error` — the red banner on every open screen,
         kiosk included, each time such a browser opened the UI. The warning
         still lands in `errors.log`.
@@ -1040,6 +1039,97 @@ class TestTimezone:
 
         assert response.status_code == 200
         assert spawn.calls[0] == ("sudo", "/usr/local/bin/milo-set-timezone", "Asia/Singapore")
+
+    def test_a_legacy_name_is_set_as_the_zone_it_links_to(
+        self, client, spawn, localtime, tmp_path, monkeypatch
+    ):
+        """Chromium reports CLDR ids, `Asia/Calcutta` in India, which tzdata
+        keeps only as a link line of tzdata.zi. Refused, a browser there never
+        gave the unit its zone and the kiosk's Auto theme stayed light all day;
+        set as given, the helper would refuse a name with no file behind it."""
+        from backend.core.system import zone_coordinates
+
+        links = tmp_path / "tzdata.zi"
+        links.write_text("L Asia/Kolkata Asia/Calcutta\nL Etc/UTC UTC\n")
+        monkeypatch.setattr(zone_coordinates, "ZONE_LINKS", str(links))
+        localtime("Etc/UTC")
+        spawn.script(returncode=0)
+
+        response = client.put("/api/system/timezone", json={"timezone": "Asia/Calcutta"})
+
+        assert response.status_code == 200
+        assert spawn.calls == [("sudo", "/usr/local/bin/milo-set-timezone", "Asia/Kolkata")]
+
+    def test_a_link_to_a_zone_the_list_does_not_offer_is_refused(
+        self, client, spawn, localtime, tmp_path, monkeypatch
+    ):
+        """`UTC` is a link to `Etc/UTC`, which names no place and is the shipped
+        default: resolved and set, a computer kept in UTC would mark the zone
+        chosen and no browser could adopt one after it."""
+        from backend.core.system import zone_coordinates
+
+        links = tmp_path / "tzdata.zi"
+        links.write_text("L Etc/UTC UTC\n")
+        monkeypatch.setattr(zone_coordinates, "ZONE_LINKS", str(links))
+        localtime("Etc/UTC")
+
+        response = client.put("/api/system/timezone", json={"timezone": "UTC"})
+
+        assert response.status_code == 400
+        assert spawn.calls == []
+
+    @pytest.mark.parametrize("country,zone", [("SG", "Asia/Singapore"), ("US", None), ("", None)])
+    def test_the_kiosk_is_offered_the_zone_of_the_wifi_country(
+        self, systemd, localtime, tmp_path, monkeypatch, country, zone
+    ):
+        """The kiosk's browser is this system and reports the shipped UTC, so the
+        WiFi country the wizard asks for is what the kiosk adopts. None where the
+        country keeps several clocks or none was chosen yet: the kiosk then
+        leaves the zone to a phone or to Settings."""
+        from backend.core.system import zone_coordinates
+
+        table = tmp_path / "zone.tab"
+        table.write_text(
+            "SG\t+0117+10351\tAsia/Singapore\n"
+            "US\t+404251-0740023\tAmerica/New_York\n"
+            "US\t+340308-1181434\tAmerica/Los_Angeles\n"
+        )
+        monkeypatch.setattr(zone_coordinates, "COUNTRY_TABLE", str(table))
+        stored = {"setup_completed": True, "wifi.country": country}
+        settings = Mock()
+        settings.get_setting = AsyncMock(side_effect=stored.get)
+        app = FastAPI()
+        app.include_router(create_system_router(systemd, settings_service=settings), prefix="/api/system")
+        localtime("Etc/UTC")
+
+        data = TestClient(app).get("/api/system/timezone").json()["data"]
+
+        assert data["country_zone"] == zone
+
+    def test_the_kiosk_is_offered_no_zone_while_the_wizard_runs(
+        self, systemd, localtime, tmp_path, monkeypatch
+    ):
+        """The wizard's network step writes a country guessed from the UI
+        language as it opens (French → FR), before anyone confirms it. Offered
+        then, a kiosk reload in that window adopted Europe/Paris and marked it
+        chosen, and a household in Quebec that corrected the country to CA kept
+        a clock six hours off, with no browser able to hand it the right one."""
+        from backend.core.system import zone_coordinates
+
+        table = tmp_path / "zone.tab"
+        table.write_text("FR\t+4852+00220\tEurope/Paris\n")
+        monkeypatch.setattr(zone_coordinates, "COUNTRY_TABLE", str(table))
+        stored = {"setup_completed": False, "wifi.country": "FR"}
+        settings = Mock()
+        settings.get_setting = AsyncMock(side_effect=stored.get)
+        app = FastAPI()
+        app.include_router(create_system_router(systemd, settings_service=settings), prefix="/api/system")
+        localtime("Etc/UTC")
+
+        client = TestClient(app)
+        assert client.get("/api/system/timezone").json()["data"]["country_zone"] is None
+        stored["setup_completed"] = True
+        assert client.get("/api/system/timezone").json()["data"]["country_zone"] == "Europe/Paris"
 
     def test_a_new_zone_is_broadcast_with_its_point(self, systemd, spawn, localtime, tmp_path, monkeypatch):
         """The kiosk's `auto` theme reads sunset from the zone's point and never

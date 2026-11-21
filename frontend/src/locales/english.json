@@ -944,6 +944,8 @@
     "stepLabel": "Step {n}",
     "back": "Back",
     "continue": "Continue",
+    "retry": "Retry",
+    "hardwareLoadFailed": "Milō could not read its list of audio cards.",
     "welcome": {
       "title": "Welcome to Milō",
       "subtitle": "Let's configure your audio system!",
@@ -977,7 +979,7 @@
       "screen": "Screen",
       "applyAndReboot": "Apply & Reboot",
       "confirmReboot": "Confirm reboot",
-      "accessHint": "After restart, connect to the {ssid} network and open milo.local in your browser to access Milō.",
+      "accessHint": "After restart, connect to the {ssid} network and open milo.local in your browser to access Milō. If it does not open, look for milo in your router's list of connected devices and open the address shown there.",
       "rebooting": "Rebooting…",
       "rebootingDescription": "Please wait while the system restarts.",
       "rebootTimeout": "Reboot timed out. Please refresh the page.",

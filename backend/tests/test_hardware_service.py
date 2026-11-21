@@ -627,6 +627,52 @@ class TestTheConfiguredCardBeingThere:
 
         assert service.get_missing_audio_card() == AUDIO_CARDS["none"]["label"]
 
+    def test_a_missing_card_is_logged_once_not_at_every_reading(self, service, cards_file, caplog):
+        """Every browser reads the status at each load, reconnection and return
+        to its tab. An error logged at each reading reached every screen as a
+        generic "system error" banner beside the notice that names the card,
+        and errors.log gained the same line each time. Read three times, the
+        answer is the same three times and the error is written once — and once
+        more only after the card was seen in between."""
+        caplog.set_level(logging.INFO, logger="backend.hardware.service")
+        cards_file.write_text(" 0 [vc4hdmi        ]: vc4-hdmi\n")
+        self._configure(service, "hifiberry_amp2")
+
+        def errors():
+            return [r for r in caplog.records
+                    if r.name == "backend.hardware.service" and r.levelno >= logging.ERROR]
+
+        label = AUDIO_CARDS["hifiberry_amp2"]["label"]
+        assert [service.get_missing_audio_card() for _ in range(3)] == [label] * 3
+        assert len(errors()) == 1
+
+        cards_file.write_text(PI5_WITH_HAT)
+        assert service.get_missing_audio_card() is None
+        cards_file.write_text(" 0 [vc4hdmi        ]: vc4-hdmi\n")
+        assert service.get_missing_audio_card() == label
+        assert len(errors()) == 2
+
+    def test_a_reading_with_no_answer_forgets_the_card_logged(self, service, cards_file, caplog):
+        """An unreadable /proc/asound answers None without saying the card came
+        back. Kept as the card last logged, the same card missing after it would
+        write no error at all — the one reading that is a new fault."""
+        caplog.set_level(logging.INFO, logger="backend.hardware.service")
+        self._configure(service, "hifiberry_amp2")
+        assert service.get_audio_id() == "hifiberry_amp2"
+
+        def errors():
+            return [r for r in caplog.records
+                    if r.name == "backend.hardware.service" and r.levelno >= logging.ERROR]
+
+        cards_file.write_text(" 0 [vc4hdmi        ]: vc4-hdmi\n")
+        assert service.get_missing_audio_card() is not None
+        cards_file.unlink()
+        assert service.get_missing_audio_card() is None
+        cards_file.write_text(" 0 [vc4hdmi        ]: vc4-hdmi\n")
+        assert service.get_missing_audio_card() is not None
+
+        assert len(errors()) == 2
+
     def test_an_unreadable_proc_reports_nothing(self, service, monkeypatch):
         """Fails open: a dev host has no /proc/asound at all, and reporting
         hardware trouble nobody observed is worse than reporting none."""

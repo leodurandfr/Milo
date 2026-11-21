@@ -24,7 +24,11 @@ from backend.core.models.presence import PresenceAction
 from backend.core.models.ws_events import SystemTimezoneChanged
 from backend.core.system.localtime import current_timezone
 from backend.core.system.presence import PRESENCE_HEADER
-from backend.core.system.zone_coordinates import read_zone_coordinates
+from backend.core.system.zone_coordinates import (
+    read_country_zone,
+    read_link_target,
+    read_zone_coordinates,
+)
 from backend.config import constants
 from backend.config.constants import (
     PASSWORD_CHANGED_MARKER,
@@ -601,14 +605,29 @@ def create_system_router(
         has chosen one — the shipped zone, which no PUT can set. The
         list rides along so the settings dropdowns are built from the zones this
         system actually has rather than a table restated in the frontend.
+
+        `country_zone` is what the kiosk adopts instead, its browser being this
+        system: the zone of the WiFi country the unit was set up with, when that
+        country keeps one clock (`zone_coordinates.read_country_zone`), else
+        None — and None until setup is complete. The wizard's network step
+        writes a country guessed from the UI language as it opens, before anyone
+        confirmed it: adopted then, a kiosk reload in that window would mark the
+        guessed country's zone as chosen, and the country corrected after it
+        would never move the zone again.
         """
         current = current_timezone()
+        available = _available_timezones()
+        country = None
+        if settings_service is not None and await settings_service.get_setting("setup_completed"):
+            country = await settings_service.get_setting("wifi.country")
+        country_zone = await read_country_zone(country)
         return {
             "status": "success",
             "data": {
                 "timezone": current,
                 "is_default": current == DEFAULT_TIMEZONE,
-                "available": _available_timezones(),
+                "available": available,
+                "country_zone": country_zone if country_zone in available else None,
             },
         }
 
@@ -628,14 +647,25 @@ def create_system_router(
 
         The satellites follow after the answer, from the zone read back off the
         system: a slow or absent one never holds up the settings screen.
+
+        A legacy name is set as the zone it is a link to: Chromium reports CLDR
+        ids (`Asia/Calcutta`), which tzdata keeps only as a line of tzdata.zi,
+        so a browser in India would otherwise be refused for good and the unit
+        left on UTC. Anything else the list does not offer is refused.
         """
-        if payload.timezone not in _available_timezones():
-            logger.warning("Rejected unknown timezone %r", payload.timezone)
-            raise HTTPException(status_code=400, detail=f"Unknown timezone: {payload.timezone}")
+        zone = payload.timezone
+        available = _available_timezones()
+        if zone not in available:
+            target = await read_link_target(zone)
+            if target not in available:
+                logger.warning("Rejected unknown timezone %r", zone)
+                raise HTTPException(status_code=400, detail=f"Unknown timezone: {zone}")
+            logger.info("Timezone %s is a link to %s, which is set", zone, target)
+            zone = target
 
         async with api_error_handler("Error setting the timezone", logger):
             proc = await asyncio.create_subprocess_exec(
-                "sudo", SET_TIMEZONE_CMD, payload.timezone,
+                "sudo", SET_TIMEZONE_CMD, zone,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -645,7 +675,7 @@ def create_system_router(
                 logger.error("milo-set-timezone failed (rc=%s): %s", proc.returncode, detail)
                 raise HTTPException(status_code=500, detail=f"Failed to set timezone: {detail}")
 
-            logger.info("Timezone set to %s", payload.timezone)
+            logger.info("Timezone set to %s", zone)
             if state_machine is not None:
                 await state_machine.broadcast(SystemTimezoneChanged(**await _daylight_location()))
             if satellite_timezone_service is not None:
