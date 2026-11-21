@@ -24,9 +24,15 @@ import uuid
 
 import aiohttp
 from typing import Optional, TYPE_CHECKING
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
-from backend.api.route_helpers import CONTRACTED, api_error_handler
+from backend.api.route_helpers import (
+    CONTRACTED,
+    PresenceAnswer,
+    api_error_handler,
+    presence_answer,
+    require_presence,
+)
 from backend.api.models import (
     ZoneCreate, ZoneUpdate, ZoneAddClient, ClientUpdateRequest,
     ClientEqIndependentRequest, ClientDelayRequest, ClientGainRequest,
@@ -44,12 +50,16 @@ from backend.api.responses import (
 )
 from backend.config.constants import CLIENT_API_PORT, get_client_display_name
 from backend.core.equalizer.client_proxy import CommandNotApplied
+from backend.core.models.presence import PresenceAction
 from backend.core.network.addresses import server_addresses
 from backend.core.multiroom.models import EqualizerSettings
+from backend.core.multiroom.satellite_http import Holding, SatelliteSecretUnavailable
 from backend.hardware.registry import missing_card_label
 
 if TYPE_CHECKING:
     from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
+    from backend.core.multiroom.satellite_http import SatelliteSecret
+    from backend.core.system.presence import PresenceService
     from backend.core.multiroom.client_registry import ClientRegistryService
     from backend.core.multiroom.crossover import CrossoverService
     from backend.core.multiroom.equalizer_router import EqualizerRouter
@@ -130,6 +140,41 @@ async def _satellite_reply(resp: aiohttp.ClientResponse, mac_id: str) -> dict:
     raise HTTPException(status_code=502, detail=f"Satellite refused: {detail}")
 
 
+async def _signed(
+    satellite_secret: Optional["SatelliteSecret"], registry_service, mac_id: str, client_ip: str,
+) -> dict:
+    """The headers a satellite's path to root requires of this server (core/multiroom/satellite_http.py).
+
+    503 when this server cannot make them — a router built without the secret
+    refuses those routes rather than sending them bare, which the satellite
+    would refuse anyway. 409 when the satellite refuses them, asked of the
+    satellite itself by the hand-over (which pins the secret on one that holds
+    none and only compares it otherwise): a satellite that pinned another
+    server — this one reflashed, or a host that reached it first — is found
+    out here, not at the last request. Asked before anything is sent, so a
+    refused request has changed nothing and asked for no gesture.
+    """
+    if satellite_secret is None:
+        logger.error(f"Refused a path to root on satellite {mac_id}: no satellite secret on this server")
+        raise HTTPException(status_code=503, detail="This server holds no satellite secret")
+    try:
+        headers = await satellite_secret.headers(mac_id)
+    except SatelliteSecretUnavailable as e:
+        logger.error(f"Refused a path to root on satellite {mac_id}: {e}")
+        raise HTTPException(status_code=503, detail=str(e)) from None
+    async with _reaching_satellite(registry_service, mac_id, client_ip):
+        holding = await satellite_secret.probe(mac_id, client_ip)
+    if holding is Holding.REFUSED:
+        logger.warning(f"Refused a path to root on satellite {mac_id}: it refuses this server's secret")
+        raise HTTPException(
+            status_code=409,
+            detail="This speaker refuses this server's secret: it answers another server, or "
+                   "cannot read its own pin. Its update, remote access and reboot stay refused "
+                   "to this server until it is adopted again",
+        )
+    return headers
+
+
 @contextlib.asynccontextmanager
 async def _reaching_satellite(registry_service, mac_id: str, client_ip: str):
     """One exchange with a satellite, its two ways of failing told apart.
@@ -193,14 +238,24 @@ async def _push_volume_control(
 
 async def _send_audio_config_and_reboot(
     mac_id: str, client_ip: str, audio_id: str, overlay: str,
-    volume_control: bool = True, registry_service=None,
+    volume_control: bool = True, registry_service=None, satellite_secret=None,
+    before_write=None,
 ):
     """Send audio config to a milo-client and reboot it. Raises HTTPException on failure.
 
     ``registry_service`` is passed only for an already-registered client, so an
     unreachable satellite is also marked offline (see _mark_unreachable). A
     pending client has no registry entry yet.
+
+    The reboot carries the server's secret (``satellite_secret``), made and
+    accepted by the satellite (`_signed`) before ``before_write`` runs and the
+    card is written: a card left on disk for a reboot that is then refused
+    would change the speaker's output at its next power cut. A pending client
+    pins that secret here, since nothing has admitted it yet.
     """
+    reboot_headers = await _signed(satellite_secret, registry_service, mac_id, client_ip)
+    if before_write is not None:
+        await before_write()
     timeout = aiohttp.ClientTimeout(total=10)
     async with _reaching_satellite(registry_service, mac_id, client_ip):
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -226,7 +281,9 @@ async def _send_audio_config_and_reboot(
             # worked. A dropped connection stays a warning: that is what a
             # satellite that *is* rebooting looks like.
             try:
-                async with session.post(f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware/reboot") as resp:
+                async with session.post(
+                    f"http://{client_ip}:{CLIENT_API_PORT}/api/hardware/reboot", headers=reboot_headers,
+                ) as resp:
                     if resp.status != 200:
                         body = await resp.text()
                         logger.error(f"Client {mac_id} refused to reboot: {resp.status} {body}")
@@ -246,12 +303,17 @@ def create_multiroom_router(
     snapcast_service: Optional["SnapcastService"] = None,
     equalizer_router: Optional["EqualizerRouter"] = None,
     volume_service: Optional["VolumeService"] = None,
+    presence_service: Optional["PresenceService"] = None,
+    satellite_secret: Optional["SatelliteSecret"] = None,
 ):
     """
     Creates multiroom router with dependency injection.
 
     Provides /api/multiroom/clients/ endpoints per architecture specification.
-    Delegates all operations to ClientRegistryService.
+    Delegates all operations to ClientRegistryService. ``satellite_secret`` is
+    what a satellite's paths to root (its reboot, SSH switch and password)
+    require of this server, ``presence_service`` the gesture on this unit the
+    relays of the last two wait for.
     """
     router = APIRouter(prefix="/api/multiroom", tags=["multiroom"])
 
@@ -637,12 +699,12 @@ def create_multiroom_router(
             audio = audio_config(request.audio_id, request.volume_control)
             volume_control = audio["volume_control"]
 
-            if not volume_control:
-                await _drop_trim_before_dac(mac_id, client)
-
+            # The trim goes once the satellite has taken the secret its reboot
+            # carries: a refused reboot must leave the speaker as it found it.
             await _send_audio_config_and_reboot(
                 mac_id, client.ip, request.audio_id, audio["overlay"], volume_control,
-                registry_service=registry_service,
+                registry_service=registry_service, satellite_secret=satellite_secret,
+                before_write=None if volume_control else lambda: _drop_trim_before_dac(mac_id, client),
             )
 
             # Clear stale pending crossover/EQ settings after hardware confirmed —
@@ -661,6 +723,14 @@ def create_multiroom_router(
     # no UI of its own and its image ships with SSH off. Each URL stays literal at
     # its call: the milo-client contract test reads them there. The budgets cover
     # the satellite's own: two parallel 5 s reads, a 15 s write followed by them.
+    #
+    # Both writes reach root on the satellite, so they carry the server's secret
+    # (the satellite answers no one else), and opening SSH and setting the
+    # password also wait for a proof of presence on this unit, as the server's
+    # own routes do: the relay is root on the speaker for whoever reaches this
+    # API. What the satellite would refuse anyway is refused first, from its
+    # state and from its answer to the hand-over (`_signed`), so the owner is
+    # never asked for a gesture the request then loses.
 
     def _satellite(mac_id: str):
         client = registry_service.get_client(mac_id)
@@ -669,41 +739,83 @@ def create_multiroom_router(
         _require_satellite(client)
         return client
 
+    async def _read_client_ssh(mac_id: str, client) -> dict:
+        async with _reaching_satellite(registry_service, mac_id, client.ip):
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(f"http://{client.ip}:{CLIENT_API_PORT}/api/system/ssh") as resp:
+                    return await _satellite_reply(resp, mac_id)
+
+    async def _refusal_of(mac_id: str, client, opening_ssh: bool) -> None:
+        """409 for what the satellite refuses whatever the gesture, read from its own state."""
+        state = (await _read_client_ssh(mac_id, client)).get("data") or {}
+        if state.get("login_user") is None:
+            logger.warning(f"Refused on client {mac_id}: it has no 'milo' account")
+            raise HTTPException(
+                status_code=409,
+                detail="This satellite has no 'milo' account: it was provisioned before "
+                       "the Milō image. Reflash it to get one.",
+            )
+        if opening_ssh and state.get("password_is_default", True):
+            logger.warning(f"Refused to open SSH on client {mac_id}: its factory password is still in place")
+            raise HTTPException(
+                status_code=409,
+                detail="Set this speaker's password before opening SSH: the factory "
+                       "password is the same on every Milō and published with its source",
+            )
+
     @router.get("/clients/{mac_id}/ssh")
     async def get_client_ssh(mac_id: str):
         """SSH state of a satellite, the account it logs into, and whether that account still has the factory password."""
         async with api_error_handler(f"Error reading SSH state of client {mac_id}", logger):
-            client = _satellite(mac_id)
-            async with _reaching_satellite(registry_service, mac_id, client.ip):
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-                    async with session.get(f"http://{client.ip}:{CLIENT_API_PORT}/api/system/ssh") as resp:
-                        return await _satellite_reply(resp, mac_id)
+            return await _read_client_ssh(mac_id, _satellite(mac_id))
 
     @router.put("/clients/{mac_id}/ssh")
-    async def set_client_ssh(mac_id: str, request: SshRequest):
-        """Open or close SSH on a satellite."""
+    async def set_client_ssh(
+        mac_id: str, request: SshRequest,
+        presence: PresenceAnswer = Depends(presence_answer),
+    ):
+        """Open or close SSH on a satellite.
+
+        Opening is refused while the satellite has its factory password, and
+        otherwise waits for a proof of presence on this unit. Closing is never
+        refused, nor held behind a gesture.
+        """
         async with api_error_handler(f"Error setting SSH on client {mac_id}", logger):
             client = _satellite(mac_id)
+            headers = await _signed(satellite_secret, registry_service, mac_id, client.ip)
+            if request.enabled:
+                await _refusal_of(mac_id, client, opening_ssh=True)
+                await require_presence(presence_service, PresenceAction.SATELLITE_SSH_OPEN, presence)
             async with _reaching_satellite(registry_service, mac_id, client.ip):
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as session:
                     async with session.put(
                         f"http://{client.ip}:{CLIENT_API_PORT}/api/system/ssh",
-                        json={"enabled": request.enabled},
+                        json={"enabled": request.enabled}, headers=headers,
                     ) as resp:
                         reply = await _satellite_reply(resp, mac_id)
             logger.info(f"SSH {'enabled' if request.enabled else 'disabled'} on client {mac_id}")
             return reply
 
     @router.post("/clients/{mac_id}/password")
-    async def set_client_password(mac_id: str, request: DevicePasswordRequest):
-        """Set the `milo` account password of a satellite (SSH login + sudo)."""
+    async def set_client_password(
+        mac_id: str, request: DevicePasswordRequest,
+        presence: PresenceAnswer = Depends(presence_answer),
+    ):
+        """Set the `milo` account password of a satellite (SSH login + sudo).
+
+        Behind a proof of presence on this unit: the password is the
+        satellite's sudo, and set by whoever asks, it is root there for them.
+        """
         async with api_error_handler(f"Error setting the password of client {mac_id}", logger):
             client = _satellite(mac_id)
+            headers = await _signed(satellite_secret, registry_service, mac_id, client.ip)
+            await _refusal_of(mac_id, client, opening_ssh=False)
+            await require_presence(presence_service, PresenceAction.SATELLITE_PASSWORD, presence)
             async with _reaching_satellite(registry_service, mac_id, client.ip):
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
                     async with session.post(
                         f"http://{client.ip}:{CLIENT_API_PORT}/api/system/password",
-                        json={"password": request.password},
+                        json={"password": request.password}, headers=headers,
                     ) as resp:
                         reply = await _satellite_reply(resp, mac_id)
             logger.info(f"Password updated on client {mac_id}")
@@ -1147,7 +1259,10 @@ def create_multiroom_router(
                 )
 
             # 4. Send config + reboot to client
-            await _send_audio_config_and_reboot(mac_id, client_ip, request.audio_id, audio["overlay"], volume_control)
+            await _send_audio_config_and_reboot(
+                mac_id, client_ip, request.audio_id, audio["overlay"], volume_control,
+                satellite_secret=satellite_secret,
+            )
             logger.info(f"Pending client {mac_id} configured with audio={request.audio_id}, rebooting")
             return {"status": "success", "message": f"Client {mac_id} configured and rebooting"}
 

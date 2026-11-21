@@ -16,6 +16,7 @@ import tarfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
+import aiohttp
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -23,6 +24,11 @@ from fastapi.testclient import TestClient
 from backend.api.programs import create_programs_router
 from backend.core.multiroom.client_registry import ClientRegistryService
 from backend.core.multiroom.models import Client
+from backend.core.multiroom.satellite_http import (
+    SATELLITE_SECRET_FIELD,
+    SATELLITE_SECRET_HEADER,
+    SatelliteSecret,
+)
 from backend.core.updates.satellite import PAYLOAD_PATHSPEC, SatelliteUpdateService
 
 # What the server names in the call. It resolves the version against its own
@@ -192,7 +198,7 @@ def _patch_satellite(satellite):
 
 
 @pytest.fixture
-def satellite_service():
+def satellite_service(satellite_secret):
     registry = Mock()
     # `name` cannot be passed to the Mock constructor: it names the mock itself
     # and leaves `client.name` a child Mock, which is how `display_name` ends up
@@ -201,7 +207,7 @@ def satellite_service():
     canape.name = "Canapé"
     registry.get_all_clients = Mock(return_value={"dc:a6:32:7e:d3:43": canape})
     return SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
-                                  settings_service=_MemorySettings())
+                                  settings_service=_MemorySettings(), satellite_secret=satellite_secret)
 
 
 async def _registry_loaded_from(clients):
@@ -783,13 +789,76 @@ class TestAppUpdateOutcome:
         assert result["success"] is False
         assert "never restarted" in result["error"]
 
-    async def test_an_app_push_reaches_a_satellite_the_registry_holds_offline(self, client_tree):
+    class _PinningSatellite(_FakeSatellite):
+        """A satellite that pins the secret its admission hands over, and
+        refuses a push whose form carries any other (milo-client/app/server_secret.py)."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.pinned = None
+
+        def put(self, url, headers=None, **kwargs):
+            assert url.endswith("/api/system/server-secret"), url
+            self.pinned = self.pinned or headers[SATELLITE_SECRET_HEADER]
+            return _FakeResponse(200, {"status": "success", "data": {"changed": True}})
+
+        def post(self, url, data=None, **kwargs):
+            if data.fields.get(SATELLITE_SECRET_FIELD) != self.pinned:
+                self.posts.append(url)
+                return _FakeResponse(403, {"detail": "Refused: it carries another server's secret"})
+            return super().post(url, **kwargs)
+
+    @pytest.fixture
+    def recorded_forms(self, monkeypatch):
+        """aiohttp's form, keeping what each text field carried."""
+        class _Form(aiohttp.FormData):
+            def add_field(self, name, value, **kwargs):
+                self.fields = getattr(self, "fields", {})
+                self.fields[name] = value if isinstance(value, str) else None
+                super().add_field(name, value, **kwargs)
+
+        monkeypatch.setattr(aiohttp, "FormData", _Form)
+
+    def _pinning(self):
+        return self._PinningSatellite(
+            status_payload={"app": {"payload": "0ae3872", "version": "v0.1.0", "started_at": 1000},
+                            "snapclient": {"version": "0.28.0"}},
+            status_after_post={"app": {"payload": SERVER_PAYLOAD, "version": SERVER_VERSION, "started_at": 1200},
+                               "snapclient": {"version": "0.28.0"}},
+        )
+
+    async def test_the_push_carries_the_secret_its_admission_handed_over(
+        self, satellite_service, satellite_secret, client_tree, recorded_forms,
+    ):
+        """The tarball is installed as root: a satellite takes it from the server it pinned only."""
+        satellite = self._pinning()
+        with _patch_satellite(satellite):
+            await satellite_secret.hand_over("dc:a6:32:7e:d3:43", "192.168.1.153")
+
+        result = await self._push(satellite_service, satellite, client_tree)
+
+        assert result["verdict"] == "committed", result
+
+    async def test_a_satellite_that_pinned_another_server_refuses_the_push(
+        self, satellite_service, client_tree, recorded_forms, tmp_path,
+    ):
+        """And says so on the row: a 403 is a refusal, nothing was installed."""
+        satellite = self._pinning()
+        with _patch_satellite(satellite):
+            await SatelliteSecret(key_file=tmp_path / "another-key").hand_over("dc:a6:32:7e:d3:43", "192.168.1.153")
+
+        result = await self._push(satellite_service, satellite, client_tree)
+
+        assert result["verdict"] == "rejected"
+        assert "HTTP 403" in result["error"]
+
+    async def test_an_app_push_reaches_a_satellite_the_registry_holds_offline(self, client_tree, satellite_secret):
         """The update-app route and the fleet push both land here, and in direct
         mode nothing admits a client: the push answered "not found or offline"
         to a satellite whose API was up, without ever asking it."""
         registry = await _registry_loaded_from({"dc:a6:32:7e:d3:43": ("192.168.1.153", "Canapé")})
         service = SatelliteUpdateService(snapcast_service=Mock(), client_registry_service=registry,
-                                         settings_service=_MemorySettings())
+                                         settings_service=_MemorySettings(), satellite_secret=satellite_secret)
         satellite = _FakeSatellite(
             status_payload={"app": {"payload": "0ae3872", "version": "v0.1.0", "started_at": 1000},
                             "snapclient": {"version": "0.28.0"}},

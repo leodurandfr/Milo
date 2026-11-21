@@ -1,11 +1,14 @@
 """Request gate for port 8001: who may *send* a request to a satellite.
 
-There is no authentication here, as on the server: network position is the
-authority, and what that leaves open is a page driving a browser on the LAN.
-`POST /app/update` is a multipart form and `POST /api/hardware/reboot` has no
-body, so both are CORS simple requests, sent with no preflight. The first hands
-a tarball to the deploy wrapper, which installs its `rootfs/` as root, sudoers
-included; that the page cannot read the reply changes nothing.
+Reading and settings authenticate nobody, as on the server: network position
+is the authority, and what that leaves open is a page driving a browser on the
+LAN. The paths to root also require the secret of this unit's server
+(`server_secret.py`), which a page has no way to learn — this gate is the layer
+before it, and the only one for everything else. `POST /app/update` is a
+multipart form and `POST /api/hardware/reboot` has no body, so both are CORS
+simple requests, sent with no preflight. The first hands a tarball to the
+deploy wrapper, which installs its `rootfs/` as root, sudoers included; that
+the page cannot read the reply changes nothing.
 
 The server's twin is `backend/api/middleware.py::RequestOriginGate`. This one is
 rewritten, not imported, because a satellite update ships `milo-client/` alone

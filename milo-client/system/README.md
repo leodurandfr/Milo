@@ -86,6 +86,7 @@ sudo systemctl status milo-client-snapclient
 ## Configuration
 
 - `/var/lib/milo-client/env` - Environment variables (see [../ENVIRONMENT.md](../ENVIRONMENT.md))
+- `/var/lib/milo-client/server-secret` - The secret of the server this unit pinned at its first contact (0600). Its app update, SSH switch, password and reboot answer that server only (`app/server_secret.py`); removing the file lets the next server that reaches the unit pin its own.
 - `/etc/asound.conf` - ALSA configuration for HiFiBerry
 
 ## Troubleshooting

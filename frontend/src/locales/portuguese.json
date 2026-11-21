@@ -121,7 +121,8 @@
     "systemInfo": "Informações",
     "ssh": {
       "description": "Abre uma sessão de terminal neste sistema de áudio a partir de outro computador da rede local.",
-      "factoryPassword": "Este sistema de áudio ainda tem a palavra-passe de fábrica."
+      "factoryPassword": "Este sistema de áudio ainda tem a palavra-passe de fábrica.",
+      "noAccount": "Este sistema de áudio não tem conta milo: foi configurado antes da imagem do Milō. Instale a imagem nele para abrir o SSH."
     },
     "systemTypes": {
       "satellite": "Colunas satélite",
@@ -1010,7 +1011,9 @@
         "password": "Alterar a palavra-passe",
         "program_upstream": "Instalar uma versão não validada",
         "reset_setup": "Repor a configuração",
-        "wifi_save": "Guardar uma rede WiFi"
+        "wifi_save": "Guardar uma rede WiFi",
+        "satellite_ssh_open": "Abrir SSH numa coluna",
+        "satellite_password": "Alterar a palavra-passe de uma coluna"
       },
       "gestures": {
         "rotary": "Rode ou prima o botão rotativo do dispositivo. Não tem botão rotativo? Cancele, desative o codificador rotativo em Configurações › Hardware e volte a pedir daqui a {time}.",

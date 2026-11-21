@@ -5,7 +5,10 @@ Nothing on this API authenticates, and on the server the backend is root by
 construction (CLAUDE.md, invariant 5), so these routes were, until this file,
 root for anyone on the LAN: open SSH on the factory password, or set the sudo
 password, then log in; install as root whatever GitHub serves; send the server
-back to its first boot. Owner decision, 2026-11-13: only the paths to root wait
+back to its first boot. The same two doors on a satellite, relayed by this
+unit, are root on the speaker: the satellite answers its server only
+(`core/multiroom/satellite_http.py`), so the relay is the way in, and it waits
+for the same gesture. Owner decision, 2026-11-13: only the paths to root wait
 for a proof of presence (`core/system/presence.py`); reading and settings stay
 open to the LAN.
 
@@ -29,13 +32,19 @@ from fastapi.testclient import TestClient
 from backend.api import system as api_system
 from backend.api.middleware import PRESENCE_WRITES, RecoveryAccessPointGuard
 from backend.api.network import create_network_router
+from backend.api.multiroom import create_multiroom_router
 from backend.api.programs import create_programs_router
 from backend.api.system import create_system_router
 from backend.core.models.presence import Gesture, PresenceAction
+from backend.core.multiroom.models import Client
+from backend.core.multiroom.satellite_http import SatelliteSecret
 from backend.core.system.presence import PRESENCE_GESTURES_HEADER
 from backend.tests.presence_world import World
 
 BACKEND = Path(__file__).resolve().parents[2]
+
+BUREAU = "d8:3a:dd:68:e7:e4"
+BUREAU_IP = "192.168.1.60"
 
 # (action, method, path, body) — the request that reaches root through it.
 GUARDED = [
@@ -45,12 +54,16 @@ GUARDED = [
     (PresenceAction.RESET_SETUP, "post", "/api/system/reset-setup", None),
     # Over the recovery AP only, on a unit set up: the guard asks it, not the route.
     (PresenceAction.WIFI_SAVE, "post", "/api/network/wifi/save", {"ssid": "Maison", "password": "correct horse"}),
+    (PresenceAction.SATELLITE_SSH_OPEN, "put", f"/api/multiroom/clients/{BUREAU}/ssh", {"enabled": True}),
+    (PresenceAction.SATELLITE_PASSWORD, "post", f"/api/multiroom/clients/{BUREAU}/password",
+     {"password": "correct horse"}),
 ]
 
 # The halves of the same routes that do not reach root, and stay open.
 OPEN = [
     ("put", "/api/system/ssh", {"enabled": False}),
     ("post", "/api/programs/go-librespot/update", {"target": "validated"}),
+    ("put", f"/api/multiroom/clients/{BUREAU}/ssh", {"enabled": False}),
 ]
 
 # Every process on the unit has this address, and nginx names it for the kiosk.
@@ -101,6 +114,57 @@ class _Box:
         # A set-up unit with its recovery AP up.
         self.network = Mock(open_ap_reachable=True, recovery_ap_possible=True, save_network=AsyncMock())
         self.settings = Mock(get_setting=AsyncMock(return_value=True))
+        # A satellite, Bureau, over its HTTP surface: its SSH state answers the
+        # relay's read, and every write is recorded.
+        self.satellite_state = {"login_user": "milo", "password_is_default": False}
+        self.satellite_writes = []
+        self.registry = Mock()
+        self.registry.get_client = Mock(side_effect={
+            BUREAU: Client(mac_id=BUREAU, name="Bureau", ip=BUREAU_IP, online=True),
+        }.get)
+        box = self
+
+        class _Answer:
+            status = 200
+
+            def __init__(self, payload):
+                self._payload = payload
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def json(self):
+                return self._payload
+
+        class _Satellite:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def get(self, url, **kwargs):
+                return _Answer({"status": "success", "data": dict(box.satellite_state)})
+
+            def _write(self, verb, url, **kwargs):
+                box.satellite_writes.append((verb, url.split(":8001", 1)[1]))
+                # The hand-over each relay sends first: it holds this server's secret.
+                return _Answer({"status": "success", "data": {"changed": False}})
+
+            def put(self, url, **kwargs):
+                return self._write("PUT", url, **kwargs)
+
+            def post(self, url, **kwargs):
+                return self._write("POST", url, **kwargs)
+
+        monkeypatch.setattr("backend.api.multiroom.aiohttp.ClientSession", _Satellite)
+        self.satellite_secret = SatelliteSecret(key_file=tmp_path / "satellite-key")
 
     def touched(self, action) -> bool:
         return {
@@ -112,6 +176,9 @@ class _Box:
                 self.reset_marker.exists() or self.systemd.power.await_count > 0
             ),
             PresenceAction.WIFI_SAVE: lambda: self.network.save_network.await_count > 0,
+            # The read of its state before is open: the write is what reaches root.
+            PresenceAction.SATELLITE_SSH_OPEN: lambda: ("PUT", "/api/system/ssh") in self.satellite_writes,
+            PresenceAction.SATELLITE_PASSWORD: lambda: ("POST", "/api/system/password") in self.satellite_writes,
         }[action]()
 
 
@@ -146,6 +213,9 @@ def _unit(tmp_path, monkeypatch, **board):
         RecoveryAccessPointGuard,
         network_service=box.network, settings_service=box.settings, presence_service=presence,
     )
+    app.include_router(create_multiroom_router(
+        box.registry, presence_service=presence, satellite_secret=box.satellite_secret,
+    ))
     with TestClient(app, **LOOPBACK) as client:
         client.portal.call(presence.initialize)
         yield box, presence, client
@@ -225,6 +295,14 @@ REFUSED_ANYWAY = {
     "reset during a Milō update": (
         "post", "/api/system/reset-setup", None,
         lambda box: setattr(box.updates, "milo_update_active", True),
+    ),
+    "ssh on a satellite's factory password": (
+        "put", f"/api/multiroom/clients/{BUREAU}/ssh", {"enabled": True},
+        lambda box: box.satellite_state.update(password_is_default=True),
+    ),
+    "password on a satellite with no milo account": (
+        "post", f"/api/multiroom/clients/{BUREAU}/password", {"password": "correct horse"},
+        lambda box: box.satellite_state.update(login_user=None),
     ),
 }
 

@@ -49,6 +49,9 @@ class _Satellite:
         for suffix, reply in self.replies.items():
             if url.endswith(suffix):
                 return reply
+        if url.endswith("/api/system/server-secret"):
+            # It holds this server's secret already.
+            return {"status": 200, "json": {"status": "success", "data": {"changed": False}}}
         return {"status": 200, "json": {}}
 
     def install(self, monkeypatch):
@@ -119,9 +122,11 @@ def pending():
 
 
 @pytest.fixture
-def client(registry, pending):
+def client(registry, pending, satellite_secret):
     app = FastAPI()
-    app.include_router(create_multiroom_router(registry, pending_clients_service=pending))
+    app.include_router(create_multiroom_router(
+        registry, pending_clients_service=pending, satellite_secret=satellite_secret,
+    ))
     return TestClient(app)
 
 
@@ -161,9 +166,11 @@ class TestAudioConfigPush:
         )
 
         assert response.status_code == 502
-        assert [verb for verb, _ in satellite.sent] == ["put", "post"], (
-            "the card must be written before the reboot is asked for"
-        )
+        assert [(verb, url.split(":8001", 1)[1]) for verb, url in satellite.sent] == [
+            ("put", "/api/system/server-secret"),
+            ("put", "/api/hardware/audio"),
+            ("post", "/api/hardware/reboot"),
+        ], "the card must be written before the reboot is asked for, once the reboot's secret is taken"
 
     @pytest.mark.parametrize("dropped", [
         aiohttp.ClientError("connection reset"),

@@ -996,9 +996,34 @@ def test_every_form_field_milo_client_requires_is_sent_by_the_backend(method, pa
 # This restates the names on purpose, which the suite's own rules otherwise
 # forbid. The justification is the sudoers one: here the names ARE the contract,
 # with units that are not in this checkout.
+#
+# `server_secret`, the satellite's secret (milo-client/app/server_secret.py), is
+# frozen the same way, and it is the one field that breaks the append-only rule,
+# on purpose: optional on the form, so it never answers 422, it is refused with
+# 403 when absent — by the owner's decision a push without the secret is refused
+# whoever sends it, a retracted release's server included. Renamed, it strands
+# every satellite that pinned a secret, with a 403 rather than a 422. So does a
+# change to the secret itself: the satellite compares what it pinned, so the
+# derivation is frozen by a known answer, and the header the relays carry and
+# the hand-over the relays probe with are frozen beside it. Added by
+# `SatelliteSecret.sign` rather than written in the form, so the extractor below
+# does not see the field; tests/architecture/test_satellite_secret.py holds the
+# call that adds it.
 # --------------------------------------------------------------------------- #
 
 FROZEN_APP_UPDATE_FIELDS = {"tarball", "payload", "version"}
+
+FROZEN_SECRET_FIELD = "server_secret"
+FROZEN_SECRET_HEADER = "X-Milo-Server-Secret"
+FROZEN_SECRET_HAND_OVER = ("PUT", "/api/system/server-secret")
+# (key file, identity, the secret a satellite with that identity pinned). The
+# identity is spelled in capitals on purpose: the derivation lowercases it.
+FROZEN_SECRET_ANSWER = (
+    bytes(range(32)).hex(),
+    "D8:3A:DD:68:E7:E4",
+    "1ecd946d96b927d97192158b25d761824c8ec742014ee4b8b567d0e0504555df",
+)
+SATELLITE_SECRET_MODULE = REPO_ROOT / "milo-client" / "app" / "server_secret.py"
 
 
 def test_the_app_update_form_fields_are_frozen():
@@ -1039,6 +1064,76 @@ def test_every_required_app_update_field_is_frozen():
         "never sends it, so once this release is retracted the push answers 422 on "
         "every satellite that took it. Declare it optional (`Form(None)`); it joins "
         "the frozen set only once no release that omits it can be offered again."
+    )
+
+
+def _satellite_secret_constants() -> dict:
+    """The module-level string constants of milo-client's server_secret.py, read as source."""
+    found = {}
+    for node in ast.parse(SATELLITE_SECRET_MODULE.read_text()).body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            value = node.value
+            if isinstance(value, ast.Call) and value.args:  # re.compile("…"), Path("…")
+                value = value.args[0]
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                found[node.targets[0].id] = value.value
+    assert {"SECRET_FIELD", "SECRET_HEADER", "_SECRET_SHAPE"} <= set(found), (
+        f"the satellite's secret constants were not found — the read broke: {sorted(found)}"
+    )
+    return found
+
+
+def test_the_app_update_secret_field_is_frozen():
+    """Renamed on both sides at once, every satellite still on the release before
+    reads no secret in the push that would update it and answers 403 — for good,
+    since that push is the only way its handler changes."""
+    from backend.core.multiroom.satellite_http import SATELLITE_SECRET_FIELD
+
+    satellite = _satellite_secret_constants()
+    declared, required = _MULTIPART_ACCEPTED.get(("POST", "/app/update"), _FormFields(set(), set()))
+
+    assert SATELLITE_SECRET_FIELD == satellite["SECRET_FIELD"] == FROZEN_SECRET_FIELD, (
+        "the app push's secret field moved. Every satellite already in the field reads "
+        f"{FROZEN_SECRET_FIELD!r} and refuses a push without it, so this release could "
+        "never reach one of them; the rename costs a reflash of every unit"
+    )
+    assert FROZEN_SECRET_FIELD in declared - required, (
+        f"POST /app/update no longer declares {FROZEN_SECRET_FIELD!r} as an optional Form() "
+        f"parameter (declared {sorted(declared)}, required {sorted(required)})"
+    )
+
+
+def test_the_secret_header_and_hand_over_are_frozen():
+    """The relays reach a satellite one push behind as well. With the header
+    renamed, every reboot, SSH switch and password relay to it answers 403 until
+    a push lands; with the hand-over moved, the relays' probe reads it as an app
+    from before the secret, and a speaker that pinned another server is found
+    out only after its trim was dropped and its card written."""
+    from backend.core.multiroom.satellite_http import SATELLITE_SECRET_HEADER
+
+    satellite = _satellite_secret_constants()
+
+    assert SATELLITE_SECRET_HEADER == satellite["SECRET_HEADER"] == FROZEN_SECRET_HEADER
+    assert FROZEN_SECRET_HAND_OVER in _CALLS, "the server no longer hands a satellite its secret there"
+    assert FROZEN_SECRET_HAND_OVER in _ROUTES, "milo-client no longer takes its secret there"
+
+
+async def test_the_secret_derivation_is_frozen(tmp_path):
+    """Every satellite compares what it pinned. A derivation that moves — its
+    label, its case rule, its hash, its encoding — is a secret no satellite
+    pinned: every update push, relay and hand-over answers 403 on every unit,
+    and only a reflash brings one back."""
+    from backend.core.multiroom.satellite_http import SATELLITE_SECRET_HEADER, SatelliteSecret
+
+    key, identity, pinned = FROZEN_SECRET_ANSWER
+    key_file = tmp_path / "satellite-key"
+    key_file.write_text(f"{key}\n")
+
+    headers = await SatelliteSecret(key_file=key_file).headers(identity)
+
+    assert headers == {SATELLITE_SECRET_HEADER: pinned}
+    assert re.fullmatch(_satellite_secret_constants()["_SECRET_SHAPE"], pinned), (
+        "the satellite would refuse the secret's shape before comparing it"
     )
 
 

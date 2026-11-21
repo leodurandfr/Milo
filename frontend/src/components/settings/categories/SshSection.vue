@@ -31,7 +31,9 @@
     <NoticeBox v-if="state.enabled && user && state.passwordIsDefault" kind="warning">
       {{ factoryPasswordNotice }}
     </NoticeBox>
-    <NoticeBox v-if="cannotOpen" kind="warning">{{ t('system.ssh.passwordFirst') }}</NoticeBox>
+    <!-- A unit with no `milo` account has no password to set first: it says
+         what it needs instead (a reflash), never a password it would refuse. -->
+    <NoticeBox v-if="cannotOpen && closedNotice" kind="warning">{{ closedNotice }}</NoticeBox>
 
     <!-- A switch the unit refused: back where it was, and said why. -->
     <NoticeBox v-if="error !== null" :detail="error">{{ t('settings.writeRefused') }}</NoticeBox>
@@ -59,6 +61,8 @@ const props = defineProps({
   error: { type: String, default: null },
   /** The unit refuses to open SSH while its factory password is in place. */
   opensOnOwnPassword: { type: Boolean, default: false },
+  /** Why the switch stays closed on a unit with no account (`user` null), which no password opens. */
+  noAccountNotice: { type: String, default: '' },
 });
 
 const emit = defineEmits(['toggle', 'open-password']);
@@ -73,6 +77,7 @@ const requested = ref(null);
 const cannotOpen = computed(() =>
   props.opensOnOwnPassword && !props.state.enabled && props.state.passwordIsDefault
 );
+const closedNotice = computed(() => (props.user ? t('system.ssh.passwordFirst') : props.noAccountNotice));
 const switchPosition = computed(() =>
   props.busy && requested.value !== null ? requested.value : props.state.enabled
 );

@@ -527,6 +527,14 @@ def keep_integration_tests_off_the_satellite_api(request):
 
 
 @pytest.fixture
+def satellite_secret(tmp_path):
+    """This server's satellite key, made under tmp_path at its first use: what
+    a satellite's paths to root (its update, SSH, password, reboot) require."""
+    from backend.core.multiroom.satellite_http import SatelliteSecret
+    return SatelliteSecret(key_file=tmp_path / "satellite-key")
+
+
+@pytest.fixture
 def mock_ws_manager():
     """Mock of WebSocketManager"""
     manager = Mock()

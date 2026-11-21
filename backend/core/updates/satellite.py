@@ -18,6 +18,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.models.ws_events import SatelliteAppVerdict
+from backend.core.multiroom.satellite_http import SatelliteSecret, SatelliteSecretUnavailable
 from backend.shared.decorators import handle_errors
 
 MILO_REPO_DIR = Path("/home/milo/milo")
@@ -111,10 +112,14 @@ class SatelliteUpdateService:
     and identifies them by mac_id.
     """
 
-    def __init__(self, snapcast_service, client_registry_service, settings_service):
+    def __init__(self, snapcast_service, client_registry_service, settings_service,
+                 satellite_secret: Optional["SatelliteSecret"] = None):
         self.snapcast_service = snapcast_service
         self.client_registry_service = client_registry_service
         self.settings_service = settings_service
+        # What the app push carries for a satellite to take it: without it,
+        # every push is refused (`_push_app`), never sent bare.
+        self._satellite_secret = satellite_secret
         self.logger = logging.getLogger(__name__)
         self.satellite_api_port = CLIENT_API_PORT
         self._failures_lock = asyncio.Lock()
@@ -522,6 +527,8 @@ class SatelliteUpdateService:
                 )
 
             ip = satellite["ip"]
+            if self._satellite_secret is None:
+                raise SatelliteSecretUnavailable("no satellite key is wired into this server")
 
             tarball_path, payload = await self._create_client_tarball()
             version = await self.get_server_version() or ""
@@ -538,6 +545,9 @@ class SatelliteUpdateService:
                                        content_type="application/gzip")
                         form.add_field("payload", payload)
                         form.add_field("version", version)
+                        # The satellite installs this as root: it takes it from
+                        # the server it pinned only (satellite_http.py).
+                        await self._satellite_secret.sign(form, mac_id)
 
                         async with session.post(url, data=form) as response:
                             if response.status != 200:

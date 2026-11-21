@@ -81,10 +81,21 @@ def mock_registry_service():
 
 
 @pytest.fixture
-def client(mock_registry_service):
+def proven_presence():
+    """A proof of presence already given: what the relays to a satellite's root
+    wait for is driven in tests/architecture/test_presence_guard.py, not here."""
+    presence = Mock()
+    presence.require = AsyncMock()
+    return presence
+
+
+@pytest.fixture
+def client(mock_registry_service, satellite_secret, proven_presence):
     """Create a test client with the multiroom router."""
     app = FastAPI()
-    router = create_multiroom_router(mock_registry_service)
+    router = create_multiroom_router(
+        mock_registry_service, presence_service=proven_presence, satellite_secret=satellite_secret,
+    )
     app.include_router(router)
     return TestClient(app)
 
@@ -467,7 +478,11 @@ class _WireSatellite:
     def _record(self, method, url, body):
         parts = urlsplit(url)
         self.wire.append((parts.hostname, method, parts.path, body))
-        payload = {"audio": self.audio} if method == "GET" else {}
+        if parts.path == "/api/system/server-secret":
+            # It holds this server's secret already.
+            payload = {"status": "success", "data": {"changed": False}}
+        else:
+            payload = {"audio": self.audio} if method == "GET" else {}
         return TestVolumeControlPush._FakeResponse(200, payload)
 
     # aiohttp.ClientSession
@@ -488,7 +503,7 @@ class _WireSatellite:
 
 
 @pytest.fixture
-def dac_flip():
+def dac_flip(satellite_secret):
     """The three routes that can turn a satellite DAC, over the real EqualizerRouter.
 
     Only the outside world is faked: the satellite (both transports, one wire)
@@ -530,7 +545,9 @@ def dac_flip():
     eq_router.set_local_volume_control_source(lambda: False)
 
     app = FastAPI()
-    app.include_router(create_multiroom_router(registry, None, None, None, None, eq_router))
+    app.include_router(create_multiroom_router(
+        registry, None, None, None, None, eq_router, satellite_secret=satellite_secret,
+    ))
     with patch("backend.api.multiroom.aiohttp.ClientSession", return_value=satellite):
         yield TestClient(app), registry, satellite, clients
 
@@ -559,7 +576,9 @@ class TestTrimDroppedBeforeADacFlip:
 
     def test_a_dac_card_drops_the_trim_before_the_reboot(self, dac_flip):
         """The card change used to flip the flag with the trim still in the DSP,
-        and the reboot that follows reloads it from the satellite's config."""
+        and the reboot that follows reloads it from the satellite's config. And
+        the satellite takes the reboot's secret before the trim goes: a reboot
+        it then refused would leave the speaker DAC-bound with no trim."""
         client, _, satellite, clients = dac_flip
 
         resp = self._flip(client, "put")
@@ -567,12 +586,13 @@ class TestTrimDroppedBeforeADacFlip:
         assert resp.status_code == 200
         calls = [(method, path) for _, method, path, _ in satellite.wire]
         assert calls == [
+            ("PUT", "/api/system/server-secret"),
             ("PUT", "/equalizer/gain"),
             ("PUT", "/api/hardware/audio"),
             ("POST", "/api/hardware/reboot"),
         ]
-        assert satellite.wire[0] == self._gain_clear("192.168.1.54")
-        assert satellite.wire[1][3]["volume_control"] is False
+        assert satellite.wire[1] == self._gain_clear("192.168.1.54")
+        assert satellite.wire[2][3]["volume_control"] is False
         assert clients["mac-trimmed"].gain_db == 0.0
         assert clients["mac-trimmed"].volume_control is False
 
@@ -612,7 +632,9 @@ class TestTrimDroppedBeforeADacFlip:
             resp = self._flip(client, route)
 
         assert resp.status_code == answered
-        assert satellite.wire == [self._gain_clear("192.168.1.54")], \
+        # The card route asks the satellite for its secret first (its reboot carries it).
+        wire = [w for w in satellite.wire if w[2] != "/api/system/server-secret"]
+        assert wire == [self._gain_clear("192.168.1.54")], \
             "no hardware.json write and no reboot once the trim stayed"
         registry.update_client.assert_not_awaited()
         registry.set_client_gain.assert_not_awaited()
@@ -2374,6 +2396,9 @@ class TestSatelliteRemoteAccess:
 
         def _answer(self, verb, url, json=None, **kwargs):
             self.requests.append((verb, url, json))
+            if url.endswith("/api/system/server-secret") and self.status == 200:
+                # The hand-over each relay sends first: it holds this server's secret.
+                return TestVolumeControlPush._FakeResponse(200, {"status": "success", "data": {"changed": False}})
             return TestVolumeControlPush._FakeResponse(self.status, self.payload)
 
         def get(self, url, **kwargs):
@@ -2399,7 +2424,14 @@ class TestSatelliteRemoteAccess:
         assert "update the satellite" in response.json()["detail"]
 
     def test_a_refused_password_is_relayed_with_the_satellite_reason(self, client):
-        satellite = self._Satellite(status=500, payload={"detail": "Failed to set password: chpasswd: PAM"})
+        class _RefusingHelper(self._Satellite):
+            def get(self, url, **kwargs):
+                self.requests.append(("GET", url, None))
+                return TestVolumeControlPush._FakeResponse(
+                    200, {"status": "success", "data": {"login_user": "milo", "password_is_default": True}},
+                )
+
+        satellite = _RefusingHelper(status=500, payload={"detail": "Failed to set password: chpasswd: PAM"})
 
         with self._patch_session(satellite):
             response = client.post(
@@ -2408,9 +2440,9 @@ class TestSatelliteRemoteAccess:
 
         assert response.status_code == 502
         assert "chpasswd: PAM" in response.json()["detail"]
-        assert satellite.requests == [
-            ("POST", "http://192.168.1.100:8001/api/system/password", {"password": "a-long-one"})
-        ]
+        assert satellite.requests[-1] == (
+            "POST", "http://192.168.1.100:8001/api/system/password", {"password": "a-long-one"}
+        )
 
     def test_a_short_password_never_reaches_the_satellite(self, client):
         """The satellite's helper would refuse it; the server's model refuses it first."""
@@ -2434,19 +2466,57 @@ class TestSatelliteRemoteAccess:
         assert response.status_code == 400
         assert satellite.requests == []
 
-    def test_a_slow_satellite_stays_online(self, client, mock_registry_service):
-        """A systemctl that takes long is a satellite that is there, maybe already switched."""
+    _WRITES = {
+        "closing SSH": ("put", "/api/multiroom/clients/dc:a6:32:7e:d3:43/ssh", {"enabled": False},
+                        "/api/system/ssh"),
+        "opening SSH": ("put", "/api/multiroom/clients/dc:a6:32:7e:d3:43/ssh", {"enabled": True},
+                        "/api/system/ssh"),
+        "the password": ("post", "/api/multiroom/clients/dc:a6:32:7e:d3:43/password",
+                         {"password": "a-long-one"}, "/api/system/password"),
+    }
+
+    @pytest.mark.parametrize("write", list(_WRITES))
+    @pytest.mark.parametrize("failure, answered, offline", [
+        # A systemctl or chpasswd that takes long is a satellite that is there,
+        # maybe already switched: it stays online.
+        (asyncio.TimeoutError(), 504, False),
+        # A connection that drops is a satellite that is gone.
+        (aiohttp.ClientConnectionError("Connection reset by peer"), 502, True),
+    ], ids=["slow", "dropped"])
+    def test_the_write_itself_tells_a_slow_satellite_from_a_gone_one(
+        self, client, mock_registry_service, write, failure, answered, offline,
+    ):
+        """The hand-over and the state read before the write answer: only the
+        write fails, so what is asserted is the write's own handling — a slow
+        satellite left online, a gone one marked offline at once."""
         mock_registry_service.set_client_online = AsyncMock()
+        verb, route, body, satellite_path = self._WRITES[write]
 
-        class _SlowSatellite(self._Satellite):
-            def put(self, url, **kwargs):
-                raise asyncio.TimeoutError()
+        class _FailingWrite(self._Satellite):
+            def _answer(self, method, url, json=None, **kwargs):
+                if method != "GET" and url.endswith(satellite_path):
+                    self.requests.append((method, url, json))
+                    raise failure
+                if url.endswith("/api/system/server-secret"):
+                    return TestVolumeControlPush._FakeResponse(
+                        200, {"status": "success", "data": {"changed": False}},
+                    )
+                # The state read before an opening or a password: an account with its own password.
+                return TestVolumeControlPush._FakeResponse(
+                    200, {"status": "success", "data": {"login_user": "milo", "password_is_default": False}},
+                )
 
-        with self._patch_session(_SlowSatellite()):
-            response = client.put("/api/multiroom/clients/dc:a6:32:7e:d3:43/ssh", json={"enabled": True})
+        satellite = _FailingWrite()
+        with self._patch_session(satellite):
+            response = getattr(client, verb)(route, json=body)
 
-        assert response.status_code == 504
-        mock_registry_service.set_client_online.assert_not_awaited()
+        assert response.status_code == answered, response.text
+        assert satellite.requests[-1] == (verb.upper(), f"http://192.168.1.100:8001{satellite_path}", body), \
+            "the write was never sent: what failed came before it"
+        if offline:
+            mock_registry_service.set_client_online.assert_awaited_once_with("dc:a6:32:7e:d3:43", False)
+        else:
+            mock_registry_service.set_client_online.assert_not_awaited()
 
     def test_an_answer_that_is_not_json_does_not_mark_it_offline(self, client, mock_registry_service):
         """aiohttp's ContentTypeError is a ClientError; read as 'unreachable' it hid a speaker that answered."""

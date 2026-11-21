@@ -3195,15 +3195,17 @@ class TestAdmissionPathConvergence:
         ]
 
     @pytest.mark.asyncio
-    async def test_the_production_service_hands_each_admitted_satellite_both_pushes(self, monkeypatch):
+    async def test_the_production_service_hands_each_admitted_satellite_its_pushes(self, monkeypatch):
         """Built by `dependencies._create_service`, not by hand.
 
-        Both push services are optional collaborators and the admission runs the
-        same without them, so a creator that stopped passing one would leave
-        every test that builds the service itself green while no satellite was
-        handed the server's WiFi or timezone again. The creator's collaborators
-        are doubles; one it asks for that this test does not know fails here
-        rather than building a real service against this machine's daemons.
+        The push services and the secret are optional collaborators and the
+        admission runs the same without them, so a creator that stopped passing
+        one would leave every test that builds the service itself green while
+        no satellite was handed the server's WiFi, timezone or secret again —
+        and without the secret, a satellite reflashed since its last admission
+        refuses every update push. The creator's collaborators are doubles; one
+        it asks for that this test does not know fails here rather than
+        building a real service against this machine's daemons.
         """
         import backend.dependencies as deps
 
@@ -3218,8 +3220,8 @@ class TestAdmissionPathConvergence:
         pending.remove_client = AsyncMock()
         state_machine = MagicMock()
         state_machine.broadcast = AsyncMock()
-        wifi, timezone = MagicMock(), MagicMock()
-        wifi.push, timezone.push = AsyncMock(), AsyncMock()
+        wifi, timezone, secret = MagicMock(), MagicMock(), MagicMock()
+        wifi.push, timezone.push, secret.hand_over = AsyncMock(), AsyncMock(), AsyncMock()
 
         class _Doubles(dict):
             def __contains__(self, name):
@@ -3237,6 +3239,7 @@ class TestAdmissionPathConvergence:
             "pending_clients_service": pending,
             "satellite_wifi_service": wifi,
             "satellite_timezone_service": timezone,
+            "satellite_secret": secret,
         }))
         service = deps._create_service("snapcast_websocket_service")
         registry = ClientRegistryService(settings_service=settings)
@@ -3252,6 +3255,7 @@ class TestAdmissionPathConvergence:
 
         wifi.push.assert_awaited_once_with(self.IP)
         timezone.push.assert_awaited_once_with(self.IP)
+        secret.hand_over.assert_awaited_once_with(self.MAC, self.IP)
 
     @pytest.mark.asyncio
     async def test_a_zone_changed_while_the_satellite_comes_online_still_reaches_it(self, tmp_path, monkeypatch):

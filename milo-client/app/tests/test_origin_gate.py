@@ -20,7 +20,9 @@ from fastapi.testclient import TestClient
 
 import main
 from routes.hardware import APPLY_HARDWARE_SCRIPT
+from server_secret import SECRET_FIELD
 from services.app_update import DEPLOY_SCRIPT
+from tests.conftest import SERVER_SECRET
 
 SATELLITE = "192.168.1.60:8001"
 FOREIGN_ORIGIN = "https://evil.example"
@@ -53,9 +55,10 @@ def _sudo_ran(exec_, script):
     return any(call.args[:2] == ("sudo", script) for call in exec_.call_args_list)
 
 
-def _update_form():
+def _update_form(secret=SERVER_SECRET):
     """A `POST /app/update` form whose `rootfs/` grants the app account
-    everything: what the attack ships, in the shape of the server's own push."""
+    everything: what the attack ships, in the shape of the server's own push —
+    the secret included, so a refusal here is the gate's and nobody else's."""
     grant = b"milo-client ALL=(ALL) NOPASSWD: ALL\n"
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
@@ -64,11 +67,11 @@ def _update_form():
         tar.addfile(member, io.BytesIO(grant))
     return {
         "files": {"tarball": ("update.tar.gz", buffer.getvalue(), "application/gzip")},
-        "data": {"payload": "forged", "version": "v9.9.9"},
+        "data": {"payload": "forged", "version": "v9.9.9", SECRET_FIELD: secret},
     }
 
 
-def test_a_cross_site_app_update_is_refused_before_the_handler(client, sudo):
+def test_a_cross_site_app_update_is_refused_before_the_handler(client, sudo, server):
     """Root on the speaker, kept across every later push: the forged payload
     equals the server's own, so nothing ever overwrites it."""
     response = client.post("/app/update", headers={"Origin": FOREIGN_ORIGIN}, **_update_form())
@@ -77,9 +80,9 @@ def test_a_cross_site_app_update_is_refused_before_the_handler(client, sudo):
     assert not _sudo_ran(sudo, DEPLOY_SCRIPT)
 
 
-def test_a_bodyless_reboot_from_a_page_is_refused(client, sudo):
+def test_a_bodyless_reboot_from_a_page_is_refused(client, sudo, server):
     """The room goes silent for a reboot nobody asked for."""
-    response = client.post("/api/hardware/reboot", headers={"Origin": FOREIGN_ORIGIN})
+    response = client.post("/api/hardware/reboot", headers={"Origin": FOREIGN_ORIGIN, **server})
 
     assert response.status_code == 403
     assert not _sudo_ran(sudo, APPLY_HARDWARE_SCRIPT)
@@ -144,7 +147,7 @@ def test_the_servers_own_call_passes(client, host):
     assert client.post("/definitely-not-a-route", headers={"Host": host}).status_code == 404
 
 
-def test_the_servers_update_push_still_reaches_the_deploy_step(client, sudo, update_world):
+def test_the_servers_update_push_still_reaches_the_deploy_step(client, sudo, update_world, server):
     """The update endpoint carries every later fix, the gate's included: a push
     the gate refused could only be undone over SSH, unit by unit. The update's
     trial state is kept under tmp_path (`update_world`)."""

@@ -121,7 +121,8 @@
     "systemInfo": "Information",
     "ssh": {
       "description": "Opens a terminal session on this audio system from another computer on your local network.",
-      "factoryPassword": "This audio system still has its factory password."
+      "factoryPassword": "This audio system still has its factory password.",
+      "noAccount": "This audio system has no milo account: it was set up before the Milō image. Flash the image onto it to open SSH."
     },
     "systemTypes": {
       "satellite": "Satellite speakers",
@@ -1010,7 +1011,9 @@
         "password": "Change the password",
         "program_upstream": "Install an unvalidated version",
         "reset_setup": "Reset configuration",
-        "wifi_save": "Save a WiFi network"
+        "wifi_save": "Save a WiFi network",
+        "satellite_ssh_open": "Open SSH on a speaker",
+        "satellite_password": "Change a speaker's password"
       },
       "gestures": {
         "rotary": "Turn or press the knob on the device. No knob on it? Cancel, turn off the rotary encoder in Settings › Hardware, and ask again in {time}.",

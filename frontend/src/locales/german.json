@@ -121,7 +121,8 @@
     "systemInfo": "Informationen",
     "ssh": {
       "description": "Öffnet eine Terminalsitzung auf diesem Audiosystem von einem anderen Computer im lokalen Netzwerk.",
-      "factoryPassword": "Dieses Audiosystem hat noch sein Werkspasswort."
+      "factoryPassword": "Dieses Audiosystem hat noch sein Werkspasswort.",
+      "noAccount": "Dieses Audiosystem hat kein milo-Konto: Es wurde vor dem Milō-Image eingerichtet. Spielen Sie das Image auf, um SSH zu öffnen."
     },
     "systemTypes": {
       "satellite": "Satellitenlautsprecher",
@@ -1010,7 +1011,9 @@
         "password": "Passwort ändern",
         "program_upstream": "Nicht validierte Version installieren",
         "reset_setup": "Konfiguration zurücksetzen",
-        "wifi_save": "WLAN-Netzwerk speichern"
+        "wifi_save": "WLAN-Netzwerk speichern",
+        "satellite_ssh_open": "SSH auf einem Lautsprecher öffnen",
+        "satellite_password": "Passwort eines Lautsprechers ändern"
       },
       "gestures": {
         "rotary": "Drehen oder drücken Sie den Drehknopf am Gerät. Kein Drehknopf vorhanden? Brechen Sie ab, deaktivieren Sie den Drehregler unter Einstellungen › Hardware und versuchen Sie es in {time} erneut.",

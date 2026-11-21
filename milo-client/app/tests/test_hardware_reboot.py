@@ -57,12 +57,12 @@ def apply_script_reboots():
         yield exec_
 
 
-def test_a_reboot_writes_no_file_and_logs_no_error(armed, apply_script_reboots, caplog):
+def test_a_reboot_writes_no_file_and_logs_no_error(server, armed, apply_script_reboots, caplog):
     app = FastAPI()
     app.include_router(create_hardware_router())
 
     with caplog.at_level(logging.INFO):
-        response = TestClient(app).post("/api/hardware/reboot")
+        response = TestClient(app).post("/api/hardware/reboot", headers=server)
 
     assert response.status_code == 200
     assert apply_script_reboots.call_args.args[:2] == ("sudo", APPLY_HARDWARE_SCRIPT)

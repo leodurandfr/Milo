@@ -121,7 +121,8 @@
     "systemInfo": "信息",
     "ssh": {
       "description": "从局域网内的另一台电脑打开此音频系统的终端会话。",
-      "factoryPassword": "此音频系统仍在使用出厂密码。"
+      "factoryPassword": "此音频系统仍在使用出厂密码。",
+      "noAccount": "此音频系统没有 milo 账户：它是在 Milō 镜像之前配置的。请为其刷写该镜像后再打开 SSH。"
     },
     "systemTypes": {
       "satellite": "卫星扬声器",
@@ -1010,7 +1011,9 @@
         "password": "更改密码",
         "program_upstream": "安装未经验证的版本",
         "reset_setup": "重置配置",
-        "wifi_save": "保存 WiFi 网络"
+        "wifi_save": "保存 WiFi 网络",
+        "satellite_ssh_open": "在音箱上打开 SSH",
+        "satellite_password": "更改音箱的密码"
       },
       "gestures": {
         "rotary": "请转动或按下设备上的旋钮。没有旋钮？请取消，在“设置 › 硬件”中关闭旋转编码器，然后在 {time} 后重新请求。",

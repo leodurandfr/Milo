@@ -124,6 +124,7 @@ def _create_service(name: str) -> Any:
             pending_clients_service=get_service("pending_clients_service"),
             satellite_wifi_service=get_service("satellite_wifi_service"),
             satellite_timezone_service=get_service("satellite_timezone_service"),
+            satellite_secret=get_service("satellite_secret"),
         ),
         "equalizer_client_proxy_service": lambda: _import("backend.core.equalizer", "EqualizerClientProxyService")(
             routing_service=get_service("audio_routing_service")
@@ -198,6 +199,9 @@ def _create_service(name: str) -> Any:
         "satellite_timezone_service": lambda: _import("backend.core.multiroom.satellite_timezone", "SatelliteTimezoneService")(
             client_registry_service=get_service("client_registry_service"),
         ),
+        # What a satellite's paths to root require of this server: handed over
+        # at every admission, carried by the update push and the relays.
+        "satellite_secret": lambda: _import("backend.core.multiroom.satellite_http", "SatelliteSecret")(),
         "wifi_adoption_service": lambda: _import("backend.core.multiroom.wifi_adoption", "WifiAdoptionService")(
             network_service=get_service("network_service")
         ),
@@ -254,7 +258,8 @@ def _create_service(name: str) -> Any:
         "satellite_update_service": lambda: _import("backend.core.updates", "SatelliteUpdateService")(
             snapcast_service=get_service("snapcast_service"),
             client_registry_service=get_service("client_registry_service"),
-            settings_service=get_service("settings_service")
+            settings_service=get_service("settings_service"),
+            satellite_secret=get_service("satellite_secret"),
         ),
 
         # Audio sources
@@ -404,6 +409,7 @@ async def initialize_services() -> None:
     apns_client = get_service("apns_client")
     push_service = get_service("push_service")
     presence_service = get_service("presence_service")
+    satellite_secret = get_service("satellite_secret")
 
     state_machine.ws_manager = websocket_manager
     hostname_conflict_service.set_state_machine(state_machine)
@@ -625,6 +631,9 @@ async def initialize_services() -> None:
             ("push_service", push_service.initialize()),
             # A challenge a power cut proved, and an inhibitor left up
             ("presence_service", presence_service.initialize()),
+            # The satellites' key, made at the first start (fail-open: without
+            # it every satellite refuses this server's paths to root, nothing else)
+            ("satellite_secret", satellite_secret.initialize()),
         ]
 
         results = await asyncio.gather(

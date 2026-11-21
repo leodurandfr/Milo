@@ -1,6 +1,7 @@
 """
 System routes for Milo Client: SSH, the `milo` account password, the links the
-unit is on, the server's WiFi kept as a standby link, and the server's timezone.
+unit is on, the server's WiFi kept as a standby link, the server's timezone,
+and the server's secret.
 
 The satellite has no UI of its own, so these are driven from the server's
 client panel, exactly like the server's own `/api/system/ssh` and
@@ -10,6 +11,11 @@ be opened by writing a `ssh` file onto its boot partition. The WiFi is pushed by
 the server on its own, never from a panel: a satellite adopted over Ethernet
 then falls back to the WiFi when its cable goes. So is the timezone, so that
 every unit of one Milō tells the same time.
+
+The SSH switch and the password reach root, so they answer only the server
+this unit pinned (`server_secret.py`), which hands its secret over at every
+admission through `PUT /server-secret`. The reads, the WiFi and the timezone
+stay open to the LAN.
 """
 import asyncio
 import logging
@@ -17,8 +23,10 @@ import os
 import pwd
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
+
+from server_secret import require_server_secret
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +108,15 @@ def _login_user():
     except KeyError:
         return None
     return LOGIN_USER
+
+
+def _no_login_user() -> HTTPException:
+    """The 409 of a unit with no `milo` account: neither its password nor its door can be had."""
+    return HTTPException(
+        status_code=409,
+        detail=f"This satellite has no '{LOGIN_USER}' account: it was provisioned "
+               "before the Milō image. Reflash it to get one.",
+    )
 
 
 async def _run(argv, timeout, stdin=None):
@@ -201,15 +218,28 @@ def create_system_router() -> APIRouter:
         """SSH state, the account it logs into, and whether that account still has the factory password."""
         return {"status": "success", "data": await _ssh_state()}
 
-    @router.put("/ssh")
+    @router.put("/ssh", dependencies=[Depends(require_server_secret)])
     async def set_ssh(request: SshRequest):
         """Open or close SSH (enable + start, or disable + stop).
 
-        Not gated on the factory password, for the reason the server's own route
-        gives: nothing on this API authenticates, so a refusal would stop nobody
-        on the LAN while standing in the owner's way. The state carries
-        `password_is_default` so the UI can say what an open door costs.
+        Only for this unit's server (`server_secret.py`): an open door is a
+        login, and `milo` holds sudo. Opening is also refused while the factory
+        password is in place, as on the server: it is the same on every Milō
+        and published with the source, so a door opened on it is open to
+        whoever reads the repository. A unit with no `milo` account carries no
+        marker either, so it stays closed until it is reflashed. Closing is
+        never refused to the server.
         """
+        if request.enabled and not os.path.exists(PASSWORD_CHANGED_MARKER):
+            if _login_user() is None:
+                logger.warning("Refused to open SSH: no %s account, so no password of its own", LOGIN_USER)
+                raise _no_login_user()
+            logger.warning("Refused to open SSH: the factory password is still in place")
+            raise HTTPException(
+                status_code=409,
+                detail="Set this speaker's password before opening SSH: the factory "
+                       "password is the same on every Milō and published with its source",
+            )
         argv = (
             ("sudo", "systemctl", "enable", "--now", SSH_UNIT) if request.enabled
             else ("sudo", "systemctl", "disable", "--now", SSH_UNIT)
@@ -223,20 +253,19 @@ def create_system_router() -> APIRouter:
         logger.info("SSH %s", "enabled" if request.enabled else "disabled")
         return {"status": "success", "data": await _ssh_state()}
 
-    @router.post("/password")
+    @router.post("/password", dependencies=[Depends(require_server_secret)])
     async def set_password(request: PasswordRequest):
         """Set the `milo` account password (SSH login + sudo).
+
+        Only for this unit's server (`server_secret.py`): the password is
+        sudo's, and set by whoever asks, it is root for them over SSH.
 
         The password goes to the helper on stdin: /proc/<pid>/cmdline is
         world-readable, so an argv would publish it to every process on the unit.
         """
         if _login_user() is None:
             logger.error("No %s account on this unit; its password cannot be set", LOGIN_USER)
-            raise HTTPException(
-                status_code=409,
-                detail=f"This satellite has no '{LOGIN_USER}' account: it was provisioned "
-                       "before the Milō image. Reflash it to get one.",
-            )
+            raise _no_login_user()
         returncode, stderr = await _run(
             ("sudo", SET_PASSWORD_CMD), SYSTEMCTL_WRITE_TIMEOUT_S, stdin=request.password.encode()
         )
@@ -247,6 +276,17 @@ def create_system_router() -> APIRouter:
 
         logger.info("Device password updated")
         return {"status": "success", "data": {"password_is_default": False}}
+
+    @router.put("/server-secret")
+    async def keep_server_secret(pinned: bool = Depends(require_server_secret)):
+        """The server's secret, handed over at every admission.
+
+        Pinned the first time a secret reaches this unit — here or on any
+        route that requires it — and only compared after that: a secret that
+        is not the pinned one is refused like any request that carries it.
+        `changed` is true for the request that pinned it.
+        """
+        return {"status": "success", "data": {"changed": pinned}}
 
     @router.get("/network")
     async def get_network():

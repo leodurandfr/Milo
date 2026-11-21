@@ -5,8 +5,11 @@ import os
 import time
 import tempfile
 import logging
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
+from server_secret import guard
 from services.app_update import AppUpdateService, trial_payload
 
 logger = logging.getLogger(__name__)
@@ -21,12 +24,19 @@ def create_app_update_router(app_update_service: AppUpdateService) -> APIRouter:
         tarball: UploadFile = File(...),
         payload: str = Form(...),
         version: str = Form(...),
+        # Optional on the form, like any field added to the frozen set
+        # (backend/tests/contracts/test_milo_client_contract.py), and refused
+        # below when absent: a 403 that says why, not a 422.
+        server_secret: Optional[str] = Form(None),
     ):
         """Receives and deploys an app update tarball from the main server.
 
-        409 while an update runs or a pushed version is still on trial: a second
-        push would replace the trees the first one's rollback needs.
+        Only from this unit's server (`server_secret.py`): the tarball is
+        installed as root, sudoers included. 409 while an update runs or a
+        pushed version is still on trial: a second push would replace the
+        trees the first one's rollback needs.
         """
+        await guard(server_secret, "POST /app/update")
         if app_update_service.update_in_progress:
             raise HTTPException(status_code=409, detail="Update already in progress")
         on_trial = trial_payload()

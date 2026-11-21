@@ -32,6 +32,10 @@ class PresenceAction(str, Enum):
     # Asked only of a client of the recovery access point, once the unit is set
     # up (`api/middleware.py::RecoveryAccessPointGuard`).
     WIFI_SAVE = "wifi_save"
+    # The same two doors on a satellite, relayed by this unit
+    # (`api/multiroom.py`): a proof given for one never opens the other.
+    SATELLITE_SSH_OPEN = "satellite_ssh_open"
+    SATELLITE_PASSWORD = "satellite_password"
 
 
 class PresenceChallenge(BaseModel):

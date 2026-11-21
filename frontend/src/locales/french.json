@@ -121,7 +121,8 @@
     "systemInfo": "Informations",
     "ssh": {
       "description": "Ouvre une session terminal sur ce système audio depuis un autre ordinateur du réseau local.",
-      "factoryPassword": "Ce système audio a encore son mot de passe d'usine."
+      "factoryPassword": "Ce système audio a encore son mot de passe d'usine.",
+      "noAccount": "Ce système audio n'a pas de compte milo : il a été installé avant l'image Milō. Installez-y cette image pour ouvrir SSH."
     },
     "systemTypes": {
       "satellite": "Enceintes satellites",
@@ -1010,7 +1011,9 @@
         "password": "Changer le mot de passe",
         "program_upstream": "Installer une version non validée",
         "reset_setup": "Réinitialiser la configuration",
-        "wifi_save": "Enregistrer un réseau WiFi"
+        "wifi_save": "Enregistrer un réseau WiFi",
+        "satellite_ssh_open": "Ouvrir SSH sur une enceinte",
+        "satellite_password": "Changer le mot de passe d'une enceinte"
       },
       "gestures": {
         "rotary": "Tournez ou appuyez sur le bouton rotatif de l'appareil. Pas de bouton rotatif ? Annulez, désactivez l'encodeur rotatif dans Paramètres › Matériel, puis refaites la demande dans {time}.",

@@ -80,6 +80,7 @@ class SnapcastWebSocketService:
         pending_clients_service=None,
         satellite_wifi_service=None,
         satellite_timezone_service=None,
+        satellite_secret=None,
     ):
         self.state_machine = state_machine
         self.routing_service = routing_service
@@ -141,6 +142,7 @@ class SnapcastWebSocketService:
         self._pending_clients_service = pending_clients_service
         self._satellite_wifi_service = satellite_wifi_service
         self._satellite_timezone_service = satellite_timezone_service
+        self._satellite_secret = satellite_secret
         self._volume_service = None
 
     @property
@@ -1432,8 +1434,16 @@ class SnapcastWebSocketService:
                     # client counts as online, never before: a change of either
                     # pushes only to the clients online, so one made while the
                     # flip waited on the registry would otherwise reach neither
-                    # push's read.
+                    # push's read. And the server's secret, which the satellite
+                    # pins the first time and its paths to root require from
+                    # then on (satellite_http.py): handed at every admission,
+                    # so a satellite reflashed since pins it again.
                     if client and not client.is_local:
+                        if self._satellite_secret is not None:
+                            self._bg.spawn(
+                                self._satellite_secret.hand_over(mac_id, client.ip),
+                                label=f"hand_over_secret_{client.ip}",
+                            )
                         if self._satellite_wifi_service is not None:
                             self._bg.spawn(
                                 self._satellite_wifi_service.push(client.ip),

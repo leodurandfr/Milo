@@ -121,7 +121,8 @@
     "systemInfo": "Informazioni",
     "ssh": {
       "description": "Apre una sessione terminale su questo sistema audio da un altro computer della rete locale.",
-      "factoryPassword": "Questo sistema audio ha ancora la password di fabbrica."
+      "factoryPassword": "Questo sistema audio ha ancora la password di fabbrica.",
+      "noAccount": "Questo sistema audio non ha un account milo: è stato configurato prima dell'immagine di Milō. Installi l'immagine per aprire SSH."
     },
     "systemTypes": {
       "satellite": "Altoparlanti satellite",
@@ -1010,7 +1011,9 @@
         "password": "Cambia la password",
         "program_upstream": "Installa una versione non convalidata",
         "reset_setup": "Reimposta la configurazione",
-        "wifi_save": "Salva una rete WiFi"
+        "wifi_save": "Salva una rete WiFi",
+        "satellite_ssh_open": "Apri SSH su un altoparlante",
+        "satellite_password": "Cambia la password di un altoparlante"
       },
       "gestures": {
         "rotary": "Ruoti o prema la manopola del dispositivo. Nessuna manopola? Annulli, disattivi l'encoder rotativo in Impostazioni › Hardware, poi ripeta la richiesta tra {time}.",

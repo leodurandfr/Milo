@@ -142,7 +142,8 @@
       <template v-if="!client?.is_local">
         <SshSection v-if="sshState" :state="sshState" :host="client?.ip || ''" :user="sshState.loginUser" :busy="sshBusy"
           :error="sshError" :description="t('multiroom.ssh.description')"
-          :factory-password-notice="t('multiroom.ssh.factoryPassword')"
+          :factory-password-notice="t('multiroom.ssh.factoryPassword')" opens-on-own-password
+          :no-account-notice="t('multiroom.ssh.noAccount')"
           @toggle="handleSshToggle" @open-password="emit('open-password')" />
         <SectionCard v-else-if="sshReadError !== null" :title="t('system.ssh.title')">
           <NoticeBox :detail="sshReadError">{{ t('settings.readFailed') }}</NoticeBox>

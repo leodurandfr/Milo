@@ -2,16 +2,18 @@
 Hardware configuration routes for Milo Client.
 
 Provides endpoints for reading/writing hardware.json and triggering
-the apply-hardware script (config.txt update + reboot).
+the apply-hardware script (config.txt update + reboot). The card is a setting,
+open to the LAN like the others; the reboot answers only this unit's server.
 """
 import asyncio
 import json
 import logging
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
 
+from server_secret import require_server_secret
 from services import registration
 
 logger = logging.getLogger(__name__)
@@ -110,13 +112,15 @@ def create_hardware_router() -> APIRouter:
             logger.error(f"Error writing hardware config: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    @router.post("/reboot")
+    @router.post("/reboot", dependencies=[Depends(require_server_secret)])
     async def reboot():
         """
         Apply hardware configuration and reboot.
 
         Runs milo-client-apply-hardware which modifies config.txt
-        and reboots the system.
+        and reboots the system. Only for this unit's server
+        (`server_secret.py`): for a speaker still waiting to be configured,
+        which no admission has reached, this is the request that pins it.
         """
         try:
             proc = await asyncio.create_subprocess_exec(

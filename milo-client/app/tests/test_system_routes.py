@@ -41,27 +41,16 @@ class _Process:
 
 
 @pytest.fixture
-def client():
+def client(server):
+    """The routes as this unit's server reaches them: with the secret it pinned."""
     app = FastAPI()
     app.include_router(create_system_router())
-    return TestClient(app)
+    return TestClient(app, headers=server)
 
 
 def _spawning(process):
     spawn = AsyncMock(return_value=process)
     return spawn, patch("routes.system.asyncio.create_subprocess_exec", spawn)
-
-
-@pytest.fixture
-def account(monkeypatch):
-    """Whether the unit has the `milo` account — the passwd database is the outside world here."""
-    def present(exists):
-        def getpwnam(name):
-            if exists and name == "milo":
-                return object()
-            raise KeyError(name)
-        monkeypatch.setattr(system.pwd, "getpwnam", getpwnam)
-    return present
 
 
 class TestPassword:
@@ -102,7 +91,22 @@ class TestPassword:
 
 
 class TestSsh:
-    def test_a_systemctl_that_failed_is_not_a_success(self, client):
+    def test_a_unit_without_the_account_stays_closed_and_says_why(self, client, account, tmp_path, monkeypatch):
+        """No `milo` account, no marker: the door stays shut until a reflash, and
+        the refusal names the reflash — "set a password first" would point the
+        server's panel at a password this unit refuses to set."""
+        account(False)
+        monkeypatch.setattr(system, "PASSWORD_CHANGED_MARKER", str(tmp_path / "never-written"))
+        spawn, patched = _spawning(_Process())
+
+        with patched:
+            response = client.put("/api/system/ssh", json={"enabled": True})
+
+        assert response.status_code == 409
+        assert "Reflash" in response.json()["detail"]
+        spawn.assert_not_awaited()
+
+    def test_a_systemctl_that_failed_is_not_a_success(self, client, own_password):
         """The switch must not read as open when the unit never started."""
         spawn, patched = _spawning(_Process(returncode=1, stderr=b"Unit ssh.service not found."))
 

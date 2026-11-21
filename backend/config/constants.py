@@ -124,6 +124,12 @@ PASSWORD_CHANGED_MARKER = MILO_DATA_DIR / "password-changed"
 PRESENCE_RECORD_CMD = "/usr/local/bin/milo-presence-record"
 PRESENCE_RECORD_FILE = Path("/var/lib/milo-presence/challenge.json")
 
+# The key every satellite's secret is derived from (core/multiroom/satellite_http.py):
+# 32 random bytes in hex, 0600, created at the first start. Durable: a new key is
+# a secret no satellite pinned, and every one of them refuses this server's
+# update, remote access and reboot until it is re-adopted.
+SATELLITE_KEY_FILE = MILO_DATA_DIR / "satellite-key"
+
 # Dropped by POST /api/system/reset-setup and consumed by milo-first-boot on the
 # next boot, which deletes settings.json and re-runs role detection. The
 # deletion belongs there, not here: this process owns settings.json, and any

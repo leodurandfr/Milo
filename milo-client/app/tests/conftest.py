@@ -139,3 +139,53 @@ def update_world(tmp_path):
             patch.object(app_update_module, "VENV_DIR", venv), \
             patch.object(app_update_module, "GUARD", str(UPDATE_GUARD)):
         yield state, real_venv
+
+
+# The secret a satellite's server hands over: a SHA-256 HMAC in hex.
+SERVER_SECRET = "5e" * 32
+ANOTHER_SERVER_SECRET = "a7" * 32
+
+
+@pytest.fixture(autouse=True)
+def secret_file(tmp_path, monkeypatch):
+    """Where this satellite pins its server's secret, under tmp_path for every
+    test: none ever reads or writes the unit's own pin, and none starts with one."""
+    import server_secret
+
+    path = tmp_path / "server-secret"
+    monkeypatch.setattr(server_secret, "SECRET_FILE", path)
+    return path
+
+
+@pytest.fixture
+def server(secret_file):
+    """A satellite that pinned SERVER_SECRET; the headers its server sends."""
+    import server_secret
+
+    secret_file.write_text(f"{SERVER_SECRET}\n")
+    return {server_secret.SECRET_HEADER: SERVER_SECRET}
+
+
+@pytest.fixture
+def own_password(tmp_path, monkeypatch):
+    """A unit whose `milo` password was set: the marker milo-set-password leaves."""
+    from routes import system
+
+    marker = tmp_path / "password-changed"
+    marker.touch()
+    monkeypatch.setattr(system, "PASSWORD_CHANGED_MARKER", str(marker))
+    return marker
+
+
+@pytest.fixture
+def account(monkeypatch):
+    """Whether the unit has the `milo` account — the passwd database is the outside world here."""
+    from routes import system
+
+    def present(exists):
+        def getpwnam(name):
+            if exists and name == system.LOGIN_USER:
+                return object()
+            raise KeyError(name)
+        monkeypatch.setattr(system.pwd, "getpwnam", getpwnam)
+    return present
