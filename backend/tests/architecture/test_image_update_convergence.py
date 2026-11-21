@@ -476,11 +476,6 @@ IMAGE_ONLY_FUNCTIONS = {
         r'^tee "\$MILO_DATA_DIR/qobuz/config\.yaml" ',
         "the sidecar's config, a seed its web interface rewrites",
     ),
-    "install_tidal_connect": (
-        r'tidal_connect_runtime\.py" --root "\$TIDAL_ROOT";?$|^chown -R root:root "\$TIDAL_ROOT";?$',
-        "Tidal's frozen 2020 SDK binary, which has no version and no update path "
-        "(dependencies.env says why)",
-    ),
     "configure_navidrome": (
         r'^tee "\$MILO_DATA_DIR/navidrome/navidrome\.toml" '
         r'|^chown (?:-R )?"\$MILO_USER:\$MILO_USER" (?:"\$MILO_DATA_DIR/navidrome"|/media/milo);?$',

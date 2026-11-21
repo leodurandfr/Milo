@@ -131,7 +131,7 @@ every load and whenever the setting changes.
 - **Dependencies**: milo-backend.service, network-online.target, sound.target, milo-camilladsp.service
 - **ALSA Device**: milo_tidal (dynamic routing via routing.env)
 - **Managed By**: TidalSource
-- **Notes**: 32-bit armhf binary run through its own loader out of `/opt/milo/tidal-connect`; no containers. `BindReadOnlyPaths=` maps the armhf ALSA rate converter onto the path `libasound` has baked in, without which nothing is resampled and no stream opens at all. `Group=milo` like every unit sharing `/run/milo` — systemd applies the declaring unit's group to that directory on each start.
+- **Notes**: 32-bit armhf binary run through its own loader out of `/opt/milo/tidal-connect`, which the image does not carry: TidalSource has the unit build it (`milo-deploy-update install-tidal-runtime`) before the first start; no containers. `BindReadOnlyPaths=` maps the armhf ALSA rate converter onto the path `libasound` has baked in, without which nothing is resampled and no stream opens at all. `Group=milo` like every unit sharing `/run/milo` — systemd applies the declaring unit's group to that directory on each start.
 
 ### Multiroom Services (Managed Dynamically)
 

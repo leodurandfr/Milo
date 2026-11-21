@@ -34,6 +34,7 @@ AvailabilityReason = Literal[
     "no_account",                         # Qobuz
     "no_drive", "no_disc", "reading_disc", "unreadable_disc", "ejecting",  # CD
     "no_storage", "catalog_unavailable",  # Music Library
+    "installing", "download_failed",      # Tidal's runtime, fetched at first use
 ]
 
 # What a queue repeats, and what `set_repeat` takes: nothing, the whole

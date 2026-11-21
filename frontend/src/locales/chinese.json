@@ -298,6 +298,8 @@
     "paused": "已暂停",
     "insertDisc": "插入 CD",
     "plugInDrive": "连接 CD 光驱",
+    "installing": "正在安装…",
+    "downloadFailed": "下载失败",
     "eject": "弹出",
     "connectedTo": "已连接到",
     "audioReceivedFrom": "接收音频来自",

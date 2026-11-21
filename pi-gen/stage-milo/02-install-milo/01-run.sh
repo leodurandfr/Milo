@@ -94,18 +94,12 @@ install_qobuz_proxy
 CHROOT
 
 # ── Tidal Connect ────────────────────────────────────────────────────────────
-# Reuse provisioning/tidal-connect.sh::install_tidal_connect rather than restating how
-# the runtime tree under /opt/milo/tidal-connect is materialised — single source
-# of truth. Nothing user-specific is baked: the daemon carries
-# the SDK's own device certificate and holds no account state, so the Tidal
-# login lives entirely in the phone app.
-
-on_chroot << 'CHROOT'
-cd /home/milo/milo
-source provisioning/common.sh
-source provisioning/tidal-connect.sh
-install_tidal_connect
-CHROOT
+# Not in the image: the daemon is Tidal's proprietary SDK with iFi's device
+# certificate, which a release is not ours to redistribute. A unit builds its
+# own runtime tree under /opt/milo/tidal-connect the first time Tidal is
+# selected or enabled in the Dock (milo-deploy-update install-tidal-runtime);
+# its launcher and unit come from rootfs/ and system/ like every other one.
+# pi-gen/inspect-image.sh refuses an image that carries the tree.
 
 # ── Navidrome (Music Library catalog engine) ─────────────────────────────────
 # The binary is downloaded in the audio stage (01-install-audio); here we only

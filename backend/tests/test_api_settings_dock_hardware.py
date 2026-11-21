@@ -354,6 +354,34 @@ class TestTheDockAndTheLibraryCatalog:
         library.set_catalog_running.assert_not_called()
 
 
+class TestTheDockAndTheTidalRuntime:
+    """The image does not carry Tidal's runtime tree: enabling the tile is one
+    of the two moments a unit fetches it (the first selection is the other)."""
+
+    @pytest.fixture
+    def tidal(self, state_machine):
+        source = Mock()
+        state_machine.get_source = Mock(
+            side_effect=lambda s: source if s is AudioSource.TIDAL else None
+        )
+        return source
+
+    def test_enabling_tidal_prepares_its_runtime(self, client, settings, tidal):
+        _dock(settings, ["radio"])
+
+        response = client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio", "tidal"]})
+
+        assert response.status_code == 200
+        tidal.runtime.prepare.assert_called_once_with()
+
+    def test_other_sources_leave_the_runtime_alone(self, client, settings, tidal):
+        _dock(settings, ["radio", "tidal"])
+
+        client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio", "tidal", "podcast"]})
+
+        tidal.runtime.prepare.assert_not_called()
+
+
 class TestTheDockAtomicity:
     """The rule the whole handler exists for: what is stored is what was applied."""
 

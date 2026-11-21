@@ -245,6 +245,7 @@ hand on the sender); the phone app needs a paid one.
 
 | Check | Expected observable | Set |
 |---|---|---|
+| First use (runtime download) | On a freshly flashed unit (no `/opt/milo/tidal-connect`), select Tidal: the card reads "Installing…" while `milo-deploy-update install-tidal-runtime` runs, then the speaker appears in the Tidal app with no second tap, and `journalctl -u milo-backend` says "Tidal Connect runtime installed". With the network cut mid-download, the card reads "Download failed" with Retry, the journal's error names the builder's cause (a `FATAL:` line or the exception, never only "could not be built"), and Retry with the network back installs it. After the first install, note `systemctl show -p MemoryPeak milo-backend` and that `journalctl -k \| grep -i oom` is empty: the build runs in the backend's `MemoryMax=512M` cgroup | targeted |
 | Discovery | Milō appears in the Tidal app's device list | targeted |
 | Playback + metadata | Audio plays; artwork, title, artist, album shown; progress advances | targeted |
 | Transport | Pause/resume and prev/next from Milō act on the audio and the Tidal app follows | targeted |

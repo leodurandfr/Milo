@@ -76,6 +76,14 @@ describe('unavailableReasonFor', () => {
     expect(unavailableReasonFor('cd', { cd: 'reading_disc' })).toBeNull();
   });
 
+  it("passes Tidal's two runtime reasons through (installing, download_failed)", () => {
+    // A unit without the tree reports it through availability while it
+    // downloads and once the download failed; a reason missing from
+    // UNAVAILABLE_REASONS would leave the card on its generic failure.
+    expect(unavailableReasonFor('tidal', { tidal: 'installing' })).toBe('installing');
+    expect(unavailableReasonFor('tidal', { tidal: 'download_failed' })).toBe('download_failed');
+  });
+
   it("leaves the Music Library's storage states to its own view (D13)", () => {
     expect(unavailableReasonFor('music_library', { music_library: 'no_storage' })).toBeNull();
     expect(unavailableReasonFor('music_library', { music_library: 'catalog_unavailable' })).toBeNull();

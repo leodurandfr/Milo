@@ -17,6 +17,7 @@ from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.sources.tidal import controller_socket as controller_module
 from backend.sources.tidal.source import TidalSource
+from backend.tests.tidal_world import installed_runtime
 from backend.tests.golden.harness import (
     AsyncioProxy, LiveProcessWatch, TickGate, VirtualClock, Wire, check_recording,
     instant_short_sleep, make_state_machine, make_systemd, settle, use_virtual_wall,
@@ -123,7 +124,7 @@ class FakeTisoc:
 class Tidal:
     """Adapter: how each outside-world stimulus reaches TidalSource today."""
 
-    def __init__(self, monkeypatch):
+    def __init__(self, monkeypatch, tmp_path):
         self.daemon = FakeTisoc()
         self.gate = TickGate()
         # The wall clock position anchors are stamped with: it moves only
@@ -157,7 +158,8 @@ class Tidal:
         # death here is a restart underneath, a crash that Restart= answers.
         systemd.unit_state = AsyncMock(return_value=("activating", "signal"))
         self.source = TidalSource(
-            {"socket_path": "/nonexistent/tidal-controller.sock"},
+            {"socket_path": "/nonexistent/tidal-controller.sock",
+             "runtime_root": installed_runtime(tmp_path / "tidal-connect")},
             state_machine=self.machine,
             settings_service=None,
             systemd_manager=systemd,
@@ -195,8 +197,8 @@ class Tidal:
 
 
 @pytest.fixture
-def tidal(monkeypatch):
-    return Tidal(monkeypatch)
+def tidal(monkeypatch, tmp_path):
+    return Tidal(monkeypatch, tmp_path)
 
 
 async def _phone_starts(tidal, track=MAD_AGAIN):

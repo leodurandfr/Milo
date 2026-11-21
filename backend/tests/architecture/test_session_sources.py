@@ -296,6 +296,9 @@ STATELESS_TASKS = {
     "_harvest": "Spotify keeps the signed-in account's credentials in the profiles store; "
                 "it reads `_harvested` only under the store's lock, which a forget takes "
                 "after clearing it, so the decision cannot go stale",
+    "_runtime_settled": "Tidal's runtime install ended: it reads the state machine's selection "
+                        "and asks it for the retry transition, which stops and starts this "
+                        "source — posted into the actor, it would wait on itself",
 }
 # What only the actor may call: publishing, the session's lifecycle, the
 # feed's handler and the error banner.

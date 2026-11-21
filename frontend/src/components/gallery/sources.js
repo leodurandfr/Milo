@@ -946,6 +946,26 @@ export const SOURCE_PAGES = [
         'tidal',
         'The daemon did not come up, or came up and never acknowledged startService — the source treats both as a failed start, because a daemon stuck before that acknowledgement would advertise a speaker that silently refuses every phone. Retry re-posts the source selection.',
         'Tidal Connect failed to start'
+      ),
+      published(
+        'tidal',
+        'Installing',
+        'availability installing — the image does not carry the daemon\'s runtime, so the first selection asks the unit to download it and that start fails on purpose. The reason outranks the failure on the card and offers nothing to press; the tree landing while Tidal is still selected restarts the source by itself.',
+        {
+          service: 'failed',
+          service_error: { reason: 'start_failed', message: 'Failed to start tidal' },
+          availability: { tidal: 'installing' }
+        }
+      ),
+      published(
+        'tidal',
+        'Download failed',
+        'availability download_failed — the root helper ended without a tree (no route to the registry or the Debian snapshot, a digest that did not match). Retry re-posts the source selection, whose start runs the install again.',
+        {
+          service: 'failed',
+          service_error: { reason: 'start_failed', message: 'Failed to start tidal' },
+          availability: { tidal: 'download_failed' }
+        }
       )
     ]
   },

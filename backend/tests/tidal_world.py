@@ -43,12 +43,15 @@ import asyncio
 import itertools
 import json
 import struct
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from unittest.mock import AsyncMock, Mock
 
 from backend.core import audio_source
 from backend.core.models.audio_state import AudioSource
 from backend.sources.tidal import controller_socket as controller_module
+from backend.sources.tidal import runtime as runtime_module
+from backend.sources.tidal.runtime import RUNTIME_LOADER
 from backend.sources.tidal.source import TidalSource
 from backend.tests.golden.harness import (
     AsyncioProxy, VirtualClock, WireReader, make_settings, make_state_machine, settle, use_virtual_wall,
@@ -63,6 +66,64 @@ RESUME_GAP_S = 0.007
 SOUND_AFTER_S = 0.74
 TICK_S = 0.5
 _START, _END = b"\xff\x02", b"\xff\x03"
+
+
+def installed_runtime(root: Path) -> str:
+    """A runtime tree as `milo-deploy-update install-tidal-runtime` leaves one,
+    as far as the source looks: its loader in place (sources/tidal/runtime.py)."""
+    loader = root / RUNTIME_LOADER
+    loader.parent.mkdir(parents=True, exist_ok=True)
+    loader.write_bytes(b"\x7fELF")
+    return str(root)
+
+
+class RootHelper:
+    """`sudo -n milo-deploy-update install-tidal-runtime`, as the backend sees
+    it: an argv, then an exit status with the tree renamed into place or not.
+    Each run waits for the scenario to say how it ends (`finishes`)."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.calls: List[Tuple[str, ...]] = []
+        self._running: List["_HelperRun"] = []
+
+    async def create_subprocess_exec(self, *argv: str, **_: Any) -> "_HelperRun":
+        self.calls.append(argv)
+        run = _HelperRun()
+        self._running.append(run)
+        return run
+
+    async def finishes(self, installed: bool) -> None:
+        run = self._running.pop(0)
+        if installed:
+            installed_runtime(self.root)
+            run.end(0, b"OK: Tidal Connect runtime installed in /opt/milo/tidal-connect\n")
+        else:
+            # The builder's progress, its cause — a FATAL heading and the
+            # objects it names, indented below it, as verify() raises it —
+            # then the helper's own wrapper, as `cmd_install_tidal_runtime`
+            # prints them.
+            run.end(1, b"  verifying the dependency graph\n"
+                       b"FATAL: libraries below this kernel's page size:\n"
+                       b"  /opt/milo/tidal-connect.new/lib/libasound.so.2\n"
+                       b"  /opt/milo/tidal-connect.new/lib/libcrypto.so.1.1\n"
+                       b"ERROR: the Tidal Connect runtime could not be built\n")
+        await settle()
+
+
+class _HelperRun:
+    def __init__(self) -> None:
+        self.returncode: Optional[int] = None
+        self._output = b""
+        self._done = asyncio.Event()
+
+    def end(self, code: int, output: bytes) -> None:
+        self.returncode, self._output = code, output
+        self._done.set()
+
+    async def communicate(self) -> Tuple[bytes, None]:
+        await self._done.wait()
+        return self._output, None
 
 
 def media(title: str, duration: int = 271000, artists=("Dr. Dre", "Snoop Dogg"),
@@ -188,7 +249,8 @@ class Tisoc:
 class TidalWorld(WireReader):
     """The Tidal source on a real state machine, in a world the scenario drives."""
 
-    def __init__(self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None):
+    def __init__(self, monkeypatch, tmp_path, settings: Optional[Dict[str, Any]] = None,
+                 runtime_installed: bool = True):
         world = self
         self.clock = VirtualClock()
         use_virtual_wall(monkeypatch, self.clock)
@@ -230,13 +292,27 @@ class TidalWorld(WireReader):
         class ControllerAsyncio(AsyncioProxy):
             open_unix_connection = staticmethod(self.daemon.open_unix_connection)
 
+        runtime_root = tmp_path / "tidal-connect"
+        if runtime_installed:
+            installed_runtime(runtime_root)
+        self.helper = RootHelper(runtime_root)
+
+        async def inline(function: Callable[..., Any], *a: Any, **k: Any) -> Any:
+            # A stat of the loader, run where `settle()` can see it end.
+            return function(*a, **k)
+
+        class RuntimeAsyncio(AsyncioProxy):
+            create_subprocess_exec = staticmethod(self.helper.create_subprocess_exec)
+            to_thread = staticmethod(inline)
+
+        monkeypatch.setattr(runtime_module, "asyncio", RuntimeAsyncio(asyncio.sleep))
         monkeypatch.setattr(controller_module, "asyncio", ControllerAsyncio(sleep))
         monkeypatch.setattr(audio_source, "asyncio", AsyncioProxy(sleep))
         monkeypatch.setattr(audio_source, "ProcessWatch", Watch, raising=False)
 
         self.machine, self.recorder = make_state_machine()
         self.source = TidalSource(
-            {"socket_path": str(tmp_path / "tisoc.sock")},
+            {"socket_path": str(tmp_path / "tisoc.sock"), "runtime_root": str(runtime_root)},
             state_machine=self.machine,
             settings_service=make_settings(settings),
             systemd_manager=systemd,

@@ -298,6 +298,8 @@
     "paused": "रुका हुआ",
     "insertDisc": "CD डालें",
     "plugInDrive": "CD ड्राइव लगाएँ",
+    "installing": "इंस्टॉल हो रहा है…",
+    "downloadFailed": "डाउनलोड नहीं हो सका",
     "eject": "बाहर निकालें",
     "connectedTo": "से जुड़ा हुआ",
     "audioReceivedFrom": "से ऑडियो प्राप्त",

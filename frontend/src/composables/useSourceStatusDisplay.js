@@ -11,7 +11,8 @@
 // Alongside the state, this owns the second question the card asks: *can* this
 // source work at all right now? It is the source's `availability` entry — the
 // link, the internet, a Qobuz account, a CD drive or disc — one value, because
-// they render the same way and differ only in their CTA.
+// they render the same way and differ only in their CTA. Tidal adds two of its
+// own: the runtime the unit downloads at first use, under way or failed.
 import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useTimer } from '@/composables/useTimer';
@@ -50,7 +51,9 @@ export const UNAVAILABLE_REASONS = [
   'no_account',
   'no_drive',
   'no_disc',
-  'unreadable_disc'
+  'unreadable_disc',
+  'installing',
+  'download_failed'
 ];
 
 /**

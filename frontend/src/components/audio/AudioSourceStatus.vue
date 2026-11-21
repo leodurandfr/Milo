@@ -132,7 +132,9 @@ const UNAVAILABLE_PHRASE_KEYS = {
   no_account: 'status.accountNotConnected',
   no_drive: 'status.plugInDrive',
   no_disc: 'status.insertDisc',
-  unreadable_disc: 'audioSources.errors.discUnreadable'
+  unreadable_disc: 'audioSources.errors.discUnreadable',
+  installing: 'status.installing',
+  download_failed: 'status.downloadFailed'
 };
 
 /**
@@ -240,6 +242,12 @@ const actionButton = computed(() => {
       return { label: t('status.eject'), disabled: false, onClick: () => emit('eject') };
     }
     if (props.unavailableReason === 'no_drive' || props.unavailableReason === 'no_disc') return null;
+    // Tidal's runtime: nothing to press while it downloads; once the download
+    // failed, re-selecting the source is what runs it again.
+    if (props.unavailableReason === 'installing') return null;
+    if (props.unavailableReason === 'download_failed') {
+      return { label: t('status.retry'), disabled: false, onClick: () => emit('retry') };
+    }
     return {
       label: t('status.networkSettings'),
       disabled: false,

@@ -46,20 +46,29 @@ the unit (2026-09-24, a Mac's Tidal app, strace on the controller socket):
 
 Album art is a Tidal CDN URL loaded directly by the kiosk — no binary artwork
 route, same as Qobuz.
+
+The daemon's runtime tree is not in the image (`runtime.py`): a start that
+finds it missing asks for it and fails, so the card reads the availability —
+`installing`, then `download_failed` or nothing — and re-selecting Tidal is
+the retry. When the tree lands while Tidal is still selected, the source asks
+the state machine for that retry itself, so the speaker appears in the phone's
+picker without another gesture.
 """
-from backend.core.models.ws_events import SourceErrorReason
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
 from backend.core.audio_source import END_REQUEST_TIMEOUT_S, BaseAudioSource
-from backend.core.models.audio_state import NetworkRequirement
+from backend.core.models.audio_state import AudioSource, NetworkRequirement
+from backend.core.models.ws_events import SourceErrorReason
 from backend.core.models.session import (
     CommandScope, DaemonSnapshot, EndReason, IdlePolicy, Phase, ResumePolicy, ReroutePolicy,
     Session,
 )
 from backend.sources.tidal.controller_socket import TidalControllerSocket
+from backend.sources.tidal.runtime import TIDAL_RUNTIME_ROOT, TidalRuntime
 
 # Where milo-tidal.service is told to put its controller socket
 # (--controller-unix-socket-path). Not the SDK's /tmp default: /run/milo is the
@@ -164,6 +173,12 @@ class TidalSource(BaseAudioSource):
         )
 
         self._socket_path = self._config.get("socket_path", TIDAL_CONTROLLER_SOCKET)
+        self._runtime = TidalRuntime(
+            self._config.get("runtime_root", TIDAL_RUNTIME_ROOT),
+            logger=logging.getLogger(f"source.{self.source_id}.runtime"),
+            on_change=self._availability_changed,
+            on_settled=self._runtime_settled,
+        )
         self._controller: Optional[TidalControllerSocket] = None
         # The last player status seen before any track was named (E14): the
         # session it describes opens with the first media.
@@ -182,6 +197,14 @@ class TidalSource(BaseAudioSource):
         keeps that window to the service's own settle time.
         """
         try:
+            if not await self._runtime.present():
+                self._logger.warning(
+                    "Tidal Connect runtime not installed on this unit: installing it, "
+                    "Tidal starts once it is there"
+                )
+                self._runtime.install()
+                return False
+
             if not await self._start_service_and_wait():
                 return False
 
@@ -211,6 +234,37 @@ class TidalSource(BaseAudioSource):
     async def _do_stop(self) -> bool:
         await self.end_session(EndReason.SOURCE_SWITCH)
         return await self._withdraw()
+
+    # === The runtime tree (runtime.py) ===
+
+    def availability(self) -> Optional[str]:
+        return self._runtime.availability()
+
+    @property
+    def runtime(self) -> TidalRuntime:
+        """The runtime tree, for the Dock: enabling Tidal fetches it now if it
+        is missing (`runtime.prepare()`), so a first selection finds it."""
+        return self._runtime
+
+    async def _runtime_settled(self, installed: bool) -> None:
+        """An install ended. Run in the runtime's own task, outside the actor:
+        a retry is a transition, which stops and starts this source.
+
+        The start that asked for the tree failed, and Tidal stays selected with
+        `service: failed` — so selecting it again is the retry the user would
+        make, made here, and only while that is still the state. Whether it is
+        is decided under the transition lock, by the transition itself: the
+        expected source skips it once Tidal was left, and re-selecting a source
+        whose start did not fail is a no-op."""
+        if not installed or self.state_machine is None:
+            return
+        await self.state_machine.transition_to_source(
+            AudioSource.TIDAL, expected_source=AudioSource.TIDAL
+        )
+
+    async def shutdown(self) -> None:
+        await self._runtime.cleanup()
+        await super().shutdown()
 
     async def _withdraw(self) -> bool:
         """Tell the daemon to withdraw the speaker, then stop the unit.

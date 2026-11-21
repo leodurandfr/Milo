@@ -409,6 +409,11 @@ check "bluealsa has no /usr/var path" \
 # so a bluealsa built with AAC is not redistributable.
 check "no fdk-aac in the image (bluealsa built without AAC)" \
       "[ -f '${ROOT%/}/usr/bin/bluealsa' ] && ! compgen -G '${ROOT%/}/usr/lib/*/libfdk-aac.so*'"
+# Tidal's SDK and iFi's device certificate are not ours to redistribute either:
+# a unit builds the runtime tree itself the first time Tidal is selected, so a
+# unit in service may hold it and only an image is refused for it.
+image_check "no Tidal Connect runtime in the image (a unit fetches it at first use)" \
+      "! compgen -G '${ROOT%/}/opt/milo/tidal-connect*'"
 check "ALSA only — no pipewire" "! [ -x '${ROOT%/}/usr/bin/pipewire' ]"
 check "ALSA only — no pulseaudio" "! [ -x '${ROOT%/}/usr/bin/pulseaudio' ]"
 

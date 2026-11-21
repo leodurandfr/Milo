@@ -710,6 +710,37 @@ cmd_write_config() {
     echo "OK: Config written to $dest"
 }
 
+# The Tidal Connect runtime tree, which the image does not carry: TidalSource
+# asks for it the first time Tidal is selected or enabled in the Dock. Built by
+# the checkout's own provisioning/tidal_connect_runtime.py, which checks every
+# byte it unpacks against a digest it names and verifies the result, into a
+# staging directory renamed into place only once that verification passed — so
+# the launcher (milo-tidal-connect) finds a whole tree or none, and a build cut
+# short, a backend restart included, leaves nothing it could start on.
+TIDAL_ROOT="/opt/milo/tidal-connect"
+
+cmd_install_tidal_runtime() {
+    [ $# -eq 0 ] || error_exit "Usage: install-tidal-runtime"
+    local staging="$TIDAL_ROOT.new" previous="$TIDAL_ROOT.old"
+
+    mkdir -p "$(dirname "$TIDAL_ROOT")"
+    rm -rf "$staging" "$previous"
+    # -I: run as root, the builder imports nothing from its directory or
+    # the environment.
+    python3 -I "$REPO_PATH/provisioning/tidal_connect_runtime.py" --root "$staging" \
+        || { rm -rf "$staging"; error_exit "the Tidal Connect runtime could not be built"; }
+    # Read-only for the service user: nothing under here is written at run time
+    # (the controller socket lives in /run/milo).
+    chown -R root:root "$staging"
+    if [ -e "$TIDAL_ROOT" ]; then
+        mv "$TIDAL_ROOT" "$previous"
+    fi
+    mv "$staging" "$TIDAL_ROOT"
+    rm -rf "$previous"
+    sync
+    echo "OK: Tidal Connect runtime installed in $TIDAL_ROOT"
+}
+
 cmd_reboot() {
     echo "Rebooting system..."
     /sbin/reboot
@@ -730,6 +761,7 @@ case "$subcommand" in
     install-release-binary) cmd_install_release_binary "$@" ;;
     install-deb)       cmd_install_deb "$@" ;;
     write-config)      cmd_write_config "$@" ;;
+    install-tidal-runtime) cmd_install_tidal_runtime "$@" ;;
     reboot)            cmd_reboot "$@" ;;
     *) error_exit "Unknown subcommand: $subcommand" ;;
 esac

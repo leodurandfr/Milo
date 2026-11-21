@@ -36,6 +36,7 @@ export const AvailabilityReasonSchema = z.enum([
   'no_network', 'no_internet', 'no_account',
   'no_drive', 'no_disc', 'reading_disc', 'unreadable_disc', 'ejecting',
   'no_storage', 'catalog_unavailable',
+  'installing', 'download_failed',
 ]);
 
 /** The playhead: `ms` at the instant `at` (UTC seconds), moving at `rate` while playing. */

@@ -286,7 +286,7 @@ Where the selected source's program stands. It says nothing about the session.
 
 ### AvailabilityReason
 
-`no_network`, `no_internet`, `no_account`, `no_drive`, `no_disc`, `reading_disc`, `unreadable_disc`, `ejecting`, `no_storage`, `catalog_unavailable`
+`no_network`, `no_internet`, `no_account`, `no_drive`, `no_disc`, `reading_disc`, `unreadable_disc`, `ejecting`, `no_storage`, `catalog_unavailable`, `installing`, `download_failed`
 
 ### Phase
 

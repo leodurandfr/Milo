@@ -298,6 +298,8 @@
     "paused": "Em pausa",
     "insertDisc": "Insira um CD",
     "plugInDrive": "Ligue uma unidade de CD",
+    "installing": "A instalar…",
+    "downloadFailed": "Não foi possível transferir",
     "eject": "Ejetar",
     "connectedTo": "Conectado a",
     "audioReceivedFrom": "Áudio recebido de",

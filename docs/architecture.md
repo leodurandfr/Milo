@@ -167,6 +167,7 @@ browser sources give their view up for a missing link only.
 | `reading_disc`, `ejecting` | CD | `DiscState` `READING`, `IDENTIFYING` while its lookup runs, for at most `IDENTIFY_GRACE_S` (3 s) once CD is active (started only once CD is active, so a disc awaiting it under another source reads as ready), `EJECTING` | none — drawn as an operation under way, with a spinner |
 | `unreadable_disc` | CD | `DiscState.UNREADABLE` | Eject |
 | `no_storage`, `catalog_unavailable` | Music Library | no mounted storage carrying a library; Navidrome not answering or not provisioned | none on the card — the library's own view draws both, with the storage wizard at hand |
+| `installing`, `download_failed` | Tidal | the runtime tree the unit fetches at first use (`sources/tidal/runtime.py`): the root helper running, or its last run ended without a tree | none while installing; Retry once it failed (re-selecting Tidal runs the install again) |
 
 Bluetooth has no reason: nothing measured makes it unavailable from the screen,
 and its failures go through `source/error`.
@@ -680,9 +681,20 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
   the binary through **that tree's own dynamic loader**. Uninstalling is
   `rm -rf` on one directory. Three corrections are applied on top of the image,
   each documented in that script's docstring: 16K-page-mappable replacements for
-  `libsystemd`/`libudev` (from **bullseye** — bookworm is the one that breaks
-  it), removal of the image's shadowing copies, and the ALSA rate converter
-  below
+  `libsystemd`/`libudev` (from **bullseye**, read from snapshot.debian.org by
+  pool path and sha256 — bookworm is the one that breaks it), removal of the
+  image's shadowing copies, and the ALSA rate converter below. Every download
+  is checked against a digest the script names: the manifest, each layer, each
+  `.deb`
+- **The image does not carry the tree.** The SDK is Tidal's and the device
+  certificate iFi's, not Milō's to redistribute in a release. The first time
+  Tidal is selected (or enabled in the Dock), `TidalSource` asks
+  `milo-deploy-update install-tidal-runtime` to build it as root into a staging
+  directory, renamed into place once verified. Meanwhile the source's
+  availability is `installing`; a failed build is `download_failed`, and
+  selecting Tidal again retries it. A tree that lands while Tidal is still
+  selected starts it without another gesture. `pi-gen/inspect-image.sh` refuses
+  an image that carries the tree
 - Control is a **length-framed JSON protocol on a Unix socket** (`tisoc`,
   undocumented, read off a live session): `FF 02 | uint16 length | JSON | FF 03`.
   Two answers are mandatory — `startService` on connect (without it the daemon's
@@ -699,7 +711,8 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 
 **Configuration:**
 - Service: milo-tidal.service (backend-managed, started with the source)
-- Runtime tree: `/opt/milo/tidal-connect` (root-owned, read-only at runtime)
+- Runtime tree: `/opt/milo/tidal-connect` (root-owned, read-only at runtime;
+  fetched by the unit at first use, never in the image)
 - Controller socket: `/run/milo/tidal-controller.sock`
 - Audio output: ALSA (milo_tidal)
 - Visible name: "Milō" — the macron survives the mDNS TXT record and the apps

@@ -537,6 +537,11 @@ def create_settings_router(
                         if app == AudioSource.MUSIC_LIBRARY.value:
                             operations_log.append("Starting the music library catalog")
                             state_machine.get_source(AudioSource.MUSIC_LIBRARY).set_catalog_running(True)
+                        # And Tidal's runtime, which the image does not carry:
+                        # fetched now if missing, so the first selection finds it.
+                        elif app == AudioSource.TIDAL.value:
+                            operations_log.append("Preparing the Tidal Connect runtime")
+                            state_machine.get_source(AudioSource.TIDAL).runtime.prepare()
                         elif app in AUDIO_SOURCE_APPS:
                             operations_log.append(f"App {app} enabled (no service start needed)")
                             logger.info(f"App {app} enabled in dock (services will start on source change)")
