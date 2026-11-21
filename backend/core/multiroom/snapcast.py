@@ -259,8 +259,10 @@ class SnapcastService:
     async def get_clients(self) -> List[Dict[str, Any]]:
         """Get clients with MAC-based deduplication and availability detection.
 
-        Fail-open: flattens a request failure to []. Its one caller is the
-        diagnostic, which only lists. Callers that would read an empty list as
+        Fail-open: flattens a request failure to [], logged at error. Its one
+        caller is the diagnostic, which only lists, and asks only while
+        multiroom is on: in direct mode snapserver is stopped and this could
+        only fail. Callers that would read an empty list as
         "every client vanished" — every path in SnapcastWebSocketService — fetch
         the status themselves and use ``extract_clients`` instead.
         """

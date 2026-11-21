@@ -26,6 +26,7 @@ from backend.core.system.diagnostic.whitelist import (
     JOURNAL_INCLUDE_KERNEL,
     JOURNAL_UNIT_GLOB,
     Redactor,
+    state_values,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,8 @@ class DiagnosticService:
     # on its own: a few nmcli reads, and a NetworkManager that does not answer
     # costs the labels, never the report.
     SSID_TIMEOUT = 5.0
+    # The same for the devices BlueZ knows, read beside the networks.
+    BLUETOOTH_TIMEOUT = 3.0
 
     def __init__(
         self,
@@ -195,8 +198,11 @@ class DiagnosticService:
         import json
 
         data = {}
-        raw, ssids = await asyncio.gather(
-            probes.read_file(MUSIC_LIBRARY_DATA_FILE), self._known_ssids()
+        raw, ssids, bt_devices, settings = await asyncio.gather(
+            probes.read_file(MUSIC_LIBRARY_DATA_FILE),
+            self._known_ssids(),
+            probes.bluetooth_devices(timeout=self.BLUETOOTH_TIMEOUT),
+            collectors.read_settings(ctx),
         )
         if raw:
             try:
@@ -239,7 +245,28 @@ class DiagnosticService:
             ssid_labels={
                 ssid: f"wifi-{index}" for index, ssid in enumerate(sorted(ssids), start=1)
             },
+            bt_devices=bt_devices,
+            listening=state_values(self._audio_state()),
+            bt_remote_filter=(
+                settings.get("hardware", {}).get("bt_remote", {}).get("device_name_filter")
+            ),
         )
+
+    def _audio_state(self) -> Dict[str, Any]:
+        """The state as the wire carries it, or nothing to learn from."""
+        state_machine = self._services["state_machine"]
+        if state_machine is None:
+            return {}
+        try:
+            return state_machine.get_current_state()
+        except Exception as e:
+            # The shapes still take what the lines name; only the cross-reference
+            # to the live session is lost. At warning, not error: the AUDIO
+            # SOURCES section makes the same call and names the failure in the
+            # report itself, and an error would put a banner in front of
+            # someone generating a report to ask for help.
+            logger.warning("diagnostic could not read the audio state: %s", e)
+            return {}
 
     async def _known_ssids(self) -> Set[str]:
         network = self._services["network_service"]
@@ -271,9 +298,12 @@ class DiagnosticService:
         return (
             "===== MILO DIAGNOSTIC REPORT =====\n"
             f"report format: {REPORT_FORMAT}\n"
-            "no credential, no network name and no file name of yours is in this "
-            "file; local IP and MAC addresses are, because a multiroom fault "
-            "cannot be read without them\n"
+            "no credential, no network name and no file name of yours is in "
+            "this file; Bluetooth device names and addresses, AirPlay, Spotify "
+            "and Mac senders, and the titles, artists and albums the report "
+            "recognizes are replaced by labels; local IP and MAC addresses, "
+            "radio station names, Spotify URIs and CD disc ids are kept, because "
+            "a multiroom or playback fault cannot be read without them\n"
         )
 
     def _satellites_block(self, task, unavailable: List[Dict[str, str]], ctx) -> str:

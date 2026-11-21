@@ -12,8 +12,9 @@ mount would eventually take the executor with it.
 import asyncio
 import contextlib
 import logging
+import re
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,26 @@ async def is_active(unit: str) -> bool:
     """`systemctl is-active` — no privilege, and both call sites run it plain."""
     out = await run(["systemctl", "is-active", unit], timeout=3.0)
     return bool(out) and out.strip() == "active"
+
+
+_BT_ADDRESS = re.compile(r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}")
+
+
+async def bluetooth_devices(timeout: float = 3.0) -> Dict[str, str]:
+    """address → name of every device BlueZ knows, or {} when it will not say.
+
+    The names the Redactor labels: a phone paired once is called "iPhone de
+    Léo" in every line that names it. The bound is what keeps a Bluetooth stack
+    that is down from costing the report: `bluetoothctl` then waits for
+    bluetoothd, and does not give up on its own.
+    """
+    out = await run(["bluetoothctl", "devices"], timeout=timeout)
+    devices = {}
+    for line in (out or "").splitlines():
+        parts = line.strip().split(" ", 2)
+        if len(parts) == 3 and parts[0] == "Device" and _BT_ADDRESS.fullmatch(parts[1]):
+            devices[parts[1].upper()] = parts[2]
+    return devices
 
 
 async def unit_summary(units: Sequence[str]) -> List[str]:

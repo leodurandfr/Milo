@@ -21,21 +21,27 @@ matters as much — the allowed sentinels MUST survive, or a broken extractor
 would pass this file by producing nothing at all.
 """
 import ast
+import enum
 import functools
 import json
 import re
 import tempfile
+import types
+import typing
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from backend.api.settings import create_settings_router
+from backend.core.models.audio_wire import AudioState
 from backend.core.multiroom.models import Client, EqualizerSettings, Zone
 from backend.core.settings import SettingsService
 from backend.core.system.diagnostic import whitelist as wl
+from backend.sources.spotify.source import SpotifySource
 from backend.hardware.registry import (
     AUDIO_CARDS,
     DEFAULT_IR_REMOTE,
@@ -547,6 +553,649 @@ def test_every_logged_ssid_shape_is_redacted_without_knowing_it(ssid):
 
 
 # --------------------------------------------------------------------------- #
+# Devices and listening — what the household plays, and from what
+# --------------------------------------------------------------------------- #
+
+def _text_leaves(annotation, path):
+    """Every text leaf under `annotation`, by the path the wire spells it.
+
+    A closed vocabulary (an enum, a Literal) names nobody, and neither does a
+    number. A union of models is the discriminated `details`, each member under
+    its own `kind`. A block passed on as its producer built it (`Dict[str,
+    Any]`) is the leaf `<path>.*`: no type says what it holds, so it has to be
+    decided like any field. Anything else raises: an annotation this walk does
+    not read would otherwise be a field it skips in silence.
+    """
+    origin, args = typing.get_origin(annotation), typing.get_args(annotation)
+    if origin is typing.Annotated:
+        yield from _text_leaves(args[0], path)
+    elif origin in (typing.Union, types.UnionType):
+        members = [arg for arg in args if arg is not type(None)]
+        if len(members) > 1:
+            for member in members:
+                kind = member.model_fields["kind"].default
+                yield from _model_leaves(member, f"{path}.{kind}")
+        else:
+            yield from _text_leaves(members[0], path)
+    elif origin is list:
+        yield from _text_leaves(args[0], f"{path}[]")
+    elif origin is dict or annotation is typing.Any:
+        yield f"{path}.*"
+    elif origin is typing.Literal or annotation in (int, float, bool):
+        return
+    elif isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return
+    elif isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        yield from _model_leaves(annotation, path)
+    elif annotation is str:
+        yield path
+    else:
+        raise TypeError(f"{path}: no rule reads a {annotation!r}")
+
+
+def _model_leaves(model, prefix=""):
+    for name, field in model.model_fields.items():
+        yield from _text_leaves(field.annotation, f"{prefix}.{name}" if prefix else name)
+
+
+def _under_an_opaque_block(path, leaves):
+    """Whether `path` is a key inside a `<block>.*` leaf, which no type lists."""
+    return any(
+        leaf.endswith(".*") and path.startswith(leaf[:-1]) for leaf in leaves
+    )
+
+
+def test_every_text_of_the_audio_state_is_decided():
+    """Goes red when the state gains a text field and nobody said whether it
+    names the household.
+
+    The Redactor is taught the state's titles, artists and senders so that the
+    same value is labeled wherever a log carries it. A field the state gains
+    and these two halves do not name is a field the Redactor never learns: a
+    daemon's journal would print it, untouched. A block no type describes (the
+    Subsonic tracks of the Music Library's queue, the podcast episode) is a
+    `.*` leaf, kept as a whole in STATE_NOT_REDACTED with its reason, and the
+    keys of it that name what plays are listed in STATE_REDACTED.
+    """
+    leaves = frozenset(_model_leaves(AudioState))
+    assert len(leaves) >= 40, sorted(leaves)
+    for leaf in (
+        "details.spotify.remote.device_name",
+        "details.music_library.queue[].*",
+        "details.podcast.episode.*",
+    ):
+        assert leaf in leaves, sorted(leaves)
+
+    undecided = sorted(
+        leaf for leaf in leaves
+        if leaf not in wl.STATE_REDACTED and leaf not in wl.STATE_NOT_REDACTED
+    )
+    assert not undecided, (
+        f"the audio state carries text the report has not decided about: {undecided}. "
+        "Add each one to STATE_REDACTED with its label kind if it names what is "
+        "played or who sends it, or to STATE_NOT_REDACTED with the reason it does not."
+    )
+    assert not set(wl.STATE_REDACTED) & set(wl.STATE_NOT_REDACTED)
+    assert not {
+        path for path in (*wl.STATE_REDACTED, *wl.STATE_NOT_REDACTED)
+        if path not in leaves and not _under_an_opaque_block(path, leaves)
+    }, "a decision names a path the state no longer has"
+    assert not {leaf for leaf in leaves if leaf.endswith(".*")} & set(wl.STATE_REDACTED), (
+        "a whole opaque block is not one value: name the keys of it that are"
+    )
+    for path, reason in wl.STATE_NOT_REDACTED.items():
+        assert len(reason) > 20, f"{path} is not redacted without a usable reason"
+
+
+def test_the_state_values_are_read_where_the_wire_puts_them():
+    """The walk names a path exactly as the decision above spells it, a
+    `details` block under its kind, a list item under `[]`, and a key inside a
+    block no type describes by the producer's own spelling."""
+    state = {
+        "source": "spotify",
+        "session": {"title": "A Song", "artist": "A Band", "senders": ["iPhone de Léo"]},
+        "details": {
+            "kind": "spotify",
+            "account": "leo",
+            "artists": [{"name": "A Band", "uri": "spotify:artist:1"}],
+            "remote": {"device_name": "Pixel de Léa", "device_type": "smartphone"},
+        },
+    }
+    assert wl.state_values(state) == [
+        ("title", "A Song"),
+        ("artist", "A Band"),
+        ("sender", "iPhone de Léo"),
+        ("account", "leo"),
+        ("artist", "A Band"),
+        ("sender", "Pixel de Léa"),
+    ]
+    library = {
+        "details": {
+            "kind": "music_library",
+            "queue": [
+                {"id": "t1", "title": "Earlier", "artist": "Band", "album": "LP", "suffix": "flac"},
+                {"id": "t2", "title": "Now", "artist": "Band", "album": "LP", "suffix": "flac"},
+            ],
+            "track_id": "t2",
+        },
+    }
+    assert wl.state_values(library) == [
+        ("title", "Earlier"), ("artist", "Band"), ("album", "LP"),
+        ("title", "Now"), ("artist", "Band"), ("album", "LP"),
+    ]
+    podcast = {
+        "details": {
+            "kind": "podcast",
+            "episode": {"uuid": "e1", "name": "Episode", "podcast": {"uuid": "p1", "name": "Show"}},
+        },
+    }
+    assert wl.state_values(podcast) == [("title", "Episode"), ("artist", "Show")]
+
+
+def _build(**known):
+    """`Redactor.build` for a unit that holds only `known`: no client, zone,
+    share, USB storage or network otherwise."""
+    nothing = dict.fromkeys((
+        "client_labels", "client_names", "zone_labels", "zone_names",
+        "share_labels", "share_names", "usb_strings", "ssid_labels",
+    ), {})
+    return wl.Redactor.build(**{**nothing, **known})
+
+
+def test_a_number_from_the_state_does_not_rewrite_the_logs():
+    """An album called "1989" or a track called "404" names nobody, and taught
+    as a whole word it would turn every HTTP status, year and port in the logs
+    into a label."""
+    redact = _build(listening=[("album", "1989"), ("title", "404"), ("title", "Parapluie")])
+    assert redact("Navidrome answered 404 for Parapluie (1989)") == (
+        "Navidrome answered 404 for title-1 (1989)"
+    )
+
+
+RADIO_WIRE = REPO_ROOT / "backend" / "tests" / "golden" / "wire" / "radio.json"
+
+
+def _recorded_radio_states():
+    """Every state the radio source was recorded publishing with a station on
+    it, over the WebSocket and over REST alike."""
+    recorded = json.loads(RADIO_WIRE.read_text())
+    states = [
+        *(
+            event["data"] for run in recorded.values() for event in run["ws"]
+            if (event["category"], event["type"]) == ("source", "state")
+        ),
+        *(state for run in recorded.values() for state in run["rest"]),
+    ]
+    return [state for state in states if (state["details"] or {}).get("station")]
+
+
+def test_a_station_the_report_keeps_is_not_taught_from_the_session():
+    """Goes red when a radio station's name is labeled after all.
+
+    The station is kept on purpose, because a radio fault is read from it, yet
+    radio writes it on paths the Redactor is taught: as the session's album,
+    as its title while no song is recognized, and as the resume point's title
+    and album while stopped. Read from the states the radio source was
+    recorded publishing (tests/golden/wire), so the shape is the producer's
+    own; the song recognized in the stream is still labeled.
+    """
+    states = _recorded_radio_states()
+    assert len(states) >= 10, states
+    songs = 0
+    for state in states:
+        redact = _build(listening=wl.state_values(state))
+        station = state["details"]["station"]["name"]
+        # sources/radio/source.py and browser_api.py, as the journal writes them.
+        for line in (
+            f"INFO:source.radio:Playing station: {station}",
+            f"DEBUG:source.radio.browser_api:Fetched station 96: {station}",
+        ):
+            assert redact(line) == line, state
+        song = state["details"]["track"]
+        if song:
+            songs += 1
+            out = redact(f"milo mpv[700]: icy-title: {song['title']} on {station}")
+            assert song["title"] not in out and out.endswith(f" on {station}"), out
+    assert songs >= 2, "no recorded state recognizes a song any more"
+
+
+# One sentinel per kind a logger call can carry. With a space and an accent, so
+# a shape is proved to take a whole name.
+LISTENING_SENTINELS = {
+    "title": "Sentinel Sóng Title",
+    "artist": "Sentinel Bánd",
+    "album": "Sentinel Récord",
+    "device": "Sentinel Phóne",
+    "filter": "SENTINELFILTER",
+}
+BT_SENTINEL = "4C:2E:5E:7A:01:9B"
+# The Spotify account go-librespot names, which no Milō line carries.
+ACCOUNT_SENTINEL = "sentinelaccount"
+_SENTINEL_OF = {
+    **LISTENING_SENTINELS,
+    "track": f"{LISTENING_SENTINELS['artist']} – {LISTENING_SENTINELS['title']}",
+    "address": BT_SENTINEL,
+    "path": f"/org/bluez/hci0/dev_{BT_SENTINEL.replace(':', '_')}",
+}
+
+# What an argument carries, read off its expression — in order, the first match
+# decides. A bare `name` is a device, an artist or a title according to the
+# line it is written into.
+_CARRIERS = (
+    (r"^len\(", None, None),
+    (r"_named\(|^named$", None, "track"),
+    (r"\bdevice_name_filter$", None, "filter"),
+    (r"(?:^|\.)(?:q_)?title$|\.get\('title'\)|^episode\.get\('name'", None, "title"),
+    (r"(?:^|\.)artist$|^candidate$|^artist\.get\('name'\)", None, "artist"),
+    (r"(?:^|\.)album$", None, "album"),
+    (r"^name$", r"Deezer|artist", "artist"),
+    (r"^name$", r"Cover", "title"),
+    (r"^request\.name$", r"playlist", "title"),
+    (r"^(?:device_name|device\.name|session\.name)$", None, "device"),
+    (r"^name$", r"[Dd]evice|bond|[Cc]onnect|answers no ping", "device"),
+)
+# In the Bluetooth modules alone, an address is a Bluetooth address and a
+# `device` is BlueZ's object path for one.
+_BLUETOOTH_CARRIERS = (
+    (r"^(?:address|session\.sender|device\.uniq)$", "address"),
+    (r"^device$", "path"),
+)
+# Modules whose `title` is a section of the report, not a track's.
+_NOT_A_TRACK_TITLE = ("backend/core/system/diagnostic/", "milo-client/app/routes/diagnostic.py")
+
+
+def _carrier(source: str, fmt: str, where: str) -> typing.Optional[str]:
+    module = where.rsplit(":", 1)[0]
+    bluetooth = "/bluetooth/" in module or module.endswith("/bt_remote.py")
+    if bluetooth:
+        for pattern, kind in _BLUETOOTH_CARRIERS:
+            if re.search(pattern, source):
+                return kind
+    for pattern, line, kind in _CARRIERS:
+        if re.search(pattern, source) and (line is None or re.search(line, fmt)):
+            if kind == "title" and where.startswith(_NOT_A_TRACK_TITLE):
+                return None
+            # A network's profile is the SSID guard's, above.
+            if kind == "device" and re.search(r"(?i)wi-?fi", fmt):
+                return None
+            return kind
+    return None
+
+
+def _placeholder(source: str, conversion: str):
+    """What a slot that carries nothing holds: an address where one is
+    written (a Mac named before its IP), a number or a word otherwise."""
+    if re.search(r"\bip\b|address", source):
+        return "192.168.1.20"
+    return 0 if conversion in "dixXoeEfFgG" else "x"
+
+
+def _logged_listening_lines():
+    """(where, logger, message) for every logger call that names a device or
+    what plays, the carrier slots holding their sentinels — read from source."""
+    found = []
+    for tree_root in LOGGED_TREES:
+        for path in sorted(tree_root.rglob("*.py")):
+            relative = path.relative_to(REPO_ROOT)
+            if "tests" in relative.parts:
+                continue
+            module = ".".join(relative.with_suffix("").parts)
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in _LOG_METHODS
+                    and ast.unparse(node.func.value).endswith("logger")
+                    and node.args
+                ):
+                    continue
+                where = f"{relative}:{node.lineno}"
+                first = node.args[0]
+                if isinstance(first, ast.JoinedStr):
+                    fmt = ast.unparse(first)
+                    slots = [
+                        (value, _carrier(ast.unparse(value.value), fmt, where))
+                        for value in first.values if isinstance(value, ast.FormattedValue)
+                    ]
+                    if not any(kind for _, kind in slots):
+                        continue
+                    kinds = iter(slots)
+                    parts = []
+                    for value in first.values:
+                        if isinstance(value, ast.Constant):
+                            parts.append(str(value.value))
+                            continue
+                        _, kind = next(kinds)
+                        if kind is None:
+                            parts.append(str(_placeholder(ast.unparse(value.value), "s")))
+                        else:
+                            sentinel = _SENTINEL_OF[kind]
+                            parts.append(repr(sentinel) if value.conversion == ord("r") else sentinel)
+                    message = "".join(parts)
+                elif isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    fmt = first.value
+                    conversions = [
+                        m.group(1) for m in _SPEC.finditer(fmt) if m.group(1) != "%"
+                    ]
+                    sources = [ast.unparse(arg) for arg in node.args[1:]]
+                    sources += [""] * (len(conversions) - len(sources))
+                    kinds = [_carrier(source, fmt, where) for source in sources]
+                    if not any(kinds):
+                        continue
+                    message = fmt % tuple(
+                        _placeholder(source, conversion) if kind is None else _SENTINEL_OF[kind]
+                        for source, kind, conversion in zip(sources, kinds, conversions)
+                    )
+                else:
+                    continue
+                found.append((where, module, message))
+    return found
+
+
+def test_the_logged_listening_extractor_is_not_vacuous():
+    """The guard below is a for-all, and a for-all over nothing holds — so the
+    producers it exists for are named, one per kind of value."""
+    found = _logged_listening_lines()
+    assert len(found) >= 40, found
+    places = {where.rsplit(":", 1)[0] for where, _, _ in found}
+    for producer in (
+        "backend/sources/bluetooth/source.py",
+        "backend/sources/bluetooth/monitor.py",
+        "backend/sources/bluetooth/adapter.py",
+        "backend/sources/bluetooth/agent.py",
+        "backend/hardware/bt_remote.py",
+        "backend/sources/mac/source.py",
+        "backend/core/mac_link/calibration_service.py",
+        "backend/shared/artwork_resolver.py",
+        "backend/core/lyrics/service.py",
+        "backend/sources/cd/source.py",
+        "backend/sources/podcast/source.py",
+        "backend/sources/radio/shazam.py",
+        "backend/sources/music_library/artist_images.py",
+    ):
+        assert producer in places, f"{producer} names no device or track any more?"
+    for sentinel in (*LISTENING_SENTINELS.values(), BT_SENTINEL, _SENTINEL_OF["path"]):
+        assert any(sentinel in message for _, _, message in found), sentinel
+
+
+def _leaked(text: str):
+    return [
+        sentinel for sentinel in (
+            *LISTENING_SENTINELS.values(), ACCOUNT_SENTINEL, BT_SENTINEL, BT_SENTINEL.lower()
+        )
+        if sentinel in text
+    ] + (["the address, path form"] if BT_SENTINEL.replace(":", "_") in text else [])
+
+
+def test_every_logged_listening_shape_is_redacted_without_knowing_it():
+    """The track played three hours ago is in no state the Redactor can learn
+    from, yet the journal and errors.log's rotations still hold the lines that
+    named it. What removes it is the rule on the shapes Milō's own lines give a
+    name, and this goes red the day a logger call writes one in a shape the
+    rule does not read.
+
+    Each line is written the way the logs the report reads would write it: a
+    backend line as the server's journal and its errors.log do, a satellite's
+    line as its own journal does.
+    """
+    leaks = []
+    for where, logger_name, message in _logged_listening_lines():
+        if where.startswith("milo-client/"):
+            lines = (
+                f"2026-09-04T16:56:13+00:00 milo-client python[611]: "
+                f"2026-09-04 16:56:13,146 - {logger_name} - INFO - {message}",
+            )
+        else:
+            lines = (
+                f"2026-09-04T16:56:13+02:00 milo python3[812]: INFO:{logger_name}:{message}",
+                f"[2026-09-04 16:56:13,146] WARNING {logger_name} - {message}",
+            )
+        for line in lines:
+            out = wl.Redactor()(line)
+            if _leaked(out):
+                leaks.append(f"{where}: {out}")
+    assert not leaks, "\n".join(leaks)
+
+
+# The daemons' own lines, which no source file declares. go-librespot's are
+# measured (tests/test_spotify_*.py hold the same lines); bluetoothd's and
+# BlueALSA's are the shapes they write an address in; Navidrome's is read from
+# its scrobble handler's source, not yet from a unit.
+DAEMON_LINES = (
+    "milo go-librespot[920]: level=info msg=\"loaded track \\\"Sentinel Sóng Title\\\" "
+    "(paused: false, position: 0ms, duration: 215000ms, prefetched: false)\"",
+    "milo go-librespot[920]: level=info msg=\"loaded episode \\\"Sentinel Sóng Title\\\" "
+    "(paused: false, position: 0ms, duration: 3600000ms, prefetched: false)\"",
+    "milo go-librespot[920]: level=info msg=\"accepted zeroconf from Sentinel Phóne\" "
+    f"username=\"{ACCOUNT_SENTINEL}\"",
+    "milo go-librespot[920]: level=info msg=\"refused zeroconf from Sentinel Phóne\" "
+    f"username=\"{ACCOUNT_SENTINEL}\"",
+    "milo go-librespot[920]: level=error msg=\"failed creating new session from Sentinel Phóne\" "
+    "error=\"failed authenticating with login5: TRY_AGAIN_LATER\"",
+    f"milo go-librespot[920]: level=info msg=\"authenticated AP\" username=\"{ACCOUNT_SENTINEL}\"",
+    "milo navidrome[530]: time=\"2026-09-04T16:56:13+02:00\" level=info msg=\"Now Playing\" "
+    "artist=\"Sentinel Bánd\" player=\"milo [Milo]\" title=\"Sentinel Sóng Title\" user=milo",
+    f"milo bluetoothd[402]: src/service.c:btd_service_connect() a2dp-sink profile "
+    f"connect failed for {BT_SENTINEL}: Protocol not available",
+    f"milo bluealsa[401]: Couldn't open transport /org/bluealsa/hci0/dev_"
+    f"{BT_SENTINEL.replace(':', '_')}/a2dpsnk/source: Device busy",
+)
+
+
+@pytest.mark.parametrize("line", DAEMON_LINES)
+def test_a_daemon_naming_a_device_or_a_track_is_redacted_without_knowing_it(line):
+    out = wl.Redactor()(f"2026-09-04T16:56:13+02:00 {line}")
+    assert not _leaked(out), out
+    # Only the value goes: the line still says what happened.
+    assert out.split(": ", 1)[1][:24] == line.split(": ", 1)[1][:24]
+
+
+@pytest.mark.parametrize("line", [line for line in DAEMON_LINES if "go-librespot" in line])
+def test_a_daemon_line_the_spotify_source_relays_is_redacted_too(line):
+    """The Spotify source relays go-librespot's failures at error, its msg and
+    its error joined, so the same name reaches the backend's journal, errors.log
+    and the previous boot in a shape no daemon writes — and a refused Connect is
+    exactly when a report gets generated. Rendered by the source's own
+    extraction, as each of those logs writes the record."""
+    message = SpotifySource._extract_log_message(None, line)
+    for relayed in (
+        f"2026-09-04T16:56:13+02:00 milo python3[812]: ERROR:source.spotify:{message}",
+        f"[2026-09-04 16:56:13,146] ERROR source.spotify - {message}",
+    ):
+        out = wl.Redactor()(relayed)
+        assert not _leaked(out), out
+
+
+def test_a_logfmt_field_is_taken_whole_and_an_absent_one_is_left():
+    """logrus quotes a value only when it needs to, and a Python repr writes
+    it single-quoted: each is taken whole. A field that holds nothing keeps its
+    word, so `title=None` does not become a title. Every field the rule reads
+    by name is written here, and an artist met again under `albumArtist` is the
+    same artist."""
+    redact = wl.Redactor()
+    assert redact(
+        'milo navidrome[530]: level=info msg="Now Playing" artist="Daft Punk" title=Aerodynamic user=milo'
+    ) == 'milo navidrome[530]: level=info msg="Now Playing" artist="artist-1" title=title-1 user=milo'
+    assert redact("DEBUG:source.cd:Track(title='One More Time', artist=None)") == (
+        "DEBUG:source.cd:Track(title='title-2', artist=None)"
+    )
+    assert redact(
+        'level=debug msg=scrobble album="Random Access Memories" albumArtist="Daft Punk" year=2013'
+    ) == 'level=debug msg=scrobble album="album-1" albumArtist="artist-1" year=2013'
+    assert redact("DEBUG:source.cd:Disc(album=Discovery, album_id=None)") == (
+        "DEBUG:source.cd:Disc(album=album-2, album_id=None)"
+    )
+
+
+def test_one_device_is_one_label_wherever_a_line_names_it():
+    """A label is only worth something if it cross-references: the phone that
+    connected, the address bluetoothd refused and the session that ended are
+    one device, and a second phone is another."""
+    redact = wl.Redactor()
+    lines = [
+        redact(f"INFO:source.bluetooth:Device connected: iPhone de Léo ({BT_SENTINEL})"),
+        redact(f"milo bluetoothd[402]: a2dp-sink profile connect failed for {BT_SENTINEL}: busy"),
+        redact("INFO:source.bluetooth:milo-bluealsa.service is stopping — ending iPhone de Léo's session"),
+        redact("INFO:source.bluetooth:Device connected: Pixel (11:22:33:44:55:66)"),
+    ]
+    assert lines == [
+        "INFO:source.bluetooth:Device connected: bt-1 (bt-1)",
+        "milo bluetoothd[402]: a2dp-sink profile connect failed for bt-1: busy",
+        "INFO:source.bluetooth:milo-bluealsa.service is stopping — ending bt-1's session",
+        "INFO:source.bluetooth:Device connected: bt-2 (bt-2)",
+    ]
+
+
+def test_a_device_named_before_its_address_keeps_its_label():
+    """errors.log, the journal and the previous boot are sanitized in whatever
+    order their reads complete, so the line naming a phone alone can come
+    first: the address that follows is the same device, not a second one."""
+    redact = wl.Redactor()
+    lines = [
+        redact("INFO:source.bluetooth:milo-bluealsa.service is stopping — ending iPhone de Léo's session"),
+        redact(f"INFO:source.bluetooth:Device connected: iPhone de Léo ({BT_SENTINEL})"),
+        redact(f"milo bluetoothd[402]: a2dp-sink profile connect failed for {BT_SENTINEL}: busy"),
+    ]
+    assert lines == [
+        "INFO:source.bluetooth:milo-bluealsa.service is stopping — ending bt-1's session",
+        "INFO:source.bluetooth:Device connected: bt-1 (bt-1)",
+        "milo bluetoothd[402]: a2dp-sink profile connect failed for bt-1: busy",
+    ]
+
+
+def test_a_device_the_unit_knows_is_labeled_wherever_it_appears():
+    """A device BlueZ holds is labeled in address order before the report
+    starts, so its name is caught in a line no shape reads — and the state's
+    sender for it is that same device, not a second label."""
+    redact = _build(
+        bt_devices={"F0:00:00:00:00:02": "Pixel de Léa", "A0:00:00:00:00:01": "iPhone de Léo"},
+        listening=[("sender", "iPhone de Léo"), ("title", "Parapluie"), ("artist", "Tiakola")],
+    )
+    assert redact("shairport-sync: Connection from iPhone de Léo, playing Parapluie by Tiakola") == (
+        "shairport-sync: Connection from bt-1, playing title-1 by artist-1"
+    )
+    assert redact("milo bluetoothd[402]: refused f0:00:00:00:00:02") == "milo bluetoothd[402]: refused bt-2"
+
+
+def test_a_multiroom_address_is_never_taken_for_a_bluetooth_one():
+    """Over-redaction that destroys the log helps nobody either. A multiroom
+    client's MAC is what a multiroom fault is read from, so it survives even on
+    a Bluetooth line; and a MAC on any other line is left alone, because the
+    one written there is a snapclient's."""
+    redact = wl.Redactor(keep_macs={"DE:AD:BE:EF:00:01"})
+    for line in (
+        "milo bluetoothd[402]: de:ad:be:ef:00:01 is a speaker, not a phone",
+        "milo snapserver[510]: Hello from 11:22:33:44:55:66, host milo-client",
+        "INFO:backend.core.multiroom.client_registry:Client added: 11:22:33:44:55:66 (client-2)",
+        "2026-09-04T16:56:13+02:00 milo kernel: hci0: unexpected event 0x0e",
+    ):
+        assert redact(line) == line
+
+
+def test_a_client_bluez_also_lists_stays_a_multiroom_client():
+    """The report builds its Redactor from the registry and from BlueZ at
+    once, and that is the path the multiroom MACs have to survive, not only
+    the constructor: a client's address is kept on a Bluetooth line too, with
+    the registry's lowercase spelling and BlueZ's uppercase one, and takes no
+    `bt-N` from the phones."""
+    speaker, phone = "DE:AD:BE:EF:00:01", "F0:00:00:00:00:02"
+    redact = _build(
+        client_labels={speaker.lower(): "client-1"},
+        bt_devices={speaker: "Living room speaker", phone: "iPhone de Léo"},
+    )
+    line = f"milo bluetoothd[402]: a2dp-sink profile connect failed for {speaker}: busy"
+    assert redact(line) == line
+    assert redact(f"milo bluetoothd[402]: a2dp-sink profile connect failed for {phone}: busy") == (
+        "milo bluetoothd[402]: a2dp-sink profile connect failed for bt-1: busy"
+    )
+
+
+def test_the_appliance_name_is_never_a_label():
+    """A speaker paired back to its server shows in BlueZ as `milo`, and an
+    AirPlay sender or an account can be called that too. Taught as a whole
+    word, the name would turn the unit's own hostname, every `milo-backend`
+    and every `milo.local` of the report into a label."""
+    redact = _build(
+        bt_devices={"A0:00:00:00:00:01": "milo", "A0:00:00:00:00:02": "milo-client"},
+        listening=[("sender", "milo"), ("account", "milo-client-2")],
+    )
+    for line in (
+        "2026-09-04T16:56:13+02:00 milo systemd[1]: Started milo-backend.service.",
+        "INFO:backend.core.multiroom.satellite_update:milo-client-2 answered from milo.local",
+    ):
+        assert redact(line) == line
+
+
+def test_a_value_the_unit_knows_keeps_its_label_inside_a_shape():
+    """The values the unit knows are replaced first and the shapes read the
+    line after, so a shape meets a value already rewritten. It must leave it:
+    the track the state names and the one go-librespot loaded are one track,
+    not `title-1` and `title-2`."""
+    redact = _build(listening=[("title", "Parapluie")])
+    assert redact(
+        'milo go-librespot[920]: level=info msg="loaded track \\"Parapluie\\" (paused: false)"'
+    ) == 'milo go-librespot[920]: level=info msg="loaded track \\"title-1\\" (paused: false)"'
+
+
+@pytest.mark.asyncio
+async def test_the_devices_bluez_holds_are_read_from_their_rows(monkeypatch):
+    """What `bluetoothctl devices` prints beside its rows (agent chatter, a
+    change notice, the controller, a row with no name) is not a device, and a
+    name is taken whole, spaces included. The Redactor labels exactly what
+    this returns, so a row lost here is a phone named in clear."""
+    from backend.core.system.diagnostic import probes
+
+    # The noise lines are the ones test_bt_remote.py's parse guards hold.
+    output = (
+        "Agent registered\n"
+        "[CHG] Controller DC:A6:32:7E:D3:43 Pairable: yes\n"
+        "[NEW] Device 4C:2E:5E:7A:01:9B iPhone de Léo\n"
+        "Device 4C:2E:5E:7A:01:9B iPhone de Léo\n"
+        "[CHG] Device 4C:2E:5E:7A:01:9B RSSI: -60\n"
+        "Device f0:99:b6:12:34:56 ANTICATER VK-01\n"
+        "Device AA:BB:CC:DD:EE:FF\n"
+        "Device not-a-mac Pixel 7\n"
+        "Controller DC:A6:32:7E:D3:43 milo [default]\n"
+    )
+
+    async def run(args, timeout=probes.DEFAULT_TIMEOUT):
+        return output if args[0] == "bluetoothctl" else None
+
+    monkeypatch.setattr(probes, "run", run)
+    assert await probes.bluetooth_devices() == {
+        "4C:2E:5E:7A:01:9B": "iPhone de Léo",
+        "F0:99:B6:12:34:56": "ANTICATER VK-01",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_bluetooth_stack_that_does_not_answer_costs_only_the_labels(monkeypatch):
+    """`run` answers None when bluetoothctl fails, is missing or outlives its
+    bound; the report then has no device to learn, and still a report."""
+    from backend.core.system.diagnostic import probes
+
+    async def run(args, timeout=probes.DEFAULT_TIMEOUT):
+        return None
+
+    monkeypatch.setattr(probes, "run", run)
+    assert await probes.bluetooth_devices() == {}
+
+
+def test_a_line_that_names_nothing_keeps_its_words():
+    """A shape takes a value, never the sentence a status is written in."""
+    redact = wl.Redactor()
+    for line in (
+        "INFO:source.radio.shazam:Shazam: title cleared (no verdict for 90 s)",
+        "INFO:source.radio.shazam:Shazam: nothing",
+        "INFO:source.radio.radiofrance:Radio France: no song",
+        "INFO:source.podcast:Episode found: Unknown",
+        # A Mac nothing answered for is shown by its address, which stays.
+        "INFO:source.mac:Connected: 192.168.1.20 (192.168.1.20)",
+    ):
+        assert redact(line) == line
+
+
+# --------------------------------------------------------------------------- #
 # The enforcement, end to end
 # --------------------------------------------------------------------------- #
 # Every excluded field of every source holds a sentinel; every allowed field
@@ -573,6 +1222,18 @@ EXCLUDED_SENTINELS = {
     # A network forgotten since: NetworkManager no longer names it, the journal
     # and errors.log's rotations still do.
     "forgotten wifi ssid": "Sentinel Old Net",
+    # A phone BlueZ holds, by its name and its address.
+    "bluetooth device name": "Sentinel Phone de Léo",
+    "bluetooth address": "4C:2E:5E:7A:01:9B",
+    # The AirPlay sender on air, and what it plays, as the state names them.
+    "airplay sender": "Sentinel AirPlay Mac",
+    "title playing": "Sentinel Now Playing",
+    "artist playing": "Sentinel Now Artist",
+    # Known to nothing any more: only the line that names them does.
+    "spotify sender": "Sentinel Spotify Phone",
+    "title played earlier": "Sentinel Earlier Song",
+    # The account go-librespot names on its zeroconf lines.
+    "spotify account": "sentinelspotifyaccount",
 }
 
 ALLOWED_SENTINELS = {
@@ -631,6 +1292,10 @@ def planted(monkeypatch, tmp_path):
         f"[2026-09-04 16:56:17,000] WARNING backend.core.multiroom.satellite_wifi - "
         f"Could not hand WiFi '{EXCLUDED_SENTINELS['wifi ssid']}' to satellite "
         f"{ALLOWED_SENTINELS['client ip']}: TimeoutError\n"
+        # The same refusal as the Spotify source relays it.
+        f"[2026-09-04 16:56:18,000] ERROR source.spotify - failed creating new session "
+        f"from {EXCLUDED_SENTINELS['spotify sender']}: failed authenticating with login5: "
+        "TRY_AGAIN_LATER\n"
     )
 
     monkeypatch.setattr(service_module, "MUSIC_LIBRARY_DATA_FILE", data_file)
@@ -650,10 +1315,36 @@ def planted(monkeypatch, tmp_path):
             "(password provided: True)",
             "2026-09-04T16:56:19+02:00 milo python[812]: INFO backend.core.network - "
             f"Forgot WiFi network: {EXCLUDED_SENTINELS['forgotten wifi ssid']}",
+            # Lines in no shape the Redactor reads: only what the unit knows
+            # (BlueZ's devices, the audio state, the settings) takes them out.
+            "2026-09-04T16:56:20+02:00 milo python[812]: INFO:source.bluetooth.avrcp:"
+            f"player of {EXCLUDED_SENTINELS['bluetooth device name']} gone",
+            "2026-09-04T16:56:20+02:00 milo shairport-sync[700]: connection from "
+            f"{EXCLUDED_SENTINELS['airplay sender']}: playing "
+            f"{EXCLUDED_SENTINELS['title playing']} by {EXCLUDED_SENTINELS['artist playing']}",
+            "2026-09-04T16:56:21+02:00 milo python[812]: INFO:backend.hardware.bt_remote:"
+            f"remote filter {EXCLUDED_SENTINELS['bt remote filter']} matched nothing",
+            # Lines in a shape: what nothing knows any more is taken out by it.
+            "2026-09-04T16:56:22+02:00 milo bluetoothd[402]: a2dp-sink profile connect "
+            f"failed for {EXCLUDED_SENTINELS['bluetooth address']}: Protocol not available",
+            "2026-09-04T16:56:23+02:00 milo go-librespot[920]: level=info "
+            f'msg="accepted zeroconf from {EXCLUDED_SENTINELS["spotify sender"]}" '
+            f'username="{EXCLUDED_SENTINELS["spotify account"]}"',
+            # The Connect Spotify refused, which is when a report gets generated.
+            "2026-09-04T16:56:23+02:00 milo go-librespot[920]: level=error "
+            f'msg="failed creating new session from {EXCLUDED_SENTINELS["spotify sender"]}" '
+            'error="failed authenticating with login5: TRY_AGAIN_LATER"',
+            "2026-09-04T16:56:24+02:00 milo go-librespot[920]: level=info "
+            f'msg="loaded track \\"{EXCLUDED_SENTINELS["title played earlier"]}\\" '
+            '(paused: false, position: 0ms, duration: 215000ms, prefetched: false)"',
         ]
+
+    async def _bluetooth_devices(timeout):
+        return {EXCLUDED_SENTINELS["bluetooth address"]: EXCLUDED_SENTINELS["bluetooth device name"]}
 
     monkeypatch.setattr(probes, "list_milo_units", _units)
     monkeypatch.setattr(probes, "journal_tail", _journal_tail)
+    monkeypatch.setattr(probes, "bluetooth_devices", _bluetooth_devices)
 
     # A satellite that answers, with its own journal in the text it sends back.
     async def _satellites(clients, labels):
@@ -715,10 +1406,36 @@ def planted(monkeypatch, tmp_path):
         async def known_ssids(self):
             return {EXCLUDED_SENTINELS["wifi ssid"]}
 
+    class _StateMachine:
+        """An AirPlay session whose sender a failed restart named in its error."""
+
+        def get_current_state(self):
+            return {
+                "source": "airplay",
+                "switching": False,
+                "service": "failed",
+                "service_error": {
+                    "reason": "start_failed",
+                    "message": f"shairport-sync dropped {EXCLUDED_SENTINELS['airplay sender']}",
+                },
+                "availability": {},
+                "session": {
+                    "id": "c0ffee",
+                    "phase": "playing",
+                    "title": EXCLUDED_SENTINELS["title playing"],
+                    "artist": EXCLUDED_SENTINELS["artist playing"],
+                    "album": None,
+                    "artwork": None,
+                    "senders": [EXCLUDED_SENTINELS["airplay sender"]],
+                },
+                "details": None,
+            }
+
     return {
         "registry_service": _Registry(),
         "settings_service": _Settings(),
         "network_service": _Network(),
+        "state_machine": _StateMachine(),
     }
 
 
@@ -763,4 +1480,19 @@ async def test_the_allowed_values_do_survive_a_real_report(planted):
     assert "wifi-1" in result["report"]
     assert "===== SATELLITES =====" in result["report"]
     assert SATELLITE_ALLOWED_LINE in result["report"]
+    # The phone, the sender and the tracks are named by their labels: the
+    # lines that carried them are still in the file, and still say what
+    # happened.
+    for line in (
+        "player of bt-1 gone",
+        "a2dp-sink profile connect failed for bt-1: Protocol not available",
+        "connection from sender-1: playing title-1 by artist-1",
+        "start_failed — shairport-sync dropped sender-1",
+        'accepted zeroconf from sender-2" username="account-1"',
+        'failed creating new session from sender-2" error=',
+        "ERROR source.spotify - failed creating new session from sender-2: failed authenticating",
+        'loaded track \\"title-2\\"',
+        "remote filter bt-remote-filter matched nothing",
+    ):
+        assert line in result["report"], line
 

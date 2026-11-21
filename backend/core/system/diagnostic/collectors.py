@@ -126,7 +126,7 @@ async def identity(ctx) -> str:
         if line.startswith("PRETTY_NAME="):
             pretty = line.split("=", 1)[1].strip('"')
 
-    settings = await _settings(ctx)
+    settings = await read_settings(ctx)
     return "\n".join(_kv({
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "hostname": platform.node(),
@@ -226,7 +226,7 @@ async def hardware(ctx) -> str:
         _cpu_and_ram(),
     )
 
-    settings = await _settings(ctx)
+    settings = await read_settings(ctx)
     bt = settings.get("hardware", {}).get("bt_remote", {})
     fields = _flatten(config, HARDWARE_ALLOWED)
     fields.update(_flatten(settings, SETTINGS_ALLOWED, prefix="hardware."))
@@ -387,11 +387,31 @@ async def _camilladsp_lines(ctx) -> List[str]:
     return _kv(fields)
 
 
+MULTIROOM_OFF = "not asked: multiroom is off (direct mode), where snapserver is meant to be stopped"
+
+
+def _multiroom_off(ctx) -> bool:
+    """Whether this unit plays in direct mode, where snapcast is stopped.
+
+    snapserver is then not running at all — AudioRoutingService stops both
+    units — so a request to it can only fail, and every snapcast read fails
+    open at error: two tracebacks in errors.log and a "System error" banner in
+    the UI of someone who generated a report to ask for help, on the most
+    common install there is, a unit on its own. The unit states are still
+    read: snapcast running while the backend believes it is in direct mode is
+    a fault, and this is where it shows. Unknown (no routing service wired)
+    counts as on, so the probe still runs and still says why it failed.
+    """
+    return ctx.routing_service is not None and not ctx.routing_service.multiroom_enabled
+
+
 async def _snapcast_lines(ctx) -> List[str]:
     fields: Dict[str, Any] = {}
     if ctx.routing_service is not None:
         fields.update(await ctx.routing_service.get_snapcast_status())
-    if ctx.snapcast_service is not None:
+    if _multiroom_off(ctx):
+        fields["server config"] = MULTIROOM_OFF
+    elif ctx.snapcast_service is not None:
         try:
             fields.update(await ctx.snapcast_service.get_server_config())
         except Exception as e:
@@ -419,7 +439,11 @@ async def sources(ctx) -> str:
             "source": state.get("source"),
             "switching": state.get("switching"),
             "service": state.get("service"),
-            "service error": " — ".join(filter(None, (error.get("reason"), error.get("message")))) or None,
+            # The message is a sentence, and a sentence can name the phone or
+            # the track a start failed on: it is free text like the logs.
+            "service error": ctx.sanitize(
+                " — ".join(filter(None, (error.get("reason"), error.get("message"))))
+            ) or None,
             "session phase": session.get("phase"),
             "multiroom enabled": state.get("multiroom_enabled"),
             "equalizer effects": state.get("equalizer_effects_enabled"),
@@ -493,6 +517,8 @@ async def _snapserver_clients(ctx) -> List[str]:
     does not list, or the reverse, is a whole class of multiroom fault and is
     invisible from either side alone.
     """
+    if _multiroom_off(ctx):
+        return [f"({MULTIROOM_OFF})"]
     if ctx.snapcast_service is None:
         return ["(snapcast service not wired in this process)"]
     try:
@@ -635,7 +661,7 @@ async def network(ctx) -> str:
         fields.update(ctx.connectivity_service.get_state())
     if ctx.hostname_conflict_service is not None:
         fields.update(ctx.hostname_conflict_service.get_state())
-    settings = await _settings(ctx)
+    settings = await read_settings(ctx)
     fields["wifi country"] = settings.get("wifi", {}).get("country") or "(unset)"
     avahi = await probes.read_file(Path("/var/lib/milo/avahi-interface"))
     fields["avahi interface"] = (avahi or "-").strip()
@@ -648,7 +674,7 @@ async def network(ctx) -> str:
 # --------------------------------------------------------------------------- #
 
 async def settings_section(ctx) -> str:
-    settings = await _settings(ctx)
+    settings = await read_settings(ctx)
     if not settings:
         raise RuntimeError("settings service unavailable")
     fields = _flatten(settings, SETTINGS_ALLOWED)
@@ -660,7 +686,7 @@ async def settings_section(ctx) -> str:
     return "\n".join(_kv(fields))
 
 
-async def _settings(ctx) -> Dict[str, Any]:
+async def read_settings(ctx) -> Dict[str, Any]:
     if ctx.settings_service is None:
         return {}
     try:

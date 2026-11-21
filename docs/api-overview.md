@@ -125,8 +125,15 @@ units so a chatty one cannot starve the rest. And what it may contain is a **whi
 once in `backend/core/system/diagnostic/whitelist.py`: every field of every persisted model is
 either allowed or excluded-with-a-reason, `backend/tests/contracts/test_diagnostic_redaction.py`
 goes red when a model gains a field nobody decided about, and the excluded values are substituted
-out of the free-text sections too. Local IP and MAC addresses are deliberately kept — a multiroom
-fault cannot be read without them.
+out of the free-text sections too. The same goes for what the household plays and from what:
+Bluetooth device names and addresses, AirPlay, Spotify and Mac senders, titles, artists and albums
+become positional labels (`bt-1`, `sender-1`, `title-1`…) — the values the unit knows (the devices
+BlueZ holds, the audio state) wherever they appear, and the rest by the shapes the logs write them
+in, each of Milō's logged shapes rendered by the same test. The journals of shairport-sync, the
+Tidal daemon, the Qobuz sidecar and Navidrome were not measured naming a track, so only what the
+unit knows, and the logfmt fields the Redactor reads, are taken out of them. Local IP and MAC
+addresses, radio station names, Spotify URIs and CD disc ids are deliberately kept — a multiroom or
+playback fault cannot be read without them.
 
 ## WebSocket
 

@@ -21,11 +21,16 @@ What breaks when these fail:
 """
 import asyncio
 import json
+import logging
 import os
-
+import re
+import subprocess
+import sys
+from pathlib import Path
 
 from backend.core.multiroom.models import Client, EqualizerSettings, Zone
-from backend.core.system.diagnostic import render, satellite
+from backend.core.multiroom.snapcast import SnapcastService
+from backend.core.system.diagnostic import collectors, render, satellite
 from backend.core.system.diagnostic.service import DiagnosticService
 
 
@@ -353,6 +358,75 @@ async def test_previous_boot_reads_oldest_first_whatever_order_journalctl_answer
 
 
 # --------------------------------------------------------------------------- #
+# Direct mode: snapserver is stopped by design, and nobody asks it
+# --------------------------------------------------------------------------- #
+
+class _Routing:
+    """AudioRoutingService as the report reads it: the mode and the two units."""
+
+    def __init__(self, multiroom_enabled):
+        self.multiroom_enabled = multiroom_enabled
+
+    def get_state(self):
+        return {"multiroom_enabled": self.multiroom_enabled, "equalizer_effects_enabled": False}
+
+    async def get_snapcast_status(self):
+        up = self.multiroom_enabled
+        return {"server_active": up, "client_active": up, "multiroom_available": up}
+
+
+def _errors(caplog):
+    return [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def test_a_report_in_direct_mode_does_not_ask_the_stopped_snapserver(
+    monkeypatch, tmp_path, caplog
+):
+    """A unit on its own plays in direct mode, where snapserver is not running,
+    so a request to it can only fail — and both snapcast reads fail open at
+    error: two tracebacks in errors.log and a "System error" banner, in front
+    of someone who generated a report to ask for help, on the most common
+    install there is. The report says multiroom is off where both reads were,
+    and still reads the two units: snapcast up behind a backend in direct mode
+    is a fault, and this is where it shows."""
+    caplog.set_level(logging.WARNING)
+
+    result = await _generate(
+        monkeypatch, tmp_path,
+        routing_service=_Routing(multiroom_enabled=False),
+        snapcast_service=SnapcastService(),
+        registry_service=_Registry(),
+    )
+    report = result["report"]
+
+    assert not _errors(caplog), [r.getMessage() for r in _errors(caplog)]
+    assert report.count(collectors.MULTIROOM_OFF) == 2, report
+    assert "snapserver lists no client" not in report
+    assert "server_active" in report
+
+
+async def test_a_report_in_multiroom_mode_still_asks_snapserver(
+    monkeypatch, tmp_path, caplog
+):
+    """The counter-proof: the mode is what spares snapserver, not a probe
+    taken away. The same service, asked with its control socket down, fails at
+    error — which is what the direct-mode report no longer does."""
+    caplog.set_level(logging.WARNING)
+
+    result = await _generate(
+        monkeypatch, tmp_path,
+        routing_service=_Routing(multiroom_enabled=True),
+        snapcast_service=SnapcastService(),
+        registry_service=_Registry(),
+    )
+    report = result["report"]
+
+    assert collectors.MULTIROOM_OFF not in report
+    assert "(snapserver lists no client)" in report
+    assert any(r.name.startswith("backend.core.multiroom") for r in _errors(caplog))
+
+
+# --------------------------------------------------------------------------- #
 # The satellites
 # --------------------------------------------------------------------------- #
 
@@ -443,9 +517,10 @@ async def test_a_satellite_block_is_cut_to_its_share_and_says_so(monkeypatch):
     """Two satellites split the budget equally rather than first-come: a shared
     pool hands the whole of it to whichever the loop reached first, and the
     other — possibly the broken one — arrives empty."""
+    noisy = "\n".join(f"line {i:03d} " + "z" * 80 for i in range(400))
     _fake_session(
         monkeypatch,
-        _Response(200, {"hostname": "milo-client", "text": "z" * 40_000, "unavailable": []}),
+        _Response(200, {"hostname": "milo-client", "text": noisy, "unavailable": []}),
         _Response(200, {"hostname": "milo-client-2", "text": "short block", "unavailable": []}),
     )
     clients = [
@@ -456,8 +531,122 @@ async def test_a_satellite_block_is_cut_to_its_share_and_says_so(monkeypatch):
     text = satellite.render(results, 4_000)
 
     assert "milo-client-2" in text and "short block" in text
-    assert "bytes cut)" in text
+    assert "older lines cut to fit the report)" in text
     assert len(text.encode("utf-8")) < 6_000
+    # A block in no layout the server knows still keeps its newest lines.
+    assert "line 399 " in text and "line 000 " not in text
+
+
+SATELLITE_APP = Path(__file__).resolve().parents[2] / "milo-client" / "app"
+
+# milo-client's own route, its probes standing in for a satellite's systemd and
+# journal. In a process of its own: the satellite's modules are top-level
+# packages (`routes`, `services`, `models`), which have no place in this one.
+_SATELLITE_ROUTE = """
+import asyncio, json, sys
+import routes.diagnostic as diagnostic
+
+tails = [(name, lines) for name, lines in json.load(sys.stdin)]
+
+async def units():
+    return [name for name, _ in tails if name != "kernel"]
+
+async def unit_states(units):
+    return [f"{unit:<40} active     running    restarts=0" for unit in units]
+
+async def journal(units):
+    return tails
+
+async def identity():
+    return ["uptime          : 0d 1h 2m", "app version     : v0.2.0"]
+
+async def camilladsp():
+    return ["milo-client-camilladsp.service : active"]
+
+diagnostic._units = units
+diagnostic._unit_states = unit_states
+diagnostic._journal = journal
+diagnostic._identity = identity
+diagnostic._camilladsp = camilladsp
+diagnostic._alsa_states = lambda: ["/proc/asound/card0/pcm0p/sub0/status: RUNNING delay=1024"]
+
+endpoint = diagnostic.create_diagnostic_router().routes[0].endpoint
+print(json.dumps(asyncio.run(endpoint())))
+"""
+
+
+def _satellite_text(tails):
+    """A satellite's block as milo-client renders it: its snapshot, then its
+    journal, already cut to the satellite's own budget by its own rule."""
+    done = subprocess.run(
+        [sys.executable, "-c", _SATELLITE_ROUTE], cwd=SATELLITE_APP,
+        input=json.dumps(tails), capture_output=True, text=True, timeout=60,
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)["text"]
+
+
+def _tails(units):
+    return [
+        (unit, [
+            f"2026-09-04T16:{i:02d}:00+00:00 milo-client python[611]: {unit} line {i:02d} " + "y" * 60
+            for i in range(count)
+        ])
+        for unit, count in units
+    ]
+
+
+_CUT_HEADING = r"^--- {unit} --- \((\d+) older lines cut\)$"
+
+
+def test_a_satellite_block_cut_to_its_share_keeps_its_newest_journal_lines():
+    """From three speakers on, each one's share of the satellite budget is
+    smaller than the block it sends, so every block is cut. The block ends
+    with its journal, newest line last — the lines a report is generated for —
+    and a cut from the end dropped exactly those, on every speaker, keeping
+    the oldest. The journal now gives up its oldest lines, a unit at a time as
+    the server's own journal does, the snapshot above it stays whole, and the
+    count under a unit's heading is the whole of what it lost, the satellite's
+    own cut included.
+
+    The block is the one milo-client's route renders, so a heading that moves
+    on the satellite alone sends this block down the fallback, which keeps no
+    snapshot, and this goes red."""
+    units = [("milo-client.service", 45), ("milo-client-camilladsp.service", 8), ("kernel", 6)]
+    text = _satellite_text(_tails(units))
+    assert "older lines cut)" in text, (
+        "the satellite cut nothing itself: the case below is not the one it claims"
+    )
+    head = text[:text.index("\n[journal]\n") + len("\n[journal]\n")]
+    budget = render.SATELLITE_BUDGET_BYTES // 3
+    assert len(text.encode("utf-8")) > budget
+
+    out = satellite.fit_block(text, budget)
+
+    assert len(out.encode("utf-8")) <= budget
+    assert out.startswith(head), out
+    for unit, count in units:
+        assert f"{unit} line {count - 1:02d} " in out, f"{unit} lost its newest line"
+        kept = out.count(f" {unit} line ")
+        cut = re.search(_CUT_HEADING.format(unit=re.escape(unit)), out, re.MULTILINE)
+        assert (int(cut.group(1)) if cut else 0) + kept == count, out
+    assert "milo-client.service line 00 " not in out
+
+
+def test_a_block_whose_journal_cannot_be_read_still_counts_what_it_cuts():
+    """A journal line under no heading the server reads — the satellite's
+    layout moved — sends the whole block to the fallback, which keeps the
+    newest lines and counts the others, rather than dropping a unit's lines
+    with no word."""
+    text = _satellite_text(_tails([("milo-client.service", 30), ("kernel", 6)]))
+    drifted = text.replace("--- milo-client.service ---", "=== milo-client.service ===")
+    assert drifted != text
+
+    out = satellite.fit_block(drifted, 1_500)
+
+    note = re.match(r"^\((\d+) older lines cut to fit the report\)$", out.splitlines()[0])
+    assert note, out
+    assert int(note.group(1)) + len(out.splitlines()) - 1 == len(drifted.splitlines())
 
 
 async def test_a_satellite_label_is_the_same_one_the_rest_of_the_report_uses(

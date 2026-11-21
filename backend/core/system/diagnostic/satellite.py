@@ -24,11 +24,13 @@ way for the same kind of reason.
 """
 import asyncio
 import logging
+import re
 from typing import Any, Dict, List
 
 import aiohttp
 
 from backend.config.constants import CLIENT_API_PORT
+from backend.core.system.diagnostic.render import keep_newest, round_robin
 
 logger = logging.getLogger(__name__)
 
@@ -131,11 +133,7 @@ def render(results: List[Dict[str, Any]], budget: int) -> str:
             blocks.append(f"{header}\nNOT COLLECTED — {result['reason']}")
             continue
 
-        body = result.get("text", "")
-        raw = body.encode("utf-8")
-        if len(raw) > per_satellite:
-            cut = raw[:per_satellite].rsplit(b"\n", 1)[0].decode("utf-8", errors="ignore")
-            body = f"{cut}\n(truncated: {len(raw) - len(cut.encode('utf-8'))} bytes cut)"
+        body = fit_block(result.get("text", ""), per_satellite)
         missing = result.get("unavailable") or []
         if missing:
             body += "\nnot collected on this satellite: " + ", ".join(
@@ -143,6 +141,71 @@ def render(results: List[Dict[str, Any]], budget: int) -> str:
             )
         blocks.append(f"{header}\nhostname: {result.get('hostname') or '-'}\n{body}")
     return "\n\n".join(blocks)
+
+
+# The satellite's own layout (milo-client/app/routes/diagnostic.py): sections
+# headed `[name]`, the journal last, one `--- unit ---` block per unit in it.
+# Read from the text that route renders by
+# tests/test_diagnostic_service.py::test_a_satellite_block_cut_to_its_share_keeps_its_newest_journal_lines,
+# so a heading that moves on one side alone goes red rather than falling back.
+JOURNAL_HEADING = "[journal]"
+_UNIT_HEADING = re.compile(r"^--- (?P<unit>.+?) ---(?: \((?P<cut>\d+) older lines cut\))?$")
+# Room for a heading's own cut count, which grows as lines are taken out.
+_HEADING_SLACK = len(" (99999 older lines cut)") + 2
+
+
+def fit_block(text: str, budget: int) -> str:
+    """A satellite's block within `budget` bytes, its newest lines kept.
+
+    The block ends with the satellite's journal, each unit's newest lines
+    last, and those are the lines a report is generated for — a cut from the
+    end drops them first. So the journal gives up its oldest lines, one unit
+    at a time by `render.round_robin`, the rule the server's own journal is
+    cut by, and the snapshot above it (identity, units, ALSA, CamillaDSP)
+    stays whole. A block not in that layout — a journal line under no heading
+    read here is one — or whose snapshot alone overruns, keeps its newest
+    whole lines (`render.keep_newest`), and says how many it cut: a line is
+    never dropped without a count.
+    """
+    if len(text.encode("utf-8")) <= budget:
+        return text
+    lines = text.splitlines()
+    if JOURNAL_HEADING in lines:
+        start = len(lines) - 1 - lines[::-1].index(JOURNAL_HEADING)
+        head = "\n".join(lines[:start + 1])
+        units: Dict[str, List[str]] = {}
+        earlier: Dict[str, int] = {}
+        current = None
+        unread = 0
+        for line in lines[start + 1:]:
+            heading = _UNIT_HEADING.match(line)
+            if heading:
+                current = heading.group("unit")
+                units[current] = []
+                earlier[current] = int(heading.group("cut") or 0)
+            elif line and current is not None:
+                units[current].append(line)
+            elif line:
+                unread += 1
+        room = budget - len(head.encode("utf-8")) - 1 - sum(
+            len(f"--- {unit} ---".encode("utf-8")) + _HEADING_SLACK for unit in units
+        )
+        if units and not unread and room > 0:
+            kept = round_robin(units, room)
+            blocks = []
+            for unit, unit_lines in units.items():
+                lines_kept = kept.get(unit, [])
+                cut = earlier[unit] + len(unit_lines) - len(lines_kept)
+                blocks.append("\n".join([
+                    f"--- {unit} ---" + (f" ({cut} older lines cut)" if cut else ""),
+                    *lines_kept,
+                ]))
+            fitted = f"{head}\n" + "\n".join(blocks)
+            if len(fitted.encode("utf-8")) <= budget:
+                return fitted
+    note = "({cut} older lines cut to fit the report)"
+    kept, cut = keep_newest(lines, budget - len(note.format(cut=len(lines))) - 1)
+    return "\n".join([note.format(cut=cut), *kept])
 
 
 def unavailable_names(results: List[Dict[str, Any]]) -> List[Dict[str, str]]:
