@@ -30,7 +30,7 @@
     "setAsideDescription": "{files} no se pudo leer y vuelve a sus valores predeterminados. Se conserva una copia a su lado. | {files} no se pudieron leer y vuelven a sus valores predeterminados. Se conserva una copia de cada uno a su lado."
   },
   "settings": {
-    "title": "Configuración de Milō",
+    "title": "Ajustes de Milō",
     "section": {
       "general": "General",
       "audio": "Audio",
@@ -99,14 +99,14 @@
       "searchPlaceholder": "Emisora",
       "loadingCountries": "Cargando países…",
       "countriesUnavailable": "Países no disponibles",
-      "loadingStations": "Cargando estaciones…",
+      "loadingStations": "Cargando emisoras…",
       "searchUnavailable": "Búsqueda no disponible",
       "searchUnavailableHint": "El directorio de emisoras no responde",
       "connectionError": "Error de conexión",
       "cannotLoadStations": "No se pueden cargar las emisoras",
       "retry": "Reintentar",
       "noStationsFound": "No se encontraron emisoras",
-      "minCharactersRequired": "Ingrese al menos 3 caracteres para buscar",
+      "minCharactersRequired": "Introduzca al menos 3 caracteres para buscar",
       "noFavorites": "No hay emisoras favoritas",
       "addFavorite": "Añadir a favoritos",
       "removeFavorite": "Quitar de favoritos"
@@ -135,7 +135,7 @@
     "systemTypes": {
       "satellite": "Altavoces satélite",
       "bookshelf": "Altavoces de estantería",
-      "tower": "Torres",
+      "tower": "Altavoces de pie",
       "subwoofer": "Subwoofer"
     },
     "crossover": {
@@ -233,7 +233,7 @@
       "deletingZone": "Eliminando…"
     },
     "equalizer": {
-      "title": "10 Bandas"
+      "title": "10 bandas"
     },
     "compressor": {
       "title": "Compresor",
@@ -270,7 +270,7 @@
       "lounge": "Lounge",
       "piano": "Piano",
       "pop": "Pop",
-      "rnb": "RnB",
+      "rnb": "R&B",
       "rock": "Rock",
       "small_speakers": "Altavoces pequeños",
       "spoken_word": "Palabra hablada",
@@ -380,7 +380,7 @@
     "disabledNote": "El ventilador está apagado — el procesador depende de su limitación térmica ({temperature}) para mantenerse seguro."
   },
   "audioPlayback": {
-    "autoStop": "Auto-detener en pausa",
+    "autoStop": "Detención automática en pausa",
     "autoStopHint": "Detener el audio cuando esté en pausa durante:",
     "resume": "Reanudar la última reproducción",
     "resumeHint": "Conservar la última pista tras salir de una fuente durante:",
@@ -488,7 +488,7 @@
     "queue": "Cola",
     "queueEmpty": "Nada en la cola",
     "recentlyPlayed": "Escuchado recientemente",
-    "recentlyPlayedEmpty": "No hay canciones escuchadas recientemente",
+    "recentlyPlayedEmpty": "No hay pistas escuchadas recientemente",
     "removeFromLikedSongs": "Quitar de Canciones favoritas",
     "removeFromPlaylist": "Quitar de esta playlist",
     "retry": "Reintentar",
@@ -652,7 +652,7 @@
   "player": {
     "repeatContext": "Repetir la lista",
     "repeatOff": "Repetición desactivada",
-    "repeatTrack": "Repetir la canción",
+    "repeatTrack": "Repetir la pista",
     "takeOver": "Escuchar en Milō",
     "stop": "Detener",
     "play": "Reproducir",
@@ -693,10 +693,10 @@
       "adding": "Añadiendo…",
       "invalidImageFormat": "Formato de imagen no compatible. Use JPG, PNG, WEBP o GIF.",
       "imageTooLarge": "Imagen demasiado grande. Máximo {size}.",
-      "addFailed": "Error al añadir la estación",
+      "addFailed": "Error al añadir la emisora",
       "addStationTitle": "Añadir una emisora",
       "editStationTitle": "Editar emisora",
-      "shazamEnabled": "Reconocimiento de canciones para esta estación",
+      "shazamEnabled": "Reconocimiento de canciones para esta emisora",
       "createStation": "Crear emisora",
       "confirmRestore": "Confirmar restauración",
       "confirmDelete": "Confirmar eliminación"
@@ -704,10 +704,10 @@
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "Favoritos sin modificar",
-    "modifiedStationsTitle": "Estaciones modificadas",
-    "noModifiedStations": "Ninguna estación modificada",
-    "addedStationsTitle": "Estaciones añadidas",
-    "addStation": "Añadir estación",
+    "modifiedStationsTitle": "Emisoras modificadas",
+    "noModifiedStations": "Ninguna emisora modificada",
+    "addedStationsTitle": "Emisoras añadidas",
+    "addStation": "Añadir emisora",
     "trackRecognition": "Reconocimiento de canciones",
     "trackRecognitionDescription": "Identificar las pistas en reproducción con Shazam"
   },
@@ -820,7 +820,7 @@
     "removeFromQueue": "Quitar de la cola",
     "moreOptions": "Más opciones",
     "previouslyPlayed": "Escuchado anteriormente",
-    "previouslyPlayedEmpty": "Ninguna canción escuchada",
+    "previouslyPlayedEmpty": "Ninguna pista escuchada",
     "albumsCount": "{count} álbum | {count} álbumes",
     "albumsNotLoaded": "No se pudo cargar {count} álbum | No se pudieron cargar {count} álbumes",
     "tracksCount": "{count} pista | {count} pistas",
@@ -1057,7 +1057,7 @@
     },
     "reset": {
       "title": "Restablecer la configuración",
-      "description": "Vuelve a ejecutar el primer arranque: detección del rol y luego el asistente de configuración. Sus emisoras de radio, suscripciones de podcast y recursos de música se conservan.",
+      "description": "Vuelve a ejecutar el primer arranque: detección del rol y luego el asistente de configuración. Sus emisoras favoritas, suscripciones de podcast y servidores de música se conservan.",
       "action": "Restablecer",
       "confirm": "¿Confirmar el restablecimiento?",
       "running": "Reiniciando…"
@@ -1102,14 +1102,14 @@
     "unpair": "Desemparejar",
     "batteryLow": "Batería baja",
     "disabledTitle": "Receptor Bluetooth no activado",
-    "disabledDetails": "Actívela para usar el mando Bluetooth ANTICATER VK-01.",
+    "disabledDetails": "Actívelo para usar el mando Bluetooth ANTICATER VK-01.",
     "step": "Paso de volumen por clic"
   },
   "irRemoteSettings": {
     "step": "Paso de volumen por pulsación",
     "unpair": "Desemparejar",
     "disabledTitle": "Receptor de infrarrojos no activado",
-    "disabledDetails": "Actívela para usar su Apple Remote.",
+    "disabledDetails": "Actívelo para usar su Apple Remote.",
     "hardwareDisabledTitle": "Receptor infrarrojo desactivado",
     "hardwareDisabledDetails": "Active el receptor infrarrojo en los ajustes de hardware para emparejar un mando.",
     "openHardwareSettings": "Abrir ajustes de hardware",

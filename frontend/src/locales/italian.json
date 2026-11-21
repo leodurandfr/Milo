@@ -114,7 +114,7 @@
   },
   "multiroom": {
     "disabled": "Il multiroom è disattivato",
-    "starting": "Avvio Multiroom…",
+    "starting": "Avvio del multiroom…",
     "zonesAndSystems": "Sistemi audio",
     "individualSystems": "Sistemi individuali",
     "noSystems": "Nessun sistema connesso",
@@ -135,7 +135,7 @@
     "systemTypes": {
       "satellite": "Altoparlanti satellite",
       "bookshelf": "Altoparlanti da scaffale",
-      "tower": "Diffusori a torre",
+      "tower": "Altoparlanti da pavimento",
       "subwoofer": "Subwoofer"
     },
     "crossover": {
@@ -170,7 +170,7 @@
       "rebootingMessage": "Il Milō Client si sta riavviando…",
       "rebootingDescription": "Il Milō Client apparirà nella lista dei sistemi attivi una volta riconnesso.",
       "rebootTimeout": "Sta impiegando più tempo del previsto. Il Milō Client potrebbe essere ancora in riavvio.",
-      "errorTitle": "Configurazione fallita",
+      "errorTitle": "Configurazione non riuscita",
       "errorGeneric": "Si è verificato un errore durante la configurazione del Milō Client.",
       "errorLoadingHardware": "Impossibile caricare le opzioni della scheda audio.",
       "retry": "Riprova"
@@ -233,7 +233,7 @@
       "deletingZone": "Eliminazione in corso…"
     },
     "equalizer": {
-      "title": "10 Bande"
+      "title": "10 bande"
     },
     "compressor": {
       "title": "Compressore",
@@ -270,7 +270,7 @@
       "lounge": "Lounge",
       "piano": "Piano",
       "pop": "Pop",
-      "rnb": "RnB",
+      "rnb": "R&B",
       "rock": "Rock",
       "small_speakers": "Altoparlanti piccoli",
       "spoken_word": "Parlato",
@@ -312,7 +312,7 @@
     "connectedTo": "Connesso a",
     "audioReceivedFrom": "Audio ricevuto da",
     "disconnect": "Disconnetti",
-    "disconnecting": "Disconnessione…",
+    "disconnecting": "Disconnessione in corso…",
     "unknownTitle": "Titolo sconosciuto",
     "unknownArtist": "Artista sconosciuto"
   },
@@ -392,7 +392,7 @@
   },
   "macSettings": {
     "receiver": "Ricezione (Milō)",
-    "targetLatency": "Latenza target",
+    "targetLatency": "Latenza obiettivo",
     "latencyProfile": "Profilo latenza",
     "frameLength": "Dimensione frame",
     "profiles": {
@@ -518,15 +518,15 @@
     "codec": "Codec audio",
     "chunkSize": "Dimensione chunk (ms)",
     "apply": "Applica",
-    "failedNoRemote": "L'analisi richiede almeno un diffusore remoto in linea.",
-    "failedProbe": "Non è stato possibile misurare un diffusore: {detail}",
+    "failedNoRemote": "L'analisi richiede almeno un altoparlante remoto in linea.",
+    "failedProbe": "Non è stato possibile misurare un altoparlante: {detail}",
     "latencyAndQuality": "Latenza e qualità",
     "failedStart": "Non è stato possibile avviare l'analisi.",
     "reset": "Reimposta",
     "partlyAssumed": "Alcuni valori non hanno potuto essere misurati e sono stati ipotizzati.",
     "valuesAreMeasured": "Impostazioni misurate sulla sua rete",
     "remaining": "{time} rimanenti",
-    "stageProbing": "Misurazione dei diffusori",
+    "stageProbing": "Misurazione degli altoparlanti",
     "stageComputing": "Calcolo delle impostazioni",
     "latency": "Latenza",
     "loss": "Perdita",
@@ -547,7 +547,7 @@
     "retry": "Riprova",
     "notAvailable": "Non disponibile",
     "update": "Aggiorna",
-    "updating": "Aggiornamento…",
+    "updating": "Aggiornamento in corso…",
     "errorDetectingSatellites": "Errore durante il rilevamento dei satelliti",
     "upToDate": "Aggiornato",
     "checkFailed": "Verifica non riuscita",
@@ -606,9 +606,9 @@
     "password": "Password",
     "connect": "Connetti",
     "connecting": "Connessione in corso…",
-    "connectFailed": "Connessione fallita",
+    "connectFailed": "Connessione non riuscita",
     "save": "Salva",
-    "saving": "Salvataggio…",
+    "saving": "Salvataggio in corso…",
     "saveFailed": "Impossibile salvare la rete",
     "forget": "Dimentica",
     "forgetConfirm": "Dimenticare questa rete?",
@@ -728,7 +728,7 @@
       "news": "Notiziario",
       "comedy": "Commedia",
       "sports": "Sport",
-      "education": "Educazione",
+      "education": "Istruzione",
       "business": "Business",
       "arts": "Arte",
       "health_and_fitness": "Salute e Fitness",
@@ -804,7 +804,7 @@
     "noGenres": "Nessun genere",
     "noPlaylists": "Nessuna playlist",
     "emptyLibrary": "Ancora nessuna musica",
-    "emptyLibraryHint": "Colleghi un server NAS o un'unità USB con la sua musica per creare la libreria.",
+    "emptyLibraryHint": "Colleghi un server NAS o una memoria USB con la sua musica per creare la libreria.",
     "building": "Creazione della libreria…",
     "buildingHint": "Indicizzazione della sua musica. Potrebbe richiedere qualche minuto.",
     "buildingProgress": "{count} brano indicizzato… | {count} brani indicizzati…",
@@ -902,7 +902,7 @@
       "pathLabel": "Percorso di accesso"
     },
     "storage": {
-      "usbDisconnected": "Archivio USB scollegato",
+      "usbDisconnected": "Memoria USB scollegata",
       "shareDisconnected": "{name} è scollegato",
       "disconnectedHint": "La sua musica resta indicizzata e torna appena lo ricollega.",
       "notIndexed": "{name} deve essere reindicizzato",
@@ -982,7 +982,7 @@
       "accessHint": "Dopo il riavvio, si connetta alla rete {ssid} e apra milo.local nel suo browser per accedere a Milō. Se non si apre, cerchi milo nell'elenco dei dispositivi del suo router e apra l'indirizzo indicato.",
       "rebooting": "Riavvio…",
       "rebootingDescription": "Attenda il riavvio del sistema.",
-      "rebootTimeout": "Riavvio scaduto. Aggiorni la pagina.",
+      "rebootTimeout": "Il riavvio sta richiedendo troppo tempo. Aggiorni la pagina.",
       "volumeNotManaged": "Volume non gestito da Milō"
     }
   },
@@ -993,7 +993,7 @@
       "thisDevice": "Questo dispositivo: {name} ({ip})",
       "recheck": "Ricontrolla",
       "shutdown": "Spegni questo dispositivo",
-      "speakerHint": "Un solo Milō per rete. Per trasformare questo dispositivo in un diffusore, lo reimposti o ne riscriva la scheda."
+      "speakerHint": "Un solo Milō per rete. Per trasformare questo dispositivo in un altoparlante, lo reimposti o ne riscriva la scheda."
     },
     "ssh": {
       "title": "SSH",
@@ -1044,7 +1044,7 @@
     },
     "diagnostic": {
       "title": "Diagnostica",
-      "description": "Un rapporto testuale sul suo Milō (versione, percorso audio, diffusori, errori recenti), da inviare in caso di problemi.",
+      "description": "Un rapporto testuale sul suo Milō (versione, percorso audio, altoparlanti, errori recenti), da inviare in caso di problemi.",
       "generate": "Genera un rapporto",
       "generating": "Generazione…",
       "download": "Scarica",
@@ -1057,7 +1057,7 @@
     },
     "reset": {
       "title": "Reimposta la configurazione",
-      "description": "Riesegue il primo avvio: rilevamento del ruolo, poi l'assistente di configurazione. Le sue stazioni radio, gli abbonamenti ai podcast e le condivisioni musicali vengono mantenuti.",
+      "description": "Riesegue il primo avvio: rilevamento del ruolo, poi l'assistente di configurazione. Le sue stazioni preferite, le iscrizioni ai podcast e le condivisioni musicali vengono mantenute.",
       "action": "Reimposta",
       "confirm": "Confermi la reimpostazione?",
       "running": "Riavvio…"
@@ -1098,7 +1098,7 @@
     "connected": "Connesso",
     "notConnected": "Non connesso",
     "discover": "Cerca",
-    "discovering": "Ricerca…",
+    "discovering": "Ricerca in corso…",
     "unpair": "Disaccoppia",
     "batteryLow": "Batteria scarica",
     "disabledTitle": "Ricevitore Bluetooth non attivato",

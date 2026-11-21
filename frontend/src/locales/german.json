@@ -153,7 +153,7 @@
     "tuning": {
       "eqIndependent": "Unabhängiger EQ",
       "delay": "Verzögerung",
-      "delayHint": "Verzögern Sie die Wiedergabe dieses Lautsprechers, um ihn an die anderen anzugleichen.",
+      "delayHint": "Verzögern Sie die Wiedergabe dieses Lautsprechers, um sie mit den anderen abzustimmen.",
       "gain": "Pegelanpassung",
       "gainHint": "Passen Sie den Pegel dieses Lautsprechers an, um ihn an die anderen anzugleichen."
     },
@@ -270,7 +270,7 @@
       "lounge": "Lounge",
       "piano": "Piano",
       "pop": "Pop",
-      "rnb": "RnB",
+      "rnb": "R&B",
       "rock": "Rock",
       "small_speakers": "Kleine Lautsprecher",
       "spoken_word": "Gesprochenes Wort",
@@ -312,7 +312,7 @@
     "connectedTo": "Verbunden mit",
     "audioReceivedFrom": "Audio empfangen von",
     "disconnect": "Trennen",
-    "disconnecting": "Trennen…",
+    "disconnecting": "Wird getrennt…",
     "unknownTitle": "Unbekannter Titel",
     "unknownArtist": "Unbekannter Künstler"
   },
@@ -388,7 +388,7 @@
     "appliesTo": "Gilt für: {sources}",
     "appliesToNone": "Gilt für keine der Quellen im Dock",
     "normalization": "Lautstärkenormalisierung",
-    "normalizationDescription": "Gleicht die Lautstärke von einem Sender, einer Folge oder einem Titel zum nächsten an."
+    "normalizationDescription": "Gleicht die Lautstärke von einem Sender, einer Episode oder einem Titel zum nächsten an."
   },
   "macSettings": {
     "receiver": "Empfang (Milō)",
@@ -547,7 +547,7 @@
     "retry": "Erneut versuchen",
     "notAvailable": "Nicht verfügbar",
     "update": "Aktualisieren",
-    "updating": "Aktualisierung…",
+    "updating": "Wird aktualisiert…",
     "errorDetectingSatellites": "Fehler beim Erkennen von Satelliten",
     "upToDate": "Aktuell",
     "checkFailed": "Prüfung nicht möglich",
@@ -589,7 +589,7 @@
     "ipAddress": "Milō-IP",
     "cpu": "CPU",
     "ram": "RAM",
-    "disk": "Speicher",
+    "disk": "Speicherplatz",
     "network": "Netzwerk",
     "designedBy": "Milō App entworfen von",
     "version": "Version {version}"
@@ -608,7 +608,7 @@
     "connecting": "Verbindung wird hergestellt…",
     "connectFailed": "Verbindung fehlgeschlagen",
     "save": "Speichern",
-    "saving": "Speichern…",
+    "saving": "Wird gespeichert…",
     "saveFailed": "Netzwerk konnte nicht gespeichert werden",
     "forget": "Vergessen",
     "forgetConfirm": "Dieses Netzwerk vergessen?",
@@ -696,7 +696,7 @@
       "addFailed": "Sender konnte nicht hinzugefügt werden",
       "addStationTitle": "Sender hinzufügen",
       "editStationTitle": "Sender bearbeiten",
-      "shazamEnabled": "Titelidentifikation für diesen Sender",
+      "shazamEnabled": "Titelerkennung für diesen Sender",
       "createStation": "Sender erstellen",
       "confirmRestore": "Wiederherstellung bestätigen",
       "confirmDelete": "Löschen bestätigen"
@@ -708,7 +708,7 @@
     "noModifiedStations": "Keine geänderten Sender",
     "addedStationsTitle": "Hinzugefügte Sender",
     "addStation": "Sender hinzufügen",
-    "trackRecognition": "Titelidentifikation",
+    "trackRecognition": "Titelerkennung",
     "trackRecognitionDescription": "Aktuell gespielte Titel über Shazam erkennen"
   },
   "podcasts": {
@@ -904,7 +904,7 @@
     "storage": {
       "usbDisconnected": "USB-Speicher getrennt",
       "shareDisconnected": "{name} ist getrennt",
-      "disconnectedHint": "Die Musik bleibt indexiert und ist sofort wieder da, sobald Sie ihn erneut anschließen.",
+      "disconnectedHint": "Die Musik bleibt indiziert und ist sofort wieder da, sobald Sie ihn erneut anschließen.",
       "notIndexed": "{name} muss neu indiziert werden",
       "notIndexedHint": "Die Dateien sind da, aber der Index hat sie aus den Augen verloren. Eine Neuindizierung holt die Musik zurück.",
       "reindex": "Neu indizieren",
@@ -924,7 +924,7 @@
       "forgetTitle": "Diesen USB-Speicher vergessen",
       "forget": "Vergessen",
       "confirmForget": "Vergessen bestätigen",
-      "forgetDescription": "Entfernt den {count} indexierten Titel aus der Bibliothek. Beim erneuten Anschließen wird der USB-Speicher komplett neu indexiert. | Entfernt die {count} indexierten Titel aus der Bibliothek. Beim erneuten Anschließen wird der USB-Speicher komplett neu indexiert.",
+      "forgetDescription": "Entfernt den {count} indizierten Titel aus der Bibliothek. Beim erneuten Anschließen wird der USB-Speicher komplett neu indiziert. | Entfernt die {count} indizierten Titel aus der Bibliothek. Beim erneuten Anschließen wird der USB-Speicher komplett neu indiziert.",
       "forgetError": "USB-Speicher konnte nicht vergessen werden"
     },
     "nas": {
@@ -937,7 +937,7 @@
       "refresh": "Aktualisieren",
       "refreshing": "Wird aktualisiert…",
       "refreshProgress": "{count} Titel indiziert… | {count} Titel indiziert…",
-      "refreshingLabel": "Indexierung läuft…"
+      "refreshingLabel": "Indizierung läuft…"
     }
   },
   "setup": {
@@ -1057,7 +1057,7 @@
     },
     "reset": {
       "title": "Konfiguration zurücksetzen",
-      "description": "Führt den ersten Start erneut aus: Rollenerkennung und dann den Einrichtungsassistenten. Ihre Radiosender, Podcast-Abos und Musikfreigaben bleiben erhalten.",
+      "description": "Führt den ersten Start erneut aus: Rollenerkennung und dann den Einrichtungsassistenten. Ihre Lieblingssender, Podcast-Abonnements und Musikfreigaben bleiben erhalten.",
       "action": "Zurücksetzen",
       "confirm": "Zurücksetzen bestätigen?",
       "running": "Neustart…"
@@ -1098,18 +1098,18 @@
     "connected": "Verbunden",
     "notConnected": "Nicht verbunden",
     "discover": "Suchen",
-    "discovering": "Suche…",
+    "discovering": "Wird gesucht…",
     "unpair": "Entkoppeln",
     "batteryLow": "Akku schwach",
     "disabledTitle": "Bluetooth-Empfänger nicht aktiviert",
-    "disabledDetails": "Aktivieren Sie sie, um die Bluetooth-Fernbedienung ANTICATER VK-01 zu verwenden.",
+    "disabledDetails": "Aktivieren Sie ihn, um die Bluetooth-Fernbedienung ANTICATER VK-01 zu verwenden.",
     "step": "Lautstärkeschritt pro Klick"
   },
   "irRemoteSettings": {
     "step": "Lautstärkeschritt pro Tastendruck",
     "unpair": "Entkoppeln",
     "disabledTitle": "Infrarot-Empfänger nicht aktiviert",
-    "disabledDetails": "Aktivieren Sie sie, um Ihre Apple Remote zu verwenden.",
+    "disabledDetails": "Aktivieren Sie ihn, um Ihre Apple Remote zu verwenden.",
     "hardwareDisabledTitle": "Infrarot-Empfänger deaktiviert",
     "hardwareDisabledDetails": "Aktivieren Sie den Infrarot-Empfänger in den Hardware-Einstellungen, um eine Fernbedienung zu koppeln.",
     "openHardwareSettings": "Hardware-Einstellungen öffnen",
@@ -1121,7 +1121,7 @@
       "timeoutTitle": "Keine Fernbedienung erkannt",
       "timeoutDetails": "Überprüfen Sie die Verkabelung des Empfängers und versuchen Sie es erneut.",
       "unsupportedTitle": "Nicht unterstützte Fernbedienung",
-      "unsupportedDetails": "Milō unterstützt nur das Apple Remote (1. Generation).",
+      "unsupportedDetails": "Milō unterstützt nur die Apple Remote (1. Generation).",
       "errorTitle": "Kopplung fehlgeschlagen",
       "errorDetails": "Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.",
       "startCta": "Erkennung starten",
