@@ -24,6 +24,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from atomic_file import write_atomic
+
 REPO_DIR = Path("/home/milo-client/repo/milo-client")
 # A symlink on the image (milo-first-boot); the copy kept for a rollback sits
 # beside the directory it resolves to.
@@ -113,16 +115,6 @@ def read_last_update() -> Optional[dict]:
         logging.getLogger(__name__).error(f"Error reading {path}: {e}")
         return None
     return record if isinstance(record, dict) else None
-
-
-def _write_atomic(path: Path, text: str) -> None:
-    """A reader, or a power cut, sees the old content or the new, never half."""
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w") as f:
-        f.write(text)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
 
 
 def _venv_previous() -> Path:
@@ -306,8 +298,8 @@ class AppUpdateService:
             # runs: this one keeps reporting what it read when it started, so
             # nothing written here is announced unless the restart lands.
             def _write_identity():
-                _write_atomic(state_path(VERSION_NAME), version)
-                _write_atomic(state_path(PAYLOAD_NAME), payload)
+                write_atomic(state_path(VERSION_NAME), version)
+                write_atomic(state_path(PAYLOAD_NAME), payload)
                 os.sync()
             await self._run_blocking(_write_identity)
             self.logger.info(f"Identity updated: payload {payload}, version {version or 'unknown'}")
@@ -374,9 +366,9 @@ class AppUpdateService:
         # which reads as "never pushed" once put back.
         for name in (VERSION_NAME, PAYLOAD_NAME):
             live = state_path(name)
-            _write_atomic(state_path(name + OLD_SUFFIX), live.read_text() if live.exists() else "")
-        _write_atomic(state_path(ATTEMPTS_NAME), "0\n")
-        _write_atomic(state_path(TRIAL_NAME), payload + "\n")
+            write_atomic(state_path(name + OLD_SUFFIX), live.read_text() if live.exists() else "")
+        write_atomic(state_path(ATTEMPTS_NAME), "0\n")
+        write_atomic(state_path(TRIAL_NAME), payload + "\n")
 
     async def _keep_venv(self) -> None:
         """Copies the venv aside before pip changes it.

@@ -8,11 +8,11 @@ open to the LAN like the others; the reboot answers only this unit's server.
 import asyncio
 import json
 import logging
-import os
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
 
+from atomic_file import write_atomic
 from server_secret import require_server_secret
 from services import registration
 
@@ -64,13 +64,8 @@ def _read_hardware_json() -> dict:
 
 
 def _write_hardware_json(data: dict) -> None:
-    """Atomic write to hardware.json."""
-    tmp_path = registration.HARDWARE_FILE + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path, registration.HARDWARE_FILE)
+    """Atomic write to hardware.json, which the launcher and the apply helper read."""
+    write_atomic(registration.HARDWARE_FILE, json.dumps(data, indent=2))
 
 
 def create_hardware_router() -> APIRouter:

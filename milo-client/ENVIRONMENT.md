@@ -19,9 +19,34 @@ The server adds the snapclient keys below the first time it pushes them.
 
 `milo-first-boot` writes the string `milo.local`, on purpose: the satellite then
 survives the server moving between Ethernet and WiFi, which a baked IP would not.
-`milo-client-snapclient-launcher` resolves it at every service start, and
-`services/registration.py` accepts a hostname or a literal IPv4 address alike.
-A unit with no entry at all falls back to mDNS.
+A unit with no entry at all uses `milo.local` too.
+
+The satellite looks for its server in this order — the app at every heartbeat
+and every address check (`services/registration.py::resolve_milo_principal`),
+`milo-client-snapclient-launcher` at every start of snapclient:
+
+1. **`MILO_PRINCIPAL_IP`, when it is a literal IPv4 address.** Nothing else is
+   asked, and the address watcher never moves the stream off it: an address
+   written here by hand is a pin.
+2. **That name, resolved** — `milo.local` over mDNS, unless the file names
+   another host.
+3. **The server's last known addresses**, in
+   `/var/lib/milo-client/server-addresses`: every IPv4 address the server
+   listed in its last heartbeat answer, wired first, one per line. The app
+   rewrites the file whenever the list changes, atomically. The first that
+   accepts a connect on the server's port (8000) is used.
+
+The third step is the way back on a LAN whose router filters multicast, a mesh
+router's habit: there `milo.local` never resolves, and a speaker that restarts
+would wait for a heartbeat that cannot reach the server. A speaker that has
+spoken to its server once keeps finding it, as long as the server keeps one of
+the addresses it listed — so on such a LAN, give the server a DHCP reservation.
+A card that never reached its server knows no address yet: on that LAN only a
+literal `MILO_PRINCIPAL_IP` gets it there.
+
+When the watcher restarts snapclient to follow the server, it hands the
+launcher the address it found (`/run/milo-client/server-address`, read once and
+removed), so the restart does not look again.
 
 ### `MILO_SNAPCLIENT_BUFFER_TIME` / `MILO_SNAPCLIENT_FRAGMENTS` — the server's
 
@@ -45,6 +70,7 @@ sudo journalctl -u milo-client-snapclient -f
 
 # Is the server reachable
 ping milo.local
+cat /var/lib/milo-client/server-addresses   # the server's last known addresses
 sudo journalctl -u milo-client -f
 ```
 

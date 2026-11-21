@@ -1,17 +1,22 @@
 """
 Snapclient management routes for Milo Client.
 """
+import asyncio
 import time
 import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
+from atomic_file import write_atomic
 from services.server_address_watch import restart_snapclient
 from services.snapclient import SnapclientService
 from models import ProgramUpdateRequest, SnapclientConfigUpdate
 
 logger = logging.getLogger(__name__)
 
+# The units' EnvironmentFile, and the one file an operator may edit by hand
+# (MILO_PRINCIPAL_IP, ENVIRONMENT.md): replaced whole, so a power cut during a
+# push never truncates it and sends the speaker looking for its server anew.
 ENV_FILE = Path("/var/lib/milo-client/env")
 
 
@@ -79,10 +84,11 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
         fragments = payload.fragments
 
         try:
-            if not ENV_FILE.exists():
-                raise HTTPException(status_code=500, detail="Environment file not found")
-
-            content = ENV_FILE.read_text()
+            try:
+                content = await asyncio.to_thread(ENV_FILE.read_text)
+            except FileNotFoundError:
+                logger.error(f"Snapclient config not applied: {ENV_FILE} is missing")
+                raise HTTPException(status_code=500, detail="Environment file not found") from None
             lines = content.split('\n')
             updated_lines = []
             found_buffer_time = False
@@ -115,7 +121,7 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
             if not new_content.endswith('\n'):
                 new_content += '\n'
 
-            ENV_FILE.write_text(new_content)
+            await asyncio.to_thread(write_atomic, ENV_FILE, new_content)
 
             try:
                 await restart_snapclient()
@@ -123,7 +129,7 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
                 # The old values go back, so the next push of the same pair reads
                 # as a change and restarts again; a unit left stopped is started
                 # by the address watcher, which now owes it a start.
-                ENV_FILE.write_text(content)
+                await asyncio.to_thread(write_atomic, ENV_FILE, content)
                 logger.error(f"Snapclient config not applied: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 

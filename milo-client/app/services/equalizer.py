@@ -12,11 +12,11 @@ import asyncio
 import copy
 import functools
 import logging
-import os
 from pathlib import Path
 import yaml
 from typing import Dict, Any, Optional, List
 
+from atomic_file import write_atomic
 from services.camilladsp_client import CamillaDspClient
 
 # Constants
@@ -591,6 +591,10 @@ class EqualizerService:
     async def _save_config_to_file(self, config: Dict[str, Any]) -> None:
         """Persist config to disk atomically. Raises if it did not land.
 
+        Atomically, because the recovery path re-reads this same file
+        (_get_config falls back to read_and_parse_file): a config.yml a power
+        cut truncated would keep the room silent until someone deleted it.
+
         A config the file already holds is not written again: every admission
         re-sends the whole record through eight setters, and each rewrite is a
         write to the SD card. The two are compared as the daemon reads them,
@@ -605,7 +609,7 @@ class EqualizerService:
         if held is not None and _without_nulls(held) == _without_nulls(config):
             return
         config_yaml = yaml.dump(config, default_flow_style=False, allow_unicode=True)
-        await loop.run_in_executor(None, self._write_atomic, self.config_file, config_yaml)
+        await loop.run_in_executor(None, write_atomic, self.config_file, config_yaml)
         self.logger.info("Config saved to disk")
 
     @staticmethod
@@ -616,21 +620,6 @@ class EqualizerService:
                 return yaml.safe_load(f)
         except (OSError, UnicodeDecodeError, yaml.YAMLError):
             return None
-
-    @staticmethod
-    def _write_atomic(path: str, content: str) -> None:
-        """tmp + fsync + rename.
-
-        A power cut during a plain overwrite leaves a truncated config.yml, and
-        the recovery path re-reads that same file (_get_config falls back to
-        read_and_parse_file), so the room stays silent until someone deletes it.
-        """
-        tmp_path = f"{path}.tmp"
-        with open(tmp_path, "w") as f:
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
 
     async def get_filters(self) -> List[Dict[str, Any]]:
         """Get current EQ filter configuration."""

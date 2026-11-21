@@ -284,6 +284,61 @@ class TestSnapclientConfigBounds:
         assert "MILO_SNAPCLIENT_FRAGMENTS=8" in written
         assert "MILO_PRINCIPAL_IP=192.168.1.10" in written
 
+    def test_a_push_cut_by_a_power_loss_leaves_the_env_file_whole(self, client, tmp_path, monkeypatch):
+        """The one file an operator edits by hand (a pinned MILO_PRINCIPAL_IP)
+        was rewritten in place: a cut mid-write truncated it, and the speaker
+        lost the address it was pinned to. New bytes now reach it only through
+        the rename, which the cut stops here."""
+        env = tmp_path / "env"
+        before = "MILO_PRINCIPAL_IP=192.168.1.10\nMILO_SNAPCLIENT_BUFFER_TIME=80\n"
+        env.write_text(before)
+        monkeypatch.setattr("routes.snapclient.ENV_FILE", env)
+        monkeypatch.setattr("atomic_file.os.replace", Mock(side_effect=OSError("power cut")))
+
+        response = client.put("/snapclient/config", json={"buffer_time": 300, "fragments": 8})
+
+        assert response.status_code == 500
+        assert env.read_text() == before
+
+
+class TestSnapclientConfigRestart:
+    """The restart a buffer push costs the room it plays in."""
+
+    def test_a_push_to_a_playing_speaker_hands_the_launcher_its_server(
+            self, client, tmp_path, monkeypatch):
+        """A buffer push restarts a speaker in an occupied room. Left to look
+        for its server itself on a LAN without mDNS, the launcher spent five
+        lookups, 2 s apart, before it tried the address the stream had: 10 s
+        of silence or more, for a buffer change."""
+        import socket
+
+        env = tmp_path / "env"
+        env.write_text("MILO_PRINCIPAL_IP=milo.local\nMILO_SNAPCLIENT_BUFFER_TIME=80\n")
+        (tmp_path / "1077").write_bytes(
+            b"\0".join([b"/usr/bin/snapclient", b"-h", b"192.168.1.55", b"-p", b"1704"]) + b"\0")
+        override = tmp_path / "server-address"
+        monkeypatch.setattr("routes.snapclient.ENV_FILE", env)
+        monkeypatch.setattr("services.server_address_watch.PROC_CMDLINE", str(tmp_path) + "/{pid}")
+        monkeypatch.setattr("services.server_address_watch.SERVER_OVERRIDE", str(override))
+        monkeypatch.setenv("MILO_PRINCIPAL_IP", "milo.local")
+        monkeypatch.setattr("services.registration.socket.getaddrinfo",
+                            Mock(side_effect=socket.gaierror("Name or service not known")))
+        started_with = []
+
+        async def _spawn(*argv, **kwargs):
+            proc = Mock()
+            proc.returncode = 0
+            stdout = b"1077\n" if argv[0] == "systemctl" else b""
+            proc.communicate = AsyncMock(return_value=(stdout, b""))
+            if argv[:3] == ("sudo", "systemctl", "start"):
+                started_with.append(override.read_text() if override.exists() else None)
+            return proc
+
+        monkeypatch.setattr("asyncio.create_subprocess_exec", _spawn)
+
+        assert client.put("/snapclient/config", json={"buffer_time": 300, "fragments": 8}).status_code == 200
+        assert started_with == ["192.168.1.55"]
+
 
 class TestSnapclientConfigFailedRestart:
     """A push whose restart fails must neither stick nor leave the room silent.
@@ -341,7 +396,7 @@ class TestSnapclientConfigFailedRestart:
 
         assert response.status_code == 200
         assert response.json()["changed"] is True
-        assert systemd["calls"] == [self.STOP, self.START]
+        assert [argv for argv in systemd["calls"] if argv[0] == "sudo"] == [self.STOP, self.START]
 
     @pytest.mark.asyncio
     async def test_snapclient_config_failed_start_leaves_a_start_owed(self, client, systemd):

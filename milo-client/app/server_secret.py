@@ -69,6 +69,8 @@ from typing import Optional
 
 from fastapi import Header, HTTPException, Request
 
+from atomic_file import write_atomic
+
 logger = logging.getLogger(__name__)
 
 SECRET_FILE = Path("/var/lib/milo-client/server-secret")
@@ -120,23 +122,8 @@ def _read_line(path: Path) -> Optional[str]:
 
 
 def _write_durably(path: Path, text: str) -> None:
-    """`text` in `path`, replaced whole and flushed, its directory too. Blocking."""
-    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-    tmp = Path(name)
-    try:
-        try:
-            os.write(fd, f"{text}\n".encode("ascii"))
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
-    directory = os.open(path.parent, os.O_RDONLY)
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
+    """`text` in `path`, replaced whole and flushed, its directory too (0600). Blocking."""
+    write_atomic(path, f"{text}\n".encode("ascii"), mode=0o600)
 
 
 def open_window_after_unclean_stop() -> bool:

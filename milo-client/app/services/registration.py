@@ -8,15 +8,20 @@ can detect when this client goes offline, and so it hears when this
 client, just plugged back in, would follow a new server.
 """
 import asyncio
+import contextlib
 import ipaddress
 import json
 import logging
 import os
 import re
 import socket
+import threading
+from pathlib import Path
+from typing import Optional
 
 import aiohttp
 
+from atomic_file import write_atomic
 from server_secret import accepts_new_server
 
 logger = logging.getLogger(__name__)
@@ -32,28 +37,121 @@ REGISTER_ENDPOINT = "/api/multiroom/register-client"
 RETRY_INTERVAL = 30  # seconds (before first successful registration)
 HEARTBEAT_INTERVAL = 15  # seconds (after successful registration)
 
+# How long the main Milo has to accept a connect at one of its addresses: a LAN
+# round trip is a millisecond, and a dead port answers nothing at all.
+PROBE_TIMEOUT = 1
+
 # The main Milo's own IPv4 addresses, wired first, as its last heartbeat answer
-# listed them. The address watcher dials the next one when the stream's own stops
-# answering: mDNS keeps answering a server's wired address for seconds after its
-# cable has gone.
-_server_addresses: tuple[str, ...] = ()
+# listed them, one per line. The address watcher dials the next one when the
+# stream's own stops answering: mDNS keeps answering a server's wired address for
+# seconds after its cable has gone. And they are kept on the card, because they
+# are the only way back to the server where mDNS never answers: a mesh router
+# that filters multicast leaves a restarted speaker looking for milo.local in
+# vain, and the heartbeat that would teach it the addresses again needs the
+# server first. Read by `milo-client-snapclient-launcher` too, after its own
+# lookup fails.
+SERVER_ADDRESSES_FILE = Path("/var/lib/milo-client/server-addresses")
+# None until read from the card, at the first call that needs them; and what the
+# card holds as far as this process knows, None when a write to it failed. Read
+# and written from worker threads — the heartbeat's and the watcher's — so only
+# under the lock.
+_server_addresses: Optional[tuple[str, ...]] = None
+_stored: Optional[tuple[str, ...]] = None
+_addresses_lock = threading.Lock()
+# Whether the last write to the card failed: a card that stays full or read-only
+# is reported once, not at every heartbeat answer that tries again.
+_store_failing = False
 
 
-def remember_server_addresses(answer: dict) -> None:
-    """Keep the IPv4 addresses a heartbeat answer lists, in their order."""
-    global _server_addresses
+def _ipv4(addresses) -> tuple[str, ...]:
     kept = []
-    for address in answer["server_addresses"]:
+    for address in addresses:
         try:
             kept.append(str(ipaddress.IPv4Address(address)))
         except ipaddress.AddressValueError:
             logger.debug(f"Ignoring a server address that is not IPv4: {address!r}")
-    _server_addresses = tuple(kept)
+    return tuple(kept)
+
+
+def server_addresses_in(answer: dict) -> list:
+    """What a heartbeat answer lists as the server's addresses, wired first."""
+    return answer["server_addresses"]
+
+
+def remember_server_addresses(addresses) -> None:
+    """Keep the IPv4 ones of the server's `addresses`, in their order, on the card too. Blocking.
+
+    Written only when they changed: a heartbeat answers every 15 s, and each
+    write is a write to the SD card. A write that fails keeps them in memory,
+    which is all this run needs, and is tried again at the next answer.
+    """
+    global _server_addresses
+    with _addresses_lock:
+        _load()  # what the card holds, read once
+        _server_addresses = _ipv4(addresses)
+        if _server_addresses != _stored:
+            _store(_server_addresses)
+
+
+def _store(addresses: tuple[str, ...]) -> None:
+    global _stored, _store_failing
+    try:
+        write_atomic(SERVER_ADDRESSES_FILE, "".join(f"{address}\n" for address in addresses))
+    except OSError as e:
+        if not _store_failing:
+            logger.warning(f"Cannot keep the server's addresses on the card ({e}): a restart "
+                           "on a LAN without mDNS will not find the server")
+        else:
+            logger.debug(f"Still cannot keep the server's addresses on the card: {e}")
+        _stored, _store_failing = None, True
+        return
+    if _store_failing:
+        logger.info("The server's addresses are kept on the card again")
+    _stored, _store_failing = addresses, False
+
+
+def _load() -> None:
+    """Read the card's addresses into memory, at the first call only; under the lock."""
+    global _server_addresses, _stored
+    if _server_addresses is not None:
+        return
+    try:
+        lines = SERVER_ADDRESSES_FILE.read_text(encoding="ascii").split()
+    except FileNotFoundError:
+        lines = []
+    except (OSError, UnicodeDecodeError) as e:
+        logger.warning(f"Cannot read the server's addresses kept on the card: {e}")
+        _server_addresses, _stored = (), None  # rewritten at the next answer
+        return
+    _server_addresses = _stored = _ipv4(lines)
 
 
 def known_server_addresses() -> tuple[str, ...]:
-    """The main Milo's addresses, wired first; empty before the first heartbeat answer."""
-    return _server_addresses
+    """The main Milo's addresses, wired first, as its last heartbeat answer listed them. Blocking.
+
+    Read from the card at the first call, so a restarted speaker knows them
+    before any heartbeat; empty when none was ever answered.
+    """
+    with _addresses_lock:
+        _load()
+        return _server_addresses
+
+
+async def answers(address: str) -> bool:
+    """Whether the main Milo accepts a TCP connection at `address` within the probe timeout.
+
+    The backend's port is dialled, not snapserver's: a probe there would log a
+    session error on the server for every pass of a loss window.
+    """
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(address, MILO_PRINCIPAL_PORT), PROBE_TIMEOUT)
+    except (OSError, TimeoutError):
+        return False
+    writer.close()
+    with contextlib.suppress(OSError):
+        await writer.wait_closed()
+    return True
 
 
 UNSET_MAC = "00:00:00:00:00:00"
@@ -103,16 +201,8 @@ def local_ip_towards(remote_ip: str, remote_port: int) -> str:
         return s.getsockname()[0]
 
 
-def resolve_milo_principal() -> str:
-    """Resolve the main Milo to an IPv4 address.
-
-    MILO_PRINCIPAL_IP comes from the unit's EnvironmentFile. `milo-first-boot`
-    writes the string "milo.local" when it converts a flashed card into a
-    satellite, and an operator can replace it with a literal IP on a LAN where
-    mDNS does not work — both forms are accepted. A unit with no env entry at all
-    falls back to mDNS.
-    """
-    target = os.environ.get("MILO_PRINCIPAL_IP") or MILO_PRINCIPAL_HOST
+def _resolve_target(target: str) -> Optional[str]:
+    """`target` as an IPv4 address: itself when it is one, else what the resolver answers. Blocking."""
     try:
         return str(ipaddress.IPv4Address(target))
     except ipaddress.AddressValueError:
@@ -123,7 +213,36 @@ def resolve_milo_principal() -> str:
             return results[0][4][0]
     except socket.gaierror:
         pass
-    raise RuntimeError(f"Cannot resolve {target}")
+    return None
+
+
+async def resolve_milo_principal() -> str:
+    """Find the main Milo's IPv4 address, in this order:
+
+    1. MILO_PRINCIPAL_IP, from the unit's EnvironmentFile, when it is a literal
+       address — an operator pinned it, and nothing else is asked;
+    2. that name resolved, `milo.local` when the file names none — what
+       `milo-first-boot` writes when it converts a flashed card into a satellite;
+    3. the first of the server's last known addresses that accepts a connect,
+       in the order its heartbeat answer listed them (wired first) — the way
+       back where mDNS never answers.
+
+    Raises RuntimeError, naming the target, when all three fail — never a
+    guess: the address watcher reads an address found here as the server's,
+    and restarts a room to follow it.
+    """
+    target = os.environ.get("MILO_PRINCIPAL_IP") or MILO_PRINCIPAL_HOST
+    resolved = await asyncio.to_thread(_resolve_target, target)
+    if resolved is not None:
+        return resolved
+    known = await asyncio.to_thread(known_server_addresses)
+    if known:
+        answered = await asyncio.gather(*(answers(address) for address in known))
+        for address, ok in zip(known, answered):
+            if ok:
+                logger.debug(f"Cannot resolve {target}: the server answers at {address}")
+                return address
+    raise RuntimeError(f"Cannot resolve {target}, and no address the server last listed answers")
 
 
 def _read_hardware_config() -> dict:
@@ -193,8 +312,7 @@ async def register_with_main_milo() -> None:
 
     while True:
         try:
-            # Resolve main Milo (blocking mDNS — run in executor to avoid blocking event loop)
-            milo_ip = await loop.run_in_executor(None, resolve_milo_principal)
+            milo_ip = await resolve_milo_principal()
 
             # Get our own info (blocking file I/O — run in executor)
             mac_id = await loop.run_in_executor(None, _get_mac_address)
@@ -227,7 +345,8 @@ async def register_with_main_milo() -> None:
             ) as session:
                 async with session.post(url, json=payload) as resp:
                     if resp.status == 200:
-                        remember_server_addresses(await resp.json())
+                        addresses = server_addresses_in(await resp.json())
+                        await loop.run_in_executor(None, remember_server_addresses, addresses)
                         if not registered:
                             logger.info(
                                 f"Registered with main Milo at {milo_ip} "

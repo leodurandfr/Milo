@@ -16,8 +16,14 @@
 # connected — playing or not — and when the stream does not leave from the
 # satellite's own eth0 once that has come back. Ethernet first, at the cost of
 # a few seconds of silence in that room (the owner's choice, 2026-11-06). When the
-# address it dialled stops answering while mDNS still gives it, the watcher picks
-# the server's next address itself and leaves it in the override below.
+# watcher restarts it for the server's address, it leaves the address it found
+# in the override below.
+#
+# The server is looked for in the order the API's resolver follows
+# (services/registration.py::resolve_milo_principal): MILO_PRINCIPAL_IP when it
+# is a literal, that name (milo.local) resolved, then the first of the addresses
+# the server's last heartbeat answer listed that accepts a connect — the way
+# back on a LAN whose router filters multicast, where milo.local never resolves.
 #
 # Before resolving, it waits for NetworkManager's startup: the image masks
 # NetworkManager-wait-online, so the unit's After=network-online.target waits for
@@ -67,9 +73,47 @@ fi
 # mDNS does not work and the env file carries a literal address.
 server="${MILO_PRINCIPAL_IP:-milo.local}"
 
-# Unless the API's watcher chose this start's address: the main Milo stopped
-# answering at the one mDNS still gives — a server whose cable went keeps its
-# wired address published for seconds — and answers at another it listed in its
+# The addresses the server's last heartbeat answer listed, wired first, one per
+# line; the app keeps them on the card.
+known_addresses=/var/lib/milo-client/server-addresses
+# The backend's port, which the app's probe dials too.
+server_port=8000
+
+# The first known address at which the server accepts a connect, or nothing.
+# Probed all at once, as the app does, and taken in their listed order.
+answering_address() {
+    [ -s "$known_addresses" ] || return 0
+    python3 - "$known_addresses" "$server_port" <<'EOF' 2>/dev/null || true
+import ipaddress, socket, sys, threading
+
+addresses = []
+for line in open(sys.argv[1], encoding="ascii").read().split():
+    try:
+        addresses.append(str(ipaddress.IPv4Address(line)))
+    except ValueError:
+        pass
+answered = set()
+
+def probe(address):
+    try:
+        socket.create_connection((address, int(sys.argv[2])), timeout=1).close()
+        answered.add(address)
+    except OSError:
+        pass
+
+threads = [threading.Thread(target=probe, args=(a,)) for a in addresses]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+print(next((a for a in addresses if a in answered), ""))
+EOF
+}
+
+# Unless the API's watcher chose this start's address — the one it found the
+# server at: what the resolver answers, or, where the main Milo stopped
+# answering at the address mDNS still gives (a server whose cable went keeps
+# its wired address published for seconds), another it listed in its
 # heartbeat. Read once and removed, so only the start it was written for uses it.
 override=/run/milo-client/server-address
 if [ -s "$override" ]; then
@@ -92,7 +136,13 @@ case "$server" in
             echo "milo-client-snapclient-launcher: resolved $server -> $resolved"
             server="$resolved"
         else
-            echo "milo-client-snapclient-launcher: could not resolve $server, falling back to hostname (snapclient will retry internally)" >&2
+            known=$(answering_address)
+            if [ -n "$known" ]; then
+                echo "milo-client-snapclient-launcher: could not resolve $server, dialing $known, the first address the server last listed that answers"
+                server="$known"
+            else
+                echo "milo-client-snapclient-launcher: could not resolve $server and no address the server last listed answers, falling back to hostname (snapclient will retry internally)" >&2
+            fi
         fi
         ;;
 esac

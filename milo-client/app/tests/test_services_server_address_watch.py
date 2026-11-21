@@ -34,8 +34,11 @@ so what they count is passes of the real loop, never wall-clock time.
 """
 import errno
 import ipaddress
+import json
+import os
 import re
 import socket
+import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -54,6 +57,8 @@ import services.server_address_watch as watch
 
 ROOTFS = Path(__file__).resolve().parents[2] / "rootfs"
 LAUNCHER = ROOTFS / "usr/local/bin/milo-client-snapclient-launcher"
+# The unit's own path, read at import: every test runs on one under tmp_path.
+SERVER_ADDRESSES_FILE = registration.SERVER_ADDRESSES_FILE
 
 RESTART = [
     ("sudo", "systemctl", "stop", SNAPCLIENT_SERVICE),
@@ -119,9 +124,16 @@ def _watching(tmp_path, main_pid, resolves_to=None, principal="milo.local",
 
     with patch.dict("os.environ", {"MILO_PRINCIPAL_IP": principal}, clear=True), \
          patch("services.server_address_watch.PROC_CMDLINE", str(tmp_path) + "/{pid}"), \
+         patch("services.server_address_watch.SERVER_OVERRIDE", str(tmp_path / "server-address")), \
          patch("asyncio.create_subprocess_exec", side_effect=fake_exec), \
          resolver:
         yield spawned
+
+
+def _override(tmp_path):
+    """The address the watcher left for the launcher's next start, if any."""
+    path = tmp_path / "server-address"
+    return path.read_text() if path.exists() else None
 
 
 def _restarts(spawned):
@@ -143,6 +155,9 @@ async def test_a_moved_server_restarts_a_disconnected_snapclient(tmp_path):
         assert await _reconcile() is True
 
     assert _restarts(spawned) == RESTART
+    # Handed over, so the launcher dials it rather than spending its lookup
+    # retries again — all of them, where mDNS never answers.
+    assert _override(tmp_path) == "192.168.1.39"
 
 
 @pytest.mark.asyncio
@@ -273,6 +288,74 @@ def test_the_launcher_consumes_the_address_the_watcher_leaves():
     unit = (ROOTFS.parent / "system" / "milo-client.service").read_text()
     assert re.search(rf"^RuntimeDirectory={re.escape(override.parent.name)}$", unit, re.M)
     assert override.parent.parent == Path("/run")
+
+
+def _run_launcher(tmp_path, known):
+    """Run the real launcher under `sh` on a LAN where mDNS never answers.
+
+    `getent` fails, NetworkManager's startup is complete, `sleep` returns at
+    once and `snapclient` logs its argv; the server's port is a real socket
+    listening on 127.0.0.1 only, so 127.0.0.2 refuses it. The paths the
+    launcher shares with the app are substituted in the copy run here, and each
+    must be found exactly once — a launcher that spells one differently from
+    the app reads a file nothing writes.
+    """
+    calls = tmp_path / "calls"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, body in {
+        "nm-online": "exit 0",
+        "getent": "exit 2",
+        "sleep": "exit 0",
+        "snapclient": f'echo "snapclient $*" >> "{calls}"',
+    }.items():
+        (bin_dir / name).write_text(f"#!/bin/sh\n{body}\n")
+        (bin_dir / name).chmod(0o755)
+    hardware = tmp_path / "hardware.json"
+    hardware.write_text(json.dumps({"audio": {"id": "hifiberry_dac2hd"}}))
+    addresses = tmp_path / "server-addresses"
+    addresses.write_text("".join(f"{a}\n" for a in known))
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        script = LAUNCHER.read_text()
+        for real, stand_in in (
+            (registration.HARDWARE_FILE, hardware),
+            ("/usr/bin/snapclient", bin_dir / "snapclient"),
+            (str(SERVER_ADDRESSES_FILE), addresses),
+            (watch.SERVER_OVERRIDE, tmp_path / "server-address"),
+            (f"server_port={registration.MILO_PRINCIPAL_PORT}", f"server_port={listener.getsockname()[1]}"),
+        ):
+            assert script.count(str(real)) == 1, f"the launcher no longer names {real} exactly once"
+            script = script.replace(str(real), str(stand_in))
+        launcher = tmp_path / "launcher"
+        launcher.write_text(script)
+        result = subprocess.run(
+            ["sh", str(launcher)],
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "MILO_PRINCIPAL_IP": "milo.local"},
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    assert result.returncode == 0, result.stderr
+    dialled = [_server_arg(b"\0".join(c.encode() for c in line.split()))
+               for line in calls.read_text().splitlines()]
+    assert len(dialled) == 1, "the launcher never execed snapclient"
+    return dialled[0]
+
+
+def test_without_mdns_the_launcher_dials_the_first_known_address_that_answers(tmp_path):
+    """The defect at the start of snapclient: on a LAN that filters multicast,
+    the launcher handed snapclient `milo.local`, which never resolves there,
+    and the room stayed silent after every restart of the speaker. The order is
+    the server's, wired first, but the silent address is passed over."""
+    assert _run_launcher(tmp_path, ["127.0.0.2", "127.0.0.1"]) == "127.0.0.1"
+
+
+def test_without_mdns_and_no_known_address_answering_the_launcher_keeps_the_hostname(tmp_path):
+    """Nothing answers (the server is off): a literal that does not answer
+    would be a guess. The hostname lets snapclient resolve it later, and the
+    watcher replaces it with the address it finds once the server is back."""
+    assert _run_launcher(tmp_path, ["127.0.0.2"]) == "milo.local"
 
 
 # --- The loop, on a virtual clock ------------------------------------------------
@@ -418,7 +501,7 @@ class _World:
         """A TCP connect to the server: it answers, or times out as a dead port does."""
         self.probes.append((self.now, host))
         if not self.answers(self.now, host):
-            self.now += watch.PROBE_TIMEOUT
+            self.now += registration.PROBE_TIMEOUT
             raise TimeoutError
         return None, _FakeWriter()
 
@@ -429,11 +512,11 @@ class _World:
         return path.read_text() if path.exists() else None
 
     async def run(self):
-        registration.remember_server_addresses({"server_addresses": list(self.server_addresses)})
+        registration.remember_server_addresses(list(self.server_addresses))
         try:
             await self._run()
         finally:
-            registration.remember_server_addresses({"server_addresses": []})
+            registration.remember_server_addresses([])
         return self
 
     async def _run(self):
@@ -689,6 +772,7 @@ async def test_a_playing_stream_on_the_wifi_address_moves_once_ethernet_is_back(
 
     assert world.restarted_at is not None, "the stream never came back to the cable"
     assert REPLUG + watch.LINK_HOLD - 1 <= world.restarted_at <= REPLUG + watch.LINK_HOLD + 1
+    assert world.override == WIRED, "the launcher was left to look for the server itself"
 
 
 @pytest.mark.asyncio
@@ -1070,7 +1154,7 @@ async def test_a_server_whose_wired_address_went_silent_is_dialled_on_its_other_
     ).run()
 
     assert world.restarted_at is not None, "the silent wired address was never left"
-    assert world.restarted_at - loss <= 1 + watch.PROBE_TIMEOUT
+    assert world.restarted_at - loss <= 1 + registration.PROBE_TIMEOUT
     assert world.override == WIFI
 
 
@@ -1124,7 +1208,7 @@ async def test_an_operator_pinned_ip_is_never_left_for_another_address(tmp_path)
     """A literal MILO_PRINCIPAL_IP is a choice an operator made: even silent, and
     with another listed address answering, the unit stays on it."""
     _write_cmdline(tmp_path, 1077, "/usr/bin/snapclient", "-h", WIRED, "-p", "1704")
-    registration.remember_server_addresses({"server_addresses": list(SERVER_ADDRESSES)})
+    registration.remember_server_addresses(list(SERVER_ADDRESSES))
     dialled = []
 
     async def open_connection(host, port):
@@ -1138,7 +1222,77 @@ async def test_an_operator_pinned_ip_is_never_left_for_another_address(tmp_path)
              patch("asyncio.open_connection", side_effect=open_connection):
             assert await _reconcile() is False
     finally:
-        registration.remember_server_addresses({"server_addresses": []})
+        registration.remember_server_addresses([])
 
     assert _restarts(spawned) == []
     assert dialled == []
+
+
+# --- A LAN where mDNS never answers -----------------------------------------------
+# A mesh router that filters multicast: milo.local never resolves, and the server
+# is found at the addresses its last heartbeat answer listed, kept on the card.
+
+
+@pytest.mark.asyncio
+async def test_without_mdns_a_server_whose_cable_went_is_followed_to_its_wifi(tmp_path):
+    """The loss is seen and followed with no lookup ever answering: the
+    address the stream dialed stops answering and the next listed one does."""
+    loss = 20.5
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: None,
+        connected=lambda t: t < loss, server_addresses=SERVER_ADDRESSES,
+        answers=lambda t, address: address == WIFI or t < loss,
+    ).run()
+
+    assert world.restarted_at is not None, "the server was never followed without mDNS"
+    assert world.restarted_at - loss <= 2 + 2 * registration.PROBE_TIMEOUT
+    assert world.override == WIFI
+
+
+@pytest.mark.asyncio
+async def test_without_mdns_a_server_whose_cable_returned_gets_its_rooms_back(tmp_path):
+    """Ethernet first holds without mDNS too: a stream on the server's WiFi is
+    moved to its wired address once that answers again for the hold."""
+    back = 30.5
+    world = await _World(
+        tmp_path, dialled=WIFI, resolves=lambda t: None,
+        connected=lambda t: True, server_addresses=SERVER_ADDRESSES,
+        answers=lambda t, address: address == WIFI or t >= back,
+    ).run()
+
+    assert world.restarted_at is not None, "the stream stayed on the server's WiFi"
+    assert back + watch.SERVER_HOLD <= world.restarted_at <= back + watch.SERVER_HOLD + 2 * watch.SERVER_CHECK_INTERVAL
+    assert world.override == WIRED
+
+
+@pytest.mark.asyncio
+async def test_without_mdns_a_server_that_is_off_is_left_alone(tmp_path):
+    """No address answers: nothing is found, and nothing found is no move —
+    restarting the room would fix nothing."""
+    loss = 20.5
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: None,
+        connected=lambda t: t < loss, server_addresses=SERVER_ADDRESSES,
+        answers=lambda t, address: t < loss, until=300,
+    ).run()
+
+    assert world.restarted_at is None
+    assert world.override is None
+
+
+@pytest.mark.asyncio
+async def test_without_mdns_the_cable_return_hands_the_launcher_its_server(tmp_path):
+    """A restart for the satellite's own cable, not the server's address: left
+    to look for itself, the launcher spent its five lookups, 2 s apart, before
+    it tried the known addresses — 10 s of silence or more in that room, where
+    the owner priced the return at a few seconds."""
+    world = await _World(
+        tmp_path, dialled=WIRED, resolves=lambda t: None, server_addresses=SERVER_ADDRESSES,
+        connected=lambda t: True, local=lambda t: SAT_WIFI,
+        carrier=lambda t: "1" if _cable_back(t) else "0",
+        wired=lambda t: SAT_WIRED if _cable_back(t) else None,
+        preferred=lambda t: SAT_WIRED if _cable_back(t) else SAT_WIFI,
+    ).run()
+
+    assert world.restarted_at is not None, "the stream never came back to the cable"
+    assert world.override == WIRED

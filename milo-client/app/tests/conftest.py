@@ -160,6 +160,20 @@ def secret_file(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def server_addresses_file(tmp_path, monkeypatch):
+    """Where this satellite keeps its server's addresses, under tmp_path for
+    every test, which starts with none read and none kept."""
+    from services import registration
+
+    path = tmp_path / "server-addresses"
+    monkeypatch.setattr(registration, "SERVER_ADDRESSES_FILE", path)
+    monkeypatch.setattr(registration, "_server_addresses", None)
+    monkeypatch.setattr(registration, "_stored", None)
+    monkeypatch.setattr(registration, "_store_failing", False)
+    return path
+
+
+@pytest.fixture(autouse=True)
 def boot_trace(tmp_path, monkeypatch):
     """Where this satellite reads how its last stop went, under tmp_path for
     every test, on a boot whose id is `boot_id`; no test starts in the window."""

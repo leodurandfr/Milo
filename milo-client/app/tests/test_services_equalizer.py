@@ -1312,7 +1312,7 @@ class TestEqualizerServiceConfigPersistence:
         persisted = Path(equalizer_service.config_file).read_text()
         assert "eq_band_1" in persisted
 
-        with patch("services.equalizer.os.replace", side_effect=OSError("power cut")):
+        with patch("atomic_file.os.replace", side_effect=OSError("power cut")):
             result = await equalizer_service.set_filter("eq_band_1", gain=9.0)
 
         assert result is False
@@ -1742,7 +1742,7 @@ class TestEqualizerAdmissionPersistence:
 
         saves = []
         with TestClient(app) as http, \
-                patch("services.equalizer.os.replace", side_effect=os.replace) as rename:
+                patch("atomic_file.os.replace", side_effect=os.replace) as rename:
             for admission in admissions:
                 before = rename.call_count
                 for path, body in admission:

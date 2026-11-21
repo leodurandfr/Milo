@@ -244,7 +244,7 @@ async def test_the_heartbeat_says_while_the_window_is_open(server, monkeypatch, 
         await ticks.get()
 
     monkeypatch.setattr(registration, "asyncio", types.SimpleNamespace(
-        sleep=next_tick, get_running_loop=asyncio.get_running_loop,
+        **{**{name: getattr(asyncio, name) for name in asyncio.__all__}, "sleep": next_tick},
     ))
 
     open_window_after_unclean_stop()

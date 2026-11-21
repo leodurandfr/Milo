@@ -60,6 +60,16 @@ This closes that asymmetry from the same side, in two states:
 The lookup runs here, in the API process, and never in snapclient's reconnect
 path — which is what the launcher's design protects.
 
+Where mDNS never answers — a router that filters multicast — the lookup falls
+back to the first of the server's last known addresses that accepts a connect
+(`registration.resolve_milo_principal`), so both rules above hold there too: a
+silent address is left for the next one that answers, and the server's wired
+address, listed first, is returned to once it answers again. Every restart of
+a running unit hands the launcher the address found here — a move's, or, for a
+restart with another reason, what the resolver answers then — since its own
+lookup would otherwise spend all its retries before falling back to the same
+addresses.
+
 The satellite's own link is followed too, under the same choice. Losing the
 cable is left to snapclient, and that half is expected, not measured: no
 satellite cable has been pulled yet. The stream's address goes with the cable,
@@ -92,7 +102,6 @@ check of a dropped stream replaces that hostname with a literal — after which
 both rules apply.
 """
 import asyncio
-import contextlib
 import fcntl
 import ipaddress
 import logging
@@ -104,7 +113,7 @@ from pathlib import Path
 from typing import Optional
 
 from services.registration import (
-    MILO_PRINCIPAL_PORT,
+    answers,
     known_server_addresses,
     local_ip_towards,
     resolve_milo_principal,
@@ -144,9 +153,6 @@ COOLDOWN_INTERVAL = 60
 # the cable's own flapping can stretch that.
 LINK_HOLD = 10
 LINK_HOLD_MAX = 300
-# How long the server's address has to answer a connect: a LAN round trip is a
-# millisecond, and a dead port answers nothing at all.
-PROBE_TIMEOUT = 1
 # The address the watcher chose for the next start of the unit, read and removed
 # by milo-client-snapclient-launcher. Under the app's RuntimeDirectory: a reboot
 # or an app restart leaves no stale choice behind.
@@ -293,23 +299,6 @@ async def _running_server_address() -> Optional[str]:
     return _server_arg(cmdline)
 
 
-async def _answers(address: str) -> bool:
-    """Whether the main Milo accepts a TCP connection at `address` within the probe timeout.
-
-    The backend's port is dialled, not snapserver's: a probe there would log a
-    session error on the server for every pass of a loss window.
-    """
-    try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_connection(address, MILO_PRINCIPAL_PORT), PROBE_TIMEOUT)
-    except (OSError, TimeoutError):
-        return False
-    writer.close()
-    with contextlib.suppress(OSError):
-        await writer.wait_closed()
-    return True
-
-
 async def _answering_address(running: str) -> Optional[str]:
     """Another address of the main Milo that answers, when `running` does not.
 
@@ -326,11 +315,12 @@ async def _answering_address(running: str) -> Optional[str]:
         return None
     except ipaddress.AddressValueError:
         pass
-    others = [address for address in known_server_addresses() if address != running]
+    known = await asyncio.to_thread(known_server_addresses)
+    others = [address for address in known if address != running]
     if not others:
         return None
     running_answers, *answered = await asyncio.gather(
-        _answers(running), *(_answers(address) for address in others))
+        answers(running), *(answers(address) for address in others))
     if running_answers:
         return None
     return next((address for address, ok in zip(others, answered) if ok), None)
@@ -359,14 +349,41 @@ async def _stop_then_start() -> None:
         _start_owed = action == "stop"
 
 
+async def _restart_address() -> Optional[str]:
+    """Where a running snapclient restarted for another reason than its server's
+    address — the cable's return, a buffer push — should dial: what the resolver
+    answers now, else the IPv4 literal it runs with. None when it is not running.
+
+    Found here, while the room still plays, because the launcher's own lookup
+    spends its retries (5 lookups, 2 s apart) before it falls back to the known
+    addresses: on a LAN without mDNS, every such restart was 10 s of silence or
+    more. Not for a unit that is not running: the launcher of a satellite with no
+    card exits before it reads the override, which would then wait for whatever
+    start came next.
+    """
+    running = await _running_server_address()
+    if running is None:
+        return None
+    try:
+        return await resolve_milo_principal()
+    except RuntimeError as e:
+        logger.debug(f"Cannot check the server address before a restart: {e}")
+    try:
+        return str(ipaddress.IPv4Address(running))
+    except ipaddress.AddressValueError:
+        return None  # the launcher's hostname fallback: it looks again itself
+
+
 async def restart_snapclient(server: Optional[str] = None) -> None:
     """Restart the unit; a start that fails raises and leaves the start owed, so
     `follow_server_address` brings it back whoever stopped it, at its first
     check past the cooldown.
 
-    `server` is the address the launcher dials at that start instead of what mDNS
-    answers it then.
+    `server` is the address the launcher dials at that start instead of looking
+    for one itself; without it, the one `_restart_address` finds.
     """
+    if server is None:
+        server = await _restart_address()
     async with _restart_lock:
         if server is not None:
             await asyncio.to_thread(Path(SERVER_OVERRIDE).write_text, server)
@@ -392,14 +409,16 @@ async def _reconcile() -> bool:
     # A literal MILO_PRINCIPAL_IP resolves to itself, so an operator-pinned
     # address on a LAN without mDNS can never read as a move.
     try:
-        current = await asyncio.to_thread(resolve_milo_principal)
+        current = await resolve_milo_principal()
     except RuntimeError as e:
         logger.debug(f"Cannot check the server address: {e}")
         return False
 
     if running != current:
         logger.warning(f"Main Milo moved {running} -> {current}, restarting snapclient")
-        await restart_snapclient()
+        # Handed to the launcher: where mDNS never answers, its own lookup
+        # would spend its retries before it found what was found here.
+        await restart_snapclient(server=current)
         return True
 
     # mDNS still answers the address that went silent: a server whose cable has
@@ -413,7 +432,7 @@ async def _reconcile() -> bool:
 
 
 async def _server_elsewhere(server: str) -> Optional[str]:
-    """What mDNS answers for the main Milo, when that is not the stream's `server`.
+    """What the resolver answers for the main Milo, when that is not the stream's `server`.
 
     None for an IPv6 stream, whose server the IPv4 answer cannot be compared
     with, and when the lookup fails, which says nothing about the server.
@@ -421,7 +440,7 @@ async def _server_elsewhere(server: str) -> Optional[str]:
     if ipaddress.ip_address(server).version != 4:
         return None
     try:
-        current = await asyncio.to_thread(resolve_milo_principal)
+        current = await resolve_milo_principal()
     except RuntimeError as e:
         logger.debug(f"Cannot check the server address: {e}")
         return None
@@ -486,7 +505,7 @@ async def _follow_server(server: str, hold: _ServerHold) -> bool:
         return False
     hold.returned(current)
     logger.warning(f"Main Milo moved {server} -> {current}, restarting snapclient")
-    await restart_snapclient()
+    await restart_snapclient(server=current)
     return True
 
 
