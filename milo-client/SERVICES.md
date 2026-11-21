@@ -1,6 +1,6 @@
 # Milo Client Systemd Services
 
-This directory contains systemd service files for Milo Client satellites. These services are copied to `/etc/systemd/system/` during installation.
+`system/` holds the systemd service files for Milo Client satellites, copied to `/etc/systemd/system/` during installation. This page sits outside it on purpose: every file under `system/` counts in the payload fingerprint that offers a satellite a push, and a push restarts a speaker in an occupied room — a doc edit there would restart every one of them for nothing.
 
 ## Service Overview
 
@@ -36,7 +36,7 @@ This directory contains systemd service files for Milo Client satellites. These 
 `milo-client.service` and `milo-client-snapclient.service` read `/var/lib/milo-client/env`
 (`EnvironmentFile=`); `milo-client-camilladsp.service` reads none. What the file holds, who writes
 each key and which one is the server's is described once, in
-[../ENVIRONMENT.md](../ENVIRONMENT.md).
+[ENVIRONMENT.md](ENVIRONMENT.md).
 
 ## Directory Structure
 
@@ -85,8 +85,8 @@ sudo systemctl status milo-client-snapclient
 
 ## Configuration
 
-- `/var/lib/milo-client/env` - Environment variables (see [../ENVIRONMENT.md](../ENVIRONMENT.md))
-- `/var/lib/milo-client/server-addresses` - The server's IPv4 addresses as its last heartbeat answer listed them, wired first, one per line: where the app and the snapclient launcher look for the server when `milo.local` does not resolve (see [../ENVIRONMENT.md](../ENVIRONMENT.md)). Rewritten by the app whenever the list changes, and read back at its start.
+- `/var/lib/milo-client/env` - Environment variables (see [ENVIRONMENT.md](ENVIRONMENT.md))
+- `/var/lib/milo-client/server-addresses` - The server's IPv4 addresses as its last heartbeat answer listed them, wired first, one per line: where the app and the snapclient launcher look for the server when `milo.local` does not resolve (see [ENVIRONMENT.md](ENVIRONMENT.md)). Rewritten by the app whenever the list changes, and read back at its start.
 - `/var/lib/milo-client/server-secret` - The secret of the server this unit pinned at its first contact (0600). Its app update, SSH switch, password and reboot answer that server only (`app/server_secret.py`); removing the file lets the next server that reaches the unit pin its own. To move a speaker to a server that was reflashed, unplug it and plug it back in: for five minutes after a start that followed no clean stop, the server's hand-over replaces the pin.
 - `/var/lib/milo-client/clean-stop`, `/var/lib/milo-client/started-boot` - How the last stop went: the marker the app writes when systemd stops it, consumed by the next start, and the boot id of the last start. A start on a new boot with no marker is a power cut, which opens that window.
 - `/etc/asound.conf` - ALSA configuration for HiFiBerry

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 Milo Client - API Service for Snapclient Management and Equalizer Control
-Version: 2.0 - Feature-based architecture
+
+It carries no version of its own: what a satellite runs is the server's version
+string and the payload fingerprint of its milo-client/ tree, which `/status`
+reports (`app.version`, `app.payload`).
 """
 import asyncio
 import faulthandler
@@ -235,7 +238,6 @@ class _Server(uvicorn.Server):
 app = FastAPI(
     title="Milo Client API",
     description="API for Milo client management",
-    version="2.0.0",
     lifespan=lifespan
 )
 app.add_middleware(OriginGate)

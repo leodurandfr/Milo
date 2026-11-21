@@ -85,27 +85,24 @@ def create_hardware_router() -> APIRouter:
         Writes hardware.json with the provided audio_id and overlay.
         Does NOT reboot — call POST /api/hardware/reboot separately.
         """
+        config = _read_hardware_json()
+
+        if request.audio_id == "none":
+            config["audio"] = {"id": "none"}
+        else:
+            config["audio"] = {
+                "id": request.audio_id,
+                "overlay": request.overlay,
+                "volume_control": request.volume_control,
+            }
+
         try:
-            config = _read_hardware_json()
-
-            if request.audio_id == "none":
-                config["audio"] = {"id": "none"}
-            else:
-                config["audio"] = {
-                    "id": request.audio_id,
-                    "overlay": request.overlay,
-                    "volume_control": request.volume_control,
-                }
-
             _write_hardware_json(config)
-            logger.info(f"Hardware config updated: audio_id={request.audio_id}")
-            return {"status": "success", "audio": config["audio"]}
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error writing hardware config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        except OSError as e:
+            logger.error(f"Hardware config not written: {e}")
+            raise HTTPException(status_code=500, detail=f"hardware.json not written: {e}") from e
+        logger.info(f"Hardware config updated: audio_id={request.audio_id}")
+        return {"status": "success", "audio": config["audio"]}
 
     @router.post("/reboot", dependencies=[Depends(require_server_secret)])
     async def reboot():
@@ -123,28 +120,26 @@ def create_hardware_router() -> APIRouter:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            # Wait briefly to catch immediate failures (bad script, permission denied, etc.)
-            # If the process is still running after 2s, it's proceeding to reboot.
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=2)
-                # Process exited within 2s — check if it failed before reaching reboot.
-                # Negative returncode means killed by signal (e.g. system reboot) — not an error.
-                if proc.returncode is not None and proc.returncode > 0:
-                    stderr = await proc.stderr.read()
-                    error_msg = stderr.decode().strip() or f"Exit code {proc.returncode}"
-                    logger.error(f"Apply-hardware script failed: {error_msg}")
-                    raise HTTPException(status_code=500, detail=f"Reboot script failed: {error_msg}")
-            except asyncio.TimeoutError:
-                # Still running after 2s — reboot is in progress, this is expected
-                pass
+        except OSError as e:
+            logger.error(f"Apply-hardware script not started: {e}")
+            raise HTTPException(status_code=500, detail=f"Reboot script not started: {e}") from e
+        # Wait briefly to catch immediate failures (bad script, permission denied, etc.)
+        # If the process is still running after 2s, it's proceeding to reboot.
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=2)
+        except asyncio.TimeoutError:
+            # Still running after 2s — reboot is in progress, this is expected
+            pass
+        else:
+            # Exited within 2s — check if it failed before reaching reboot.
+            # Negative returncode means killed by signal (e.g. system reboot) — not an error.
+            if proc.returncode is not None and proc.returncode > 0:
+                stderr = await proc.stderr.read()
+                error_msg = stderr.decode().strip() or f"Exit code {proc.returncode}"
+                logger.error(f"Apply-hardware script failed: {error_msg}")
+                raise HTTPException(status_code=500, detail=f"Reboot script failed: {error_msg}")
 
-            logger.info("Reboot triggered via milo-client-apply-hardware")
-            return {"status": "success", "message": "Rebooting..."}
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error triggering reboot: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        logger.info("Reboot triggered via milo-client-apply-hardware")
+        return {"status": "success", "message": "Rebooting..."}
 
     return router

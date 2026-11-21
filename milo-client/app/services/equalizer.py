@@ -9,12 +9,11 @@ Controls local CamillaDSP daemon via WebSocket for:
 - Crossover filters (highpass/lowpass)
 """
 import asyncio
-import copy
 import functools
 import logging
 from pathlib import Path
 import yaml
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 from atomic_file import write_atomic
 from services.camilladsp_client import CamillaDspClient
@@ -136,8 +135,6 @@ class EqualizerService:
         self._gain_db: float = 0.0
         self._headroom_db: float = 0.0
         self._volume = {"main": STARTUP_GAIN_DB, "mute": True}  # Matches CamillaDSP's -m + --gain start
-        self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
-        self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._mono: bool = False
         self._equalizer_enabled = True
 
@@ -170,16 +167,6 @@ class EqualizerService:
     def volume_state(self) -> Dict[str, Any]:
         """Returns volume state."""
         return self._volume
-
-    @property
-    def crossover(self) -> Dict[str, Any]:
-        """Returns crossover state."""
-        return self._crossover
-
-    @property
-    def lowpass(self) -> Dict[str, Any]:
-        """Returns lowpass state."""
-        return self._lowpass
 
     async def _connect_once(self) -> bool:
         """Single connection attempt, guarded by lock to prevent concurrent connects.
@@ -576,25 +563,59 @@ class EqualizerService:
             self.logger.error(f"Error getting equalizer status: {e}")
             return {"available": False, "error": str(e)}
 
+    async def _read_config(self) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """The CamillaDSP config, and whether it is the one the daemon runs.
+
+        A daemon with no config loaded answers GetConfigJson with null; its
+        config file is read instead, which the daemon does not run.
+        """
+        config = await self._exec(lambda c: c.get_config())
+        if config is not None:
+            return config, True
+        config_path = await self._exec(lambda c: c.get_config_file_path())
+        if config_path:
+            return await self._exec(lambda c: c.read_config_file(config_path)), False
+        return None, False
+
     async def _get_config(self) -> Optional[Dict[str, Any]]:
         """Get CamillaDSP config."""
-        config = await self._exec(lambda c: c.get_config())
-        if config is None:
-            config_path = await self._exec(lambda c: c.get_config_file_path())
-            if config_path:
-                config = await self._exec(lambda c: c.read_config_file(config_path))
+        config, _ = await self._read_config()
         return config
 
-    async def _apply_config(self, config: Dict[str, Any]) -> None:
-        """Apply config to CamillaDSP, then persist it.
+    async def _config_to_edit(self) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """A setter's starting point: the config to mutate, and what the daemon
+        runs as `_apply_config` compares it — None when it runs none, so the
+        config is always sent."""
+        config, running = await self._read_config()
+        return config, (_without_nulls(config) if running and config else None)
+
+    async def _apply_config(self, config: Dict[str, Any], running: Optional[Dict[str, Any]]) -> bool:
+        """Apply config to CamillaDSP, then persist it. True if the daemon took a new one.
+
+        The one rule every setter shares: neither the daemon nor the SD card is
+        sent what it already holds. The server re-sends the whole record on
+        every admission, through eight setters, and a config the daemon gets
+        again is still a reload of its pipeline. `running` is what the setter
+        read before it mutated anything (`_config_to_edit`), compared as the
+        daemon reads it: GetConfigJson hands every unset optional key back as
+        null (a filter's or a pipeline step's `description`, a step's
+        `bypassed`, a Gain stage's `scale`), which a setter never writes, so a
+        plain `==` reads every filter as changed. The file has the same rule
+        (`_save_config_to_file`) and is checked even when the daemon is left
+        alone: a save that failed after the daemon took the config is put
+        right by the server's next push of it, which the daemon reads as no
+        change.
 
         set_active first — the audible effect must not wait on the disk — and the
         persist leg raises rather than reporting success: a satellite that
         answered 200 with nothing written comes back on its old EQ at the next
         reboot, and only a second physical unit shows it.
         """
-        await self._exec(lambda c: c.set_config(config))
+        changed = running is None or _without_nulls(config) != running
+        if changed:
+            await self._exec(lambda c: c.set_config(config))
         await self._save_config_to_file(config)
+        return changed
 
     async def _save_config_to_file(self, config: Dict[str, Any]) -> None:
         """Persist config to disk atomically. Raises if it did not land.
@@ -603,13 +624,12 @@ class EqualizerService:
         (_get_config falls back to read_and_parse_file): a config.yml a power
         cut truncated would keep the room silent until someone deleted it.
 
-        A config the file already holds is not written again: every admission
-        re-sends the whole record through eight setters, and each rewrite is a
-        write to the SD card. The two are compared as the daemon reads them,
-        never as text: GetConfigJson hands every number back as a float and
-        every unset key as null, while a setter writes what the server sent (a
-        band's `freq: 31`, a Gain stage with no `scale`), so one config spelled
-        both ways cost a save at each leg that crossed between them — three per
+        A config the file already holds is not written again (the rule
+        `_apply_config` states), compared as the daemon reads it, never as
+        text: GetConfigJson hands every number back as a float and every unset
+        key as null, while a setter writes what the server sent (a band's
+        `freq: 31`, a Gain stage with no `scale`), so one config spelled both
+        ways cost a save at each leg that crossed between them — three per
         admission on Canapé, two on Bureau, measured 2026-11-07.
         """
         loop = asyncio.get_running_loop()
@@ -675,7 +695,7 @@ class EqualizerService:
         each one; None leaves it as it is.
         """
         try:
-            config = await self._get_config()
+            config, running = await self._config_to_edit()
             if not config:
                 return False
 
@@ -695,7 +715,7 @@ class EqualizerService:
             if headroom_db is not None:
                 self._config_apply_headroom(config, headroom_db, self._equalizer_enabled)
 
-            await self._apply_config(config)
+            await self._apply_config(config, running)
             if headroom_db is not None:
                 self._headroom_db = headroom_db
             return True
@@ -704,26 +724,23 @@ class EqualizerService:
             return False
 
     @serialised_config_write
-    async def set_filters_batch(self, filters: List[dict], headroom_db: float = None) -> dict:
+    async def set_filters_batch(self, filters: List[dict], headroom_db: float = None) -> bool:
         """
         Update multiple filters in one operation with a single disk save.
 
         Applies the same tuning keys as set_filter(), so a whole-record push and
-        a single-band push cannot leave the client in different states.
+        a single-band push cannot leave the client in different states. A band
+        the config does not define is skipped, never created.
 
         Args:
             filters: List of filter dicts with keys: id, gain, freq (optional),
                 q (optional), filter_type (optional)
-
-        Returns:
-            dict with success status and number of filters applied
         """
         try:
-            config = await self._get_config()
+            config, running = await self._config_to_edit()
             if not config or "filters" not in config:
-                return {"success": False, "applied": 0}
+                return False
 
-            applied = 0
             for f in filters:
                 filter_id = f.get("id")
                 if filter_id and filter_id in config["filters"]:
@@ -738,17 +755,16 @@ class EqualizerService:
                         params["type"] = f["filter_type"]
                     if params.get("type") in PASS_TYPES:
                         params.pop("gain", None)
-                    applied += 1
             if headroom_db is not None:
                 self._config_apply_headroom(config, headroom_db, self._equalizer_enabled)
 
-            await self._apply_config(config)
+            await self._apply_config(config, running)
             if headroom_db is not None:
                 self._headroom_db = headroom_db
-            return {"success": True, "applied": applied}
+            return True
         except Exception as e:
             self.logger.error(f"Error in batch filter update: {e}")
-            return {"success": False, "applied": 0, "error": str(e)}
+            return False
 
     @serialised_config_write
     async def set_compressor(self, enabled: bool = None, threshold: float = None,
@@ -769,7 +785,7 @@ class EqualizerService:
             self._compressor["makeup_gain"] = makeup_gain
 
         try:
-            config = await self._get_config()
+            config, running = await self._config_to_edit()
             if not config:
                 return False
 
@@ -796,7 +812,7 @@ class EqualizerService:
                 if "compressor" in config.get("processors", {}):
                     del config["processors"]["compressor"]
 
-            await self._apply_config(config)
+            await self._apply_config(config, running)
             return True
         except Exception as e:
             self.logger.error(f"Error setting compressor: {e}")
@@ -823,7 +839,7 @@ class EqualizerService:
             self._loudness["low_boost"] = low_boost
 
         try:
-            config = await self._get_config()
+            config, running = await self._config_to_edit()
             if not config:
                 return False
 
@@ -849,7 +865,7 @@ class EqualizerService:
             else:
                 config["filters"].pop("loudness", None)
 
-            await self._apply_config(config)
+            await self._apply_config(config, running)
             return True
         except Exception as e:
             self.logger.error(f"Error setting loudness: {e}")
@@ -860,7 +876,7 @@ class EqualizerService:
         """Switch between stereo passthrough and mono summing in CamillaDSP."""
         self._mono = enabled
         try:
-            config = await self._get_config()
+            config, running = await self._config_to_edit()
             if not config:
                 return False
 
@@ -871,8 +887,8 @@ class EqualizerService:
                     step["name"] = target_name
                     break
 
-            await self._apply_config(config)
-            self.logger.info(f"Mono {'enabled' if enabled else 'disabled'}")
+            if await self._apply_config(config, running):
+                self.logger.info(f"Mono {'enabled' if enabled else 'disabled'}")
             return True
         except Exception as e:
             self.logger.error(f"Error setting mono: {e}")
@@ -902,19 +918,12 @@ class EqualizerService:
         self._gain_db = max(-12.0, min(0.0, gain_db))
 
         try:
-            config = await self._get_config()
+            config, running = await self._config_to_edit()
             if not config:
                 return False
 
             if "filters" not in config:
                 config["filters"] = {}
-
-            # A push that changes nothing must not reload the pipeline: the
-            # server re-pushes the trim on every admission, and the common case
-            # is a fleet where nothing was ever trimmed.
-            current = config["filters"].get("gain_trim", {}).get("parameters", {}).get("gain")
-            if current == (self._gain_db if self._gain_db != 0.0 else None):
-                return True
 
             if self._gain_db != 0.0:
                 config["filters"]["gain_trim"] = {
@@ -927,8 +936,8 @@ class EqualizerService:
                     del config["filters"]["gain_trim"]
                 self._remove_filter_from_pipeline(config, "gain_trim")
 
-            await self._apply_config(config)
-            self.logger.info(f"Level trim set to {self._gain_db:+.1f} dB")
+            if await self._apply_config(config, running):
+                self.logger.info(f"Level trim set to {self._gain_db:+.1f} dB")
             return True
         except Exception as e:
             self.logger.error(f"Error setting gain: {e}")
@@ -991,127 +1000,52 @@ class EqualizerService:
             return False
 
     @serialised_config_write
-    async def set_crossover(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
-        """
-        Set crossover highpass filter for subwoofer integration.
-
-        When enabled, applies a Butterworth highpass filter at the specified
-        frequency to remove bass from speakers (bass handled by subwoofer).
-
-        Args:
-            enabled: Whether to enable the highpass filter
-            frequency: Crossover frequency in Hz (default 80)
-            q: Filter Q factor (default 0.707 = Butterworth)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        self._crossover["enabled"] = enabled
-        self._crossover["frequency"] = frequency
-        self._crossover["q"] = q
-
-        try:
-            config = await self._get_config()
-            if not config:
-                return False
-
-            if "filters" not in config:
-                config["filters"] = {}
-            original = copy.deepcopy(config)
-
-            if enabled:
-                # Add highpass crossover filter
-                config["filters"]["crossover_highpass"] = {
-                    "type": "Biquad",
-                    "parameters": {
-                        "type": "Highpass",
-                        "freq": frequency,
-                        "q": q
-                    }
-                }
-                self._add_filter_to_pipeline(config, "crossover_highpass")
-            else:
-                # Remove crossover filter
-                if "crossover_highpass" in config.get("filters", {}):
-                    del config["filters"]["crossover_highpass"]
-                self._remove_filter_from_pipeline(config, "crossover_highpass")
-
-            # The server re-sends both filters on every admission (disabled for
-            # a client with no zone), so a push that changes nothing must not
-            # reload the pipeline.
-            if config == original:
-                return True
-
-            await self._apply_config(config)
-            if enabled:
-                self.logger.info(f"Crossover highpass filter enabled at {frequency} Hz (Q={q})")
-            else:
-                self.logger.info("Crossover highpass filter disabled")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error setting crossover: {e}")
-            return False
+    async def set_crossover(self, enabled: bool, frequency: float, q: float) -> bool:
+        """The highpass of a speaker in a zone with a subwoofer: the bass below
+        `frequency` goes to the sub, not to this speaker."""
+        return await self._set_pass_filter("crossover_highpass", "Highpass", enabled, frequency, q)
 
     @serialised_config_write
-    async def set_lowpass(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
+    async def set_lowpass(self, enabled: bool, frequency: float, q: float) -> bool:
+        """The lowpass of a subwoofer: only the bass below `frequency` reaches it."""
+        return await self._set_pass_filter("crossover_lowpass", "Lowpass", enabled, frequency, q)
+
+    async def _set_pass_filter(self, name: str, kind: str, enabled: bool,
+                               frequency: float, q: float) -> bool:
+        """Define and pipe the Biquad `name` of type `kind` (Highpass or Lowpass)
+        on every channel, or take it out of the config, mirroring the server's
+        CamillaDSPService._set_passband_filter. Outside the master bypass: the
+        crossover splits the room's sound, it is not an effect. The frequency
+        and Q are the server's (crossover.py), sent with every push, disable
+        included. Called with the config lock held, by the two setters above.
         """
-        Set lowpass filter for subwoofer.
-
-        When enabled, applies a Butterworth lowpass filter at the specified
-        frequency to send only bass to the subwoofer. Also enables dither to
-        prevent amp settling during quiet passages (ploc fix).
-
-        Args:
-            enabled: Whether to enable the lowpass filter
-            frequency: Cutoff frequency in Hz (default 80)
-            q: Filter Q factor (default 0.707 = Butterworth)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        self._lowpass["enabled"] = enabled
-        self._lowpass["frequency"] = frequency
-        self._lowpass["q"] = q
-
         try:
-            config = await self._get_config()
+            config, running = await self._config_to_edit()
             if not config:
                 return False
 
             if "filters" not in config:
                 config["filters"] = {}
-            original = copy.deepcopy(config)
 
             if enabled:
-                # Add lowpass filter for subwoofer
-                config["filters"]["crossover_lowpass"] = {
+                config["filters"][name] = {
                     "type": "Biquad",
-                    "parameters": {
-                        "type": "Lowpass",
-                        "freq": frequency,
-                        "q": q
-                    }
+                    "parameters": {"type": kind, "freq": frequency, "q": q},
                 }
-                self._add_filter_to_pipeline(config, "crossover_lowpass")
+                self._add_filter_to_pipeline(config, name)
             else:
-                # Remove lowpass filter
-                if "crossover_lowpass" in config.get("filters", {}):
-                    del config["filters"]["crossover_lowpass"]
-                self._remove_filter_from_pipeline(config, "crossover_lowpass")
+                config["filters"].pop(name, None)
+                self._remove_filter_from_pipeline(config, name)
 
-            if config == original:
-                return True
-
-            await self._apply_config(config)
-            if enabled:
-                self.logger.info(f"Lowpass filter enabled at {frequency} Hz (Q={q})")
-            else:
-                self.logger.info("Lowpass filter disabled")
+            if await self._apply_config(config, running):
+                if enabled:
+                    self.logger.info(f"{kind} filter {name} enabled at {frequency} Hz (Q={q})")
+                else:
+                    self.logger.info(f"{kind} filter {name} disabled")
             return True
 
         except Exception as e:
-            self.logger.error(f"Error setting lowpass: {e}")
+            self.logger.error(f"Error setting {name}: {e}")
             return False
 
     def _config_apply_headroom(self, config: Dict, headroom_db: float, enabled: bool) -> None:
@@ -1188,10 +1122,10 @@ class EqualizerService:
         (enable). This keeps the exact tuning so restore is lossless, lets the
         bypass state survive a restart (derived from the persisted pipeline in
         _load_state_from_config), and leaves volume/mute and crossover_* alone.
-        Idempotent: re-applying the current state is safe (used by reconnect sync).
+        Idempotent: re-applying the current state reloads nothing (`_apply_config`).
         """
         try:
-            config = await self._get_config()
+            config, running = await self._config_to_edit()
             if not config:
                 return False
 
@@ -1213,9 +1147,10 @@ class EqualizerService:
                 self._remove_filter_from_pipeline(config, "loudness")
             self._config_apply_headroom(config, self._headroom_db, enabled)
 
-            await self._apply_config(config)
+            applied = await self._apply_config(config, running)
             self._equalizer_enabled = enabled
-            self.logger.info(f"Equalizer effects {'restored' if enabled else 'bypassed'} (volume unchanged)")
+            if applied:
+                self.logger.info(f"Equalizer effects {'restored' if enabled else 'bypassed'} (volume unchanged)")
             return True
 
         except Exception as e:

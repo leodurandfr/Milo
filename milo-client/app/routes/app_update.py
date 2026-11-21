@@ -49,9 +49,9 @@ def create_app_update_router(app_update_service: AppUpdateService) -> APIRouter:
             with os.fdopen(fd, "wb") as f:
                 content = await tarball.read()
                 f.write(content)
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error saving tarball: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to save tarball: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save tarball: {e}") from e
 
         # Deploy the update
         result = await app_update_service.deploy_update(tarball_path, payload, version)

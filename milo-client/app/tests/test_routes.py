@@ -28,8 +28,6 @@ def mock_equalizer_service():
     service.connected = True
     service.compressor = {"enabled": False, "threshold": -20.0, "ratio": 4.0}
     service.loudness = {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
-    service.crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
-    service.lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
     service.volume_state = {"main": -20.0, "mute": False}
 
     # Async methods
@@ -456,7 +454,7 @@ class TestEqualizerRoutes:
 
     def test_the_headroom_the_server_computed_reaches_the_batch(self, client, mock_equalizer_service):
         """PUT /equalizer/filters carries the whole curve's headroom beside its bands."""
-        mock_equalizer_service.set_filters_batch = AsyncMock(return_value={"success": True, "applied": 1})
+        mock_equalizer_service.set_filters_batch = AsyncMock(return_value=True)
 
         response = client.put("/equalizer/filters", json={
             "filters": [{"id": "eq_band_09", "gain": 6.0}], "headroom_db": -6.0,

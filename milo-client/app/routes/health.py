@@ -4,8 +4,7 @@ Health check routes for Milo Client.
 import asyncio
 import platform
 import time
-import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
@@ -13,8 +12,6 @@ from services.app_update import (
     PAYLOAD_NAME, VERSION_NAME, AppUpdateService, read_identity, read_last_update, trial_payload,
 )
 from services.camilladsp_update import CamillaDSPUpdateService
-
-logger = logging.getLogger(__name__)
 
 # What this process is, read once when it came up. An update writes the identity
 # files before it schedules the restart, so read per request they would name the
@@ -62,47 +59,42 @@ def create_health_router(
     @router.get("/status")
     async def get_status():
         """Gets the complete client status."""
-        try:
-            hostname = get_hostname()
-            uptime = get_system_uptime()
+        hostname = get_hostname()
+        uptime = get_system_uptime()
 
-            # Parallel subprocess calls for faster response
-            snapclient_version, snapclient_running, camilladsp_version = await asyncio.gather(
-                snapclient_service.get_installed_version(),
-                snapclient_service.is_service_running(),
-                camilladsp_update_service.get_installed_version()
-            )
+        # Parallel subprocess calls for faster response
+        snapclient_version, snapclient_running, camilladsp_version = await asyncio.gather(
+            snapclient_service.get_installed_version(),
+            snapclient_service.is_service_running(),
+            camilladsp_update_service.get_installed_version()
+        )
 
-            return {
-                "hostname": hostname,
-                "uptime": uptime,
-                "snapclient": {
-                    "version": snapclient_version,
-                    "running": snapclient_running,
-                    "status": "running" if snapclient_running else "stopped"
-                },
-                "app": {
-                    # `version` is what the server displays beside its own row;
-                    # `payload` is what it compares to decide on a push.
-                    "version": APP_VERSION,
-                    "payload": APP_PAYLOAD,
-                    "started_at": APP_STARTED_AT,
-                    "update_in_progress": app_update_service.update_in_progress,
-                    # Read per request, unlike the identity: they say how the
-                    # last push is ending, which is what the server waits on.
-                    "trial": trial_payload() is not None,
-                    "last_update": read_last_update(),
-                },
-                "camilladsp": {
-                    "version": camilladsp_version,
-                    "update_in_progress": camilladsp_update_service.update_in_progress
-                },
-                "update_in_progress": snapclient_service.update_in_progress,
-                "timestamp": int(time.time())
-            }
-
-        except Exception as e:
-            logger.error(f"Error getting status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "hostname": hostname,
+            "uptime": uptime,
+            "snapclient": {
+                "version": snapclient_version,
+                "running": snapclient_running,
+                "status": "running" if snapclient_running else "stopped"
+            },
+            "app": {
+                # `version` is what the server displays beside its own row;
+                # `payload` is what it compares to decide on a push.
+                "version": APP_VERSION,
+                "payload": APP_PAYLOAD,
+                "started_at": APP_STARTED_AT,
+                "update_in_progress": app_update_service.update_in_progress,
+                # Read per request, unlike the identity: they say how the
+                # last push is ending, which is what the server waits on.
+                "trial": trial_payload() is not None,
+                "last_update": read_last_update(),
+            },
+            "camilladsp": {
+                "version": camilladsp_version,
+                "update_in_progress": camilladsp_update_service.update_in_progress
+            },
+            "update_in_progress": snapclient_service.update_in_progress,
+            "timestamp": int(time.time())
+        }
 
     return router

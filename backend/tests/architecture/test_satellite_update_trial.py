@@ -32,6 +32,19 @@ UPDATER = CLIENT / "app" / "services" / "app_update.py"
 GUARD = CLIENT / "rootfs" / "usr" / "local" / "bin" / "milo-client-update-guard"
 APP_UNIT = CLIENT / "system" / "milo-client.service"
 ROOTFS_TREES = (REPO_ROOT / "rootfs", CLIENT / "rootfs")
+STATUS_ROUTE = CLIENT / "app" / "routes" / "health.py"
+SERVER_UPDATER = REPO_ROOT / "backend" / "core" / "updates" / "satellite.py"
+
+# The keys of `/status`'s `app` object the server follows a push by. The server
+# of release N+1 reads them off a satellite still on release N — the push it is
+# waiting on is the one that carries N+1 — so they are frozen like the state
+# names: `trial` and `last_update` are the verdict, `update_in_progress` the
+# deploy that holds the ceiling open, `payload` and `started_at` the restart into
+# it, `version` the row. A key added later is read as absent from every
+# satellite that predates it; a renamed one is lost for good.
+FROZEN_APP_STATUS_KEYS = frozenset({
+    "version", "payload", "started_at", "update_in_progress", "trial", "last_update",
+})
 
 # The names both sides must spell alike: the state files, the suffixes of what
 # a trial keeps, and the trees it swaps.
@@ -245,3 +258,76 @@ def test_the_parse_check_rejects_a_broken_script(tmp_path):
 
     assert result.returncode != 0
     assert re.search(r"syntax error|unexpected end", result.stderr)
+
+
+def _served_app_status_keys() -> set[str]:
+    """The keys of the `app` object the satellite's `/status` answers, read from its literal."""
+    for node in ast.walk(ast.parse(STATUS_ROUTE.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value == "app" and isinstance(value, ast.Dict):
+                    return {k.value for k in value.keys if isinstance(k, ast.Constant)}
+    return set()
+
+
+def _is_app_object(node: ast.AST) -> bool:
+    """`app`, or `<x>.get("app", …)`: the two ways the server holds the object."""
+    if isinstance(node, ast.Name):
+        return node.id == "app"
+    return (
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get" and bool(node.args)
+        and isinstance(node.args[0], ast.Constant) and node.args[0].value == "app"
+    )
+
+
+def _server_app_status_reads(source: str) -> set[str]:
+    """Every `<app object>.get("<key>")` and `<app object>["<key>"]` in `source`."""
+    found = set()
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get" and _is_app_object(node.func.value)
+            and node.args and isinstance(node.args[0], ast.Constant)
+        ):
+            found.add(node.args[0].value)
+        elif (
+            isinstance(node, ast.Subscript) and _is_app_object(node.value)
+            and isinstance(node.slice, ast.Constant)
+        ):
+            found.add(node.slice.value)
+    return found
+
+
+def test_the_status_read_extractor_sees_both_spellings():
+    """Each of the two shapes the server reads the object in is seen."""
+    assert _server_app_status_reads(
+        'app = x\napp.get("a")\ndata.get("app", {}).get("b")\napp["c"]\nother.get("d")'
+    ) == {"a", "b", "c"}
+
+
+def test_the_app_status_keys_the_server_follows_a_push_by_are_frozen():
+    """What breaks when this fails: a push the server can no longer follow, on
+    every satellite in the field. `update_in_progress` renamed on the satellite
+    alone passed every other test, and so would the same rename made on both
+    sides at once: the server of the next release, reading the new name off a
+    satellite still on the old one, loses the deploy that extends its wait,
+    calls a long pip run `did_not_return` and holds the rest of the fleet back.
+    """
+    served = _served_app_status_keys()
+    read = _server_app_status_reads(SERVER_UPDATER.read_text(encoding="utf-8"))
+    assert {"trial", "last_update"} <= served, f"/status's app object was not read from {STATUS_ROUTE.name}: {served}"
+    assert {"trial", "last_update"} <= read, (
+        f"the server's reads of the app object were not seen in {SERVER_UPDATER.name}: {read}"
+    )
+
+    assert not FROZEN_APP_STATUS_KEYS - served, (
+        f"the satellite's /status no longer answers app.{sorted(FROZEN_APP_STATUS_KEYS - served)}, "
+        "which every server from an earlier release reads to follow a push"
+    )
+    assert not read - FROZEN_APP_STATUS_KEYS, (
+        f"the server reads app.{sorted(read - FROZEN_APP_STATUS_KEYS)} off /status, which a "
+        "satellite from an earlier release does not answer: the push that brings it is "
+        "followed by a read that comes back absent. Freeze it here only with the server "
+        "reading that absence as a satellite on the release before."
+    )

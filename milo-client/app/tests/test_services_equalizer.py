@@ -48,14 +48,6 @@ class TestEqualizerServiceProperties:
         assert "high_boost" in loudness
         assert "low_boost" in loudness
 
-    def test_crossover_property(self, equalizer_service):
-        """Should return crossover state dict."""
-        crossover = equalizer_service.crossover
-        assert isinstance(crossover, dict)
-        assert "enabled" in crossover
-        assert "frequency" in crossover
-        assert "q" in crossover
-
 
 class TestEqualizerServiceFilters:
     """Test EqualizerService filter operations."""
@@ -197,42 +189,68 @@ class TestEqualizerServiceCrossover:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("setter", ["set_crossover", "set_lowpass"])
     async def test_disabling_an_absent_crossover_does_not_reload_the_pipeline(
-        self, equalizer_service, mock_camilla_client, setter
+        self, measured_daemon, setter
     ):
         """The server disables both filters on every admission of a client with
         no zone, and applying a config restarts CamillaDSP's processing — so a
         push that changes nothing must reach the daemon not at all."""
-        assert await getattr(equalizer_service, setter)(enabled=False) is True
+        service, client = measured_daemon
+        assert await getattr(service, setter)(enabled=False, frequency=80.0, q=0.707) is True
 
-        mock_camilla_client.set_config.assert_not_called()
+        client.set_config.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("setter", ["set_crossover", "set_lowpass"])
     async def test_re_enabling_an_identical_crossover_does_not_reload_the_pipeline(
-        self, equalizer_service, mock_camilla_client, setter
+        self, measured_daemon, setter
     ):
-        """A zone's crossover is re-applied on every admission of its members."""
-        await getattr(equalizer_service, setter)(enabled=True, frequency=90.0, q=0.707)
-        mock_camilla_client.set_config.reset_mock()
+        """A zone's crossover is re-applied on every admission of its members,
+        and the daemon hands the filter back with a `description: null` the
+        setter never writes: compared as written, every one reloaded."""
+        service, client = measured_daemon
+        await getattr(service, setter)(enabled=True, frequency=90.0, q=0.707)
+        assert client.set_config.call_count == 1
 
-        assert await getattr(equalizer_service, setter)(enabled=True, frequency=90.0, q=0.707) is True
+        assert await getattr(service, setter)(enabled=True, frequency=90.0, q=0.707) is True
 
-        mock_camilla_client.set_config.assert_not_called()
+        assert client.set_config.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_daemon_running_no_config_is_always_sent_one(self, measured_daemon):
+        """A daemon with no config loaded (started with `-w`, its config refused)
+        answers GetConfigJson with null, and the setter edits config.yml instead.
+        That file is not what the daemon runs, so a push that matches it is still
+        sent: compared against it, the push reads as no change, the route answers
+        200 and the room stays silent."""
+        service, client = measured_daemon
+        shipped = client.get_config.side_effect()
+        client.get_config.side_effect = None
+        client.get_config.return_value = None
+        client.get_config_file_path.return_value = "/etc/camilladsp/config.yml"
+        client.read_config_file.side_effect = lambda path: copy.deepcopy(shipped)
+
+        assert await service.set_crossover(enabled=False, frequency=80.0, q=0.707) is True
+
+        client.set_config.assert_awaited_once()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("setter", ["set_crossover", "set_lowpass"])
     async def test_disabling_a_present_crossover_still_reloads_the_pipeline(
-        self, equalizer_service, mock_camilla_client, setter
+        self, measured_daemon, setter
     ):
         """The early return must not swallow the change it exists to deliver."""
-        config = mock_camilla_client.get_config.return_value
-        await getattr(equalizer_service, setter)(enabled=True, frequency=90.0)
-        mock_camilla_client.set_config.reset_mock()
+        service, client = measured_daemon
+        await getattr(service, setter)(enabled=True, frequency=90.0, q=0.707)
 
-        assert await getattr(equalizer_service, setter)(enabled=False) is True
+        assert await getattr(service, setter)(enabled=False, frequency=90.0, q=0.707) is True
 
-        mock_camilla_client.set_config.assert_called_once()
-        assert not any(name.startswith("crossover_") for name in config["filters"])
+        assert client.set_config.call_count == 2
+        pushed = client.set_config.call_args.args[0]
+        assert not any(name.startswith("crossover_") for name in pushed["filters"])
+        assert not any(
+            name.startswith("crossover_")
+            for step in pushed["pipeline"] if step["type"] == "Filter" for name in step["names"]
+        )
 
 
 class TestEqualizerServiceLevels:
@@ -1332,7 +1350,7 @@ class TestEqualizerServiceFilterTuning:
             {"id": "eq_band_1", "gain": 3.0, "freq": 80, "q": 0.7, "filter_type": "Lowpass"},
             {"id": "eq_band_2", "gain": 1.5, "freq": 1000, "q": 1.0, "filter_type": "Peaking"},
         ])
-        assert result["success"] is True
+        assert result is True
         assert "gain" not in self._pushed_band(mock_camilla_client)
         assert self._pushed_band(mock_camilla_client, "eq_band_2")["gain"] == 1.5
 
@@ -1358,6 +1376,25 @@ class TestEqualizerServiceConfigPersistence:
         equalizer_service.config_file = str(tmp_path / "absent-dir" / "config.yml")
 
         assert await equalizer_service.set_filter("eq_band_1", gain=3.0) is False
+
+    @pytest.mark.asyncio
+    async def test_the_push_after_a_failed_save_still_writes_the_card(self, measured_daemon, tmp_path):
+        """The daemon took the config, the save did not land, the server is told
+        and pushes it again: the daemon reads that push as no change, and the
+        card must be written all the same, or the next reboot comes back on the
+        old EQ after a 200."""
+        service, client = measured_daemon
+        live = service.config_file
+        service.config_file = str(tmp_path / "absent-dir" / "config.yml")
+        assert await service.set_filter("eq_band_01", gain=3.0) is False
+        assert client.set_config.await_count == 1
+
+        service.config_file = live
+        assert await service.set_filter("eq_band_01", gain=3.0) is True
+
+        assert client.set_config.await_count == 1
+        persisted = yaml.safe_load(Path(live).read_text())
+        assert persisted["filters"]["eq_band_01"]["parameters"]["gain"] == 3.0
 
     @pytest.mark.asyncio
     async def test_the_live_config_survives_a_write_that_dies(self, equalizer_service, tmp_path):
@@ -1460,7 +1497,7 @@ class TestEqualizerWholeRecordPush:
             {"id": "eq_band_2", "gain": -3.0, "freq": 4000.0, "q": 0.8, "filter_type": "Peaking"},
         ])
 
-        assert result == {"success": True, "applied": 2}
+        assert result is True
         assert config["filters"]["eq_band_1"]["parameters"] == {
             "type": "Lowshelf", "freq": 250.0, "gain": 4.5, "q": 1.4
         }
@@ -1501,8 +1538,9 @@ class TestEqualizerWholeRecordPush:
             {"id": "eq_band_99", "gain": 12.0},
         ])
 
-        assert result["applied"] == 1, "an unknown band is not applied"
+        assert result is True
         assert "eq_band_99" not in config["filters"]
+        assert config["filters"]["eq_band_1"]["parameters"]["gain"] == 1.0
 
     @pytest.mark.asyncio
     async def test_a_batch_does_not_repipe_a_bypassed_client(self, equalizer_service, mock_camilla_client):
@@ -1735,6 +1773,27 @@ def _as_camilladsp_returns(config):
     return config
 
 
+@pytest.fixture
+def measured_daemon(tmp_path):
+    """An EqualizerService over a daemon that answers as CamillaDSP was measured
+    to (`_as_camilladsp_returns`): every GetConfigJson a fresh document, never
+    the object the last SetConfigJson handed over. Returns (service, client)."""
+    from services.equalizer import EqualizerService
+
+    daemon = {"config": _as_camilladsp_returns(yaml.safe_load(SHIPPED_CONFIG.read_text()))}
+    client = AsyncMock()
+    client.get_config.side_effect = lambda: copy.deepcopy(daemon["config"])
+
+    async def set_config(config):
+        daemon["config"] = _as_camilladsp_returns(config)
+    client.set_config.side_effect = set_config
+
+    service = EqualizerService(config_file=str(tmp_path / "config.yml"))
+    service._client = client
+    service._connected = True
+    return service, client
+
+
 class TestEqualizerAdmissionPersistence:
     """An admission re-sends the whole DSP state, and the SD card pays per save.
 
@@ -1748,7 +1807,7 @@ class TestEqualizerAdmissionPersistence:
 
     BAND_FREQS = (31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
 
-    def _admission(self, gains, headroom_db, mono):
+    def _admission(self, gains, headroom_db, mono, crossover=False):
         """The requests one admission makes, with the JSON the server sends:
         `EqFilter.frequency` is an int, and `filters` is a `List[dict]` the
         route hands over untouched."""
@@ -1769,13 +1828,18 @@ class TestEqualizerAdmissionPersistence:
             ("/equalizer/mono", {"enabled": mono}),
             ("/equalizer/enabled", {"enabled": True}),
             ("/equalizer/gain", {"gain_db": 0.0}),
-            ("/equalizer/crossover", {"enabled": False, "frequency": 80.0, "q": 0.707}),
+            ("/equalizer/crossover", {"enabled": crossover, "frequency": 80.0, "q": 0.707}),
             ("/equalizer/lowpass", {"enabled": False, "frequency": 80.0, "q": 0.707}),
         ]
 
     def _count_saves(self, tmp_path, admissions):
+        """The config.yml renames each of `admissions` cost (`_replay`)."""
+        return [saves for saves, _ in self._replay(tmp_path, admissions)]
+
+    def _replay(self, tmp_path, admissions):
         """Replay `admissions` through the routes against a daemon that answers
-        as CamillaDSP does, returning the config.yml renames each one cost."""
+        as CamillaDSP does, returning what each one cost: (config.yml renames,
+        SetConfigJson calls)."""
         import os
 
         from fastapi import FastAPI
@@ -1798,15 +1862,15 @@ class TestEqualizerAdmissionPersistence:
         app = FastAPI()
         app.include_router(create_equalizer_router(service))
 
-        saves = []
+        costs = []
         with TestClient(app) as http, \
                 patch("atomic_file.os.replace", side_effect=os.replace) as rename:
             for admission in admissions:
-                before = rename.call_count
+                before = rename.call_count, client.set_config.await_count
                 for path, body in admission:
                     assert http.put(path, json=body).status_code == 200, path
-                saves.append(rename.call_count - before)
-        return saves
+                costs.append((rename.call_count - before[0], client.set_config.await_count - before[1]))
+        return costs
 
     def test_an_admission_that_changes_nothing_writes_nothing(self, tmp_path):
         """Canapé's record (boosted bands, so a headroom stage, mono on) and
@@ -1817,6 +1881,23 @@ class TestEqualizerAdmissionPersistence:
 
         assert self._count_saves(tmp_path / "canape", [canape] * 3)[1:] == [0, 0]
         assert self._count_saves(tmp_path / "bureau", [bureau] * 3)[1:] == [0, 0]
+
+    def test_an_admission_that_changes_nothing_reloads_nothing(self, tmp_path):
+        """Each of the eight setters an admission goes through reloads the
+        daemon's pipeline only for a config it does not already run. Compared
+        with the daemon's own answer, which carries every unset key as null:
+        five setters compared nothing and reloaded on every admission, and the
+        crossover's guard compared those nulls, so a zone member's highpass
+        reloaded on every admission too."""
+        canape = self._admission(
+            [3.0, 2.5, 1.5, 0.0, 0.0, 0.0, 0.5, 2.0, 2.5, 3.0], -3.6, True, crossover=True
+        )
+        bureau = self._admission([0.0] * 10, 0.0, False)
+
+        for name, record in (("canape", canape), ("bureau", bureau)):
+            reloads = [reloads for _, reloads in self._replay(tmp_path / name, [record] * 3)]
+            assert reloads[0] >= 1, f"{name}: the first admission brought nothing to the daemon"
+            assert reloads[1:] == [0, 0], f"{name}: SetConfigJson per admission {reloads}"
 
     def test_an_admission_that_changes_one_band_writes_once(self, tmp_path):
         """A band moved while the speaker was away is one change, and one save."""

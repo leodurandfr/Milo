@@ -687,6 +687,65 @@ def test_every_payload_directory_lands():
     )
 
 
+# An arm of the rootfs loop's `case` that ends the file's turn: `pattern) …; continue ;;`.
+ROOTFS_CASE_ARM_RE = re.compile(r"^\s+([^\s)]+)\)\s*(.*?)\s*;?\s*continue\s*;;", re.MULTILINE)
+SYSTEM_SOURCE_RES = (
+    re.compile(r'"\$MILO_DIR"/system/([^\s";]+)'),  # a glob: "$MILO_DIR"/system/*.service
+    re.compile(r'"\$MILO_DIR/system/([^"$]+)"'),    # one file, quoted whole
+)
+
+
+def _client_rootfs_loop() -> str:
+    """The client deploy script's rootfs loop, from its banner to the units'."""
+    text = CLIENT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    start = text.find('echo "Deploying rootfs files..."')
+    end = text.find('echo "Deploying systemd service files..."')
+    assert -1 < start < end, f"the rootfs loop of {CLIENT_DEPLOY_SCRIPT.name} was not found"
+    return text[start:end]
+
+
+def test_every_payload_file_lands():
+    """Every file the satellite's payload fingerprint counts is one a push installs.
+
+    The directory check above cannot see a file the deploy script skips inside
+    a directory it installs: `milo-client/rootfs/etc/avahi/avahi-daemon.conf`
+    sat under a `Skipping` arm, installed by no path at all (the image puts the
+    server tree's copy there), and `milo-client/system/README.md` matched none
+    of the names the script takes from `system/`. A commit touching only one of
+    them would change the fingerprint, light the update on every satellite and
+    restart each in its room, installing nothing; and a fix to that avahi
+    conf would reach no unit. Fails on a rootfs arm that ends a file's turn without
+    an installer, and on a `system/` file no name the script copies matches.
+    """
+    from fnmatch import fnmatch
+
+    arms = ROOTFS_CASE_ARM_RE.findall(_client_rootfs_loop())
+    assert any(action.startswith("install_self ") for _, action in arms), (
+        f"the rootfs loop's case arms were not read: {arms}"
+    )
+    skipped = [pattern for pattern, action in arms if not re.match(r"install_\w+ ", action)]
+    assert not skipped, (
+        f"{CLIENT_DEPLOY_SCRIPT.name} skips milo-client/rootfs/{skipped}, which the "
+        "fingerprint still counts: a change there restarts every satellite for nothing. "
+        "Install it, or take it out of the tree."
+    )
+
+    text = CLIENT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+    copied = {name for pattern in SYSTEM_SOURCE_RES for name in pattern.findall(text)}
+    assert {"*.service", "avahi-daemon-override.conf"} <= copied, (
+        f"the names the deploy script takes from system/ were not read: {copied}"
+    )
+    system_dir = REPO_ROOT / "milo-client" / "system"
+    stray = sorted(
+        path.name for path in system_dir.iterdir()
+        if path.is_file() and not any(fnmatch(path.name, name) for name in copied)
+    )
+    assert not stray, (
+        f"milo-client/system/{stray} is fingerprinted but installed by no path: move it "
+        f"out of system/, or have {CLIENT_DEPLOY_SCRIPT.name} install it."
+    )
+
+
 # --------------------------------------------------------------------------- #
 # The hardware helpers flush the boot partition before they hand back.
 # --------------------------------------------------------------------------- #

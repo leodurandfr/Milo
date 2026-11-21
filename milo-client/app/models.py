@@ -66,18 +66,17 @@ class MuteUpdate(BaseModel):
     muted: bool
 
 
-class CrossoverUpdate(BaseModel):
-    """Model for crossover highpass filter update."""
-    enabled: bool
-    frequency: Optional[float] = 80.0
-    q: Optional[float] = 0.707
+class PassFilterUpdate(BaseModel):
+    """A zone's crossover filter on one speaker: the highpass of a satellite
+    (PUT /equalizer/crossover) or the lowpass of a subwoofer (PUT /equalizer/lowpass).
 
-
-class LowpassUpdate(BaseModel):
-    """Model for lowpass filter update (for subwoofers)."""
+    Every field required: the server (backend/core/multiroom/crossover.py)
+    resolves the frequency and the Q and sends both with every push, disable
+    included, so a default here would be a second declaration nothing reads.
+    """
     enabled: bool
-    frequency: Optional[float] = 80.0
-    q: Optional[float] = 0.707
+    frequency: float
+    q: float
 
 
 class FiltersBatchUpdate(BaseModel):

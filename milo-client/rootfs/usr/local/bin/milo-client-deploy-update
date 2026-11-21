@@ -113,11 +113,10 @@ while read -r rel_path; do
     # Remove leading ./
     rel_path="${rel_path#./}"
 
-    # Skip per-device config. This script is the one file a plain copy cannot
-    # install — see the rename branch below.
+    # Every file lands. Two need their own installer: this script, which a
+    # plain copy cannot replace while it runs, and a sudoers policy, which
+    # visudo checks first.
     case "$rel_path" in
-        var/lib/milo-client/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
-        etc/avahi/*) echo "  Skipping /$rel_path (per-device config)"; continue ;;
         usr/local/bin/milo-client-deploy-update) install_self "$rel_path"; continue ;;
         etc/sudoers.d/*) install_sudoers "$rel_path"; continue ;;
     esac
