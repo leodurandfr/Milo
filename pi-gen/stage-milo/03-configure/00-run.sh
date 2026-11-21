@@ -1,8 +1,8 @@
 #!/bin/bash -e
 # Milo pi-gen stage: System configuration
-# Plymouth, IR remote, BlueZ, journald, sysctl, IPv6 firewall, udev, sudoers,
-# cursor theme. The boot lines and the unit states are the system manifest's,
-# applied at the end of 01-run.sh.
+# Plymouth, IR remote, BlueZ, journald, sysctl, IPv6 firewall, OS security
+# fixes, udev, sudoers, cursor theme. The boot lines and the unit states are
+# the system manifest's, applied at the end of 01-run.sh.
 
 # ── Plymouth boot splash ─────────────────────────────────────────────────────
 
@@ -107,6 +107,17 @@ on_chroot << 'CHROOT'
 mkdir -p /etc/milo
 cp /home/milo/milo/rootfs/etc/milo/release-signing.pub /etc/milo/release-signing.pub
 chmod 0644 /etc/milo/release-signing.pub
+CHROOT
+
+# ── OS security fixes: unattended-upgrades, Debian-Security only ─────────────
+# The package is the system manifest's, and so are apt's two timers that run
+# it; what it takes and what it never does (a reboot, a removal) is the file's.
+# The satellite tree carries the same file, so a device converted by
+# milo-first-boot takes the same fixes.
+
+on_chroot << 'CHROOT'
+cp /home/milo/milo/rootfs/etc/apt/apt.conf.d/52milo-unattended-upgrades \
+    /etc/apt/apt.conf.d/52milo-unattended-upgrades
 CHROOT
 
 # ── udev rules ───────────────────────────────────────────────────────────────

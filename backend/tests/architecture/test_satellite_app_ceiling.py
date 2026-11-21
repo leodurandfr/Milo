@@ -18,12 +18,19 @@ start, not 30), and `WatchdogSec` for one that hangs just before its hold
 ends. The six numbers live in three files of two trees that ship in the same commit but
 are read by nobody else together, so only a rule reading all of them can hold
 the inequality. Each extractor asserts its own output first.
+
+A push that ends in a reboot (a security fix waits for one, the room is silent)
+runs its first start after a shutdown and a boot, so the bound counts one
+`REBOOT_S` too. And before it installs anything the satellite waits for dpkg's
+lock, refusing the push past `DPKG_LOCK_WAIT_S`: a refusal sent after the
+server's POST gave up (`APP_PUSH_TIMEOUT_S`) reaches nobody, and the server
+then waits out the whole ceiling for a push that never started.
 """
 import ast
 import re
 from pathlib import Path
 
-from backend.core.updates.satellite import APP_UPDATE_CEILING_S, APP_UPDATE_POLL_S
+from backend.core.updates.satellite import APP_PUSH_TIMEOUT_S, APP_UPDATE_CEILING_S, APP_UPDATE_POLL_S
 
 REPO = Path(__file__).resolve().parents[3]
 CLIENT = REPO / "milo-client"
@@ -33,6 +40,15 @@ UNIT = CLIENT / "system" / "milo-client.service"
 # Two polls: the final state can land just after one, and the waiter counts its
 # sleeps, not the time its requests take.
 MARGIN_S = 2 * APP_UPDATE_POLL_S
+# What a reboot may take, from `systemctl reboot` to the first start of
+# milo-client.service: the shutdown (each unit within its TimeoutStopSec; the
+# satellite never reboots under a running dpkg, so unattended-upgrades' own
+# shutdown wait does not come into it) and a boot from the SD card. A budget,
+# not a measurement: the push trial on a unit is where it is checked.
+REBOOT_S = 120
+# What the POST spends besides the dpkg wait before a refusal answers it: the
+# upload, dpkg's own run, the answer.
+REFUSAL_MARGIN_S = 30
 
 
 def _client_sources() -> list[Path]:
@@ -77,11 +93,12 @@ def _settle_bound(
     hold_s: int, max_attempts: int, start_timeout_s: int, stop_timeout_s: int,
     watchdog_s: int, restart_s: int,
 ) -> int:
-    return max_attempts * (start_timeout_s + stop_timeout_s + hold_s + watchdog_s + restart_s)
+    return REBOOT_S + max_attempts * (start_timeout_s + stop_timeout_s + hold_s + watchdog_s + restart_s)
 
 
 def test_the_extractors_read_plausible_values():
     assert _module_int("HOLD_S") > 0
+    assert _module_int("DPKG_LOCK_WAIT_S") > 0
     assert _module_int("MAX_ATTEMPTS") >= 2
     assert _unit_seconds("TimeoutStartSec") > 0
     assert _unit_seconds("RestartSec") > 0
@@ -99,4 +116,17 @@ def test_the_server_outwaits_the_slowest_trial_a_satellite_can_run():
         f"APP_UPDATE_CEILING_S ({APP_UPDATE_CEILING_S} s) must exceed the slowest trial "
         f"({bound} s) plus {MARGIN_S} s, or a satellite about to settle is reported "
         "as not responding and the fleet push stops on it"
+    )
+
+
+def test_a_push_refused_for_a_busy_dpkg_is_answered_before_the_server_stops_listening():
+    """A satellite still waiting for dpkg when the POST times out refuses a push
+    the server no longer hears: the server then follows its /status, sees it
+    deploying, then running the old version, and reports it as not responding
+    after the whole ceiling — stopping the rest of the fleet on a push that
+    never started."""
+    wait = _module_int("DPKG_LOCK_WAIT_S")
+    assert wait + REFUSAL_MARGIN_S < APP_PUSH_TIMEOUT_S, (
+        f"DPKG_LOCK_WAIT_S ({wait} s) plus {REFUSAL_MARGIN_S} s must stay under the "
+        f"push's APP_PUSH_TIMEOUT_S ({APP_PUSH_TIMEOUT_S} s), or a refusal reaches nobody"
     )

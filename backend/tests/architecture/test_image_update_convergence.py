@@ -1012,7 +1012,8 @@ def _stub_world(
     dpkg_locked_for: int = 0,
 ) -> Path:
     """`dpkg-query`, `dpkg` and `apt-get` as the sync meets them: a status per
-    package, a dpkg lock held for N tries, an `update` that prints what it is
+    package, a dpkg lock held for N tries (in dpkg 1.22's words, measured on
+    trixie), an `update` that prints what it is
     given and exits 0 (as apt does over a source it cannot reach), an install
     that installs or fails. Every call is logged to calls.log."""
     (tmp_path / "update-says").write_text(update_says)
@@ -1031,7 +1032,9 @@ echo "dpkg-query: no packages found matching $pkg" >&2; exit 1
 echo "dpkg $*" >> "{log}"
 n=$(cat "{tmp_path}/locked")
 if [ "$n" -gt 0 ]; then echo $((n - 1)) > "{tmp_path}/locked"
-  echo "dpkg: error: dpkg frontend lock was locked by another process with pid 4242" >&2; exit 2; fi
+  echo "dpkg: error: dpkg frontend lock was locked by /usr/bin/python3.13 process with pid 4242" >&2
+  echo "Note: removing the lock file is always wrong, can damage the locked area" >&2
+  echo "and the entire system. See <https://wiki.debian.org/Teams/Dpkg/FAQ#db-lock>." >&2; exit 2; fi
 """,
         "apt-get": f"""#!/bin/bash
 echo "apt-get $*" >> "{log}"

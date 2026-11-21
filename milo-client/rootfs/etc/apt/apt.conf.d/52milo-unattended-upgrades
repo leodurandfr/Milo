@@ -1,0 +1,54 @@
+# Milō: Debian's security fixes, installed by unattended-upgrades with no
+# gesture from anyone, and nothing else.
+#
+# Twin of rootfs/etc/apt/apt.conf.d/52milo-unattended-upgrades — server and
+# satellite take the same fixes, the same way. A card converted into a
+# satellite keeps the server's copy until its first app update installs this one.
+#
+# Read after the package's own 50unattended-upgrades and after the
+# 20auto-upgrades its debconf answer writes, so a value set here wins. A list
+# is the exception: apt appends one across files, so the origins below replace
+# the package's only because #clear empties the list first.
+#
+# Debian-Security only: what Debian's security team published for the release
+# the unit runs. Not Debian's point releases, which the package's own list also
+# takes, and nothing from the Raspberry Pi archive (kernel, firmware, Chromium).
+#clear Unattended-Upgrade::Origins-Pattern;
+#clear Unattended-Upgrade::Allowed-Origins;
+Unattended-Upgrade::Origins-Pattern {
+    "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+};
+
+# Never a reboot of its own. A fix that waits for one leaves
+# /var/run/reboot-required: a satellite reboots at the end of its next app
+# update when nothing plays (milo-client/app/services/app_update.py), and the
+# server reboots with every Milō update.
+Unattended-Upgrade::Automatic-Reboot "false";
+
+# One package at a time, so a shutdown that meets a run stops it between two
+# packages rather than waiting for the whole run (the default, relied upon).
+Unattended-Upgrade::MinimalSteps "true";
+
+# Nothing is ever removed, as by every Milō update: a dependency left unused
+# stays installed.
+Unattended-Upgrade::Remove-Unused-Dependencies "false";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "false";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "false";
+
+# A configuration file Milō rewrote (avahi-daemon.conf, nftables.conf) is kept
+# when a fix ships a new one, as the image and every Milō update install
+# packages. Without it unattended-upgrades skips any package whose
+# configuration file would prompt, and that fix never lands.
+Dpkg::Options {
+    "--force-confdef";
+    "--force-confold";
+};
+
+# Every apt-get on the unit waits a minute for the lock a run holds, rather
+# than failing at once: a program update, a satellite's snapclient install.
+DPkg::Lock::Timeout "60";
+
+# The lists refreshed and the fixes installed once a day, by apt's own timers
+# (apt-daily.timer, apt-daily-upgrade.timer, enabled by system-manifest.env).
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";

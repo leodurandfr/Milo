@@ -1,0 +1,53 @@
+#!/bin/bash
+# milo-client-finish-dpkg — Finish a dpkg run a power cut interrupted
+#
+# Usage: milo-client-finish-dpkg     (no argument, no input)
+#
+# Run by an app update before it installs anything (app/services/app_update.py),
+# once the update has seen dpkg's lock free (app/dpkg_lock.py).
+# unattended-upgrades installs the security fixes of Debian-Security on this
+# unit (/etc/apt/apt.conf.d/52milo-unattended-upgrades), and a power cut in the
+# middle of its run leaves dpkg "interrupted": apt-get then refuses every
+# install until `dpkg --configure -a` runs. unattended-upgrades runs it too, but
+# only at its next run, a day later. A no-op on a healthy system.
+#
+# The policy grants this helper with no argument at all (`""`), and it refuses
+# one itself: it takes no input, so no argv belongs on its command line.
+#
+# Exit 0: dpkg has nothing left unfinished. Exit 75: another process took
+# dpkg's lock in the meantime, nothing was run, and dpkg's line naming that
+# process is on stdout. Exit 1: dpkg could not finish, its words on stderr.
+
+set -uo pipefail
+
+if (( $# != 0 )); then
+    echo "ERROR: $(basename "$0") takes no argument" >&2
+    exit 2
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+export DEBCONF_NONINTERACTIVE_SEEN=true
+export APT_LISTCHANGES_FRONTEND=none
+# dpkg's words are matched below, so they are its untranslated ones.
+export LC_ALL=C
+
+# The options apt passes it on this unit (52milo-unattended-upgrades): a
+# configuration file Milō rewrote is kept, never asked about.
+out=$(dpkg --configure -a --force-confdef --force-confold 2>&1)
+status=$?
+if [ "$status" -eq 0 ]; then
+    [ -z "$out" ] || printf '%s\n' "$out"
+    exit 0
+fi
+# dpkg's own words for a held lock, the frontend's or the database's. dpkg
+# 1.22 (trixie) writes "dpkg: error: dpkg frontend lock was locked by
+# /usr/bin/python3.13 process with pid 812" ("by another process" when it
+# cannot name it), then two lines warning against removing the lock: the first
+# line is the one that names the holder.
+held=$(grep -m 1 -E '^dpkg: error: .* was locked by ' <<< "$out")
+if [ -n "$held" ]; then
+    printf '%s\n' "$held"
+    exit 75
+fi
+printf '%s\n' "$out" >&2
+exit 1

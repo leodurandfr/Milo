@@ -36,6 +36,7 @@ from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
 
 from backend.config.constants import DEPLOY_UPDATE_CMD
+from backend.core.updates import dpkg_lock
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.update import UpdateService
 from backend.core.systemd import SystemdServiceManager
@@ -896,7 +897,8 @@ class TestUpdateMultiroom:
         whether the units come back; `install` overrides the two
         _install_deb_package results; `installed` is what `snapserver
         --version` and `snapclient --version` read afterwards, both at the
-        target unless given.
+        target unless given. No process holds apt's locks unless a test says
+        so through `apt_holder` (what /proc/locks answers, look by look).
         """
         latest = TestUpdateMultiroom.STATUS["latest"]["version"]
         if installed is None:
@@ -917,7 +919,9 @@ class TestUpdateMultiroom:
                     service, "get_installed_version",
                     return_value={"versions": installed},
                 )),
+                "apt_holder": stack.enter_context(patch.object(dpkg_lock, "holder", return_value=None)),
             }
+            stack.enter_context(patch.object(dpkg_lock, "POLL_S", 0.001))
             for name, value in (("_stop_service", True), ("_start_service", True), ("_cleanup_temp_files", None)):
                 mocks[name] = stack.enter_context(patch.object(service, name, return_value=value))
             yield mocks
@@ -1019,6 +1023,39 @@ class TestUpdateMultiroom:
         assert result["success"] is False
         assert self.SERVICES[0] in result["error"]
         assert mocks["_install_deb_package"].await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_apt_held_past_the_wait_fails_the_update_with_nothing_stopped(self, update_service):
+        """unattended-upgrades holds dpkg's lock for its whole run, and
+        install-deb fails at once on it. Found after the stop, the room would
+        sit mute through the wait and then through a restore."""
+        with self._flow(update_service, multiroom=True) as mocks, \
+                patch("backend.core.updates.update.APT_LOCK_WAIT_S", 0.003):
+            mocks["apt_holder"].return_value = "unattended-upgr (pid 812)"
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is False
+        assert "unattended-upgr (pid 812)" in result["error"]
+        assert mocks["_stop_service"].await_count == 0
+        assert mocks["_install_deb_package"].await_count == 0
+        assert self._started(mocks) == []
+        cleaned = [c.args[0] for c in mocks["_cleanup_temp_files"].await_args_list]
+        assert cleaned.count("/tmp/dl") == 2, "both downloads are cleaned up"
+
+    @pytest.mark.asyncio
+    async def test_apt_let_go_during_the_wait_lets_the_update_through(self, update_service):
+        answers = ["apt-get (pid 77)", "apt-get (pid 77)"]
+        with self._flow(update_service, multiroom=True) as mocks:
+            mocks["apt_holder"].side_effect = lambda paths: answers.pop(0) if answers else None
+            result = await update_service._update_multiroom(self.STATUS)
+
+        assert result["success"] is True
+        assert mocks["_install_deb_package"].await_count == 2
+        looks = [set(c.args[0]) for c in mocks["apt_holder"].call_args_list]
+        assert len(looks) == 3, "two looks at a held lock, a third at a free one"
+        for looked_at in looks:
+            assert dpkg_lock.APT_LISTS_LOCK in looked_at, "install-deb's `apt update` takes the lists' lock"
+            assert set(dpkg_lock.DPKG_LOCKS) <= looked_at
 
     @pytest.mark.asyncio
     async def test_the_units_stopped_before_that_one_are_started_back(self, update_service):
@@ -4198,6 +4235,8 @@ class MiloUnit:
     `fail(argv)` may answer `(returncode, stdout, stderr)` for any argv to make
     that process fail; `other(argv)` answers what the update itself never
     spawns (the version reads of the post-commit phase) and refuses by default.
+    No process holds apt's locks unless a test names one in `apt_held_by`
+    (what /proc/locks answers at every look).
     """
 
     ORIGIN = "0" * 39 + "a"
@@ -4226,6 +4265,7 @@ class MiloUnit:
         self.fail = fail or (lambda argv: None)
         self.other = other
         self.free_bytes = free_bytes
+        self.apt_held_by: Optional[str] = None
         self.events: list[tuple] = []
         self.units: dict[str, bool] = {}
         self.manifest_at_open: Optional[bool] = None
@@ -4370,6 +4410,10 @@ class MiloUnit:
             stack.enter_context(patch("os.sync", new=lambda: self.events.append(("sync",))))
             stack.enter_context(patch.object(update_module, "write_json_durably", new=write))
             stack.enter_context(patch("shutil.disk_usage", return_value=_Usage()))
+            stack.enter_context(patch.object(
+                dpkg_lock, "holder", side_effect=lambda paths=None: self.apt_held_by,
+            ))
+            stack.enter_context(patch.object(dpkg_lock, "POLL_S", 0.001))
             yield self
 
 
@@ -4668,6 +4712,22 @@ class TestTheMiloInstall:
 
         assert "free space" in result["error"]
         assert unit.assets.requested == []
+        self._nothing_moved(unit)
+
+    @pytest.mark.asyncio
+    async def test_apt_held_past_the_wait_is_a_refusal(self, update_service, tmp_path):
+        """unattended-upgrades holds dpkg's lock for its whole run. Met after
+        the journal opens, a release that adds a package fails in the sync a
+        minute later and rolls back through an extra reboot; and the trial's
+        reboot would cut the run. So the update waits for it first, and past
+        the wait refuses with nothing moved, naming the holder."""
+        unit = MiloUnit(update_service, tmp_path)
+        unit.apt_held_by = "unattended-upgr (pid 812)"
+        with unit.running(), patch("backend.core.updates.update.APT_LOCK_WAIT_S", 0.003):
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is False and "pending" not in result
+        assert "unattended-upgr (pid 812)" in result["error"]
         self._nothing_moved(unit)
 
     @pytest.mark.asyncio

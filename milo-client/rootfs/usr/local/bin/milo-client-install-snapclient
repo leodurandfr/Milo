@@ -65,8 +65,9 @@ export DEBCONF_NONINTERACTIVE_SEEN=true
 export APT_LISTCHANGES_FRONTEND=none
 
 # An install cut by a power loss leaves dpkg "interrupted", and apt-get then
-# refuses every install until this runs; nothing else ever runs it on a
-# satellite, which has no shell anyone opens. A no-op on a healthy system. Not
+# refuses every install until this runs; on a satellite, which has no shell
+# anyone opens, only this, an app update (milo-client-finish-dpkg) and
+# unattended-upgrades' next run finish it. A no-op on a healthy system. Not
 # fatal here: what it could not finish, apt-get reports below in words. Same
 # step as install-deb in the server's milo-deploy-update.
 echo "Finishing any interrupted dpkg run..."

@@ -258,6 +258,64 @@ class TestEqualizerServiceLevels:
         }
 
 
+class TestRoomIsSilent:
+    """Whether a push may reboot this speaker (app_update.py): only when what
+    reached it over the last few seconds is silence, and never on a guess."""
+
+    @pytest.mark.parametrize("peaks, silent", [
+        ([-1000.0, -1000.0], True),   # digital silence, as CamillaDSP reads it
+        ([-1000.0, -31.5], False),    # one channel carries music
+        ([-79.0, -1000.0], False),    # quiet, but not silence
+    ])
+    @pytest.mark.asyncio
+    async def test_the_capture_peak_over_the_window_decides(
+        self, equalizer_service, mock_camilla_client, peaks, silent
+    ):
+        from services.equalizer import SILENCE_WINDOW_S
+
+        mock_camilla_client.get_capture_peak_since.return_value = peaks
+
+        assert await equalizer_service.room_is_silent() is silent
+        mock_camilla_client.get_capture_peak_since.assert_awaited_once_with(SILENCE_WINDOW_S)
+
+    @pytest.mark.parametrize("answer", [[], None, ["n/a"]], ids=["no-chunk", "null", "garbage"])
+    @pytest.mark.asyncio
+    async def test_an_answer_that_says_nothing_is_not_silence(
+        self, equalizer_service, mock_camilla_client, answer
+    ):
+        """No chunk captured in the window is a stalled capture, which says
+        nothing about the room."""
+        mock_camilla_client.get_capture_peak_since.return_value = answer
+
+        assert await equalizer_service.room_is_silent() is None
+
+    @pytest.mark.asyncio
+    async def test_a_daemon_that_cannot_answer_is_not_silence(self, equalizer_service, mock_camilla_client):
+        mock_camilla_client.get_capture_peak_since.side_effect = CamillaDspError("refused")
+
+        assert await equalizer_service.room_is_silent() is None
+
+    @pytest.mark.asyncio
+    async def test_no_connection_is_not_silence(self, equalizer_service, mock_camilla_client):
+        equalizer_service._connected = False
+
+        assert await equalizer_service.room_is_silent() is None
+        mock_camilla_client.get_capture_peak_since.assert_not_awaited()
+
+    def test_the_window_fits_in_the_history_camilladsp_keeps(self):
+        """CamillaDSP keeps 1024 chunks of level history
+        (`ValueHistory::new(1024, 2)`) and answers a longer window from what it
+        has: past it, a silence shorter than the window would read as one."""
+        from services.equalizer import SILENCE_WINDOW_S
+
+        devices = yaml.safe_load(SHIPPED_CONFIG.read_text())["devices"]
+        history_s = 1024 * devices["chunksize"] / devices["samplerate"]
+        assert 0 < SILENCE_WINDOW_S < history_s, (
+            f"SILENCE_WINDOW_S ({SILENCE_WINDOW_S} s) must fit in the {history_s:.1f} s "
+            "of history CamillaDSP keeps at the shipped chunk size"
+        )
+
+
 def _answer_one_at_a_time(client, answers, hold):
     """Make the mocked daemon answer as CamillaDSP does: one command at a time, in order.
 

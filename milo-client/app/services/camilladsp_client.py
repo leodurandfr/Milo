@@ -219,6 +219,12 @@ class CamillaDspClient:
     async def get_playback_peak(self) -> List[float]:
         return await self._query("GetPlaybackSignalPeak")
 
+    async def get_capture_peak_since(self, seconds: float) -> List[float]:
+        """The peak of what reached the capture over the last `seconds`, per
+        channel, in dB: -1000 for digital silence, an empty list when no chunk
+        was captured in that time. CamillaDSP keeps 1024 chunks of history."""
+        return await self._query("GetCaptureSignalPeakSince", float(seconds))
+
     async def get_config_file_path(self) -> Optional[str]:
         return await self._query("GetConfigFilePath")
 

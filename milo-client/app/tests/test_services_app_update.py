@@ -172,7 +172,8 @@ IMPORT_ERROR = b"Traceback (most recent call last):\nModuleNotFoundError: No mod
 _real_exec = asyncio.create_subprocess_exec
 
 
-def _spawner(pip_returncode: int = 0, import_returncode: int = 0, restart_returncode: int = -15):
+def _spawner(pip_returncode: int = 0, import_returncode: int = 0, restart_returncode: int = -15,
+             finish_returncode: int = 0, finish_output: bytes = b"", reboot_returncode: int = 0):
     """Stands in for sudo, pip and the venv's python — the outside world —
     answering by argv. The update guard is not stood in for: it is this tree's
     own script and runs for real, on the paths `update_world` redirected.
@@ -187,8 +188,18 @@ def _spawner(pip_returncode: int = 0, import_returncode: int = 0, restart_return
         if argv[0] == app_update_module.GUARD:
             return await _real_exec(*argv, **kwargs)
         proc = AsyncMock()
-        stderr = b""
-        if _ran_pip(argv):
+        stdout, stderr = b"", b""
+        if _ran_finish_dpkg(argv):
+            proc.returncode = finish_returncode
+            if finish_returncode == app_update_module.FINISH_DPKG_BUSY:
+                stdout = finish_output
+            else:
+                stderr = finish_output
+        elif _ran_reboot(argv):
+            proc.returncode = reboot_returncode
+            if reboot_returncode > 0:
+                stderr = b"Call to Reboot failed: Access denied"
+        elif _ran_pip(argv):
             (Path(os.path.realpath(app_update_module.VENV_DIR)) / "marker").write_text("HALF")
             proc.returncode = pip_returncode
             if pip_returncode:
@@ -203,10 +214,18 @@ def _spawner(pip_returncode: int = 0, import_returncode: int = 0, restart_return
                 stderr = b"Failed to restart milo-client.service: Unit milo-client.service is masked."
         else:
             proc.returncode = 0
-        proc.communicate = AsyncMock(return_value=(b"", stderr))
+        proc.communicate = AsyncMock(return_value=(stdout, stderr))
         return proc
 
     return spawned, _spawn
+
+
+def _ran_finish_dpkg(argv) -> bool:
+    return app_update_module.FINISH_DPKG in argv
+
+
+def _ran_reboot(argv) -> bool:
+    return argv[-2:] == ("systemctl", "reboot")
 
 
 def _ran_deploy_script(argv) -> bool:
@@ -247,7 +266,16 @@ async def no_restart_timer():
     outlives the patched subprocess; a test that wants it runs it itself."""
     scheduled = []
     loop = asyncio.get_running_loop()
-    with patch.object(loop, "call_later", lambda delay, callback: scheduled.append(callback)):
+    real_call_later = loop.call_later
+
+    def _call_later(delay, callback, *args, **kwargs):
+        if args or kwargs:
+            # asyncio's own timer (a sleep, the wait for dpkg's lock): the loop
+            # needs it to run.
+            return real_call_later(delay, callback, *args, **kwargs)
+        scheduled.append(callback)
+
+    with patch.object(loop, "call_later", _call_later):
         yield scheduled
 
 
@@ -749,6 +777,247 @@ class TestRestartOutcome:
         assert record["outcome"] == "rolled_back"
         assert record["detail"].startswith("restart refused:")
         assert not _trial_open(state)
+
+
+HOLDER = "unattended-upgr (pid 812)"
+# What milo-client-finish-dpkg prints on a lock taken under it: dpkg 1.22's line
+# naming the holder (test_finish_dpkg_helper.py).
+DPKG_LOCKED_LINE = b"dpkg: error: dpkg frontend lock was locked by /usr/bin/python3.13 process with pid 812"
+
+
+@pytest.fixture
+def dpkg_answers():
+    """What /proc/locks says of dpkg's lock, one answer per look, free once
+    the list runs out; the wait between two looks shortened to nothing."""
+    answers = []
+
+    def _holder(paths=None):
+        return answers.pop(0) if answers else None
+
+    with patch.object(app_update_module.dpkg_lock, "holder", side_effect=_holder) as holder, \
+            patch.object(app_update_module.dpkg_lock, "POLL_S", 0.001):
+        yield answers, holder
+
+
+class TestDpkgBeforeTheInstall:
+    """unattended-upgrades runs on every satellite, at a time apt's timers pick,
+    and holds dpkg's lock for its whole run; a power cut in it leaves dpkg
+    "interrupted". A push waits for the lock and finishes dpkg before it
+    installs anything — and, the lock still held past its wait, is refused
+    with the room and the app untouched, rather than installing under a dpkg
+    run."""
+
+    @pytest.mark.asyncio
+    async def test_a_push_waits_for_dpkg_then_finishes_it_before_anything_else(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, dpkg_answers
+    ):
+        state, _ = update_world
+        answers, holder = dpkg_answers
+        answers.extend([HOLDER, HOLDER])
+        trial_at_finish = []
+        spawned, spawn = _spawner()
+
+        async def _spawn(*argv, **kwargs):
+            if _ran_finish_dpkg(argv):
+                trial_at_finish.append(_trial_open(state))
+            return await spawn(*argv, **kwargs)
+
+        result = await _deploy(tmp_path, _spawn)
+
+        assert result["success"] is True
+        assert holder.call_count == 3, "two looks at a held lock, a third at a free one"
+        assert _ran_finish_dpkg(spawned[0]), f"dpkg must be finished first, not after {spawned[0]}"
+        assert spawned[0] == ("sudo", app_update_module.FINISH_DPKG), "the helper takes no argument"
+        assert trial_at_finish == [False], "nothing is opened or swapped under an unfinished dpkg"
+
+    @pytest.mark.asyncio
+    async def test_a_lock_held_past_the_wait_refuses_the_push_untouched(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, dpkg_answers
+    ):
+        """The refusal names who holds dpkg: it is the line the satellite's row
+        shows, and the next push finds dpkg free."""
+        state, _ = update_world
+        version, payload = identity_files
+        answers, _ = dpkg_answers
+        answers.extend([HOLDER] * 10)
+        spawned, spawn = _spawner()
+        tarball = _make_tarball(tmp_path, NEW_REQUIREMENTS)
+
+        with patch.object(app_update_module, "DPKG_LOCK_WAIT_S", 0.003), \
+                patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            service = AppUpdateService()
+            result = await service.deploy_update(tarball, "bbbb222", "v0.2.0")
+
+        assert result["success"] is False
+        assert result["conflict"] is True, "a busy dpkg is a conflict (409), not a failure"
+        assert HOLDER in result["error"]
+        assert spawned == [], "neither dpkg nor anything else was run"
+        assert not _trial_open(state)
+        assert _last_update(state) is None, "nothing was tried, so nothing was rolled back"
+        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
+        assert payload.read_text() == "aaaa111"
+        assert no_restart_timer == []
+        assert not Path(tarball).exists()
+        assert service.update_in_progress is False
+
+    @pytest.mark.asyncio
+    async def test_a_lock_taken_before_dpkg_could_run_refuses_the_push(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        """Between the look at /proc/locks and the helper, a timer can start a
+        run: the helper then says so (exit 75) and runs nothing."""
+        state, _ = update_world
+        spawned, spawn = _spawner(
+            finish_returncode=app_update_module.FINISH_DPKG_BUSY, finish_output=DPKG_LOCKED_LINE,
+        )
+
+        result = await _deploy(tmp_path, spawn)
+
+        assert result["conflict"] is True
+        assert "pid 812" in result["error"]
+        assert [argv for argv in spawned if not _ran_finish_dpkg(argv)] == []
+        assert not _trial_open(state)
+        assert (repo_dir / "app" / "main.py").read_text() == "live main\n"
+
+    @pytest.mark.asyncio
+    async def test_a_dpkg_that_cannot_finish_never_blocks_the_update(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, caplog
+    ):
+        """The push is a satellite's only repair path, and the app it installs
+        needs nothing from dpkg: a broken package is logged, and the update goes on."""
+        spawned, spawn = _spawner(
+            finish_returncode=1,
+            finish_output=b"dpkg: error processing package avahi-daemon (--configure):\n"
+                          b" installed avahi-daemon package post-installation script subprocess returned error exit status 1\n",
+        )
+
+        with caplog.at_level(logging.ERROR):
+            result = await _deploy(tmp_path, spawn)
+
+        assert result["success"] is True
+        assert (repo_dir / "app" / "main.py").read_text() == "new main\n"
+        assert any("post-installation script" in r.getMessage() for r in caplog.records)
+
+
+class TestRebootAfterThePush:
+    """unattended-upgrades never reboots, so a fix that waits for one
+    (/var/run/reboot-required) takes effect at the end of a push — a reboot in
+    place of the app's restart, only when the room is known to be silent and
+    no dpkg runs. Every other case restarts the app as before."""
+
+    async def _end_of_push(self, tmp_path, no_restart_timer, *, silent, reboot_returncode=0):
+        """Deploys, then runs what the push scheduled for its end. `silent` is
+        the room's answer (True, False, None), or "absent" for no reader."""
+        spawned, spawn = _spawner(reboot_returncode=reboot_returncode)
+        room = None if silent == "absent" else AsyncMock(return_value=silent)
+        tarball = _make_tarball(tmp_path, NEW_REQUIREMENTS)
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            result = await AppUpdateService(room_is_silent=room).deploy_update(tarball, "bbbb222", "v0.2.0")
+            assert result["success"] is True
+            assert len(no_restart_timer) == 1
+            del spawned[:]
+            await no_restart_timer[0]()
+        return [argv for argv in spawned if _ran_reboot(argv) or _ran_restart(argv)]
+
+    @pytest.mark.asyncio
+    async def test_a_fix_waiting_for_a_reboot_in_a_silent_room_reboots(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, system_update_state
+    ):
+        """The trial stays open: the new version starts it at boot, as it would
+        at a restart, and ends it once it has held."""
+        state, _ = update_world
+        system_update_state.write_text("*** System restart required ***\n")
+
+        ended = await self._end_of_push(tmp_path, no_restart_timer, silent=True)
+
+        assert ended == [("sudo", "systemctl", "reboot")]
+        assert _trial_open(state)
+
+    @pytest.mark.parametrize("silent", [False, None, "absent"], ids=["playing", "unknown", "no-reader"])
+    @pytest.mark.asyncio
+    async def test_a_room_not_known_to_be_silent_only_restarts_the_app(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, system_update_state, silent
+    ):
+        """A reboot takes the music away for a minute; a restart, a few seconds."""
+        system_update_state.write_text("*** System restart required ***\n")
+
+        ended = await self._end_of_push(tmp_path, no_restart_timer, silent=silent)
+
+        assert ended == [("sudo", "systemctl", "restart", "milo-client.service")]
+
+    @pytest.mark.asyncio
+    async def test_no_fix_waiting_means_no_reboot(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
+    ):
+        ended = await self._end_of_push(tmp_path, no_restart_timer, silent=True)
+
+        assert ended == [("sudo", "systemctl", "restart", "milo-client.service")]
+
+    @pytest.mark.asyncio
+    async def test_a_dpkg_run_at_the_end_of_the_push_defers_the_reboot(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, system_update_state
+    ):
+        """A run that started during the push: a reboot under it is the
+        interrupted dpkg the next push would have to finish."""
+        system_update_state.write_text("*** System restart required ***\n")
+        spawned, spawn = _spawner()
+        room = AsyncMock(return_value=True)
+        tarball = _make_tarball(tmp_path, NEW_REQUIREMENTS)
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            assert (await AppUpdateService(room_is_silent=room).deploy_update(
+                tarball, "bbbb222", "v0.2.0"))["success"] is True
+            del spawned[:]
+            with patch.object(app_update_module.dpkg_lock, "holder", return_value=HOLDER):
+                await no_restart_timer[0]()
+
+        assert [argv for argv in spawned if _ran_reboot(argv) or _ran_restart(argv)] == [
+            ("sudo", "systemctl", "restart", "milo-client.service"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_reboot_decision_that_fails_still_restarts_the_app(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, system_update_state, caplog
+    ):
+        """The end of a push runs detached, after the answer: a decision that
+        raised and skipped the restart would leave the old process running
+        with the trial open, every later push refused as still on trial."""
+        state, _ = update_world
+        system_update_state.write_text("*** System restart required ***\n")
+        spawned, spawn = _spawner()
+        room = AsyncMock(return_value=True)
+        tarball = _make_tarball(tmp_path, NEW_REQUIREMENTS)
+        with patch.object(app_update_module.asyncio, "create_subprocess_exec", spawn):
+            assert (await AppUpdateService(room_is_silent=room).deploy_update(
+                tarball, "bbbb222", "v0.2.0"))["success"] is True
+            del spawned[:]
+            with patch.object(app_update_module.dpkg_lock, "holder", side_effect=RuntimeError("/proc is gone")), \
+                    caplog.at_level(logging.ERROR):
+                await no_restart_timer[0]()
+
+        assert [argv for argv in spawned if _ran_reboot(argv) or _ran_restart(argv)] == [
+            ("sudo", "systemctl", "restart", "milo-client.service"),
+        ]
+        assert any("/proc is gone" in r.getMessage() for r in caplog.records)
+        assert _trial_open(state), "the restart that followed is the trial's start"
+
+    @pytest.mark.asyncio
+    async def test_a_refused_reboot_restarts_the_app_instead(
+        self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer, system_update_state, caplog
+    ):
+        """Left there, the push would end with the old process still running
+        and its trial open over code nothing started."""
+        state, _ = update_world
+        system_update_state.write_text("*** System restart required ***\n")
+
+        with caplog.at_level(logging.ERROR):
+            ended = await self._end_of_push(tmp_path, no_restart_timer, silent=True, reboot_returncode=1)
+
+        assert ended == [
+            ("sudo", "systemctl", "reboot"),
+            ("sudo", "systemctl", "restart", "milo-client.service"),
+        ]
+        assert any("Access denied" in r.getMessage() for r in caplog.records)
+        assert _trial_open(state), "the restart that followed is the trial's start"
 
 
 def _tarball_of(tmp_path, members) -> str:

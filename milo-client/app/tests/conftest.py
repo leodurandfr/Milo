@@ -174,6 +174,26 @@ def server_addresses_file(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def system_update_state(tmp_path, monkeypatch):
+    """What an app update reads of the system, under tmp_path for every test:
+    no lock held on dpkg (an empty /proc/locks) and no security fix waiting
+    for a reboot. The host's own would decide whether a push waits, is refused
+    or reboots — the machine running the tests, not the one under test.
+
+    Returns the reboot flag's path, which a test creates to say one is due.
+    """
+    import dpkg_lock
+    import services.app_update as app_update_module
+
+    proc_locks = tmp_path / "proc-locks"
+    proc_locks.write_text("")
+    monkeypatch.setattr(dpkg_lock, "PROC_LOCKS", proc_locks)
+    reboot_required = tmp_path / "reboot-required"
+    monkeypatch.setattr(app_update_module, "REBOOT_REQUIRED", reboot_required)
+    return reboot_required
+
+
+@pytest.fixture(autouse=True)
 def boot_trace(tmp_path, monkeypatch):
     """Where this satellite reads how its last stop went, under tmp_path for
     every test, on a boot whose id is `boot_id`; no test starts in the window."""

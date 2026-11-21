@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 from backend.core.updates.version import VersionService
 from backend.core.updates.data_snapshot import take_snapshot
+from backend.core.updates import dpkg_lock
 from backend.core.updates.helpers import (
     fsync_directory,
     requirements_moved_up,
@@ -93,6 +94,14 @@ _NQPTP_VERSION_RE = re.compile(r"Version: (\S+?)\. Shared Memory Interface Versi
 CAP_NET_BIND_SERVICE = 10
 # NQPTP opens its ports within milliseconds of starting, and exits if it cannot.
 NQPTP_SETTLE_S = 1.0
+
+# How long an update that installs through apt waits for apt and dpkg to let go
+# — unattended-upgrades' run, apt-daily's refresh of the lists, both at a time
+# apt's timers pick — before it gives up with nothing stopped or installed. What
+# `milo-deploy-update install-deb` and `sync-system-files` take: dpkg's locks
+# for `dpkg --configure -a` and the install, the lists' for their `apt update`.
+APT_LOCK_WAIT_S = 300
+APT_LOCKS = dpkg_lock.DPKG_LOCKS + (dpkg_lock.APT_LISTS_LOCK,)
 
 # What a Milō update needs on the card beyond the copies it measures: pip's
 # downloads into the venv, the fetched packs, the journal.
@@ -1127,6 +1136,13 @@ class UpdateService(VersionService):
                     await self._git_output("show", f"{origin_commit}:{PYTHON_LOCK}"),
                     await self._git_output("show", f"{target_commit}:{PYTHON_LOCK}"),
                 )
+                # The last refusal: nothing installs under a dpkg run. The sync
+                # would wait only a minute to install a package the release
+                # adds, then fail into a rollback, and the reboot that ends the
+                # install would cut the run.
+                held_by = await self._wait_for_apt()
+                if held_by:
+                    raise Exception(f"apt is busy ({held_by} after {APT_LOCK_WAIT_S} s); nothing was installed")
 
                 await self._milo_progress("install")
                 await asyncio.to_thread(self._clear_milo_backups)
@@ -1603,6 +1619,15 @@ class UpdateService(VersionService):
             if not client_download["success"]:
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
                 return {"success": False, "error": f"Failed to download snapclient: {client_download.get('error')}"}
+
+            # Before the stop: install-deb's dpkg run, its `apt update` and its
+            # install each fail at once on a lock another apt holds, and
+            # waiting for it with the units down is a house without music.
+            held_by = await self._wait_for_apt()
+            if held_by:
+                await self._cleanup_temp_files(server_download.get("temp_dir"))
+                await self._cleanup_temp_files(client_download.get("temp_dir"))
+                return {"success": False, "error": f"apt is busy ({held_by} after {APT_LOCK_WAIT_S} s); nothing was stopped"}
 
             # Phase 2: Stop all services (30-40%)
             #
@@ -2581,6 +2606,26 @@ class UpdateService(VersionService):
             shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
+
+    async def _wait_for_apt(self) -> Optional[str]:
+        """Waits for APT_LOCKS to be free, APT_LOCK_WAIT_S at most: None once
+        they are, the process still holding one otherwise.
+
+        unattended-upgrades holds dpkg's for its whole run, which takes minutes
+        when it installs fixes, and apt-daily the lists' while it refreshes
+        them. What `milo-deploy-update` runs waits a minute at most: apt-get for
+        dpkg's lock (52milo-unattended-upgrades), sync-system-files' `dpkg
+        --configure -a` as long, install-deb's not at all. So both callers
+        wait here first, while a refusal still leaves everything as it was.
+        """
+        held_by = await asyncio.to_thread(dpkg_lock.holder, APT_LOCKS)
+        if held_by is None:
+            return None
+        self.update_logger.info(f"Waiting for {held_by} to let go of apt before installing")
+        held_by = await dpkg_lock.wait_until_free(APT_LOCK_WAIT_S, APT_LOCKS)
+        if held_by:
+            self.update_logger.error(f"apt is still held by {held_by} after {APT_LOCK_WAIT_S} s")
+        return held_by
 
     async def _install_deb_package(self, deb_path: str, sha256: Optional[str]) -> Dict[str, Any]:
         """Installs a .deb package via milo-deploy-update, which checks its own

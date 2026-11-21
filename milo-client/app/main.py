@@ -128,7 +128,8 @@ async def _start_bound_units() -> None:
 # Create service instances
 equalizer_service = EqualizerService()
 snapclient_service = SnapclientService()
-app_update_service = AppUpdateService()
+# Asks the room's CamillaDSP whether anything plays before a push reboots it.
+app_update_service = AppUpdateService(room_is_silent=equalizer_service.room_is_silent)
 camilladsp_update_service = CamillaDSPUpdateService()
 
 # Set by the server once its socket accepts connections (`_Server.startup`).

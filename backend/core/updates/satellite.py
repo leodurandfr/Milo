@@ -47,9 +47,15 @@ PAYLOAD_PATHSPEC = (
 # crashes just before its hold ends on every try: MAX_ATTEMPTS starts, each a
 # full TimeoutStartSec + TimeoutStopSec (a start that never gets READY is only
 # killed once its stop times out) + HOLD_S + WatchdogSec (a hang just before the
-# hold ends) + RestartSec. Held above that bound, read from
-# the satellite's own source, by tests/architecture/test_satellite_app_ceiling.py.
-APP_UPDATE_CEILING_S = 720
+# hold ends) + RestartSec — after a reboot, when a security fix waited for one
+# and the room was silent. Held above that bound, read from the satellite's own
+# source, by tests/architecture/test_satellite_app_ceiling.py.
+APP_UPDATE_CEILING_S = 840
+# How long the POST that carries a push may go unanswered. A refusal the
+# satellite only reaches after it — dpkg busy past its wait — would be a silence
+# the server waits out to the ceiling, so the satellite's wait stays well under
+# this (the same test holds it).
+APP_PUSH_TIMEOUT_S = 120
 APP_UPDATE_POLL_S = 5
 # A POST that got no answer may still be deploying (pip on a Pi takes minutes):
 # while the satellite says so the ceiling restarts, up to this much more.
@@ -539,7 +545,7 @@ class SatelliteUpdateService:
             version = await self.get_server_version() or ""
 
             url = f"http://{ip}:{self.satellite_api_port}/app/update"
-            timeout = aiohttp.ClientTimeout(total=120)
+            timeout = aiohttp.ClientTimeout(total=APP_PUSH_TIMEOUT_S)
             unanswered = None
 
             try:

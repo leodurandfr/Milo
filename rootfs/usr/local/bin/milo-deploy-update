@@ -301,10 +301,13 @@ is_installed() {
 # cannot finish, apt-get reports below, when there is something to install.
 finish_interrupted_dpkg() {
     local waited=0 out
-    until out=$(dpkg --configure -a --force-confdef --force-confold 2>&1); do
-        # dpkg's own words for a held lock, the frontend's or the database's:
-        # anything else is a failure to report, not a wait.
-        if [[ "$out" == *'locked by another process'* ]] && [ "$waited" -lt "$DPKG_LOCK_TIMEOUT_S" ]; then
+    # In C: its words are matched below.
+    until out=$(LC_ALL=C dpkg --configure -a --force-confdef --force-confold 2>&1); do
+        # dpkg's own words for a held lock, the frontend's or the database's —
+        # dpkg 1.22: "dpkg: error: dpkg frontend lock was locked by
+        # /usr/bin/python3.13 process with pid 812" ("by another process" when
+        # it cannot name it). Anything else is a failure to report, not a wait.
+        if grep -q -E '^dpkg: error: .* was locked by ' <<< "$out" && [ "$waited" -lt "$DPKG_LOCK_TIMEOUT_S" ]; then
             sleep 2
             waited=$((waited + 2))
             continue

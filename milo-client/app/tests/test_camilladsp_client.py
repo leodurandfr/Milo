@@ -98,7 +98,7 @@ async def client(daemon):
     await client.disconnect()
 
 
-class TestTheTenCalls:
+class TestEachCall:
     """One per call the equalizer service makes. The frame is the assertion."""
 
     @pytest.mark.asyncio
@@ -212,6 +212,18 @@ class TestTheTenCalls:
         assert await client.get_playback_peak() == [-12.5, -13.5]
 
         assert daemon.sent() == "GetPlaybackSignalPeak"
+
+    @pytest.mark.asyncio
+    async def test_get_capture_peak_since_sends_the_window_as_a_float(self, daemon, client):
+        """The window rides as the command's value, in seconds: CamillaDSP
+        declares it an f32 (`GetCaptureSignalPeakSince(f32)`)."""
+        daemon.answers("GetCaptureSignalPeakSince", [-1000.0, -1000.0])
+
+        assert await client.get_capture_peak_since(10) == [-1000.0, -1000.0]
+
+        sent = daemon.sent()
+        assert sent == {"GetCaptureSignalPeakSince": 10.0}
+        assert isinstance(sent["GetCaptureSignalPeakSince"], float)
 
 
 class TestWhenTheDaemonWillNotAnswer:

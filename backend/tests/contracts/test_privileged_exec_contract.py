@@ -355,7 +355,8 @@ def _issued_argvs(tree_name: str) -> list[tuple[str, tuple]]:
 
 # sudoers' spelling of "this command with no argument at all" — the grant of a
 # satellite helper that reads its input on stdin (milo-client-set-timezone,
-# milo-client-join-wifi, milo-set-password).
+# milo-client-join-wifi, milo-set-password) or takes none
+# (milo-client-finish-dpkg).
 NO_ARGUMENTS = ('""',)
 
 
@@ -464,8 +465,8 @@ def test_a_no_argument_grant_permits_the_bare_command_only():
     assert not _matches((command, '""'), command, args)
 
 
-# How a helper refuses any argument: its input comes on stdin, so an argv is a
-# caller that bypassed the route.
+# How a helper refuses any argument: its input comes on stdin, or it takes
+# none, so an argv is a caller that bypassed the route.
 ARGV_REFUSAL = re.compile(r"^\s*if \(\(\s*\$#\s*!=\s*0\s*\)\)", re.MULTILINE)
 
 

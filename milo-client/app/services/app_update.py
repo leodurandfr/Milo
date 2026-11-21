@@ -3,10 +3,12 @@ App update service for Milo Client.
 
 Handles deploying app updates pushed from the main Milo server, as a trial the
 new version has to survive before what it replaced is dropped:
+- Wait for dpkg's lock, finish a dpkg run a power cut interrupted
 - Extract the tarball, open the trial (the identity it replaces is kept)
 - Keep the venv when requirements.lock changed, then swap in app/ and configs/
 - Install Python dependencies (only when they changed), import the new app
-- Deploy system/rootfs files, write the identity files, schedule the restart
+- Deploy system/rootfs files, write the identity files, schedule the restart —
+  or the reboot a security fix waits for, when the room is silent
 
 The trial is closed by `milo-client-update-guard`: `commit` from the new
 process once it has held HOLD_S, a rollback from the unit's own start when the
@@ -22,8 +24,9 @@ import tarfile
 import tempfile
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
+import dpkg_lock
 from atomic_file import write_atomic
 
 REPO_DIR = Path("/home/milo-client/repo/milo-client")
@@ -33,6 +36,22 @@ VENV_DIR = Path("/home/milo-client/venv")
 STATE_DIR = Path("/var/lib/milo-client")
 DEPLOY_SCRIPT = "/usr/local/bin/milo-client-deploy-update"
 GUARD = "/usr/local/bin/milo-client-update-guard"
+FINISH_DPKG = "/usr/local/bin/milo-client-finish-dpkg"
+# What the helper answers when another process took dpkg's lock first.
+FINISH_DPKG_BUSY = 75
+
+# unattended-upgrades installs the security fixes of Debian-Security on this
+# unit, and never reboots it (/etc/apt/apt.conf.d/52milo-unattended-upgrades).
+# This file is left by a package's hook, when what it installed takes effect
+# only at the next boot. Rare here: the kernel hook unattended-upgrades ships
+# fires for a kernel, and Raspberry Pi OS's kernels come from its own archive,
+# which that rule leaves out.
+REBOOT_REQUIRED = Path("/var/run/reboot-required")
+# How long a push waits for dpkg's lock before it is refused. Well under the
+# server's budget for the POST (satellite.py, APP_PUSH_TIMEOUT_S), so that a
+# refusal reaches it as an answer rather than a silence it would have to wait
+# out: held by backend/tests/architecture/test_satellite_app_ceiling.py.
+DPKG_LOCK_WAIT_S = 60
 
 # Two files because a satellite answers two different questions. VERSION_NAME
 # is the version string the server showed for itself when it pushed — what the
@@ -187,9 +206,12 @@ def _last_line(output: bytes) -> str:
 class AppUpdateService:
     """Service for deploying app updates pushed from the main server."""
 
-    def __init__(self):
+    def __init__(self, room_is_silent: Optional[Callable[[], Awaitable[Optional[bool]]]] = None):
+        """`room_is_silent` answers whether nothing plays in this room (True,
+        False, or None when it cannot tell); without it a push never reboots."""
         self.logger = logging.getLogger(f"{__name__}.AppUpdateService")
         self._update_in_progress = False
+        self._room_is_silent = room_is_silent
 
     @property
     def update_in_progress(self) -> bool:
@@ -204,18 +226,21 @@ class AppUpdateService:
         them itself is how a fleet comes to disagree about what it runs.
 
         Steps:
-        1. Extract tarball to temp dir (with security validation)
-        2. Open the trial: keep the identity, then write update-trial
-        3. Keep the venv if requirements.lock changed; swap in app/ and configs/
+        1. Wait for dpkg's lock, then finish an interrupted dpkg run; a lock
+           still held refuses the update before anything is touched
+        2. Extract tarball to temp dir (with security validation)
+        3. Open the trial: keep the identity, then write update-trial
+        4. Keep the venv if requirements.lock changed; swap in app/ and configs/
            (staged, skip __pycache__), keeping the trees they replace
-        4. pip install the lock, only if it changed
-        5. Import the new app with the venv's python
-        6. Run sudo deploy script for system/rootfs files
-        7. Write the identity files (and, for a tree that runs no trial,
+        5. pip install the lock, only if it changed
+        6. Import the new app with the venv's python
+        7. Run sudo deploy script for system/rootfs files
+        8. Write the identity files (and, for a tree that runs no trial,
            close this one at once)
-        8. Schedule service restart with delay
+        9. Schedule service restart with delay — a reboot instead when a
+           security fix waits for one and the room is silent
 
-        Any failure past step 2 is put back by the guard before this answers,
+        Any failure past step 3 is put back by the guard before this answers,
         so a refused update never cuts the room. Nothing here deletes what was
         kept: the new process does, through the guard, once it has held.
         """
@@ -243,7 +268,12 @@ class AppUpdateService:
                 f"Starting app update deployment (payload: {payload}, version: {version or 'unknown'})"
             )
 
-            # 1. Extract tarball to temp dir
+            # 1. dpkg first: nothing is extracted or installed under a dpkg run.
+            busy = await self._settle_dpkg()
+            if busy:
+                return {"success": False, "conflict": True, "error": busy}
+
+            # 2. Extract tarball to temp dir
             temp_dir = tempfile.mkdtemp(prefix="milo-client-update-")
             self.logger.info(f"Extracting tarball to {temp_dir}")
 
@@ -260,12 +290,12 @@ class AppUpdateService:
                 new_requirements, REPO_DIR / "app" / PYTHON_LOCK
             )
 
-            # 2. Open the trial
+            # 3. Open the trial
             await self._run_blocking(_clear_leftovers)
             await self._run_blocking(self._open_trial, payload)
             trial_open = True
 
-            # 3. Keep the venv, then swap in app/ and configs/
+            # 4. Keep the venv, then swap in app/ and configs/
             if requirements_changed:
                 await self._keep_venv()
             swapped = []
@@ -278,23 +308,23 @@ class AppUpdateService:
                     self.logger.warning(f"No {name}/ directory in tarball, skipping its sync")
             await self._run_blocking(os.sync)
 
-            # 4. Install Python dependencies
+            # 5. Install Python dependencies
             if requirements_changed:
                 await self._install_dependencies(REPO_DIR / "app" / PYTHON_LOCK)
 
-            # 5. The cheapest failure to catch is the one that never restarts:
+            # 6. The cheapest failure to catch is the one that never restarts:
             # an import that fails here would crash the new process on start.
             if "app" in swapped:
                 await self._import_new_app()
 
-            # 6. Run deploy script for system/rootfs files, after pip and the
+            # 7. Run deploy script for system/rootfs files, after pip and the
             # import: the rollback puts back app/, configs/ and the venv, never
             # the units, sudoers and helpers this installs as root, so only the
             # identity write may still fail behind it.
             if (extracted_root / "system").is_dir() or (extracted_root / "rootfs").is_dir():
                 await self._deploy_system_files(temp_dir)
 
-            # 7. Write the identity files. They name the code the *next* process
+            # 8. Write the identity files. They name the code the *next* process
             # runs: this one keeps reporting what it read when it started, so
             # nothing written here is announced unless the restart lands.
             def _write_identity():
@@ -311,8 +341,9 @@ class AppUpdateService:
                 if not await self._guard("commit"):
                     raise RuntimeError("The trial of a version that runs none could not be closed")
 
-            # 8. Schedule restart (2s delay so HTTP response is sent first)
-            asyncio.get_event_loop().call_later(2, lambda: asyncio.ensure_future(self._restart_service()))
+            # 9. Schedule the restart, or the reboot (2s delay so HTTP response
+            # is sent first)
+            asyncio.get_event_loop().call_later(2, lambda: asyncio.ensure_future(self._restart_or_reboot()))
 
             return {"success": True, "version": version}
 
@@ -354,6 +385,121 @@ class AppUpdateService:
             if await self._guard("commit"):
                 return
             await asyncio.sleep(COMMIT_RETRY_S)
+
+    async def _settle_dpkg(self) -> Optional[str]:
+        """Waits for dpkg's lock, then finishes a dpkg run a power cut cut short.
+
+        unattended-upgrades holds the lock for its whole run, at a time apt's
+        timers pick. A push that lands meanwhile waits for it, DPKG_LOCK_WAIT_S
+        at most, and is refused past that before anything is touched: the
+        refusal names the holder, and a later push finds dpkg free. Then
+        `dpkg --configure -a`, a no-op on a healthy unit.
+
+        Returns the refusal, or None to go on. The helper failing for any other
+        reason is logged and the update goes on: the push is this satellite's
+        only repair path, and the app it installs needs nothing from dpkg.
+        """
+        held_by = await dpkg_lock.wait_until_free(DPKG_LOCK_WAIT_S)
+        if held_by:
+            return self._dpkg_busy(f"held by {held_by} after {DPKG_LOCK_WAIT_S} s")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", FINISH_DPKG,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+        except OSError as e:
+            self.logger.error(f"dpkg could not be finished, updating anyway: {type(e).__name__}: {e}")
+            return None
+        if proc.returncode == FINISH_DPKG_BUSY:
+            return self._dpkg_busy(_last_line(stdout) or "its lock was taken")
+        if proc.returncode != 0:
+            self.logger.error(
+                "dpkg could not finish what was interrupted, updating anyway: "
+                f"{_last_line(stderr) or f'exit code {proc.returncode}'}"
+            )
+            return None
+        for line in stdout.decode(errors="replace").splitlines():
+            if line.strip():
+                self.logger.info(f"dpkg: {line.strip()}")
+        return None
+
+    def _dpkg_busy(self, detail: str) -> str:
+        refusal = f"dpkg is busy ({detail}): nothing was installed; push again once it is done"
+        self.logger.warning(f"Update refused: {refusal}")
+        return refusal
+
+    async def _restart_or_reboot(self) -> None:
+        """Ends a push: the reboot a security fix waits for when the room is
+        silent, the app's restart otherwise.
+
+        unattended-upgrades never reboots, so a fix whose package left
+        REBOOT_REQUIRED takes effect here: at a push, which restarts the room's
+        audio anyway — only when nothing plays, since a reboot takes it away
+        for a minute rather than a few seconds. The new version then starts its
+        trial at boot, as it would at a restart. A refused reboot restarts the
+        app instead, and the fix waits for the next push.
+
+        The restart is never skipped: this runs detached once the push has
+        answered, and without it the old process would keep running with the
+        trial open, every later push refused as "still on trial".
+        """
+        try:
+            due = await self._reboot_due()
+        except Exception as e:
+            self.logger.error(
+                f"Could not tell whether a reboot is due, restarting the app: {type(e).__name__}: {e}"
+            )
+            due = False
+        if due and await self._reboot():
+            return
+        await self._restart_service()
+
+    async def _reboot_due(self) -> bool:
+        """Whether this push ends in a reboot: a fix waits for one, no dpkg
+        runs (a reboot under it is the interrupted dpkg the next push would
+        have to finish), and the room is known to be silent."""
+        if not await self._run_blocking(REBOOT_REQUIRED.exists):
+            return False
+        held_by = await self._run_blocking(dpkg_lock.holder)
+        if held_by:
+            reason = f"{held_by} holds dpkg"
+        else:
+            silent = None
+            if self._room_is_silent is not None:
+                try:
+                    silent = await self._room_is_silent()
+                except Exception as e:
+                    self.logger.warning(f"Could not tell whether the room plays: {type(e).__name__}: {e}")
+            if silent is True:
+                self.logger.info(f"{REBOOT_REQUIRED} is there and the room is silent: rebooting")
+                return True
+            reason = "the room is playing" if silent is False else "whether the room plays is unknown"
+        self.logger.info(f"{REBOOT_REQUIRED} is there, but {reason}: restarting the app only")
+        return False
+
+    async def _reboot(self) -> bool:
+        """`systemctl reboot`; False when it was refused.
+
+        It answers 0 once the reboot is queued, or dies with this process when
+        the shutdown reaches the cgroup first: both are a reboot under way.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "reboot",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+        except OSError as e:
+            error = f"{type(e).__name__}: {e}"
+        else:
+            if proc.returncode is None or proc.returncode <= 0:
+                return True
+            error = stderr.decode().strip() or f"Exit code {proc.returncode}"
+        self.logger.error(f"Reboot refused ({error}): restarting the app instead")
+        return False
 
     @staticmethod
     async def _run_blocking(fn, *args):

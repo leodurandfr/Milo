@@ -51,6 +51,14 @@ PASS_TYPES = ("Lowpass", "Highpass")
 # it stays at the bottom.
 STARTUP_GAIN_DB = -80.0
 
+# A room is silent when no channel of what it captured peaked above
+# SILENCE_DBFS over the last SILENCE_WINDOW_S. CamillaDSP reads digital silence
+# as -1000 dB, and music peaks far above -80 dB in any ten seconds; the window
+# outlasts a gap between two tracks, and fits in the 1024 chunks of history
+# CamillaDSP keeps (21 s at the shipped 1024 frames, 48 kHz).
+SILENCE_DBFS = -80.0
+SILENCE_WINDOW_S = 10.0
+
 
 def serialised_config_write(method):
     """Hold the config lock for a whole read-modify-write.
@@ -925,6 +933,29 @@ class EqualizerService:
         except Exception as e:
             self.logger.error(f"Error setting gain: {e}")
             return False
+
+    async def room_is_silent(self) -> Optional[bool]:
+        """Whether nothing has reached this speaker for SILENCE_WINDOW_S, which
+        is what lets an app update reboot it (app_update.py). None when
+        CamillaDSP cannot say: the caller then never reboots.
+
+        The capture, not the playback: a room muted or turned down still has
+        the music on its way, and whoever turns it back up expects it there,
+        not a speaker gone for a minute.
+        """
+        try:
+            peaks = await self._exec(lambda c: c.get_capture_peak_since(SILENCE_WINDOW_S))
+        except Exception as e:
+            self.logger.warning(f"Could not read the capture level: {e}")
+            return None
+        if not isinstance(peaks, list) or not peaks:
+            # No chunk captured in the window: a stalled capture, not a silence.
+            return None
+        try:
+            return all(float(peak) < SILENCE_DBFS for peak in peaks)
+        except (TypeError, ValueError):
+            self.logger.warning(f"CamillaDSP answered the capture level with {peaks!r}")
+            return None
 
     async def get_levels(self) -> Dict[str, Any]:
         """The playback peak, what the server's LevelsMonitor reads (`output_peak`)."""

@@ -37,6 +37,14 @@ milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-deploy-update
 milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-apply-hardware
 milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl restart milo-client.service
 
+# The two ends of an app update (app/services/app_update.py) on a unit that
+# unattended-upgrades keeps patched. Before it installs, a dpkg run a power cut
+# interrupted is finished: the helper takes no input, so `""` again. At its end,
+# the unit reboots rather than restarting the app when a security fix waits for
+# a reboot (/var/run/reboot-required) and the room is silent.
+milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-finish-dpkg ""
+milo-client ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
+
 # Remote access, driven from the server's client panel (routes/system.py) — the
 # same two switches the server's own policy grants its backend. The password
 # comes on stdin, so the helper is granted with no argument at all (`""`).
