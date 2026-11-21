@@ -229,13 +229,13 @@ class TestTheBackgroundUpdate:
     ):
         """go-librespot holds its ALSA device while it plays; overwriting the
         binary under it is how an update ends with a source that never comes
-        back until the unit is restarted."""
-        router.update_service.update_program = AsyncMock(return_value={"success": True})
-        endpoint = _endpoint(router, "/api/programs/{program_key}/update", "POST")
+        back until the unit is restarted. The router hands the update service
+        what ends that session, which runs it before every install, the
+        reconciliation of a Milō update included
+        (test_update_service.py::TestDependencyReconciliation drives that)."""
+        (end_session_of,) = router.update_service.set_session_ender.call_args.args
 
-        tasks = BackgroundTasks()
-        await endpoint("go-librespot", VALIDATED, tasks)
-        await tasks()
+        await end_session_of("go-librespot")
 
         router.state_machine.transition_to_source.assert_awaited_once_with(AudioSource.NONE)
 
@@ -244,12 +244,10 @@ class TestTheBackgroundUpdate:
     ):
         """Otherwise every update would silence whatever is playing."""
         router.state_machine.system_state.active_source = AudioSource.RADIO
-        router.update_service.update_program = AsyncMock(return_value={"success": True})
-        endpoint = _endpoint(router, "/api/programs/{program_key}/update", "POST")
+        (end_session_of,) = router.update_service.set_session_ender.call_args.args
 
-        tasks = BackgroundTasks()
-        await endpoint("go-librespot", VALIDATED, tasks)
-        await tasks()
+        await end_session_of("go-librespot")
+        await end_session_of("camilladsp")
 
         router.state_machine.transition_to_source.assert_not_called()
 

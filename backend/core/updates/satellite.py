@@ -138,7 +138,10 @@ def _program_result(
     message: Optional[str] = None,
 ) -> Dict[str, Any]:
     """One snapclient or CamillaDSP install's result: the app push's `verdict`
-    and `detail`, `new_version` when it landed, `error` when it did not."""
+    and `detail`, `new_version` when it landed, `error` when it did not.
+
+    `error` is the failure's one ERROR line, logged by the route that asked
+    for the install, so the flow logs none of its own."""
     result: Dict[str, Any] = {
         "success": verdict == "committed",
         "verdict": verdict,
@@ -343,8 +346,9 @@ class SatelliteUpdateService:
 
         except Exception as e:
             detail = _describe_error(e)
-            self.logger.error(f"Error updating {label} on satellite {mac_id}: {detail}")
-            return _program_result("rejected", detail, error=str(e) or detail)
+            return _program_result(
+                "rejected", detail, error=f"Error updating {label} on satellite {mac_id}: {detail}",
+            )
 
         # `started` is the satellite's answer to "did I begin one" — false is
         # the legitimate already-up-to-date branch, not a failure. What it would
@@ -358,8 +362,10 @@ class SatelliteUpdateService:
                 )
             except Exception as e:
                 detail = _describe_error(e)
-                self.logger.error(f"Following satellite {mac_id}'s {label} update failed: {detail}")
-                return _program_result("did_not_return", detail)
+                return _program_result(
+                    "did_not_return", detail,
+                    error=f"Following satellite {mac_id}'s {label} update failed: {detail}",
+                )
         if data.get("current_version") == target_version:
             # Nothing to do, and reporting it as a failure was self-perpetuating:
             # the UI refetches the inventory only on success, so the stale row
@@ -445,20 +451,15 @@ class SatelliteUpdateService:
                 if isinstance(last, dict) and last.get("target_version") == target_version
                 else None
             ) or f"still runs {version or 'no readable version'}"
-            self.logger.error(
-                f"Satellite {mac_id} still runs {label} {version}, expected {target_version}: {detail}"
-            )
             return _program_result(
                 "rolled_back", detail,
                 error=f"Satellite {mac_id} still runs {label} {version}, expected {target_version}: {detail}",
             )
 
-        self.logger.error(
-            f"Satellite {mac_id}: no final state for {label} {target_version} after {elapsed} s ({last_seen})"
-        )
         return _program_result(
             "did_not_return", last_seen,
-            error=f"{label} update timeout for {mac_id} ({last_seen})",
+            error=f"{label} update timeout for {mac_id}: no final state for {target_version} "
+                  f"after {elapsed} s ({last_seen})",
         )
 
     async def _git(self, *args: str) -> Optional[str]:
@@ -820,10 +821,11 @@ class SatelliteUpdateService:
 
         except Exception as e:
             detail = _describe_error(e)
-            self.logger.error(f"Error updating satellite app {mac_id}: {detail}")
             # Raised before the POST, or by it before an answer: nothing reached
             # the satellite.
-            return self._app_result("rejected", payload, detail, error=str(e) or detail)
+            return self._app_result(
+                "rejected", payload, detail, error=f"Error updating satellite app {mac_id}: {detail}",
+            )
 
         else:
             # Past the POST the satellite may be restarting into the push: an
@@ -836,8 +838,10 @@ class SatelliteUpdateService:
                 )
             except Exception as e:
                 detail = _describe_error(e)
-                self.logger.error(f"Following satellite {mac_id}'s app update failed: {detail}")
-                return self._app_result("did_not_return", payload, detail)
+                return self._app_result(
+                    "did_not_return", payload, detail,
+                    error=f"Following satellite {mac_id}'s app update failed: {detail}",
+                )
 
         finally:
             if tarball_path:
@@ -919,10 +923,6 @@ class SatelliteUpdateService:
             fresh = last if isinstance(last, dict) and last != before else None
             if fresh and fresh.get("payload") == payload and fresh.get("outcome") == "rolled_back":
                 detail = fresh.get("detail")
-                self.logger.error(
-                    f"Satellite {mac_id} went back to its previous app after {payload}: "
-                    f"{detail or 'no error line recorded'}"
-                )
                 return self._app_result(
                     "rolled_back", payload, detail,
                     error=f"Satellite {mac_id} went back to its previous app"
@@ -950,8 +950,9 @@ class SatelliteUpdateService:
                     untouched += 1
                     if untouched >= APP_UNTOUCHED_POLLS:
                         detail = f"the satellite never started the update ({unanswered})"
-                        self.logger.error(f"Satellite {mac_id}: {detail}")
-                        return self._app_result("rejected", payload, detail)
+                        return self._app_result(
+                            "rejected", payload, detail, error=f"Satellite {mac_id}: {detail}",
+                        )
 
             last_seen = (
                 f"still on trial of {payload}" if trial and seen_payload == payload
@@ -959,14 +960,13 @@ class SatelliteUpdateService:
                 else f"still running {seen_payload}"
             )
 
-        self.logger.error(
-            f"Satellite {mac_id}: no final state for {payload} after {elapsed} s ({last_seen})"
-        )
         if seen_payload != payload:
             error = f"Satellite {mac_id} deployed the update but never restarted into it"
         else:
             error = f"Satellite {mac_id} did not settle on the update"
-        return self._app_result("did_not_return", payload, last_seen, error=f"{error} ({last_seen})")
+        return self._app_result(
+            "did_not_return", payload, last_seen, error=f"{error} ({last_seen}, after {elapsed} s)",
+        )
 
     async def get_app_update_failures(self) -> Dict[str, Dict[str, Any]]:
         """{mac: {payload, verdict, detail, at}}: the last app push each

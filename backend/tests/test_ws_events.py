@@ -162,11 +162,11 @@ CASES = [
                   "total": 3}},
     ),
     (
-        ProgramUpdateComplete(program="go-librespot", success=True),
+        ProgramUpdateComplete(program="go-librespot", success=False, error="Failed to stop service"),
         {"category": "programs", "type": "program_update_complete",
          "origin": "program_update",
          "data": {"source": "program_update", "program": "go-librespot",
-                  "success": True}},
+                  "success": False, "error": "Failed to stop service"}},
     ),
     (
         EqualizerLevels(available=True, output_peak=[-12.5, -13.0]),

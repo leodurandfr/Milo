@@ -146,6 +146,7 @@ _POST_COMMIT_PHASES = ("dependencies", "satellites")
 
 MiloProgressListener = Callable[[Dict[str, Any]], Awaitable[None]]
 MiloCompleteListener = Callable[[bool], Awaitable[None]]
+SessionEnder = Callable[[str], Awaitable[None]]
 
 
 def _read_json(path: Path) -> Optional[dict]:
@@ -206,13 +207,14 @@ class UpdateService(VersionService):
         self._journal = _UNREAD
         self._last_update = _UNREAD
         # A committed journal whose post-commit phase ended in this process
-        # without closing it, and an open journal this process gave up handing
-        # to the guard: both stay on disk for the next start, and hold nothing
-        # until then.
+        # without closing it, and an open journal this process let go of — one
+        # it gave up handing to the guard, or a trial it could not commit: both
+        # stay on disk for the next start, and hold nothing until then.
         self._post_commit_stalled = False
         self._journal_abandoned = False
         self._on_milo_progress: Optional[MiloProgressListener] = None
         self._on_milo_complete: Optional[MiloCompleteListener] = None
+        self._end_session_of: Optional[SessionEnder] = None
 
     # === The Milō update, as the rest of the backend sees it ===
 
@@ -230,6 +232,20 @@ class UpdateService(VersionService):
         self._on_milo_progress = on_progress
         self._on_milo_complete = on_complete
 
+    def set_session_ender(self, end_session_of: SessionEnder) -> None:
+        """What ends the listening session a program's daemon serves.
+
+        `end_session_of(program_key)` is awaited before every program's install
+        flow, whoever asked for it — the route, or a Milō update bringing the
+        dependency set to its manifest —, and ends the session of the source
+        that daemon plays for when it is the active one, as a press on another
+        source would. An install stops the daemon: under a session, the sound
+        was cut with the source left selected over a restarted daemon, and for
+        Navidrome mpv's localhost stream ended as a lost stream, with its
+        banner, for an operation the owner asked for.
+        """
+        self._end_session_of = end_session_of
+
     @property
     def milo_update_active(self) -> bool:
         """Whether a Milō update holds the unit: this process runs one (the
@@ -241,8 +257,9 @@ class UpdateService(VersionService):
         one during the trial counts as a failed start of the new release. A
         journal the guard is to put back holds nothing — a restart is what
         finishes it — and neither does a post-commit phase that ended in this
-        process without closing its journal, which the next start runs again.
-        Held instead, either would refuse the very restart that ends it.
+        process without closing its journal, which the next start runs again,
+        nor a trial this process could not commit (`let_go_of_the_trial`).
+        Held instead, any of them would refuse the very restart that ends it.
         """
         if self._milo_running:
             return True
@@ -251,7 +268,26 @@ class UpdateService(VersionService):
             return False
         if journal.get(KEY_STEP) == COMMITTED_STEP:
             return not self._post_commit_stalled
-        return journal.get(KEY_STEP) == TRIAL_STEP
+        return journal.get(KEY_STEP) == TRIAL_STEP and not self._journal_abandoned
+
+    @property
+    def milo_update_holds_installs(self) -> bool:
+        """Whether no other install may start now: a Milō update holds the unit
+        (`milo_update_active`), or the trial this process let go of is still
+        open (`let_go_of_the_trial`).
+
+        Letting go of a trial frees the restart and lifts the update screen,
+        nothing else: the dependency set and the satellites move only once a
+        trial has committed (`run_post_commit`), and the guard may still put
+        the previous release back. Freed here as well, a satellite owed the
+        client app at its admission was pushed the uncommitted release's — a
+        speaker restarted in every room for a release that may not stay — and
+        a local install took the uncommitted manifest's pin.
+        """
+        if self.milo_update_active:
+            return True
+        journal = self._milo_journal()
+        return journal is not None and journal.get(KEY_STEP) == TRIAL_STEP
 
     def milo_update_state(self) -> Optional[Dict[str, Any]]:
         """`{"phase", "from_version", "to_version", "item", "index", "total"}`,
@@ -262,8 +298,9 @@ class UpdateService(VersionService):
         until its post-commit phase reports more. A journal that never reached
         the trial is one the next start restores, so it reads as "restart".
         None for a journal this process let go of (a post-commit phase that
-        could not close it, a guard that did not put it back): the next start
-        takes it up again. Versions are the release tags, verbatim.
+        could not close it, a guard that did not put it back, a trial that
+        could not be committed): the next start takes it up again. Versions
+        are the release tags, verbatim.
         """
         if self._milo_phase is not None:
             return dict(self._milo_phase)
@@ -273,7 +310,7 @@ class UpdateService(VersionService):
         if _before_the_trial(journal):
             phase = None if self._journal_abandoned else "restart"
         elif journal.get(KEY_STEP) == TRIAL_STEP:
-            phase = "verify"
+            phase = None if self._journal_abandoned else "verify"
         elif journal.get(KEY_STEP) == COMMITTED_STEP:
             phase = None if self._post_commit_stalled else "dependencies"
         else:
@@ -466,6 +503,37 @@ class UpdateService(VersionService):
         )
         await self._notify_milo_complete(False)
 
+    async def let_go_of_the_trial(self, cause: str) -> bool:
+        """Stop holding the unit for a release on trial that could not be
+        committed (`cause`), and say so, once, at error.
+
+        A guard that cannot write the journal (a card remounted read-only, a
+        full one) fails the same way at every attempt, and held, the trial kept
+        the update screen up and refused the reboot and the power-off — the
+        first useful gestures on a sick card — until the unit was unplugged.
+        The journal stays open on disk: the next start is counted as one of the
+        trial's, commits it again once it holds, and the guard puts the
+        previous release back when the trial's starts run out. Every other
+        install stays refused until then (`milo_update_holds_installs`).
+
+        Read from the card first: a commit that landed meanwhile is not a
+        trial to give up, and its post-commit phase is the caller's to run.
+        Returns whether the trial was let go of.
+        """
+        await self._reload_milo_state()
+        journal = self._milo_journal()
+        if journal is None or journal.get(KEY_STEP) != TRIAL_STEP:
+            return False
+        self._journal_abandoned = True
+        self.update_logger.error(
+            f"The Milo update {journal.get(KEY_ORIGIN_TAG)} -> {journal.get(KEY_TARGET_TAG)} "
+            f"could not be committed ({cause}). Milo runs {journal.get(KEY_TARGET_TAG)} and "
+            "can be restarted again; the next start counts as one of its trial's, and the "
+            f"update guard puts {journal.get(KEY_ORIGIN_TAG)} back if it is never committed."
+        )
+        await self._notify_milo_complete(False)
+        return True
+
     # === Selection and dispatch ===
 
     @classmethod
@@ -567,7 +635,7 @@ class UpdateService(VersionService):
         if program_key not in self.programs:
             return {"success": False, "error": f"Update not supported for {program_key}"}
         await self._reload_milo_state()
-        if self.milo_update_active:
+        if self.milo_update_holds_installs:
             return {"success": False, "error": "A Milo update is in progress; it must finish first"}
 
         try:
@@ -582,7 +650,6 @@ class UpdateService(VersionService):
             return result
 
         except Exception as e:
-            self.update_logger.error(f"Update failed for {program_key}: {e}")
             return {"success": False, "error": str(e)}
 
     async def _dispatch_update(self, program_key: str, status: Dict[str, Any]) -> Dict[str, Any]:
@@ -590,11 +657,15 @@ class UpdateService(VersionService):
 
         `update_program` is the route's entry point; `_reconcile_dependencies`
         is the Milō update bringing the set to the manifest. Both have already
-        decided there is something to install, so neither re-checks here.
+        decided there is something to install, so neither re-checks here. Both
+        end the session the program's daemon serves first, here, so that no
+        install stops a daemon under one (`set_session_ender`).
         """
         if program_key == "milo":
             return await self._update_milo_app(status)
-        elif program_key == "multiroom":
+        if self._end_session_of is not None:
+            await self._end_session_of(program_key)
+        if program_key == "multiroom":
             return await self._update_multiroom(status)
         elif program_key == "shairport-sync":
             return await self._update_shairport_sync(status)
@@ -784,8 +855,9 @@ class UpdateService(VersionService):
 
         `success` is False either way — what the two outcomes distinguish is
         whether the program is running again, which is the only half the owner
-        can act on. The route logs `error` at error level, so both reach the
-        UI's banner.
+        can act on. The flow's caller — the route, or a Milō update's
+        reconciliation — logs `error` once, at error level; the flow itself
+        logs only a failure the envelope does not carry (a rollback's own).
         """
         outcome = (
             "Rolled back to previous version."
@@ -1456,7 +1528,6 @@ class UpdateService(VersionService):
             return {"success": True}
 
         except Exception as e:
-            self.update_logger.error(f"{display_name} update failed: {e}")
             if download_result:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
             if not service_stopped:
@@ -1721,7 +1792,6 @@ class UpdateService(VersionService):
             return {"success": True}
 
         except Exception as e:
-            self.update_logger.error(f"Multiroom update failed: {e}")
             if server_download:
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
             if client_download:
@@ -1867,7 +1937,6 @@ class UpdateService(VersionService):
             return {"success": True}
 
         except Exception as e:
-            self.update_logger.error(f"shairport-sync update failed: {e}")
             await self._cleanup_temp_files(temp_dir)
             rolled_back = await self._rollback_shairport_sync(
                 config, service_was_active, restore_nqptp=nqptp_swapped
@@ -2408,7 +2477,7 @@ class UpdateService(VersionService):
             self.update_logger.info(f"Service {service} is {'active' if state else 'inactive'} before the upgrade")
 
             # Phase 2: Stop the sidecar before touching the venv (50%).
-            # Normally already stopped (the route deactivates Qobuz pre-update),
+            # Normally already stopped (its session ended before the install),
             # so this is defensive against a file lock (Restart=always).
             if service_was_active:
                 if not await self._stop_service(service):
@@ -2422,7 +2491,6 @@ class UpdateService(VersionService):
                 timeout=600
             )
             if not pip_ok:
-                self.update_logger.error(f"qobuz-proxy pip upgrade failed: {pip_out}")
                 rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
                 return self._failure_after_rollback(f"pip install failed: {pip_out}.", rolled_back)
 
@@ -2434,7 +2502,6 @@ class UpdateService(VersionService):
                 f"{venv}/bin/python", QOBUZ_ADAPTER, "--check", timeout=60
             )
             if not check_ok:
-                self.update_logger.error(f"qobuz-proxy adaptation check failed: {check_out}")
                 rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
                 return self._failure_after_rollback(
                     f"This release no longer offers what Milo adapts: {check_out}.", rolled_back
@@ -2452,7 +2519,6 @@ class UpdateService(VersionService):
                 # No rollback: the venv is upgraded and verified — it is the
                 # restart that did not happen, and undoing a good update over
                 # that would be worse; the backup is kept for the same reason.
-                self.update_logger.error("qobuz-proxy updated but its service did not restart")
                 return {
                     "success": False,
                     "error": "qobuz-proxy updated but its service did not restart. Restart it manually.",
@@ -2463,7 +2529,6 @@ class UpdateService(VersionService):
             return {"success": True}
 
         except Exception as e:
-            self.update_logger.error(f"qobuz-proxy update failed: {e}")
             if not backed_up:
                 return {"success": False, "error": str(e)}
             rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
@@ -2644,7 +2709,9 @@ class UpdateService(VersionService):
         self.update_logger.info(f"Waiting for {held_by} to let go of apt before installing")
         held_by = await dpkg_lock.wait_until_free(APT_LOCK_WAIT_S, APT_LOCKS)
         if held_by:
-            self.update_logger.error(f"apt is still held by {held_by} after {APT_LOCK_WAIT_S} s")
+            # Warning: the holder rides in the caller's returned error, which
+            # whoever asked for the install logs once, at error.
+            self.update_logger.warning(f"apt is still held by {held_by} after {APT_LOCK_WAIT_S} s")
         return held_by
 
     async def _install_deb_package(self, deb_path: str, sha256: Optional[str]) -> Dict[str, Any]:
@@ -2706,12 +2773,17 @@ class UpdateService(VersionService):
         if program_key not in self.programs:
             return {"can_update": False, "reason": "Update not supported"}
         await self._reload_milo_state()
-        if self.milo_update_active:
+        if self.milo_update_holds_installs:
             return {"can_update": False, "reason": "A Milo update is in progress; it must finish first"}
 
-        # Verify the deploy wrapper is reachable via sudo NOPASSWD
-        success, _ = await self._run_deploy("check", warn_after=5)
+        # Verify the deploy wrapper is reachable via sudo NOPASSWD. Not
+        # reachable is a broken sudoers rule or a missing helper: said here, in
+        # the journal and errors.log, since the route's refusal is a warning.
+        success, output = await self._run_deploy("check", warn_after=5)
         if not success:
+            self.update_logger.error(
+                f"milo-deploy-update is not accessible through sudo: {_last_line(output) or 'no output'}"
+            )
             return {"can_update": False, "reason": "Deploy wrapper not accessible"}
 
         status = await self.get_program_full_status(program_key)

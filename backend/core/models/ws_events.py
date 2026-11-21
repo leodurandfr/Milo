@@ -1084,13 +1084,18 @@ class ProgramUpdateProgress(ProgramsProgressEvent):
 
 class ProgramUpdateComplete(ProgramsCompleteEvent):
     """An update of `program` on this unit finished; `success` says whether it
-    worked.
+    worked, and `error`, when it did not, is the update's own error line. A
+    `milo` update that reached its reboot is announced by the release that
+    starts next, with no `error`: its outcome is `last_update` in GET
+    /api/programs.
 
-    Zod programs.program_update_complete → App.vue (spinner off + REST refetch).
+    Zod programs.program_update_complete → App.vue (spinner off + REST refetch)
+    → updatesStore, which keeps the failure on the program's row, with Retry.
     """
     TYPE = "program_update_complete"
     source: Literal["program_update"] = "program_update"
     program: str
+    error: Optional[str] = None
 
 
 class MiloUpdateNoticeDismissed(WsEvent):

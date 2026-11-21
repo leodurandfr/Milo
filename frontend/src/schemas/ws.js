@@ -82,9 +82,11 @@ const ProgramUpdateProgressSchema = z.object({
   index: z.number().int().nullable().optional(),
   total: z.number().int().nullable().optional(),
 });
+// `error` is the failed update's own line, which updatesStore keeps on the row.
 const ProgramUpdateCompleteSchema = z.object({
   program: z.string(),
   success: z.boolean(),
+  error: z.string().nullable().optional(),
 });
 const SatelliteUpdateProgressSchema = z.object({
   mac_id: z.string(),

@@ -1451,7 +1451,15 @@ whole reason for `Type=notify` — there is no watchdog. Once it has stayed up `
 listening (on the monotonic clock: there is no RTC, and the wall clock steps during boot), the
 backend runs `milo-update-guard commit`, which moves the journal to `committed` and drops what was
 kept aside. A commit that fails is retried every minute: left open over a release that held, the
-trial would roll it back two restarts later.
+trial would roll it back two restarts later. After `COMMIT_ATTEMPTS` failures (a card remounted
+read-only, a full card, which fail the same way every time) the backend lets go of the trial
+(`UpdateService.let_go_of_the_trial`, one ERROR): the update screen lifts and the power routes
+answer again, so a restart — the first useful gesture on a sick card — can be asked for. The
+journal stays on trial, so that restart counts as one of its starts, and every other install — a
+program, a satellite push, the one an admission owes — stays refused until it
+(`milo_update_holds_installs`, a 409 that names the restart): nothing moves for a release the guard
+may still put back. `GET /api/programs` no longer lists `milo` in `active_updates` then, since nothing
+runs that a client could wait for.
 
 **Then the post-commit phase** (`UpdateService.run_post_commit`), run by the release that arrived
 and never by the one that left: the dependency set it declares (`_reconcile_dependencies`,

@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+from typing import Optional
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 import uvicorn
@@ -128,6 +129,11 @@ GUARD_TIMEOUT_S = 60.0
 # A commit that failed is tried again while the trial is open: left open over a
 # release that held, it would roll that release back two restarts later.
 COMMIT_RETRY_S = 60.0
+# How many commits are tried before the unit is let go of. A guard that keeps
+# failing (a card remounted read-only, a full card) fails the same way every
+# minute, and the trial holds the update screen and refuses the reboot — the
+# first useful gesture on a sick card — until the unit is unplugged.
+COMMIT_ATTEMPTS = 5
 
 
 def _sd_notify(message: bytes) -> bool:
@@ -153,10 +159,14 @@ def mark_listening() -> None:
         _listening.set()
 
 
-async def _commit_milo_trial() -> bool:
+async def _commit_milo_trial() -> Optional[str]:
     """`milo-update-guard commit`, as milo like the guard's every run (no sudo:
-    the journal is this account's own state). True once the guard has nothing
-    left to do — committed now, or no trial to commit."""
+    the journal is this account's own state). None once the guard has nothing
+    left to do — committed now, or no trial to commit —, else why it did not.
+
+    A failed attempt is a warning: the caller tries again, and says it once,
+    at error, if it gives up.
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
             GUARD, "commit",
@@ -164,24 +174,26 @@ async def _commit_milo_trial() -> bool:
             stderr=asyncio.subprocess.PIPE,
         )
     except OSError as e:
-        logger.error(f"milo-update-guard commit could not run: {e}")
-        return False
+        cause = f"milo-update-guard commit could not run: {e}"
+        logger.warning(cause)
+        return cause
     try:
         _, stderr = await asyncio.wait_for(proc.communicate(), GUARD_TIMEOUT_S)
     except asyncio.TimeoutError:
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
         await proc.wait()
-        logger.error(f"milo-update-guard commit did not finish within {GUARD_TIMEOUT_S:.0f} s")
-        return False
+        cause = f"milo-update-guard commit did not finish within {GUARD_TIMEOUT_S:.0f} s"
+        logger.warning(cause)
+        return cause
     if proc.returncode != 0:
         lines = [line.strip() for line in stderr.decode(errors="replace").splitlines() if line.strip()]
-        logger.error(
-            "milo-update-guard commit failed: "
-            + (lines[-1] if lines else f"exit code {proc.returncode}")
+        cause = "milo-update-guard commit failed: " + (
+            lines[-1] if lines else f"exit code {proc.returncode}"
         )
-        return False
-    return True
+        logger.warning(cause)
+        return cause
+    return None
 
 
 async def _finish_milo_update() -> None:
@@ -195,6 +207,11 @@ async def _finish_milo_update() -> None:
     journal is open — found so at start when a post-commit phase was cut. A
     journal the guard should have put back before this start is handed back
     to it first.
+
+    A commit that fails is tried again, COMMIT_ATTEMPTS times in all; past
+    that the trial is let go of (`let_go_of_the_trial`, which says so once, at
+    error): the update screen lifts and the unit may be restarted again, which
+    the guard counts as a start of the trial.
     """
     await update_service.hand_stranded_journal_to_the_guard()
     state = update_service.milo_update_state()
@@ -203,8 +220,16 @@ async def _finish_milo_update() -> None:
             f"Milo {state['to_version']} is on trial: committed if it holds {HOLD_S} s"
         )
         await asyncio.sleep(HOLD_S)
-        while not await _commit_milo_trial():
-            await asyncio.sleep(COMMIT_RETRY_S)
+        for attempt in range(1, COMMIT_ATTEMPTS + 1):
+            cause = await _commit_milo_trial()
+            if cause is None:
+                break
+            if attempt < COMMIT_ATTEMPTS:
+                await asyncio.sleep(COMMIT_RETRY_S)
+        else:
+            # A commit the guard wrote but did not report is found by the
+            # let-go's own read, and is then the post-commit phase's below.
+            await update_service.let_go_of_the_trial(f"{COMMIT_ATTEMPTS} commits failed, the last: {cause}")
     await update_service.run_post_commit()
 
 

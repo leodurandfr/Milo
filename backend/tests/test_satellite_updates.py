@@ -1344,7 +1344,10 @@ class TestUpdateSatelliteDispatch:
     async def test_a_transport_that_dies_mid_update_is_reported_not_raised(
             self, satellite_service, caplog):
         """The route turns this dict into a banner; an exception would reach the
-        client as a 500 with no indication of which satellite failed."""
+        client as a 500 with no indication of which satellite failed. The error
+        names the satellite, and is the failure's one ERROR line: the route
+        logs it, so the service logs none of its own (two lines per failure
+        read as two failures in errors.log)."""
         class _Dropping(_FakeSatellite):
             def post(self, url, **kwargs):
                 raise OSError("Connection reset by peer")
@@ -1354,7 +1357,8 @@ class TestUpdateSatelliteDispatch:
 
         assert result["success"] is False
         assert "Connection reset" in result["error"]
-        assert "dc:a6:32:7e:d3:43" in caplog.text
+        assert "dc:a6:32:7e:d3:43" in result["error"]
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     async def test_the_update_is_posted_to_the_satellites_own_api_port(self, satellite_service):
         """`CLIENT_API_PORT` is the satellite app's only listener; posting to 80
@@ -1446,7 +1450,8 @@ class TestSatelliteUpdateRecoveryArms:
             result = await satellite_service.update_satellite_camilladsp("dc:a6:32:7e:d3:43", CAMILLADSP_TARGET, None)
 
         assert "No route to host" in result["error"]
-        assert "dc:a6:32:7e:d3:43" in caplog.text
+        assert "dc:a6:32:7e:d3:43" in result["error"]
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     async def test_a_camilladsp_satellite_that_stops_answering_is_a_timeout(
             self, satellite_service):

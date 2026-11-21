@@ -818,13 +818,14 @@ An update of a satellite's CamillaDSP is running.
 
 ### programs/program_update_complete
 
-An update of `program` on this unit finished; `success` says whether it worked.
+An update of `program` on this unit finished; `success` says whether it worked, and `error`, when it did not, is the update's own error line. A `milo` update that reached its reboot is announced by the release that starts next, with no `error`: its outcome is `last_update` in GET /api/programs.
 
 | Field | Type |
 |---|---|
 | `success` | boolean |
 | `source` | "program_update" |
 | `program` | string |
+| `error` | string \| null |
 
 ### programs/satellite_update_complete
 

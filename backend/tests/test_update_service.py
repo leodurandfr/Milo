@@ -39,6 +39,8 @@ from backend.config.constants import DEPLOY_UPDATE_CMD
 from backend.core.updates import dpkg_lock
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.update import UpdateService
+from backend.api.programs import create_programs_router
+from backend.core.models.audio_state import AudioSource
 from backend.core.systemd import SystemdServiceManager
 from backend.tests.release_signing import make_key, manifest_for
 
@@ -666,11 +668,19 @@ class TestCanUpdateProgram:
         assert "not supported" in result["reason"].lower()
 
     @pytest.mark.asyncio
-    async def test_no_sudo(self, update_service):
-        with patch.object(update_service, "_run_deploy", return_value=(False, "not accessible")):
+    async def test_no_sudo(self, update_service, caplog):
+        """A broken sudoers rule for milo-deploy-update: the route's refusal is
+        a warning, so this is the one place the server keeps a trace of why."""
+        denied = b"sudo: a password is required"
+        with patch("asyncio.create_subprocess_exec",
+                   return_value=_make_mock_proc(returncode=1, stderr=denied)), \
+                caplog.at_level(logging.ERROR):
             result = await update_service.can_update_program("go-librespot")
         assert result["can_update"] is False
         assert "deploy wrapper" in result["reason"].lower()
+        assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [
+            "milo-deploy-update is not accessible through sudo: sudo: a password is required"
+        ]
 
     @pytest.mark.asyncio
     async def test_no_update_available(self, update_service):
@@ -1180,7 +1190,8 @@ class TestDependencyReconciliation:
 
     @staticmethod
     @contextmanager
-    def _reconciling(service, *, installed=b"1.0.0", tag="v1.0.0", dispatch=None, unreadable=None):
+    def _reconciling(service, *, installed=b"1.0.0", tag="v1.0.0", dispatch=None, unreadable=None,
+                     through_flows=False):
         """Drive the real status chain, and record what was dispatched.
 
         `installed` answers every version command (or, callable, the one whose
@@ -1189,7 +1200,9 @@ class TestDependencyReconciliation:
         production applies. `unreadable` maps a repo to the HTTP status GitHub
         answers its release with instead. No program's file is on disk unless
         a test patches `os.path.lexists` itself: a version nothing could read
-        is then a program the unit does not have.
+        is then a program the unit does not have. `through_flows` records at
+        each program's install flow instead of at `_dispatch_update`, so what
+        the dispatch does before it is run.
         """
         dispatched = []
         answer = dispatch or (lambda *_a: {"success": True})
@@ -1237,9 +1250,73 @@ class TestDependencyReconciliation:
             stack.enter_context(
                 patch("backend.core.updates.update.aiohttp.ClientSession", return_value=_Session())
             )
-            stack.enter_context(patch.object(service, "_dispatch_update", side_effect=record))
+            if through_flows:
+                stack.enter_context(patch.object(service, "_update_binary_program", side_effect=record))
+                for flow, key in (("_update_multiroom", "multiroom"),
+                                  ("_update_shairport_sync", "shairport-sync"),
+                                  ("_update_qobuz_proxy", "qobuz-proxy")):
+                    async def one_flow(status, key=key):
+                        return await record(key, status)
+                    stack.enter_context(patch.object(service, flow, side_effect=one_flow))
+            else:
+                stack.enter_context(patch.object(service, "_dispatch_update", side_effect=record))
             stack.enter_context(patch("backend.core.updates.version.os.path.lexists", return_value=False))
             yield dispatched
+
+    @staticmethod
+    def _playing(service, source):
+        """The programs router over a state machine whose active source is
+        `source`, and the record of what happened in which order: a session
+        ended, a program's install flow reached."""
+        events = []
+        machine = Mock()
+        machine.broadcast = AsyncMock()
+        machine.system_state.active_source = source
+        machine.transition_to_source = AsyncMock(side_effect=lambda to: events.append(("end", to)))
+        create_programs_router(service, Mock(), machine)
+        return events, lambda key, _status: events.append(("install", key)) or {"success": True}
+
+    @pytest.mark.asyncio
+    async def test_the_session_a_dependency_serves_ends_before_its_install(self, update_service):
+        """The reconciliation runs once the update screen has lifted, beside a
+        unit the owner is listening to again: it stopped the daemon under the
+        session — the sound cut, the source left selected over a restarted
+        daemon, and for the library a lost-stream banner. It now ends the
+        session first, as the route's own install does, and only the active
+        source's."""
+        update_service.programs["navidrome"]["validated_version"] = self.BUMPED
+        events, install = self._playing(update_service, AudioSource.MUSIC_LIBRARY)
+
+        with self._reconciling(update_service, dispatch=install, through_flows=True):
+            failed = await update_service._reconcile_dependencies()
+
+        assert failed == []
+        assert ("install", "navidrome") in events
+        assert events.index(("end", AudioSource.NONE)) < events.index(("install", "navidrome"))
+        assert events.count(("end", AudioSource.NONE)) == 1, events
+
+    @pytest.mark.asyncio
+    async def test_the_route_s_install_ends_the_same_session_the_same_way(self, update_service):
+        """One implementation for the two callers: the route's install reaches
+        the flow through the same dispatch, and ends the session there."""
+        update_service.programs["navidrome"]["validated_version"] = self.BUMPED
+        events, install = self._playing(update_service, AudioSource.MUSIC_LIBRARY)
+
+        with self._reconciling(update_service, dispatch=install, through_flows=True):
+            result = await update_service.update_program("navidrome")
+
+        assert result["success"] is True
+        assert events == [("end", AudioSource.NONE), ("install", "navidrome")]
+
+    @pytest.mark.asyncio
+    async def test_a_source_that_is_not_playing_is_left_alone(self, update_service):
+        update_service.programs["navidrome"]["validated_version"] = self.BUMPED
+        events, install = self._playing(update_service, AudioSource.RADIO)
+
+        with self._reconciling(update_service, dispatch=install, through_flows=True):
+            await update_service.update_program("navidrome")
+
+        assert events == [("install", "navidrome")]
 
     @pytest.mark.asyncio
     async def test_a_dependency_off_its_pin_is_brought_to_it(self, update_service):
@@ -5433,6 +5510,83 @@ class TestTheMiloUpdateState:
 
         assert await update_service.dismiss_last_update() is False
         assert path.read_text() == before
+
+
+class TestATrialThatCannotBeCommitted:
+    """A guard that cannot write the journal (a card remounted read-only, a
+    full card) fails every commit the same way. Held, the trial kept the
+    update screen up and refused the reboot and the power-off — the first
+    useful gestures on a sick card — until the unit was unplugged."""
+
+    @staticmethod
+    def _on_trial(update_service, tmp_path):
+        state = tmp_path / "state"
+        update_service.programs["milo"]["state_path"] = str(state)
+        _write_journal(state, **{**TestTheMiloPostCommit.COMMITTED, "step": "rebooting"})
+        completed = []
+
+        async def on_complete(success):
+            completed.append(success)
+
+        update_service.set_milo_update_listener(AsyncMock(), on_complete)
+        return state, completed
+
+    @pytest.mark.asyncio
+    async def test_letting_go_releases_the_unit_and_says_so_once(self, update_service, tmp_path, caplog):
+        state, completed = self._on_trial(update_service, tmp_path)
+        assert update_service.milo_update_active
+        journal = (state / "journal.json").read_bytes()
+
+        with caplog.at_level(logging.WARNING):
+            await update_service.let_go_of_the_trial("5 commits failed, the last: OSError: Read-only file system")
+
+        assert not update_service.milo_update_active, "the reboot and the power-off are still refused"
+        assert update_service.milo_update_state() is None, "the update screen is still drawn"
+        assert completed == [False], "no screen was told the update screen lifts"
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(errors) == 1
+        assert update_service.milo_update_holds_installs, "an install may start over the open trial"
+        assert (state / "journal.json").read_bytes() == journal, "the trial's journal is the next start's"
+
+    @pytest.mark.asyncio
+    async def test_the_next_start_takes_the_trial_up_again(self, update_service, tmp_path, mock_settings_service):
+        """Let go of in memory only: the journal is the next process's, which
+        holds the unit through the trial again and commits it once it holds."""
+        state, _ = self._on_trial(update_service, tmp_path)
+        await update_service.let_go_of_the_trial("the guard failed")
+
+        restarted = UpdateService(systemd_manager=Mock(), satellite_update_service=Mock(),
+                                  settings_service=mock_settings_service)
+        restarted.programs["milo"]["state_path"] = str(state)
+        assert restarted.milo_update_active
+        assert restarted.milo_update_state()["phase"] == "verify"
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_let_go_of_past_the_trial(self, update_service, tmp_path, caplog):
+        """A commit that landed meanwhile (another attempt, the guard's own
+        start) is a post-commit phase to run, not a trial to give up."""
+        state = tmp_path / "state"
+        update_service.programs["milo"]["state_path"] = str(state)
+        _write_journal(state, **TestTheMiloPostCommit.COMMITTED)
+
+        with caplog.at_level(logging.ERROR):
+            let_go = await update_service.let_go_of_the_trial("the guard failed")
+
+        assert not let_go
+        assert update_service.milo_update_active
+        assert not caplog.records
+
+    @pytest.mark.asyncio
+    async def test_a_commit_the_guard_wrote_meanwhile_is_read_off_the_card(self, update_service, tmp_path):
+        """The guard writes the journal from another process: a trial read
+        before its commit landed is not one to let go of."""
+        state, completed = self._on_trial(update_service, tmp_path)
+        assert update_service.milo_update_state()["phase"] == "verify"
+        _write_journal(state, **TestTheMiloPostCommit.COMMITTED)
+
+        assert not await update_service.let_go_of_the_trial("the guard failed")
+        assert update_service.milo_update_state()["phase"] == "dependencies"
+        assert completed == []
 
 
 class TestAJournalTheGuardDidNotClose:

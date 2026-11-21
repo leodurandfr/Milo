@@ -83,6 +83,13 @@ export const useUpdatesStore = defineStore('updates', () => {
   // of the inventory with nothing more to install on that row.
   const satelliteUpdateFailures = ref({});
   const satelliteCamillaFailures = ref({});
+  // The last install of each of this unit's programs that did not take, by
+  // key: {error, target, version} — the update's own error line, raw, and what
+  // the press asked for, so the row's Retry asks it again. From the completion
+  // alone, like the satellites' two above: until that program's next success,
+  // or a read of the inventory with nothing left to install on that row.
+  // Milō's own outcome is `lastUpdate`, never this.
+  const localUpdateFailures = ref({});
 
   // === COMPUTED ===
 
@@ -233,6 +240,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     if (result.ok) {
       localPrograms.value = result.data.programs || {};
       reconcileActiveUpdates(localUpdateStates, result.data.active_updates || [], newer);
+      forgetSettledLocalFailures(localPrograms.value, newer);
       // "Completed" means an update finished and this list had not caught up
       // yet — it suppresses one stale frame, nothing more. Kept past the
       // refetch it would outlive its purpose and hide the row's real state:
@@ -265,6 +273,23 @@ export const useUpdatesStore = defineStore('updates', () => {
     satelliteAppFailures.value = Object.fromEntries(list
       .filter(s => s.app_update_failure)
       .map(s => [s.mac_id, { verdict: s.app_update_failure.verdict, detail: s.app_update_failure.detail ?? null }]));
+  }
+
+  // Whether a local program's row offers anything to install: the update
+  // button (the manifest's version, or upstream's past it) or the tag menu.
+  function offersAnInstall(program) {
+    const latest = program?.latest;
+    return !!program && !!(program.update_available || latest?.upstream?.ahead
+      || latest?.trials?.length || latest?.validated);
+  }
+
+  // The local rows' twin of forgetSettledProgramFailures below. `newer` holds
+  // the programs whose state moved after the read left: a failure that landed
+  // meanwhile is newer than the answer.
+  function forgetSettledLocalFailures(programs, newer) {
+    for (const id of Object.keys(localUpdateFailures.value)) {
+      if (!newer.has(id) && !offersAnInstall(programs[id])) delete localUpdateFailures.value[id];
+    }
   }
 
   // A program failure is about an install still on offer: once a read shows
@@ -419,6 +444,9 @@ export const useUpdatesStore = defineStore('updates', () => {
   function satelliteCamillaFailure(macId) {
     return satelliteCamillaFailures.value[macId] || null;
   }
+  function localUpdateFailure(programKey) {
+    return localUpdateFailures.value[programKey] || null;
+  }
 
   // Closed at once here, then for every screen by the server, which announces
   // it to the others. A read in flight answers from before the close, so it is
@@ -564,10 +592,21 @@ export const useUpdatesStore = defineStore('updates', () => {
   }
   // Sent once the arriving release has finished its satellites, or when the
   // leaving one refused before anything moved. Never before the reboot.
+  // Any other program's failure stays on its row, read before the completion
+  // drops what the press asked for.
   function handleProgramUpdateComplete(payload) {
     if (payload.program === 'milo') {
       applyMiloUpdate(null);
       touchLocal('milo');
+    } else if (payload.program && payload.success) {
+      delete localUpdateFailures.value[payload.program];
+    } else if (payload.program) {
+      const asked = localUpdateStates.value[payload.program];
+      localUpdateFailures.value[payload.program] = {
+        error: payload.error ?? null,
+        target: asked?.target ?? null,
+        version: asked?.version ?? null,
+      };
     }
     completeProgramUpdate(payload);
   }
@@ -672,6 +711,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     satelliteAppFailure,
     satelliteUpdateFailure,
     satelliteCamillaFailure,
+    localUpdateFailure,
     localUpdateTarget,
     localUpdateVersion,
     isMiloUpdating,

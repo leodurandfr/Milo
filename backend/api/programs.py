@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Mapping from program key to AudioSource for pre-update deactivation
+# The source each program's daemon plays for: its session ends before an install.
 PROGRAM_TO_AUDIO_SOURCE = {
     'go-librespot': AudioSource.SPOTIFY,
     'shairport-sync': AudioSource.AIRPLAY,
@@ -116,9 +116,10 @@ def create_programs_router(
 
     def _running() -> set[str]:
         """The in-flight keys, `milo` included while the update service says a
-        Milō update holds the unit: its journal outlives this process, and the
-        release that arrives inherits the claim with it."""
-        if update_service.milo_update_active:
+        Milō update holds the installs: its journal outlives this process, and
+        the release that arrives inherits the claim with it. A trial let go of
+        still holds it (`milo_update_holds_installs`): only a restart frees it."""
+        if update_service.milo_update_holds_installs:
             return active_updates | {"milo"}
         return set(active_updates)
 
@@ -170,21 +171,29 @@ def create_programs_router(
                 return running
         return None
 
-    def _cannot_update(check: dict) -> dict:
-        """The refusal envelope of a check `can_update_program` did not pass."""
-        return {"status": "error", "message": check.get("reason", "Cannot update")}
+    def _refusal(message: str) -> HTTPException:
+        """An update the unit will not start now: 409, like the power routes'
+        `refuse_while_milo_updates`. Warning, not error: the refusal is the
+        route working, and whatever failed behind it has logged its own line."""
+        logger.warning(f"Update refused: {message}")
+        return HTTPException(status_code=409, detail=message)
 
-    def _refuse(blocker: str, update_key: str) -> dict:
-        """The refusal envelope, naming what is in the way when it is not this key."""
+    def _cannot_update(check: dict) -> HTTPException:
+        """The refusal of a check `can_update_program` did not pass."""
+        return _refusal(check.get("reason", "Cannot update"))
+
+    def _refuse(blocker: str, update_key: str) -> HTTPException:
+        """The refusal naming what is in the way, when it is not this key."""
+        if blocker == "milo" and "milo" not in active_updates and not update_service.milo_update_active:
+            # Only the journal claims it: a trial let go of. Nothing runs, and
+            # waiting finishes nothing — the restart it was let go of for does.
+            return _refusal(
+                "The Milō update on trial could not be committed; no other update "
+                "starts before the unit is restarted"
+            )
         if blocker == update_key:
-            return {
-                "status": "error",
-                "message": f"Update already in progress for {update_key}",
-            }
-        return {
-            "status": "error",
-            "message": f"An update is already in progress for {blocker}; it must finish first",
-        }
+            return _refusal(f"Update already in progress for {update_key}")
+        return _refusal(f"An update is already in progress for {blocker}; it must finish first")
 
     def _create_background_update(
         update_key: str,
@@ -192,7 +201,6 @@ def create_programs_router(
         progress_event_cls: type[ProgramsProgressEvent],
         complete_event_cls: type[ProgramsCompleteEvent],
         identifier: dict,
-        pre_update_fn=None,
         complete_fields: Optional[Callable[[dict], dict]] = None,
     ):
         """Create the background task that runs one update and broadcasts it.
@@ -237,9 +245,6 @@ def create_programs_router(
                 # phase said nothing a client did not already know.
                 await state_machine.broadcast(progress_event_cls(**identifier))
 
-                if pre_update_fn:
-                    await pre_update_fn()
-
                 result = await update_fn()
                 release()
 
@@ -262,6 +267,7 @@ def create_programs_router(
                     "success": False,
                     "verdict": "did_not_return",
                     "detail": f"{type(e).__name__}: {e}",
+                    "error": f"{type(e).__name__}: {e}",
                 }))
 
         return do_update
@@ -281,6 +287,15 @@ def create_programs_router(
         _claims_moved()
         await state_machine.broadcast(ProgramUpdateComplete(program="milo", success=success))
 
+    async def _end_session_of(program_key: str) -> None:
+        """End the session of the source `program_key`'s daemon plays for, when
+        it is the active one — before its install stops that daemon."""
+        audio_source = PROGRAM_TO_AUDIO_SOURCE.get(program_key)
+        if audio_source and state_machine.system_state.active_source == audio_source:
+            await state_machine.transition_to_source(AudioSource.NONE)
+
+    update_service.set_session_ender(_end_session_of)
+
     # The install, the reboot and the post-commit phase run in two processes,
     # so a Milō update's progress cannot ride on the background task the route
     # starts: the update service announces it, and this is where it is heard.
@@ -298,9 +313,16 @@ def create_programs_router(
         # that await would otherwise be listed as it stood when the read began.
         # `milo_update` is where a Milō update stands (the shape of
         # program_update_progress), `last_update` how the last one ended.
+        # `milo` is listed while a Milō update runs (`milo_update_active`), not
+        # while a trial let go of still holds the installs: nothing runs then,
+        # and listed, every client drew the Milō row "Updating…" for good and
+        # disabled every other row, read as an update to wait for when the
+        # restart is the gesture the let-go frees. `_blocker` still refuses
+        # the installs, with a 409 that says so.
         def _in_flight() -> dict:
+            running = active_updates | ({"milo"} if update_service.milo_update_active else set())
             return {
-                "active_updates": sorted(k for k in _running() if not k.startswith("satellite_")),
+                "active_updates": sorted(k for k in running if not k.startswith("satellite_")),
                 "milo_update": update_service.milo_update_state(),
                 "last_update": update_service.last_update_record(),
             }
@@ -476,14 +498,15 @@ def create_programs_router(
             return None
         version = latest.get("version")
         if not version:
+            logger.error(f"Cannot resolve the {program_key} version for the fleet: GitHub named none")
             return None
         return version, update_service.declared_sha256(program_key, version, asset)
 
     async def _claim_fleet_push(
         satellite_key: str, program_key: str, asset: str, label: str, presence: PresenceAnswer,
-    ) -> tuple[str, Optional[str]] | dict:
+    ) -> tuple[str, Optional[str]]:
         """What a satellite push installs, `(version, sha256)`, with its key
-        claimed — or the refusal to answer.
+        claimed — or the refusal, raised.
 
         A version with no digest is one past the manifest: the fleet follows the
         server, and the server runs one while the owner tries it
@@ -495,17 +518,17 @@ def create_programs_router(
         """
         blocker = _blocker(satellite_key)
         if blocker:
-            return _refuse(blocker, satellite_key)
+            raise _refuse(blocker, satellite_key)
         target = await _fleet_target(program_key, asset)
         if target is None:
-            return {"status": "error", "message": f"Could not resolve the {label} version to install"}
+            raise _refusal(f"Could not resolve the {label} version to install")
         if target[1] is None:
             await require_presence(presence_service, PresenceAction.SATELLITE_PROGRAM_UPSTREAM, presence)
         # The claim checks and writes with no await between: a second device
         # that passed the same checks meanwhile is refused here.
         blocker = _claim_update(satellite_key)
         if blocker:
-            return _refuse(blocker, satellite_key)
+            raise _refuse(blocker, satellite_key)
         return target
 
     def _verdict_fields(result: dict) -> dict:
@@ -582,8 +605,6 @@ def create_programs_router(
         satellite_key = f"satellite_{mac_id}"
 
         target = await _claim_fleet_push(satellite_key, "multiroom", "snapclient", "snapclient", presence)
-        if isinstance(target, dict):
-            return target
         target_version, sha256 = target
 
         do_update = _create_background_update(
@@ -610,7 +631,7 @@ def create_programs_router(
 
         blocker = _claim_update(satellite_key)
         if blocker:
-            return _refuse(blocker, satellite_key)
+            raise _refuse(blocker, satellite_key)
 
         background_tasks.add_task(_app_push(mac_id))
 
@@ -631,8 +652,6 @@ def create_programs_router(
         satellite_key = f"satellite_camilladsp_{mac_id}"
 
         target = await _claim_fleet_push(satellite_key, "camilladsp", "main", "CamillaDSP", presence)
-        if isinstance(target, dict):
-            return target
         target_version, sha256 = target
 
         do_update = _create_background_update(
@@ -693,22 +712,22 @@ def create_programs_router(
         if payload.target == "upstream":
             blocker = _blocker(program_key)
             if blocker:
-                return _refuse(blocker, program_key)
+                raise _refuse(blocker, program_key)
             can_update = await update_service.can_update_program(
                 program_key, payload.target, payload.version
             )
             if not can_update.get("can_update"):
-                return _cannot_update(can_update)
+                raise _cannot_update(can_update)
             await require_presence(presence_service, PresenceAction.PROGRAM_UPSTREAM, presence)
             # The claim checks and writes with no await between: a second
             # device that passed the same checks meanwhile is refused here.
             blocker = _claim_update(program_key)
             if blocker:
-                return _refuse(blocker, program_key)
+                raise _refuse(blocker, program_key)
         else:
             blocker = _claim_update(program_key)
             if blocker:
-                return _refuse(blocker, program_key)
+                raise _refuse(blocker, program_key)
 
             try:
                 can_update = await update_service.can_update_program(
@@ -720,12 +739,7 @@ def create_programs_router(
 
             if not can_update.get("can_update"):
                 _release(program_key)
-                return _cannot_update(can_update)
-
-        async def _deactivate_if_needed():
-            audio_source = PROGRAM_TO_AUDIO_SOURCE.get(program_key)
-            if audio_source and state_machine.system_state.active_source == audio_source:
-                await state_machine.transition_to_source(AudioSource.NONE)
+                raise _cannot_update(can_update)
 
         do_update = _create_background_update(
             update_key=program_key,
@@ -735,7 +749,7 @@ def create_programs_router(
             progress_event_cls=ProgramUpdateProgress,
             complete_event_cls=ProgramUpdateComplete,
             identifier={"program": program_key},
-            pre_update_fn=_deactivate_if_needed,
+            complete_fields=lambda result: {"error": result.get("error")},
         )
 
         background_tasks.add_task(do_update)

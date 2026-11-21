@@ -69,6 +69,7 @@ def updates(monkeypatch):
     service.run_post_commit = AsyncMock()
     service.release_stale_inhibitor = AsyncMock()
     service.hand_stranded_journal_to_the_guard = AsyncMock()
+    service.let_go_of_the_trial = AsyncMock()
     monkeypatch.setattr(main, "update_service", service)
     return service
 
@@ -102,19 +103,45 @@ class TestTheTrial:
 
     async def test_a_failed_commit_is_tried_again_until_it_lands(self, guard, updates, monkeypatch, caplog):
         """Left open over a release that held, the trial refuses every update
-        and every reboot, and rolls that release back two restarts later."""
+        and every reboot, and rolls that release back two restarts later. An
+        attempt that fails is a warning: one that lands after it is no error."""
         monkeypatch.setattr(main, "HOLD_S", 0)
         updates.milo_update_state.return_value = ON_TRIAL
         guard.fail_next(1, 1)
 
-        with caplog.at_level(logging.ERROR, logger=main.logger.name):
+        with caplog.at_level(logging.WARNING, logger=main.logger.name):
             await main._finish_milo_update()
 
         assert guard.calls() == ["commit"] * 3
         updates.run_post_commit.assert_awaited_once()
-        failures = [r.message for r in caplog.records if "commit failed" in r.message]
+        updates.let_go_of_the_trial.assert_not_awaited()
+        failures = [r for r in caplog.records if "commit failed" in r.message]
         assert len(failures) == 2
-        assert failures[0].endswith("No space left"), "the guard's own line is the diagnosis"
+        assert failures[0].message.endswith("No space left"), "the guard's own line is the diagnosis"
+        assert all(r.levelno == logging.WARNING for r in failures)
+
+    async def test_a_commit_that_keeps_failing_lets_go_of_the_unit(self, guard, updates, monkeypatch, caplog):
+        """A guard that cannot write the journal (a card remounted read-only)
+        fails the same way every minute: tried for good, the update screen
+        stayed up and the reboot stayed refused until the unit was unplugged.
+        Past COMMIT_ATTEMPTS the unit is let go of, with the guard's own line,
+        and nothing is said at error here — the update service says it once."""
+        monkeypatch.setattr(main, "HOLD_S", 0)
+        monkeypatch.setattr(main, "COMMIT_ATTEMPTS", 3)
+        updates.milo_update_state.return_value = ON_TRIAL
+        updates.let_go_of_the_trial = AsyncMock()
+        guard.fail_next(1, 1, 1, 1, 1)
+
+        with caplog.at_level(logging.WARNING, logger=main.logger.name):
+            await main._finish_milo_update()
+
+        assert guard.calls() == ["commit"] * 3
+        updates.let_go_of_the_trial.assert_awaited_once()
+        (cause,) = updates.let_go_of_the_trial.await_args.args
+        assert cause.endswith("No space left")
+        # Asked for anyway: a no-op unless the let-go found the journal committed.
+        updates.run_post_commit.assert_awaited_once()
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     async def test_a_guard_that_hangs_is_killed_and_tried_again(self, tmp_path, monkeypatch):
         monkeypatch.setattr(main, "GUARD_TIMEOUT_S", 0.2)
@@ -124,7 +151,7 @@ class TestTheTrial:
         script.chmod(0o755)
         monkeypatch.setattr(main, "GUARD", str(script))
 
-        assert await main._commit_milo_trial() is False
+        assert "did not finish" in await main._commit_milo_trial()
 
         pid = int(pid_file.read_text())
         with pytest.raises(ProcessLookupError):

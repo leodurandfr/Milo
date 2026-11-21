@@ -130,6 +130,10 @@
                         <div v-if="rows[key].checkFailed" class="program-failure">
                           <span class="text-body-small failure-cause">{{ t('updates.checkFailed') }}</span>
                         </div>
+                        <!-- The last install that did not take, in its own words. -->
+                        <div v-if="localFailureShown(key) && localUpdateFailure(key).error" class="program-failure">
+                          <span class="text-mono-small failure-detail">{{ localUpdateFailure(key).error }}</span>
+                        </div>
                       </div>
 
                       <div class="program-actions">
@@ -163,11 +167,24 @@
                                 @click="toggle" />
                             </template>
                           </Dropdown>
+                          <!-- After an install that did not take, the press is a
+                               retry of what was asked — while the row still offers
+                               one: an install that landed and whose service did not
+                               start again has nothing left to retry. -->
+                          <template v-if="retryShown(key)">
+                            <Button size="small" variant="brand" class="program-button action-wide"
+                              @click="retryLocal(key)" :disabled="isLocalUpdateBusy()">
+                              {{ t('updates.retry') }}
+                            </Button>
+                            <IconButton icon="arrowClockwise" variant="brand" size="small"
+                              class="action-compact row-icon-button" :aria-label="t('updates.retry')"
+                              @click="retryLocal(key)" :disabled="isLocalUpdateBusy()" />
+                          </template>
                           <!-- One button for both kinds of update: the manifest's
                                version, and what upstream published past it. Which
                                one it is comes from the backend, never from a
                                comparison here. -->
-                          <template v-if="rows[key].update && canUpdateLocal(key)">
+                          <template v-else-if="rows[key].update && canUpdateLocal(key)">
                             <Button size="small" variant="brand" class="program-button action-wide"
                               @click="startLocalUpdate(key, rows[key].update.target)"
                               :disabled="isLocalUpdateBusy()">
@@ -180,7 +197,7 @@
                           </template>
                           <!-- Up to date is an answer GitHub gave: a check that
                                did not reach it offers the check again instead. -->
-                          <template v-if="!rows[key].update && rows[key].checkFailed">
+                          <template v-else-if="!rows[key].update && rows[key].checkFailed">
                             <Button size="small" variant="control" class="program-button action-wide"
                               :loading="rechecking" :disabled="rechecking" @click="recheck">
                               {{ t('updates.retry') }}
@@ -483,7 +500,7 @@ const {
   isSatelliteAppUpdating, isSatelliteAppUpdateCompleted,
   isSatelliteCamillaUpdating, isSatelliteCamillaUpdateCompleted,
   isSatelliteAwaitingReturn, satelliteAppFailure, satelliteUpdateFailure, satelliteCamillaFailure,
-  localUpdateTarget, localUpdateVersion,
+  localUpdateFailure, localUpdateTarget, localUpdateVersion,
   isMiloUpdating, isLocalUpdateBusy, isAnySatelliteUpdating, isSatelliteBusy, isSatelliteAppBlocked,
 } = updatesStore;
 
@@ -668,6 +685,26 @@ function runningLabel(programKey) {
   if (version) return t('updates.installingVersion', { version });
   if (isFromMenu(programKey)) return t('updates.revertingTo', { version: rows.value[programKey].validated });
   return t('updates.updating');
+}
+
+// Milō's row has its own outcome (`miloUpdateFailure`); every other row keeps
+// its last failed install until the next one ends.
+function localFailureShown(programKey) {
+  return programKey !== 'milo' && !!localUpdateFailure(programKey) && !isLocalUpdating(programKey);
+}
+
+function retryShown(programKey) {
+  const row = rows.value[programKey];
+  return localFailureShown(programKey) && canUpdateLocal(programKey)
+    && !!(row?.update || row?.choices.length);
+}
+
+// The same install again: the release the press named, else — a screen that
+// only learned of the update from the server — the one the row offers.
+function retryLocal(programKey) {
+  const failure = localUpdateFailure(programKey);
+  const target = failure?.target || rows.value[programKey]?.update?.target || 'validated';
+  startLocalUpdate(programKey, target, target === 'upstream' ? failure?.version : null);
 }
 
 function installVersion(programKey, version) {

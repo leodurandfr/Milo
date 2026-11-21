@@ -659,6 +659,63 @@ describe('updatesStore satellite program install failure', () => {
 });
 
 
+describe('updatesStore local program install failure', () => {
+  // A program update that failed (rolled back, a service that did not restart)
+  // reached the row as nothing at all: the spinner went, the button came back
+  // as "Update", and the reason was in the server's log alone. The completion
+  // is the only word of it here, as for the satellites' programs.
+  let store;
+
+  const inventory = (row = {}) => ok({ programs: { navidrome: { update_available: true, ...row } }, active_updates: [] });
+
+  beforeEach(async () => {
+    resetApiCallMock();
+    store = useUpdatesStore();
+    apiCall.get.mockResolvedValue(inventory());
+    await store.loadLocalPrograms();
+  });
+
+  it('keeps the failure, raw, with what the press asked for, until a success or a read with nothing to install', async () => {
+    apiCall.post.mockResolvedValue(ok({ status: 'success' }));
+    await store.startLocalUpdate('navidrome', 'upstream', '0.60.0');
+    const error = 'Failed to start Navidrome after update. Rolled back to previous version.';
+    store.handleProgramUpdateComplete({ program: 'navidrome', success: false, error });
+
+    expect(store.localUpdateFailure('navidrome')).toEqual({ error, target: 'upstream', version: '0.60.0' });
+
+    // Still offered: the version did not move, the failure is still the row's.
+    await store.loadLocalPrograms();
+    expect(store.localUpdateFailure('navidrome')?.error).toBe(error);
+
+    // Installed since, from another screen: the row is up to date.
+    apiCall.get.mockResolvedValue(inventory({ update_available: false }));
+    await store.loadLocalPrograms();
+    expect(store.localUpdateFailure('navidrome')).toBeNull();
+
+    store.handleProgramUpdateComplete({ program: 'navidrome', success: false, error });
+    store.handleProgramUpdateComplete({ program: 'navidrome', success: true });
+    expect(store.localUpdateFailure('navidrome')).toBeNull();
+  });
+
+  it('a read that left before the failure does not forget it', async () => {
+    let answer;
+    apiCall.get.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    const load = store.loadLocalPrograms();
+    store.handleProgramUpdateComplete({ program: 'navidrome', success: false, error: 'pip install failed' });
+    answer(inventory({ update_available: false }));
+    await load;
+
+    expect(store.localUpdateFailure('navidrome')?.error).toBe('pip install failed');
+  });
+
+  it('a failed Milō update is the last-update record\'s, never a program row\'s', () => {
+    store.handleProgramUpdateComplete({ program: 'milo', success: false });
+
+    expect(store.localUpdateFailure('milo')).toBeNull();
+  });
+});
+
+
 describe('updatesStore Milō update', () => {
   let store;
 

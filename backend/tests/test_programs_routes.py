@@ -13,10 +13,10 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 
 from backend.api.models import LastUpdatePatch, ProgramUpdateRequest
-from backend.api.programs import create_programs_router
+from backend.api.programs import create_programs_router, refuse_while_milo_updates
 from backend.api.route_helpers import PresenceAnswer
 from backend.core.updates import milo_journal as mj
 from backend.core.updates.dependency_versions import load_dependency_manifest
@@ -45,10 +45,21 @@ def _endpoint(router, path: str, method: str = "POST"):
     raise AssertionError(f"no {method} {path} in the router")
 
 
+async def _refused(call) -> str:
+    """The detail of the 409 an update route answers a refusal with — the
+    power routes' code for the same conflict (`refuse_while_milo_updates`)."""
+    with pytest.raises(HTTPException) as refusal:
+        await call
+    assert refusal.value.status_code == 409
+    return refusal.value.detail
+
+
 def idle_milo(update_service):
     """The Milō-update surface of an update service with no journal open; a
-    bare MagicMock answers a truthy `milo_update_active`, which claims `milo`."""
+    bare MagicMock answers a truthy `milo_update_holds_installs`, which claims
+    `milo`."""
     update_service.milo_update_active = False
+    update_service.milo_update_holds_installs = False
     update_service.milo_update_state = MagicMock(return_value=None)
     update_service.last_update_record = MagicMock(return_value=None)
     return update_service
@@ -98,8 +109,11 @@ async def test_two_clients_racing_the_same_update_start_only_one(router):
     await asyncio.sleep(0)
     gate.set()
 
-    results = [r["status"] for r in await asyncio.gather(first, second)]
-    assert sorted(results) == ["error", "success"]
+    results = await asyncio.gather(first, second, return_exceptions=True)
+    answers = sorted(
+        str(r.status_code) if isinstance(r, HTTPException) else r["status"] for r in results
+    )
+    assert answers == ["409", "success"]
 
 
 async def test_a_refused_update_releases_the_key(router):
@@ -113,8 +127,7 @@ async def test_a_refused_update_releases_the_key(router):
     router.update_service.can_update_program = AsyncMock(
         return_value={"can_update": False, "reason": "Already up to date"}
     )
-    refused = await endpoint("go-librespot", VALIDATED, BackgroundTasks())
-    assert refused["status"] == "error"
+    await _refused(endpoint("go-librespot", VALIDATED, BackgroundTasks()))
 
     router.update_service.can_update_program = AsyncMock(
         return_value={"can_update": True, "available_version": "1.2.3"}
@@ -151,7 +164,7 @@ async def test_the_satellite_routes_claim_their_key_too(router):
     ):
         endpoint = _endpoint(router, path)
         assert (await endpoint(mac, BackgroundTasks()))["status"] == "success"
-        assert (await endpoint(mac, BackgroundTasks()))["status"] == "error"
+        await _refused(endpoint(mac, BackgroundTasks()))
 
 
 async def test_the_milo_update_blocks_every_other_one(router):
@@ -167,13 +180,11 @@ async def test_the_milo_update_blocks_every_other_one(router):
 
     assert (await program("milo", VALIDATED, BackgroundTasks()))["status"] == "success"
 
-    refused = await satellite("aa:bb:cc:dd:ee:ff", BackgroundTasks())
-    assert refused["status"] == "error"
-    assert "milo" in refused["message"]
+    refused = await _refused(satellite("aa:bb:cc:dd:ee:ff", BackgroundTasks()))
+    assert "milo" in refused
 
-    refused = await program("go-librespot", VALIDATED, BackgroundTasks())
-    assert refused["status"] == "error"
-    assert "milo" in refused["message"]
+    refused = await _refused(program("go-librespot", VALIDATED, BackgroundTasks()))
+    assert "milo" in refused
 
 
 async def test_a_running_satellite_update_blocks_the_milo_one(router):
@@ -188,9 +199,8 @@ async def test_a_running_satellite_update_blocks_the_milo_one(router):
 
     assert (await satellite("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
 
-    refused = await program("milo", VALIDATED, BackgroundTasks())
-    assert refused["status"] == "error"
-    assert "aa:bb:cc:dd:ee:ff" in refused["message"]
+    refused = await _refused(program("milo", VALIDATED, BackgroundTasks()))
+    assert "aa:bb:cc:dd:ee:ff" in refused
 
 
 async def test_two_local_programs_exclude_each_other(router):
@@ -199,9 +209,8 @@ async def test_two_local_programs_exclude_each_other(router):
 
     assert (await endpoint("go-librespot", VALIDATED, BackgroundTasks()))["status"] == "success"
 
-    refused = await endpoint("navidrome", VALIDATED, BackgroundTasks())
-    assert refused["status"] == "error"
-    assert "go-librespot" in refused["message"]
+    refused = await _refused(endpoint("navidrome", VALIDATED, BackgroundTasks()))
+    assert "go-librespot" in refused
 
 
 async def test_a_satellite_blocks_its_own_three_keys_and_no_one_else(router):
@@ -212,8 +221,8 @@ async def test_a_satellite_blocks_its_own_three_keys_and_no_one_else(router):
 
     assert (await snapclient("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
 
-    assert (await app("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "error"
-    assert (await camilladsp("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "error"
+    await _refused(app("aa:bb:cc:dd:ee:ff", BackgroundTasks()))
+    await _refused(camilladsp("aa:bb:cc:dd:ee:ff", BackgroundTasks()))
 
     # A second speaker is untouched — updating one room must not lock the other.
     assert (await app("11:22:33:44:55:66", BackgroundTasks()))["status"] == "success"
@@ -232,8 +241,7 @@ async def test_a_satellite_update_with_no_resolvable_version_never_starts(router
         return_value={"status": "error", "message": "API rate limit exceeded"}
     )
 
-    refused = await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks())
-    assert refused["status"] == "error"
+    await _refused(endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))
 
     # The key was released, so the update is still startable once GitHub answers.
     router.update_service.get_latest_github_version = AsyncMock(
@@ -311,6 +319,41 @@ async def test_an_update_announces_itself_once(router):
 
     # The key is released, so the same program can be updated again.
     assert (await endpoint("go-librespot", VALIDATED, BackgroundTasks()))["status"] == "success"
+
+
+async def test_a_failed_update_is_one_error_and_its_row_keeps_the_line(
+    tmp_path, mock_settings_service, caplog,
+):
+    """One failure, one ERROR. The service logged it, then the route again: the
+    banner showing one line a second threw the route's away, and errors.log
+    counted every failure twice, which a triage reads as two. The completion
+    carries the same line, for the row that keeps it under its Retry.
+
+    A real update service, whose status read fails the way GitHub does."""
+    with patch.dict("os.environ", {}, clear=True):
+        service = UpdateService(
+            systemd_manager=MagicMock(), satellite_update_service=MagicMock(),
+            settings_service=mock_settings_service,
+        )
+    service.programs["milo"]["state_path"] = str(tmp_path / "app-update")
+    service.can_update_program = AsyncMock(return_value={"can_update": True})
+    service.get_program_full_status = AsyncMock(side_effect=RuntimeError("api.github.com timed out"))
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(service, MagicMock(), state_machine)
+    tasks = BackgroundTasks()
+    await _endpoint(r, "/api/programs/{program_key}/update")("go-librespot", VALIDATED, tasks)
+
+    with caplog.at_level(logging.WARNING):
+        await tasks()
+
+    errors = [rec for rec in caplog.records if rec.levelno >= logging.ERROR]
+    assert len(errors) == 1, [rec.getMessage() for rec in errors]
+    (complete,) = [c.args[0] for c in state_machine.broadcast.await_args_list
+                   if isinstance(c.args[0], ProgramUpdateComplete)]
+    assert complete.success is False
+    assert complete.error and complete.error in errors[0].getMessage(), \
+        "the row's line is not the failure the server logged"
 
 
 async def test_a_chosen_version_reaches_the_check_and_the_install(router):
@@ -399,9 +442,8 @@ async def test_two_app_pushes_wait_for_each_other_whatever_the_satellite(router)
 
     assert (await app("aa:bb:cc:dd:ee:01", BackgroundTasks()))["status"] == "success"
 
-    refused = await app("aa:bb:cc:dd:ee:02", BackgroundTasks())
-    assert refused["status"] == "error"
-    assert "satellite_app_aa:bb:cc:dd:ee:01" in refused["message"]
+    refused = await _refused(app("aa:bb:cc:dd:ee:02", BackgroundTasks()))
+    assert "satellite_app_aa:bb:cc:dd:ee:01" in refused
 
     assert (await snapclient("aa:bb:cc:dd:ee:02", BackgroundTasks()))["status"] == "success"
 
@@ -457,8 +499,8 @@ async def test_a_claim_taken_during_the_completion_broadcast_is_kept(router):
     gate.set()
     await asyncio.wait_for(finishing, timeout=5)
 
-    assert (await app(mac, BackgroundTasks()))["status"] == "error"
-    assert (await app(other, BackgroundTasks()))["status"] == "error"
+    await _refused(app(mac, BackgroundTasks()))
+    await _refused(app(other, BackgroundTasks()))
 
 
 @pytest.mark.parametrize("path, push, event", [
@@ -537,6 +579,7 @@ class TestTheAdmissionPush:
         the fleet before this satellite was back: the push waits for the
         update's end, then asks again whether it is owed."""
         admission.update_service.milo_update_active = True
+        admission.update_service.milo_update_holds_installs = True
         owed = AsyncMock(return_value=True)
 
         waiting = asyncio.create_task(admission.runner(self.MAC, owed))
@@ -545,6 +588,7 @@ class TestTheAdmissionPush:
         admission.satellites.update_satellite_app.assert_not_awaited()
 
         admission.update_service.milo_update_active = False
+        admission.update_service.milo_update_holds_installs = False
         (_, on_complete), _ = admission.update_service.set_milo_update_listener.call_args
         await on_complete(True)
         await asyncio.wait_for(waiting, timeout=5)
@@ -721,14 +765,64 @@ async def test_the_release_that_arrives_inherits_the_milo_claim(tmp_path, mock_s
 
     program = _endpoint(r, "/api/programs/{program_key}/update")
     for key in ("go-librespot", "milo"):
-        refused = await program(key, VALIDATED, BackgroundTasks())
-        assert refused["status"] == "error"
-        assert "milo" in refused["message"]
-    refused = await _endpoint(r, "/api/programs/satellites/{mac_id}/update-app")(
+        refused = await _refused(program(key, VALIDATED, BackgroundTasks()))
+        assert "milo" in refused
+    refused = await _refused(_endpoint(r, "/api/programs/satellites/{mac_id}/update-app")(
         "aa:bb:cc:dd:ee:ff", BackgroundTasks()
-    )
-    assert refused["status"] == "error"
+    ))
     service.can_update_program.assert_not_awaited()
+
+
+async def test_a_trial_let_go_of_frees_the_restart_and_no_install(tmp_path, mock_settings_service):
+    """A trial the guard cannot commit is let go of so that the unit may be
+    restarted, and nothing more: the satellites and the dependency set move
+    only once a trial has committed. Freed with the restart, every admission
+    push waiting on `milo` woke at the let-go and pushed the uncommitted
+    release's client app, a speaker restarted in every room for a release the
+    guard may still put back."""
+    service = _milo_unit(tmp_path, mock_settings_service, mj.TRIAL_STEP)
+    satellites = MagicMock()
+    satellites.update_satellite_app = AsyncMock(return_value={
+        "success": True, "verdict": "committed", "detail": None,
+    })
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(service, satellites, state_machine)
+    (runner,), _ = satellites.set_admission_push_runner.call_args
+    owed = AsyncMock(return_value=True)
+    waiting = asyncio.create_task(runner("aa:bb:cc:dd:ee:01", owed))
+    await asyncio.sleep(0)
+
+    assert await service.let_go_of_the_trial("the guard failed")
+    await asyncio.wait({waiting}, timeout=0.2)
+
+    refuse_while_milo_updates(service, "reboot")  # the restart is free again
+    assert not waiting.done(), "the admission push ran during the open trial"
+    owed.assert_not_awaited()
+    satellites.update_satellite_app.assert_not_awaited()
+    program = _endpoint(r, "/api/programs/{program_key}/update")
+    assert "restarted" in await _refused(program("go-librespot", VALIDATED, BackgroundTasks()))
+    assert not (await service.update_program("go-librespot"))["success"]
+    waiting.cancel()
+
+
+async def test_a_trial_let_go_of_is_not_listed_as_an_update_in_flight(tmp_path, mock_settings_service):
+    """Every client mirrors `active_updates` into its rows: `milo` listed with
+    no `milo_update` drew the Milō row "Updating…" for good, kept the rollback
+    banner down and disabled every other row, the read of an update to wait
+    for — when the let-go exists so that the unit is restarted."""
+    service = _milo_unit(tmp_path, mock_settings_service, mj.TRIAL_STEP)
+    service.get_all_program_status = AsyncMock(return_value={})
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(service, MagicMock(), state_machine)
+    listing = _endpoint(r, "/api/programs", "GET")
+    assert (await listing())["active_updates"] == ["milo"]  # the trial, before the let-go
+
+    assert await service.let_go_of_the_trial("the guard failed")
+    body = await listing()
+
+    assert (body["active_updates"], body["milo_update"]) == ([], None)
 
 
 async def test_the_program_list_says_where_a_milo_update_stands_when_github_fails(

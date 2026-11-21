@@ -114,6 +114,7 @@ class _Box:
 
         self.updates = MagicMock()
         self.updates.milo_update_active = False
+        self.updates.milo_update_holds_installs = False
         self.updates.milo_update_state = MagicMock(return_value=None)
         self.updates.can_update_program = AsyncMock(
             return_value={"can_update": True, "available_version": "0.9.1"}
@@ -334,7 +335,7 @@ REFUSED_ANYWAY = {
     ),
     "a satellite push during a Milō update": (
         "post", f"/api/programs/satellites/{BUREAU}/update-camilladsp", None,
-        lambda box: setattr(box.updates, "milo_update_active", True),
+        lambda box: setattr(box.updates, "milo_update_holds_installs", True),
     ),
 }
 
@@ -356,11 +357,11 @@ def test_a_request_the_route_refuses_anyway_asks_for_no_gesture(unit, case):
 
 def test_an_upstream_install_another_update_holds_asks_for_no_gesture(unit):
     box, presence, client = unit
-    box.updates.milo_update_active = True
+    box.updates.milo_update_holds_installs = True
 
     response = _send(client, "post", "/api/programs/go-librespot/update", {"target": "upstream"})
 
-    assert response.json()["status"] == "error", response.text
+    assert response.status_code == 409, response.text
     assert presence.view() is None
 
 
