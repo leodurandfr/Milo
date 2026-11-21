@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 """
-milo-mdns-probe — Check if a hostname exists on the local network via mDNS.
+milo-mdns-probe — Is a Milō server on this network? Asks mDNS for `_milo._tcp`.
 
-Sends a raw mDNS A-record query to the multicast group 224.0.0.251:5353
-(RFC 6762) without requiring avahi-daemon to be running.
+A Milō server announces the service type `_milo._tcp`
+(rootfs/etc/avahi/services/milo.service, published in the server role only),
+and milo-first-boot turns a fresh card into a satellite only when this finds
+one. Resolving milo.local proved nothing: a NAS or a Mac named milo answers it
+too, and the conversion is destructive. So the answer that counts is a response
+carrying a PTR record owned by `_milo._tcp.local`, and nothing else — not an
+A record for milo.local, not a query another fresh card is sending at the same
+moment, not the name appearing anywhere in a packet.
 
-Usage: milo-mdns-probe <hostname> [timeout_seconds] [interface_ip]
-Exit code: 0 if found, 1 if not found, 2 on error.
+Sends a raw mDNS PTR query to the multicast group 224.0.0.251:5353 (RFC 6762,
+RFC 6763) without requiring avahi-daemon to be running: milo-first-boot runs
+before it.
+
+Usage: milo-mdns-probe [timeout_seconds] [interface_ip]
+Exit code: 0 if a Milō server announces itself, 1 if none does, 2 on error.
 
 When interface_ip is provided, multicast send and group membership are
 bound to that interface — required when probing on a freshly-up interface
@@ -19,47 +29,102 @@ import time
 
 MDNS_ADDR = "224.0.0.251"
 MDNS_PORT = 5353
+# The service type a Milō server announces; held equal to the server's
+# avahi service file by backend/tests/test_mdns_probe.py.
+SERVICE = "_milo._tcp.local"
+TYPE_PTR = 12
+CLASS_IN = 1
+# A name is at most 255 bytes, so a chain of more pointers than this loops.
+MAX_POINTERS = 128
+# An mDNS packet may be as large as the link's MTU allows (RFC 6762 §17).
+MAX_PACKET = 9000
 
 
-def encode_qname(hostname):
-    """Encode hostname.local as DNS wire-format labels."""
-    qname = b""
-    for label in (hostname, "local"):
+class Malformed(Exception):
+    """A packet that does not parse as DNS."""
+
+
+def encode_name(name):
+    """`name` as DNS wire-format labels."""
+    wire = b""
+    for label in name.split("."):
         encoded = label.encode("utf-8")
-        qname += struct.pack("!B", len(encoded)) + encoded
-    qname += b"\x00"
-    return qname
+        wire += struct.pack("!B", len(encoded)) + encoded
+    return wire + b"\x00"
 
 
-def build_query(hostname):
-    """Build a DNS A-record query packet for hostname.local."""
-    # Header: ID=0, flags=0, 1 question, 0 answers/auth/additional
+def build_query():
+    """A DNS PTR query for SERVICE: ID 0, no flags, one question."""
     header = struct.pack("!6H", 0, 0, 1, 0, 0, 0)
-    # Question: hostname.local IN A (type=1, class=1)
-    question = encode_qname(hostname) + struct.pack("!2H", 1, 1)
-    return header + question
+    return header + encode_name(SERVICE) + struct.pack("!2H", TYPE_PTR, CLASS_IN)
 
 
-def response_matches(data, hostname):
-    """Check if an mDNS response contains an answer for hostname.local."""
+def read_name(data, offset):
+    """(the name at `offset`, the offset after it), following compression pointers."""
+    labels = []
+    end = None
+    for _ in range(MAX_POINTERS):
+        if offset >= len(data):
+            raise Malformed("name runs past the packet")
+        length = data[offset]
+        if length & 0xC0 == 0xC0:
+            if offset + 1 >= len(data):
+                raise Malformed("pointer runs past the packet")
+            if end is None:
+                end = offset + 2
+            offset = ((length & 0x3F) << 8) | data[offset + 1]
+            continue
+        if length & 0xC0:
+            raise Malformed("unknown label type")
+        offset += 1
+        if length == 0:
+            return ".".join(labels), (end if end is not None else offset)
+        label = data[offset:offset + length]
+        if len(label) < length:
+            raise Malformed("label runs past the packet")
+        labels.append(label.decode("utf-8", errors="replace"))
+        offset += length
+    raise Malformed("compression pointers loop")
+
+
+def records(data):
+    """(owner name, type) of every record in a response: answers, authority, additional."""
     if len(data) < 12:
+        raise Malformed("shorter than a header")
+    qdcount, ancount, nscount, arcount = struct.unpack("!4H", data[4:12])
+    offset = 12
+    for _ in range(qdcount):
+        _, offset = read_name(data, offset)
+        offset += 4
+    found = []
+    for _ in range(ancount + nscount + arcount):
+        name, offset = read_name(data, offset)
+        if offset + 10 > len(data):
+            raise Malformed("record header runs past the packet")
+        rtype, _, _, rdlength = struct.unpack("!2HIH", data[offset:offset + 10])
+        offset += 10 + rdlength
+        if offset > len(data):
+            raise Malformed("record data runs past the packet")
+        found.append((name, rtype))
+    return found
+
+
+def announces_milo(data):
+    """True when `data` is an mDNS response announcing the Milō service."""
+    if len(data) < 12 or not struct.unpack("!H", data[2:4])[0] & 0x8000:
+        return False  # a query — another card probing — announces nothing
+    try:
+        return any(
+            name.lower() == SERVICE and rtype == TYPE_PTR
+            for name, rtype in records(data)
+        )
+    except Malformed:
         return False
 
-    flags = struct.unpack("!H", data[2:4])[0]
-    ancount = struct.unpack("!H", data[6:8])[0]
-    is_response = (flags & 0x8000) != 0
 
-    if not is_response or ancount == 0:
-        return False
-
-    # Check if the target name appears in the response (handles non-compressed labels)
-    target = encode_qname(hostname)
-    return target.lower() in data.lower()
-
-
-def probe(hostname, timeout, interface_ip=None):
-    """Send mDNS query and wait for a matching response. Returns True if found."""
-    query = build_query(hostname)
+def probe(timeout, interface_ip=None):
+    """Send the query and wait for a server's answer. Returns True if one announces itself."""
+    query = build_query()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -88,11 +153,11 @@ def probe(hostname, timeout, interface_ip=None):
                 next_send = time.monotonic() + 2.0
 
             try:
-                data, _ = sock.recvfrom(1024)
+                data, _ = sock.recvfrom(MAX_PACKET)
             except socket.timeout:
                 continue
 
-            if response_matches(data, hostname):
+            if announces_milo(data):
                 return True
 
         return False
@@ -101,26 +166,26 @@ def probe(hostname, timeout, interface_ip=None):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(
-            f"Usage: {sys.argv[0]} <hostname> [timeout_seconds] [interface_ip]",
-            file=sys.stderr,
-        )
+    if len(sys.argv) > 3:
+        print(f"Usage: {sys.argv[0]} [timeout_seconds] [interface_ip]", file=sys.stderr)
         sys.exit(2)
 
-    hostname = sys.argv[1]
-    timeout = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
-    interface_ip = sys.argv[3] if len(sys.argv) > 3 else None
+    try:
+        timeout = float(sys.argv[1]) if len(sys.argv) > 1 else 10.0
+    except ValueError:
+        print(f"Usage: {sys.argv[0]} [timeout_seconds] [interface_ip]", file=sys.stderr)
+        sys.exit(2)
+    interface_ip = sys.argv[2] if len(sys.argv) > 2 else None
 
     try:
-        found = probe(hostname, timeout, interface_ip)
+        found = probe(timeout, interface_ip)
     except Exception as e:
         print(f"mDNS probe error: {e}", file=sys.stderr)
         sys.exit(2)
 
     if found:
-        print(f"{hostname}.local found on the network")
+        print(f"A Milō server announces {SERVICE} on the network")
         sys.exit(0)
     else:
-        print(f"{hostname}.local not found")
+        print(f"No Milō server announces {SERVICE}")
         sys.exit(1)

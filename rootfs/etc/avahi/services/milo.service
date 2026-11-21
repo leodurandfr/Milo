@@ -1,0 +1,24 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!--
+  What a Milō server announces, in the server role only: milo-first-boot
+  installs this file on a server (apply_avahi_role) and removes it from a
+  satellite, which must never announce one.
+
+  _milo._tcp is what a fresh card's milo-mdns-probe looks for before it turns
+  itself into a satellite: answering to milo.local proves nothing, since a NAS
+  or a Mac named milo answers it too. The type is the whole announcement; it
+  carries no identifier.
+-->
+<service-group>
+  <name replace-wildcards="yes">Milo Audio System on %h</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>80</port>
+    <txt-record>path=/</txt-record>
+  </service>
+  <service>
+    <type>_milo._tcp</type>
+    <port>80</port>
+  </service>
+</service-group>

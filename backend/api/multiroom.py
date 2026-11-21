@@ -170,7 +170,7 @@ async def _signed(
             status_code=409,
             detail="This speaker refuses this server's secret: it answers another server, or "
                    "cannot read its own pin. Its update, remote access and reboot stay refused "
-                   "to this server until it is adopted again",
+                   "to this server until it is unplugged and plugged back in",
         )
     return headers
 
@@ -1107,7 +1107,21 @@ def create_multiroom_router(
           fader what the new flag owes it), and apply the identity it carries
           if the record still holds the fallback name (wifi-adopted, snapclient
           admitted ahead of the heartbeat).
+
+        After the response, the satellite is handed this server's secret
+        when its heartbeat calls for it, so Multiroom knows whether it answers
+        another server before anyone tries to use it.
         """
+        def hand_over_if_due(asked: bool) -> None:
+            """Due whenever the satellite says it would follow a new server —
+            the heartbeat of a speaker just plugged back in, which then comes
+            to answer this server, admitted or not — and otherwise only while
+            `asked` is false. The answer is recorded by the secret itself
+            (`SatelliteSecret.probe`), so asking again changes nothing."""
+            if satellite_secret is None or (asked and not request.accepts_new_server):
+                return
+            background_tasks.add_task(satellite_secret.hand_over, request.mac_id, request.ip)
+
         async with api_error_handler("Error registering client", logger):
             # Validate that the declared IP matches the actual request origin
             # Strip IPv4-mapped IPv6 prefix (::ffff:) for dual-stack compatibility
@@ -1166,6 +1180,7 @@ def create_multiroom_router(
                             f"{request.name} ({request.speaker_type or existing.speaker_type})"
                         )
                     logger.debug(f"Client {request.mac_id} heartbeat, hardware configured, skipping pending")
+                    hand_over_if_due(asked=True)
                     return {"status": "success", "message": "Hardware configured, snapclient will reconnect",
                             "server_addresses": addresses}
 
@@ -1185,6 +1200,11 @@ def create_multiroom_router(
                         name=request.name,
                         speaker_type=request.speaker_type,
                     ) or client
+                # A configured speaker this process has not asked yet: one
+                # that kept running through this server's reflash, announced
+                # before its admission — or for good with multiroom off,
+                # where no admission comes.
+                hand_over_if_due(asked="other_server" in client)
                 return {"status": "success", "client": client, "server_addresses": addresses}
 
             # Reinstall detection: if mac_id exists in registry, remove stale entry
@@ -1206,6 +1226,11 @@ def create_multiroom_router(
                     name=request.name,
                     speaker_type=request.speaker_type,
                 ) or client
+            # A speaker waiting to be configured is asked only when it would
+            # follow: its first contact is the reboot that configures it, a
+            # gesture someone makes, and that reboot's own hand-over (`_signed`)
+            # finds one that answers another server.
+            hand_over_if_due(asked=True)
             return {"status": "success", "client": client, "server_addresses": addresses}
 
     @router.get("/pending-clients", response_model=MultiroomPendingClientsResponse)

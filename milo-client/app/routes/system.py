@@ -14,7 +14,8 @@ every unit of one Milō tells the same time.
 
 The SSH switch and the password reach root, so they answer only the server
 this unit pinned (`server_secret.py`), which hands its secret over at every
-admission through `PUT /server-secret`. The reads, the WiFi and the timezone
+admission through `PUT /server-secret` — the one route that follows a new
+server, in the window after a power cut. The reads, the WiFi and the timezone
 stay open to the LAN.
 """
 import asyncio
@@ -22,11 +23,12 @@ import logging
 import os
 import pwd
 import time
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
-from server_secret import require_server_secret
+from server_secret import SECRET_HEADER, guard, require_server_secret
 
 logger = logging.getLogger(__name__)
 
@@ -278,14 +280,20 @@ def create_system_router() -> APIRouter:
         return {"status": "success", "data": {"password_is_default": False}}
 
     @router.put("/server-secret")
-    async def keep_server_secret(pinned: bool = Depends(require_server_secret)):
+    async def keep_server_secret(
+        request: Request,
+        secret: Optional[str] = Header(default=None, alias=SECRET_HEADER),
+    ):
         """The server's secret, handed over at every admission.
 
         Pinned the first time a secret reaches this unit — here or on any
         route that requires it — and only compared after that: a secret that
-        is not the pinned one is refused like any request that carries it.
-        `changed` is true for the request that pinned it.
+        is not the pinned one is refused like any request that carries it,
+        except here in the few minutes after a power cut, where it replaces
+        the pin (`server_secret.py`, a server that was reflashed). `changed`
+        is true for the request that pinned it.
         """
+        pinned = await guard(secret, f"{request.method} {request.url.path}", follow=True)
         return {"status": "success", "data": {"changed": pinned}}
 
     @router.get("/network")

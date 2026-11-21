@@ -1024,6 +1024,13 @@ FROZEN_SECRET_ANSWER = (
     "1ecd946d96b927d97192158b25d761824c8ec742014ee4b8b567d0e0504555df",
 )
 SATELLITE_SECRET_MODULE = REPO_ROOT / "milo-client" / "app" / "server_secret.py"
+# The satellite's state files. Each is written by the release that stops and
+# read by the one that starts, one push apart.
+FROZEN_SECRET_STATE = {
+    "SECRET_FILE": "/var/lib/milo-client/server-secret",
+    "CLEAN_STOP_FILE": "/var/lib/milo-client/clean-stop",
+    "BOOT_FILE": "/var/lib/milo-client/started-boot",
+}
 
 
 def test_the_app_update_form_fields_are_frozen():
@@ -1116,6 +1123,17 @@ def test_the_secret_header_and_hand_over_are_frozen():
     assert SATELLITE_SECRET_HEADER == satellite["SECRET_HEADER"] == FROZEN_SECRET_HEADER
     assert FROZEN_SECRET_HAND_OVER in _CALLS, "the server no longer hands a satellite its secret there"
     assert FROZEN_SECRET_HAND_OVER in _ROUTES, "milo-client no longer takes its secret there"
+
+
+def test_the_secret_state_files_are_frozen():
+    """Both fail open. The pin renamed, the release a push lands reads none,
+    and the next host to hand the satellite a secret is the server it pins.
+    The trace of the last stop renamed, the start that follows the push reads
+    no clean stop on a boot it never saw: every satellite follows the first
+    server that hands it a secret for minutes, after every push."""
+    satellite = _satellite_secret_constants()
+
+    assert {name: satellite.get(name) for name in FROZEN_SECRET_STATE} == FROZEN_SECRET_STATE
 
 
 async def test_the_secret_derivation_is_frozen(tmp_path):

@@ -1,6 +1,8 @@
 """
 Pytest fixtures for Milo Client tests.
 """
+import asyncio
+
 import pytest
 import yaml
 from unittest.mock import AsyncMock, patch
@@ -155,6 +157,25 @@ def secret_file(tmp_path, monkeypatch):
     path = tmp_path / "server-secret"
     monkeypatch.setattr(server_secret, "SECRET_FILE", path)
     return path
+
+
+@pytest.fixture(autouse=True)
+def boot_trace(tmp_path, monkeypatch):
+    """Where this satellite reads how its last stop went, under tmp_path for
+    every test, on a boot whose id is `boot_id`; no test starts in the window."""
+    import server_secret
+
+    trace = tmp_path / "boot"
+    trace.mkdir()
+    boot_id = trace / "boot_id"
+    boot_id.write_text("3f1c9b2e-boot-one\n")
+    monkeypatch.setattr(server_secret, "CLEAN_STOP_FILE", trace / "clean-stop")
+    monkeypatch.setattr(server_secret, "BOOT_FILE", trace / "started-boot")
+    monkeypatch.setattr(server_secret, "BOOT_ID_FILE", boot_id)
+    monkeypatch.setattr(server_secret, "_window_ends", None)
+    # Bound to the loop of the first test that waits on it otherwise.
+    monkeypatch.setattr(server_secret, "_follow_lock", asyncio.Lock())
+    return trace
 
 
 @pytest.fixture

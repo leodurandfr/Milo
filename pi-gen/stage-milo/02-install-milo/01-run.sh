@@ -173,22 +173,14 @@ chown -R milo:milo /home/milo/milo/frontend/dist
 CHROOT
 
 # ── Avahi configuration ──────────────────────────────────────────────────────
+# Both from rootfs/. The service file is the server's announcement, `_milo._tcp`
+# included; milo-first-boot installs or removes it again for the role it
+# detects (apply_avahi_role), before avahi-daemon starts.
 
 on_chroot << 'CHROOT'
 cp /home/milo/milo/rootfs/etc/avahi/avahi-daemon.conf /etc/avahi/avahi-daemon.conf
-
-tee /etc/avahi/services/milo.service > /dev/null << 'XML'
-<?xml version="1.0" standalone='no'?>
-<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
-<service-group>
-  <name replace-wildcards="yes">Milo Audio System on %h</name>
-  <service>
-    <type>_http._tcp</type>
-    <port>80</port>
-    <txt-record>path=/</txt-record>
-  </service>
-</service-group>
-XML
+mkdir -p /etc/avahi/services
+cp /home/milo/milo/rootfs/etc/avahi/services/milo.service /etc/avahi/services/milo.service
 CHROOT
 
 # ── NetworkManager dispatcher ────────────────────────────────────────────────

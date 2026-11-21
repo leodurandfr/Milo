@@ -157,6 +157,7 @@ CLIENT_ALLOWED = frozenset({
     "online",
     "is_local",
     "audio_card_missing",
+    "other_server",
 })
 
 CLIENT_EXCLUDED = {

@@ -25,6 +25,11 @@
 
     <!-- Configuration Form -->
     <template v-else>
+      <!-- The reboot that configures it would be refused (ethernet only). -->
+      <NoticeBox v-if="pendingClient?.other_server" kind="warning">
+        {{ t('multiroom.otherServer.notice', { name: pendingClient.name || pendingClient.ip }) }}
+      </NoticeBox>
+
       <!-- Speaker Name -->
       <SectionCard :title="t('multiroom.systemNameRemote')">
         <InputText

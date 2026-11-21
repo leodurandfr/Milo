@@ -34,7 +34,9 @@ class PinningSatellite:
     """Satellites over HTTP, by address: each pins the first secret it is sent
     and answers 403 to a path to root that carries anything else — or, once
     `predates` is set, runs an app from before the secret: no hand-over route,
-    and every request taken bare."""
+    and every request taken bare. An address in `following` was just plugged
+    back in: its hand-over takes a new secret once, until the pinned one or a
+    new one reaches it."""
 
     TO_ROOT = ("/api/system/ssh", "/api/system/password", "/api/hardware/reboot",
                "/api/system/server-secret")
@@ -45,6 +47,7 @@ class PinningSatellite:
         self.refusals = []
         self.answer_status = None
         self.predates = False
+        self.following = set()
 
     def session(self, *args, **kwargs):
         return _Session(self)
@@ -65,6 +68,11 @@ class PinningSatellite:
             if presented and ip not in self.pins:
                 self.pins[ip] = presented
                 pinned_now = True
+            elif presented and path == "/api/system/server-secret" and ip in self.following:
+                pinned_now = presented != self.pins[ip]
+                self.pins[ip] = presented
+            if presented == self.pins.get(ip):
+                self.following.discard(ip)
             if not presented or presented != self.pins.get(ip):
                 self.refusals.append((verb, path))
                 return _Answer(403, {"detail": "Refused: it carries another server's secret"})
@@ -271,16 +279,18 @@ def test_a_server_without_its_key_sends_nothing(satellites, method, path, body):
 async def test_a_satellite_that_holds_another_servers_secret_is_said_once(
     satellite_secret, satellites, caplog,
 ):
-    """At error, since its update, remote access and reboot are lost to this
-    server; once, since every admission tries again."""
+    """Once, since every admission tries again; at warning, since Settings ›
+    Multiroom announces it with the gesture that moves it — at error, a
+    reflashed server would open its banner once per speaker on top of that."""
     satellites.answer_status = 403
 
     with caplog.at_level(logging.DEBUG, logger="backend.core.multiroom.satellite_http"):
         await satellite_secret.hand_over(BUREAU, BUREAU_IP)
         await satellite_secret.hand_over(BUREAU, BUREAU_IP)
 
-    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
-    assert len(errors) == 1 and "holds another server's" in errors[0].getMessage()
+    said = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert [r.levelno for r in said] == [logging.WARNING]
+    assert "holds another server's" in said[0].getMessage()
 
 
 async def test_a_satellite_whose_app_predates_the_hand_over_is_said_once_at_info(

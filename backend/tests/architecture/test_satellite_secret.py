@@ -145,18 +145,30 @@ def test_the_update_form_takes_the_secret_without_requiring_it():
     assert field.args and isinstance(field.args[0], ast.Constant) and field.args[0].value is None
 
 
+# The satellite's state that outlives its app: the pin, and how its last stop
+# went, which decides whether it follows a new server after a power cut.
+DURABLE_STATE = ("SECRET_FILE", "CLEAN_STOP_FILE", "BOOT_FILE")
+
+
 def test_the_pin_survives_an_update_trial():
     """A trial swaps app/ and configs/ and may put the previous ones back; a
-    pin among them, or named like the trial's own state, goes with them."""
+    pin among them, or named like the trial's own state, goes with them. So
+    does the trace of a clean stop: lost, an update would read as a power cut
+    and open the window in which the speaker follows a new server."""
     updater = _constants(UPDATER)
-    pin = Path(SATELLITE["SECRET_FILE"])
     trial_names = {updater[name] for name in (
         "VERSION_NAME", "PAYLOAD_NAME", "TRIAL_NAME", "ATTEMPTS_NAME", "LAST_UPDATE_NAME",
     )}
+    assert set(DURABLE_STATE) <= set(SATELLITE), (
+        f"server_secret.py no longer declares {sorted(set(DURABLE_STATE) - set(SATELLITE))}"
+    )
 
-    assert pin.parent == Path(updater["STATE_DIR"])
-    assert pin.name not in trial_names
-    assert not any(pin.name.startswith(f"{name}.") for name in updater["SYNCED_TREES"])
+    for name in DURABLE_STATE:
+        path = Path(SATELLITE[name])
+        assert path.parent == Path(updater["STATE_DIR"]), f"{name} lives outside the state directory"
+        assert path.name not in trial_names, f"{name} is named like the trial's own state"
+        assert not any(path.name.startswith(f"{tree}.") for tree in updater["SYNCED_TREES"])
+    assert len({Path(SATELLITE[name]).name for name in DURABLE_STATE}) == len(DURABLE_STATE)
 
 
 # --------------------------------------------------------------------------- #

@@ -75,7 +75,7 @@ const props = defineProps({
   statusVariant: {
     type: String,
     default: '',
-    validator: (value) => ['', 'configuring'].includes(value)
+    validator: (value) => ['', 'configuring', 'warning'].includes(value)
   }
 });
 
@@ -107,8 +107,10 @@ const metaText = computed(() => {
   return speakerTypeLabel.value;
 });
 
+// The variant colors the status, which an offline row does not show.
 const metaClass = computed(() => ({
-  'speaker-meta--configuring': props.statusVariant === 'configuring'
+  'speaker-meta--configuring': props.online && props.statusVariant === 'configuring',
+  'speaker-meta--warning': props.online && props.statusVariant === 'warning'
 }));
 </script>
 
@@ -133,6 +135,10 @@ const metaClass = computed(() => ({
 
 .speaker-meta--configuring {
   color: var(--color-brand);
+}
+
+.speaker-meta--warning {
+  color: var(--color-warning);
 }
 
 .discovery-badge {

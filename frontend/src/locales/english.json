@@ -194,6 +194,10 @@
     "systemOffline": "“{name}” is offline",
     "systemOfflineDescription": "This audio system is not currently connected to Milō. If it is on WiFi, plug it into Ethernet for a moment: if Milō is on WiFi itself, it gives the speaker that network again; otherwise, keep it on Ethernet.<br>IP: {ip}",
     "audioCardMissing": "{card} is configured but this audio system does not detect it. Check that the board is properly seated, or pick another card.",
+    "otherServer": {
+      "status": "Paired with another Milō",
+      "notice": "{name} is paired with another Milō. Unplug it, then plug it back in to pair it with this one."
+    },
     "deleteSystem": "Delete this audio system",
     "confirmDeleteSystem": "Confirm deletion",
     "deleteSystemDetails": "Its equalizer, its delay and its place in its zone are erased with it. This cannot be undone.",

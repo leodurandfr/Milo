@@ -99,7 +99,7 @@ def test_an_interrupted_client_conversion_is_resumed():
     `_apply_client_filesystem` sets the hostname first and locks the role
     (`setup_completed`) last, so a speaker unplugged during those 10-25 s boots
     back as hostname milo-client with setup not completed. If the branch that
-    sees milo.local and that hostname does nothing, every later boot does
+    sees a Milō server and that hostname does nothing, every later boot does
     nothing too: the speaker stays for good with server units still enabled, or
     no role at all, or a satellite whose data directory was never handed over.
     That branch is the conversion boot's only way back, so it must reach
@@ -109,14 +109,14 @@ def test_an_interrupted_client_conversion_is_resumed():
     text = FIRST_BOOT.read_text()
     functions = _functions(text)
 
-    found = re.search(r"^    if \$milo_local_found; then\n(.*?)\n    else\n", text, re.MULTILINE | re.DOTALL)
-    assert found, "could not find the milo.local-found branch of milo-first-boot; the extractor is broken"
+    found = re.search(r"^    if \$milo_server_found; then\n(.*?)\n    else\n", text, re.MULTILINE | re.DOTALL)
+    assert found, "could not find the server-found branch of milo-first-boot; the extractor is broken"
     arms = re.search(
         r'if \[\[ "\$current_hostname" != "milo-client" \]\]; then\n(.*?)\n\s*else\n(.*?)\n\s*fi\b',
         found.group(1),
         re.DOTALL,
     )
-    assert arms, "could not split the milo.local-found branch on the hostname; the extractor is broken"
+    assert arms, "could not split the server-found branch on the hostname; the extractor is broken"
     already_client = _uncommented(arms.group(2))
 
     reached = _reached(already_client, functions)
@@ -142,7 +142,7 @@ def test_the_client_hostname_marks_a_conversion_in_progress():
     """The client hostname is set before anything else the conversion changes.
 
     That hostname, without `setup_completed`, is what tells an interrupted
-    conversion apart on the next boot: with milo.local answering it is resumed,
+    conversion apart on the next boot: with a Milō server answering it is resumed,
     without it `configure_server` reverts the unit. Setting it last, as
     `configure_server` does for its own hostname, leaves a unit cut after the
     server units were disabled named milo; with the server off at that boot it

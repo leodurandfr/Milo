@@ -21,6 +21,7 @@ import routes.health
 from routes.health import get_hostname
 from access_log import quiet_frequent_requests
 from origin_gate import OriginGate
+import server_secret
 from services.camilladsp_update import CAMILLADSP_SERVICE
 from services.registration import register_with_main_milo
 from services.server_address_watch import follow_server_address
@@ -179,6 +180,10 @@ async def lifespan(app: FastAPI):
     global _listening
     logger.info("Milo Client API starting up...")
 
+    # Before anything can reach a route: whether this start follows a power cut
+    # decides whether the hand-over may follow a new server (server_secret.py).
+    await asyncio.to_thread(server_secret.open_window_after_unclean_stop)
+
     # No connect attempt here on purpose. milo-client-camilladsp.service is ordered
     # After=milo-client.service, and this unit is Type=notify — so CamillaDSP does
     # not even start until READY=1, sent once the server listens. The loop's first
@@ -205,6 +210,10 @@ async def lifespan(app: FastAPI):
 
     yield  # Application runs here
 
+    # First: a stop systemd asked for, which the next start does not take for a
+    # power cut — before a step below can raise or outlast TimeoutStopSec, since
+    # a stop that leaves no marker opens the window (server_secret.py).
+    await asyncio.to_thread(server_secret.record_clean_stop)
     after_listening_task.cancel()
     registration_task.cancel()
     address_watch_task.cancel()

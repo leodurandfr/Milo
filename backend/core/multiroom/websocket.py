@@ -1437,7 +1437,9 @@ class SnapcastWebSocketService:
                     # push's read. And the server's secret, which the satellite
                     # pins the first time and its paths to root require from
                     # then on (satellite_http.py): handed at every admission,
-                    # so a satellite reflashed since pins it again.
+                    # so a satellite reflashed since pins it again, one just
+                    # plugged back in follows this server if it answered
+                    # another, and Multiroom hears which (`other_server`).
                     if client and not client.is_local:
                         if self._satellite_secret is not None:
                             self._bg.spawn(

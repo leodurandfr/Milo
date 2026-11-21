@@ -10,6 +10,11 @@
         <!-- SETTINGS: Active and ready -->
         <SectionStack v-else key="settings">
           <NoticeBox v-if="toggleRefusal !== null" :detail="toggleRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
+          <!-- A speaker that refuses this server's secret answers another
+               server (this one reflashed): the gesture that moves it. -->
+          <NoticeBox v-for="speaker in otherServerSpeakers" :key="speaker.macId" kind="warning">
+            {{ t('multiroom.otherServer.notice', { name: speaker.name }) }}
+          </NoticeBox>
           <!-- Discovered Speakers Section (pending ethernet + wifi hotspots) -->
           <SectionCard v-if="discoveryItems.length > 0">
             <template #header>
@@ -68,6 +73,7 @@
                 <div class="zone-clients">
                   <SystemListItem v-for="client in zone.clients" :key="client.id"
                     :name="client.name" :mac-id="client.mac_id" :online="client.online"
+                    :status="client.status" :status-variant="client.statusVariant"
                     @click="handleEditClient(client.mac_id)" />
                 </div>
               </div>
@@ -78,6 +84,7 @@
                 <div class="ungrouped-clients">
                   <SystemListItem v-for="client in ungroupedClients" :key="client.id"
                     :name="client.name" :mac-id="client.mac_id" :online="client.online"
+                    :status="client.status" :status-variant="client.statusVariant"
                     @click="handleEditClient(client.mac_id)" />
                 </div>
               </template>
@@ -249,6 +256,13 @@ const messageTitle = computed(() => {
 // Clients are already sorted (local first, then alphabetical) from multiroomStore
 const sortedMultiroomClients = computed(() => snapcastStore.clients);
 
+// A row's status line: empty for a speaker that answers this server.
+function rowStatus(client) {
+  return client.other_server
+    ? { status: t('multiroom.otherServer.status'), statusVariant: 'warning' }
+    : { status: '', statusVariant: '' };
+}
+
 // Get zones with client details from multiroomStore (single source of truth)
 // Uses clientList which is already sorted (local first, online first, alphabetical)
 const zones = computed(() => {
@@ -262,7 +276,8 @@ const zones = computed(() => {
         mac_id: client.mac_id,
         host: client.host,
         name: client.name || client.host,
-        online: client.online
+        online: client.online,
+        ...rowStatus(client)
       }));
 
     return {
@@ -290,7 +305,8 @@ const ungroupedClients = computed(() => {
       mac_id: client.mac_id,
       host: client.host,
       name: client.name || client.host,
-      online: client.online
+      online: client.online,
+      ...rowStatus(client)
     }));
 });
 
@@ -302,12 +318,14 @@ const discoveryItems = computed(() => {
 
   for (const client of multiroomClientStore.pendingClientList) {
     const configuring = multiroomClientStore.isClientConfiguring(client.mac_id);
+    let status = { status: t('multiroom.pending.notConfigured'), statusVariant: '' };
+    if (configuring) status = { status: t('multiroom.pending.rebooting'), statusVariant: 'configuring' };
+    else if (client.other_server) status = rowStatus(client);
     items.push({
       key: `eth:${client.mac_id}`,
       source: 'ethernet',
       name: client.name || client.ip,
-      status: configuring ? t('multiroom.pending.rebooting') : t('multiroom.pending.notConfigured'),
-      statusVariant: configuring ? 'configuring' : '',
+      ...status,
       disabled: configuring,
       macId: client.mac_id
     });
@@ -327,6 +345,20 @@ const discoveryItems = computed(() => {
   }
 
   return items;
+});
+
+// Every speaker, pending or admitted, whose answer to this server's secret
+// says it answers another server — once, though an admission can leave it in
+// both lists for a moment.
+const otherServerSpeakers = computed(() => {
+  const speakers = new Map();
+  for (const client of multiroomClientStore.pendingClientList) {
+    if (client.other_server) speakers.set(client.mac_id, client.name || client.ip);
+  }
+  for (const client of multiroomClientStore.clientList) {
+    if (client.other_server) speakers.set(client.mac_id, client.name || client.host);
+  }
+  return Array.from(speakers, ([macId, name]) => ({ macId, name }));
 });
 
 // Navigation: dispatch to ConfigureSystem with the right discovery context.

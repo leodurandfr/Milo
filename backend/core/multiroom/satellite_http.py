@@ -28,10 +28,18 @@ on a request:
   server's secret on a satellite that holds none and only compares it on one
   that does, so it is safe to send at any time — and says whose secret the
   satellite holds (`Holding`). `hand_over` sends it at every admission
-  (`SnapcastWebSocketService`'s one recipe, once the client counts as online),
-  best effort; the relays ask it first (`api/multiroom.py::_signed`), so a
-  satellite that pinned another server is refused before a trim, a card or a
-  proof of presence is spent on a request it would then refuse.
+  (`SnapcastWebSocketService`'s one recipe, once the client counts as online)
+  and at the heartbeats that call for it (`api/multiroom.py::register_client`:
+  a configured speaker met ahead of its admission that this process has not
+  asked yet, and any speaker whose heartbeat says it would follow a new
+  server), best effort; the relays ask it
+  first (`api/multiroom.py::_signed`), so a satellite that pinned another
+  server is refused before a trim, a card or a proof of presence is spent on a
+  request it would then refuse;
+- each answer is recorded where Multiroom reads it — the registry's
+  `other_server`, or the pending entry's for a speaker not admitted yet — so a
+  speaker that answers another server is announced with the gesture that
+  moves it, from whichever exchange met the refusal first.
 
 The names on the wire and the derivation are compared by every satellite that
 pinned a secret, across releases — the push that carries a new release reaches
@@ -39,20 +47,23 @@ a satellite still on the old one — so they are frozen like the update form's
 fields (`tests/contracts/test_milo_client_contract.py`).
 
 The satellite pins the first secret it is given (`milo-client/app/server_secret.py`)
-— at an admission, or at the reboot that configures a speaker no admission has
-reached yet, since one that has no card runs no snapclient — and refuses those
+— at an admission (or the heartbeat just ahead of it), or at the reboot that
+configures a speaker no admission has reached yet, since one that has no card
+runs no snapclient — and refuses those
 routes to any other secret from then on. The names on the wire are restated there,
 since a satellite cannot import this tree, and held equal by
 `tests/architecture/test_satellite_secret.py`, which also holds that every call
 the server makes to one of those routes is signed here.
 
-What the secret proves is that the request comes from the server that reached
-the satellite first, nothing more. It is handed to whatever snapclient this
-server admits under a speaker's identity, and readable by every process running
-as `milo` (the same uid as the backend, as for the rest of `/var/lib/milo`). A
-new key — a reflashed server, a deleted file — is a secret no satellite pinned:
-every one of them refuses this server's update, remote access and reboot until
-it is adopted again, which nothing here does.
+What the secret proves is that the request comes from the server the satellite
+pinned, nothing more. It is handed to whatever snapclient this server admits
+under a speaker's identity, and to whatever host registers under it, and
+readable by every process running as `milo` (the same uid as the backend, as
+for the rest of `/var/lib/milo`). A new key — a reflashed server, a deleted
+file — is a secret no satellite pinned: every one of them refuses this
+server's update, remote access and reboot until it is unplugged and plugged
+back in, after which it follows the first server that hands it a secret for a
+few minutes (owner decision; the satellite's window, in server_secret.py).
 """
 import asyncio
 import hashlib
@@ -103,8 +114,16 @@ class Holding(Enum):
 class SatelliteSecret:
     """Makes each satellite's secret and puts it on the requests that need it."""
 
-    def __init__(self, key_file: Path = SATELLITE_KEY_FILE):
+    def __init__(
+        self,
+        key_file: Path = SATELLITE_KEY_FILE,
+        client_registry_service=None,
+        pending_clients_service=None,
+    ):
         self._key_file = Path(key_file)
+        # Where each satellite's answer to the hand-over is recorded.
+        self._registry = client_registry_service
+        self._pending = pending_clients_service
         self._key: Optional[bytes] = None
         self._lock = asyncio.Lock()
         # Satellites whose app predates the hand-over, or that hold another
@@ -148,7 +167,8 @@ class SatelliteSecret:
             # Never replaced here: a new key is one no satellite pinned.
             raise SatelliteSecretUnavailable(
                 f"{self._key_file} does not hold a key. Removing it makes a new one, "
-                "which every satellite already paired refuses until it is adopted again"
+                "which every satellite already paired refuses until it is unplugged and "
+                "plugged back in"
             )
         return bytes.fromhex(text)
 
@@ -200,11 +220,11 @@ class SatelliteSecret:
     # ------------------------------------------------------------------ #
 
     async def hand_over(self, mac_id: str, client_ip: str) -> None:
-        """Hand one satellite its secret, at its admission.
+        """Hand one satellite its secret, at its admission or at a heartbeat that calls for it.
 
         Best effort, like the admission's other pushes: a satellite that is
-        gone is logged and left, and the next admission is the retry. Never
-        raises."""
+        gone is logged and left, and the next admission or due heartbeat is
+        the retry. Never raises."""
         try:
             await self.probe(mac_id, client_ip)
         except SatelliteSecretUnavailable as e:
@@ -220,12 +240,23 @@ class SatelliteSecret:
             )
 
     async def probe(self, mac_id: str, client_ip: str) -> Holding:
-        """Hand one satellite its secret and say whose it holds.
+        """Hand one satellite its secret, say whose it holds, and record it.
 
         Pins this server's on a satellite that holds none, compares it on one
-        that does: sent again, it changes nothing. Raises
+        that does — or, on one in the minutes after a power cut, replaces the
+        one it holds: sent again, it changes nothing. Raises
         `SatelliteSecretUnavailable` when this server has no key, and what
-        aiohttp raises when the satellite does not answer."""
+        aiohttp raises when the satellite does not answer, which records nothing."""
+        holding = await self._ask(mac_id, client_ip)
+        if holding is not Holding.UNKNOWN:
+            refuses = holding is Holding.REFUSED
+            if self._registry is not None:
+                await self._registry.set_client_other_server(mac_id, refuses)
+            if self._pending is not None:
+                await self._pending.set_other_server(mac_id, refuses)
+        return holding
+
+    async def _ask(self, mac_id: str, client_ip: str) -> Holding:
         headers = await self.headers(mac_id)
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=HAND_OVER_TIMEOUT_S)) as session:
             async with session.put(
@@ -260,10 +291,14 @@ class SatelliteSecret:
                 logger.debug(f"Satellite {mac_id} still refuses this server's secret")
             else:
                 self._refusing.add(mac_id)
-                logger.error(
+                # A warning, not the banner: Settings › Multiroom announces it
+                # with the gesture that moves it (`other_server`, recorded by
+                # `probe`), and a reflashed server meets it once per speaker.
+                logger.warning(
                     f"Satellite {mac_id} refuses this server's secret ({detail}): it holds "
                     "another server's, or cannot read or write its own. Its update, remote "
-                    "access and reboot are refused to this server until it is adopted again"
+                    "access and reboot are refused to this server until it is unplugged and "
+                    "plugged back in"
                 )
             return Holding.REFUSED
         logger.warning(f"Satellite {mac_id} refused its secret (HTTP {resp.status}): {detail}")

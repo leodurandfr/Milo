@@ -200,8 +200,12 @@ def _create_service(name: str) -> Any:
             client_registry_service=get_service("client_registry_service"),
         ),
         # What a satellite's paths to root require of this server: handed over
-        # at every admission, carried by the update push and the relays.
-        "satellite_secret": lambda: _import("backend.core.multiroom.satellite_http", "SatelliteSecret")(),
+        # at every admission, carried by the update push and the relays. Each
+        # satellite's answer lands where Multiroom reads it.
+        "satellite_secret": lambda: _import("backend.core.multiroom.satellite_http", "SatelliteSecret")(
+            client_registry_service=get_service("client_registry_service"),
+            pending_clients_service=get_service("pending_clients_service"),
+        ),
         "wifi_adoption_service": lambda: _import("backend.core.multiroom.wifi_adoption", "WifiAdoptionService")(
             network_service=get_service("network_service")
         ),

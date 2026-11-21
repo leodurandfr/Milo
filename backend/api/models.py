@@ -799,6 +799,9 @@ class RegisterClientRequest(BaseModel):
     speaker_type: Optional[SpeakerType] = None
     # The ids /proc/asound/cards lists; None when the satellite could not read it.
     alsa_cards: Optional[List[str]] = None
+    # True in the minutes after the satellite was plugged back in, when its
+    # hand-over takes a new server's secret (milo-client/app/server_secret.py).
+    accepts_new_server: bool = False
 
     @field_validator('mac_id')
     @classmethod

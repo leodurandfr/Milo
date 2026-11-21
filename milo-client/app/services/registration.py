@@ -4,7 +4,8 @@ Boot-time registration with main Milo.
 On startup, the client registers itself with the main Milo server
 so it appears as a pending speaker available for configuration.
 Sends a heartbeat every HEARTBEAT_INTERVAL seconds so the server
-can detect when this client goes offline.
+can detect when this client goes offline, and so it hears when this
+client, just plugged back in, would follow a new server.
 """
 import asyncio
 import ipaddress
@@ -15,6 +16,8 @@ import re
 import socket
 
 import aiohttp
+
+from server_secret import accepts_new_server
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +210,10 @@ async def register_with_main_milo() -> None:
                 "audio_id": hw_config["audio_id"],
                 "volume_control": hw_config["volume_control"],
                 "alsa_cards": alsa_cards,
+                # Asked again at every heartbeat: the server hands its secret to
+                # a speaker that says so, which is how one that answers another
+                # server comes to follow it (server_secret.py).
+                "accepts_new_server": accepts_new_server(),
             }
             if identity.get("name"):
                 payload["name"] = identity["name"]

@@ -26,6 +26,11 @@
 
     <!-- Online State - Settings -->
     <template v-else>
+      <!-- Its update, remote access and reboot are refused to this server. -->
+      <NoticeBox v-if="client?.other_server" kind="warning">
+        {{ t('multiroom.otherServer.notice', { name: clientDisplayName }) }}
+      </NoticeBox>
+
       <!-- Speaker Name Input -->
       <SectionCard :title="t(client?.is_local ? 'multiroom.systemNameMain' : 'multiroom.systemNameRemote')">
         <InputText v-model="clientName" :placeholder="client?.host" :maxlength="16"

@@ -507,6 +507,31 @@ class ClientRegistryService:
             "client": client_dict
         })
 
+    async def set_client_other_server(self, mac_id: str, other_server: bool) -> None:
+        """Record whether a satellite refuses this server's secret, from its answer to the hand-over.
+
+        Runtime only, like the card above: a restart asks the satellite again at
+        its admission. Announced only when it moves, and a no-op for a mac_id the
+        registry does not hold (a pending speaker is answered by its own store).
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if client is None or client.other_server == other_server:
+                return
+            client.other_server = other_server
+            client_dict = client.to_dict()
+
+        if other_server:
+            self.logger.warning(
+                f"Client {mac_id} answers another server: unplugged and plugged back in, it follows this one"
+            )
+        else:
+            self.logger.info(f"Client {mac_id} answers this server again")
+        await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
+            "mac_id": mac_id,
+            "client": client_dict
+        })
+
     # === CLIENT QUERIES ===
 
     def get_client(self, mac_id: str) -> Optional[Client]:

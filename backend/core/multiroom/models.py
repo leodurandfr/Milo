@@ -401,11 +401,16 @@ class Client:
     # The label of the configured card when the satellite's ALSA lists no HAT,
     # set from its heartbeat — the only way a satellite with no screen says so.
     audio_card_missing: Optional[str] = None
+    # The satellite refuses this server's secret: it answers another server (this
+    # one reflashed), so its update, remote access and reboot are refused here.
+    # Set from its answer to the hand-over (core/multiroom/satellite_http.py).
+    other_server: bool = False
 
     # The only fields that outlive a reboot, and the single declaration of the
     # settings.json shape (ClientRegistryService persists exactly this). The
     # rest is runtime state with another owner: host and online come from
-    # Snapcast on registration, audio_card_missing from the heartbeat. Volume
+    # Snapcast on registration, audio_card_missing from the heartbeat,
+    # other_server from the hand-over. Volume
     # and mute are not here at all — they belong to VolumeStateStore, which is
     # the only place they live.
     PERSISTED_FIELDS = (
@@ -444,6 +449,7 @@ class Client:
             result["online"] = self.online
             result["is_local"] = self.is_local
             result["audio_card_missing"] = self.audio_card_missing
+            result["other_server"] = self.other_server
         return result
 
     @classmethod

@@ -194,6 +194,10 @@
     "systemOffline": "「{name}」已离线",
     "systemOfflineDescription": "此音频系统当前未连接到Milō。如果它使用 WiFi，请将其暂时接入以太网：若 Milō 本身也连接着 WiFi，会重新为它提供该网络；否则，请让它保持以太网连接。<br>IP：{ip}",
     "audioCardMissing": "已配置 {card}，但此音频系统未检测到。请检查扩展板是否插紧，或选择其他声卡。",
+    "otherServer": {
+      "status": "已与另一台 Milō 配对",
+      "notice": "{name} 已与另一台 Milō 配对。请拔下其电源，再重新插上，即可与这台 Milō 配对。"
+    },
     "deleteSystem": "删除此音频系统",
     "confirmDeleteSystem": "确认删除",
     "deleteSystemDetails": "它的均衡器、延迟以及它在区域中的位置将一并删除。此操作无法撤销。",

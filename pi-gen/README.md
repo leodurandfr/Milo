@@ -89,7 +89,7 @@ pinned by commit too, with their release in a comment beside each (see the top o
 
 ## Output
 
-The image is a universal image supporting both **Milo** (server) and **Milo Client** (satellite) modes. Nobody chooses the mode: on first boot `milo-first-boot` probes the network for `milo.local`, and a card that finds one becomes a satellite (see **Hostname** below), driven from the server's Settings › Multiroom. A card that finds none stays the server, and its setup wizard at `http://milo.local` configures language, network, audio and screen.
+The image is a universal image supporting both **Milo** (server) and **Milo Client** (satellite) modes. Nobody chooses the mode: on first boot `milo-first-boot` looks on the network for a Milō server's `_milo._tcp` announcement, and a card that finds one becomes a satellite (see **Hostname** below), driven from the server's Settings › Multiroom. Answering to `milo.local` is not enough: a NAS or a Mac named milo does too. A card that finds none stays the server, and its setup wizard at `http://milo.local` configures language, network, audio and screen.
 
 The frontend is built before the stage runs — by `build-image.yml` for a release, the artifact the release publishes; by `build.sh` on the host for a local build — and travels inside `stage-milo/`, at its root beside the sub-stages, as `frontend-dist.tar.gz`. `02-install-milo` installs it and fails when it is missing: the stage never builds one, so an image and a unit updated to the same release serve the same bytes.
 
@@ -121,7 +121,7 @@ The frontend is built before the stage runs — by `build-image.yml` for a relea
   (`backend/core/system/presence.py`): that is how a server with no screen and no Ethernet whose
   home WiFi changed is repaired. Anything else is repaired from the touch screen or over
   Ethernet.
-- **Hostname**: `milo` (renamed to `milo-client` on first boot if an existing `milo.local` is detected on the network)
+- **Hostname**: `milo` (renamed to `milo-client` on first boot if a Milō server announces `_milo._tcp` on the network)
 - **Locale**: `en_US.UTF-8`
 - **Timezone**: `Etc/UTC` — a value meaning "nobody has said yet". The first non-kiosk browser
   that opens the UI reports its own zone and the backend adopts it while that default stands.

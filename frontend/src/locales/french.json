@@ -194,6 +194,10 @@
     "systemOffline": "« {name} » est hors ligne",
     "systemOfflineDescription": "Ce système audio n'est actuellement pas connecté à Milō. S'il est en WiFi, branchez-le un instant en Ethernet : si Milō est lui-même en WiFi, il lui redonne ce réseau ; sinon, laissez-le en Ethernet.<br>IP : {ip}",
     "audioCardMissing": "{card} est configurée mais ce système audio ne la détecte pas. Vérifiez que la carte est bien enfichée, ou choisissez-en une autre.",
+    "otherServer": {
+      "status": "Associé à un autre Milō",
+      "notice": "{name} est associé à un autre Milō. Débranchez-le, puis rebranchez-le pour l'associer à celui-ci."
+    },
     "deleteSystem": "Supprimer ce système audio",
     "confirmDeleteSystem": "Confirmer la suppression",
     "deleteSystemDetails": "Son égaliseur, son délai et sa place dans sa zone sont effacés avec lui. Cette action est irréversible.",

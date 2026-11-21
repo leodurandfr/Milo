@@ -12,6 +12,16 @@ They stay in pending storage until:
 4. Heartbeat expires → client stops sending registration POSTs;
    background task removes the entry after STALE_TIMEOUT seconds
 
+Each entry also carries `other_server` once the satellite answered this
+server's hand-over (core/multiroom/satellite_http.py): True when it refuses
+this server's secret, because it answers another server (this one reflashed),
+which Multiroom announces with the gesture that moves it. Absent until it was
+asked, which is what tells the registration route to ask a configured speaker
+met ahead of its admission: an entry loaded from disk, or met at a new address,
+has not been asked by this process. A speaker waiting to be configured is
+asked only by the reboot that configures it, or when its heartbeat says it
+would follow a new server.
+
 Persistence: /var/lib/milo/pending_clients.json
 """
 import asyncio
@@ -84,6 +94,9 @@ class PendingClientsService:
         now = time.time()
         for client in self._clients.values():
             client["registered_at"] = now
+            # An answer from before this start says nothing of the satellite
+            # now: its first heartbeat asks again.
+            client.pop("other_server", None)
 
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         return True
@@ -138,6 +151,9 @@ class PendingClientsService:
                     return dict(existing)
                 if ends_grace:
                     existing.pop("configuring_since")
+                if existing.get("ip") != ip:
+                    # Another host at that identity, as far as this server knows.
+                    existing.pop("other_server", None)
                 # Update connection info, preserve user-set fields
                 existing.update(connection)
                 client = existing
@@ -200,6 +216,24 @@ class PendingClientsService:
             action="updated", client=client_snapshot,
         ))
         return client_snapshot
+
+    async def set_other_server(self, mac_id: str, other_server: bool) -> None:
+        """Record whether a pending satellite refuses this server's secret,
+        from its answer to the hand-over. Broadcast only when it moves, and a
+        no-op for a mac_id that is not pending (the registry holds it)."""
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if client is None or client.get("other_server") == other_server:
+                return
+            client["other_server"] = other_server
+            client_snapshot = dict(client)
+            await self._persist()
+
+        if other_server:
+            logger.warning(f"Pending client {mac_id} answers another server")
+        await self._broadcast(MultiroomPendingClientChanged(
+            action="updated", client=client_snapshot,
+        ))
 
     async def mark_configuring(self, mac_id: str) -> bool:
         """Shield a client from heartbeat expiry while it applies config + reboots.
