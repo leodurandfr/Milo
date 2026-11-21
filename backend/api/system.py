@@ -651,17 +651,21 @@ def create_system_router(
         A legacy name is set as the zone it is a link to: Chromium reports CLDR
         ids (`Asia/Calcutta`), which tzdata keeps only as a line of tzdata.zi,
         so a browser in India would otherwise be refused for good and the unit
-        left on UTC. Anything else the list does not offer is refused.
+        left on UTC. It is resolved whether or not the system also ships the
+        legacy name as a file (Debian's tzdata-legacy, Ubuntu's tzdata do), so
+        the zone set is the same on every host. Anything else the list does not
+        offer is refused.
         """
         zone = payload.timezone
         available = _available_timezones()
-        if zone not in available:
-            target = await read_link_target(zone)
-            if target not in available:
-                logger.warning("Rejected unknown timezone %r", zone)
-                raise HTTPException(status_code=400, detail=f"Unknown timezone: {zone}")
-            logger.info("Timezone %s is a link to %s, which is set", zone, target)
+        target = await read_link_target(zone)
+        if target in available:
+            if target != zone:
+                logger.info("Timezone %s is a link to %s, which is set", zone, target)
             zone = target
+        elif zone not in available:
+            logger.warning("Rejected unknown timezone %r", zone)
+            raise HTTPException(status_code=400, detail=f"Unknown timezone: {zone}")
 
         async with api_error_handler("Error setting the timezone", logger):
             proc = await asyncio.create_subprocess_exec(
