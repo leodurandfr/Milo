@@ -422,6 +422,31 @@ check "persistent journal dir"      "[ -d '${ROOT%/}/var/log/journal' ]"
 check "snd-aloop two cards"         "grep -q 'id=Loopback,LoopbackDLNA' '${ROOT%/}/etc/modprobe.d/snd-aloop.conf'"
 
 # --------------------------------------------------------------------------
+section "udev rules — deployed as in rootfs/"
+# --------------------------------------------------------------------------
+# The stage copies each rule by name, so a rule added to rootfs/ and not to the
+# stage reaches no flashed card.
+for f in "$REPO"/rootfs/etc/udev/rules.d/*.rules; do
+    name=$(basename "$f")
+    check "udev rule $name deployed" "cmp -s '$f' '${ROOT%/}/etc/udev/rules.d/$name'"
+done
+
+# --------------------------------------------------------------------------
+section "Screen — no vendor tool"
+# --------------------------------------------------------------------------
+# Brightness is the backend writing the DSI panel's sysfs backlight, or
+# milo-brightness-7 over hidraw for the USB panel: all either needs from the
+# image is the permission 99-milo-screen.rules grants. The stage used to run
+# Waveshare's install.sh as root, which put a Qt slider in
+# /usr/share/applications, and wrote a second backlight rule of its own.
+check "no vendor brightness tool in /usr/share/applications" \
+    "! compgen -G '${ROOT%/}/usr/share/applications/brightness*'"
+backlight_rules=$(grep -lF 'SUBSYSTEM=="backlight"' "${ROOT%/}"/etc/udev/rules.d/*.rules 2>/dev/null \
+                  | xargs -r -n1 basename | tr '\n' ' ')
+check "the backlight is granted by 99-milo-screen.rules alone" \
+    "[ \"\$backlight_rules\" = '99-milo-screen.rules ' ]"
+
+# --------------------------------------------------------------------------
 section "The release this image carries"
 # --------------------------------------------------------------------------
 # What a user flashes and what the update flow later offers have to be the same

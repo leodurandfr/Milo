@@ -19,6 +19,11 @@ on:
         required: false
         default: 'main'
 
+# Actions are named by commit, with their release beside them, and no checkout
+# keeps the token — lint.yml says why and how a pin moves. pi-gen is pinned the
+# same way, in pi-gen/upstream.env. Held by
+# backend/tests/architecture/test_ci_pins.py.
+
 jobs:
   # What is being built, decided once. Three jobs read it, and the frontend
   # asset's name is part of the answer: the backend builds the very same name
@@ -78,11 +83,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.vars.outputs.milo_ref }}
+          persist-credentials: false
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24'
           cache: 'npm'
@@ -103,7 +109,7 @@ jobs:
           sha256sum "$ASSET" > "${ASSET}.sha256"
           ls -lh "$ASSET"*
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: frontend-dist
           path: |
@@ -143,8 +149,15 @@ jobs:
       contents: write
 
     steps:
+      # The token is not persisted for git: this job holds `contents: write`,
+      # and every pi-gen stage, build script and package hook it runs could read
+      # the file the checkout would write it to. The release step takes the
+      # token as its own input, and the tag fetch below reads a public
+      # repository.
       - name: Checkout Milo
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Free disk space
         run: |
@@ -161,14 +174,20 @@ jobs:
             gpg pigz xxd arch-test
 
       - name: Download the frontend artefact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: frontend-dist
           path: frontend-artefact
 
-      - name: Clone pi-gen
+      # The one pi-gen commit every image is built on, read from the file
+      # pi-gen/build.sh reads too: the head of a branch moves under a build that
+      # names it.
+      - name: Fetch pi-gen
         run: |
-          git clone --branch arm64 --depth 1 https://github.com/RPi-Distro/pi-gen.git pi-gen-build
+          source pi-gen/upstream.env
+          git init -q pi-gen-build
+          git -C pi-gen-build fetch --depth 1 "$PIGEN_REPO" "$PIGEN_COMMIT"
+          git -C pi-gen-build checkout -q --detach "$PIGEN_COMMIT"
 
       - name: Configure pi-gen
         run: |
@@ -269,7 +288,7 @@ jobs:
           ls -lh "${COMPRESSED}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ needs.vars.outputs.image_name }}
           path: ${{ env.compressed_image }}
@@ -310,7 +329,7 @@ jobs:
 
       - name: Create GitHub Release
         if: needs.vars.outputs.is_release == 'true'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: |
             ${{ env.compressed_image }}

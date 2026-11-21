@@ -596,6 +596,50 @@ def test_sync_system_files_installs_helpers_before_the_units_that_name_them():
     assert marks == sorted(marks)
 
 
+# `sysctl` in command position, with its arguments.
+SYSCTL_CALL_RE = re.compile(r"^\s*sysctl\s+(.*?)\s*$")
+
+
+def _sysctl_flags(args: str) -> set[str]:
+    """The options of one `sysctl` call, short ones split (`-eqp` is three)."""
+    flags = set()
+    for word in shlex.split(args):
+        if word.startswith("--"):
+            flags.add(word)
+        elif word.startswith("-"):
+            flags |= {f"-{letter}" for letter in word[1:]}
+    return flags
+
+
+@pytest.mark.parametrize("script", [SERVER_DEPLOY_SCRIPT, CLIENT_DEPLOY_SCRIPT], ids=lambda p: p.name)
+def test_a_deploy_applies_its_sysctl_files_past_a_key_the_kernel_lacks(script):
+    """A sysctl key the running kernel does not have is skipped, not a failure.
+
+    Both deploy scripts apply every `etc/sysctl.d/*` they install with
+    `sysctl -p`, under `set -e`, after the units, the sudoers policy and the
+    helpers are already in place. 90-milo-linkdown.conf sets ipv6 keys, and with
+    IPv6 off at boot (`ipv6.disable=1`) /proc/sys/net/ipv6 does not exist: `-p`
+    exits 1 there (procps-ng 4.0.4, measured) where `-e` exits 0. On a satellite
+    the app update then puts its previous app back over the new root layer,
+    records the push as rolled back, and the server never offers that payload
+    again; on the server, the Milō update and the guard's sync back fail alike.
+    """
+    calls = [
+        match.group(1)
+        for line in _code_lines(script)
+        if (match := SYSCTL_CALL_RE.match(line))
+    ]
+    assert calls, f"no sysctl call extracted from {script.name}"
+    # The flag parse must discriminate before it is trusted.
+    assert "-e" in _sysctl_flags('-eqp "$f"') and "-e" not in _sysctl_flags('-q -p "$f"')
+
+    strict = [
+        args for args in calls
+        if "-p" in _sysctl_flags(args) and not {"-e", "--ignore"} & _sysctl_flags(args)
+    ]
+    assert not strict, f"{script.name} fails on a sysctl key the kernel lacks: {strict}"
+
+
 def _satellite_synced_trees() -> set[str]:
     """`SYNCED_TREES`, the trees the satellite app installs itself, read from source."""
     tree = ast.parse(CLIENT_APP_UPDATE.read_text(encoding="utf-8"))

@@ -78,6 +78,15 @@ manifest, the provisioning tree and the in-app updates each pinned their own
 versions, and a freshly flashed card landed behind every unit that had updated
 — silently.
 
+## The pi-gen Commit
+
+pi-gen itself is pinned the same way, in **`pi-gen/upstream.env`**: `build.sh` and the
+workflow both fetch the commit it names and build on nothing else, rather than the head of
+pi-gen's `arm64` branch the day the build runs. To move it, take that branch's head, build an
+image on it, pass `inspect-image.sh`, then commit the new hash. The workflow's actions are
+pinned by commit too, with their release in a comment beside each (see the top of
+`.github/workflows/lint.yml`).
+
 ## Output
 
 The image is a universal image supporting both **Milo** (server) and **Milo Client** (satellite) modes. Nobody chooses the mode: on first boot `milo-first-boot` probes the network for `milo.local`, and a card that finds one becomes a satellite (see **Hostname** below), driven from the server's Settings › Multiroom. A card that finds none stays the server, and its setup wizard at `http://milo.local` configures language, network, audio and screen.

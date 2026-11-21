@@ -1,8 +1,8 @@
 #!/bin/bash
 # Milo - Pi-gen Build Wrapper
 #
-# Clones the official pi-gen repository, copies the Milo stage configuration,
-# and launches the image build.
+# Fetches the official pi-gen at the commit upstream.env pins, copies the Milo
+# stage configuration, and launches the image build.
 #
 # Usage:
 #   ./build.sh                    # Build using Docker (recommended)
@@ -13,8 +13,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIGEN_DIR="${SCRIPT_DIR}/pi-gen-upstream"
-PIGEN_REPO="https://github.com/RPi-Distro/pi-gen.git"
-PIGEN_BRANCH="arm64"
+# PIGEN_REPO and PIGEN_COMMIT, the pi-gen every image is built on: declared once,
+# beside this script, and read by the CI workflow too.
+source "${SCRIPT_DIR}/upstream.env"
 
 BUILD_MODE="docker"
 if [[ "$1" == "--native" ]]; then
@@ -26,19 +27,15 @@ echo "Build mode: ${BUILD_MODE}"
 echo "Milo branch: ${MILO_BRANCH:-main}"
 echo ""
 
-# Clone or update pi-gen
-if [[ -d "${PIGEN_DIR}" ]]; then
-    echo "Updating pi-gen..."
-    cd "${PIGEN_DIR}"
-    git fetch origin
-    git checkout "${PIGEN_BRANCH}"
-    git reset --hard "origin/${PIGEN_BRANCH}"
-else
-    echo "Cloning pi-gen..."
-    git clone --branch "${PIGEN_BRANCH}" --depth 1 "${PIGEN_REPO}" "${PIGEN_DIR}"
-fi
-
+# The pinned commit and nothing else, into a checkout made here or one an
+# earlier build left: --force puts back what that build changed in pi-gen's own
+# files, and its untracked work/ and deploy/ stay.
+echo "Fetching pi-gen ${PIGEN_COMMIT}..."
+mkdir -p "${PIGEN_DIR}"
 cd "${PIGEN_DIR}"
+[[ -d .git ]] || git init -q
+git fetch --depth 1 "${PIGEN_REPO}" "${PIGEN_COMMIT}"
+git checkout -q --force --detach "${PIGEN_COMMIT}"
 
 # Copy Milo configuration
 echo "Copying Milo configuration..."

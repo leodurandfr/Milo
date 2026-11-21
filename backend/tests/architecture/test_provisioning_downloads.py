@@ -6,18 +6,24 @@ work it does not restate. Every one of those files runs under `set -e` inside a
 chroot, so an unguarded command that fails ends the build — and a command whose
 failure is *silenced* ends nothing and ships an image missing a package.
 
-Two rules, both from defects measured on 2026-09-02:
+Two rules:
 
-  * **An unpinned download must be guarded.** A fetch built from a `*_VERSION`
-    that `dependencies.env` declares *should* abort: a Milō without go-librespot
-    is not a Milō, and failing loudly beats a half-provisioned unit. There is
-    exactly one unpinned fetch — the Waveshare 8" DSI brightness driver, from a
-    third-party vendor site, for a panel most units do not have. Unguarded, a
-    vendor outage costs the whole run instead of one optional feature.
-  * **An `apt install` must not be silenced.** `provisioning/common.sh` carried an
-    `apt install … || true` for months: it named `libflac12t64` with a
-    `libflac12` fallback, neither of which trixie has, so the call failed and
-    took `libavahi-client3`/`libavahi-common3` down with it — and said nothing.
+  * **Every download names its pin.** A fetch built from a `*_VERSION` that
+    `dependencies.env` declares *should* abort: a Milō without go-librespot is
+    not a Milō, and failing loudly beats a half-provisioned unit. The one fetch
+    that named nothing was Waveshare's Brightness.zip, taken from the vendor's
+    site unverified and its `install.sh` run as root under `|| true`, so
+    whatever that URL served the day of the build went into every image. It
+    installed a Qt desktop slider the kiosk never shows, and the panel's
+    brightness never needed it (the backend writes the sysfs backlight
+    `99-milo-screen.rules` opens), so it is gone, and the inspection checks
+    that the image no longer carries it. A file with no version to name would
+    need its sha256 checked in the same statement, and an arm here that reads it.
+  * **An `apt install` must not be silenced** (measured on 2026-09-02).
+    `provisioning/common.sh` carried an `apt install … || true` for months: it
+    named `libflac12t64` with a `libflac12` fallback, neither of which trixie
+    has, so the call failed and took `libavahi-client3`/`libavahi-common3` down
+    with it — and said nothing.
     The first CI image build is what surfaced it, in a log nobody reads when the
     build is green. A fallback onto a *different package name* is a different
     thing and stays allowed: `chromium || chromium-browser` is real cross-distro
@@ -40,6 +46,8 @@ output is non-trivial first, so a broken parse fails loudly instead of passing o
 an empty surface.
 """
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -92,62 +100,93 @@ def _is_pinned(line: str, declared: set[str]) -> bool:
 
     The constant has to appear in the statement itself. An indirection —
     `local v="$CAMILLADSP_VERSION"` a few lines above, then `.../$v/...` — reads
-    as unpinned, so the rule below would demand a guard on a download that should
-    abort. That is a loud false positive, never a hidden defect, and no file does
-    it: the two that did were the script installers' binary downloads.
+    as unpinned, so the rule below would refuse a download that is pinned. That
+    is a loud false positive, never a hidden defect, and no file does it: the two
+    that did were the script installers' binary downloads.
     """
     return any(name in declared for name in VERSION_RE.findall(line))
 
 
-def _is_guarded(line: str) -> bool:
-    """Can this statement fail without ending the run?
-
-    Either it is a condition (`if`/`while`/`until` — `set -e` is suspended
-    there), or its failure is handled with `||`.
-    """
-    stripped = line.strip()
-    return stripped.startswith(("if ", "elif ", "while ", "until ")) or "||" in stripped
-
-
-def test_the_fetch_extractor_sees_both_kinds():
-    """Both arms of the rule must have something to stand on.
-
-    If every fetch read as pinned, the rule below would be vacuous; if none did,
-    it would be wrong about the dependency downloads it deliberately exempts.
+def test_the_fetch_extractor_sees_the_pinned_downloads():
+    """The rule below is vacuous if no fetch is extracted, and decorative if
+    the pin test reads every URL as pinned.
     """
     declared = _declared_versions()
-    fetches = _fetches()
-
-    # No total floor: the two counts below are what it would be the sum of, and a
-    # broken FETCH_RE reads as zero pinned.
-    pinned = [f for f in fetches if _is_pinned(f[2], declared)]
-    unpinned = [f for f in fetches if not _is_pinned(f[2], declared)]
+    pinned = [f for f in _fetches() if _is_pinned(f[2], declared)]
     assert len(pinned) >= 4, f"only {len(pinned)} pinned fetches recognised"
-    assert unpinned, "no unpinned fetch found — the rule below has nothing to check"
 
-    # The guard test must discriminate, not rubber-stamp.
-    assert _is_guarded("if wget -q http://x/f.zip; then")
-    assert _is_guarded("wget http://x/f.zip || true")
-    assert not _is_guarded("wget http://x/f.zip")
+    # The extractor must see the guarded form the vendor fetch took, and the pin
+    # test must tell a declared version from a URL that names none.
+    assert FETCH_RE.search("if wget -q https://x/f.zip 2>/dev/null; then")
+    assert not FETCH_RE.search('log_info "downloading with wget"')
+    assert not _is_pinned("if wget -q https://files.waveshare.com/wiki/common/Brightness.zip; then", declared)
+    assert not _is_pinned('wget -q "https://x/v${UNDECLARED_VERSION}/x.tgz"', declared)
+    assert _is_pinned('wget -q "https://x/v${CAMILLADSP_VERSION}/x.tgz"', declared)
 
 
-def test_an_unpinned_download_cannot_abort_the_image_build():
-    """A vendor outage must cost a feature, never the whole provisioning run.
+def test_every_download_in_the_image_build_names_its_pin():
+    """What a fetch lands in the image is what its URL served that day, as root.
 
-    Pinned dependency downloads are exempt on purpose: those *should* abort —
-    which `test_a_pinned_dependency_has_no_unpinned_install_fallback` holds.
+    Fails when a stage script or a module it sources downloads something whose
+    statement names no version `dependencies.env` declares: nothing then says
+    which file the image was built from, and two builds of one tag can differ.
     """
     declared = _declared_versions()
-    unguarded = [
+    unpinned = [
         f"{tree}: {path.relative_to(REPO_ROOT)}: {line.strip()[:90]}"
         for tree, path, line in _fetches()
-        if not _is_pinned(line, declared) and not _is_guarded(line)
+        if not _is_pinned(line, declared)
     ]
-    assert not unguarded, (
-        "these downloads are not pinned by dependencies.env and can end the "
-        "image build under `set -e`; guard them so the failure costs only the "
-        "feature:\n" + "\n".join(unguarded)
+    assert not unpinned, (
+        "these downloads name no version dependencies.env declares, so the "
+        "image installs whatever the URL serves on the day of the build:\n"
+        + "\n".join(unpinned)
     )
+
+
+INSPECTOR = REPO_ROOT / "pi-gen" / "inspect-image.sh"
+SCREEN_CHECKS = (
+    "no vendor brightness tool in /usr/share/applications",
+    "the backlight is granted by 99-milo-screen.rules alone",
+)
+
+
+def _screen_verdicts(root: Path) -> dict[str, str]:
+    """The inspector's verdict on each screen check, run over `root`."""
+    result = subprocess.run(
+        ["bash", str(INSPECTOR), str(root)],
+        cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+    )
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    verdicts = {}
+    for line in plain.splitlines():
+        words = line.split(maxsplit=1)
+        if len(words) == 2 and words[1] in SCREEN_CHECKS:
+            verdicts[words[1]] = words[0]
+    assert set(verdicts) == set(SCREEN_CHECKS), f"the inspector printed {verdicts}: {plain[-1500:]!r}"
+    return verdicts
+
+
+def test_the_inspection_refuses_an_image_carrying_the_vendor_tool(tmp_path):
+    """The image built without the vendor step passes, and one that still runs
+    it fails: its slider in /usr/share/applications and its second backlight
+    rule are what the old block left on every image. If this fails, a stage that
+    brings the download back builds and publishes green.
+    """
+    rules = tmp_path / "etc" / "udev" / "rules.d"
+    rules.mkdir(parents=True)
+    for rule in (REPO_ROOT / "rootfs" / "etc" / "udev" / "rules.d").glob("*.rules"):
+        shutil.copy(rule, rules / rule.name)
+    applications = tmp_path / "usr" / "share" / "applications"
+    applications.mkdir(parents=True)
+
+    assert _screen_verdicts(tmp_path) == dict.fromkeys(SCREEN_CHECKS, "ok")
+
+    (applications / "brightness64bit").write_bytes(b"\x7fELF")
+    (rules / "99-backlight.rules").write_text(
+        'SUBSYSTEM=="backlight", RUN+="/bin/chmod 0666 /sys/class/backlight/%k/brightness"\n'
+    )
+    assert _screen_verdicts(tmp_path) == dict.fromkeys(SCREEN_CHECKS, "FAIL")
 
 
 APT_INSTALL_RE = re.compile(r"apt(?:-get)?\s+install\b")

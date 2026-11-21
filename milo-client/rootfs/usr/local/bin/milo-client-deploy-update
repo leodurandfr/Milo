@@ -197,10 +197,14 @@ fi
 # Our own files only, on every push, changed or not: the push that brings one
 # is run by the deploy script the unit already had, which may not apply it.
 # `sysctl --system` would also re-read every distro file, any of which can fail
-# this script under set -e. NetworkManager reloads conf.d for the next
-# activation without touching a live link.
+# this script under set -e. `-e` because a key the kernel lacks is not a
+# failure: with IPv6 off at boot (`ipv6.disable=1`) /proc/sys/net/ipv6 does not
+# exist, `-p` exits 1 on 90-milo-linkdown.conf's ipv6 lines (procps-ng 4.0.4,
+# measured), and the app update this runs inside is rolled back — at every push,
+# behind a root layer already installed. NetworkManager reloads conf.d for the
+# next activation without touching a live link.
 for sysctl_file in "${SYSCTL_FILES[@]}"; do
-    sysctl -q -p "$sysctl_file"
+    sysctl -e -q -p "$sysctl_file"
     echo "  Applied $sysctl_file"
 done
 if [ "$NM_CONF_DEPLOYED" = true ]; then

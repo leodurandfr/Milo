@@ -325,29 +325,66 @@ def _shell_function(text: str, name: str) -> str:
     return match.group(1) if match else ""
 
 
-def test_install_binary_never_writes_over_a_running_image():
-    """`install-binary` swaps the binary of a unit that may be running.
+# The installers that swap a binary in the audio path, and how each names the
+# installed path: the server's generic `install-binary`, and the satellite's
+# CamillaDSP wrapper, a whole script rather than a subcommand.
+BINARY_INSTALLERS = {
+    "milo-deploy-update install-binary": (
+        REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-deploy-update",
+        "cmd_install_binary",
+        "dest",
+    ),
+    "milo-client-install-camilladsp": (
+        REPO_ROOT / "milo-client" / "rootfs" / "usr" / "local" / "bin" / "milo-client-install-camilladsp",
+        None,
+        "DEST",
+    ),
+}
+
+
+def _installer_body(name: str) -> tuple[str, str]:
+    path, function, var = BINARY_INSTALLERS[name]
+    text = path.read_text()
+    body = _shell_function(text, function) if function else text
+    # What the extraction needs, and nothing the assertions below judge: the
+    # installer's body, its copy, and the variable naming the installed path.
+    # A `.new` gone is the regression, reported by the test itself.
+    assert re.search(r"^\s*cp\s", body, re.MULTILINE) and re.search(rf"\b{var}=", body), (
+        f"could not read the install steps of {name}; the extractor is broken"
+    )
+    return _uncommented(body), var
+
+
+@pytest.mark.parametrize("installer", sorted(BINARY_INSTALLERS))
+def test_a_binary_installer_never_writes_over_the_installed_binary(installer):
+    """A binary in the audio path is swapped whole, then flushed.
 
     Writing onto the path in place fails with "Text file busy" while the old
-    image executes (measured on kernel 6.18: `cp` rc=1), which turns an update
-    into a rollback — or, when the unit was started after the update read its
-    state, into a receiver stopped and never restarted. A rename never meets
-    ETXTBSY: the running process keeps its inode. So the only line that may
-    name the installed path is the `mv -f` from a `.new` beside it, the idiom
-    `install_self` already uses in the same script.
+    image executes (measured on kernel 6.18: `cp` rc=1), which turns a server
+    update into a rollback — or, when the unit was started after the update
+    read its state, into a receiver stopped and never restarted. And a power
+    cut during an in-place copy leaves a truncated binary: on a satellite that
+    is CamillaDSP, the room silent and nobody able to log in to repair it
+    (`CamillaDSPUpdateService` restores its backup only when the install
+    *answers* a failure). A rename never meets either: the running process
+    keeps its inode, and the directory holds the old binary or the new one. So
+    the only line that may name the installed path is the `mv -f` from a
+    `.new` beside it, the idiom `install_self` already uses, and a `sync`
+    follows it before the installer answers.
     """
-    helper = REPO_ROOT / "rootfs" / "usr" / "local" / "bin" / "milo-deploy-update"
-    body = _shell_function(helper.read_text(), "cmd_install_binary")
-    assert body and "validate_temp_path" in body, (
-        "could not extract cmd_install_binary from milo-deploy-update; the extractor is broken"
-    )
+    body, var = _installer_body(installer)
 
+    lines = [line.strip() for line in body.splitlines()]
+    rename = f'mv -f "${var}.new" "${var}"'
     on_dest = [
-        line.strip() for line in _uncommented(body).splitlines()
-        if re.search(r'"\$dest"', line)
-        and not line.strip().startswith(("validate_", "[[", "case "))
+        line for line in lines
+        if re.search(rf'"\${var}"', line)
+        and not line.startswith(("validate_", "[[", "case "))
     ]
-    assert on_dest == ['mv -f "$dest.new" "$dest"'], (
-        "cmd_install_binary writes the installed path other than by renaming "
-        f"a .new beside it: {on_dest}"
+    assert on_dest == [rename], (
+        f"{installer} writes the installed path other than by renaming a .new "
+        f"beside it: {on_dest}"
+    )
+    assert "sync" in lines[lines.index(rename) + 1:], (
+        f"{installer} answers before a `sync` has put the rename on the card"
     )

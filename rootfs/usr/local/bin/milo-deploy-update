@@ -202,9 +202,12 @@ cmd_sync_system_files() {
 
     # Our own files only, every time: a copy changes nothing until applied, and
     # `sysctl --system` would also re-read every distro file, any of which can
-    # fail this update under set -e.
+    # fail this update under set -e. `-e` because a key the kernel lacks is not
+    # a failure: with IPv6 off at boot (`ipv6.disable=1`) there is no
+    # /proc/sys/net/ipv6, `-p` exits 1 on 90-milo-linkdown.conf's ipv6 lines,
+    # and the Milō update — or the guard's sync back — fails with it.
     for sysctl_file in "${sysctl_files[@]}"; do
-        sysctl -q -p "$sysctl_file"
+        sysctl -e -q -p "$sysctl_file"
         echo "  Applied $sysctl_file"
     done
 

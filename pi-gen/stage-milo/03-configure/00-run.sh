@@ -140,7 +140,13 @@ on_chroot << 'CHROOT'
 cp /home/milo/milo/rootfs/etc/udev/rules.d/90-milo-cd.rules /etc/udev/rules.d/
 chmod 0644 /etc/udev/rules.d/90-milo-cd.rules
 
-# Screen brightness control (HID + backlight)
+# Screen brightness control (HID + backlight). The one thing either panel needs
+# from the image: the backend sets the 8" DSI's brightness by writing its sysfs
+# backlight (backend/hardware/screen.py) and the 7" USB's through
+# milo-brightness-7, and this rule grants the milo user both. Waveshare's
+# Brightness.zip, which this stage used to download unverified and run as root
+# under `|| true`, installs a Qt desktop slider into /usr/share/applications —
+# a menu this kiosk never shows — writing that same sysfs file.
 cp /home/milo/milo/rootfs/etc/udev/rules.d/99-milo-screen.rules /etc/udev/rules.d/
 chmod 0644 /etc/udev/rules.d/99-milo-screen.rules
 
@@ -151,11 +157,6 @@ chmod 0644 /etc/udev/rules.d/99-milo-fan.rules
 # No Bluetooth input device may act as a logind power/sleep button
 cp /home/milo/milo/rootfs/etc/udev/rules.d/71-milo-bt-no-power-switch.rules /etc/udev/rules.d/
 chmod 0644 /etc/udev/rules.d/71-milo-bt-no-power-switch.rules
-
-# DSI backlight permissions
-tee /etc/udev/rules.d/99-backlight.rules > /dev/null << 'EOF'
-SUBSYSTEM=="backlight", RUN+="/bin/chmod 0666 /sys/class/backlight/%k/brightness"
-EOF
 CHROOT
 
 # ── Sudoers ───────────────────────────────────────────────────────────────────
@@ -202,21 +203,6 @@ if [ -d /usr/share/icons/Adwaita/cursors ]; then
     done
 
     rm -f /tmp/transparent_cursor
-fi
-CHROOT
-
-# ── Screen brightness controls ───────────────────────────────────────────────
-
-# Waveshare 8" DSI brightness tool
-on_chroot << 'CHROOT'
-cd /tmp
-if wget -q https://files.waveshare.com/wiki/common/Brightness.zip 2>/dev/null; then
-    unzip -o Brightness.zip
-    cd Brightness
-    chmod +x install.sh
-    ./install.sh || true
-    cd /tmp
-    rm -rf Brightness Brightness.zip
 fi
 CHROOT
 
