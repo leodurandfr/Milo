@@ -66,4 +66,21 @@ describe('miloRowAction', () => {
   it('is up to date only once the check succeeded', () => {
     expect(miloRowAction({ development_build: false, update_available: false, check_failed: false })).toBe('upToDate');
   });
+
+  it('says a release was refused for its signature rather than up to date', () => {
+    // The channel published a release no key this unit trusts signed: the
+    // backend offers nothing, and "up to date" would hide that it refused one.
+    const milo = {
+      development_build: false,
+      update_available: false,
+      check_failed: false,
+      refused: 'signature',
+      latest: { status: 'success', tag_name: 'v0.3.0' },
+    };
+    expect(miloRowAction(milo)).toBe('refusedSignature');
+  });
+
+  it('offers what the backend offers when it refused nothing', () => {
+    expect(miloRowAction({ development_build: false, update_available: true, refused: null })).toBe('update');
+  });
 });

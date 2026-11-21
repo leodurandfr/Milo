@@ -655,18 +655,24 @@ def _pack_step(workflow) -> str:
     return steps[0]["run"]
 
 
-def test_the_sidecar_is_the_line_every_release_installed_reads(workflow, tmp_path):
-    """The workflow's own packing step, run for real, writes a sidecar the
-    installed release parses the digest out of; and a sidecar of the frozen
-    shape still parses. Fails when either side moves: a release whose sidecar
-    the units in the field cannot read is a release none of them can install.
-    """
-    from backend.core.updates import update
+def _sidecar_digest(text: str):
+    """The digest a sidecar holds, read as the releases before signing read it:
+    the first word, if it is a sha256. Restated here because no code in this
+    tree reads a sidecar any more — a signed release checks its frontend
+    against its manifest — while every earlier release still does."""
+    words = text.split()
+    return words[0] if words and re.fullmatch(r"[0-9a-f]{64}", words[0]) else None
 
-    assert update.FRONTEND_SIDECAR_SUFFIX == FROZEN_SIDECAR_SUFFIX
+
+def test_the_sidecar_is_the_line_the_releases_before_signing_read(workflow, tmp_path):
+    """The workflow's own packing step, run for real, writes the sidecar a
+    release from before signing parses the digest out of. Fails when it moves:
+    those releases install the next one by it, and a sidecar they cannot read
+    is a release none of them can install.
+    """
     sidecar, digest = FROZEN_SIDECAR
-    assert update.sidecar_digest(sidecar) == digest
-    assert update.sidecar_digest("<html>Not Found</html>") is None, "the parse no longer refuses"
+    assert _sidecar_digest(sidecar) == digest
+    assert _sidecar_digest("<html>Not Found</html>") is None, "the parse no longer refuses"
 
     asset = "milo-frontend-v9.8.7.tar.gz"
     script = _pack_step(workflow).replace("${{ needs.vars.outputs.frontend_asset }}", asset)
@@ -679,9 +685,531 @@ def test_the_sidecar_is_the_line_every_release_installed_reads(workflow, tmp_pat
 
     written = (tmp_path / f"{asset}{FROZEN_SIDECAR_SUFFIX}").read_text()
     actual = hashlib.sha256((tmp_path / asset).read_bytes()).hexdigest()
-    assert update.sidecar_digest(written) == actual, written
+    assert _sidecar_digest(written) == actual, written
 
     release = next(
         step for step in workflow["build"]["steps"] if "action-gh-release" in str(step.get("uses", ""))
     )["with"]["files"]
     assert f"frontend_asset }}}}{FROZEN_SIDECAR_SUFFIX}" in release, release
+
+
+# --------------------------------------------------------------------------- #
+# The signature: what makes a release one a unit installs.
+# --------------------------------------------------------------------------- #
+#
+# CI drafts the release with a manifest; the owner signs it off GitHub, on the
+# Mac where the key lives (tools/release/sign-release.sh), and publishes; a
+# unit verifies it against the keys of the release it runs before it checks
+# anything out (release_signature.py). Everything below holds one of those
+# joints: the names, crossing a release boundary like the assets above; the
+# manifest CI writes against the one a unit reads; the owner's command against
+# the unit's check; and the check against the install path it guards.
+
+FROZEN_RELEASE_MANIFEST_URL = (
+    "https://github.com/leodurandfr/Milo/releases/download/{tag}/milo-release-{tag}.manifest"
+)
+FROZEN_SIGNATURE_SUFFIX = ".sig"
+FROZEN_SIGNING_NAMESPACE = "milo-release"
+FROZEN_SIGNER_IDENTITY = "milo-release"
+# The keys a unit reads out of a manifest. Append-only: release N requires
+# these of release N+1's manifest, so every later CI writes them.
+FROZEN_MANIFEST_KEYS = ("tag", "commit", "frontend_sha256")
+
+# The manifest's grammar, frozen apart from the parser that reads it today —
+# restated, not imported, for the reason _sidecar_digest is: the parser in this
+# tree is the *next* release's, and the one that reads N+1's manifest is N's.
+# One `key=value` per line, each key once, a key in [a-z0-9_]; the commit and
+# the frontend's digest full lowercase hex. The value is printable ASCII, which
+# is narrower than any parser so far accepts and what CI has to write within.
+FROZEN_MANIFEST_LINE = re.compile(r"(?P<key>[a-z0-9_]+)=(?P<value>[\x20-\x7e]*)")
+FROZEN_FIELD_SHAPES = {"commit": re.compile(r"[0-9a-f]{40}"), "frontend_sha256": re.compile(r"[0-9a-f]{64}")}
+# A manifest as the first signed release's CI writes it, byte for byte. A
+# withdrawal makes newer code read an older release's manifest, so every later
+# parser must still take this one.
+FROZEN_MANIFEST = (
+    b"tag=v1.0.0\n"
+    b"commit=0123456789abcdef0123456789abcdef01234567\n"
+    b"frontend=milo-frontend-v1.0.0.tar.gz\n"
+    b"frontend_sha256=" + b"ab" * 32 + b"\n"
+    b"image=2026-11-21-milo.img.xz\n"
+    b"image_sha256=" + b"cd" * 32 + b"\n"
+)
+
+
+def _frozen_grammar_findings(manifest: bytes) -> list[str]:
+    """What in `manifest` lies outside the frozen grammar: what some unit, on
+    some signed release, may refuse. Empty when every one of them takes it."""
+    try:
+        lines = manifest.decode("ascii").split("\n")
+    except UnicodeDecodeError:
+        return ["not ASCII text"]
+    if lines and lines[-1] == "":
+        lines.pop()
+    findings, fields = [], {}
+    for number, line in enumerate(lines, start=1):
+        matched = FROZEN_MANIFEST_LINE.fullmatch(line)
+        if matched is None:
+            findings.append(f"line {number} is not key=value: {line!r}")
+            continue
+        if matched["key"] in fields:
+            findings.append(f"{matched['key']} is written twice")
+        fields[matched["key"]] = matched["value"]
+    for key in FROZEN_MANIFEST_KEYS:
+        if not fields.get(key):
+            findings.append(f"no {key}")
+        elif key in FROZEN_FIELD_SHAPES and not FROZEN_FIELD_SHAPES[key].fullmatch(fields[key]):
+            findings.append(f"{key} is not in its frozen shape: {fields[key]!r}")
+    return findings
+
+TREE_KEYS = REPO_ROOT / "rootfs" / "etc" / "milo" / "release-signing.pub"
+SIGN_SCRIPT = REPO_ROOT / "tools" / "release" / "sign-release.sh"
+MANIFEST_STEP = "Write the release manifest"
+
+
+def _release_step(workflow) -> dict:
+    steps = [step for step in workflow["build"]["steps"] if "action-gh-release" in str(step.get("uses", ""))]
+    assert len(steps) == 1, f"expected one release step, found {steps}"
+    return steps[0]
+
+
+def test_what_a_unit_verifies_a_release_by_is_frozen(workflow):
+    """Release N verifies release N+1 with N's code: the manifest it downloads,
+    the signature beside it, the namespace and identity it verifies under.
+    Renamed on both sides in one commit, every check at the same HEAD stays
+    green and every unit on N refuses N+1, and every release after it, for
+    good — the update is the only way N's code changes."""
+    from backend.core.updates import release_signature
+
+    assert PROGRAMS["milo"]["release_manifest_url"] == FROZEN_RELEASE_MANIFEST_URL
+    assert release_signature.SIGNATURE_SUFFIX == FROZEN_SIGNATURE_SUFFIX
+    assert release_signature.SIGNING_NAMESPACE == FROZEN_SIGNING_NAMESPACE
+    assert release_signature.SIGNER_IDENTITY == FROZEN_SIGNER_IDENTITY
+    assert set(release_signature.REQUIRED_KEYS) <= set(FROZEN_MANIFEST_KEYS), (
+        "a unit now requires a manifest key nobody froze. Every release signed before this one "
+        "lacks it, so a unit running this code refuses a withdrawal to any of them; appending it "
+        "to FROZEN_MANIFEST_KEYS does not change that (FROZEN_MANIFEST will say so)"
+    )
+
+    literal = re.search(r'release_manifest=(\S+)" >> "\$GITHUB_OUTPUT"', WORKFLOW.read_text())
+    assert literal, "the vars job no longer writes the manifest's name"
+    published = literal.group(1).replace("${REF}", "{tag}")
+    assert published == FROZEN_RELEASE_MANIFEST_URL.rsplit("/", 1)[-1], published
+    assert workflow["vars"]["outputs"]["release_manifest"], "the vars job publishes no manifest name"
+
+
+def test_ci_drafts_the_release_with_its_manifest_and_signs_nothing(workflow):
+    """A published release is offered to every unit, and an immutable one
+    takes no asset after publication: so CI leaves a draft, which
+    `releases/latest` never names, carrying the manifest for the owner to
+    sign. CI holds no key — an account that can run it must not be able to
+    make a release a unit accepts — so no signature is published from here.
+    The order is append-only: release N downloads by these names."""
+    release = _release_step(workflow)["with"]
+    assert release.get("draft") is True, f"the release is published by CI, unsigned: {release}"
+
+    files = [line.strip() for line in release["files"].splitlines() if line.strip()]
+    assert files[:3] == [
+        "${{ env.compressed_image }}",
+        "frontend-artefact/${{ needs.vars.outputs.frontend_asset }}",
+        "frontend-artefact/${{ needs.vars.outputs.frontend_asset }}.sha256",
+    ], files
+    assert "${{ needs.vars.outputs.release_manifest }}" in files, files
+    assert not [name for name in files if name.endswith(FROZEN_SIGNATURE_SUFFIX)], files
+
+    for path in sorted((REPO_ROOT / ".github").rglob("*.yml")):
+        assert not re.search(r"ssh-keygen[^\n]*-Y\s+sign", path.read_text()), f"{path.name} signs a release"
+
+
+def _run_manifest_step(workflow, root: Path, tag: str) -> Path:
+    """The workflow's own manifest step, run in `root` — a checkout at the tag
+    with the frontend artifact and an image beside it — as the runner runs it."""
+    steps = [step for step in workflow["build"]["steps"] if step.get("name") == MANIFEST_STEP]
+    assert len(steps) == 1, f"expected one {MANIFEST_STEP!r} step, found {len(steps)}"
+    assert steps[0].get("if") == "needs.vars.outputs.is_release == 'true'", steps[0].get("if")
+    names = {
+        "needs.vars.outputs.milo_ref": tag,
+        "needs.vars.outputs.frontend_asset": f"milo-frontend-{tag}.tar.gz",
+        "needs.vars.outputs.release_manifest": f"milo-release-{tag}.manifest",
+        "env.compressed_image": "deploy/2026-11-21-milo.img.xz",
+    }
+    script = steps[0]["run"]
+    for expression, value in names.items():
+        script = script.replace("${{ " + expression + " }}", value)
+    assert "${{" not in script, f"the manifest step reads another expression: {script}"
+
+    (root / "frontend-artefact").mkdir(exist_ok=True)
+    (root / "frontend-artefact" / names["needs.vars.outputs.frontend_asset"]).write_bytes(b"the frontend")
+    (root / "deploy").mkdir(exist_ok=True)
+    (root / names["env.compressed_image"]).write_bytes(b"the image")
+    result = subprocess.run(["bash", "-e", "-c", script], cwd=root, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    return root / names["needs.vars.outputs.release_manifest"]
+
+
+def _git(root: Path) -> list[str]:
+    return ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+
+
+def _git_repo(root: Path, tag: str, keys: str) -> str:
+    """A checkout holding `keys` as its release key file, at `tag`; its commit."""
+    git = _git(root)
+    (root / TREE_KEYS.relative_to(REPO_ROOT)).parent.mkdir(parents=True, exist_ok=True)
+    (root / TREE_KEYS.relative_to(REPO_ROOT)).write_text(keys)
+    subprocess.run([*git, "init", "-q"], check=True, capture_output=True, timeout=30)
+    for args in (["add", "rootfs"], ["commit", "-q", "-m", "release"], ["tag", tag]):
+        subprocess.run([*git, *args], check=True, capture_output=True, timeout=30)
+    return subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True,
+                          timeout=30).stdout.strip()
+
+
+def test_the_manifest_ci_writes_is_the_one_a_unit_reads(workflow, tmp_path):
+    """Run for real, the step writes what the unit's parser takes: the tag, the
+    commit the build checked out, the frontend it published — and within the
+    frozen grammar, so the units on every earlier signed release take it too.
+    The current parser alone would not say so: loosened in the commit that
+    changes CI to match (a header line, a key spelled `image-sha256`), it
+    accepts what every unit in the field refuses, for every release after."""
+    from backend.core.updates.release_signature import parse_manifest
+
+    commit = _git_repo(tmp_path, "v9.8.7", "# no key\n")
+    manifest = _run_manifest_step(workflow, tmp_path, "v9.8.7").read_bytes()
+
+    parsed = parse_manifest(manifest)
+    assert parsed.tag == "v9.8.7"
+    assert parsed.commit == commit
+    assert parsed.frontend_sha256 == hashlib.sha256(b"the frontend").hexdigest()
+    assert _frozen_grammar_findings(manifest) == [], manifest.decode()
+    # Whoever flashes a card verifies the image by the same signature.
+    assert f"image_sha256={hashlib.sha256(b'the image').hexdigest()}" in manifest.decode()
+
+
+def test_a_manifest_signed_today_still_parses():
+    """The other direction: a withdrawal offers the units on N+1 release N back,
+    and N+1's code reads N's manifest. A parser that came to require a key, or
+    to refuse a line, that the first signed releases wrote refuses every
+    withdrawal to one of them — and a withdrawal is the one-gesture way back
+    from a bad release."""
+    from backend.core.updates.release_signature import parse_manifest
+
+    assert _frozen_grammar_findings(FROZEN_MANIFEST) == [], "the frozen sample left the frozen grammar"
+    parsed = parse_manifest(FROZEN_MANIFEST)
+    assert (parsed.tag, parsed.commit, parsed.frontend_sha256) == (
+        "v1.0.0", "0123456789abcdef0123456789abcdef01234567", "ab" * 32,
+    )
+
+
+@pytest.mark.parametrize("drift, reason", [
+    (lambda m: b"# Milo release manifest\n" + m, "not key=value"),
+    (lambda m: m.replace(b"image_sha256=", b"image-sha256="), "not key=value"),
+    (lambda m: m + b"tag=v1.0.1\n", "tag is written twice"),
+    (lambda m: m.replace(b"commit=0123456789abcdef0123456789abcdef01234567", b"commit=0123456"),
+     "commit is not in its frozen shape"),
+    (lambda m: m.replace(b"frontend_sha256=", b"frontend_digest="), "no frontend_sha256"),
+    (lambda m: m.replace(b"\n", b"\r\n"), "not key=value"),
+    (lambda m: m.replace(b"tag=v1.0.0", "tag=v1.0.0-é".encode()), "not ASCII"),
+], ids=["header", "hyphen", "repeated", "short-commit", "renamed-key", "crlf", "non-ascii"])
+def test_the_frozen_grammar_goes_red_on_each_drift(drift, reason):
+    findings = _frozen_grammar_findings(drift(FROZEN_MANIFEST))
+    assert any(reason in finding for finding in findings), findings
+
+
+def test_the_tree_lists_the_key_releases_are_signed_with():
+    """The allowed-signers file every unit verifies the next release with. A
+    tree listing no key is a unit that refuses every release; a line in another
+    shape is a key ssh-keygen never matches. Installed at the path the backend
+    reads, by the sync every update runs (rootfs/ to /)."""
+    lines = [line for line in TREE_KEYS.read_text().splitlines() if line.strip() and not line.startswith("#")]
+    shape = re.compile(
+        rf'^{FROZEN_SIGNER_IDENTITY} namespaces="{FROZEN_SIGNING_NAMESPACE}" ssh-ed25519 (AAAAC3NzaC1lZDI1NTE5[A-Za-z0-9+/]+=*)( .*)?$'
+    )
+    assert lines, f"{TREE_KEYS.relative_to(REPO_ROOT)} lists no key: every unit refuses every release"
+    for line in lines:
+        assert shape.match(line), f"not an ed25519 allowed-signers line for {FROZEN_SIGNER_IDENTITY}: {line!r}"
+    assert PROGRAMS["milo"]["release_signing_key"] == "/" + str(TREE_KEYS.relative_to(REPO_ROOT / "rootfs"))
+
+
+# The install path, read out of update.py: the verification it calls, where the
+# frontend's digest comes from, and what the checkout is given.
+
+def _install_path_findings(source: str) -> list[str]:
+    """What is wrong with how `_update_milo_app` uses the signature: empty when
+    it verifies the release before it stages the frontend, stages it against
+    the verified manifest's digest, compares the tag's commit with the
+    manifest's, and checks out that commit — in that order."""
+    function = next(
+        (node for node in ast.walk(ast.parse(source))
+         if isinstance(node, ast.AsyncFunctionDef) and node.name == "_update_milo_app"),
+        None,
+    )
+    if function is None:
+        return ["no _update_milo_app"]
+
+    def calls(name):
+        return [node for node in ast.walk(function)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == name]
+
+    findings = []
+    verified = None
+    for node in ast.walk(function):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Await)
+                and isinstance(node.value.value, ast.Call)
+                and getattr(node.value.value.func, "attr", None) == "verify_release"):
+            verified = node
+    if verified is None or not isinstance(verified.targets[0], ast.Name):
+        return ["the install keeps no verified manifest (`x = await self.verify_release(tag)`)"]
+    manifest = verified.targets[0].id
+
+    stages = calls("_stage_release_frontend")
+    checkouts = [node for node in calls("_run_git")
+                 if node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == "checkout"]
+    compared = [node for node in ast.walk(function)
+                if isinstance(node, ast.Compare)
+                and any(isinstance(side, ast.Attribute) and side.attr == "commit"
+                        and isinstance(side.value, ast.Name) and side.value.id == manifest
+                        for side in (node.left, *node.comparators))]
+    if len(stages) != 1:
+        findings.append(f"expected one frontend stage, found {len(stages)}")
+    elif not (len(stages[0].args) == 2 and isinstance(stages[0].args[1], ast.Attribute)
+              and isinstance(stages[0].args[1].value, ast.Name) and stages[0].args[1].value.id == manifest):
+        findings.append("the frontend is not staged against the verified manifest's digest")
+    elif stages[0].lineno < verified.lineno:
+        findings.append("the frontend is staged before the release is verified")
+    if len(checkouts) != 1:
+        findings.append(f"expected one checkout, found {len(checkouts)}")
+        return findings
+    checkout = checkouts[0]
+    if checkout.lineno < verified.lineno:
+        findings.append("the checkout runs before the release is verified")
+    if not compared or min(node.lineno for node in compared) > checkout.lineno:
+        findings.append("the tag's commit is not compared with the signed one before the checkout")
+    target = checkout.args[-1] if len(checkout.args) > 1 else None
+    if not (isinstance(target, ast.Name) and any(
+            isinstance(side, ast.Name) and side.id == target.id
+            for node in compared for side in (node.left, *node.comparators))):
+        findings.append("the checkout is not given the commit compared with the signed one")
+    return findings
+
+
+def test_the_install_verifies_the_release_before_it_checks_it_out():
+    """The unit installs as root what it checks out, so the check stands on the
+    path itself: verified first, the frontend held to the signed digest, the
+    tag's commit held to the signed commit, and that commit — not the tag, a
+    ref anyone who can push moves — checked out. The behavior is driven in
+    test_update_service.py; this is what keeps a second install path, or a
+    reordering, from slipping past it."""
+    assert _install_path_findings(UPDATE_SERVICE.read_text()) == []
+
+
+_SIGNED_INSTALL = """
+async def _update_milo_app(self, status):
+    tag = status["latest"]["tag_name"]
+    manifest = await self.verify_release(tag)
+    staging = await self._stage_release_frontend(tag, manifest.frontend_sha256)
+    target_commit = await self._git_output("rev-parse", tag)
+    if target_commit != manifest.commit:
+        raise Exception("moved")
+    ok, out = await self._run_git("checkout", "--force", target_commit)
+"""
+
+
+@pytest.mark.parametrize("drift, reason", [
+    (lambda s: s.replace("    manifest = await self.verify_release(tag)\n", "")
+     .replace("    ok, out", "    manifest = await self.verify_release(tag)\n    ok, out"),
+     "before the release is verified"),
+    (lambda s: s.replace("manifest.frontend_sha256", "sidecar"), "verified manifest's digest"),
+    (lambda s: s.replace('"--force", target_commit', '"--force", tag'), "given the commit compared"),
+    (lambda s: s.replace("    if target_commit != manifest.commit:\n        raise Exception(\"moved\")\n", ""),
+     "not compared"),
+    (lambda s: s.replace("manifest = await self.verify_release(tag)", "await self.verify_release(tag)"),
+     "keeps no verified manifest"),
+], ids=["verified-late", "sidecar-digest", "checkout-by-tag", "no-commit-check", "result-dropped"])
+def test_the_install_path_check_goes_red_on_each_drift(drift, reason):
+    assert _install_path_findings(_SIGNED_INSTALL) == [], "the reference install is not clean"
+    findings = _install_path_findings(drift(_SIGNED_INSTALL))
+    assert any(reason in finding for finding in findings), findings
+
+
+# The owner's command, against the unit's check.
+
+_FAKE_GH = r'''#!/bin/bash
+set -e
+d="$FAKE_GH"
+echo "$*" >> "$d/calls"
+case "$1 $2" in
+  "release download")
+    shift 3; dir=.; pats=()
+    while [ $# -gt 0 ]; do
+      case "$1" in --pattern) pats+=("$2"); shift 2 ;; --dir) dir=$2; shift 2 ;; *) shift ;; esac
+    done
+    for p in "${pats[@]}"; do
+      [ -f "$d/assets/$p" ] || { echo "no asset $p" >&2; exit 1; }
+      cp "$d/assets/$p" "$dir/"
+    done ;;
+  "release view")
+    [ ! -f "$d/unreachable" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    [ -s "$d/latest" ] || { echo "release not found" >&2; exit 1; }
+    cat "$d/latest" ;;
+  "release upload") cp "$4" "$d/uploaded/" ;;
+  "release edit") echo "$3 $4" >> "$d/edited" ;;
+  *) echo "unexpected: gh $*" >&2; exit 1 ;;
+esac
+'''
+
+
+class _Draft:
+    """A checkout at a tag the owner pushed, its release drafted by CI — the
+    manifest written by the workflow's own step — and a `gh` that serves the
+    draft and records what the script does to it."""
+
+    def __init__(self, workflow, root: Path, key, tag="v9.8.7"):
+        self.tag, self.key = tag, key
+        self.repo = root / "checkout"
+        self.repo.mkdir()
+        self.commit = _git_repo(self.repo, tag, key.allowed_signers.read_text())
+        self.gh = root / "gh"
+        for name in ("assets", "uploaded", "bin"):
+            (self.gh / name).mkdir(parents=True)
+        manifest = _run_manifest_step(workflow, self.repo, tag)
+        self.manifest = self.gh / "assets" / manifest.name
+        manifest.rename(self.manifest)
+        (self.repo / "frontend-artefact" / f"milo-frontend-{tag}.tar.gz").rename(
+            self.gh / "assets" / f"milo-frontend-{tag}.tar.gz")
+        (self.gh / "bin" / "gh").write_text(_FAKE_GH)
+        (self.gh / "bin" / "gh").chmod(0o755)
+
+    def fleet(self, key, tag="v9.8.6") -> None:
+        """The release the units run now: a tag of this checkout listing `key`."""
+        (self.repo / TREE_KEYS.relative_to(REPO_ROOT)).write_text(key.allowed_signers.read_text())
+        git = _git(self.repo)
+        subprocess.run([*git, "commit", "-q", "--allow-empty", "-am", "the fleet's keys"], check=True, timeout=30)
+        subprocess.run([*git, "tag", tag], check=True, timeout=30)
+
+    def sign(self, *, latest: str = "", rotate: bool = False,
+             unreachable: bool = False) -> subprocess.CompletedProcess:
+        (self.gh / "latest").write_text(latest)
+        if unreachable:
+            (self.gh / "unreachable").touch()
+        return subprocess.run(
+            ["bash", str(SIGN_SCRIPT), *(["--rotate"] if rotate else []), self.tag, str(self.key.private)],
+            cwd=self.repo, capture_output=True, text=True, timeout=60,
+            env={**os.environ, "FAKE_GH": str(self.gh), "PATH": f"{self.gh / 'bin'}:{os.environ['PATH']}"},
+        )
+
+    def uploaded(self) -> list[str]:
+        return sorted(path.name for path in (self.gh / "uploaded").iterdir())
+
+    def published(self) -> bool:
+        return (self.gh / "edited").is_file() and f"{self.tag} --draft=false" in (self.gh / "edited").read_text()
+
+
+@pytest.mark.asyncio
+async def test_the_owners_signature_is_one_a_unit_accepts(workflow, tmp_path):
+    """The two halves never meet anywhere else: the namespace, identity and
+    file names the owner's command signs with against the ones a unit
+    verifies with. A drift is a release every unit refuses, found the first
+    time a tag is cut. Run end to end with the real ssh-keygen: CI's step
+    writes the manifest, the script signs and publishes the draft, and the
+    unit's own verifier takes the signature."""
+    from backend.core.updates.release_signature import verified_manifest
+    from backend.tests.release_signing import make_key
+
+    draft = _Draft(workflow, tmp_path, make_key(tmp_path / "keys"))
+    result = draft.sign()
+
+    assert result.returncode == 0, result.stderr
+    assert draft.uploaded() == [f"{draft.manifest.name}{FROZEN_SIGNATURE_SUFFIX}"]
+    assert draft.published()
+    calls = (draft.gh / "calls").read_text().splitlines()
+    assert [c.split()[1] for c in calls if c.split()[1] in ("upload", "edit")] == ["upload", "edit"], (
+        "the draft is published before its signature is attached; an immutable release takes none after"
+    )
+    signature = (draft.gh / "uploaded" / draft.uploaded()[0]).read_bytes()
+    parsed = await verified_manifest(
+        draft.manifest.read_bytes(), signature, draft.repo / TREE_KEYS.relative_to(REPO_ROOT), draft.tag,
+    )
+    assert parsed.commit == draft.commit
+
+
+_REFUSALS = {
+    "tag-moved": "built from",
+    "key-not-listed": "v9.8.7 does not list the key that signs it",
+    "fleet-does-not-list-it": "keys v9.8.6 lists",
+    "github-unreachable": "GitHub did not say which release the units run",
+    "fleet-tag-not-fetched": "no tag v9.8.5 in this checkout",
+    "rotate-with-no-fleet": "--rotate hands the units over",
+    "rotate-that-rotates-nothing": "nothing rotates",
+}
+
+
+@pytest.mark.parametrize("case", sorted(_REFUSALS))
+def test_the_owners_command_refuses_before_it_uploads_anything(workflow, tmp_path, case):
+    """What the script checks is what would otherwise be found by every unit
+    refusing a published — so immutable, so unfixable — release: a draft built
+    from another commit than the tag names on the Mac, a key the release's
+    tree does not list, a key the release the units run now does not list.
+    And what it cannot check is a refusal too, never a skipped step: a GitHub
+    that does not say which release the units run, a tag of that release this
+    checkout lacks, a --rotate with nothing to hand over from or to."""
+    from backend.tests.release_signing import make_key
+
+    key = make_key(tmp_path / "keys")
+    draft = _Draft(workflow, tmp_path, key)
+    sign = {}
+    if case == "tag-moved":
+        subprocess.run([*_git(draft.repo), "commit", "-q", "--allow-empty", "-m", "after"], check=True, timeout=30)
+        subprocess.run([*_git(draft.repo), "tag", "-f", draft.tag], check=True, capture_output=True, timeout=30)
+    elif case == "key-not-listed":
+        draft.key = make_key(tmp_path / "other", name="other")
+    elif case == "fleet-does-not-list-it":
+        draft.fleet(make_key(tmp_path / "fleet", name="fleet"))
+        sign = {"latest": "v9.8.6"}
+    elif case == "github-unreachable":
+        sign = {"unreachable": True}
+    elif case == "fleet-tag-not-fetched":
+        sign = {"latest": "v9.8.5"}
+    elif case == "rotate-with-no-fleet":
+        draft.key = make_key(tmp_path / "other", name="other")
+        sign = {"rotate": True}
+    else:
+        draft.fleet(key)
+        sign = {"latest": "v9.8.6", "rotate": True}
+
+    result = draft.sign(**sign)
+
+    assert result.returncode != 0, result.stdout
+    assert _REFUSALS[case] in result.stderr, result.stderr
+    assert draft.uploaded() == [] and not draft.published()
+
+
+@pytest.mark.asyncio
+async def test_a_rotation_is_one_release_signed_with_the_key_it_drops(workflow, tmp_path):
+    """A key that leaked is rotated in one release: its tree lists the new key
+    alone, and it is signed with the old one. The units on the release before
+    list the old key, so they take it; once on it they trust the new key alone,
+    so the leaked one signs nothing they install from then on. Without
+    --rotate the script refuses that same release — a tree that drops the key
+    signing it is otherwise a mistake that strands its units."""
+    from backend.core.updates.release_signature import verified_manifest
+    from backend.tests.release_signing import make_key
+
+    old, new = make_key(tmp_path / "old", name="old"), make_key(tmp_path / "new", name="new")
+    draft = _Draft(workflow, tmp_path, new)
+    draft.key = old
+    draft.fleet(old)
+
+    refused = draft.sign(latest="v9.8.6")
+    assert refused.returncode != 0 and "sign with --rotate" in refused.stderr, refused.stderr
+    assert draft.uploaded() == []
+
+    result = draft.sign(latest="v9.8.6", rotate=True)
+
+    assert result.returncode == 0, result.stderr
+    assert draft.published()
+    fleet_keys = tmp_path / "fleet.allowed"
+    shown = subprocess.run([*_git(draft.repo), "show", f"v9.8.6:{TREE_KEYS.relative_to(REPO_ROOT)}"],
+                           check=True, capture_output=True, timeout=30)
+    fleet_keys.write_bytes(shown.stdout)
+    signature = (draft.gh / "uploaded" / draft.uploaded()[0]).read_bytes()
+    parsed = await verified_manifest(draft.manifest.read_bytes(), signature, fleet_keys, draft.tag)
+    assert parsed.commit == draft.commit

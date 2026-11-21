@@ -9,14 +9,24 @@ import aiohttp
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.helpers import compare_versions, is_stable_release
+from backend.core.updates.release_signature import (
+    MAX_MANIFEST_BYTES,
+    SIGNATURE_SUFFIX,
+    ReleaseManifest,
+    UnverifiableRelease,
+    verified_manifest,
+)
 
-# How long a failed GitHub read (the latest release, the release list) is
-# remembered before it is tried again.
+# How long a failed GitHub read (the latest release, the release list, a
+# release's signature) is remembered before it is tried again.
 RELEASES_RETRY_S = 300
+# The offer's verdict on one release's signature, cached per tag.
+SIGNATURE_CACHE_PREFIX = "signature_"
 
 
 class VersionService:
@@ -351,10 +361,13 @@ class VersionService:
         get past. Successes stay cached — a retry is about the rows that failed,
         not a reason to spend the anonymous rate limit on the rows that did not.
         """
-        for program_key in self.programs:
-            cache_key = f"github_{program_key}"
+        candidates = [f"github_{program_key}" for program_key in self.programs]
+        # A signature that could not be *read* is a check that failed too; one
+        # that was read and refused is an answer, and a retry would repeat it.
+        candidates += [key for key in self._github_cache if key.startswith(SIGNATURE_CACHE_PREFIX)]
+        for cache_key in candidates:
             cached = self._github_cache.get(cache_key)
-            if cached is not None and cached.get("status") != "success":
+            if cached is not None and cached.get("status") not in ("success", "refused"):
                 del self._github_cache[cache_key]
                 self._last_github_fetch.pop(cache_key, None)
 
@@ -521,6 +534,82 @@ class VersionService:
             return None
         return stdout.decode().strip() or None
 
+    async def _fetch_release_bytes(self, url: str, *, listed: bool) -> bytes:
+        """One small release asset, byte for byte: a signature covers exact
+        bytes, so nothing is decoded or stripped on the way. A 404 is a release
+        that publishes no such file, refused as unverifiable — unless `listed`:
+        the release's listing names the file, so a 404 is the download host
+        failing, a read that failed like any other, which raises as one."""
+        name = url.rsplit("/", 1)[-1]
+        body = bytearray()
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+            async with session.get(url) as response:
+                if response.status == 404 and not listed:
+                    raise UnverifiableRelease(f"the release publishes no {name}")
+                if response.status != 200:
+                    raise Exception(f"Download failed: HTTP {response.status} for {url}")
+                async for chunk in response.content.iter_chunked(8192):
+                    body += chunk
+                    if len(body) > MAX_MANIFEST_BYTES:
+                        raise UnverifiableRelease(f"{name} is larger than a release manifest")
+        return bytes(body)
+
+    async def verify_release(self, tag: str, *, listed: bool = False) -> ReleaseManifest:
+        """The signed manifest of Milō release `tag`, verified against the keys
+        of the release this unit runs. Raises UnverifiableRelease when the
+        release cannot be verified, anything else when it could not be read
+        (`listed`: the caller saw both files in the release's listing).
+
+        Asked afresh on every call: the install calls it before it moves
+        anything (`UpdateService._update_milo_app`), the offer through a cache
+        (`_release_verdict`).
+        """
+        milo = self.programs["milo"]
+        url = milo["release_manifest_url"].format(tag=tag)
+        manifest = await self._fetch_release_bytes(url, listed=listed)
+        signature = await self._fetch_release_bytes(f"{url}{SIGNATURE_SUFFIX}", listed=listed)
+        return await verified_manifest(manifest, signature, Path(milo["release_signing_key"]), tag)
+
+    async def _release_verdict(self, tag: str, asset_names: List[str]) -> Dict[str, Any]:
+        """Whether release `tag` verifies: `success`, `refused` (no signed
+        manifest, or one that does not verify), or `error` (it could not be
+        read). Cached per tag like the release it belongs to — a published
+        release's assets do not change — and a read that failed for
+        `RELEASES_RETRY_S`, the screen's Retry dropping it at once."""
+        cache_key = f"{SIGNATURE_CACHE_PREFIX}{tag}"
+        return await self._shared_read(
+            cache_key, lambda: self._read_release_verdict(tag, asset_names, cache_key)
+        )
+
+    async def _read_release_verdict(
+        self, tag: str, asset_names: List[str], cache_key: str
+    ) -> Dict[str, Any]:
+        now = time.time()
+        manifest = self.programs["milo"]["release_manifest_url"].format(tag=tag).rsplit("/", 1)[-1]
+        try:
+            # A release that lists neither file is refused without a download.
+            missing = [name for name in (manifest, f"{manifest}{SIGNATURE_SUFFIX}")
+                       if name not in asset_names]
+            if missing:
+                raise UnverifiableRelease(f"the release publishes no {' and no '.join(missing)}")
+            await self.verify_release(tag, listed=True)
+            verdict = {"status": "success"}
+        except UnverifiableRelease as e:
+            # Logged once per read, not per status read: this is cached. A
+            # warning, as for a release that published no frontend — the row
+            # says it, and an error would raise the banner on every opening.
+            self.logger.warning(f"Release {tag} is refused, it is not offered: {e}")
+            verdict = {"status": "refused", "message": str(e)}
+        except Exception as e:
+            self.logger.warning(f"The signature of release {tag} could not be read: {e}")
+            verdict = {"status": "error", "message": str(e)}
+            self._github_cache[cache_key] = verdict
+            self._last_github_fetch[cache_key] = now - self._cache_timeout + RELEASES_RETRY_S
+            return verdict
+        self._github_cache[cache_key] = verdict
+        self._last_github_fetch[cache_key] = now
+        return verdict
+
     async def _apply_milo_offer(self, result: Dict[str, Any], latest: Dict[str, Any]) -> None:
         """Decide Milo's row on tag identity rather than version order.
 
@@ -530,7 +619,7 @@ class VersionService:
         release the channel publishes", and it is asked of the tag — the thing
         the install actually checks out.
 
-        Three behaviours fall out, and all three are the point:
+        Four behaviours fall out, and all four are the point:
 
           * **a pre-release is never offered.** It exists to be installed on a
             unit somebody is watching, by somebody who chose it. `releases/latest`
@@ -548,6 +637,13 @@ class VersionService:
             release, it is outside the channel, and `git checkout <tag>` over
             uncommitted work is not an update. `development_build` is what the
             row says instead of a version comparison nobody can act on.
+          * **a release no trusted key signed is refused, and says so.** The
+            install would refuse it before its checkout (release_signature.py
+            says why), so offering it would draw a button whose every press
+            fails. `refused: "signature"` is what the row reads instead — not
+            "up to date", which would hide that the channel served something
+            this unit will not run. A signature that could not be *read* (no
+            network) is a check that failed, like the release read itself.
 
         A unit running a pre-release is *not* a development build: it sits on a
         tag, so it is told plainly what it runs and offered the stable release
@@ -555,6 +651,7 @@ class VersionService:
         """
         # Asked of git, not of GitHub: an offline development tree is still one.
         tag = await self._exact_release_tag()
+        result["refused"] = None
         result["development_build"] = tag is None
         result["installed"]["release_tag"] = tag
         if tag is None:
@@ -583,6 +680,14 @@ class VersionService:
                 f"Release {published} publishes no {wanted}; it cannot be "
                 "installed, so it is not offered."
             )
+            return
+
+        verdict = await self._release_verdict(published, latest.get("asset_names") or [])
+        if verdict["status"] == "error":
+            result["check_failed"] = True
+            return
+        if verdict["status"] != "success":
+            result["refused"] = "signature"
             return
 
         result["update_available"] = True

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from backend.core.updates.version import RELEASES_RETRY_S, VersionService
 from backend.tests.conftest import shortened_wait_for
+from backend.tests.release_signing import make_key, manifest_for
 
 
 @pytest.fixture
@@ -1256,6 +1257,87 @@ class TestVersionDetectionResidue:
         assert result["check_failed"] is True
 
 
+# Captured before any test patches it: ssh-keygen runs for real under the
+# doubles below, which stand in for git and GitHub only.
+_REAL_EXEC = asyncio.create_subprocess_exec
+
+
+def _signed_release_assets(service, tag):
+    """The asset list of a release this channel built and its owner signed."""
+    milo = service.programs["milo"]
+    manifest = milo["release_manifest_url"].format(tag=tag).rsplit("/", 1)[-1]
+    return [{"name": name} for name in (
+        f"milo-frontend-{tag}.tar.gz", f"milo-frontend-{tag}.tar.gz.sha256",
+        manifest, f"{manifest}.sig",
+    )]
+
+
+class _MiloGitHub:
+    """GitHub as Milō's offer reads it: `releases/latest` naming `tag` with
+    `assets`, and the release download host serving exactly `files` — a 404
+    for anything else, a 500 for a URL in `failing`. Records every URL asked."""
+
+    def __init__(self, tag, assets, files):
+        self.release = {
+            "tag_name": tag,
+            "published_at": "2026-11-21T00:00:00Z",
+            "html_url": f"https://github.com/leodurandfr/Milo/releases/tag/{tag}",
+            "assets": assets,
+        }
+        self.files = files
+        self.failing: set = set()
+        self.requested: list = []
+
+    def serving(self):
+        return patch("aiohttp.ClientSession", side_effect=lambda *a, **k: self._session())
+
+    def _session(self):
+        github = self
+
+        class _Response:
+            def __init__(self, url):
+                github.requested.append(url)
+                self._body = github.files.get(url)
+                if url.startswith("https://api.github.com/"):
+                    self.status = 200
+                elif url in github.failing:
+                    self.status = 500
+                else:
+                    self.status = 200 if self._body is not None else 404
+
+            async def json(self):
+                return github.release
+
+            @property
+            def content(self):
+                body = self._body
+
+                class _Content:
+                    async def iter_chunked(self, size):
+                        for start in range(0, len(body), size):
+                            yield body[start:start + size]
+
+                return _Content()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        class _Session:
+            def get(self, url, **kwargs):
+                return _Response(url)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Session()
+
+
 class TestTheMiloReleaseOffer:
     """Milo's row is decided on tag identity, not on version order.
 
@@ -1273,9 +1355,22 @@ class TestTheMiloReleaseOffer:
     offered nothing at all.
     """
 
-    @staticmethod
-    async def _row(service, *, exact, published, described=None, assets=None):
-        """One milo row, with both git reads and `releases/latest` doubled.
+    @pytest.fixture(autouse=True)
+    def _signing_key(self, version_service, tmp_path):
+        """The key this unit trusts: every release `_row` publishes is signed
+        with it unless a test says otherwise."""
+        self.key = make_key(tmp_path / "keys")
+        version_service.programs["milo"]["release_signing_key"] = str(self.key.allowed_signers)
+
+    def _signed_files(self, service, tag, signature=None):
+        """The manifest and signature a signed release `tag` publishes."""
+        url = service.programs["milo"]["release_manifest_url"].format(tag=tag)
+        manifest = manifest_for(tag, "c" * 40, "d" * 64)
+        return {url: manifest, f"{url}.sig": self.key.sign(manifest) if signature is None else signature}
+
+    async def _row(self, service, *, exact, published, described=None, assets=None,
+                   files=None, github=None):
+        """One milo row, with both git reads and GitHub doubled.
 
         `exact` is what `git describe --tags --exact-match` answers — the tag,
         or None when HEAD is past one. `described` is the `--always` output the
@@ -1283,11 +1378,15 @@ class TestTheMiloReleaseOffer:
         separately because which of the two the offer reads *is* the question:
         one string answering both cannot tell "v0.2.0-rc1" (a tag) from
         "v0.1.0-2017-g36b9a0d7" (a tree 2017 commits past one). `published`
-        None is a GitHub that does not answer.
+        None is a GitHub that does not answer. The release carries its frontend
+        and a manifest signed by the trusted key unless `assets` and `files`
+        say otherwise; ssh-keygen is the real one.
         """
         described = described or exact or "36b9a0d7"
 
         async def git(*argv, **kwargs):
+            if argv[0] == "ssh-keygen":
+                return await _REAL_EXEC(*argv, **kwargs)
             proc = AsyncMock()
             if "--exact-match" in argv:
                 proc.returncode = 0 if exact else 128
@@ -1299,11 +1398,16 @@ class TestTheMiloReleaseOffer:
                 proc.communicate = AsyncMock(return_value=(described.encode(), b""))
             return proc
 
-        github = (
-            patch("aiohttp.ClientSession", side_effect=Exception("no network"))
-            if published is None else _patch_github_release(published, assets)
-        )
-        with patch("asyncio.create_subprocess_exec", side_effect=git), github:
+        if published is None:
+            served = patch("aiohttp.ClientSession", side_effect=Exception("no network"))
+        else:
+            if github is None:
+                github = _MiloGitHub(
+                    published, _signed_release_assets(service, published) if assets is None else assets,
+                    self._signed_files(service, published) if files is None else files,
+                )
+            served = github.serving()
+        with patch("asyncio.create_subprocess_exec", side_effect=git), served:
             return await service.get_program_full_status("milo")
 
     @pytest.mark.asyncio
@@ -1492,3 +1596,134 @@ class TestTheMiloReleaseOffer:
         assert row["development_build"] is True
         # Outside the channel there was nothing to ask GitHub about.
         assert row["check_failed"] is False
+
+    # ── the signature ────────────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_a_signed_release_is_offered_and_says_nothing_is_refused(self, version_service):
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0")
+
+        assert row["update_available"] is True
+        assert row["refused"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_release_nobody_signed_is_refused_rather_than_offered(self, version_service):
+        """A release published without the owner's signature — the one an
+        account that can publish could put up. Offered, it would draw a button
+        the install refuses at every press; read as "up to date", the row would
+        hide that the channel served something this unit will not run."""
+        unsigned = [{"name": "milo-frontend-v0.3.0.tar.gz"},
+                    {"name": "milo-frontend-v0.3.0.tar.gz.sha256"}]
+
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0",
+                              assets=unsigned, files={})
+
+        assert row["update_available"] is False
+        assert row["refused"] == "signature"
+        assert row["check_failed"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_release_signed_by_a_key_this_unit_does_not_list_is_refused(
+            self, version_service, tmp_path):
+        intruder = make_key(tmp_path / "intruder", name="intruder")
+        url = version_service.programs["milo"]["release_manifest_url"].format(tag="v0.3.0")
+        manifest = manifest_for("v0.3.0", "c" * 40, "d" * 64)
+
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0",
+                              files={url: manifest, f"{url}.sig": intruder.sign(manifest)})
+
+        assert row["update_available"] is False
+        assert row["refused"] == "signature"
+
+    @pytest.mark.asyncio
+    async def test_a_withdrawal_to_a_release_nobody_signed_is_refused_too(self, version_service):
+        """The return is an install like any other: a release published
+        before signing is not a way back a unit takes on the channel's word."""
+        row = await self._row(version_service, exact="v0.3.0", published="v0.2.0",
+                              assets=[{"name": "milo-frontend-v0.2.0.tar.gz"}], files={})
+
+        assert row["update_available"] is False
+        assert row["refused"] == "signature"
+        assert "withdrawn" not in row["latest"]
+
+    @pytest.mark.asyncio
+    async def test_a_signature_that_could_not_be_read_is_a_failed_check(self, version_service):
+        """GitHub answered which release is current and then failed the
+        download: nothing was verified either way, so the row offers a retry,
+        not a refusal of a release that may be fine."""
+        github = _MiloGitHub("v0.3.0", _signed_release_assets(version_service, "v0.3.0"),
+                             self._signed_files(version_service, "v0.3.0"))
+        github.failing.add(version_service.programs["milo"]["release_manifest_url"].format(tag="v0.3.0"))
+
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0", github=github)
+
+        assert row["update_available"] is False
+        assert row["check_failed"] is True
+        assert row["refused"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_listed_signature_the_host_does_not_serve_is_a_failed_check(self, version_service):
+        """The release's listing names the signature and the download host
+        answers 404 for it: the host failed, the release lacks nothing. Read as
+        a refusal, the row would say *Refused: signature* of a release that may
+        be fine, for an hour, with no Retry to ask again."""
+        url = version_service.programs["milo"]["release_manifest_url"].format(tag="v0.3.0")
+        files = self._signed_files(version_service, "v0.3.0")
+        del files[f"{url}.sig"]
+
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0", files=files)
+
+        assert row["check_failed"] is True
+        assert row["refused"] is None
+
+    @pytest.mark.asyncio
+    async def test_a_release_is_verified_once_not_at_every_status_read(self, version_service):
+        """Every opening of the update screen reads the row: a download and an
+        ssh-keygen per opening would cost the screen a round trip to GitHub
+        each time. A published release's assets do not change."""
+        github = _MiloGitHub("v0.3.0", _signed_release_assets(version_service, "v0.3.0"),
+                             self._signed_files(version_service, "v0.3.0"))
+        manifest_url = version_service.programs["milo"]["release_manifest_url"].format(tag="v0.3.0")
+
+        for _ in range(3):
+            row = await self._row(version_service, exact="v0.2.0", published="v0.3.0", github=github)
+
+        assert row["update_available"] is True
+        assert github.requested.count(manifest_url) == 1, github.requested
+
+    @pytest.mark.asyncio
+    async def test_a_retry_reads_a_signature_that_could_not_be_read(self, version_service):
+        """Retry is pressed on a check that failed, and a signature that could
+        not be downloaded is one: answered from memory, the retry would repeat
+        the failure it was pressed to get past."""
+        manifest_url = version_service.programs["milo"]["release_manifest_url"].format(tag="v0.3.0")
+        github = _MiloGitHub("v0.3.0", _signed_release_assets(version_service, "v0.3.0"),
+                             self._signed_files(version_service, "v0.3.0"))
+        github.failing.add(manifest_url)
+        assert (await self._row(version_service, exact="v0.2.0", published="v0.3.0",
+                                github=github))["check_failed"] is True
+
+        github.failing.clear()
+        version_service.forget_failed_checks()
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0", github=github)
+
+        assert row["update_available"] is True
+        assert github.requested.count(manifest_url) == 2, github.requested
+
+    @pytest.mark.asyncio
+    async def test_a_retry_does_not_ask_a_refused_release_again(self, version_service, tmp_path):
+        """A refusal is an answer: the signature was read, and it does not
+        verify. Asked again, it would say the same."""
+        intruder = make_key(tmp_path / "intruder", name="intruder")
+        url = version_service.programs["milo"]["release_manifest_url"].format(tag="v0.3.0")
+        manifest = manifest_for("v0.3.0", "c" * 40, "d" * 64)
+        github = _MiloGitHub("v0.3.0", _signed_release_assets(version_service, "v0.3.0"),
+                             {url: manifest, f"{url}.sig": intruder.sign(manifest)})
+        assert (await self._row(version_service, exact="v0.2.0", published="v0.3.0",
+                                github=github))["refused"] == "signature"
+
+        version_service.forget_failed_checks()
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0", github=github)
+
+        assert row["refused"] == "signature"
+        assert github.requested.count(url) == 1, github.requested

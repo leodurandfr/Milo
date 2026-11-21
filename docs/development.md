@@ -938,17 +938,23 @@ so a change to how the manifest is applied takes effect one release later.
 
 ### Creating a release
 
-A tag is the only way a version reaches a unit. Pushing one runs
+A tag is the only way a version reaches a unit, and a tag is pushed from the Mac
+where the release key lives. Pushing one runs
 `.github/workflows/build-image.yml`, which runs the CI checks on the tagged tree
 (`lint.yml`, called as a reusable workflow), builds the frontend once with
 `npm ci`, bakes that artefact into the image once the checks have passed, and
-publishes a GitHub Release carrying three files:
+leaves a **draft** GitHub Release. The owner signs it and publishes it
+([Signing a release](#signing-a-release)); a draft is offered to no unit. A
+published release carries five files, and their names are frozen and
+append-only (`test_release_channel.py`): release N installs N+1 by them.
 
 | Asset | Read by |
 |---|---|
 | `<build date>-milo.img.xz` (e.g. `2026-10-23-milo.img.xz`) | whoever flashes a card |
 | `milo-frontend-<tag>.tar.gz` | every unit's OTA update, via the `frontend_asset_url` entry in `core/updates/catalog.py` |
-| `milo-frontend-<tag>.tar.gz.sha256` | the same update, before it swaps `frontend/dist` |
+| `milo-frontend-<tag>.tar.gz.sha256` | the releases from before signing, before they swap `frontend/dist` |
+| `milo-release-<tag>.manifest` | every unit's OTA update: the tag, its commit, the frontend's and the image's sha256, written by CI |
+| `milo-release-<tag>.manifest.sig` | the same update, which installs nothing it does not verify; attached by the owner |
 
 **The tag's annotation is the release page.** The workflow reads it with
 `git tag -l --format='%(contents)'` and passes it as the release body; it asks
@@ -965,6 +971,8 @@ object, silently, and the release page is published without it. Always:
 ```bash
 git tag -a v1.2.0 --cleanup=verbatim -F notes.md
 git push origin v1.2.0
+# once the build has left its draft:
+tools/release/sign-release.sh v1.2.0
 ```
 
 Check what actually landed before pushing — `git tag -l --format='%(contents)' v1.2.0`
@@ -1021,8 +1029,9 @@ The workflow publishes it with `prerelease: true`, so it never becomes
   installed on a unit somebody is watching, by somebody who chose it.
 - **the update button will not install it either**, for the same reason. On the
   test unit, drive `UpdateService._update_milo_app` with the rc's status
-  directly — same checkout, same asset, same reboot, same trial, only the offer
-  is skipped.
+  directly — same signature check, same checkout, same asset, same reboot, same
+  trial, only the offer is skipped. So an rc is signed like any release: an
+  unsigned one is refused there too.
 - **a unit running an rc is not a development build.** It sits on a tag, says
   so on the update screen, and is offered the stable release the channel
   publishes — which is how it gets back.
@@ -1038,7 +1047,106 @@ check a release meets before any unit is offered it, since a unit judges a
 release only once it is installed. The release step then sits after the image
 inspection (`pi-gen/inspect-image.sh`, which checks the checkout sits exactly on
 the tag and that the frontend artefact landed), so a red build is itself the
-withholding mechanism.
+withholding mechanism — and so is a draft nobody signed.
+
+### Signing a release
+
+A unit installs as root the release the channel serves it, so the channel is not
+what it trusts: an account that can publish a GitHub release could otherwise
+publish one every unit takes. What a unit trusts is the owner's ed25519 key,
+which never reaches GitHub. CI writes each release's manifest — the tag, the
+commit it names, the sha256 of the frontend and of the image — into the draft;
+the owner signs that manifest on his Mac with `ssh-keygen -Y sign` (nothing to
+install), attaches the signature and publishes. A unit verifies the signature
+with `ssh-keygen -Y verify` against the keys listed in
+`rootfs/etc/milo/release-signing.pub` of the release it runs (installed at
+`/etc/milo/release-signing.pub`), then holds the frontend to the signed digest
+and the tag to the signed commit, which is what it checks out
+(`backend/core/updates/release_signature.py`). A release that does not verify is
+not offered: the Updates row reads *Refused: signature*, and an install driven
+past the offer refuses it again before anything moves.
+
+**Every release is signed**, release candidates included: there is no unsigned
+path for a test unit either. It costs one command once the draft is up:
+
+```bash
+tools/release/sign-release.sh v1.2.0            # key: $MILO_RELEASE_KEY, else ~/.ssh/milo-release
+```
+
+The script downloads the draft's manifest and frontend; checks the manifest's
+tag, and its commit against the tag *in this checkout* (not GitHub's); checks
+that the draft's frontend is the one the manifest names; signs; verifies the
+signature as the units will — with the keys of `releases/latest`, which the
+units on it verify this release with, and with the keys of the release being
+signed, which its own units will verify the next one with — and only then
+uploads the signature and publishes the draft. A GitHub that does not say which
+release is current, or a tag of that release missing from this checkout, stops
+it before anything is uploaded (`git fetch --tags`). Turn on **immutable
+releases** in the repository's settings: a published release then takes no
+asset and its tag cannot move, which is why the signature is attached to the
+draft, before publication, and why a release published unsigned stays refused
+by every unit — cut a new tag instead.
+
+**What the signature anchors off GitHub is the commit**, checked against the
+tag on the Mac. The frontend and the image are CI's, as the draft holds them:
+the frontend check is agreement between two files that both come from GitHub,
+so an account that can edit a draft before it is signed can replace the
+frontend and its digest together, and the signature then vouches for that
+frontend. What signing closes is the release nobody signed — one published, or
+a tag re-pointed, by an account that is not the owner's Mac.
+
+**The key**, made once:
+
+```bash
+ssh-keygen -t ed25519 -C milo-release -f ~/.ssh/milo-release
+printf 'milo-release namespaces="milo-release" %s\n' "$(cat ~/.ssh/milo-release.pub)" \
+    >> rootfs/etc/milo/release-signing.pub
+```
+
+Keep an offline copy of the private key (a drive in a drawer, not a cloud
+folder): without it no release can be published that a unit accepts, and the
+only way back is to reflash every unit with an image carrying a new key. A key
+listed in the tree is trusted from the release *after* the one that lists it.
+
+**Rotating** is one release, signed with the old key, whose tree lists the new
+key alone: `tools/release/sign-release.sh --rotate v1.3.0`. Without `--rotate`
+the script refuses a release whose tree drops the key that signs it — otherwise
+a mistake that leaves its units refusing every later release that key signs.
+The units on the release before list the old key, so they take the rotation
+release; once on it they trust the new key alone, and the next release is
+signed with it. A key that leaked is rotated the same way, at once: a unit that
+has installed the rotation release refuses whatever the leaked key signs. Two
+things follow, and neither can be undone:
+
+- **every unit must have installed the rotation release before a release the
+  new key signs is published.** A unit is offered `releases/latest` only, and a
+  release carries one signature: a unit still on an earlier release would be
+  offered the next one, refuse it, and refuse every one after it, until it is
+  reflashed with an image that lists the new key.
+- **no withdrawal crosses the rotation.** The units on the rotation release
+  trust the new key alone and every earlier release is signed with the old
+  one, so withdrawing the rotation release offers them a return they refuse. A
+  bad rotation release is fixed forward, by a release the new key signs.
+
+A rotation that is not urgent may keep the old key's line one release longer
+(the first release lists both keys, the second drops the old one, and neither
+needs `--rotate`): the first release can then be withdrawn, at the cost of the
+old key being trusted one release longer — which is why a leak is never
+rotated that way.
+
+**Verifying by hand** — an image before flashing it, say — needs the tree's key
+file and the release's two manifest files:
+
+```bash
+ssh-keygen -Y verify -f rootfs/etc/milo/release-signing.pub -I milo-release -n milo-release \
+    -s milo-release-v1.2.0.manifest.sig < milo-release-v1.2.0.manifest
+shasum -a 256 2026-11-21-milo.img.xz      # the manifest's image_sha256
+```
+
+**A rollback verifies nothing**, and says so (`milo-update-guard`): it goes back
+to the commit the unit ran before the update, recorded by hash in the journal —
+one it was flashed with or installed, verified then — and it runs offline, at
+boot, where nothing could be asked of GitHub anyway.
 
 ### Validating a dependency bump
 
@@ -1144,7 +1252,9 @@ names a new package by its sdist alone, or when the two locks disagree.
 A unit installs **releases**, not branches, and it does not build a frontend.
 `UpdateService._update_milo_app` fetches the tags, checks out the one
 `releases/latest` names, and installs the `dist/` that release published — the
-artefact CI built once, verified against its `sha256` sidecar. Pressing Update
+artefact CI built once — once the release's manifest verified against the keys
+the unit trusts, the frontend against the digest it names, and the tag against
+the commit it names ([Signing a release](#signing-a-release)). Pressing Update
 in the settings screen is the supported path; there is nothing to do by hand.
 
 The update is a **trial**. The release that is leaving installs the app alone,

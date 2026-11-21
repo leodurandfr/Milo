@@ -99,6 +99,16 @@ cp /home/milo/milo/rootfs/etc/systemd/system/nftables.service.d/milo-link-prefix
     /etc/systemd/system/nftables.service.d/milo-link-prefixes.conf
 CHROOT
 
+# ── Release signing keys ─────────────────────────────────────────────────────
+# What the first Milō update of this card verifies the release it is offered
+# with, and every update installs again (see the file).
+
+on_chroot << 'CHROOT'
+mkdir -p /etc/milo
+cp /home/milo/milo/rootfs/etc/milo/release-signing.pub /etc/milo/release-signing.pub
+chmod 0644 /etc/milo/release-signing.pub
+CHROOT
+
 # ── udev rules ───────────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'

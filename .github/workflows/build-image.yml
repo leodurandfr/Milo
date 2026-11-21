@@ -26,9 +26,10 @@ on:
 
 jobs:
   # What is being built, decided once. Three jobs read it, and the frontend
-  # asset's name is part of the answer: the backend builds the very same name
-  # from `frontend_asset_url` in backend/core/updates/catalog.py to download it
-  # during an OTA update, and the two spellings are pinned together by
+  # asset's and the release manifest's names are part of the answer: the
+  # backend builds the very same names from `frontend_asset_url` and
+  # `release_manifest_url` in backend/core/updates/catalog.py to download them
+  # during an OTA update, and the spellings are pinned together by
   # backend/tests/architecture/test_release_channel.py.
   vars:
     name: Resolve what is being built
@@ -39,6 +40,7 @@ jobs:
       is_release: ${{ steps.set.outputs.is_release }}
       is_prerelease: ${{ steps.set.outputs.is_prerelease }}
       frontend_asset: ${{ steps.set.outputs.frontend_asset }}
+      release_manifest: ${{ steps.set.outputs.release_manifest }}
     steps:
       - name: Set build variables
         id: set
@@ -69,6 +71,7 @@ jobs:
           fi
           echo "milo_ref=${REF}" >> "$GITHUB_OUTPUT"
           echo "frontend_asset=milo-frontend-${REF}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "release_manifest=milo-release-${REF}.manifest" >> "$GITHUB_OUTPUT"
 
   # The frontend is built exactly once, here, and both consumers take that one
   # artefact: the image bakes it in, and the release publishes it for units to
@@ -306,12 +309,40 @@ jobs:
           echo "\"Inspect image\" step above. The artifact was uploaded anyway."
           exit 1
 
-      # Publishing the release is what makes the version installable: the update
-      # flow offers `releases/latest` and installs that release's tag, and it
-      # downloads the frontend asset from here rather than compiling one. A tag
-      # whose build never got this far is therefore offered to nobody, which is
-      # the withholding mechanism — and un-publishing a release that turned out
-      # bad is the withdrawal, in one gesture, with no unit visited.
+      # What the owner signs: the tag, the commit it names, and the digests of
+      # the two artifacts a release is used through. A unit verifies the
+      # signature before it installs anything (backend/core/updates/
+      # release_signature.py) and checks the frontend and the commit against
+      # this file; the image's line is for whoever flashes a card. The keys are
+      # frozen and append-only: release N reads release N+1's manifest.
+      - name: Write the release manifest
+        if: needs.vars.outputs.is_release == 'true'
+        run: |
+          REF="${{ needs.vars.outputs.milo_ref }}"
+          ASSET="${{ needs.vars.outputs.frontend_asset }}"
+          MANIFEST="${{ needs.vars.outputs.release_manifest }}"
+          IMAGE="${{ env.compressed_image }}"
+          {
+            echo "tag=${REF}"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "frontend=${ASSET}"
+            echo "frontend_sha256=$(sha256sum "frontend-artefact/${ASSET}" | cut -d' ' -f1)"
+            echo "image=$(basename "${IMAGE}")"
+            echo "image_sha256=$(sha256sum "${IMAGE}" | cut -d' ' -f1)"
+          } > "${MANIFEST}"
+          cat "${MANIFEST}"
+
+      # The release is created as a DRAFT: what makes a version installable is
+      # the owner's signature, made on his Mac where the key lives and attached
+      # before he publishes (tools/release/sign-release.sh) — this job holds no
+      # key, so an account that can run it cannot sign. A published release is
+      # immutable, so the signature is attached first. Publishing is then what
+      # makes it offered: the update flow offers `releases/latest` (a draft
+      # never is) and installs that release's tag, and it downloads the
+      # frontend asset from here rather than compiling one. A tag whose build
+      # never got this far, or that nobody signed, is offered to nobody — the
+      # withholding mechanism — and un-publishing a release that turned out bad
+      # is the withdrawal, in one gesture, with no unit visited.
       # The release notes are the tag's own annotation, which is where the
       # reasoning for a release is already written. GitHub's generated ones are
       # a commit list the annotation already summarises, under a "New
@@ -335,10 +366,15 @@ jobs:
         if: needs.vars.outputs.is_release == 'true'
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
+          # Append-only, the image first: release N downloads by these names.
+          # The sidecar is what releases before signing check the frontend
+          # against; a signed one reads the manifest's digest.
           files: |
             ${{ env.compressed_image }}
             frontend-artefact/${{ needs.vars.outputs.frontend_asset }}
             frontend-artefact/${{ needs.vars.outputs.frontend_asset }}.sha256
+            ${{ needs.vars.outputs.release_manifest }}
+          draft: true
           prerelease: ${{ needs.vars.outputs.is_prerelease }}
           body: ${{ steps.notes.outputs.body }}
           generate_release_notes: false

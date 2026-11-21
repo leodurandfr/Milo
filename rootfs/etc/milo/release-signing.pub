@@ -1,0 +1,19 @@
+# The keys a Milō release is signed with, in ssh-keygen's allowed-signers
+# format: one key per line, as
+#
+#   milo-release namespaces="milo-release" ssh-ed25519 <key> <comment>
+#
+# A unit verifies a release against the copy the release it runs installed
+# (/etc/milo/release-signing.pub), before it checks anything out
+# (backend/core/updates/release_signature.py), so a key added here is trusted
+# from the release after the one that adds it. Rotating is one release, signed
+# with the old key, that lists the new key alone (tools/release/sign-release.sh
+# --rotate), and every unit must have installed it before a release the new key
+# signs is published. A release signed with a key the running release does not
+# list is refused by every unit on it. docs/development.md § Signing a release
+# has the procedure.
+#
+# Anyone can verify a release with this file:
+#   ssh-keygen -Y verify -f release-signing.pub -I milo-release -n milo-release \
+#       -s milo-release-<tag>.manifest.sig < milo-release-<tag>.manifest
+milo-release namespaces="milo-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMc2NrQITCKEedX37nERbD08WqjUpPgiQPH9pfzn8SzA milo-release

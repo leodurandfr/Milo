@@ -184,6 +184,17 @@ for user in milo milo-client; do
 done
 
 # --------------------------------------------------------------------------
+section "Release signing keys"
+# --------------------------------------------------------------------------
+# What the card's first update verifies the release it is offered with. Missing
+# or keyless, every release is refused; another copy than the repo's, and the
+# image trusts a key the tree does not list.
+keys="${ROOT%/}/etc/milo/release-signing.pub"
+check "release signing keys installed, as in the repo" "cmp -s '$keys' '$REPO/rootfs/etc/milo/release-signing.pub'"
+check "release signing keys list an ed25519 key" \
+    "grep -qE '^milo-release namespaces=\"milo-release\" ssh-ed25519 ' '$keys'"
+
+# --------------------------------------------------------------------------
 section "The system manifest"
 # --------------------------------------------------------------------------
 # What the image and every update apply from system-manifest.env, read from the

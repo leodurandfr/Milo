@@ -1314,12 +1314,17 @@ holds the two copies equal.
 **The leaving release installs the app, and only the app** (`UpdateService._update_milo_app`):
 
 1. **Refusals, before anything moves.** Free space for a copy of the venv, three frontends and the
-   data snapshot; the release's frontend downloaded, checked against its `sha256` and staged
-   beside `frontend/dist`; `HEAD` read by hash *before* the fetch (tags have been re-cut, so a tag
-   name is no way back to the release a unit runs); a clean `git status`; the stale git locks a
-   cut git command left (`milo_journal.GIT_LOCKS` and `refs/**/*.lock`) removed, since a ref lock
-   refuses every later fetch and an index lock fails the checkout after the journal has opened;
-   the tags fetched; the tag resolved to its commit. A failure here answers an error and has
+   data snapshot; the release's manifest and its signature downloaded and verified with
+   `ssh-keygen -Y verify` against the keys the running release lists
+   (`/etc/milo/release-signing.pub`; `core/updates/release_signature.py`, and
+   [development.md § Signing a release](development.md#signing-a-release) for the owner's half);
+   the release's frontend downloaded, checked against the `sha256` the signed manifest names and
+   staged beside `frontend/dist`; `HEAD` read by hash *before* the fetch (tags have been re-cut,
+   so a tag name is no way back to the release a unit runs); a clean `git status`; the stale git
+   locks a cut git command left (`milo_journal.GIT_LOCKS` and `refs/**/*.lock`) removed, since a
+   ref lock refuses every later fetch and an index lock fails the checkout after the journal has
+   opened; the tags fetched; the tag resolved to its commit, which must be the one the signed
+   manifest names. A failure here answers an error and has
    changed nothing. So does a journal still open (one the guard did not close, or a post-commit
    phase that could not): what it kept aside is its only way back, and a restart finishes it.
 2. **What can be put back is kept aside** under `/var/lib/milo/backups/milo-app/`, emptied first
@@ -1329,7 +1334,7 @@ holds the two copies equal.
    release that bumps a schema rewrites its file, and the release a rollback puts back would
    refuse it at every start). Then the journal opens, and `milo-update-inhibit.service` starts.
 3. **The install**, each step recorded in the journal once what it wrote is on the card:
-   `git checkout --force <tag>`; a copy of the venv and a `pip install --require-hashes` of
+   `git checkout --force <commit>`, the signed one; a copy of the venv and a `pip install --require-hashes` of
    `requirements.lock` only when the lock pins something new, then an import of every backend module but
    `main` with the venv's python, a compile of `main.py` and `pip check`;
    `milo-deploy-update sync-system-files`, which renames every file into place, then applies the

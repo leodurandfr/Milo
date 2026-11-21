@@ -542,6 +542,8 @@
     "upToDate": "已是最新",
     "checkFailed": "无法检查更新",
     "developmentBuild": "开发版本",
+    "refusedSignature": "已拒绝：签名",
+    "refusedSignatureCause": "无法验证版本 {version} 的签名",
     "dependenciesHint": "安装应用及与之一同验证的程序版本。",
     "clientsHint": "Milō Clients 也会一并更新。",
     "revertTo": "回到 {version}",

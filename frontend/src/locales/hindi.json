@@ -542,6 +542,8 @@
     "upToDate": "अप टू डेट",
     "checkFailed": "अपडेट की जाँच नहीं हो सकी",
     "developmentBuild": "डेवलपमेंट बिल्ड",
+    "refusedSignature": "अस्वीकृत: हस्ताक्षर",
+    "refusedSignatureCause": "संस्करण {version} का हस्ताक्षर सत्यापित नहीं हो सका",
     "dependenciesHint": "ऐप और उसके साथ मान्य किए गए प्रोग्राम संस्करण इंस्टॉल करता है।",
     "clientsHint": "Milō Clients को भी यह मिलता है।",
     "revertTo": "{version} पर लौटें",

@@ -542,6 +542,8 @@
     "upToDate": "À jour",
     "checkFailed": "Vérification impossible",
     "developmentBuild": "Version de développement",
+    "refusedSignature": "Refusée : signature",
+    "refusedSignatureCause": "La signature de la version {version} n'a pas pu être vérifiée",
     "dependenciesHint": "Installe l'application et les versions des programmes validées avec elle.",
     "clientsHint": "Les Milō Clients la reçoivent aussi.",
     "revertTo": "Revenir en {version}",

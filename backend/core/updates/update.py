@@ -65,20 +65,6 @@ QOBUZ_ADAPTER = "/usr/local/bin/milo-qobuz"
 # none for this file": an install of a version past the manifest.
 NO_DIGEST = "-"
 
-# The checksum a release publishes beside its frontend asset: the asset's URL
-# with this suffix, holding `sha256sum`'s line for it — the digest, then the
-# file name. Read by the release installed on a unit, written by the build of
-# the next one: frozen, as test_release_channel.py says.
-FRONTEND_SIDECAR_SUFFIX = ".sha256"
-_SHA256_RE = re.compile(r"[0-9a-f]{64}")
-
-
-def sidecar_digest(text: str) -> Optional[str]:
-    """The sha256 a checksum sidecar holds, or None when it holds none."""
-    words = text.split()
-    return words[0] if words and _SHA256_RE.fullmatch(words[0]) else None
-
-
 def source_archive_url(repo: str, tag: str) -> str:
     """The source archive GitHub serves for a tag — what the manifest's digest
     of a program built or pip-installed from source is taken over."""
@@ -860,18 +846,10 @@ class UpdateService(VersionService):
         elif actual != sha256:
             raise Exception(f"{name}: checksum mismatch, declared {sha256}, downloaded {actual}")
 
-    async def _fetch_release_text(self, url: str) -> str:
-        """Read one small release asset as text — the checksum sidecar."""
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    raise Exception(f"Download failed: HTTP {response.status} for {url}")
-                return (await response.text()).strip()
-
-    async def _stage_release_frontend(self, tag: str) -> Path:
-        """Download, verify and extract the frontend built for `tag`, beside
-        the running one, and return the staging directory `_swap_release_frontend`
+    async def _stage_release_frontend(self, tag: str, sha256: str) -> Path:
+        """Download the frontend built for `tag`, check it against `sha256` —
+        the digest its signed manifest names — and extract it beside the
+        running one; return the staging directory `_swap_release_frontend`
         takes.
 
         The unit does not build it any more. Two units updated a month apart
@@ -882,11 +860,14 @@ class UpdateService(VersionService):
         at all. CI builds it once, publishes it beside the image, and this
         installs that exact artefact.
 
-        The checksum is the reason the sidecar exists: a truncated download
-        extracts into a tree that is *almost* a frontend, which nginx then
-        serves. Raises on every failure, staging removed. It reads nothing from
-        the new release's tree, so the update runs it before anything moves and
-        a failure here is a refusal.
+        The digest is the signed manifest's, never the `.sha256` sidecar the
+        release also publishes (for the releases that predate signing): the
+        sidecar is whatever the channel served, and a frontend is code the
+        kiosk runs. It also catches a truncated download, which extracts into a
+        tree that is *almost* a frontend, and nginx serves it. Raises on every
+        failure, staging removed. It reads nothing from the new release's
+        tree, so the update runs it before anything moves and a failure here is
+        a refusal.
 
         The release is staged in `frontend/`, beside `dist`, because only on the
         same filesystem is the swap two renames. Staged in /tmp — a tmpfs on the
@@ -905,13 +886,7 @@ class UpdateService(VersionService):
         staging = Path(tempfile.mkdtemp(prefix=".dist-staging-", dir=dist.parent))
         try:
             archive = staging / "frontend.tar.gz"
-            # The sidecar first: it is what the asset is checked against, as it
-            # streams in.
-            published = await self._fetch_release_text(f"{url}{FRONTEND_SIDECAR_SUFFIX}")
-            expected = sidecar_digest(published)
-            if expected is None:
-                raise Exception(f"The {tag} frontend's checksum sidecar holds no sha256: {published!r}")
-            await self._download_release_asset(url, archive, expected)
+            await self._download_release_asset(url, archive, sha256)
 
             # Extracted beside the running frontend and swapped in, never over
             # it: a tar that fails halfway through an in-place extraction leaves
@@ -1047,6 +1022,17 @@ class UpdateService(VersionService):
         whatever main was at the moment of the click — a tree nobody tagged,
         tested or published, and impossible to withhold.
 
+        And a signed release, not whatever the channel serves: the release's
+        manifest is verified against the keys of the release that runs before
+        anything is downloaded into the tree (`verify_release`), the frontend
+        is checked against the digest it names, and the tag must resolve to the
+        commit it names — which is what is checked out, by hash, so nothing
+        between the check and the checkout can move it. A release that does not
+        verify is a refusal: nothing has moved. The guard's way back, to the
+        commit this unit ran before, verifies nothing: that commit is the one
+        the unit was flashed with or installed — verified then — recorded by
+        hash in the journal before the fetch.
+
         This process only installs; it never judges. Everything it changes is
         named in the journal before it changes it, and the guard that runs
         before every start of the backend (`milo-update-guard`) restores the
@@ -1103,7 +1089,10 @@ class UpdateService(VersionService):
                         f"{free >> 20} MB are free"
                     )
 
-                staging = await self._stage_release_frontend(tag)
+                # The signature before anything else is downloaded: what it
+                # vouches for is what every later check compares against.
+                manifest = await self.verify_release(tag)
+                staging = await self._stage_release_frontend(tag, manifest.frontend_sha256)
 
                 # Before the fetch, and by hash: tags have been re-cut, so the
                 # name of the release this unit runs is no way back to it.
@@ -1128,6 +1117,12 @@ class UpdateService(VersionService):
                 if not success:
                     raise Exception(f"Git fetch failed: {output}")
                 target_commit = await self._git_output("rev-parse", f"{tag}^{{commit}}")
+                # A tag re-pointed after the owner signed — on GitHub, by
+                # whoever can push one — names a commit nobody signed for.
+                if target_commit != manifest.commit:
+                    raise Exception(
+                        f"{tag} names commit {target_commit}, its signed manifest {manifest.commit}"
+                    )
                 requirements_moved = requirements_moved_up(
                     await self._git_output("show", f"{origin_commit}:{PYTHON_LOCK}"),
                     await self._git_output("show", f"{target_commit}:{PYTHON_LOCK}"),
@@ -1157,7 +1152,8 @@ class UpdateService(VersionService):
                         "shutdown from outside Milo can now cut the install"
                     )
 
-                success, output = await self._run_git("checkout", "--force", tag, timeout=120)
+                # By hash: the commit the signature names, not a ref that names it.
+                success, output = await self._run_git("checkout", "--force", target_commit, timeout=120)
                 if not success:
                     raise Exception(f"Git checkout of {tag} failed: {output}")
                 await self._record_step("checked_out")

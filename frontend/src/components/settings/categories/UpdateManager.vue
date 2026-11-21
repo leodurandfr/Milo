@@ -48,6 +48,13 @@
                         <div v-if="miloAction === 'checkFailed'" class="program-failure">
                           <span class="text-body-small failure-cause">{{ t('updates.checkFailed') }}</span>
                         </div>
+                        <!-- The channel published a release this unit will not
+                             install: no key it trusts signed it. -->
+                        <div v-if="miloAction === 'refusedSignature'" class="program-failure">
+                          <span class="text-body-small failure-cause">
+                            {{ t('updates.refusedSignatureCause', { version: stripTagPrefix(localPrograms.milo.latest?.tag_name) }) }}
+                          </span>
+                        </div>
                         <!-- The last update, put back by the unit itself: drawn
                              as a satellite's failed push is. -->
                         <div v-if="miloFailureShown" class="program-failure">
@@ -84,7 +91,7 @@
                             :loading="rechecking" :disabled="rechecking" @click="recheck" />
                         </template>
                         <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
-                          {{ miloAction === 'developmentBuild' ? t('updates.developmentBuild') : t('updates.upToDate') }}
+                          {{ miloStatusLabel }}
                         </Button>
                       </div>
                     </div>
@@ -465,6 +472,13 @@ const miloVersion = computed(() =>
   miloVersionLabel(localPrograms.value.milo?.installed) || t('updates.notAvailable'));
 
 const miloAction = computed(() => miloRowAction(localPrograms.value.milo));
+
+// The disabled button that states the row when nothing can be pressed.
+const MILO_STATUS_LABELS = {
+  developmentBuild: 'updates.developmentBuild',
+  refusedSignature: 'updates.refusedSignature',
+};
+const miloStatusLabel = computed(() => t(MILO_STATUS_LABELS[miloAction.value] || 'updates.upToDate'));
 
 // A row's Retry after its check failed: the rows stay drawn while it runs, and
 // after it when it is refused, the server's detail folded under the sentence.

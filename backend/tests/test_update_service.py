@@ -39,10 +39,15 @@ from backend.config.constants import DEPLOY_UPDATE_CMD
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.update import UpdateService
 from backend.core.systemd import SystemdServiceManager
+from backend.tests.release_signing import make_key, manifest_for
 
 # This checkout's root, so a path the service builds can be checked against the
 # tree that actually ships rather than against a literal repeated in the test.
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Captured before any test patches it: `MiloUnit` runs ssh-keygen for real, so
+# a signature is verified by the program a unit verifies it with.
+_REAL_EXEC = asyncio.create_subprocess_exec
 
 
 @pytest.fixture
@@ -4034,18 +4039,19 @@ class TestTheReleaseFrontend:
         """What nginx ends up serving is the bytes the release published."""
         body, digest = _frontend_tarball(tmp_path)
         url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
-        assets = ReleaseAssets({url: body, f"{url}.sha256": f"{digest}  milo-frontend.tar.gz".encode()})
+        assets = ReleaseAssets({url: body, f"{url}.sha256": b"0" * 64})
 
         dist = self._point_at(update_service, tmp_path)
         dist.mkdir(parents=True)
         (dist / "index.html").write_bytes(b"the previous release")
 
         with self._extracting(assets):
-            await self._install(update_service, "v0.2.0")
+            await self._install(update_service, "v0.2.0", digest)
 
         assert (dist / "index.html").read_bytes() == b"<!doctype html>release build"
-        # The digest first: the asset is checked against it as it streams in.
-        assert assets.requested == [f"{url}.sha256", url]
+        # The asset alone: the digest it is checked against is the signed
+        # manifest's, and the sidecar — whatever the channel served — is not read.
+        assert assets.requested == [url]
 
     @pytest.mark.asyncio
     async def test_the_previous_frontend_is_kept_where_the_guard_finds_it(self, update_service, tmp_path):
@@ -4056,14 +4062,14 @@ class TestTheReleaseFrontend:
 
         body, digest = _frontend_tarball(tmp_path)
         url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
-        assets = ReleaseAssets({url: body, f"{url}.sha256": digest.encode()})
+        assets = ReleaseAssets({url: body})
 
         dist = self._point_at(update_service, tmp_path)
         dist.mkdir(parents=True)
         (dist / "index.html").write_bytes(b"the previous release")
 
         with self._extracting(assets):
-            await self._install(update_service, "v0.2.0")
+            await self._install(update_service, "v0.2.0", digest)
 
         kept = Path(update_service.programs["milo"]["backup_path"]) / KEPT_DIST_NAME
         assert (kept / "index.html").read_bytes() == b"the previous release"
@@ -4076,14 +4082,14 @@ class TestTheReleaseFrontend:
         """
         body, _ = _frontend_tarball(tmp_path)
         url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
-        assets = ReleaseAssets({url: body, f"{url}.sha256": b"0" * 64})
+        assets = ReleaseAssets({url: body})
 
         dist = self._point_at(update_service, tmp_path)
         dist.mkdir(parents=True)
         (dist / "index.html").write_bytes(b"the previous release")
 
         with self._extracting(assets), pytest.raises(Exception, match="checksum mismatch"):
-            await self._install(update_service, "v0.2.0")
+            await self._install(update_service, "v0.2.0", "0" * 64)
 
         assert (dist / "index.html").read_bytes() == b"the previous release"
 
@@ -4100,7 +4106,7 @@ class TestTheReleaseFrontend:
         """
         body, digest = _frontend_tarball(tmp_path)
         url = update_service.programs["milo"]["frontend_asset_url"].format(tag="v0.2.0")
-        assets = ReleaseAssets({url: body, f"{url}.sha256": digest.encode()})
+        assets = ReleaseAssets({url: body})
 
         dist = self._point_at(update_service, tmp_path)
         dist.mkdir(parents=True)
@@ -4110,7 +4116,7 @@ class TestTheReleaseFrontend:
 
         extracted_into = []
         with self._extracting(assets, extracted_into):
-            await self._install(update_service, "v0.2.0")
+            await self._install(update_service, "v0.2.0", digest)
 
         assert len(extracted_into) == 1, extracted_into
         dest, device = extracted_into[0]
@@ -4128,16 +4134,17 @@ class TestTheReleaseFrontend:
         self._point_at(update_service, tmp_path).parent.mkdir(parents=True)
 
         with self._extracting(assets), pytest.raises(Exception, match="HTTP 404"):
-            await self._install(update_service, "v0.2.0")
+            await self._install(update_service, "v0.2.0", "0" * 64)
 
-        assert assets.requested == [f"{url}.sha256"]
+        assert assets.requested == [url]
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
     @staticmethod
-    async def _install(service, tag):
-        """Stage the release's frontend, then swap it in, as the flow does."""
-        await service._swap_release_frontend(await service._stage_release_frontend(tag), tag)
+    async def _install(service, tag, digest):
+        """Stage the release's frontend against the digest its manifest names,
+        then swap it in, as the flow does."""
+        await service._swap_release_frontend(await service._stage_release_frontend(tag, digest), tag)
 
     @staticmethod
     def _point_at(service, tmp_path):
@@ -4180,11 +4187,13 @@ class MiloUnit:
 
     A checkout on release `v0.1.0` (commit ORIGIN) with its venv, its built
     frontend and its data files; GitHub's release host serving `v0.2.0`'s
-    frontend; and one stand-in for every process the update spawns — git, pip,
-    the venv's python, tar, `sudo milo-deploy-update`, `sudo systemctl` and
+    frontend and its manifest, signed by the key the unit trusts (`key`);
+    and one stand-in for every process the update spawns — git, pip, the
+    venv's python, tar, `sudo milo-deploy-update`, `sudo systemctl` and
     `systemctl is-active` — that answers as the unit would and records the
-    argv. `events` interleaves those argv with the two other things the
-    install's durability rests on: each `os.sync()` and each journal write.
+    argv. ssh-keygen alone runs for real. `events` interleaves those argv with
+    the two other things the install's durability rests on: each `os.sync()`
+    and each journal write.
 
     `fail(argv)` may answer `(returncode, stdout, stderr)` for any argv to make
     that process fail; `other(argv)` answers what the update itself never
@@ -4248,9 +4257,19 @@ class MiloUnit:
         milo["state_path"] = str(self.state)
         milo["data_files"] = self.data_files
 
-        body, digest = _frontend_tarball(tmp_path, extra=["assets/index-NEW.js"])
-        url = milo["frontend_asset_url"].format(tag="v0.2.0")
-        self.assets = ReleaseAssets({url: body, f"{url}.sha256": digest.encode()})
+        # The sidecar is not served: a signed release's digest is its manifest's.
+        body, self.frontend_digest = _frontend_tarball(tmp_path, extra=["assets/index-NEW.js"])
+        self.key = make_key(tmp_path / "keys")
+        milo["release_signing_key"] = str(self.key.allowed_signers)
+        self.frontend_url = milo["frontend_asset_url"].format(tag="v0.2.0")
+        self.manifest_url = milo["release_manifest_url"].format(tag="v0.2.0")
+        self.assets = ReleaseAssets({self.frontend_url: body})
+        self.sign(manifest_for("v0.2.0", self.TARGET, self.frontend_digest))
+
+    def sign(self, manifest: bytes, key=None) -> None:
+        """Publish `manifest` as v0.2.0's, signed by `key` (the trusted one)."""
+        self.assets.files[self.manifest_url] = manifest
+        self.assets.files[f"{self.manifest_url}.sig"] = (key or self.key).sign(manifest)
 
     # ── what the update did ─────────────────────────────────────────────────
 
@@ -4318,6 +4337,8 @@ class MiloUnit:
     async def _spawn(self, program, *args, **kwargs):
         argv = (program, *args)
         self.events.append(("spawn", argv))
+        if program == "ssh-keygen":
+            return await _REAL_EXEC(program, *args, **kwargs)
         rc, out, err = self.fail(argv) or self._answer(argv)
         return _make_mock_proc(returncode=rc, stdout=out, stderr=err)
 
@@ -4417,14 +4438,17 @@ class TestTheMiloInstall:
 
     @pytest.mark.asyncio
     async def test_the_install_checks_out_the_tag_the_offer_named(self, update_service, tmp_path):
-        """The version is not enough: "0.2.0" is not a ref, `v0.2.0` is. And no
-        branch is ever pulled or named: that would install the tip of `main`,
-        which is not what was offered and cannot be withheld."""
+        """The version is not enough: "0.2.0" is not a ref, `v0.2.0` is — and
+        what is checked out is the commit that tag resolves to, by hash, once
+        it is the one the signed manifest names. And no branch is ever pulled
+        or named: that would install the tip of `main`, which is not what was
+        offered and cannot be withheld."""
         unit = MiloUnit(update_service, tmp_path)
         with unit.running():
             await update_service._update_milo_app(MILO_STATUS)
 
-        assert ("git", "-C", str(unit.repo), "checkout", "--force", "v0.2.0") in unit.spawned()
+        assert unit.index_of(_git("rev-parse", "v0.2.0^{commit}")) < unit.index_of(_git("checkout"))
+        assert ("git", "-C", str(unit.repo), "checkout", "--force", MiloUnit.TARGET) in unit.spawned()
         flat = [" ".join(map(str, argv)) for argv in unit.spawned()]
         assert not [c for c in flat if " pull" in c or c.endswith(" main") or " main " in c], flat
         assert any("fetch origin --tags --force" in c for c in flat), flat
@@ -4626,7 +4650,7 @@ class TestTheMiloInstall:
         """The stage reads nothing from the new tree, so it runs first: a 404
         or a bad digest refuses the update instead of rolling one back."""
         unit = MiloUnit(update_service, tmp_path)
-        unit.assets.files.clear()
+        del unit.assets.files[unit.frontend_url]
         with unit.running():
             result = await update_service._update_milo_app(MILO_STATUS)
 
@@ -4830,6 +4854,82 @@ class TestTheMiloInstall:
         assert not update_service.milo_update_active
         assert result["success"] is False and "restarting Milo" in result["error"]
         assert unit.spawned() == []
+
+    # ── the signature ────────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize("unsigned", ["another-key", "no-signature", "no-manifest", "other-tag"])
+    @pytest.mark.asyncio
+    async def test_a_release_that_does_not_verify_is_refused_before_anything_moves(
+            self, update_service, tmp_path, unsigned):
+        """The install is where a release reaches root, so it verifies again
+        rather than trusting that the offer did: a status can be built by any
+        caller, and the offer's verdict is an hour old. Each way a release can
+        fail to be one the owner signed is a refusal — no download into the
+        tree, no fetch, no journal."""
+        unit = MiloUnit(update_service, tmp_path)
+        if unsigned == "another-key":
+            unit.sign(manifest_for("v0.2.0", MiloUnit.TARGET, unit.frontend_digest),
+                      key=make_key(tmp_path / "intruder", name="intruder"))
+        elif unsigned == "no-signature":
+            del unit.assets.files[f"{unit.manifest_url}.sig"]
+        elif unsigned == "no-manifest":
+            del unit.assets.files[unit.manifest_url]
+        else:
+            # The owner's genuine signature of another release's manifest.
+            unit.sign(manifest_for("v0.1.9", MiloUnit.TARGET, unit.frontend_digest))
+
+        with unit.running():
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is False
+        assert unit.frontend_url not in unit.assets.requested
+        assert not [argv for argv in unit.spawned() if argv[0] == "git"]
+        self._nothing_moved(unit)
+
+    @pytest.mark.asyncio
+    async def test_the_signature_is_verified_before_the_frontend_or_the_tags_are_fetched(
+            self, update_service, tmp_path):
+        unit = MiloUnit(update_service, tmp_path)
+        with unit.running():
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result == {"success": True, "pending": True}
+        verify = unit.index_of(lambda argv: argv[:3] == ("ssh-keygen", "-Y", "verify"))
+        assert verify < unit.index_of(_git("fetch")) < unit.index_of(_git("checkout"))
+        requested = unit.assets.requested
+        assert requested.index(unit.manifest_url) < requested.index(unit.frontend_url), requested
+
+    @pytest.mark.asyncio
+    async def test_a_tag_that_moved_after_it_was_signed_is_refused(self, update_service, tmp_path):
+        """The signature names a commit, the channel a tag. A tag re-pointed
+        since — by whoever can push one — names a tree nobody signed: refused
+        once the fetch shows it, before the journal opens."""
+        unit = MiloUnit(update_service, tmp_path)
+        unit.sign(manifest_for("v0.2.0", "f" * 40, unit.frontend_digest))
+
+        with unit.running():
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert result["success"] is False
+        assert MiloUnit.TARGET in result["error"] and "f" * 40 in result["error"]
+        self._nothing_moved(unit)
+
+    @pytest.mark.asyncio
+    async def test_the_frontend_is_held_to_the_signed_digest_not_to_the_sidecar(
+            self, update_service, tmp_path):
+        """The `.sha256` beside the asset is whatever the channel served: a
+        replaced frontend comes with a matching sidecar. The digest it is held
+        to is the one the owner signed."""
+        unit = MiloUnit(update_service, tmp_path)
+        unit.assets.files[f"{unit.frontend_url}.sha256"] = unit.frontend_digest.encode()
+        unit.sign(manifest_for("v0.2.0", MiloUnit.TARGET, "0" * 64))
+
+        with unit.running():
+            result = await update_service._update_milo_app(MILO_STATUS)
+
+        assert "checksum mismatch" in result["error"]
+        assert f"{unit.frontend_url}.sha256" not in unit.assets.requested
+        self._nothing_moved(unit)
 
     @staticmethod
     def _nothing_moved(unit):

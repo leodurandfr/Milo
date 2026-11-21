@@ -53,6 +53,13 @@ Keys, per program:
                       release, "{tag}" substituted. The unit installs that
                       artefact instead of building one, so what a release was
                       tested with is what every unit runs.
+    release_manifest_url
+                      `milo` alone: the manifest the owner signs, "{tag}"
+                      substituted, its signature beside it
+                      (release_signature.py).
+    release_signing_key
+                      `milo` alone: the allowed-signers file a release is
+                      verified with.
     state_path        `milo` alone: where the update journal and the
                       outcome of the last update live (milo_journal.STATE_DIR).
     data_files        `milo` alone: the versioned user data the update keeps a
@@ -87,9 +94,17 @@ PROGRAMS = {
         # The frontend the release was built with, published beside the image by
         # .github/workflows/build-image.yml. "{tag}" is the release tag, not the
         # bare version: it is what `git checkout` is given, so one spelling
-        # serves both. The sidecar holds its sha256.
+        # serves both. The sidecar holds its sha256, for the releases installed
+        # before signing; a signed release reads the digest from its manifest.
         "frontend_asset_url":
-            "https://github.com/leodurandfr/Milo/releases/download/{tag}/milo-frontend-{tag}.tar.gz"
+            "https://github.com/leodurandfr/Milo/releases/download/{tag}/milo-frontend-{tag}.tar.gz",
+        # The manifest CI writes and the owner signs off GitHub, published beside
+        # the frontend; its signature is this URL + `release_signature.SIGNATURE_SUFFIX`.
+        "release_manifest_url":
+            "https://github.com/leodurandfr/Milo/releases/download/{tag}/milo-release-{tag}.manifest",
+        # The keys a release is verified with: the running release's
+        # rootfs/etc/milo/release-signing.pub, which every update installs.
+        "release_signing_key": "/etc/milo/release-signing.pub",
     },
     "go-librespot": {
         "name": "go-librespot",

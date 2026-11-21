@@ -27,6 +27,14 @@ broken part.
   commit           The arriving release held: the journal moves to "committed",
                    then what the update kept aside is dropped.
 
+The rollback verifies no signature, on purpose. The release the updater
+installs is verified before its checkout (backend/core/updates/
+release_signature.py); the way back is to the commit this unit ran before,
+recorded by hash in the journal before the fetch — one it was flashed with or
+installed, so verified then — and a check here could only refuse the one
+release known to have run on this unit. It reads nothing from GitHub either,
+which is what lets it run offline, at boot.
+
 The rollback runs RESTORE_STEPS in order, each idempotent, under a marker
 written before its first change, so a restore cut by a power loss or by
 TimeoutStartSec is resumed by the next start. It never loops: a step that fails

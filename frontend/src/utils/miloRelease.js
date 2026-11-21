@@ -33,12 +33,15 @@ export function miloVersionLabel(installed) {
  * is outside the channel and offered nothing, which is not the same as being
  * up to date — and neither is a check that never reached GitHub (a rate limit,
  * no network): `update_available` is false there too, because nobody asked.
- * Up to date is the answer only once the check succeeded.
+ * Nor is a release the channel published that this unit refuses to install
+ * because no key it trusts signed it (`refused: 'signature'`). Up to date is
+ * the answer only once the check succeeded and found nothing to refuse.
  *
- * @returns {'update' | 'upToDate' | 'developmentBuild' | 'checkFailed'}
+ * @returns {'update' | 'upToDate' | 'developmentBuild' | 'checkFailed' | 'refusedSignature'}
  */
 export function miloRowAction(milo) {
   if (milo?.development_build) return 'developmentBuild';
+  if (milo?.refused === 'signature') return 'refusedSignature';
   if (milo?.update_available) return 'update';
   return milo?.check_failed ? 'checkFailed' : 'upToDate';
 }
