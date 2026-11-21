@@ -1017,7 +1017,8 @@
         "reset_setup": "Repor a configuração",
         "wifi_save": "Guardar uma rede WiFi",
         "satellite_ssh_open": "Abrir SSH numa coluna",
-        "satellite_password": "Alterar a palavra-passe de uma coluna"
+        "satellite_password": "Alterar a palavra-passe de uma coluna",
+        "satellite_program_upstream": "Instalar uma versão não validada numa coluna"
       },
       "gestures": {
         "rotary": "Rode ou prima o botão rotativo do dispositivo. Não tem botão rotativo? Cancele, desative o codificador rotativo em Configurações › Hardware e volte a pedir daqui a {time}.",

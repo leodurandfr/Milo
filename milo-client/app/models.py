@@ -112,5 +112,14 @@ class ProgramUpdateRequest(BaseModel):
     carries no `dependencies.env` and no GitHub token, so resolving
     `releases/latest` here is how a client ends up on a release the server
     never validated — while the row that started it announced another one.
+
+    `sha256` is the digest the server's manifest declares for the file that
+    version downloads, which the satellite checks the download against and its
+    root installer checks again; null when the server names a version its
+    manifest does not declare (one past it). The key is required even so: with
+    a default, a server that stopped sending it would have every speaker
+    install unchecked, as root, with a warning only in the speaker's journal.
+    Required, that server gets a 422.
     """
     target_version: str = Field(..., min_length=1)
+    sha256: Optional[str] = Field(..., pattern=r"^[0-9a-f]{64}$")

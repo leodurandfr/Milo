@@ -19,10 +19,11 @@ class Gesture(str, Enum):
 
 
 class PresenceAction(str, Enum):
-    """What a challenge was opened for: one member per guarded route.
+    """What a challenge was opened for: one member per thing the owner is
+    asked to confirm, which the dialog names.
 
     `tests/architecture/test_presence_guard.py` drives every member through
-    the route that requires it, so a member with no route, or a route
+    each route that requires it, so a member with no route, or a route
     guarded under a member it does not test, fails there.
     """
     SSH_OPEN = "ssh_open"
@@ -36,6 +37,10 @@ class PresenceAction(str, Enum):
     # (`api/multiroom.py`): a proof given for one never opens the other.
     SATELLITE_SSH_OPEN = "satellite_ssh_open"
     SATELLITE_PASSWORD = "satellite_password"
+    # A satellite's snapclient or CamillaDSP pushed at a version past the
+    # manifest, which the fleet follows while the server tries one
+    # (`api/programs.py`): installed as root on the speaker, with no digest.
+    SATELLITE_PROGRAM_UPSTREAM = "satellite_program_upstream"
 
 
 class PresenceChallenge(BaseModel):

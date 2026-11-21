@@ -2,14 +2,14 @@
 Snapclient service for managing snapclient binary updates and version detection.
 """
 import asyncio
-import aiohttp
-import aiofiles
 import re
 import tempfile
 import shutil
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+from services.release_download import NO_DIGEST, download_release_asset
 
 # Constants
 SNAPCLIENT_VERSION_REGEX = r"v(\d+\.\d+\.\d+)"
@@ -95,8 +95,13 @@ class SnapclientService:
             self.logger.error(f"Error checking service status: {e}")
             return False
 
-    async def update_snapclient(self, target_version: str) -> Dict[str, Any]:
-        """Updates snapclient from GitHub with APT dependency resolution."""
+    async def update_snapclient(self, target_version: str, sha256: Optional[str]) -> Dict[str, Any]:
+        """Updates snapclient from GitHub with APT dependency resolution.
+
+        `sha256` is the server's manifest digest of the .deb: checked as it
+        downloads, and again by the root installer on its own copy before dpkg
+        runs. None when the server names a version its manifest does not declare.
+        """
         if self._update_in_progress:
             return {"success": False, "error": "Update already in progress"}
 
@@ -110,7 +115,7 @@ class SnapclientService:
             old_version = await self.get_installed_version()
 
             # 1. Download the .deb from GitHub
-            download_result = await self._download_snapclient_deb(target_version)
+            download_result = await self._download_snapclient_deb(target_version, sha256)
             if not download_result["success"]:
                 return download_result
 
@@ -121,7 +126,7 @@ class SnapclientService:
             service_stopped = True
 
             # 3. Install the .deb with APT (which resolves dependencies automatically)
-            install_result = await self._install_deb_with_apt(download_result["deb_path"])
+            install_result = await self._install_deb_with_apt(download_result["deb_path"], sha256)
             if not install_result["success"]:
                 return install_result
 
@@ -176,8 +181,10 @@ class SnapclientService:
         if not await self._start_snapclient_service():
             self.logger.error("Could not start snapclient back after the failed update")
 
-    async def _download_snapclient_deb(self, version: str) -> Dict[str, Any]:
-        """Downloads the snapclient .deb built for this unit's Debian release from GitHub."""
+    async def _download_snapclient_deb(self, version: str, sha256: Optional[str]) -> Dict[str, Any]:
+        """Downloads the snapclient .deb built for this unit's Debian release
+        from GitHub, checked against `sha256`."""
+        temp_dir = None
         try:
             # Detect Debian version
             debian_codename = await self._get_debian_codename()
@@ -189,18 +196,7 @@ class SnapclientService:
             deb_path = Path(temp_dir) / package_name
 
             self.logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        return {
-                            "success": False,
-                            "error": f"Download failed: HTTP {response.status}"
-                        }
-
-                    async with aiofiles.open(deb_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
+            await download_release_asset(url, deb_path, sha256)
 
             return {
                 "success": True,
@@ -209,15 +205,18 @@ class SnapclientService:
             }
 
         except Exception as e:
+            if temp_dir:
+                shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
-    async def _install_deb_with_apt(self, deb_path: str) -> Dict[str, Any]:
-        """Installs a .deb package using the secure wrapper script."""
+    async def _install_deb_with_apt(self, deb_path: str, sha256: Optional[str]) -> Dict[str, Any]:
+        """Installs a .deb package using the secure wrapper script, which checks
+        its own copy against `sha256` before dpkg sees it."""
         try:
             self.logger.info(f"Installing {Path(deb_path).name} via secure wrapper...")
 
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "/usr/local/bin/milo-client-install-snapclient", deb_path,
+                "sudo", "/usr/local/bin/milo-client-install-snapclient", deb_path, sha256 or NO_DIGEST,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )

@@ -35,7 +35,7 @@ def create_camilladsp_update_router(camilladsp_update_service: CamillaDSPUpdateS
                 }
 
             async def do_update():
-                result = await camilladsp_update_service.update_camilladsp(target_version)
+                result = await camilladsp_update_service.update_camilladsp(target_version, payload.sha256)
                 logger.info(f"CamillaDSP update completed: {result}")
 
             background_tasks.add_task(do_update)

@@ -1017,7 +1017,8 @@
         "reset_setup": "Konfiguration zurücksetzen",
         "wifi_save": "WLAN-Netzwerk speichern",
         "satellite_ssh_open": "SSH auf einem Lautsprecher öffnen",
-        "satellite_password": "Passwort eines Lautsprechers ändern"
+        "satellite_password": "Passwort eines Lautsprechers ändern",
+        "satellite_program_upstream": "Nicht validierte Version auf einem Lautsprecher installieren"
       },
       "gestures": {
         "rotary": "Drehen oder drücken Sie den Drehknopf am Gerät. Kein Drehknopf vorhanden? Brechen Sie ab, deaktivieren Sie den Drehregler unter Einstellungen › Hardware und versuchen Sie es in {time} erneut.",

@@ -1017,7 +1017,8 @@
         "reset_setup": "Reimposta la configurazione",
         "wifi_save": "Salva una rete WiFi",
         "satellite_ssh_open": "Apri SSH su un altoparlante",
-        "satellite_password": "Cambia la password di un altoparlante"
+        "satellite_password": "Cambia la password di un altoparlante",
+        "satellite_program_upstream": "Installa una versione non convalidata su un altoparlante"
       },
       "gestures": {
         "rotary": "Ruoti o prema la manopola del dispositivo. Nessuna manopola? Annulli, disattivi l'encoder rotativo in Impostazioni › Hardware, poi ripeta la richiesta tra {time}.",

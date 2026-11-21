@@ -9,22 +9,32 @@ source "$(dirname "${BASH_SOURCE[0]}")/../dependencies.env"
 
 # NQPTP (AirPlay 2 timing daemon). No --with-systemd-startup: its unit is
 # Milō's (system/nqptp.service), copied in by 02-install-milo.
+#
+# NQPTP and shairport-sync are built from their tag's source archive, checked
+# against the manifest's digest, not from a clone: a tag is a pointer its owner
+# can move, and the archive is the same file the in-app update builds from
+# (UpdateService._download_source), so an image and an updated unit compile the
+# same bytes.
 on_chroot << CHROOT
 cd /tmp
-git clone --branch ${NQPTP_VERSION} --depth 1 https://github.com/mikebrady/nqptp.git
-cd nqptp
+wget -q -O nqptp.tar.gz "https://github.com/mikebrady/nqptp/archive/refs/tags/${NQPTP_VERSION}.tar.gz"
+echo "${NQPTP_SHA256}  nqptp.tar.gz" | sha256sum -c -
+tar -xzf nqptp.tar.gz && rm -f nqptp.tar.gz
+cd nqptp-${NQPTP_VERSION}
 autoreconf -fi
 ./configure
 make -j\$(nproc)
 make install
-cd /tmp && rm -rf nqptp
+cd /tmp && rm -rf nqptp-${NQPTP_VERSION}
 CHROOT
 
 # shairport-sync (AirPlay 2)
 on_chroot << CHROOT
 cd /tmp
-git clone --branch ${SHAIRPORT_SYNC_VERSION} --depth 1 https://github.com/mikebrady/shairport-sync.git
-cd shairport-sync
+wget -q -O shairport-sync.tar.gz "https://github.com/mikebrady/shairport-sync/archive/refs/tags/${SHAIRPORT_SYNC_VERSION}.tar.gz"
+echo "${SHAIRPORT_SYNC_SHA256}  shairport-sync.tar.gz" | sha256sum -c -
+tar -xzf shairport-sync.tar.gz && rm -f shairport-sync.tar.gz
+cd shairport-sync-${SHAIRPORT_SYNC_VERSION}
 autoreconf -fi
 ./configure --sysconfdir=/etc \
     --with-alsa \
@@ -37,7 +47,7 @@ autoreconf -fi
     --with-dbus-interface
 make -j\$(nproc)
 make install
-cd /tmp && rm -rf shairport-sync
+cd /tmp && rm -rf shairport-sync-${SHAIRPORT_SYNC_VERSION}
 
 # Disable default shairport-sync service (Milo manages its own)
 systemctl disable shairport-sync.service 2>/dev/null || true

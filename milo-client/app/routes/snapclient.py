@@ -42,7 +42,7 @@ def create_snapclient_router(snapclient_service: SnapclientService) -> APIRouter
 
             # Start the update in background
             async def do_update():
-                result = await snapclient_service.update_snapclient(target_version)
+                result = await snapclient_service.update_snapclient(target_version, payload.sha256)
                 logger.info(f"Update completed: {result}")
 
             background_tasks.add_task(do_update)

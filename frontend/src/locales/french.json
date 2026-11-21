@@ -1017,7 +1017,8 @@
         "reset_setup": "Réinitialiser la configuration",
         "wifi_save": "Enregistrer un réseau WiFi",
         "satellite_ssh_open": "Ouvrir SSH sur une enceinte",
-        "satellite_password": "Changer le mot de passe d'une enceinte"
+        "satellite_password": "Changer le mot de passe d'une enceinte",
+        "satellite_program_upstream": "Installer une version non validée sur une enceinte"
       },
       "gestures": {
         "rotary": "Tournez ou appuyez sur le bouton rotatif de l'appareil. Pas de bouton rotatif ? Annulez, désactivez l'encodeur rotatif dans Paramètres › Matériel, puis refaites la demande dans {time}.",

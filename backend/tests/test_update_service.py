@@ -561,14 +561,24 @@ class TestInstallDebPackage:
     @pytest.mark.asyncio
     async def test_successful_install(self, update_service):
         proc = _make_mock_proc()
-        with patch("asyncio.create_subprocess_exec", return_value=proc):
-            result = await update_service._install_deb_package("/tmp/snapserver.deb")
+        with patch("asyncio.create_subprocess_exec", return_value=proc) as spawn:
+            result = await update_service._install_deb_package("/tmp/snapserver.deb", "e" * 64)
         assert result["success"] is True
+        # The wrapper checks its own copy against the digest before apt runs.
+        assert spawn.call_args.args == ("sudo", DEPLOY_UPDATE_CMD, "install-deb", "/tmp/snapserver.deb", "e" * 64)
+
+    @pytest.mark.asyncio
+    async def test_no_declared_digest_is_said_in_the_wrappers_word(self, update_service):
+        """A version past the manifest reaches the wrapper as `-`, never as an
+        empty argument the wrapper would refuse or a digest invented here."""
+        with patch.object(update_service, "_run_deploy", return_value=(True, "")) as deploy:
+            await update_service._install_deb_package("/tmp/snapserver.deb", None)
+        assert deploy.await_args.args == ("install-deb", "/tmp/snapserver.deb", "-")
 
     @pytest.mark.asyncio
     async def test_deploy_failure(self, update_service):
         with patch.object(update_service, "_run_deploy", return_value=(False, "Package installation failed")):
-            result = await update_service._install_deb_package("/tmp/snapserver.deb")
+            result = await update_service._install_deb_package("/tmp/snapserver.deb", "e" * 64)
         assert result["success"] is False
 
 
@@ -703,7 +713,8 @@ class TestUpdateBinaryProgram:
         returns = {
             "_backup_binary_program": backup or {"success": True},
             "_download_binary_program": download or {
-                "success": True, "binary_path": "/tmp/bin", "temp_dir": "/tmp/dl"
+                "success": True, "archive_path": "/tmp/dl/asset.tar.gz", "member": "asset",
+                "sha256": "d" * 64, "temp_dir": "/tmp/dl",
             },
             "_run_deploy": deploy,
             "_verify_binary_program": {"success": True},
@@ -733,7 +744,26 @@ class TestUpdateBinaryProgram:
         mocks["_stop_service"].assert_awaited_once()
         mocks["_start_service"].assert_awaited_once()
         mocks["_rollback_binary_program"].assert_not_awaited()
-        assert mocks["_run_deploy"].await_args.args[0] == "install-binary"
+        # The archive and its digest, never a binary unpacked by milo: the
+        # wrapper checks its own copy and unpacks that.
+        assert mocks["_run_deploy"].await_args.args == (
+            "install-release-binary", "/tmp/dl/asset.tar.gz", "asset",
+            PROGRAMS[program_key]["binary_path"], "d" * 64,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_version_the_manifest_does_not_declare_reaches_the_wrapper_as_no_digest(
+            self, update_service):
+        """An upstream trial has no digest, and the wrapper is told so in its
+        own word, `-`, rather than handed an empty argument it would refuse."""
+        status = {"installed": {"versions": {"main": "0.6.1"}}, "latest": {"version": "0.7.0"}}
+        download = {"success": True, "archive_path": "/tmp/dl/asset.tar.gz", "member": "asset",
+                    "sha256": None, "temp_dir": "/tmp/dl"}
+
+        with self._flow(update_service, service_active=True, download=download) as mocks:
+            await update_service._update_binary_program("go-librespot", status)
+
+        assert mocks["_run_deploy"].await_args.args[-1] == "-"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("program_key", ["go-librespot", "navidrome"])
@@ -871,7 +901,8 @@ class TestUpdateMultiroom:
             mocks = {
                 "_download_snapcast_component": stack.enter_context(patch.object(
                     service, "_download_snapcast_component",
-                    return_value={"success": True, "deb_path": "/tmp/pkg.deb", "temp_dir": "/tmp/dl"},
+                    return_value={"success": True, "deb_path": "/tmp/pkg.deb", "sha256": None,
+                                  "temp_dir": "/tmp/dl"},
                 )),
                 "_install_deb_package": stack.enter_context(patch.object(
                     service, "_install_deb_package",
@@ -1048,7 +1079,7 @@ class TestUpdateMultiroom:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return {"success": True, "deb_path": "/tmp/s.deb", "temp_dir": "/tmp/s"}
+                return {"success": True, "deb_path": "/tmp/s.deb", "sha256": None, "temp_dir": "/tmp/s"}
             return {"success": False, "error": "HTTP 404"}
 
         with patch.object(update_service, "_download_snapcast_component", side_effect=mock_download):
@@ -1693,6 +1724,7 @@ class TestUpdateQobuzProxy:
             mocks["probe_active"] = stack.enter_context(patch.object(
                 service._systemd, "probe_active", AsyncMock(return_value=True)))
             for name, value in (
+                ("_download_release_asset", None),
                 ("_backup_qobuz_venv", {"success": True}),
                 ("_verify_qobuz_update", {"success": True}),
                 ("_stop_service", True),
@@ -1797,15 +1829,15 @@ class TestBinaryProgramDownloadTempDir:
 
     @staticmethod
     def _tar(returncode=0, produces=None):
-        """A stand-in for the tar process; honours -C and can drop a file in it."""
+        """A stand-in for `tar -tzf`: lists `produces`, or fails as tar does on
+        an archive it cannot read."""
 
         async def _exec(*args, **_kwargs):
-            if returncode == 0 and produces:
-                dest = Path(args[args.index("-C") + 1])
-                dest.mkdir(parents=True, exist_ok=True)
-                (dest / produces).write_bytes(b"the new binary")
+            assert args[:2] == ("tar", "-tzf"), args
             proc = AsyncMock()
-            proc.communicate = AsyncMock(return_value=(b"", b""))
+            listing = f"{produces}\n".encode() if returncode == 0 and produces else b""
+            stderr = b"" if returncode == 0 else b"gzip: stdin: not in gzip format"
+            proc.communicate = AsyncMock(return_value=(listing, stderr))
             proc.returncode = returncode
             return proc
 
@@ -1835,20 +1867,66 @@ class TestBinaryProgramDownloadTempDir:
         assert not created[0].exists(), "the scratch directory outlived an HTTP error"
 
     @pytest.mark.asyncio
-    async def test_a_failed_extraction_removes_its_temp_dir(self, update_service, tmp_path):
+    async def test_an_unreadable_archive_removes_its_temp_dir(self, update_service, tmp_path):
         with self._sandboxed_tmp(tmp_path) as created:
             with ExitStack() as stack:
                 stack.enter_context(patch("backend.core.updates.update.aiohttp.ClientSession",
                                           self._session()))
                 stack.enter_context(patch(
                     "backend.core.updates.update.asyncio.create_subprocess_exec",
-                    self._tar(returncode=1)))
+                    self._tar(returncode=2)))
                 result = await update_service._download_binary_program(self.CONFIG, "0.7.0")
 
         assert result["success"] is False
-        assert "extract" in result["error"].lower()
+        assert "not in gzip format" in result["error"]
         assert len(created) == 1
-        assert not created[0].exists(), "the scratch directory outlived a failed extraction"
+        assert not created[0].exists(), "the scratch directory outlived an unreadable archive"
+
+    @pytest.mark.asyncio
+    async def test_a_file_that_is_not_the_declared_one_is_refused_before_anything_stops(
+            self, update_service, tmp_path):
+        """The validated version's archive is checked against the manifest's
+        digest as it streams in: bytes GitHub serves today that are not the file
+        the digest was taken over never reach tar, nor the wrapper."""
+        config = self.CONFIG
+        spawned = []
+        with self._sandboxed_tmp(tmp_path) as created:
+            with ExitStack() as stack:
+                stack.enter_context(patch("backend.core.updates.update.aiohttp.ClientSession",
+                                          self._session(payload=b"not the release")))
+                stack.enter_context(patch(
+                    "backend.core.updates.update.asyncio.create_subprocess_exec",
+                    side_effect=lambda *a, **k: spawned.append(a)))
+                result = await update_service._download_binary_program(
+                    config, config["validated_version"]
+                )
+
+        assert result["success"] is False
+        assert "checksum mismatch" in result["error"]
+        assert config["validated_sha256"]["main"] in result["error"]
+        assert spawned == []
+        assert not created[0].exists(), "the scratch directory outlived a refused file"
+
+    @pytest.mark.asyncio
+    async def test_the_declared_file_is_handed_on_with_its_digest(self, update_service, tmp_path):
+        """What the wrapper is told to check again is the digest the bytes were
+        checked against here — the manifest's, for the validated version."""
+        payload = b"the release archive"
+        config = dict(self.CONFIG, validated_version="0.7.0",
+                      validated_sha256={"main": hashlib.sha256(payload).hexdigest()})
+        binary_name = Path(config["binary_path"]).name
+        with self._sandboxed_tmp(tmp_path):
+            with ExitStack() as stack:
+                stack.enter_context(patch("backend.core.updates.update.aiohttp.ClientSession",
+                                          self._session(payload=payload)))
+                stack.enter_context(patch(
+                    "backend.core.updates.update.asyncio.create_subprocess_exec",
+                    self._tar(produces=binary_name)))
+                result = await update_service._download_binary_program(config, "0.7.0")
+
+        assert result["success"] is True, result
+        assert result["sha256"] == hashlib.sha256(Path(result["archive_path"]).read_bytes()).hexdigest()
+        await update_service._cleanup_temp_files(result["temp_dir"])
 
     @pytest.mark.asyncio
     async def test_an_archive_without_the_binary_removes_its_temp_dir(self, update_service, tmp_path):
@@ -1882,8 +1960,10 @@ class TestBinaryProgramDownloadTempDir:
                 result = await update_service._download_binary_program(self.CONFIG, "0.7.0")
 
         assert result["success"] is True
-        assert Path(result["binary_path"]).is_file(), "the path handed back is not the unpacked binary"
-        assert Path(result["binary_path"]).name == binary_name
+        assert Path(result["archive_path"]).read_bytes() == b"tarball-bytes"
+        assert result["member"] == binary_name
+        # A version the manifest does not declare carries no digest on.
+        assert result["sha256"] is None
         assert len(created) == 1
         assert result["temp_dir"] == str(created[0])
         assert created[0].exists(), "the success path must leave the directory for the caller"
@@ -2072,7 +2152,7 @@ class TestDownloadShairportSource:
         with downloading() as session, spawning(), \
                 patch("tempfile.mkdtemp", return_value=str(tmp_path)):
             (tmp_path / "shairport-sync-4.3.7").mkdir()
-            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7")
+            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7", None)
 
         assert session.urls == [
             "https://github.com/mikebrady/shairport-sync/archive/refs/tags/4.3.7.tar.gz"
@@ -2089,7 +2169,7 @@ class TestDownloadShairportSource:
         staging.mkdir()
         with downloading(status=404), spawning(), \
                 patch("tempfile.mkdtemp", return_value=str(staging)):
-            result = await update_service._download_source("mikebrady/shairport-sync", "9.9.9")
+            result = await update_service._download_source("mikebrady/shairport-sync", "9.9.9", None)
 
         assert result["success"] is False
         assert "404" in result["error"]
@@ -2101,7 +2181,7 @@ class TestDownloadShairportSource:
         staging.mkdir()
         with downloading(), spawning(lambda argv: (2, b"", b"gzip: unexpected end of file")), \
                 patch("tempfile.mkdtemp", return_value=str(staging)):
-            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7")
+            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7", None)
 
         assert result["success"] is False
         assert "unexpected end of file" in result["error"]
@@ -2114,7 +2194,7 @@ class TestDownloadShairportSource:
         staging = tmp_path / "dl"
         staging.mkdir()
         with downloading(), spawning(), patch("tempfile.mkdtemp", return_value=str(staging)):
-            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7")
+            result = await update_service._download_source("mikebrady/shairport-sync", "4.3.7", None)
 
         assert result["success"] is False
         assert "No directory" in result["error"]
@@ -2129,10 +2209,30 @@ class TestDownloadShairportSource:
         with downloading(body=payload) as _, spawning() as spawn, \
                 patch("tempfile.mkdtemp", return_value=str(tmp_path)):
             (tmp_path / "shairport-sync-4.3.7").mkdir()
-            await update_service._download_source("mikebrady/shairport-sync", "4.3.7")
+            await update_service._download_source("mikebrady/shairport-sync", "4.3.7", None)
 
         archive = Path(spawn.argv_for("tar")[2])
         assert archive.read_bytes() == payload
+
+    @pytest.mark.asyncio
+    async def test_a_source_that_is_not_the_declared_archive_is_never_unpacked(
+            self, update_service, tmp_path):
+        """The tree is compiled and `make install`ed into /usr/local/bin through
+        the root helper, so an archive that is not the one the manifest's digest
+        was taken over is refused before tar opens it."""
+        config = PROGRAMS["shairport-sync"]
+        staging = tmp_path / "dl"
+        staging.mkdir()
+        with downloading(body=b"not the tag's archive"), spawning() as spawn, \
+                patch("tempfile.mkdtemp", return_value=str(staging)):
+            result = await update_service._download_source(
+                config["repo"], config["validated_version"], config["validated_sha256"]["main"]
+            )
+
+        assert result["success"] is False
+        assert "checksum mismatch" in result["error"]
+        assert "tar" not in spawn.programs()
+        assert not staging.exists()
 
 
 class TestConfigureShairportSync:
@@ -2673,8 +2773,10 @@ class TestShairportSyncNqptpPair:
             "build": {"binary": str(Path(world["source"]) / "nqptp"), "version": target},
             "expected": (target, 11),
         }
+        # The manifest's NQPTP is the only one installed, so its source always
+        # has a digest to be checked against.
         world["_download_source"].assert_called_once_with(
-            self.NQPTP["repo"], target, parent_dir=str(tmp_path)
+            self.NQPTP["repo"], target, self.NQPTP["validated_sha256"]["main"], parent_dir=str(tmp_path)
         )
 
     @pytest.mark.asyncio
@@ -3129,8 +3231,10 @@ class TestUpdateQobuzProxyFlow:
 
     @staticmethod
     @contextmanager
-    def _flow(service, *, was_active=True, overrides=None):
+    def _flow(service, *, was_active=True, overrides=None, real=()):
+        """Every step of the flow stubbed, but the ones `real` names."""
         returns = {
+            "_download_release_asset": None,
             "_backup_qobuz_venv": {"success": True},
             "_stop_service": True,
             "_start_service": True,
@@ -3143,6 +3247,7 @@ class TestUpdateQobuzProxyFlow:
             mocks = {
                 name: stack.enter_context(patch.object(service, name, return_value=value))
                 for name, value in returns.items()
+                if name not in real
             }
             mocks["probe_active"] = stack.enter_context(patch.object(
                 service._systemd, "probe_active", AsyncMock(return_value=was_active)))
@@ -3152,22 +3257,52 @@ class TestUpdateQobuzProxyFlow:
             yield mocks
 
     @pytest.mark.asyncio
-    async def test_pip_is_pinned_to_the_upstream_tag_and_the_local_extra(self, update_service):
-        """Two halves, both load-bearing. `[local]` pulls the extra that ships
+    async def test_pip_installs_the_checked_archive_of_the_upstream_tag_with_the_local_extra(
+            self, update_service):
+        """Three halves, all load-bearing. `[local]` pulls the extra that ships
         the local backend Milō streams through — without it the sidecar imports
-        and answers nothing. And the ref is the *tag* (`v1.4.2`), not the parsed
-        version: pip resolves `git+…@1.4.2` to nothing and installs the default
-        branch, which is not a release at all."""
+        and answers nothing. The archive is the *tag's* (`v1.4.2`), not one
+        rebuilt from the parsed version, which names no ref. And pip reads the
+        file the download checked, never `git+…@tag`: a tag is a pointer its
+        owner can move, and a clone is nothing a digest can be taken over."""
         with self._flow(update_service) as flow:
             assert await update_service._update_qobuz_proxy(self.STATUS) == {"success": True}
 
+        url, archive, sha256 = flow["_download_release_asset"].await_args.args
+        assert url == "https://github.com/leolobato/qobuz-proxy/archive/refs/tags/v1.4.2.tar.gz"
+        # 1.4.2 is not the manifest's version, so nothing declares its digest.
+        assert sha256 is None
         pip_argv = flow["_local"].calls[0]
         assert pip_argv[0] == f"{QOBUZ['venv_path']}/bin/pip"
         assert pip_argv[1:3] == ("install", "--upgrade")
-        assert pip_argv[3] == (
-            "qobuz-proxy[local] @ "
-            "git+https://github.com/leolobato/qobuz-proxy@v1.4.2"
-        )
+        assert pip_argv[3] == f"qobuz-proxy[local] @ {Path(archive).as_uri()}"
+
+    @pytest.mark.asyncio
+    async def test_the_validated_release_is_checked_against_the_manifest_digest(self, update_service):
+        status = {"latest": {"version": QOBUZ["validated_version"],
+                             "tag_name": f"v{QOBUZ['validated_version']}"}}
+        with self._flow(update_service) as flow:
+            await update_service._update_qobuz_proxy(status)
+
+        assert flow["_download_release_asset"].await_args.args[2] == QOBUZ["validated_sha256"]["main"]
+
+    @pytest.mark.asyncio
+    async def test_an_archive_that_is_not_the_declared_one_touches_nothing(self, update_service):
+        """Refused before the venv is copied and before the sidecar stops: the
+        download is the first thing the update does, and the bytes GitHub
+        serves for the validated tag are not the ones its digest was taken over."""
+        version = QOBUZ["validated_version"]
+        status = {"latest": {"version": version, "tag_name": f"v{version}"}}
+        with self._flow(update_service, real=("_download_release_asset",)) as flow, \
+                downloading(body=b"not the release"):
+            result = await update_service._update_qobuz_proxy(status)
+
+        assert result["success"] is False
+        assert "checksum mismatch" in result["error"]
+        assert QOBUZ["validated_sha256"]["main"] in result["error"]
+        flow["_backup_qobuz_venv"].assert_not_called()
+        flow["_stop_service"].assert_not_called()
+        assert flow["_local"].calls == []
 
     @pytest.mark.asyncio
     async def test_the_release_is_asked_with_the_venvs_own_interpreter(
@@ -3358,7 +3493,8 @@ class TestBinaryProgramRecoveryArms:
         returns = {
             "_backup_binary_program": {"success": True},
             "_download_binary_program": {
-                "success": True, "binary_path": "/tmp/dl/camilladsp", "temp_dir": "/tmp/dl"},
+                "success": True, "archive_path": "/tmp/dl/camilladsp.tar.gz", "member": "camilladsp",
+                "sha256": None, "temp_dir": "/tmp/dl"},
             "_stop_service": True,
             "_start_service": True,
             "_run_deploy": (True, ""),
@@ -3451,6 +3587,27 @@ class TestDownloadSnapcastComponent:
             f"{component}_0.31.0-1_arm64_trixie.deb"
         ]
         assert Path(result["deb_path"]).name == f"{component}_0.31.0-1_arm64_trixie.deb"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("component", ["snapserver", "snapclient"])
+    async def test_each_package_of_the_validated_version_is_checked_against_its_own_digest(
+            self, update_service, tmp_path, component):
+        """The two .debs have one digest each: the server's snapserver must not
+        pass under the snapclient's, and bytes that are neither are refused
+        before the units stop — the manifest's digest named in the refusal."""
+        version = PROGRAMS["multiroom"]["validated_version"]
+        digest = PROGRAMS["multiroom"]["validated_sha256"][component]
+        staging = tmp_path / "dl"
+        staging.mkdir()
+        with downloading() as session, \
+                patch.object(update_service, "_get_debian_codename", return_value="trixie"), \
+                patch("tempfile.mkdtemp", return_value=str(staging)):
+            result = await update_service._download_snapcast_component(component, version)
+
+        assert len(session.urls) == 1
+        assert result["success"] is False
+        assert "checksum mismatch" in result["error"] and digest in result["error"]
+        assert not staging.exists(), "the refused package was left in /tmp"
 
     @pytest.mark.asyncio
     async def test_an_unknown_component_creates_nothing_at_all(self, update_service):
@@ -3887,7 +4044,8 @@ class TestTheReleaseFrontend:
             await self._install(update_service, "v0.2.0")
 
         assert (dist / "index.html").read_bytes() == b"<!doctype html>release build"
-        assert assets.requested == [url, f"{url}.sha256"]
+        # The digest first: the asset is checked against it as it streams in.
+        assert assets.requested == [f"{url}.sha256", url]
 
     @pytest.mark.asyncio
     async def test_the_previous_frontend_is_kept_where_the_guard_finds_it(self, update_service, tmp_path):
@@ -3972,7 +4130,7 @@ class TestTheReleaseFrontend:
         with self._extracting(assets), pytest.raises(Exception, match="HTTP 404"):
             await self._install(update_service, "v0.2.0")
 
-        assert assets.requested == [url]
+        assert assets.requested == [f"{url}.sha256"]
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -4035,7 +4193,19 @@ class MiloUnit:
 
     ORIGIN = "0" * 39 + "a"
     TARGET = "0" * 39 + "b"
-    REQUIREMENTS = "fastapi>=0.115.0\naiohttp>=3.11.0  # the client\n"
+    # requirements.lock as uv writes it: a header naming the command, then one
+    # pin per package with its hashes and why it is there.
+    REQUIREMENTS = (
+        "# This file was autogenerated by uv via the following command:\n"
+        "#    uv pip compile requirements.txt --universal --python-version 3.13 "
+        "--generate-hashes -o requirements.lock\n"
+        "aiohttp==3.14.5 \\\n"
+        f"    --hash=sha256:{'a' * 64}\n"
+        "    # via -r requirements.txt\n"
+        "fastapi==0.165.0 \\\n"
+        f"    --hash=sha256:{'b' * 64}\n"
+        "    # via -r requirements.txt\n"
+    )
 
     def __init__(self, service, tmp_path, *, target_requirements=REQUIREMENTS,
                  porcelain=b"", fail=None, other=None, free_bytes=1 << 40):
@@ -4119,9 +4289,9 @@ class MiloUnit:
                 return 0, f"{self.ORIGIN}\n".encode(), b""
             if command == ("rev-parse", "v0.2.0^{commit}"):
                 return 0, f"{self.TARGET}\n".encode(), b""
-            if command == ("show", f"{self.ORIGIN}:requirements.txt"):
+            if command == ("show", f"{self.ORIGIN}:requirements.lock"):
                 return 0, self.REQUIREMENTS.encode(), b""
-            if command == ("show", f"{self.TARGET}:requirements.txt"):
+            if command == ("show", f"{self.TARGET}:requirements.lock"):
                 return 0, self.target_requirements.encode(), b""
             if command == ("status", "--porcelain"):
                 return 0, self.porcelain, b""
@@ -4288,17 +4458,20 @@ class TestTheMiloInstall:
                 assert entry[KEY_DATA_COPY] is None
 
     @pytest.mark.parametrize("target, pip", [
-        (MiloUnit.REQUIREMENTS + "pyudev>=0.24.0\n", True),
-        (MiloUnit.REQUIREMENTS.replace("fastapi>=0.115.0", "fastapi>=0.120.0"), True),
-        ("fastapi>=0.115.0\n", False),
-        (MiloUnit.REQUIREMENTS.replace("# the client", "# the HTTP client"), False),
-    ], ids=["added", "raised", "removed", "comment"])
+        (MiloUnit.REQUIREMENTS + f"pyudev==0.24.5 \\\n    --hash=sha256:{'c' * 64}\n", True),
+        (MiloUnit.REQUIREMENTS.replace("fastapi==0.165.0", "fastapi==0.166.0"), True),
+        (MiloUnit.REQUIREMENTS.replace("fastapi==0.165.0", "fastapi==0.164.0"), True),
+        (MiloUnit.REQUIREMENTS.split("fastapi==")[0], False),
+        (MiloUnit.REQUIREMENTS.replace("--python-version 3.13", "--python-version 3.13 --quiet"), False),
+    ], ids=["added", "raised", "lowered", "removed", "comment"])
     @pytest.mark.asyncio
-    async def test_pip_runs_only_when_a_requirement_was_added_or_raised(
+    async def test_pip_runs_only_when_the_lock_pins_something_new(
             self, update_service, tmp_path, target, pip):
-        """`pip install -r` never uninstalls, so a release that only drops a
-        line or edits a comment needs no pip — and no venv copy for the guard.
-        When pip does run, the venv it changes was kept first, whole."""
+        """`pip install -r` never uninstalls, so a release whose lock only drops
+        a package or edits a comment needs no pip — and no venv copy for the
+        guard. A pin moved either way does: a lower one is a downgrade the venv
+        has to make. When pip does run, it reads the lock with every file
+        checked against its hash, and the venv it changes was kept first, whole."""
         from backend.core.updates.milo_journal import KEPT_VENV_NAME
 
         unit = MiloUnit(update_service, tmp_path, target_requirements=target)
@@ -4310,7 +4483,7 @@ class TestTheMiloInstall:
         assert unit.journal()["venv_kept"] is pip
         if pip:
             assert pip_runs == [(str(unit.venv / "bin" / "pip3"), "install", "--no-cache-dir",
-                                 "-r", str(unit.repo / "requirements.txt"))]
+                                 "--require-hashes", "-r", str(unit.repo / "requirements.lock"))]
             assert (kept / "lib" / "installed.txt").read_text() == "the previous packages"
             assert (unit.venv / "lib" / "installed.txt").read_text() == "the new packages"
         else:
@@ -4318,9 +4491,9 @@ class TestTheMiloInstall:
             assert not kept.exists()
 
     @pytest.mark.asyncio
-    async def test_the_requirements_file_pip_reads_is_one_the_repo_ships(self, update_service, tmp_path):
+    async def test_the_lock_pip_reads_is_one_the_repo_ships(self, update_service, tmp_path):
         """The path was `backend/requirements.txt`, which has never existed."""
-        unit = MiloUnit(update_service, tmp_path, target_requirements="pyudev>=1\n")
+        unit = MiloUnit(update_service, tmp_path, target_requirements=f"pyudev==1 \\\n    --hash=sha256:{'c' * 64}\n")
         with unit.running():
             await update_service._update_milo_app(MILO_STATUS)
 
@@ -5246,7 +5419,8 @@ class TestTheUnitStateIsReadWhenItIsActedOn:
 
         async def download_while_the_unit_starts(cfg, version):
             world.active[unit] = True
-            return {"success": True, "binary_path": "/tmp/dl/bin", "temp_dir": "/tmp/dl"}
+            return {"success": True, "archive_path": "/tmp/dl/bin.tar.gz", "member": "bin",
+                    "sha256": None, "temp_dir": "/tmp/dl"}
 
         with patch.object(service, "_backup_binary_program", AsyncMock(return_value={"success": True})), \
                 patch.object(service, "_download_binary_program", side_effect=download_while_the_unit_starts), \
@@ -5259,7 +5433,7 @@ class TestTheUnitStateIsReadWhenItIsActedOn:
         assert result == {"success": True}
         assert world.acts() == [
             ("stop", unit),
-            ("deploy", "install-binary", "/tmp/dl/bin", config["binary_path"]),
+            ("deploy", "install-release-binary", "/tmp/dl/bin.tar.gz", "bin", config["binary_path"], "-"),
             ("start", unit),
         ]
         rollback.assert_not_awaited()
@@ -5276,7 +5450,8 @@ class TestTheUnitStateIsReadWhenItIsActedOn:
 
         with patch.object(service, "_backup_binary_program", AsyncMock(return_value={"success": True})), \
                 patch.object(service, "_download_binary_program", AsyncMock(return_value={
-                    "success": True, "binary_path": "/tmp/dl/bin", "temp_dir": "/tmp/dl"})), \
+                    "success": True, "archive_path": "/tmp/dl/bin.tar.gz", "member": "bin",
+                    "sha256": None, "temp_dir": "/tmp/dl"})), \
                 patch.object(service, "_run_deploy", side_effect=_deploy_into(world)), \
                 patch.object(service, "_cleanup_temp_files", AsyncMock()) as cleanup:
             result = await service._update_binary_program("go-librespot", self.BINARY_STATUS)
@@ -5333,7 +5508,7 @@ class TestTheUnitStateIsReadWhenItIsActedOn:
         service = self._service(world, mock_settings_service)
 
         with patch.object(service, "_download_snapcast_component", AsyncMock(return_value={
-                    "success": True, "deb_path": "/tmp/pkg.deb", "temp_dir": "/tmp/dl"})), \
+                    "success": True, "deb_path": "/tmp/pkg.deb", "sha256": None, "temp_dir": "/tmp/dl"})), \
                 patch.object(service, "_install_deb_package", AsyncMock(return_value={"success": True})), \
                 patch.object(service, "get_installed_version", AsyncMock(return_value={"versions": {
                     unit: self.MULTIROOM_STATUS["latest"]["version"] for unit in ("snapserver", "snapclient")}})), \

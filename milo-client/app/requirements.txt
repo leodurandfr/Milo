@@ -1,5 +1,15 @@
-# Milo Client - Python Dependencies
-# Version: 1.3 - Hybrid approach (GitHub .deb + APT dependency resolution)
+# Milo Client - what the satellite app imports, as floors.
+#
+# The input of requirements.lock beside it, never installed as it stands: the
+# image and every app update install the lock, with --require-hashes. After any
+# edit here, compile the lock again from this directory (its header names the
+# command), against the server's lock so a package both apps use is pinned at
+# the version CI tests them with — one venv runs both suites.
+#
+# An app update copies the venv aside and runs pip only when the lock differs
+# from the one the unit runs, byte for byte: a comment edited here costs no
+# satellite anything, a lock compiled again costs each one a venv copy and a
+# pip run on its next push.
 
 # Web framework
 fastapi>=0.115.0
@@ -22,8 +32,3 @@ python-multipart>=0.0.9
 # WebSocket client for the local CamillaDSP daemon (services/camilladsp_client.py).
 # Also a runtime dep of uvicorn[standard], which is why the field already had it.
 websockets>=14.0
-
-# An app update runs pip only when this file differs from the one the unit runs
-# (byte for byte), after copying the venv aside: a version that fails its trial
-# gets that copy back. Any edit here — a comment included — costs every
-# satellite a venv copy and a pip run on its next push.

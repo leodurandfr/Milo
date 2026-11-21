@@ -54,9 +54,8 @@ class FakeMachine:
         self.calls.append(argv)
         if argv[1:] == ("--version",):
             return _FakeProc(stdout=b"CamillaDSP 3.0.1\n")
-        if argv[0] == "tar":
-            (Path(argv[4]) / "camilladsp").write_bytes(b"new binary")
-            return _FakeProc()
+        if argv[:2] == ("tar", "-tzf"):
+            return _FakeProc(stdout=b"camilladsp\n")
         if argv[:2] == ("systemctl", "is-active"):
             return _FakeProc(stdout=b"active\n" if self.running else b"inactive\n")
         if argv == self.STOP:
@@ -73,7 +72,7 @@ class FakeMachine:
 
 class _FakeContent:
     async def iter_chunked(self, size):
-        yield b"an archive tar is faked to extract"
+        yield b"an archive tar is faked to list"
 
 
 class _FakeResponse:
@@ -119,7 +118,7 @@ def machine(tmp_path):
 
     with patch.object(camilladsp_update.asyncio, "create_subprocess_exec", world.spawn), \
          patch.object(camilladsp_update.asyncio, "sleep", AsyncMock()), \
-         patch.object(camilladsp_update.aiohttp, "ClientSession", _FakeSession), \
+         patch("services.release_download.aiohttp.ClientSession", _FakeSession), \
          patch.object(camilladsp_update, "CAMILLADSP_BINARY", str(installed)), \
          patch.object(camilladsp_update, "BACKUP_DIR", tmp_path / "backups"):
         yield world
@@ -130,7 +129,7 @@ async def test_a_failed_install_starts_camilladsp_back(machine):
     """The floor: the wrapper refuses the new binary, the backup goes back in."""
     machine.install_returncodes = [1]
 
-    result = await CamillaDSPUpdateService().update_camilladsp("3.0.2")
+    result = await CamillaDSPUpdateService().update_camilladsp("3.0.2", None)
 
     assert result["success"] is False
     assert _last_unit_verb(machine.calls) == FakeMachine.START
@@ -143,7 +142,7 @@ async def test_a_rollback_whose_reinstall_fails_still_starts_the_unit(machine):
     disk, so the unit must run on it rather than stay stopped."""
     machine.install_returncodes = [1, 1]
 
-    result = await CamillaDSPUpdateService().update_camilladsp("3.0.2")
+    result = await CamillaDSPUpdateService().update_camilladsp("3.0.2", None)
 
     assert result["success"] is False
     assert _last_unit_verb(machine.calls) == FakeMachine.START
@@ -163,8 +162,34 @@ async def test_a_rollback_whose_copy_raises_still_starts_the_unit(machine):
         return real_copy(src, dst, *args, **kwargs)
 
     with patch.object(camilladsp_update.shutil, "copy2", _copy):
-        result = await CamillaDSPUpdateService().update_camilladsp("3.0.2")
+        result = await CamillaDSPUpdateService().update_camilladsp("3.0.2", None)
 
     assert result["success"] is False
     assert _last_unit_verb(machine.calls) == FakeMachine.START
     assert refused and not refused[0].exists(), "the half-made copy is not left in /tmp"
+
+
+@pytest.mark.asyncio
+async def test_the_wrapper_is_handed_the_archive_and_the_servers_digest(machine):
+    """The wrapper unpacks the binary itself, from its own checked copy, so it
+    is given the archive and the digest — never a binary unpacked by this
+    process, which a digest of the archive could not vouch for."""
+    import hashlib
+
+    digest = hashlib.sha256(b"an archive tar is faked to list").hexdigest()
+    result = await CamillaDSPUpdateService().update_camilladsp("3.0.2", digest)
+
+    assert result["success"] is True, result
+    install = next(argv for argv in machine.calls if argv[:2] == ("sudo", camilladsp_update.INSTALL_WRAPPER))
+    assert install[2] == "--release" and install[3].endswith(".tar.gz") and install[4] == digest
+
+
+@pytest.mark.asyncio
+async def test_an_archive_that_is_not_the_declared_one_stops_nothing(machine):
+    """Refused as it arrives, before the unit is stopped: the room keeps playing."""
+    result = await CamillaDSPUpdateService().update_camilladsp("3.0.2", "0" * 64)
+
+    assert result["success"] is False
+    assert "checksum mismatch" in result["error"]
+    assert FakeMachine.STOP not in machine.calls
+    assert not [argv for argv in machine.calls if argv[:2] == ("sudo", camilladsp_update.INSTALL_WRAPPER)]

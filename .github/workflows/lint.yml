@@ -52,6 +52,9 @@ jobs:
         with:
           python-version: '3.13'
           cache: 'pip'
+          cache-dependency-path: |
+            requirements.lock
+            requirements-dev.txt
       # `discid` dlopens libdiscid.so.0 at *import* time, and the CD tests patch
       # `discid.read` -- which imports it; `cairosvg` does the same with
       # libcairo.so.2 (radio logos). The appliance image ships both libraries
@@ -59,13 +62,18 @@ jobs:
       # unit and only ever fail here.
       - name: Install the native libraries the tests import
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdiscid0 libcairo2
+      # The lock a unit installs, with the same --require-hashes, so the suite
+      # runs the versions the appliance runs; then the test runner and the
+      # linter, which never reach a unit.
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.lock
+          pip install -r requirements-dev.txt
       # milo-client/ is the satellite half of the appliance and ships in the same
       # commit as the server, so it is gated by the same job — not a separate one.
-      # Its runtime deps are a subset of requirements.txt, so nothing extra to install.
+      # Its lock pins every package it shares with the server's at the server's
+      # version (test_python_lock.py), so nothing extra to install.
       - name: Lint with ruff
         run: ruff check backend/ milo-client/
       # Two invocations, not `pytest backend/ milo-client/`: a combined run puts

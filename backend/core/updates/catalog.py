@@ -25,16 +25,29 @@ Keys, per program:
                       and installs whatever upstream has released since (see
                       get_latest_github_version). `milo` alone declares none: it
                       is the app, not a dependency.
+    validated_sha256_keys
+                      {asset: line} — which line of `dependencies.env` holds the
+                      sha256 of each file the validated version downloads, keyed
+                      by the component it installs ("main" for a program with
+                      one, as in `commands`). Resolved into "validated_sha256";
+                      every install flow checks its download against it, and the
+                      root helper checks it again on its own copy. A version past
+                      the manifest has none: see UpdateService.declared_sha256.
 
   Install layout
     log_name          the program's own name, for log lines and error strings.
                       Not always `name`: Navidrome's UI label is "Music Library".
-    binary_path       installed binary, and the target of install-binary.
+    binary_path       installed binary: the target of install-release-binary, or
+                      of install-binary for a program built on the unit. A
+                      release archive's member of the same basename is the one
+                      unpacked, and the only one (Navidrome's ships README and
+                      LICENSE beside it).
     service_name      systemd unit stopped and restarted around the swap.
     backup_path       where the rollback copy is kept.
     asset_url         release asset to download, "{version}" substituted.
                       Its presence is what routes a program to the shared
-                      _update_binary_program flow.
+                      _update_binary_program flow, which hands the checked
+                      archive itself to the deploy wrapper.
     frontend_asset_url
                       `milo` alone: the built frontend published with the
                       release, "{tag}" substituted. The unit installs that
@@ -47,7 +60,6 @@ Keys, per program:
     inhibit_service_name
                       `milo` alone: the unit holding a logind shutdown
                       inhibitor while the app update installs.
-    tar_member        extract only this member (tarballs shipping docs).
     always_on         stop and restart the service unconditionally instead of
                       preserving whatever state it was in.
     config_path       config file backed up alongside the binary.
@@ -89,6 +101,7 @@ PROGRAMS = {
         "repo": "devgianlu/go-librespot",
         "version_regex": r"(\d+\.\d+\.\d+)",
         "validated_version_key": "GO_LIBRESPOT_VERSION",
+        "validated_sha256_keys": {"main": "GO_LIBRESPOT_SHA256"},
         "log_name": "go-librespot",
         "binary_path": "/usr/local/bin/go-librespot",
         "config_path": "/var/lib/milo/go-librespot/config.yml",
@@ -105,6 +118,7 @@ PROGRAMS = {
         "repo": "mikebrady/shairport-sync",
         "version_regex": r"(\d+\.\d+(?:\.\d+)?)",
         "validated_version_key": "SHAIRPORT_SYNC_VERSION",
+        "validated_sha256_keys": {"main": "SHAIRPORT_SYNC_SHA256"},
         "binary_path": "/usr/local/bin/shairport-sync",
         "service_name": "milo-airplay.service",
         "backup_path": "/var/lib/milo/backups/shairport-sync",
@@ -123,6 +137,7 @@ PROGRAMS = {
         "nqptp": {
             "repo": "mikebrady/nqptp",
             "validated_version_key": "NQPTP_VERSION",
+            "validated_sha256_keys": {"main": "NQPTP_SHA256"},
             "binary_path": "/usr/local/bin/nqptp",
             "service_name": "nqptp.service",
         },
@@ -137,6 +152,8 @@ PROGRAMS = {
         "repo": "badaix/snapcast",
         "version_regex": r"v(\d+\.\d+\.\d+)",
         "validated_version_key": "SNAPCAST_VERSION",
+        # One .deb per binary; the satellites install the same snapclient file.
+        "validated_sha256_keys": {"snapserver": "SNAPSERVER_SHA256", "snapclient": "SNAPCLIENT_SHA256"},
         "services": [
             "milo-snapserver-multiroom.service",
             "milo-snapclient-multiroom.service"
@@ -152,6 +169,8 @@ PROGRAMS = {
         "repo": "HEnquist/camilladsp",
         "version_regex": r"(\d+\.\d+\.\d+)",
         "validated_version_key": "CAMILLADSP_VERSION",
+        # The satellites install the same asset.
+        "validated_sha256_keys": {"main": "CAMILLADSP_SHA256"},
         "log_name": "CamillaDSP",
         "binary_path": "/usr/local/bin/camilladsp",
         "service_name": "milo-camilladsp.service",
@@ -163,7 +182,7 @@ PROGRAMS = {
         "name": "Qobuz",
         "description": "updates.qobuz",
         "commands": {
-            # Installed as a git-tag pip package in a venv (no --version CLI);
+            # Installed by pip from the tag's archive into a venv (no --version CLI);
             # read the distribution metadata via the venv's own Python. Missing
             # venv → FileNotFoundError → status "not_installed" (no update offered).
             "main": ["/var/lib/milo/qobuz/venv/bin/python", "-c",
@@ -172,6 +191,7 @@ PROGRAMS = {
         "repo": "leolobato/qobuz-proxy",
         "version_regex": r"v?(\d+\.\d+\.\d+)",
         "validated_version_key": "QOBUZ_PROXY_VERSION",
+        "validated_sha256_keys": {"main": "QOBUZ_PROXY_SHA256"},
         "service_name": "milo-qobuz.service",
         "venv_path": "/var/lib/milo/qobuz/venv",
         "backup_path": "/var/lib/milo/backups/qobuz"
@@ -188,19 +208,19 @@ PROGRAMS = {
         "repo": "navidrome/navidrome",
         "version_regex": r"(\d+\.\d+\.\d+)",
         "validated_version_key": "NAVIDROME_VERSION",
+        "validated_sha256_keys": {"main": "NAVIDROME_SHA256"},
         "log_name": "Navidrome",
         "binary_path": "/usr/local/bin/navidrome",
         "service_name": NAVIDROME_SERVICE,
         "backup_path": "/var/lib/milo/backups/navidrome",
         "asset_url": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_arm64.tar.gz",
-        # The tarball ships README/LICENSE next to the binary.
-        "tar_member": "navidrome",
         # Not always_on: it runs only while the dock enables Music Library, so an
         # update keeps whatever state it found rather than starting it.
     }
 }
 
-# Resolve every "validated_version_key" against dependencies.env. Kept out of the
-# literals above so the association (which line) and the value (which version)
-# stay separate: the line a program reads is code, the number is the manifest's.
+# Resolve every "validated_version_key" and "validated_sha256_keys" against
+# dependencies.env. Kept out of the literals above so the association (which
+# line) and the value (which version, which digest) stay separate: the line a
+# program reads is code, the value is the manifest's.
 apply_validated_versions(PROGRAMS)

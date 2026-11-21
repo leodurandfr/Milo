@@ -11,7 +11,10 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from routes import create_health_router, create_snapclient_router, create_equalizer_router
+from routes import (
+    create_camilladsp_update_router, create_equalizer_router, create_health_router,
+    create_snapclient_router,
+)
 from services.equalizer import EqualizerService
 from services.snapclient import SnapclientService
 from services.app_update import AppUpdateService
@@ -86,6 +89,7 @@ def app(mock_equalizer_service, mock_snapclient_service, mock_app_update_service
         mock_app_update_service, mock_camilladsp_update_service))
     app.include_router(create_snapclient_router(mock_snapclient_service))
     app.include_router(create_equalizer_router(mock_equalizer_service))
+    app.include_router(create_camilladsp_update_router(mock_camilladsp_update_service))
     return app
 
 
@@ -151,13 +155,13 @@ class TestSnapclientUpdateTarget:
     """
 
     def test_the_named_version_is_the_one_installed(self, client, mock_snapclient_service):
-        response = client.post("/update", json={"target_version": "0.30.0"})
+        response = client.post("/update", json={"target_version": "0.30.0", "sha256": None})
 
         assert response.status_code == 200
         body = response.json()
         assert body["started"] is True
         assert body["target_version"] == "0.30.0"
-        mock_snapclient_service.update_snapclient.assert_called_once_with("0.30.0")
+        mock_snapclient_service.update_snapclient.assert_called_once_with("0.30.0", None)
 
     def test_a_version_below_the_installed_one_still_starts(self, client, mock_snapclient_service):
         """Ending a trial of an unvalidated release is a downgrade.
@@ -166,15 +170,15 @@ class TestSnapclientUpdateTarget:
         satellite above the version the server runs, with nothing able to bring
         it back.
         """
-        response = client.post("/update", json={"target_version": "0.27.0"})
+        response = client.post("/update", json={"target_version": "0.27.0", "sha256": None})
 
         assert response.json()["started"] is True
-        mock_snapclient_service.update_snapclient.assert_called_once_with("0.27.0")
+        mock_snapclient_service.update_snapclient.assert_called_once_with("0.27.0", None)
 
     def test_the_version_already_installed_starts_nothing(self, client, mock_snapclient_service):
         """Restarting snapclient to install what is already there cuts the sound
         in an occupied room for no gain."""
-        response = client.post("/update", json={"target_version": "0.28.0"})
+        response = client.post("/update", json={"target_version": "0.28.0", "sha256": None})
 
         assert response.json()["started"] is False
         mock_snapclient_service.update_snapclient.assert_not_called()
@@ -184,6 +188,55 @@ class TestSnapclientUpdateTarget:
         one is gone, and installing "the latest" is the fault this closed."""
         assert client.post("/update", json={}).status_code == 422
         mock_snapclient_service.update_snapclient.assert_not_called()
+
+
+# The two program pushes a satellite takes, and the service call each one starts.
+PROGRAM_PUSHES = [
+    pytest.param("/update", "mock_snapclient_service", "update_snapclient", id="snapclient"),
+    pytest.param("/camilladsp/update", "mock_camilladsp_update_service", "update_camilladsp",
+                 id="camilladsp"),
+]
+
+
+@pytest.mark.parametrize("path, service_fixture, install", PROGRAM_PUSHES)
+class TestProgramPushDigest:
+    """The digest a satellite's root installer checks is the one in the body.
+
+    The satellite carries no manifest, so this body is the only place the
+    digest can come from: a route that dropped it, or a server that stopped
+    sending it, would have every speaker install the .deb or the CamillaDSP
+    archive as root with `-`, unchecked, and say so only in its own journal.
+    """
+
+    def test_the_digest_the_server_sends_reaches_the_install(
+            self, client, request, path, service_fixture, install):
+        service = request.getfixturevalue(service_fixture)
+        response = client.post(path, json={"target_version": "9.9.9", "sha256": "a" * 64})
+
+        assert response.status_code == 200, response.text
+        getattr(service, install).assert_awaited_once_with("9.9.9", "a" * 64)
+
+    def test_a_version_past_the_manifest_is_installed_with_no_digest(
+            self, client, request, path, service_fixture, install):
+        """null is the server's word for a version its manifest does not
+        declare, which the installer then says it installed unchecked."""
+        service = request.getfixturevalue(service_fixture)
+        client.post(path, json={"target_version": "9.9.9", "sha256": None})
+
+        getattr(service, install).assert_awaited_once_with("9.9.9", None)
+
+    @pytest.mark.parametrize("body", [
+        pytest.param({"target_version": "9.9.9", "sha256": "ABC"}, id="not-a-digest"),
+        pytest.param({"target_version": "9.9.9"}, id="no-digest-key"),
+    ])
+    def test_a_body_without_a_digest_to_check_is_refused(
+            self, client, request, path, service_fixture, install, body):
+        """A server that stops sending the key gets a 422, not a speaker that
+        installs as root what nothing checked."""
+        service = request.getfixturevalue(service_fixture)
+
+        assert client.post(path, json=body).status_code == 422
+        getattr(service, install).assert_not_called()
 
 
 class TestSnapclientConfigBounds:

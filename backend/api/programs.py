@@ -412,13 +412,17 @@ def create_programs_router(
                 "count": 0
             }
 
-    async def _fleet_target(program_key: str):
-        """The version the fleet must run — the server's, resolved once here.
+    async def _fleet_target(program_key: str, asset: str) -> Optional[tuple[str, Optional[str]]]:
+        """The version the fleet must run — the server's, resolved once here —
+        and the digest `dependencies.env` declares for the file `asset` that
+        version downloads, None for a version past the manifest.
 
         A satellite has no manifest and no GitHub token; letting it read
         `releases/latest` for itself is what put a client on a version the row
         that started it never named. Unresolvable means the update does not
-        start: an unpinned install is worse than a refusal.
+        start: an unpinned install is worse than a refusal. The digest travels
+        with the version for the same reason: the satellite checks its download
+        against it, and its root installer checks its own copy again.
         """
         latest = await update_service.get_latest_github_version(program_key)
         if latest.get("status") != "success":
@@ -427,29 +431,59 @@ def create_programs_router(
                 f"{latest.get('message', 'unknown error')}"
             )
             return None
-        return latest.get("version")
+        version = latest.get("version")
+        if not version:
+            return None
+        return version, update_service.declared_sha256(program_key, version, asset)
 
-    @router.post("/satellites/{mac_id}/update")
-    async def update_satellite(mac_id: str, background_tasks: BackgroundTasks):
-        """Launch a satellite update in the background"""
+    async def _claim_fleet_push(
+        satellite_key: str, program_key: str, asset: str, label: str, presence: PresenceAnswer,
+    ) -> tuple[str, Optional[str]] | dict:
+        """What a satellite push installs, `(version, sha256)`, with its key
+        claimed — or the refusal to answer.
 
-        satellite_key = f"satellite_{mac_id}"
-
+        A version with no digest is one past the manifest: the fleet follows the
+        server, and the server runs one while the owner tries it
+        (`updates.forced_versions`). The speaker would install it as root with
+        nothing to check it against, so the push waits for a proof of presence,
+        as the server's own `target: upstream` install does. As there, every
+        refusal comes before the gesture and the key is claimed after it: a
+        request waiting for a gesture holds nothing.
+        """
+        blocker = _blocker(satellite_key)
+        if blocker:
+            return _refuse(blocker, satellite_key)
+        target = await _fleet_target(program_key, asset)
+        if target is None:
+            return {"status": "error", "message": f"Could not resolve the {label} version to install"}
+        if target[1] is None:
+            await require_presence(presence_service, PresenceAction.SATELLITE_PROGRAM_UPSTREAM, presence)
+        # The claim checks and writes with no await between: a second device
+        # that passed the same checks meanwhile is refused here.
         blocker = _claim_update(satellite_key)
         if blocker:
             return _refuse(blocker, satellite_key)
+        return target
 
-        target_version = await _fleet_target("multiroom")
-        if not target_version:
-            active_updates.discard(satellite_key)
-            return {
-                "status": "error",
-                "message": "Could not resolve the snapclient version to install"
-            }
+    @router.post("/satellites/{mac_id}/update")
+    async def update_satellite(
+        mac_id: str,
+        background_tasks: BackgroundTasks,
+        presence: PresenceAnswer = Depends(presence_answer),
+    ):
+        """Launch a satellite's snapclient update in the background: the .deb
+        the server's own multiroom update installs, and its digest."""
+
+        satellite_key = f"satellite_{mac_id}"
+
+        target = await _claim_fleet_push(satellite_key, "multiroom", "snapclient", "snapclient", presence)
+        if isinstance(target, dict):
+            return target
+        target_version, sha256 = target
 
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda: satellite_service.update_satellite(mac_id, target_version),
+            update_fn=lambda: satellite_service.update_satellite(mac_id, target_version, sha256),
             progress_event_cls=SatelliteUpdateProgress,
             complete_event_cls=SatelliteUpdateComplete,
             identifier={"mac_id": mac_id},
@@ -492,26 +526,26 @@ def create_programs_router(
         }
 
     @router.post("/satellites/{mac_id}/update-camilladsp")
-    async def update_satellite_camilladsp(mac_id: str, background_tasks: BackgroundTasks):
-        """Launch a satellite CamillaDSP update in the background"""
+    async def update_satellite_camilladsp(
+        mac_id: str,
+        background_tasks: BackgroundTasks,
+        presence: PresenceAnswer = Depends(presence_answer),
+    ):
+        """Launch a satellite CamillaDSP update in the background: the release
+        archive the server's own update installs, and its digest."""
 
         satellite_key = f"satellite_camilladsp_{mac_id}"
 
-        blocker = _claim_update(satellite_key)
-        if blocker:
-            return _refuse(blocker, satellite_key)
-
-        target_version = await _fleet_target("camilladsp")
-        if not target_version:
-            active_updates.discard(satellite_key)
-            return {
-                "status": "error",
-                "message": "Could not resolve the CamillaDSP version to install"
-            }
+        target = await _claim_fleet_push(satellite_key, "camilladsp", "main", "CamillaDSP", presence)
+        if isinstance(target, dict):
+            return target
+        target_version, sha256 = target
 
         do_update = _create_background_update(
             update_key=satellite_key,
-            update_fn=lambda: satellite_service.update_satellite_camilladsp(mac_id, target_version),
+            update_fn=lambda: satellite_service.update_satellite_camilladsp(
+                mac_id, target_version, sha256
+            ),
             progress_event_cls=SatelliteCamillaDspUpdateProgress,
             complete_event_cls=SatelliteCamillaDspUpdateComplete,
             identifier={"mac_id": mac_id},

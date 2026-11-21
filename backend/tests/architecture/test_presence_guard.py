@@ -8,11 +8,12 @@ password, then log in; install as root whatever GitHub serves; send the server
 back to its first boot. The same two doors on a satellite, relayed by this
 unit, are root on the speaker: the satellite answers its server only
 (`core/multiroom/satellite_http.py`), so the relay is the way in, and it waits
-for the same gesture. Owner decision, 2026-11-13: only the paths to root wait
-for a proof of presence (`core/system/presence.py`); reading and settings stay
-open to the LAN.
+for the same gesture — as does a push that has a speaker install, as root, a
+release the manifest declares no digest for. Owner decision, 2026-11-13: only
+the paths to root wait for a proof of presence (`core/system/presence.py`);
+reading and settings stay open to the LAN.
 
-`GUARDED` is the list, one row per `PresenceAction`, and each row is driven
+`GUARDED` is the list, one row per guarded route, and each row is driven
 through the real router: refused without the gesture — from 127.0.0.1 too,
 which every process on the unit has — with nothing done to the box, then let
 through once with the token its 428 carried, after the gesture. Both directions
@@ -22,7 +23,9 @@ guard fails the first test; a route guarded under a new action, with no row
 here, fails the last.
 """
 import ast
+from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -39,6 +42,8 @@ from backend.core.models.presence import Gesture, PresenceAction
 from backend.core.multiroom.models import Client
 from backend.core.multiroom.satellite_http import SatelliteSecret
 from backend.core.system.presence import PRESENCE_GESTURES_HEADER
+from backend.core.updates.catalog import PROGRAMS
+from backend.core.updates.update import UpdateService
 from backend.tests.presence_world import World
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -57,6 +62,10 @@ GUARDED = [
     (PresenceAction.SATELLITE_SSH_OPEN, "put", f"/api/multiroom/clients/{BUREAU}/ssh", {"enabled": True}),
     (PresenceAction.SATELLITE_PASSWORD, "post", f"/api/multiroom/clients/{BUREAU}/password",
      {"password": "correct horse"}),
+    # The server on a trial past the manifest, which the fleet follows (`_Box`).
+    (PresenceAction.SATELLITE_PROGRAM_UPSTREAM, "post", f"/api/programs/satellites/{BUREAU}/update", None),
+    (PresenceAction.SATELLITE_PROGRAM_UPSTREAM, "post",
+     f"/api/programs/satellites/{BUREAU}/update-camilladsp", None),
 ]
 
 # The halves of the same routes that do not reach root, and stay open.
@@ -110,6 +119,15 @@ class _Box:
             return_value={"can_update": True, "available_version": "0.9.1"}
         )
         self.updates.update_program = AsyncMock(return_value={"success": True})
+        # The version the fleet follows is one past the manifest — the server on
+        # a trial of it — so the catalog declares no digest for its files.
+        self.updates.get_latest_github_version = AsyncMock(
+            return_value={"status": "success", "version": "99.0.0"}
+        )
+        self.updates.declared_sha256 = partial(UpdateService.declared_sha256, SimpleNamespace(programs=PROGRAMS))
+        self.satellites = MagicMock()
+        self.satellites.update_satellite = AsyncMock(return_value={"success": True})
+        self.satellites.update_satellite_camilladsp = AsyncMock(return_value={"success": True})
 
         # A set-up unit with its recovery AP up.
         self.network = Mock(open_ap_reachable=True, recovery_ap_possible=True, save_network=AsyncMock())
@@ -179,6 +197,11 @@ class _Box:
             # The read of its state before is open: the write is what reaches root.
             PresenceAction.SATELLITE_SSH_OPEN: lambda: ("PUT", "/api/system/ssh") in self.satellite_writes,
             PresenceAction.SATELLITE_PASSWORD: lambda: ("POST", "/api/system/password") in self.satellite_writes,
+            # One row per push, each on a box of its own: either is the row's.
+            PresenceAction.SATELLITE_PROGRAM_UPSTREAM: lambda: (
+                self.satellites.update_satellite.await_count
+                + self.satellites.update_satellite_camilladsp.await_count > 0
+            ),
         }[action]()
 
 
@@ -206,7 +229,7 @@ def _unit(tmp_path, monkeypatch, **board):
         prefix="/api/system",
     )
     app.include_router(
-        create_programs_router(box.updates, MagicMock(), state_machine, presence_service=presence)
+        create_programs_router(box.updates, box.satellites, state_machine, presence_service=presence)
     )
     app.include_router(create_network_router(box.network))
     app.add_middleware(
@@ -303,6 +326,15 @@ REFUSED_ANYWAY = {
     "password on a satellite with no milo account": (
         "post", f"/api/multiroom/clients/{BUREAU}/password", {"password": "correct horse"},
         lambda box: box.satellite_state.update(login_user=None),
+    ),
+    "a satellite push with no version to name": (
+        "post", f"/api/programs/satellites/{BUREAU}/update", None,
+        lambda box: setattr(box.updates.get_latest_github_version, "return_value",
+                            {"status": "error", "message": "API rate limit exceeded"}),
+    ),
+    "a satellite push during a Milō update": (
+        "post", f"/api/programs/satellites/{BUREAU}/update-camilladsp", None,
+        lambda box: setattr(box.updates, "milo_update_active", True),
     ),
 }
 

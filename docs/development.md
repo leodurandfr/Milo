@@ -27,10 +27,11 @@ licensed under the [PolyForm Shield License 1.0.0](https://github.com/leodurandf
 git clone https://github.com/leodurandfr/Milo.git
 cd Milo
 
-# Python backend
+# Python backend: the lock a unit installs, then the test runner and the linter
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock
+pip install -r requirements-dev.txt
 
 # Vue frontend
 cd frontend
@@ -545,12 +546,17 @@ is driven entirely by an external app:
   published. `AudioPlayerFull` draws what the state carries: `controls` is always
   empty (there is no local control channel, so no transport and no seek), and the
   session's duration and position give a **read-only** bar above the source bar.
-- **Install is from git, not PyPI.** qobuz-proxy has no PyPI release, so
-  [provisioning/qobuz-proxy.sh](https://github.com/leodurandfr/Milo/blob/main/provisioning/qobuz-proxy.sh) creates a venv under
-  `/var/lib/milo/qobuz/` and `pip install`s the **pinned git tag**
-  (`QOBUZ_PROXY_VERSION`, PEP 508 direct-URL, `[local]` extra for the PortAudio
-  backend + `libportaudio2` from apt). The pi-gen stage-02 sources it rather than
-  restating the install (single source of truth).
+- **Install is from the tag's source archive, not PyPI.** qobuz-proxy has no PyPI
+  release, so
+  [provisioning/qobuz-proxy.sh](https://github.com/leodurandfr/Milo/blob/main/provisioning/qobuz-proxy.sh) downloads the
+  pinned tag's archive (`archive/refs/tags/v${QOBUZ_PROXY_VERSION}.tar.gz`), checks
+  it against `QOBUZ_PROXY_SHA256`, creates a venv under `/var/lib/milo/qobuz/` and
+  `pip install`s that file (PEP 508 `file://` URL, `[local]` extra for the PortAudio
+  backend + `libportaudio2` from apt) — never `git+…@tag`, which is whatever the tag
+  points at when pip clones it, and nothing a digest can be taken over. The in-app
+  update (`UpdateService._update_qobuz_proxy`) installs the same checked file. The
+  pi-gen stage-02 sources the module rather than restating the install (single
+  source of truth).
 - **Six adaptations**, applied at runtime by the launcher the unit runs,
   [rootfs/usr/local/bin/milo-qobuz](https://github.com/leodurandfr/Milo/blob/main/rootfs/usr/local/bin/milo-qobuz): the
   local backend's stream is held at unity gain (CamillaDSP is the sole volume
@@ -1043,9 +1049,14 @@ line, nothing to notice. "Audio plays" would have passed it.
    `updates.forced_versions`) survives Milō updates until you end it or the manifest catches
    up. This is where a version fails, and it costs nothing to find out: a release that fails the
    update's own verification is rolled back.
-2. Edit the one line in `dependencies.env`. Nothing else — a version literal anywhere else
-   fails CI (`backend/tests/architecture/test_dependency_manifest.py`). The override is dropped
-   on its own once the manifest declares that version, so nothing is left to clean up.
+2. Edit the version line in `dependencies.env` and, in the same edit, the `*_SHA256` line(s)
+   beside it: download each asset the new version names into an empty directory, `sha256sum` it
+   without running it, and check it against the digest GitHub's release API publishes for it
+   where there is one (`"digest": "sha256:…"`). A version bumped without its digests installs
+   nowhere — every installer refuses a file that is not the declared one. Nothing else — a
+   version or digest literal anywhere else fails CI
+   (`backend/tests/architecture/test_dependency_manifest.py`). The override is dropped on its
+   own once the manifest declares that version, so nothing is left to clean up.
 3. If you skipped step 1, install the version on a unit through the in-app update, or flash an
    image built with the new manifest. Do not hand-build it: what you are validating includes the
    way Milō installs it.
@@ -1075,6 +1086,41 @@ the ones that do not.
 Four of these need hardware a single developer unit does not have (a second Pi, a Mac, a
 Qobuz account, a phone). Say so in the commit rather than implying the row was run: an
 unstated shortcut is indistinguishable from a skipped check.
+
+### The Python lock
+
+`requirements.txt` (the backend) and `milo-client/app/requirements.txt` (the satellite) hold
+floors and are never installed as they stand: each has a `requirements.lock` beside it, every
+package pinned and every file named by its sha256, and everything that builds a venv installs
+the lock with `--require-hashes` — the image build, the server's app update (pip runs only when
+the lock pins something new), a satellite's app push (only when its lock differs byte for byte),
+and CI. So an image, an updated unit and the test suite run one set, the one CI tested, rather
+than whatever PyPI served the day each was built. pytest and ruff are not in either: they live
+in `requirements-dev.txt`, which CI and a dev checkout install after the lock.
+
+After any edit to a requirements file — a floor raised, a dependency added or dropped — compile
+both locks again, the satellite's against the server's so the packages they share keep one
+version (CI runs both suites in one venv):
+
+```bash
+# from the repo root
+uv pip compile requirements.txt --universal --python-version 3.13 --generate-hashes -o requirements.lock
+# from milo-client/app
+uv pip compile requirements.txt -c ../../requirements.lock --universal --python-version 3.13 --generate-hashes -o requirements.lock
+```
+
+Each lock's header repeats its command. `--universal` resolves once for every machine Milō runs
+on — a unit (Linux aarch64), CI (x86_64), a Mac — with markers where they differ; `lgpio` has no
+cp313 wheel, so on aarch64 it builds from its sdist, against the `liblgpio-dev` and `swig` the
+image installs, and `evdev` publishes no wheel at all. The hashes stop there: pip checks the
+sdist, then builds it with a setuptools it fetches from PyPI unpinned and checks no hash of (pip
+does not hash-check build dependencies), so those two are compiled by whatever setuptools PyPI
+serves the day an image is built or an update moves them. `BUILT_ON_INSTALL` in
+`test_python_lock.py` names each such package with why it is accepted. Compiling again moves
+every package to what PyPI serves that day, so it is a dependency bump like any other: run the
+suites, then the smoke set on a unit. `backend/tests/architecture/test_python_lock.py` fails
+when a lock no longer covers its requirements, keeps a package nothing asks for, lacks a hash,
+names a new package by its sdist alone, or when the two locks disagree.
 
 ### Updating an installation
 
@@ -1189,7 +1235,7 @@ cd ~/milo
 git pull origin main
 
 source venv/bin/activate
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock
 sudo systemctl restart milo-backend
 
 # The frontend, for development only. A release never builds one here.

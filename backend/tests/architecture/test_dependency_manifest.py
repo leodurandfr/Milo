@@ -29,6 +29,15 @@ Two trees, two ways of reading the same file:
     (`"validated_version_key"`) and `apply_validated_versions` resolves it into
     `"validated_version"`, which is what the update flow offers and installs.
 
+The manifest also declares the sha256 of every file those versions download, a
+`*_SHA256` line beside each `*_VERSION`, and that is held both ways too: every
+asset the Update Manager installs has its digest, and every download of one —
+the update flow's, a satellite's, the image build's — is checked against it
+before anything runs as root. The Python half of that second direction is
+behavior (test_update_service.py, the satellite's own tests, the helpers run
+under bash in test_deploy_update_install_deb.py); the shell half is read here,
+because CI never builds an image.
+
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on
 an empty surface.
@@ -40,8 +49,10 @@ import pytest
 
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.dependency_versions import (
+    DIGEST_SUFFIX,
     MANIFEST_PATH,
-    load_dependency_versions,
+    VERSION_SUFFIX,
+    load_dependency_manifest,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -83,8 +94,10 @@ VAR_READ_RE = re.compile(r"\$\{?([A-Z][A-Z0-9_]*)\}?")
 # manifest owns must not be assigned anywhere but the manifest.
 ASSIGN_RE = re.compile(r"^\s*(?:export\s+|local\s+)?([A-Z][A-Z0-9_]*)=", re.MULTILINE)
 
-# `"validated_version_key": "VAR"` — the catalog's only reference to the manifest.
+# `"validated_version_key": "VAR"`, and the values of `"validated_sha256_keys"` —
+# the catalog's only references to the manifest.
 PY_READ_RE = re.compile(r'"validated_version_key"\s*:\s*"([A-Z][A-Z0-9_]*)"')
+PY_DIGEST_READ_RE = re.compile(r'"([A-Z][A-Z0-9_]*_SHA256)"')
 
 PI_GEN_STAGE = REPO_ROOT / "pi-gen" / "stage-milo"
 BUILD_SH = REPO_ROOT / "pi-gen" / "build.sh"
@@ -107,12 +120,27 @@ def _provisioning_scripts() -> list[Path]:
 
 @pytest.fixture(scope="module")
 def manifest() -> dict[str, str]:
-    parsed = load_dependency_versions()
+    """Every line, versions and digests: a digest restated in a script drifts
+    exactly as a version does."""
+    parsed = load_dependency_manifest()
     # A parse that silently yields nothing, or that drops the values, would make
     # every rule below pass on an empty surface.
-    assert len(parsed) >= 9, f"only {len(parsed)} versions parsed from {MANIFEST_PATH}"
-    assert all(re.fullmatch(r"\d+(\.\d+)+", v) for v in parsed.values()), parsed
+    versions = {k: v for k, v in parsed.items() if k.endswith(VERSION_SUFFIX)}
+    digests = {k: v for k, v in parsed.items() if k.endswith(DIGEST_SUFFIX)}
+    assert len(versions) >= 9, f"only {len(versions)} versions parsed from {MANIFEST_PATH}"
+    assert len(digests) >= 8, f"only {len(digests)} digests parsed from {MANIFEST_PATH}"
+    assert all(re.fullmatch(r"\d+(\.\d+)+", v) for v in versions.values()), versions
+    assert all(re.fullmatch(r"[0-9a-f]{64}", v) for v in digests.values()), digests
     return parsed
+
+
+def _digest_keys(cfg: dict) -> set[str]:
+    """The manifest lines a catalog entry's digests come from, NQPTP's included."""
+    return {
+        key
+        for entry in (cfg, cfg.get("nqptp") or {})
+        for key in (entry.get("validated_sha256_keys") or {}).values()
+    }
 
 
 @pytest.fixture(scope="module")
@@ -158,6 +186,64 @@ def test_every_updatable_program_declares_a_validated_version(manifest):
         and cfg.get("validated_version") != manifest[cfg["validated_version_key"]]
     }
     assert not unresolved, f"validated_version_key never resolved against the manifest: {unresolved}"
+
+
+def test_every_asset_the_update_manager_installs_has_a_declared_digest(manifest):
+    """A file installed as root with no digest is whatever GitHub served that day.
+
+    Every program the catalog pins, and NQPTP with shairport-sync, names the
+    manifest line holding the sha256 of each file its validated version
+    downloads — one per binary it installs (`commands`), so multiroom's two
+    .debs each have theirs and the satellites' snapclient and CamillaDSP are
+    the server's own. Fails when a program gains a pin without a digest, or a
+    digest key the manifest does not declare: `UpdateService` would then
+    install that validated version unchecked, or not at all.
+    """
+    # (label, entry, the components it installs)
+    entries = [
+        (key, cfg, set(cfg["commands"])) for key, cfg in PROGRAMS.items() if key != NOT_A_DEPENDENCY
+    ] + [
+        (f"{key}/nqptp", cfg["nqptp"], {"main"}) for key, cfg in PROGRAMS.items() if cfg.get("nqptp")
+    ]
+    assert len(entries) >= 7, f"only {[e[0] for e in entries]} catalog entries read"
+
+    missing = {}
+    for key, entry, components in entries:
+        declared = entry.get("validated_sha256_keys") or {}
+        if set(declared) != components:
+            missing[key] = f"digests for {sorted(declared)}, installs {sorted(components)}"
+        elif entry.get("validated_sha256") != {a: manifest.get(k) for a, k in declared.items()} \
+                or not all(manifest.get(k) for k in declared.values()):
+            missing[key] = f"{declared} not resolved against dependencies.env"
+    assert not missing, f"assets with no declared digest: {missing}"
+
+
+def test_every_digest_sits_beside_the_version_it_hashes():
+    """A digest is of one version's file: read under another, it refuses the
+    install, or worse, nobody notices which version it was taken for.
+
+    Fails when a `*_SHA256` line no longer follows its program's `*_VERSION`
+    in dependencies.env (only comments between them), so a bump edits both in
+    one place and a reviewer reads them together.
+    """
+    lines = [ln for ln in MANIFEST_PATH.read_text().splitlines() if ln and not ln.startswith("#")]
+    keys = [ln.split("=", 1)[0] for ln in lines]
+    assert len(keys) >= 17, f"only {len(keys)} manifest lines read"
+    owners = {
+        digest: entry["validated_version_key"]
+        for cfg in PROGRAMS.values()
+        for entry in (cfg, cfg.get("nqptp") or {})
+        for digest in (entry.get("validated_sha256_keys") or {}).values()
+    }
+    assert len(owners) >= 8, owners
+
+    misplaced = []
+    for digest, version in owners.items():
+        at = keys.index(digest)
+        preceding = keys[keys.index(version) + 1:at] if keys.index(version) < at else None
+        if preceding is None or any(not k.endswith(DIGEST_SUFFIX) or owners.get(k) != version for k in preceding):
+            misplaced.append(f"{digest} is not right after {version}")
+    assert not misplaced, "\n".join(misplaced)
 
 
 def test_the_catalog_declares_no_version_literal(manifest):
@@ -222,13 +308,14 @@ def test_every_manifest_variable_has_a_reader(manifest, scripts):
     """The other direction: an entry nothing reads is a version nobody installs.
 
     A dependency dropped from the provisioning tree but left in the manifest
-    reads as pinned and validated while no unit has ever run it.
+    reads as pinned and validated while no unit has ever run it — and a digest
+    nothing reads is a file nobody checks, while the manifest says it is.
     """
     read = {
         name
         for code in scripts.values()
         for name in VAR_READ_RE.findall(code)
-    } | set(PY_READ_RE.findall(CATALOG.read_text()))
+    } | set(PY_READ_RE.findall(CATALOG.read_text())) | set(PY_DIGEST_READ_RE.findall(CATALOG.read_text()))
 
     # Non-trivial-output check: if nothing resolved, the rule above is vacuous
     # and so is `test_no_provisioning_script_restates_a_manifest_version`.
@@ -236,6 +323,48 @@ def test_every_manifest_variable_has_a_reader(manifest, scripts):
 
     orphans = sorted(set(manifest) - read)
     assert not orphans, f"dependencies.env declares versions nothing reads: {orphans}"
+
+
+# A download, and a check of one, at the start of a statement.
+FETCH_START_RE = re.compile(r"^\s*(?:sudo\s+)?(?:wget|curl)\b")
+DIGEST_CHECK_RE = re.compile(r"\bsha256sum\s+-c\b")
+
+
+def test_every_image_download_of_a_digested_asset_is_checked(manifest, scripts):
+    """The image installs as root what its build downloads, so the build checks
+    each file the manifest has a digest for, as the in-app update does.
+
+    Fails when a stage script or a module it sources fetches a file built from a
+    `*_VERSION` whose program declares digests, with fewer `sha256sum -c`
+    statements naming one of that program's `*_SHA256` lines in the same file
+    than it has such fetches: an image would then ship whatever the URL served
+    the day it was built, with the digest sitting unread beside its version.
+    """
+    owners = {
+        entry["validated_version_key"]: set((entry.get("validated_sha256_keys") or {}).values())
+        for cfg in PROGRAMS.values()
+        for entry in (cfg, cfg.get("nqptp") or {})
+        if entry.get("validated_version_key")
+    }
+    assert sum(1 for d in owners.values() if d) >= 7, owners
+
+    counted = 0
+    unchecked = []
+    for path, code in scripts.items():
+        statements = re.sub(r"\\\n\s*", " ", code).splitlines()
+        for version, digests in owners.items():
+            fetches = [s for s in statements if FETCH_START_RE.search(s) and version in VAR_READ_RE.findall(s)]
+            checks = [s for s in statements if DIGEST_CHECK_RE.search(s) and digests & set(VAR_READ_RE.findall(s))]
+            counted += len(fetches)
+            if fetches and len(checks) < len(fetches):
+                unchecked.append(
+                    f"{path.relative_to(REPO_ROOT)}: {len(fetches)} download(s) of ${{{version}}}, "
+                    f"{len(checks)} sha256sum -c against {sorted(digests)}"
+                )
+    # The extractor must see the downloads it judges: go-librespot, Navidrome,
+    # CamillaDSP, the two snapcast .debs, NQPTP, shairport-sync and qobuz-proxy.
+    assert counted >= 8, f"only {counted} downloads of a digested asset recognized"
+    assert not unchecked, "\n".join(unchecked)
 
 
 def test_pi_gen_stage_scripts_can_reach_the_manifest():
@@ -256,7 +385,7 @@ def test_pi_gen_stage_scripts_can_reach_the_manifest():
     readers = [
         p
         for p in PI_GEN_STAGE.rglob("*run.sh")
-        if set(VAR_READ_RE.findall(_strip_comments(p.read_text()))) & set(load_dependency_versions())
+        if set(VAR_READ_RE.findall(_strip_comments(p.read_text()))) & set(load_dependency_manifest())
     ]
     assert readers, "no pi-gen stage script reads a manifest variable any more"
 

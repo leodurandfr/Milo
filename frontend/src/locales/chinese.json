@@ -1017,7 +1017,8 @@
         "reset_setup": "重置配置",
         "wifi_save": "保存 WiFi 网络",
         "satellite_ssh_open": "在音箱上打开 SSH",
-        "satellite_password": "更改音箱的密码"
+        "satellite_password": "更改音箱的密码",
+        "satellite_program_upstream": "在音箱上安装未经验证的版本"
       },
       "gestures": {
         "rotary": "请转动或按下设备上的旋钮。没有旋钮？请取消，在“设置 › 硬件”中关闭旋转编码器，然后在 {time} 后重新请求。",

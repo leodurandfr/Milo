@@ -1,25 +1,69 @@
 #!/bin/bash
 # Milo Client - Secure CamillaDSP Binary Installation Wrapper
-# Only allows installing a CamillaDSP binary from /tmp
+#
+#   milo-client-install-camilladsp --release <archive.tar.gz> <sha256|->
+#       an update: the release archive the app downloaded, checked against the
+#       digest the server sends from its dependencies.env, and the binary
+#       unpacked from that checked copy;
+#   milo-client-install-camilladsp <binary>
+#       a rollback: the copy of the previous binary the app kept.
+#
+# Both from /tmp only.
 set -euo pipefail
 
 error_exit() { echo "ERROR: $1" >&2; exit 1; }
 
-[ $# -ne 1 ] && error_exit "Usage: $0 <path-to-camilladsp-binary>"
+STAGE=""
+trap '[ -z "$STAGE" ] || rm -rf "$STAGE"' EXIT
 
-BINARY_PATH="$1"
+validate_tmp_file() {
+    [ ! -f "$1" ] && error_exit "File does not exist: $1"
+    [[ "$1" != /* ]] && error_exit "Path must be absolute"
+    case "$1" in
+        /tmp/*) ;;
+        *) error_exit "File must be in /tmp" ;;
+    esac
+    [[ "$1" == *..* ]] && error_exit "Path traversal not allowed: $1"
+    [ -L "$1" ] && error_exit "Symlinks not allowed: $1"
+    return 0
+}
 
-# Validate file exists
-[ ! -f "$BINARY_PATH" ] && error_exit "File does not exist: $BINARY_PATH"
+if [ "${1:-}" = "--release" ]; then
+    [ $# -ne 3 ] && error_exit "Usage: $0 --release <archive.tar.gz> <sha256|->"
+    ARCHIVE="$2"
+    SHA256="$3"
+    validate_tmp_file "$ARCHIVE"
+    [[ "$ARCHIVE" == *.tar.gz ]] || error_exit "Not a .tar.gz archive: $ARCHIVE"
+    [ "$SHA256" = "-" ] || [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || error_exit "Not a sha256 digest: $SHA256"
 
-# Validate absolute path
-[[ "$BINARY_PATH" != /* ]] && error_exit "Path must be absolute"
+    # The archive is copied into a directory only root can write and checked
+    # there, and the binary unpacked from that copy: the path the app named sits
+    # in a directory the app's own user can rewrite after any check it made
+    # itself. "-" is the server saying its manifest declares no digest for this
+    # version (one past it), and is said below, never silent. Same steps as
+    # install-release-binary in the server's milo-deploy-update.
+    STAGE=$(mktemp -d /tmp/milo-client-checked.XXXXXX)
+    NAME=$(basename "$ARCHIVE")
+    cp -- "$ARCHIVE" "$STAGE/$NAME"
+    if [ "$SHA256" = "-" ]; then
+        echo "WARNING: $NAME has no declared digest; installed as downloaded" >&2
+    else
+        ACTUAL=$(sha256sum "$STAGE/$NAME") || error_exit "Could not hash $NAME"
+        ACTUAL="${ACTUAL%% *}"
+        [ "$ACTUAL" = "$SHA256" ] \
+            || error_exit "$NAME: checksum mismatch, declared $SHA256, got $ACTUAL -- not installed"
+        echo "$NAME: sha256 checked"
+    fi
+    tar -xzf "$STAGE/$NAME" -C "$STAGE" --no-same-owner --no-same-permissions camilladsp \
+        || error_exit "No camilladsp in $NAME"
+    BINARY_PATH="$STAGE/camilladsp"
+else
+    [ $# -ne 1 ] && error_exit "Usage: $0 --release <archive.tar.gz> <sha256|-> | $0 <binary>"
+    BINARY_PATH="$1"
+    validate_tmp_file "$BINARY_PATH"
+fi
 
-# Validate in temp directory only
-case "$BINARY_PATH" in
-    /tmp/*) ;;
-    *) error_exit "Binary must be in /tmp" ;;
-esac
+[ -f "$BINARY_PATH" ] && [ ! -L "$BINARY_PATH" ] || error_exit "Not a regular file: $BINARY_PATH"
 
 # Validate it's an ELF binary (not a script or random file)
 FILE_TYPE=$(file -b "$BINARY_PATH" 2>/dev/null) || error_exit "Could not determine file type"

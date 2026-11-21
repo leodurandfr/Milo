@@ -3,12 +3,11 @@ CamillaDSP update service for Milo Client.
 
 Handles binary updates from GitHub releases:
 - Version detection (installed and latest from GitHub)
-- Binary download, backup, install via secure wrapper
+- Archive download (checked against the server's digest), backup, install via
+  the secure wrapper, which checks it again and unpacks the binary itself
 - Service lifecycle (stop/start) and rollback on failure
 """
 import asyncio
-import aiohttp
-import aiofiles
 import os
 import re
 import shutil
@@ -16,6 +15,8 @@ import tempfile
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+from services.release_download import NO_DIGEST, download_release_asset
 
 # Constants
 CAMILLADSP_BINARY = "/usr/local/bin/camilladsp"
@@ -68,11 +69,13 @@ class CamillaDSPUpdateService:
             self.logger.error(f"Error getting CamillaDSP version: {e}")
             return None
 
-    async def update_camilladsp(self, target_version: str) -> Dict[str, Any]:
+    async def update_camilladsp(self, target_version: str, sha256: Optional[str]) -> Dict[str, Any]:
         """Updates CamillaDSP binary from GitHub release.
 
         Steps: backup → download → stop service → install via wrapper → start → verify.
-        Rolls back on any failure after the service is stopped.
+        Rolls back on any failure after the service is stopped. `sha256` is the
+        server's manifest digest of the release archive, None for a version the
+        manifest does not declare.
         """
         if self._update_in_progress:
             return {"success": False, "error": "Update already in progress"}
@@ -92,7 +95,7 @@ class CamillaDSPUpdateService:
                 return backup_result
 
             # 2. Download new version
-            download_result = await self._download_binary(target_version)
+            download_result = await self._download_archive(target_version, sha256)
             if not download_result["success"]:
                 return download_result
             temp_dir = download_result["temp_dir"]
@@ -104,8 +107,11 @@ class CamillaDSPUpdateService:
             service_stopped = True
             await asyncio.sleep(0.5)
 
-            # 4. Install new binary via secure wrapper
-            install_result = await self._install_binary(download_result["binary_path"])
+            # 4. Install the new binary via the secure wrapper, from the archive:
+            # it checks its own copy against the digest and unpacks that one.
+            install_result = await self._run_wrapper(
+                "--release", download_result["archive_path"], sha256 or NO_DIGEST
+            )
             if not install_result["success"]:
                 await self._rollback()
                 return install_result
@@ -153,46 +159,29 @@ class CamillaDSPUpdateService:
         except Exception as e:
             return {"success": False, "error": f"Backup failed: {e}"}
 
-    async def _download_binary(self, version: str) -> Dict[str, Any]:
-        """Downloads CamillaDSP binary from GitHub."""
+    async def _download_archive(self, version: str, sha256: Optional[str]) -> Dict[str, Any]:
+        """Downloads the CamillaDSP release archive, checked against `sha256`,
+        and makes sure it carries the binary — before the service is stopped."""
         temp_dir = tempfile.mkdtemp(dir="/tmp")
         try:
             url = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/camilladsp-linux-aarch64.tar.gz"
-
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
-
-                    archive_path = Path(temp_dir) / "camilladsp.tar.gz"
-                    async with aiofiles.open(archive_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-
-            # Extract archive
-            extract_dir = Path(temp_dir) / "extracted"
-            extract_dir.mkdir()
+            archive_path = Path(temp_dir) / "camilladsp.tar.gz"
+            await download_release_asset(url, archive_path, sha256)
 
             proc = await asyncio.create_subprocess_exec(
-                "tar", "-xzf", str(archive_path), "-C", str(extract_dir),
+                "tar", "-tzf", str(archive_path), "camilladsp",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            await proc.communicate()
+            stdout, _ = await proc.communicate()
 
-            if proc.returncode != 0:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Failed to extract archive"}
-
-            binary_path = extract_dir / "camilladsp"
-            if not binary_path.exists():
+            if proc.returncode != 0 or "camilladsp" not in stdout.decode().split():
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 return {"success": False, "error": "Binary not found in archive"}
 
             return {
                 "success": True,
-                "binary_path": str(binary_path),
+                "archive_path": str(archive_path),
                 "temp_dir": temp_dir
             }
 
@@ -200,11 +189,12 @@ class CamillaDSPUpdateService:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return {"success": False, "error": str(e)}
 
-    async def _install_binary(self, binary_path: str) -> Dict[str, Any]:
-        """Installs the binary using the secure wrapper script."""
+    async def _run_wrapper(self, *args: str) -> Dict[str, Any]:
+        """Runs the secure install wrapper: `--release <archive> <sha256|->` for
+        an update, `<binary>` for the rollback's kept copy."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", INSTALL_WRAPPER, binary_path,
+                "sudo", INSTALL_WRAPPER, *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -243,7 +233,7 @@ class CamillaDSPUpdateService:
                 try:
                     os.close(fd)
                     shutil.copy2(backup_file, tmp_backup)
-                    result = await self._install_binary(str(tmp_backup))
+                    result = await self._run_wrapper(str(tmp_backup))
                 finally:
                     tmp_backup.unlink(missing_ok=True)
                 restored = result["success"]

@@ -4,7 +4,7 @@ App update service for Milo Client.
 Handles deploying app updates pushed from the main Milo server, as a trial the
 new version has to survive before what it replaced is dropped:
 - Extract the tarball, open the trial (the identity it replaces is kept)
-- Keep the venv when requirements.txt changed, then swap in app/ and configs/
+- Keep the venv when requirements.lock changed, then swap in app/ and configs/
 - Install Python dependencies (only when they changed), import the new app
 - Deploy system/rootfs files, write the identity files, schedule the restart
 
@@ -56,6 +56,9 @@ DISCARD_SUFFIX = ".discard"
 # fingerprinted tree nothing installs is a push that restarts a speaker for
 # nothing.
 SYNCED_TREES = ("app", "configs")
+# What pip installs into the venv, under app/: compiled from requirements.txt,
+# every package pinned and every file named by its sha256.
+PYTHON_LOCK = "requirements.lock"
 
 # How long a new version must stay up after READY=1 before it is declared
 # healthy and what it replaced is deleted. The server's wait for a verdict is
@@ -211,9 +214,9 @@ class AppUpdateService:
         Steps:
         1. Extract tarball to temp dir (with security validation)
         2. Open the trial: keep the identity, then write update-trial
-        3. Keep the venv if requirements.txt changed; swap in app/ and configs/
+        3. Keep the venv if requirements.lock changed; swap in app/ and configs/
            (staged, skip __pycache__), keeping the trees they replace
-        4. pip install, only if requirements.txt changed
+        4. pip install the lock, only if it changed
         5. Import the new app with the venv's python
         6. Run sudo deploy script for system/rootfs files
         7. Write the identity files (and, for a tree that runs no trial,
@@ -260,9 +263,9 @@ class AppUpdateService:
                 return {"success": False, "error": "Invalid tarball: missing milo-client/ directory"}
 
             runs_trials = _runs_trials(extracted_root)
-            new_requirements = extracted_root / "app" / "requirements.txt"
+            new_requirements = extracted_root / "app" / PYTHON_LOCK
             requirements_changed = new_requirements.is_file() and not _same_file(
-                new_requirements, REPO_DIR / "app" / "requirements.txt"
+                new_requirements, REPO_DIR / "app" / PYTHON_LOCK
             )
 
             # 2. Open the trial
@@ -285,7 +288,7 @@ class AppUpdateService:
 
             # 4. Install Python dependencies
             if requirements_changed:
-                await self._install_dependencies(REPO_DIR / "app" / "requirements.txt")
+                await self._install_dependencies(REPO_DIR / "app" / PYTHON_LOCK)
 
             # 5. The cheapest failure to catch is the one that never restarts:
             # an import that fails here would crash the new process on start.
@@ -548,12 +551,19 @@ class AppUpdateService:
             if line.startswith("Changed"):
                 self.logger.info(f"Deploy: {line[0].lower()}{line[1:]}")
 
-    async def _install_dependencies(self, requirements_file: Path):
-        """Installs Python dependencies from requirements.txt."""
+    async def _install_dependencies(self, lock_file: Path):
+        """Installs the Python dependencies requirements.lock pins.
+
+        The lock, with `--require-hashes`: pip refuses any file the lock does
+        not name by digest and any package it does not pin, so a satellite runs
+        the versions the release was tested with, not what PyPI served the day
+        of the push. requirements.txt holds only the floors the lock is
+        compiled from.
+        """
         self.logger.info("Installing Python dependencies...")
 
         proc = await asyncio.create_subprocess_exec(
-            str(VENV_DIR / "bin" / "pip3"), "install", "-r", str(requirements_file),
+            str(VENV_DIR / "bin" / "pip3"), "install", "--require-hashes", "-r", str(lock_file),
             "--quiet", "--disable-pip-version-check",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE

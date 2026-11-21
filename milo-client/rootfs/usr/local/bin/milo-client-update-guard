@@ -36,7 +36,7 @@ State, under STATE_DIR (paths overridable for tests):
   last-update.json       {"payload", "outcome": committed|rolled_back, "detail", "at"}
   app-version.old, app-payload.old   the identity the trial replaced
 and next to the trees: app.old, configs.old under REPO_DIR, venv.old beside the
-venv's real path (only when the update changed requirements.txt).
+venv's real path (only when the update changed requirements.lock).
 """
 import json
 import os

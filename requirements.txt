@@ -1,12 +1,24 @@
+# What the backend imports, as floors: the input of requirements.lock, never
+# installed as it stands. A unit, an image and CI install the lock, with
+# --require-hashes, so every one of them runs the same versions of the same
+# files. Not quite what builds them: evdev and lgpio are compiled from their
+# sdist, by a setuptools pip fetches unpinned and checks no hash of
+# (BUILT_ON_INSTALL in test_python_lock.py). After any edit here, compile the
+# lock again, from the repo root:
+#
+#   uv pip compile requirements.txt --universal --python-version 3.13 \
+#       --generate-hashes -o requirements.lock
+#
+# then the satellite's lock, whose header names its own command. pytest and
+# ruff are not here: they test the appliance and never run on it
+# (requirements-dev.txt). backend/tests/architecture/test_python_lock.py holds
+# the lock to this file.
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.12.0  # Field(exclude_if=…) in api/responses.py: older versions only warn on the kwarg and serve the nulls it drops
 websockets>=14.0  # direct import in core/equalizer/camilladsp_client.py (asyncio client); also a runtime dep of uvicorn[standard]
-pytest>=8.0.0
-pytest-asyncio>=0.24.0
 httpx[http2]>=0.28.0  # fastapi.testclient.TestClient (tests) + the APNs provider connection (core/push), which is HTTP/2-only — hence the extra
 PyJWT[crypto]>=2.10.0  # ES256 provider tokens for APNs (core/push); the extra pulls cryptography, without which PyJWT cannot sign ES256 at all
-ruff>=0.6.0
 aiohttp>=3.11.0
 dbus-next>=0.2.3
 aiofiles>=23.2.1
@@ -16,7 +28,7 @@ Pillow>=10.0.0
 cairosvg>=2.7.0  # rasterizes SVG station logos (sources/radio/logos.py); dlopens libcairo2 at import
 python-multipart>=0.0.6
 pyyaml>=6.0.0
-shazamio>=0.9.0  # 0.9.0 dropped pydub (and its audioop need on 3.13); a lower floor never upgrades a unit already on 0.8
+shazamio>=0.9.0  # 0.9.0 dropped pydub (and its audioop need on 3.13)
 discid>=1.2.0
 musicbrainzngs>=0.7.1
 pyudev>=0.24.0  # USB hotplug detection for the Music Library storage layer (sources/music_library/storage.py)

@@ -163,7 +163,10 @@ ROOT_FILES = {
     "system/milo-client.service": APP_UNIT,
     "rootfs/etc/sudoers.d/milo-client": "milo-client ALL=(root) NOPASSWD: /bin/true\n",
 }
-NEW_REQUIREMENTS = {"main.py": "new main\n", "requirements.txt": "aiohttp==3.9.0\n"}
+# A release whose lock moved: what decides whether pip runs is requirements.lock,
+# byte for byte, never the floors in requirements.txt it is compiled from.
+NEW_LOCK = f"aiohttp==3.9.0 \\\n    --hash=sha256:{'a' * 64}\n"
+NEW_REQUIREMENTS = {"main.py": "new main\n", "requirements.lock": NEW_LOCK}
 IMPORT_ERROR = b"Traceback (most recent call last):\nModuleNotFoundError: No module named 'zeroconf'\n"
 
 _real_exec = asyncio.create_subprocess_exec
@@ -461,10 +464,9 @@ class TestDeployUpdateTrial:
         self, repo_dir, tmp_path, identity_files, update_world, no_restart_timer
     ):
         """A venv is the largest thing on the card; copying it for a release
-        whose requirements did not move doubles its disk use for nothing, and
-        pip with unpinned `>=` lines would upgrade it for nothing too."""
+        whose lock did not move doubles its disk use for nothing."""
         _, real_venv = update_world
-        (repo_dir / "app" / "requirements.txt").write_text("aiohttp==3.9.0\n")
+        (repo_dir / "app" / "requirements.lock").write_text(NEW_LOCK)
         spawned, spawn = _spawner()
 
         result = await _deploy(tmp_path, spawn)
@@ -473,6 +475,22 @@ class TestDeployUpdateTrial:
         assert not any(_ran_pip(argv) for argv in spawned)
         assert not real_venv.with_name("venv.old").exists()
         assert any(_ran_import(argv) for argv in spawned), "the import runs either way"
+
+    @pytest.mark.asyncio
+    async def test_pip_installs_the_lock_with_every_file_checked(
+        self, repo_dir, tmp_path, identity_files, no_restart_timer
+    ):
+        """The lock with `--require-hashes`, never requirements.txt: its floors
+        resolve to whatever PyPI serves the day of the push, so two satellites
+        pushed a week apart ran two sets, neither the one CI tested."""
+        spawned, spawn = _spawner()
+
+        result = await _deploy(tmp_path, spawn)
+
+        assert result["success"] is True
+        pip = next(argv for argv in spawned if _ran_pip(argv))
+        assert pip[1:5] == ("install", "--require-hashes", "-r",
+                            str(app_update_module.REPO_DIR / "app" / "requirements.lock"))
 
     @pytest.mark.asyncio
     async def test_dependencies_are_installed_before_the_root_deploy(

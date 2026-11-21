@@ -19,6 +19,7 @@ from backend.api.models import LastUpdatePatch, ProgramUpdateRequest
 from backend.api.programs import create_programs_router
 from backend.api.route_helpers import PresenceAnswer
 from backend.core.updates import milo_journal as mj
+from backend.core.updates.dependency_versions import load_dependency_manifest
 from backend.core.updates.update import UpdateService
 from backend.core.models.ws_events import (
     MiloUpdateNoticeDismissed,
@@ -134,7 +135,7 @@ async def test_a_failing_check_releases_the_key(router):
 
 async def test_the_satellite_routes_claim_their_key_too(router):
     """
-    Two of the three now resolve the version to install inside the window, and
+    Two of the three resolve the version to install before they claim, and
     all three share the claim helper — a second request must still be refused.
 
     One MAC per route on purpose: the three keys of a single satellite now
@@ -236,6 +237,47 @@ async def test_a_satellite_update_with_no_resolvable_version_never_starts(router
         return_value={"status": "success", "version": "0.35.0"}
     )
     assert (await endpoint("aa:bb:cc:dd:ee:ff", BackgroundTasks()))["status"] == "success"
+
+
+# (route, program, the dependencies.env line of the file the satellite installs, the push).
+SATELLITE_PUSHES = [
+    ("/api/programs/satellites/{mac_id}/update", "multiroom", "SNAPCLIENT_SHA256", "update_satellite"),
+    ("/api/programs/satellites/{mac_id}/update-camilladsp", "camilladsp", "CAMILLADSP_SHA256",
+     "update_satellite_camilladsp"),
+]
+
+
+@pytest.mark.parametrize("path,program,line,push", SATELLITE_PUSHES, ids=["snapclient", "camilladsp"])
+async def test_a_satellite_is_sent_the_digest_of_the_file_it_installs(
+    tmp_path, mock_settings_service, path, program, line, push,
+):
+    """A satellite carries no dependencies.env: the digest its installer checks
+    is the one this route picks out of the server's. Picking the snapclient
+    .deb's and not snapserver's — the other file of the same version — is the
+    route's choice, and the wrong one has every speaker refuse its update as a
+    checksum mismatch. Built with no presence service, which refuses any
+    guarded request: a validated version asks for no gesture."""
+    with patch.dict("os.environ", {}, clear=True):
+        service = UpdateService(
+            systemd_manager=MagicMock(), satellite_update_service=MagicMock(),
+            settings_service=mock_settings_service,
+        )
+    service.programs["milo"]["state_path"] = str(tmp_path / "no-journal")
+    validated = service.programs[program]["validated_version"]
+    service.get_latest_github_version = AsyncMock(return_value={"status": "success", "version": validated})
+    satellites = MagicMock()
+    setattr(satellites, push, AsyncMock(return_value={"success": True}))
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(service, satellites, state_machine)
+
+    tasks = BackgroundTasks()
+    assert (await _endpoint(r, path)("aa:bb:cc:dd:ee:ff", tasks))["status"] == "success"
+    await tasks()
+
+    getattr(satellites, push).assert_awaited_once_with(
+        "aa:bb:cc:dd:ee:ff", validated, load_dependency_manifest()[line]
+    )
 
 
 async def test_an_update_announces_itself_once(router):

@@ -1017,7 +1017,8 @@
         "reset_setup": "Restablecer la configuración",
         "wifi_save": "Guardar una red WiFi",
         "satellite_ssh_open": "Abrir SSH en un altavoz",
-        "satellite_password": "Cambiar la contraseña de un altavoz"
+        "satellite_password": "Cambiar la contraseña de un altavoz",
+        "satellite_program_upstream": "Instalar una versión no validada en un altavoz"
       },
       "gestures": {
         "rotary": "Gire o pulse el mando del dispositivo. ¿No tiene mando? Cancele, desactive el codificador rotativo en Ajustes › Hardware y vuelva a solicitarlo dentro de {time}.",

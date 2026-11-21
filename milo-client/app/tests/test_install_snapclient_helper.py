@@ -6,8 +6,12 @@ server's own `milo-deploy-update install-deb` finishes an interrupted dpkg run
 and refuses removals; this one did neither, so one power cut during a snapclient
 update left the satellite's dpkg "interrupted" and every later update refused,
 on a unit with no shell anyone opens.
+
+It also checks the .deb against the digest the server sends from its
+dependencies.env, on a copy only root can write, before dpkg reads anything.
 """
 
+import hashlib
 import shutil
 import subprocess
 import tempfile
@@ -63,17 +67,23 @@ def world():
     shutil.rmtree(root, ignore_errors=True)
 
 
-def _run(world, *, apt_install_rc=0):
+def _invoke(world, sha256, *, apt_install_rc=0):
     env = {
         "PATH": f"{world['stubs']}:/usr/bin:/bin",
         "STUB_LOG": str(world["log"]),
         "STUB_APT_INSTALL_RC": str(apt_install_rc),
     }
     result = subprocess.run(
-        ["bash", str(HELPER), str(world["deb"])],
+        ["bash", str(HELPER), str(world["deb"]), sha256],
         env=env, capture_output=True, text=True, timeout=30,
     )
     log = world["log"].read_text().splitlines() if world["log"].exists() else []
+    return result, log
+
+
+def _run(world, *, apt_install_rc=0):
+    sha256 = hashlib.sha256(world["deb"].read_bytes()).hexdigest()
+    result, log = _invoke(world, sha256, apt_install_rc=apt_install_rc)
     # Without this, a PATH that missed the stubs runs the host's real apt as a
     # non-root user, which fails, and the failure case below passes on it.
     assert any(line.startswith("apt-get install") for line in log), (
@@ -112,7 +122,45 @@ def test_the_install_refuses_to_remove_a_package(world):
     installs = [line.split() for line in log if line.startswith("apt-get install")]
     assert len(installs) == 1, log
     assert "--no-remove" in installs[0], installs[0]
-    assert str(world["deb"]) in installs[0], installs[0]
+    assert installs[0][-1].endswith(f"/{world['deb'].name}"), installs[0]
+
+
+def test_apt_reads_the_checked_copy_not_the_path_it_was_given(world):
+    """The path the app names sits in a directory its own user can rewrite
+    after the app's check: apt reads the copy the wrapper made and checked
+    where only root writes, so a file swapped in between never reaches dpkg.
+    """
+    _, log = _run(world)
+
+    install = next(line.split() for line in log if line.startswith("apt-get install"))
+    assert install[-1] != str(world["deb"]), install
+
+
+@pytest.mark.parametrize("sha256", [
+    pytest.param("0" * 64, id="another-file"),
+    pytest.param("", id="empty"),
+    pytest.param("not-a-digest", id="not-a-digest"),
+])
+def test_a_file_that_is_not_the_declared_one_never_reaches_dpkg(world, sha256):
+    """A .deb whose sha256 is not the one the server's manifest declares — or a
+    digest argument that is none — is refused before dpkg-deb or apt reads it.
+
+    If this fails, a snapclient GitHub served differently from the validated one
+    runs its maintainer scripts as root on a satellite.
+    """
+    result, log = _invoke(world, sha256)
+
+    assert result.returncode != 0, result.stdout
+    assert not [line for line in log if line.startswith(("apt", "dpkg"))], log
+
+
+def test_no_declared_digest_is_installed_and_said(world):
+    """`-` is the server naming a version its manifest does not declare."""
+    result, log = _invoke(world, "-")
+
+    assert result.returncode == 0, result.stderr
+    assert "no declared digest" in result.stderr
+    assert any(line.startswith("apt-get install") for line in log), log
 
 
 def test_an_install_apt_refuses_is_a_failure(world):

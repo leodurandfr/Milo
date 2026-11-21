@@ -118,6 +118,42 @@ validate_not_symlink() {
     return 0
 }
 
+# --- Downloaded files: checked on a copy only root can write ---
+#
+# The backend checks a download against dependencies.env as it arrives, which
+# refuses a bad file before anything stops. That is not where the trust
+# changes: the file then sits in a milo-owned directory, which any process
+# running as milo can rewrite between that check and the install. So the file
+# is copied into a directory only root can write, and the copy is checked —
+# and the copy, never the path the caller named, is what dpkg or the install
+# reads. The digest is the caller's to name, from the manifest; "-" says the
+# manifest declares none (a version past it, installed behind a proof of
+# presence), and is said in the output, never silent.
+
+STAGE=""
+cleanup_stage() { [ -z "$STAGE" ] || rm -rf "$STAGE"; }
+trap cleanup_stage EXIT
+
+# Sets STAGED to the checked copy of $1, kept under its own name.
+stage_checked() {
+    local src="$1" expected="$2" name actual
+    [ "$expected" = "-" ] || [[ "$expected" =~ ^[0-9a-f]{64}$ ]] \
+        || error_exit "Not a sha256 digest: $expected"
+    name=$(basename "$src")
+    STAGE=$(mktemp -d /tmp/milo-checked.XXXXXX)
+    STAGED="$STAGE/$name"
+    cp -- "$src" "$STAGED"
+    if [ "$expected" = "-" ]; then
+        echo "WARNING: $name has no declared digest; installed as downloaded" >&2
+        return 0
+    fi
+    actual=$(sha256sum "$STAGED") || error_exit "Could not hash $name"
+    actual="${actual%% *}"
+    [ "$actual" = "$expected" ] \
+        || error_exit "$name: checksum mismatch, declared $expected, got $actual -- not installed"
+    echo "  $name: sha256 checked"
+}
+
 # --- Subcommands ---
 
 cmd_sync_system_files() {
@@ -263,9 +299,33 @@ cmd_install_binary() {
     echo "OK: Installed binary $dest"
 }
 
+# A program shipped as one binary inside a release tarball (go-librespot,
+# CamillaDSP, Navidrome): the tarball is checked, and the binary unpacked from
+# the checked copy, as root, into the same root-only directory — one named
+# member, never the whole archive, without the owners and modes it carries.
+cmd_install_release_binary() {
+    [ $# -ne 4 ] && error_exit "Usage: install-release-binary <archive.tar.gz> <member> <dest> <sha256|->"
+    local archive="$1" member="$2" dest="$3" sha256="$4"
+
+    validate_absolute_path "$archive"
+    validate_no_traversal "$archive"
+    validate_temp_path "$archive"
+    [[ "$archive" == *.tar.gz ]] || error_exit "Not a .tar.gz archive: $archive"
+    [ ! -f "$archive" ] && error_exit "Archive does not exist: $archive"
+    validate_not_symlink "$archive"
+    [[ "$member" =~ ^[A-Za-z0-9._-]+$ ]] || error_exit "Not a plain member name: $member"
+
+    stage_checked "$archive" "$sha256"
+    tar -xzf "$STAGED" -C "$STAGE" --no-same-owner --no-same-permissions "$member" \
+        || error_exit "No $member in $(basename "$archive")"
+    [ -f "$STAGE/$member" ] && [ ! -L "$STAGE/$member" ] \
+        || error_exit "$member in $(basename "$archive") is not a regular file"
+    cmd_install_binary "$STAGE/$member" "$dest"
+}
+
 cmd_install_deb() {
-    [ $# -ne 1 ] && error_exit "Usage: install-deb <path>"
-    local deb_path="$1"
+    [ $# -ne 2 ] && error_exit "Usage: install-deb <path> <sha256|->"
+    local deb_path="$1" sha256="$2"
 
     validate_absolute_path "$deb_path"
     validate_no_traversal "$deb_path"
@@ -275,6 +335,10 @@ cmd_install_deb() {
     [[ "$deb_path" == *.deb ]] || error_exit "Not a .deb file: $deb_path"
     [ ! -f "$deb_path" ] && error_exit "File does not exist: $deb_path"
     validate_not_symlink "$deb_path"
+
+    # From here on the checked copy: a .deb runs its maintainer scripts as root.
+    stage_checked "$deb_path" "$sha256"
+    deb_path="$STAGED"
 
     local pkg ver
     pkg=$(dpkg-deb -f "$deb_path" Package) || error_exit "Not a readable .deb: $deb_path"
@@ -355,6 +419,7 @@ case "$subcommand" in
     check)             echo "OK" ;;
     sync-system-files) cmd_sync_system_files "$@" ;;
     install-binary)    cmd_install_binary "$@" ;;
+    install-release-binary) cmd_install_release_binary "$@" ;;
     install-deb)       cmd_install_deb "$@" ;;
     write-config)      cmd_write_config "$@" ;;
     reboot)            cmd_reboot "$@" ;;

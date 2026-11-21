@@ -7,10 +7,16 @@
 # copy is why the file is a sibling here and not a relative path into the tree.
 source "$(dirname "${BASH_SOURCE[0]}")/../dependencies.env"
 
+# Every file below is checked against the digest the manifest declares beside
+# its version before it is unpacked or handed to apt, as the in-app update and
+# its root helper check theirs: `sha256sum -c` exits non-zero on a mismatch, and
+# `bash -e` stops the build there.
+
 # go-librespot
 on_chroot << CHROOT
 cd /tmp
 wget -q "https://github.com/devgianlu/go-librespot/releases/download/v${GO_LIBRESPOT_VERSION}/go-librespot_linux_arm64.tar.gz"
+echo "${GO_LIBRESPOT_SHA256}  go-librespot_linux_arm64.tar.gz" | sha256sum -c -
 tar -xzf go-librespot_linux_arm64.tar.gz
 cp go-librespot /usr/local/bin/
 chmod +x /usr/local/bin/go-librespot
@@ -21,6 +27,7 @@ CHROOT
 on_chroot << CHROOT
 cd /tmp
 wget -q "https://github.com/navidrome/navidrome/releases/download/v${NAVIDROME_VERSION}/navidrome_${NAVIDROME_VERSION}_linux_arm64.tar.gz"
+echo "${NAVIDROME_SHA256}  navidrome_${NAVIDROME_VERSION}_linux_arm64.tar.gz" | sha256sum -c -
 tar -xzf "navidrome_${NAVIDROME_VERSION}_linux_arm64.tar.gz" navidrome
 cp navidrome /usr/local/bin/
 chmod +x /usr/local/bin/navidrome
@@ -31,6 +38,7 @@ CHROOT
 on_chroot << CHROOT
 cd /tmp
 wget -q "https://github.com/HEnquist/camilladsp/releases/download/v${CAMILLADSP_VERSION}/camilladsp-linux-aarch64.tar.gz"
+echo "${CAMILLADSP_SHA256}  camilladsp-linux-aarch64.tar.gz" | sha256sum -c -
 tar -xzf camilladsp-linux-aarch64.tar.gz
 cp camilladsp /usr/local/bin/
 chmod +x /usr/local/bin/camilladsp
@@ -46,6 +54,10 @@ CODENAME=\$(. /etc/os-release && echo "\$VERSION_CODENAME")
 
 wget -q "https://github.com/snapcast/snapcast/releases/download/v${SNAPCAST_VERSION}/snapserver_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb"
 wget -q "https://github.com/snapcast/snapcast/releases/download/v${SNAPCAST_VERSION}/snapclient_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb"
+# The manifest's digests are of the trixie packages: an image of another release
+# stops here rather than shipping a package nobody validated.
+echo "${SNAPSERVER_SHA256}  snapserver_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb" | sha256sum -c -
+echo "${SNAPCLIENT_SHA256}  snapclient_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb" | sha256sum -c -
 apt-get install -y "./snapserver_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb" "./snapclient_${SNAPCAST_VERSION}-1_arm64_\${CODENAME}.deb"
 
 for p in snapserver snapclient; do

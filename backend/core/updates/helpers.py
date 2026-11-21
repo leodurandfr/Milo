@@ -1,6 +1,6 @@
 # backend/core/updates/helpers.py
 """
-Shared utilities for the update services: versions, requirements, durable writes.
+Shared utilities for the update services: versions, the Python lock, durable writes.
 """
 import json
 import logging
@@ -65,13 +65,15 @@ def compare_versions(current: Optional[str], latest: Optional[str]) -> bool:
 
 
 def requirements_moved_up(before: str, after: str) -> bool:
-    """Whether the requirements file `after` adds a line to `before` or changes one.
+    """Whether the lock `after` adds a line to `before` or changes one.
 
-    `pip install -r` never uninstalls, so a release that only drops a line
-    needs no pip at all, and neither does one that only edits a comment. A
-    changed line counts whichever way its floor moved: a lowered floor is the
-    one case where pip then runs for nothing, and telling it from a raise would
-    mean parsing specifiers to save a venv copy on a rare release.
+    Read over requirements.lock, where a line is a pin (`name==version \\`) or
+    one of its hashes. `pip install -r` never uninstalls, so a release that only
+    drops a package needs no pip at all, and neither does one that only edits a
+    comment — the header naming the compile command included. A changed pin
+    counts whichever way it moved: a lower one is a downgrade pip has to make.
+    A hash added beside an unchanged pin (upstream published one more wheel)
+    runs pip for nothing, which costs a venv copy on a rare release.
     """
     def requirements(text: str) -> set[str]:
         return {re.sub(r"\s+", "", line.split("#", 1)[0]) for line in text.splitlines()} - {""}

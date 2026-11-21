@@ -1,13 +1,15 @@
 #!/bin/bash
 # Milo Client - Secure Snapclient Installation Wrapper
-# Only allows installing validated snapclient .deb packages
+# Only allows installing validated snapclient .deb packages, checked against the
+# digest the server sends from its dependencies.env.
 set -euo pipefail
 
 error_exit() { echo "ERROR: $1" >&2; exit 1; }
 
-[ $# -ne 1 ] && error_exit "Usage: $0 <path-to-snapclient-deb>"
+[ $# -ne 2 ] && error_exit "Usage: $0 <path-to-snapclient-deb> <sha256|->"
 
 DEB_PATH="$1"
+SHA256="$2"
 
 # Validate file exists
 [ ! -f "$DEB_PATH" ] && error_exit "File does not exist: $DEB_PATH"
@@ -23,11 +25,34 @@ esac
 
 # Validate .deb extension
 [[ "$DEB_PATH" != *.deb ]] && error_exit "File must have .deb extension"
+[ -L "$DEB_PATH" ] && error_exit "Symlinks not allowed: $DEB_PATH"
 
 # Validate filename pattern (snapclient releases)
 FILENAME=$(basename "$DEB_PATH")
 if ! [[ "$FILENAME" =~ ^snapclient_[0-9]+\.[0-9]+\.[0-9]+-[0-9]+_arm64_(bookworm|trixie|bullseye|buster)\.deb$ ]]; then
     error_exit "Filename does not match snapclient pattern: $FILENAME"
+fi
+
+# A .deb runs its maintainer scripts as root, so the file dpkg reads is a copy
+# in a directory only root can write, checked there: the path the app named sits
+# in a directory the app's own user can rewrite after any check it made itself.
+# "-" is the server saying its manifest declares no digest for this version (one
+# past it, installed behind a proof of presence on the server), and is said
+# below, never silent. Same steps as install-deb in the server's
+# milo-deploy-update.
+[ "$SHA256" = "-" ] || [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || error_exit "Not a sha256 digest: $SHA256"
+STAGE=$(mktemp -d /tmp/milo-client-checked.XXXXXX)
+trap 'rm -rf "$STAGE"' EXIT
+cp -- "$DEB_PATH" "$STAGE/$FILENAME"
+DEB_PATH="$STAGE/$FILENAME"
+if [ "$SHA256" = "-" ]; then
+    echo "WARNING: $FILENAME has no declared digest; installed as downloaded" >&2
+else
+    ACTUAL=$(sha256sum "$DEB_PATH") || error_exit "Could not hash $FILENAME"
+    ACTUAL="${ACTUAL%% *}"
+    [ "$ACTUAL" = "$SHA256" ] \
+        || error_exit "$FILENAME: checksum mismatch, declared $SHA256, got $ACTUAL -- not installed"
+    echo "$FILENAME: sha256 checked"
 fi
 
 # Validate package name inside .deb

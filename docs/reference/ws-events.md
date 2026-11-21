@@ -1077,9 +1077,9 @@ Why a session ended.
 
 ### PresenceAction
 
-What a challenge was opened for: one member per guarded route.
+What a challenge was opened for: one member per thing the owner is asked to confirm, which the dialog names.
 
-`ssh_open`, `password`, `program_upstream`, `reset_setup`, `wifi_save`, `satellite_ssh_open`, `satellite_password`
+`ssh_open`, `password`, `program_upstream`, `reset_setup`, `wifi_save`, `satellite_ssh_open`, `satellite_password`, `satellite_program_upstream`
 
 ### Gesture
 

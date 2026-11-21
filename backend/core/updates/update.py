@@ -54,12 +54,37 @@ from backend.core.updates.milo_journal import (
 )
 from backend.config.constants import DEPLOY_UPDATE_CMD
 
-# qobuz-proxy is a pip package installed from a git tag; the in-app update pins
-# the same URL the image build uses (provisioning/qobuz-proxy.sh). Milō's two
-# adaptations live in the launcher the service runs, which also answers whether
-# a release still offers what they bind to.
-QOBUZ_PROXY_REPO_URL = "https://github.com/leolobato/qobuz-proxy"
+# qobuz-proxy is a pip package installed from its tag's source archive, checked
+# against the manifest's digest first — the same file the image build installs
+# (provisioning/qobuz-proxy.sh). Milō's adaptations live in the launcher the
+# service runs, which also answers whether a release still offers what they bind
+# to.
 QOBUZ_ADAPTER = "/usr/local/bin/milo-qobuz"
+
+# What the root helpers read, in a digest's place, as "dependencies.env declares
+# none for this file": an install of a version past the manifest.
+NO_DIGEST = "-"
+
+
+def source_archive_url(repo: str, tag: str) -> str:
+    """The source archive GitHub serves for a tag — what the manifest's digest
+    of a program built or pip-installed from source is taken over."""
+    return f"https://github.com/{repo}/archive/refs/tags/{tag}.tar.gz"
+
+
+def digest_for(entry: Dict[str, Any], version: str, asset: str = "main") -> Optional[str]:
+    """The sha256 `dependencies.env` declares for one file `version` of `entry`
+    downloads, or None when it declares none.
+
+    Only the validated version has one. Any other is what upstream published
+    past the manifest — a `target: upstream` install — and nothing says what
+    its files should hash to. That is why such an install waits for a proof of
+    presence; the return to the manifest is the validated version again, and
+    checked.
+    """
+    if version != entry.get("validated_version"):
+        return None
+    return entry["validated_sha256"][asset]
 
 # The shared memory interface shairport-sync and NQPTP must agree on: declared
 # by both source trees, and reported by `nqptp -V` as
@@ -74,6 +99,8 @@ NQPTP_SETTLE_S = 1.0
 # downloads into the venv, the fetched packs, the journal.
 MILO_UPDATE_MARGIN_BYTES = 256 * 1024 * 1024
 MILO_PIP_TIMEOUT_S = 600
+# What pip installs into the app venv, relative to the checkout.
+PYTHON_LOCK = "requirements.lock"
 MILO_IMPORT_CHECK_TIMEOUT_S = 120
 
 # Run by the new release's venv python, -I, with the checkout as argv[1]: every
@@ -782,16 +809,27 @@ class UpdateService(VersionService):
             self._milo_backup(KEPT_DIST_NAME),
         )
 
-    @staticmethod
-    def _sha256(path: Path) -> str:
-        digest = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
+    def declared_sha256(self, program_key: str, version: str, asset: str = "main") -> Optional[str]:
+        """The digest `dependencies.env` declares for one file `version` of
+        `program_key` downloads, or None for a version it does not declare.
 
-    async def _download_release_asset(self, url: str, dest: Path) -> None:
-        """Stream one release asset to disk. Raises on anything but a 200."""
+        Public for the routes that send a satellite the version to install: a
+        satellite carries no manifest, so the digest travels with the version.
+        """
+        return digest_for(self.programs[program_key], version, asset)
+
+    async def _download_release_asset(self, url: str, dest: Path, sha256: Optional[str]) -> None:
+        """Stream one release asset to disk and check it against `sha256`.
+        Raises on anything but a 200, and on a file that is not the one declared.
+
+        Every download an update makes goes through here, so the check is in one
+        place: four copies of this loop lived in this class, and a fifth flow
+        would have had to remember it. `sha256` is None only for a version the
+        manifest does not declare, said so in the log; the file is then what
+        GitHub served.
+        """
+        name = url.rsplit("/", 1)[-1]
+        digest = hashlib.sha256()
         timeout = aiohttp.ClientTimeout(total=300)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url) as response:
@@ -799,7 +837,15 @@ class UpdateService(VersionService):
                     raise Exception(f"Download failed: HTTP {response.status} for {url}")
                 async with aiofiles.open(dest, "wb") as f:
                     async for chunk in response.content.iter_chunked(8192):
+                        digest.update(chunk)
                         await f.write(chunk)
+        actual = digest.hexdigest()
+        if sha256 is None:
+            self.update_logger.warning(
+                f"{name}: no declared digest (a version past dependencies.env), sha256 {actual}"
+            )
+        elif actual != sha256:
+            raise Exception(f"{name}: checksum mismatch, declared {sha256}, downloaded {actual}")
 
     async def _fetch_release_text(self, url: str) -> str:
         """Read one small release asset as text — the checksum sidecar."""
@@ -846,18 +892,13 @@ class UpdateService(VersionService):
         staging = Path(tempfile.mkdtemp(prefix=".dist-staging-", dir=dist.parent))
         try:
             archive = staging / "frontend.tar.gz"
-            await self._download_release_asset(url, archive)
-
+            # The sidecar first: it is what the asset is checked against, as it
+            # streams in.
             published = await self._fetch_release_text(f"{url}.sha256")
             expected = published.split()[0] if published else ""
-            actual = await asyncio.get_running_loop().run_in_executor(
-                None, self._sha256, archive
-            )
-            if not expected or actual != expected:
-                raise Exception(
-                    f"Frontend checksum mismatch for {tag}: "
-                    f"published {expected!r}, downloaded {actual!r}"
-                )
+            if not re.fullmatch(r"[0-9a-f]{64}", expected):
+                raise Exception(f"The {tag} frontend's checksum sidecar holds no sha256: {published!r}")
+            await self._download_release_asset(url, archive, expected)
 
             # Extracted beside the running frontend and swapped in, never over
             # it: a tar that fails halfway through an in-place extraction leaves
@@ -899,16 +940,24 @@ class UpdateService(VersionService):
             await self._cleanup_temp_files(str(staging))
 
     async def _install_python_dependencies(self) -> None:
-        """Install requirements.txt into the app venv. Raises on failure.
+        """Install the release's requirements.lock into the app venv. Raises on failure.
 
-        `--no-cache-dir`: pip's cache under the milo HOME is SD card space no
-        later update reads back, and the update is the one moment that space is
-        counted.
+        The lock, never requirements.txt: the floors there resolve to whatever
+        PyPI serves the day pip runs, so two units updated a week apart ran two
+        different sets, and neither was the one the release was tested with.
+        `--require-hashes` makes pip refuse any file the lock does not name by
+        digest, and any package it does not pin — but not the build backend it
+        fetches to compile a package that has no wheel for the Pi (evdev, lgpio:
+        `BUILT_ON_INSTALL` in test_python_lock.py), which pip installs unpinned
+        and never hash-checks. `--no-cache-dir`: pip's cache
+        under the milo HOME is SD card space no later update reads back, and
+        the update is the one moment that space is counted.
         """
         git_path = Path(self.programs["milo"]["git_path"])
         success, output = await self._run_local(
             str(git_path / "venv" / "bin" / "pip3"),
-            "install", "--no-cache-dir", "-r", str(git_path / "requirements.txt"),
+            "install", "--no-cache-dir", "--require-hashes",
+            "-r", str(git_path / PYTHON_LOCK),
             timeout=MILO_PIP_TIMEOUT_S,
         )
         if not success:
@@ -940,7 +989,7 @@ class UpdateService(VersionService):
         config = self.programs["milo"]
         git_path = Path(config["git_path"])
         dist, _ = self._frontend_paths()
-        # The venv is counted whether or not requirements.txt moves: that is
+        # The venv is counted whether or not the lock moves: that is
         # only known once the release is fetched, after this check.
         needed = (
             _tree_size(git_path / "venv")
@@ -1067,8 +1116,8 @@ class UpdateService(VersionService):
                     raise Exception(f"Git fetch failed: {output}")
                 target_commit = await self._git_output("rev-parse", f"{tag}^{{commit}}")
                 requirements_moved = requirements_moved_up(
-                    await self._git_output("show", f"{origin_commit}:requirements.txt"),
-                    await self._git_output("show", f"{target_commit}:requirements.txt"),
+                    await self._git_output("show", f"{origin_commit}:{PYTHON_LOCK}"),
+                    await self._git_output("show", f"{target_commit}:{PYTHON_LOCK}"),
                 )
 
                 await self._milo_progress("install")
@@ -1285,9 +1334,10 @@ class UpdateService(VersionService):
         """Updates a program shipped as a single binary inside a release tarball.
 
         go-librespot, CamillaDSP and Navidrome all follow this flow: back the
-        binary up, download and unpack the release asset, stop the service, swap
-        the binary through the deploy wrapper, start it again, verify, and roll
-        back to the backup if anything after the stop fails.
+        binary up, download and check the release asset, stop the service, have
+        the deploy wrapper check it again and swap the binary out of it, start it
+        again, verify, and roll back to the backup if anything after the stop
+        fails.
 
         The one behavioural difference is service policy. CamillaDSP is
         always-on, so it is stopped and started unconditionally; go-librespot's
@@ -1332,8 +1382,14 @@ class UpdateService(VersionService):
 
                 service_stopped = True
 
+            # The archive, not a binary unpacked from it: the wrapper checks its
+            # own copy of the file against the digest and unpacks that, so what
+            # lands in /usr/local/bin as root is what the digest names — not a
+            # path a milo process could have rewritten since the check above.
             success, output = await self._run_deploy(
-                "install-binary", download_result["binary_path"], config["binary_path"]
+                "install-release-binary", download_result["archive_path"],
+                download_result["member"], config["binary_path"],
+                download_result["sha256"] or NO_DIGEST,
             )
             if not success:
                 await self._cleanup_temp_files(download_result.get("temp_dir"))
@@ -1392,51 +1448,41 @@ class UpdateService(VersionService):
             return {"success": False, "error": f"Backup failed: {e}"}
 
     async def _download_binary_program(self, config: Dict[str, Any], version: str) -> Dict[str, Any]:
-        """Downloads the release tarball and extracts the program's binary from it."""
+        """Downloads the release tarball, checks it against the manifest's digest,
+        and makes sure it carries the program's binary — before anything stops.
+
+        Nothing is unpacked here: the deploy wrapper unpacks the binary from its
+        own checked copy. Listing the member is what keeps an archive that lost
+        it (an upstream release that moved its layout) a refusal rather than a
+        stopped service and a rollback.
+        """
         temp_dir = tempfile.mkdtemp(dir="/tmp")
-        binary_name = Path(config["binary_path"]).name
+        member = Path(config["binary_path"]).name
         try:
             url = config["asset_url"].format(version=version)
-
-            timeout = aiohttp.ClientTimeout(total=300)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
-
-                    archive_path = Path(temp_dir) / f"{binary_name}.tar.gz"
-                    async with aiofiles.open(archive_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-
-            extract_dir = Path(temp_dir) / "extracted"
-            extract_dir.mkdir()
-
-            # Naming a member keeps the docs some tarballs ship out of the way.
-            tar_args = ["tar", "-xzf", str(archive_path), "-C", str(extract_dir)]
-            if config.get("tar_member"):
-                tar_args.append(config["tar_member"])
+            sha256 = digest_for(config, version)
+            archive_path = Path(temp_dir) / url.rsplit("/", 1)[-1]
+            await self._download_release_asset(url, archive_path, sha256)
 
             proc = await asyncio.create_subprocess_exec(
-                *tar_args,
+                "tar", "-tzf", str(archive_path), member,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            await proc.communicate()
+            stdout, stderr = await proc.communicate()
 
-            if proc.returncode != 0:
+            if proc.returncode != 0 or member not in stdout.decode().split():
                 shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Failed to extract archive"}
-
-            binary_path = extract_dir / binary_name
-            if not binary_path.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return {"success": False, "error": "Binary not found in archive"}
+                return {"success": False, "error": (
+                    f"Binary not found in archive: no {member} in {archive_path.name}"
+                    f" ({stderr.decode().strip() or 'tar listed nothing'})"
+                )}
 
             return {
                 "success": True,
-                "binary_path": str(binary_path),
+                "archive_path": str(archive_path),
+                "member": member,
+                "sha256": sha256,
                 "temp_dir": temp_dir
             }
 
@@ -1563,7 +1609,9 @@ class UpdateService(VersionService):
                     )
 
             # Phase 3: Install snapserver (40-60%)
-            server_install = await self._install_deb_package(server_download["deb_path"])
+            server_install = await self._install_deb_package(
+                server_download["deb_path"], server_download["sha256"]
+            )
             if not server_install["success"]:
                 restored = await self._restore_multiroom_services()
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
@@ -1573,7 +1621,9 @@ class UpdateService(VersionService):
                 )
 
             # Phase 4: Install snapclient (60-80%)
-            client_install = await self._install_deb_package(client_download["deb_path"])
+            client_install = await self._install_deb_package(
+                client_download["deb_path"], client_download["sha256"]
+            )
             if not client_install["success"]:
                 self.update_logger.warning(f"Snapclient installation failed after snapserver succeeded: {client_install.get('error')}")
                 restored = await self._restore_multiroom_services()
@@ -1660,7 +1710,9 @@ class UpdateService(VersionService):
                 return backup_result
 
             # Phase 2: Download source (10%)
-            download_result = await self._download_source(config["repo"], tag_name)
+            download_result = await self._download_source(
+                config["repo"], tag_name, digest_for(config, latest_version)
+            )
             if not download_result["success"]:
                 return download_result
             temp_dir = download_result["temp_dir"]
@@ -1867,7 +1919,9 @@ class UpdateService(VersionService):
                 "(system/nqptp.service, synced by a Milo update) first"
             )}
 
-        download = await self._download_source(nqptp["repo"], target, parent_dir=parent_dir)
+        download = await self._download_source(
+            nqptp["repo"], target, digest_for(nqptp, target), parent_dir=parent_dir
+        )
         if not download["success"]:
             return download
         source_dir = download["source_dir"]
@@ -1921,26 +1975,24 @@ class UpdateService(VersionService):
     # === Source builds (shairport-sync and its NQPTP) ===
 
     async def _download_source(
-        self, repo: str, tag_name: str, parent_dir: str = "/tmp",
+        self, repo: str, tag_name: str, sha256: Optional[str], parent_dir: str = "/tmp",
     ) -> Dict[str, Any]:
-        """Downloads and extracts a GitHub tag's source tarball"""
+        """Downloads a GitHub tag's source tarball, checks it against the
+        manifest's digest, and extracts it.
+
+        Checked before anything is built from it: the build runs as milo, but
+        `make install` lands its result in /usr/local/bin through the root
+        helper, and a binary compiled from a tree nobody checked is the same
+        root install as an unchecked download.
+        """
         temp_dir = tempfile.mkdtemp(dir=parent_dir)
         try:
-            url = f"https://github.com/{repo}/archive/refs/tags/{tag_name}.tar.gz"
+            url = source_archive_url(repo, tag_name)
 
             self.update_logger.info(f"Downloading source from {url}...")
 
-            timeout = aiohttp.ClientTimeout(total=300)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
-
-                    archive_path = Path(temp_dir) / "source.tar.gz"
-                    async with aiofiles.open(archive_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
+            archive_path = Path(temp_dir) / "source.tar.gz"
+            await self._download_release_asset(url, archive_path, sha256)
 
             # Extract the archive
             proc = await asyncio.create_subprocess_exec(
@@ -2244,10 +2296,13 @@ class UpdateService(VersionService):
             return False, str(e)
 
     async def _update_qobuz_proxy(self, status: Dict[str, Any]) -> Dict[str, Any]:
-        """Updates the qobuz-proxy sidecar (a pip package installed from a git tag).
+        """Updates the qobuz-proxy sidecar (a pip package installed from its tag).
 
         Unlike the binary programs, the "install" is a pip upgrade inside the
-        milo-owned venv — unprivileged, since the backend runs as milo. Nothing
+        milo-owned venv — unprivileged, since the backend runs as milo. What pip
+        installs is the tag's source archive, downloaded and checked against the
+        manifest's digest first: a `git+…@tag` reference is whatever the tag
+        points at the moment pip clones it, which nothing can check. Nothing
         is written into site-packages: Milō's volume policy and status progress
         are applied at runtime by the launcher the service runs, so the venv
         matches the released package exactly. What is asked here instead is
@@ -2257,9 +2312,10 @@ class UpdateService(VersionService):
         """
         config = self.programs["qobuz-proxy"]
         latest_version = status["latest"]["version"]
-        # Use the exact upstream tag for the pip ref (not a reconstructed
+        # Use the exact upstream tag for the archive (not a reconstructed
         # "v{version}") so a tag that isn't simply "v" + semver still resolves.
         tag_name = status["latest"]["tag_name"]
+        temp_dir = None
         venv = config["venv_path"]
         service = config["service_name"]
 
@@ -2271,6 +2327,14 @@ class UpdateService(VersionService):
         backed_up = False
 
         try:
+            # Phase 0: the release's source, checked before anything moves (5%)
+            temp_dir = tempfile.mkdtemp(dir="/tmp")
+            archive = Path(temp_dir) / f"qobuz-proxy-{tag_name}.tar.gz"
+            await self._download_release_asset(
+                source_archive_url(config["repo"], tag_name), archive,
+                digest_for(config, latest_version),
+            )
+
             # Phase 1: Back up the venv (10%)
             backup_result = await self._backup_qobuz_venv(config)
             if not backup_result["success"]:
@@ -2292,10 +2356,10 @@ class UpdateService(VersionService):
                     rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
                     return self._failure_after_rollback("Failed to stop service.", rolled_back)
 
-            # Phase 3: pip upgrade to the pinned tag (70%) — unprivileged
+            # Phase 3: pip upgrade to the checked archive (70%) — unprivileged
             pip_ok, pip_out = await self._run_local(
                 f"{venv}/bin/pip", "install", "--upgrade",
-                f"qobuz-proxy[local] @ git+{QOBUZ_PROXY_REPO_URL}@{tag_name}",
+                f"qobuz-proxy[local] @ {archive.as_uri()}",
                 timeout=600
             )
             if not pip_ok:
@@ -2345,6 +2409,9 @@ class UpdateService(VersionService):
                 return {"success": False, "error": str(e)}
             rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
             return self._failure_after_rollback(f"{e}.", rolled_back)
+
+        finally:
+            await self._cleanup_temp_files(temp_dir)
 
     async def _backup_qobuz_venv(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Copies the whole venv to backup_path/venv so a failed upgrade can roll back."""
@@ -2459,7 +2526,13 @@ class UpdateService(VersionService):
         return codename
 
     async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
-        """Downloads a snapcast component (.deb) built for this unit's Debian release."""
+        """Downloads a snapcast component (.deb) built for this unit's Debian
+        release, checked against the manifest's digest of it.
+
+        The digest is the trixie package's, the release every image is built
+        on: a unit on another release downloads another file and is refused,
+        which is the truth — that file is not the validated dependency.
+        """
         debian_codename = await self._get_debian_codename()
 
         # Determine package name according to component
@@ -2471,6 +2544,7 @@ class UpdateService(VersionService):
             return {"success": False, "error": f"Unknown component: {component_key}"}
 
         url = f"https://github.com/badaix/snapcast/releases/download/v{version}/{package_name}"
+        sha256 = digest_for(self.programs["multiroom"], version, component_key)
 
         self.update_logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
 
@@ -2480,21 +2554,12 @@ class UpdateService(VersionService):
         # removes it here, as _download_binary_program already does.
         temp_dir = tempfile.mkdtemp(dir="/tmp")
         try:
-            timeout = aiohttp.ClientTimeout(total=300)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
-                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
-
-                    deb_path = Path(temp_dir) / package_name
-                    async with aiofiles.open(deb_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-
+            deb_path = Path(temp_dir) / package_name
+            await self._download_release_asset(url, deb_path, sha256)
             return {
                 "success": True,
                 "deb_path": str(deb_path),
+                "sha256": sha256,
                 "temp_dir": temp_dir
             }
 
@@ -2503,11 +2568,16 @@ class UpdateService(VersionService):
             return {"success": False, "error": str(e)}
 
 
-    async def _install_deb_package(self, deb_path: str) -> Dict[str, Any]:
-        """Installs a .deb package via milo-deploy-update (one `apt-get install`
-        that refuses removals, then a dpkg-query of the .deb's own version)."""
+    async def _install_deb_package(self, deb_path: str, sha256: Optional[str]) -> Dict[str, Any]:
+        """Installs a .deb package via milo-deploy-update, which checks its own
+        copy of the file against `sha256` before apt sees it (one `apt-get
+        install` that refuses removals, then a dpkg-query of the .deb's own
+        version). A .deb runs its maintainer scripts as root, so the digest is
+        checked where the trust changes, not only where the file arrived."""
         self.update_logger.info(f"Installing {Path(deb_path).name}...")
-        success, output = await self._run_deploy("install-deb", deb_path, warn_after=300)
+        success, output = await self._run_deploy(
+            "install-deb", deb_path, sha256 or NO_DIGEST, warn_after=300
+        )
         if not success:
             return {"success": False, "error": f"Package installation failed: {output}"}
         self.update_logger.info("Package installed successfully")

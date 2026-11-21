@@ -169,6 +169,9 @@ class _FakeResponse:
 class _FakeSession:
     """GitHub, serving the release asset."""
 
+    def __init__(self, *args, **kwargs):
+        pass
+
     async def __aenter__(self):
         return self
 
@@ -191,7 +194,7 @@ def patched_world(machine):
 
     with patch.object(snapclient_module.asyncio, "create_subprocess_exec", machine.spawn), \
          patch.object(snapclient_module.asyncio, "sleep", AsyncMock()), \
-         patch.object(snapclient_module.aiohttp, "ClientSession", _FakeSession):
+         patch("services.release_download.aiohttp.ClientSession", _FakeSession):
         yield machine
 
 
@@ -216,11 +219,11 @@ class TestOnlyOneUpdateRunsAtATime:
 
         async def _call_again(argv):
             if argv == FakeMachine.STOP:
-                refused.append(await snapclient_service.update_snapclient("0.29.0"))
+                refused.append(await snapclient_service.update_snapclient("0.29.0", None))
 
         machine.on_spawn = _call_again
 
-        result = await snapclient_service.update_snapclient("0.29.0")
+        result = await snapclient_service.update_snapclient("0.29.0", None)
 
         assert result["success"] is True
         assert len(refused) == 1, "the hook must have fired while the first update ran"
@@ -237,7 +240,7 @@ class TestOnlyOneUpdateRunsAtATime:
         machine = patched_world
         machine.install_returncode = 1
 
-        result = await snapclient_service.update_snapclient("0.29.0")
+        result = await snapclient_service.update_snapclient("0.29.0", None)
 
         assert result["success"] is False
         assert snapclient_service.update_in_progress is False
@@ -258,7 +261,7 @@ class TestSnapclientUpdateLeavesTheServiceRunning:
         machine = patched_world
         machine.install_returncode = 1
 
-        result = await snapclient_service.update_snapclient("0.29.0")
+        result = await snapclient_service.update_snapclient("0.29.0", None)
 
         assert result["success"] is False
         assert machine.running is True, "an apt failure must not leave the speaker stopped"
@@ -270,17 +273,45 @@ class TestSnapclientUpdateLeavesTheServiceRunning:
         machine = patched_world
         machine.install_raises = True
 
-        result = await snapclient_service.update_snapclient("0.29.0")
+        result = await snapclient_service.update_snapclient("0.29.0", None)
 
         assert result["success"] is False
         assert machine.running is True
+
+    @pytest.mark.asyncio
+    async def test_a_deb_that_is_not_the_declared_one_stops_nothing(self, snapclient_service, patched_world):
+        """Checked as it arrives against the digest the server sent: refused
+        before the unit stops, so the room keeps playing."""
+        machine = patched_world
+
+        result = await snapclient_service.update_snapclient("0.29.0", "0" * 64)
+
+        assert result["success"] is False
+        assert "checksum mismatch" in result["error"]
+        assert FakeMachine.STOP not in machine.calls
+        assert not [argv for argv in machine.calls if argv[1].endswith("milo-client-install-snapclient")]
+
+    @pytest.mark.asyncio
+    async def test_the_wrapper_checks_the_same_digest_again(self, snapclient_service, patched_world):
+        """The wrapper checks its own copy, where only root writes, so it is
+        handed the digest the download was checked against."""
+        import hashlib
+
+        machine = patched_world
+        digest = hashlib.sha256(b"a .deb that apt will refuse").hexdigest()
+
+        result = await snapclient_service.update_snapclient("0.29.0", digest)
+
+        assert result["success"] is True, result
+        install = next(argv for argv in machine.calls if argv[1].endswith("milo-client-install-snapclient"))
+        assert install[2].endswith("snapclient_0.29.0-1_arm64_bookworm.deb") and install[3] == digest
 
     @pytest.mark.asyncio
     async def test_an_applied_update_does_not_start_it_twice(self, snapclient_service, patched_world):
         """The floor under the two above: on success the rollback must stay out."""
         machine = patched_world
 
-        result = await snapclient_service.update_snapclient("0.29.0")
+        result = await snapclient_service.update_snapclient("0.29.0", None)
 
         assert result["success"] is True
         assert machine.running is True
@@ -297,13 +328,11 @@ class TestAnUnreadableCodenameFailsTheUpdate:
 
     @pytest.mark.asyncio
     async def test_nothing_is_downloaded_or_stopped(self, snapclient_service, patched_world):
-        import services.snapclient as snapclient_module
-
         machine = patched_world
         machine.os_release_codename = b"\n"
 
-        with patch.object(snapclient_module.aiohttp, "ClientSession") as github:
-            result = await snapclient_service.update_snapclient("0.29.0")
+        with patch("services.release_download.aiohttp.ClientSession") as github:
+            result = await snapclient_service.update_snapclient("0.29.0", None)
 
         assert result["success"] is False
         assert "codename" in result["error"]

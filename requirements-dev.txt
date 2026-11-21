@@ -1,0 +1,6 @@
+# What CI and a dev checkout run beyond the appliance: the test runner and the
+# linter. Installed after requirements.lock, never on a unit.
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+ruff>=0.6.0
+packaging>=24.0  # direct import in backend/tests/architecture/test_python_lock.py; also a dependency of pytest

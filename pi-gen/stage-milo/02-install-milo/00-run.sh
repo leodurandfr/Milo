@@ -35,11 +35,21 @@ sudo -u milo git clone "${MILO_REPO}" /home/milo/milo
 sudo -u milo git -C /home/milo/milo checkout --force ${MILO_BRANCH}
 CHROOT
 
-# Set up Python virtual environment and install dependencies
+# Set up Python virtual environment and install dependencies.
+#
+# The lock, never requirements.txt: its floors resolve to whatever PyPI serves
+# the day the image is built, so two images of one tag would carry two sets, and
+# neither the one CI tested. --require-hashes refuses any file the lock does not
+# name by its sha256, and any package it does not pin; what it does not reach is
+# the setuptools pip fetches, unpinned and unchecked, to compile evdev and lgpio,
+# which have no wheel for the Pi (BUILT_ON_INSTALL in
+# backend/tests/architecture/test_python_lock.py). The pip doing it is the
+# one the base's python3-venv bundles, not `pip install --upgrade pip`: that
+# was the one install left to whatever PyPI served that day, and the bundled
+# pip (25.1 on trixie) installs the lock as it stands.
 on_chroot << 'CHROOT'
 sudo -u milo python3 -m venv /home/milo/milo/venv
-sudo -u milo bash -c "source /home/milo/milo/venv/bin/activate && pip install --upgrade pip"
-sudo -u milo bash -c "source /home/milo/milo/venv/bin/activate && pip install -r /home/milo/milo/requirements.txt"
+sudo -u milo bash -c "source /home/milo/milo/venv/bin/activate && pip install --require-hashes -r /home/milo/milo/requirements.lock"
 CHROOT
 
 # Install the frontend artefact built in CI
@@ -52,11 +62,11 @@ rm -f /tmp/frontend-dist.tar.gz
 test -f /home/milo/milo/frontend/dist/index.html
 CHROOT
 
-# Set up milo-client Python environment (for unified image supporting both modes)
+# Set up milo-client Python environment (for unified image supporting both
+# modes), from its own lock, as above.
 on_chroot << 'CHROOT'
 sudo -u milo python3 -m venv /home/milo/milo/milo-client/venv
-sudo -u milo bash -c "source /home/milo/milo/milo-client/venv/bin/activate && pip install --upgrade pip"
-sudo -u milo bash -c "source /home/milo/milo/milo-client/venv/bin/activate && pip install -r /home/milo/milo/milo-client/app/requirements.txt"
+sudo -u milo bash -c "source /home/milo/milo/milo-client/venv/bin/activate && pip install --require-hashes -r /home/milo/milo/milo-client/app/requirements.lock"
 CHROOT
 
 # Seed the satellite's own identity, for the half of this unified image that

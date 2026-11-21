@@ -202,13 +202,16 @@ class SatelliteUpdateService:
     async def update_satellite(
         self,
         mac_id: str,
-        target_version: str
+        target_version: str,
+        sha256: Optional[str],
     ) -> Dict[str, Any]:
         """Installs `target_version` of snapclient on a satellite.
 
         The version is resolved on the server, against the same manifest — and
         the same trial — the server itself runs on. A satellite carries neither,
         so deciding it there is how a client lands on a release nobody validated.
+        `sha256` is the manifest's digest of the .deb, which the satellite's
+        installer checks before dpkg runs; None for a version past the manifest.
         """
         try:
             satellites = await self.discover_satellites()
@@ -225,7 +228,9 @@ class SatelliteUpdateService:
 
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json={"target_version": target_version}) as response:
+                async with session.post(
+                    url, json={"target_version": target_version, "sha256": sha256}
+                ) as response:
                     if response.status == 200:
                         data = await response.json()
 
@@ -961,11 +966,13 @@ class SatelliteUpdateService:
     async def update_satellite_camilladsp(
         self,
         mac_id: str,
-        target_version: str
+        target_version: str,
+        sha256: Optional[str],
     ) -> Dict[str, Any]:
         """Installs `target_version` of CamillaDSP on a satellite.
 
-        Server-resolved for the same reason as the snapclient update above.
+        Server-resolved for the same reason as the snapclient update above, and
+        `sha256` with it: the manifest's digest of the release archive.
         """
         try:
             satellites = await self.discover_satellites()
@@ -982,7 +989,9 @@ class SatelliteUpdateService:
 
             timeout = aiohttp.ClientTimeout(total=300)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json={"target_version": target_version}) as response:
+                async with session.post(
+                    url, json={"target_version": target_version, "sha256": sha256}
+                ) as response:
                     if response.status == 200:
                         data = await response.json()
 

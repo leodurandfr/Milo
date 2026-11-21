@@ -1017,7 +1017,8 @@
         "reset_setup": "Reset configuration",
         "wifi_save": "Save a WiFi network",
         "satellite_ssh_open": "Open SSH on a speaker",
-        "satellite_password": "Change a speaker's password"
+        "satellite_password": "Change a speaker's password",
+        "satellite_program_upstream": "Install an unvalidated version on a speaker"
       },
       "gestures": {
         "rotary": "Turn or press the knob on the device. No knob on it? Cancel, turn off the rotary encoder in Settings › Hardware, and ask again in {time}.",
