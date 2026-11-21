@@ -72,9 +72,9 @@ NM_LEVELS = {
 NM_CHECK_CONNECTIVITY_TIMEOUT = 15  # seconds; bounds the background forced probe
 
 # The endpoint NM itself probes, declared in
-# /etc/NetworkManager/conf.d/99-milo-connectivity.conf (written by
-# pi-gen/stage-milo/02-install-milo/01-run.sh, which is the authority). Restated
-# here because that drop-in is not readable as configuration from this process.
+# /etc/NetworkManager/conf.d/99-milo-connectivity.conf (the rootfs/ file, which
+# is the authority). Restated here because that drop-in is not readable as
+# configuration from this process.
 #
 # We re-fetch it forced to IPv4, because NM's own fetch is family-agnostic and a
 # dual-stack host answers it over IPv6. Measured 2026-09-20: the wired gateway

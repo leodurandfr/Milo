@@ -83,6 +83,15 @@ pass=0; fail=0
 ok()   { printf '  \033[0;32mok\033[0m    %s\n' "$1"; pass=$((pass+1)); }
 bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
 check() { if eval "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1"; fi; }
+# A check that holds on a fresh image only: a unit in service may legitimately
+# differ (its owner set it up), so a live root skips it.
+image_check() {
+    if [[ "$ROOT" == "/" ]]; then
+        printf '  \033[0;33mskip\033[0m  %s (only checked on an image)\n' "$1"
+    else
+        check "$1" "$2"
+    fi
+}
 
 section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
@@ -95,13 +104,14 @@ section "Kernel command line"
 CMDLINE="$BOOT/cmdline.txt"
 if [[ -f "$CMDLINE" ]]; then
     line=$(cat "$CMDLINE")
-    # `root=` is the one that makes the card unbootable if the cleanup sed in
-    # configure_cmdline ever widens by accident.
+    # `root=` is the one that makes the card unbootable if the manifest's
+    # writer (milo-deploy-update apply_cmdline) ever takes a token it does not own.
     check "cmdline keeps root="            "grep -q 'root=' '$CMDLINE'"
     check "cmdline keeps rootwait"         "grep -q 'rootwait' '$CMDLINE'"
     check "cmdline has quiet splash"       "grep -q 'quiet' '$CMDLINE' && grep -q 'splash' '$CMDLINE'"
     check "cmdline has the Milo console"   "grep -q 'console=tty3' '$CMDLINE'"
     # The token that drifted: FR was restated in the stage, 00 declared in the module.
+    # Now the manifest's one seed: written where absent, never replaced.
     check "regdom is the world domain (00)" "grep -q 'cfg80211.ieee80211_regdom=00' '$CMDLINE'"
     check "regdom appears exactly once"    "[ \$(grep -o 'ieee80211_regdom=' '$CMDLINE' | wc -l) -eq 1 ]"
     # The device tree disables the memory controller ahead of this line; the last
@@ -174,29 +184,46 @@ for user in milo milo-client; do
 done
 
 # --------------------------------------------------------------------------
-section "Units enabled at boot"
+section "The system manifest"
 # --------------------------------------------------------------------------
-# Derived from what pi-gen enables, so a unit added there is checked the day it
-# is added rather than when someone remembers to edit this list — and from the
-# `provisioning/` modules the stage sources, because not every enable is inline:
-# `install_ir_systemd_service` is what enables milo-ir-keytable, and reading the
-# stage alone left that unit unverified on the image.
-mapfile -t SOURCED < <(grep -hoE '^\s*source provisioning/\S+' "$REPO"/pi-gen/stage-milo/*/*.sh \
-                       | sed -E 's/^\s*source //' | sort -u)
-[[ ${#SOURCED[@]} -ge 3 ]] || bad "only ${#SOURCED[@]} provisioning/ modules sourced by pi-gen parsed"
-mapfile -t WANTED < <(grep -hE '^\s*(sudo )?systemctl enable ' \
-                        "$REPO/pi-gen/stage-milo/03-configure/01-run.sh" \
-                        "${SOURCED[@]/#/$REPO/}" 2>/dev/null \
-                      | sed -E 's/.*enable +//; s/\.service$//; s/;$//' | sort -u)
-[[ ${#WANTED[@]} -ge 10 ]] || bad "only ${#WANTED[@]} units parsed from the pi-gen enable list"
-for u in "${WANTED[@]}"; do
-    if compgen -G "${ROOT%/}/etc/systemd/system/*.wants/$u.service" >/dev/null \
-       || compgen -G "${ROOT%/}/etc/systemd/system/*.target.wants/$u.service" >/dev/null; then
-        ok "enabled: $u"
+# What the image and every update apply from system-manifest.env, read from the
+# repo: a unit, a package or a line added there is checked the day it is added.
+# Packages and unit states only grow on a unit (nothing is removed), so these
+# hold on a live appliance too.
+# shellcheck source=/dev/null
+if source "$REPO/system-manifest.env" 2>/dev/null && [[ ${#SYSTEM_UNITS_ENABLED[@]} -ge 10 ]]; then
+    for u in "${SYSTEM_UNITS_ENABLED[@]}"; do
+        if compgen -G "${ROOT%/}/etc/systemd/system/*.wants/$u" >/dev/null; then
+            ok "enabled: $u"
+        else
+            bad "enabled: $u (no .wants symlink)"
+        fi
+    done
+    for u in "${SYSTEM_UNITS_MASKED[@]}"; do
+        check "masked: $u" "[ \"\$(readlink '${ROOT%/}/etc/systemd/system/$u')\" = /dev/null ]"
+    done
+    missing_packages=()
+    for p in "${SYSTEM_APT_PACKAGES[@]}"; do
+        [[ "$(dpkg-query --admindir="${ROOT%/}/var/lib/dpkg" -W -f='${db:Status-Status}' "$p" 2>/dev/null)" == installed ]] \
+            || missing_packages+=("$p")
+    done
+    if [[ ${#missing_packages[@]} -eq 0 ]]; then
+        ok "all ${#SYSTEM_APT_PACKAGES[@]} packages installed"
     else
-        bad "enabled: $u (no .wants symlink)"
+        bad "packages not installed: ${missing_packages[*]}"
     fi
-done
+    managed=$(awk '$0 == "# BEGIN MILO SYSTEM" {on = 1; next} $0 == "# END MILO SYSTEM" {on = 0} on' "$BOOT/config.txt" 2>/dev/null)
+    check "config.txt holds the manifest's block, as declared" \
+          "[ \"\$managed\" = \"\$(printf '%s\\n' \"\${SYSTEM_CONFIG_TXT[@]}\")\" ]"
+    for token in "${SYSTEM_CMDLINE[@]}"; do
+        check "cmdline carries $token" "grep -qw -- '$token' '$BOOT/cmdline.txt'"
+    done
+else
+    bad "system-manifest.env not read from $REPO"
+fi
+# A seed, not a manifest unit: milo-apply-hardware owns it once a screen is set.
+image_check "enabled: milo-kiosk.service (the seed for a first boot)" \
+    "compgen -G '${ROOT%/}/etc/systemd/system/*.wants/milo-kiosk.service'"
 check "default target is graphical" \
       "readlink '${ROOT%/}/etc/systemd/system/default.target' | grep -q graphical"
 # Their lifecycle belongs to AudioRoutingService alone; an [Install] symlink here
@@ -281,14 +308,7 @@ check "no country pinned in wpa_supplicant.conf" \
 # What upstream pi-gen and Raspberry Pi Imager change about the account and the
 # name on a first boot. On a unit in service these legitimately differ (a
 # satellite is milo-client, the server's own card predates the purge), so they
-# are read on an image only.
-image_check() {
-    if [[ "$ROOT" == "/" ]]; then
-        printf '  \033[0;33mskip\033[0m  %s (only checked on an image)\n' "$1"
-    else
-        check "$1" "$2"
-    fi
-}
+# are read on an image only (image_check).
 # milo.local, the address the README and both apps open, is published from it.
 image_check "hostname is milo" "[ \"\$(cat '${ROOT%/}/etc/hostname')\" = milo ]"
 # Every path, sudoers policy and unit is written around this account; Imager's
@@ -344,10 +364,8 @@ done
 # vendor defaults file still says ceratopsian and is not what is read.
 check "plymouth default theme is milo" \
       "grep -q '^Theme=milo' '${ROOT%/}/etc/plymouth/plymouthd.conf'"
-# milo-readiness is the only thing that ever quits Plymouth; these must stay masked.
-for u in plymouth-quit plymouth-quit-wait; do
-    check "$u.service masked" "[ \"\$(readlink '${ROOT%/}/etc/systemd/system/$u.service')\" = /dev/null ]"
-done
+# milo-readiness is the only thing that ever quits Plymouth: the manifest masks
+# plymouth-quit and plymouth-quit-wait, checked with its other units above.
 
 # --------------------------------------------------------------------------
 section "Binaries the appliance cannot run without"
@@ -392,11 +410,12 @@ check "avahi-daemon.conf deployed"  "cmp -s '$REPO/rootfs/etc/avahi/avahi-daemon
 check "ARP sysctl deployed"         "cmp -s '$REPO/rootfs/etc/sysctl.d/90-milo-arp.conf' '${ROOT%/}/etc/sysctl.d/90-milo-arp.conf'"
 check "link-down sysctl deployed"   "cmp -s '$REPO/rootfs/etc/sysctl.d/90-milo-linkdown.conf' '${ROOT%/}/etc/sysctl.d/90-milo-linkdown.conf'"
 check "ethernet IPv4 wait deployed" "cmp -s '$REPO/rootfs/etc/NetworkManager/conf.d/90-milo-ethernet-ipv4.conf' '${ROOT%/}/etc/NetworkManager/conf.d/90-milo-ethernet-ipv4.conf'"
-check "nginx site written"          "grep -q 'server_name milo.local' '${ROOT%/}/etc/nginx/sites-available/milo'"
+check "nginx site deployed"         "cmp -s '$REPO/rootfs/etc/nginx/sites-enabled/milo' '${ROOT%/}/etc/nginx/sites-enabled/milo'"
+check "nginx default site removed"  "! [ -e '${ROOT%/}/etc/nginx/sites-enabled/default' ]"
 # The recovery-AP gate reads the client from X-Forwarded-For; a proxied path
 # without it hands the backend nginx's loopback address instead.
 check "nginx names the client on every proxied path" \
-      "[ \"\$(grep -cF 'proxy_pass http://milo_backend' '${ROOT%/}/etc/nginx/sites-available/milo')\" = \"\$(grep -cF 'X-Forwarded-For \$proxy_add_x_forwarded_for' '${ROOT%/}/etc/nginx/sites-available/milo')\" ]"
+      "[ \"\$(grep -cF 'proxy_pass http://milo_backend' '${ROOT%/}/etc/nginx/sites-enabled/milo')\" = \"\$(grep -cF 'X-Forwarded-For \$proxy_add_x_forwarded_for' '${ROOT%/}/etc/nginx/sites-enabled/milo')\" ]"
 check "go-librespot uses avahi"     "grep -q 'zeroconf_backend: avahi' '${ROOT%/}/var/lib/milo/go-librespot/config.yml'"
 check "navidrome config written"    "[ -f '${ROOT%/}/var/lib/milo/navidrome/navidrome.toml' ]"
 check "qobuz config is ASCII-named" "grep -q 'name: Milo' '${ROOT%/}/var/lib/milo/qobuz/config.yaml'"
@@ -419,7 +438,9 @@ fi
 check "polkit rule deployed"        "cmp -s '$REPO/rootfs/etc/polkit-1/rules.d/50-milo-networkmanager.rules' '${ROOT%/}/etc/polkit-1/rules.d/50-milo-networkmanager.rules'"
 check "journald drop-in deployed"   "[ -f '${ROOT%/}/etc/systemd/journald.conf.d/99-milo-journald.conf' ]"
 check "persistent journal dir"      "[ -d '${ROOT%/}/var/log/journal' ]"
-check "snd-aloop two cards"         "grep -q 'id=Loopback,LoopbackDLNA' '${ROOT%/}/etc/modprobe.d/snd-aloop.conf'"
+check "snd-aloop options deployed"  "cmp -s '$REPO/rootfs/etc/modprobe.d/snd-aloop.conf' '${ROOT%/}/etc/modprobe.d/snd-aloop.conf'"
+check "snd-aloop loaded at boot"    "cmp -s '$REPO/rootfs/etc/modules-load.d/snd-aloop.conf' '${ROOT%/}/etc/modules-load.d/snd-aloop.conf'"
+check "connectivity check deployed" "cmp -s '$REPO/rootfs/etc/NetworkManager/conf.d/99-milo-connectivity.conf' '${ROOT%/}/etc/NetworkManager/conf.d/99-milo-connectivity.conf'"
 
 # --------------------------------------------------------------------------
 section "udev rules — deployed as in rootfs/"

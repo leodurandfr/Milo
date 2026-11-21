@@ -11,16 +11,18 @@ the sound stops. Measured on the server and both satellites before this test:
 `cgroup.controllers` read `cpuset cpu io pids`.
 
 The reader is the kernel at boot, then pid 1, on the server and on every satellite
-alike — both images take their command line from `provisioning/boot-common.sh`.
+alike — both are flashed from one image, whose command line is the system
+manifest's (`system-manifest.env`, `SYSTEM_CMDLINE`), and every Milō update on the
+server writes those tokens again.
 """
 
 import re
-import subprocess
 from pathlib import Path
+
+from backend.tests.architecture.test_image_update_convergence import _manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 UNIT_DIRS = (REPO_ROOT / "system", REPO_ROOT / "milo-client" / "system")
-BOOT_COMMON = REPO_ROOT / "provisioning" / "boot-common.sh"
 
 MEMORY_MAX = re.compile(r"^\s*MemoryMax=(\S+)", re.MULTILINE)
 
@@ -35,15 +37,8 @@ def _capped_units() -> dict[str, str]:
     return caps
 
 
-def _boot_params_common() -> list[str]:
-    proc = subprocess.run(
-        ["bash", "-c", f'source "{BOOT_COMMON}" && printf %s "$BOOT_PARAMS_COMMON"'],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, f"sourcing provisioning/boot-common.sh failed: {proc.stderr}"
-    return proc.stdout.split()
+def _boot_params() -> list[str]:
+    return _manifest()["SYSTEM_CMDLINE"]
 
 
 def test_declared_memory_caps_are_enforceable():
@@ -57,13 +52,13 @@ def test_declared_memory_caps_are_enforceable():
     assert caps, "no MemoryMax= found under system/ or milo-client/system/: the extractor is broken"
     assert "system/milo-kiosk.service" in caps, f"the kiosk's cap was not extracted: {sorted(caps)}"
 
-    params = _boot_params_common()
+    params = _boot_params()
     assert "quiet" in params and "console=tty3" in params, (
-        f"BOOT_PARAMS_COMMON did not parse into the expected command line: {params}"
+        f"SYSTEM_CMDLINE did not parse into the expected command line: {params}"
     )
 
     assert "cgroup_enable=memory" in params, (
         "the Raspberry Pi device tree passes cgroup_disable=memory, and "
-        "provisioning/boot-common.sh never re-enables the memory controller, so these "
+        "system-manifest.env never re-enables the memory controller, so these "
         f"caps are inert: {', '.join(f'{u} ({v})' for u, v in caps.items())}"
     )

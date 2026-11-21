@@ -22,7 +22,7 @@ LOADER="$TIDAL_ROOT/lib/ld-linux-armhf.so.3"
 LIB_PATH="$TIDAL_ROOT/lib/arm-linux-gnueabihf:$TIDAL_ROOT/usr/lib/arm-linux-gnueabihf:$TIDAL_ROOT/lib:$TIDAL_ROOT/usr/lib"
 
 if [[ ! -x "$LOADER" ]]; then
-    echo "Tidal Connect runtime missing at $TIDAL_ROOT — run provisioning/tidal-connect.sh" >&2
+    echo "Tidal Connect runtime missing at $TIDAL_ROOT — only the image build makes it (install_tidal_connect); reflash the card" >&2
     exit 1
 fi
 

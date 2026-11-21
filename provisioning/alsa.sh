@@ -3,8 +3,8 @@
 #
 # Deploys /etc/asound.conf and the three env files the source units read through
 # EnvironmentFile= (routing.env, snapclient.env, mac.env). The snd-aloop module
-# options are not here: pi-gen writes /etc/modprobe.d/snd-aloop.conf inline,
-# before it sources this file.
+# options are not here: they are rootfs/etc/modprobe.d/snd-aloop.conf, which the
+# stage copies before it sources this file and every update installs.
 #
 # Sourced by pi-gen/stage-milo during the image build.
 

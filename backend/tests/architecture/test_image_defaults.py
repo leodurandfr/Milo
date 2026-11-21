@@ -24,7 +24,7 @@ Five rules, each one the load-bearing half of a decision made elsewhere:
      every unit, silently, leaving the fleet on whatever the image baked.
 
   3. **No `WPA_COUNTRY`.** The regulatory domain travels through cmdline.txt
-     (`provisioning/boot-common.sh`, `00`) and is set for real by
+     (`SYSTEM_CMDLINE_SEED` in `system-manifest.env`, `00`) and is set for real by
      `milo-set-wifi-country`. A second declaration here is a second answer to
      "where is this unit", and the wizard already refuses to continue without
      the real one.

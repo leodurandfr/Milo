@@ -24,6 +24,7 @@ non-trivial before asserting anything about it: a guardrail that silently found
 nothing to look at is worse than no guardrail.
 """
 import ast
+import hashlib
 import os
 import re
 import shlex
@@ -561,3 +562,126 @@ def test_inspect_image_skips_a_ref_that_is_not_a_tag(tmp_path):
     """A manual build from a branch has no tag to sit on: checking it would fail
     every such image for a contract it never made."""
     assert _inspect_root(tmp_path, "main") == ["skip checkout ref (main is not a release tag)"]
+
+
+# --------------------------------------------------------------------------- #
+# The published shape: frozen, append-only.
+# --------------------------------------------------------------------------- #
+#
+# Release N installs release N+1 by reading what N+1's build published, with N's
+# code: the endpoint it asks which release is current, the asset names it builds
+# from that release's tag, the sidecar it parses the digest out of. Every check
+# above compares the workflow with the backend *at the same HEAD*, so a rename on
+# both sides in one commit keeps them green — and strands every unit on N, which
+# asks for a name N+1 no longer publishes and is refused at every press, for good:
+# the update is the only way N's code changes. The same crossing as the update
+# journal (test_server_update_trial.py) and the satellite's `POST /app/update`
+# form (test_milo_client_contract.py). Adding an asset, a field or a line is
+# free; renaming or removing one costs a reflash of every unit.
+
+FROZEN_REPO = "leodurandfr/Milo"
+FROZEN_LATEST_ENDPOINT = "https://api.github.com/repos/{repo}/releases/latest"
+FROZEN_FRONTEND_ASSET_URL = (
+    "https://github.com/leodurandfr/Milo/releases/download/{tag}/milo-frontend-{tag}.tar.gz"
+)
+FROZEN_SIDECAR_SUFFIX = ".sha256"
+# A sidecar as every published release carries it: `sha256sum`'s line.
+FROZEN_SIDECAR = (
+    "8d0bd1bc3d8a4fbd5a9a3c2f1e7b6d5c4b3a2918f7e6d5c4b3a29180f7e6d5c4  milo-frontend-v0.2.0.tar.gz\n",
+    "8d0bd1bc3d8a4fbd5a9a3c2f1e7b6d5c4b3a2918f7e6d5c4b3a29180f7e6d5c4",
+)
+# pi-gen's IMG_NAME: the image is published as `<build date>-milo.img.xz`, the
+# name README.md and docs/development.md send whoever flashes a card to.
+FROZEN_IMAGE_NAME = "milo"
+VERSION_SERVICE = REPO_ROOT / "backend" / "core" / "updates" / "version.py"
+PI_GEN_CONFIG = REPO_ROOT / "pi-gen" / "config"
+
+
+def _fstring_templates(path: Path) -> list[str]:
+    """Every f-string of a module, its fields written back as `{name}`."""
+    templates = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.JoinedStr):
+            parts = []
+            for value in node.values:
+                if isinstance(value, ast.Constant):
+                    parts.append(str(value.value))
+                elif isinstance(value, ast.FormattedValue) and isinstance(value.value, ast.Name):
+                    parts.append("{" + value.value.id + "}")
+                else:
+                    parts.append("{?}")
+            templates.append("".join(parts))
+    return templates
+
+
+def test_the_endpoint_and_the_asset_names_a_unit_asks_for_are_frozen(workflow):
+    """What the release installed on a unit asks GitHub for, and the names it
+    then downloads, are the names every later release publishes."""
+    milo = PROGRAMS["milo"]
+    assert milo["repo"] == FROZEN_REPO, (
+        f"the offer now asks {milo['repo']!r}: every unit on an earlier release keeps asking "
+        f"{FROZEN_REPO!r}, and is offered whatever is published there"
+    )
+    templates = _fstring_templates(VERSION_SERVICE)
+    assert len(templates) >= 5, f"f-strings not read from {VERSION_SERVICE.name}: {templates}"
+    assert FROZEN_LATEST_ENDPOINT in templates, (
+        f"version.py no longer asks {FROZEN_LATEST_ENDPOINT}: the unit's own answer to "
+        "'which release is current' would come from elsewhere than every earlier unit's"
+    )
+    assert milo["frontend_asset_url"] == FROZEN_FRONTEND_ASSET_URL, (
+        "the frontend asset moved: every unit on an earlier release downloads "
+        f"{FROZEN_FRONTEND_ASSET_URL}, which the next release would no longer publish"
+    )
+
+    # And what the workflow publishes, read out of the file as the same-HEAD
+    # check above reads it.
+    literal = re.search(r'frontend_asset=(\S+)" >> "\$GITHUB_OUTPUT"', WORKFLOW.read_text())
+    assert literal, "the vars job stopped writing the asset name to its output"
+    published = literal.group(1).replace("${REF}", "{tag}")
+    assert published == FROZEN_FRONTEND_ASSET_URL.rsplit("/", 1)[-1], published
+
+    names = re.findall(r'^IMG_NAME="([^"]+)"$', PI_GEN_CONFIG.read_text(), re.MULTILINE)
+    assert names == [FROZEN_IMAGE_NAME], f"pi-gen/config names the image {names}"
+    files = next(
+        step for step in workflow["build"]["steps"] if "action-gh-release" in str(step.get("uses", ""))
+    )["with"]["files"]
+    lines = [line.strip() for line in files.splitlines() if line.strip()]
+    assert lines[0] == "${{ env.compressed_image }}", f"the image is no longer the first file published: {lines}"
+
+
+def _pack_step(workflow) -> str:
+    steps = [step for step in workflow["frontend"]["steps"] if "sha256sum" in step.get("run", "")]
+    assert len(steps) == 1, f"expected the one step that packs the asset with its checksum: {steps}"
+    return steps[0]["run"]
+
+
+def test_the_sidecar_is_the_line_every_release_installed_reads(workflow, tmp_path):
+    """The workflow's own packing step, run for real, writes a sidecar the
+    installed release parses the digest out of; and a sidecar of the frozen
+    shape still parses. Fails when either side moves: a release whose sidecar
+    the units in the field cannot read is a release none of them can install.
+    """
+    from backend.core.updates import update
+
+    assert update.FRONTEND_SIDECAR_SUFFIX == FROZEN_SIDECAR_SUFFIX
+    sidecar, digest = FROZEN_SIDECAR
+    assert update.sidecar_digest(sidecar) == digest
+    assert update.sidecar_digest("<html>Not Found</html>") is None, "the parse no longer refuses"
+
+    asset = "milo-frontend-v9.8.7.tar.gz"
+    script = _pack_step(workflow).replace("${{ needs.vars.outputs.frontend_asset }}", asset)
+    assert "${{" not in script, f"the pack step reads another expression: {script}"
+    assert f'"${{ASSET}}{FROZEN_SIDECAR_SUFFIX}"' in script, f"the sidecar is no longer the asset's name + suffix: {script}"
+    (tmp_path / "frontend" / "dist").mkdir(parents=True)
+    (tmp_path / "frontend" / "dist" / "index.html").write_text("<!doctype html>")
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+
+    written = (tmp_path / f"{asset}{FROZEN_SIDECAR_SUFFIX}").read_text()
+    actual = hashlib.sha256((tmp_path / asset).read_bytes()).hexdigest()
+    assert update.sidecar_digest(written) == actual, written
+
+    release = next(
+        step for step in workflow["build"]["steps"] if "action-gh-release" in str(step.get("uses", ""))
+    )["with"]["files"]
+    assert f"frontend_asset }}}}{FROZEN_SIDECAR_SUFFIX}" in release, release

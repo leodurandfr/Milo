@@ -258,21 +258,9 @@ CamillaDSP is always in the audio path for volume control. DSP effects (EQ, comp
 
 ## Installation
 
-Services are installed by the pi-gen image build (`pi-gen/stage-milo/02-install-milo/01-run.sh`):
+Services are installed by the pi-gen image build (`pi-gen/stage-milo/02-install-milo/01-run.sh`), and again by every Milō update (`milo-deploy-update sync-system-files`), which copies `system/*.service` the same way.
 
-```bash
-# During the build, all .service files are copied:
-cp /home/milo/milo/system/*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-
-# Only core services are enabled at boot:
-sudo systemctl enable milo-backend.service
-sudo systemctl enable milo-readiness.service
-sudo systemctl enable milo-kiosk.service
-sudo systemctl enable milo-bluealsa.service
-sudo systemctl enable milo-bluealsa-aplay.service
-sudo systemctl enable milo-cpu-governor.service
-```
+Which units are enabled at boot (and which are masked) is declared once, in `system-manifest.env` (`SYSTEM_UNITS_ENABLED`, `SYSTEM_UNITS_MASKED`), and applied by both paths through `milo-deploy-update`. One unit is a seed instead: `milo-kiosk.service`, enabled by the image for a first boot, then enabled or disabled by `milo-apply-hardware` for the screen the unit is given.
 
 Audio source services (librespot, roc, radio, podcast) and multiroom services (snapcast) are **NOT enabled** - they are managed dynamically by the backend.
 

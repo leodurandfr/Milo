@@ -14,7 +14,7 @@ only one of them is Python:
 * `provisioning/snapcast.sh`, the snapserver.conf a card is flashed with, which
   runs inside a cloned pi-gen checkout and cannot import the table;
 * the CamillaDSP configs, whose capture is subdevice 0 of a Loopback card;
-* pi-gen's `snd-aloop` options line, which names the two Loopback cards.
+* the `options snd-aloop` line of rootfs/etc/modprobe.d/snd-aloop.conf, which names the two Loopback cards.
 
 A slot two of them disagree on is a source that plays to nobody in every room,
 with no error and every screen showing it playing. Every one of them addresses
@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[3]
 ASOUND = ROOT / "rootfs" / "etc" / "asound.conf"
 CLIENT_ASOUND = ROOT / "milo-client" / "rootfs" / "etc" / "asound.conf"
 PROVISIONING = ROOT / "provisioning" / "snapcast.sh"
-ALOOP = ROOT / "pi-gen" / "stage-milo" / "02-install-milo" / "01-run.sh"
+ALOOP = ROOT / "rootfs" / "etc" / "modprobe.d" / "snd-aloop.conf"
 # (CamillaDSP config, asound.conf, the PCM that feeds CamillaDSP in that tree)
 CAMILLADSP_INPUTS = (
     (ROOT / "rootfs" / "var" / "lib" / "milo" / "camilladsp" / "config.yml", ASOUND, "camilladsp"),
@@ -109,7 +109,7 @@ def _heredoc_sources():
 
 
 def _aloop_options():
-    """`{option: value}` of the `options snd-aloop` line pi-gen writes."""
+    """`{option: value}` of the `options snd-aloop` line rootfs/ ships."""
     line = re.search(r"options snd-aloop ([^\"\n]*)", ALOOP.read_text(encoding="utf-8")).group(1)
     options = dict(re.findall(r"(\w+)=(\S+)", line))
     assert len(options["id"].split(",")) >= 2, f"only parsed {options} from {ALOOP}"
@@ -170,7 +170,7 @@ def test_the_loopback_cards_are_named_and_never_numbered():
     assert ids <= addressed, f"snd-aloop creates {sorted(ids - addressed)}, which nothing reads"
 
 
-def test_the_docs_quote_the_module_options_pi_gen_writes():
+def test_the_docs_quote_the_module_options_rootfs_ships():
     """The guide to adding a source tells a developer to extend this line, so a
     stale copy is the one they extend: `index=1,2` outlived its removal there,
     the very option that makes a card's registration fail with -EBUSY."""
@@ -183,7 +183,7 @@ def test_the_docs_quote_the_module_options_pi_gen_writes():
     }
     assert len(quoted) >= 2, f"found the module options quoted only in {sorted(quoted)}; the extractor is broken"
     stale = {doc: line for doc, line in quoted.items() if line != written}
-    assert not stale, f"docs quote snd-aloop options other than pi-gen's `{written}`: {stale}"
+    assert not stale, f"docs quote snd-aloop options other than rootfs/'s `{written}`: {stale}"
 
 
 def test_the_provisioning_heredoc_is_the_capture_map():

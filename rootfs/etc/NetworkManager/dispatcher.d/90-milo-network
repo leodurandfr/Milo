@@ -6,7 +6,7 @@
 # without sacrificing WiFi as a fallback).
 #
 # Energy Efficient Ethernet is not handled here: config.txt turns it off in the
-# PHY (dtparam=eee=off, provisioning/system.sh). Switching it off from a script
+# PHY (dtparam=eee=off, system-manifest.env). Switching it off from a script
 # renegotiates a link that is already up — 3 s down at every boot, measured.
 #
 # Backend network status is no longer driven from here — NetworkService now

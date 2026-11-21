@@ -146,7 +146,7 @@ def _digest_keys(cfg: dict) -> set[str]:
 @pytest.fixture(scope="module")
 def scripts() -> dict[Path, str]:
     parsed = {p: _strip_comments(p.read_text()) for p in _provisioning_scripts()}
-    assert len(parsed) >= 20, f"only {len(parsed)} provisioning scripts found"
+    assert len(parsed) >= 15, f"only {len(parsed)} provisioning scripts found"
     return parsed
 
 

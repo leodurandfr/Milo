@@ -189,7 +189,8 @@ def test_the_inspection_refuses_an_image_carrying_the_vendor_tool(tmp_path):
     assert _screen_verdicts(tmp_path) == dict.fromkeys(SCREEN_CHECKS, "FAIL")
 
 
-APT_INSTALL_RE = re.compile(r"apt(?:-get)?\s+install\b")
+# `apt-get -o Acquire::Retries=3 install`, the stage's own spelling, included.
+APT_INSTALL_RE = re.compile(r"apt(?:-get)?\s+(?:-\S+\s+(?:\S+=\S+\s+)?)*install\b")
 
 
 def test_no_apt_install_is_silenced():
@@ -219,7 +220,8 @@ def test_the_apt_extractor_sees_the_installs():
         for line in _statements(path)
         if APT_INSTALL_RE.search(line)
     ]
-    assert len(found) >= 5, f"only {len(found)} apt install statements extracted"
+    assert len(found) >= 2, f"only {len(found)} apt install statements extracted"
+    assert any("SYSTEM_APT_PACKAGES" in line for line in found), "the manifest's install was not read"
     # ...and the matcher must discriminate.
     assert re.search(r"\|\|\s*true\s*$", "apt install -y x || true")
     assert not re.search(r"\|\|\s*true\s*$", "apt install -y x || apt install -y y")
@@ -232,9 +234,19 @@ PINNED_PACKAGE_RE = re.compile(
     r"/([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*?)[_-](?:linux|\$)"
 )
 
-# `NN-packages[-nr]` lists are installed by pi-gen itself, one name per word, with no
-# version: a pinned package listed there is the same fallback by another path.
-PACKAGE_LISTS = sorted((REPO_ROOT / "pi-gen" / "stage-milo").rglob("*-packages*"))
+# The system manifest's packages are installed by the image and by every update,
+# one name per word, with no version: a pinned package listed there is the same
+# fallback by another path.
+SYSTEM_MANIFEST = REPO_ROOT / "system-manifest.env"
+
+
+def _manifest_packages() -> list[str]:
+    out = subprocess.run(
+        ["bash", "-c", f'source "{SYSTEM_MANIFEST}"; printf "%s\\n" "${{SYSTEM_APT_PACKAGES[@]}}"'],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert len(out) >= 50, f"only {out} read from {SYSTEM_MANIFEST.name}"
+    return out
 
 
 def _pinned_packages(declared: set[str]) -> set[str]:
@@ -294,12 +306,8 @@ def test_a_pinned_dependency_has_no_unpinned_install_fallback():
         for line in _statements(path)
         if _unpinned_install_of(line, packages, declared)
     ]
-    assert PACKAGE_LISTS, "no pi-gen 00-packages list found"
     fallbacks += [
-        f"pi-gen: {path.relative_to(REPO_ROOT)}: {name}"
-        for path in PACKAGE_LISTS
-        for line in _statements(path)
-        for name in sorted(set(line.split()) & packages)
+        f"system-manifest.env: {name}" for name in sorted(set(_manifest_packages()) & packages)
     ]
     assert not fallbacks, (
         "these installs take a package dependencies.env pins from the "

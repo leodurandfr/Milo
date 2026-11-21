@@ -23,9 +23,8 @@ MILO_APP_DIR="${MILO_APP_DIR:-/home/$MILO_USER/milo}"
 install_qobuz_proxy() {
     log_info "Installing qobuz-proxy..."
 
-    # PortAudio runtime — required by the 'local' backend (pulls sounddevice).
-    apt-get install -y libportaudio2
-
+    # The PortAudio runtime its 'local' backend needs (sounddevice) is a package
+    # of the system manifest, installed by 00-install-deps and by every update.
     mkdir -p "$MILO_DATA_DIR/qobuz"
 
     # Build the venv + install the pinned tag. The '[local]' extra pulls

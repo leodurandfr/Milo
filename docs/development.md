@@ -400,7 +400,7 @@ pcm.milo_mysource_multiroom {
 }
 ```
 
-Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. The snd-aloop module options are written in exactly one place, `pi-gen/stage-milo/02-install-milo/01-run.sh` (`/etc/modprobe.d/snd-aloop.conf`), which today declares two cards:
+Only once all 8 `LoopbackDLNA` subdevices are in use does a new source need a *third* loopback card. The snd-aloop module options are written in exactly one place, `rootfs/etc/modprobe.d/snd-aloop.conf`, which the image copies and every Milō update installs, and which today declares two cards:
 ```
 options snd-aloop enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
 ```
@@ -918,6 +918,23 @@ npm run build
 
 # nginx serves the static dist/ directly — there is no milo-frontend service.
 ```
+
+### What the image installs, an update installs
+
+A card flashed with a release and a unit updated to it must end the same, so
+nothing the image build installs is written only in `pi-gen/stage-milo/`:
+
+- a file goes in `rootfs/` (or `system/` for a unit), which the stage copies and
+  every update's `milo-deploy-update sync-system-files` installs;
+- a package, a config.txt or cmdline.txt line, or a unit to enable or mask goes in
+  `system-manifest.env`, which the stage applies and every update applies again —
+  additively, so the update guard's sync back runs offline;
+- anything else is listed, with the reason no update has to redo it, in
+  `backend/tests/architecture/test_image_update_convergence.py`, which fails on a
+  stage line that is none of the three.
+
+An update is run by the installed `milo-deploy-update` — the departing release's —
+so a change to how the manifest is applied takes effect one release later.
 
 ### Creating a release
 

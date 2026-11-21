@@ -1,5 +1,5 @@
 #!/bin/bash -e
-# Milo pi-gen stage: Enable services and finalize system configuration
+# Milo pi-gen stage: Unit states, boot lines, and the final cleanup
 
 # ── Set default boot target ──────────────────────────────────────────────────
 
@@ -8,25 +8,13 @@ on_chroot << 'CHROOT'
 systemctl set-default graphical.target
 CHROOT
 
-# ── Enable boot services ─────────────────────────────────────────────────────
+# ── The kiosk, enabled for a first boot ──────────────────────────────────────
+# A seed, not a manifest unit: from the setup wizard on, milo-apply-hardware
+# enables it or disables it for the screen the unit is given, and an update must
+# not turn a kiosk back on over no screen.
 
 on_chroot << 'CHROOT'
-systemctl enable milo-first-boot.service
-systemctl enable milo-backend.service
-systemctl enable milo-readiness.service
 systemctl enable milo-kiosk.service
-systemctl enable milo-bluealsa.service
-systemctl enable milo-bluealsa-aplay.service
-systemctl enable milo-cpu-governor.service
-systemctl enable milo-camilladsp.service
-systemctl enable nqptp.service
-systemctl enable seatd.service
-systemctl enable avahi-daemon
-systemctl enable nginx
-# The IPv6 firewall (00-run.sh), in both roles. Its unit comes with the base
-# image; a base image without it fails the build here rather than shipping a
-# card with no firewall.
-systemctl enable nftables.service || { echo "FATAL: nftables.service missing from the base image"; exit 1; }
 CHROOT
 
 # ── Disable conflicting default services ─────────────────────────────────────
@@ -45,14 +33,20 @@ systemctl disable snapclient.service 2>/dev/null || true
 systemctl disable milo-client.service 2>/dev/null || true
 systemctl disable milo-client-snapclient.service 2>/dev/null || true
 systemctl disable milo-client-camilladsp.service 2>/dev/null || true
+
+# Enabled by the base image; the system manifest masks it as well
+systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
 CHROOT
 
-# ── Optimize boot performance ────────────────────────────────────────────────
+# ── The system manifest: boot lines and unit states ──────────────────────────
+# config.txt's managed block, cmdline.txt's managed tokens, and every unit the
+# manifest enables or masks — by the installed milo-deploy-update, over the
+# checkout's system-manifest.env: the code and the declaration every Milō update
+# applies them with, so a card flashed with a release and a unit updated to it
+# end the same. After everything above, so its masks come after the disables.
 
 on_chroot << 'CHROOT'
-# NetworkManager-wait-online adds ~13s to boot and is not needed
-systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
-systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
+/usr/local/bin/milo-deploy-update apply-system-manifest
 CHROOT
 
 # ── Final cleanup ────────────────────────────────────────────────────────────

@@ -38,6 +38,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.architecture.test_image_update_convergence import _manifest
 from backend.tests.architecture.test_rootfs_deployment import _stage_text
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -696,8 +697,11 @@ def test_the_image_installs_the_firewall_and_enables_it():
     `milo-first-boot` converts a device to a satellite without touching these
     files or the unit, which is why the image installs the server's copies once.
     Fails when the stage no longer copies one of the three files to the path the
-    others name, or no longer enables nftables.service — a ruleset installed and
-    never loaded.
+    others name, or the system manifest no longer enables nftables.service — a
+    ruleset installed and never loaded. The manifest is what the stage and every
+    Milō update enable units from (test_image_update_convergence.py holds both
+    to it), so a unit updated to the release that brought the firewall loads it
+    too.
     """
     stage = _strip_comments(_stage_text()).replace("\\\n", " ")
     assert "on_chroot" in stage, "the pi-gen stage was not read"
@@ -708,9 +712,9 @@ def test_the_image_installs_the_firewall_and_enables_it():
             rf"\bcp\s+/home/milo/milo/rootfs/{re.escape(rel)}\s+(?:{destination}|{directory})\s*$",
             stage, re.MULTILINE,
         ), f"pi-gen/stage-milo never installs rootfs/{rel} at /{rel}"
-    assert re.search(r"^\s*systemctl enable nftables\.service\b", stage, re.MULTILINE), (
-        "pi-gen/stage-milo never enables nftables.service"
-    )
+    enabled = _manifest()["SYSTEM_UNITS_ENABLED"]
+    assert "milo-backend.service" in enabled, f"the manifest's units were not read: {enabled}"
+    assert "nftables.service" in enabled, "system-manifest.env never enables nftables.service"
 
 
 # --------------------------------------------------------------------------- #

@@ -959,7 +959,7 @@ options snd-aloop enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8
 - **`LoopbackDLNA`**, subdevice 3: Tidal (multiroom) — the Tidal Connect daemon writes `hw:LoopbackDLNA,0,3`, Snapserver reads `hw:LoopbackDLNA,1,3`.
 - **`LoopbackDLNA`**, subdevices 4..7: free.
 
-A new source takes subdevice 0 of `LoopbackDLNA` first, then 4..7; only once all eight are taken does it need another loopback card (extend `enable`/`id`/`pcm_substreams` in the module options, written once in `pi-gen/stage-milo/02-install-milo/01-run.sh`).
+A new source takes subdevice 0 of `LoopbackDLNA` first, then 4..7; only once all eight are taken does it need another loopback card (extend `enable`/`id`/`pcm_substreams` in the module options, written once in `rootfs/etc/modprobe.d/snd-aloop.conf`).
 
 ### High-quality resampling (44.1 → 48 kHz)
 
@@ -1332,8 +1332,13 @@ holds the two copies equal.
    `git checkout --force <tag>`; a copy of the venv and a `pip install --require-hashes` of
    `requirements.lock` only when the lock pins something new, then an import of every backend module but
    `main` with the venv's python, a compile of `main.py` and `pip check`;
-   `milo-deploy-update sync-system-files`, which renames every file into place and syncs; the
-   frontend swapped in, the previous one kept as `dist/`.
+   `milo-deploy-update sync-system-files`, which renames every file into place, then applies the
+   release's `system-manifest.env` — the packages it names that are missing (one `apt-get
+   install --no-install-recommends --no-remove`, after a `dpkg --configure -a` that waits out a
+   held lock), config.txt's `# BEGIN MILO SYSTEM` block, cmdline.txt's managed tokens, the units
+   it enables and masks — and syncs; the frontend swapped in, the previous one kept as `dist/`.
+   The manifest is what the image applies too, by the same code, so a unit updated to a release
+   holds what a card flashed with it holds (`test_image_update_convergence.py`).
 4. **The reboot**: the journal at `rebooting`, the inhibitor stopped, the unit rebooted. A refused
    reboot restarts the backend instead, and the trial runs in the same boot.
 
@@ -1366,7 +1371,13 @@ written before the first (`rolling-back.json`), so a restore cut by a power loss
   removed, since the new release may have created it in a schema the previous one refuses;
 - the previous release's system files installed again through
   `sudo -n milo-deploy-update sync-system-files`, the backend's own grant. Files the new release
-  added stay: nothing is removed.
+  added stay: nothing is removed. Nor is anything from its manifest — a package stays installed, a
+  unit enabled, a cmdline token in place — which is what lets this step run at boot and offline:
+  what the previous release declares is already there, so it reads no package list. The step runs
+  the newer release's `milo-deploy-update` over the previous release's tree, which is why the
+  manifest's array names are frozen. A rollback to a release older than the manifest puts its files
+  back, then finds no `system-manifest.env` and fails there: it reads `rollback_failed`, and the unit
+  runs the previous release with its files.
 
 The outcome goes to `last-update.json` — `rolled_back`, or `rollback_failed` naming the first step
 that failed — and the journal is closed, so a release is rolled back once and its starts are no

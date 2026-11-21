@@ -1,12 +1,13 @@
 #!/bin/bash
 # Milo - Shared install helpers
 #
-# Sourced first by every pi-gen stage block and by the two systemd units that
-# reuse a provisioning/ function at run time, so the modules they source find the
-# log helpers and the pinned dependency versions already defined. That ordering
-# is a hard requirement, enforced by test_provisioning_parity.py.
+# Sourced first by every pi-gen stage block and by the one systemd unit that
+# reuses a provisioning/ function at run time (milo-navidrome-config.service), so
+# the modules they source find the log helpers and the pinned dependency
+# versions already defined. That ordering is a hard requirement, enforced by
+# test_provisioning_parity.py.
 #
-# Every consumer runs as root — pi-gen through on_chroot, the units with no
+# Every consumer runs as root — pi-gen through on_chroot, the unit with no
 # User= — so no module here uses sudo. It carried one on every privileged line
 # back when install.sh ran as the milo user.
 
@@ -19,7 +20,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/../dependencies.env"
 # Colour codes
 # ============================================================================
 
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -41,20 +41,12 @@ log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
 # ============================================================================
 # Boot partition
 # ============================================================================
 
 # config.txt is on the boot partition, mounted at /boot/firmware since
-# Bookworm and at /boot before.
+# Bookworm — the only layout a Milō image has.
 boot_config_file() {
-    if [[ -f /boot/firmware/config.txt ]]; then
-        echo /boot/firmware/config.txt
-    else
-        echo /boot/config.txt
-    fi
+    echo /boot/firmware/config.txt
 }

@@ -104,10 +104,9 @@ apt-get purge -y cloud-init rpi-cloud-init-mods
 apt-get autoremove --purge -y
 CHROOT
 
-# Clean up build caches to reduce image size. The apt *lists* deliberately stay:
-# later stages still install packages (02-install-milo pulls libportaudio2 for
-# qobuz-proxy), and without an index apt has no candidate version. 03-configure's
-# final cleanup wipes them once nothing else needs apt.
+# Clean up build caches to reduce image size. The apt *lists* stay until
+# 03-configure's final cleanup wipes them: every package is installed by
+# 00-install-deps, from the system manifest, and nothing after it needs apt.
 on_chroot << 'CHROOT'
 apt-get clean
 rm -rf /tmp/*

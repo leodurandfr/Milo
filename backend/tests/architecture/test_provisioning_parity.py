@@ -8,12 +8,14 @@ command line says exists exactly once. A stage block that restates instead of
 sourcing is a second copy, and the two drift.
 
 That is not hypothetical. `pi-gen/…/03-configure/00-run.sh` restated the whole
-kernel command line twenty lines above the block that sources
-`provisioning/boot-common.sh` — the file whose header calls itself the single source
-of truth for it — and the two drifted by exactly one token:
-`cfg80211.ieee80211_regdom=FR` on the image, `=00` in the module, so a flashed
-unit came up under French radio rules wherever it was sold. `provisioning/network.sh`
-was the same shape for the nginx site.
+kernel command line twenty lines above the block that sourced the module whose
+header called itself the single source of truth for it, and the two drifted by
+exactly one token: `cfg80211.ieee80211_regdom=FR` on the image, `=00` in the
+module, so a flashed unit came up under French radio rules wherever it was sold.
+The nginx site was the same shape. Both have since left `provisioning/`: the
+command line is the system manifest's (`system-manifest.env`) and the site is a
+rootfs/ file, so that every Milō update writes them as the image does — and the
+rule here is the same, one declaration, now outside the stage.
 
 Two more rules on the same relationship. **`provisioning/common.sh` comes first**: the
 modules call `log_*` and read the versions it sources, and the fallback that used
@@ -48,9 +50,11 @@ SYSTEM_DIR = REPO_ROOT / "system"
 ENABLE_RE = re.compile(r"^[^#\n]*systemctl\s+enable\s+(\S+)", re.MULTILINE)
 
 # A shell function invoked as a bare statement: the name alone on its line, or
-# followed by arguments. Anchored at line start so a mention inside a comment or
-# a `systemctl` argument never counts as a call.
-CALL_RE = re.compile(r"^\s*([a-z_][a-z0-9_]*)(?:\s|$)", re.MULTILINE)
+# followed by arguments — or by the `;` `declare -f` ends a statement with, so a
+# call with no argument inside a function body is seen too. Anchored at line
+# start so a mention inside a comment or a `systemctl` argument never counts as
+# a call.
+CALL_RE = re.compile(r"^\s*([a-z_][a-z0-9_]*)(?:\s|;|$)", re.MULTILINE)
 
 
 def _unit_name(target: str) -> str:
@@ -136,11 +140,9 @@ def bodies() -> dict[str, str]:
     # Non-trivial-output check: a parse that yields nothing, or that truncates a
     # body at its first heredoc, must fail here rather than pass every assertion
     # below on an empty surface.
-    assert len(parsed) > 15, f"only {len(parsed)} provisioning/ functions parsed"
-    assert "systemctl enable milo-ir-keytable.service" in bodies_of(
-        parsed, "install_ir_systemd_service"
-    )
-    assert "sites-available/milo" in bodies_of(parsed, "write_nginx_site")
+    assert len(parsed) > 12, f"only {len(parsed)} provisioning/ functions parsed"
+    assert "# BEGIN MILO IR" in bodies_of(parsed, "configure_ir_overlay")
+    assert "/etc/snapserver.conf" in bodies_of(parsed, "configure_snapserver")
     return parsed
 
 
@@ -149,59 +151,71 @@ def bodies_of(parsed: dict[str, str], name: str) -> str:
     return parsed[name]
 
 
+NGINX_SITE = REPO_ROOT / "rootfs" / "etc" / "nginx" / "sites-enabled" / "milo"
+
+
 def test_nginx_site_config_is_written_from_one_place(bodies):
-    """pi-gen must source the module's nginx writer, not restate it.
+    """The site is one file, rootfs/etc/nginx/sites-enabled/milo, which the stage
+    copies and every update installs.
 
-    `provisioning/network.sh` was the one module pi-gen copy-pasted instead of
-    sourcing, so the two spellings of the site config drifted with nothing
-    comparing them. Fails if a `server {` block reappears anywhere under
-    `pi-gen/`.
+    The image once wrote it from a heredoc pi-gen had copy-pasted rather than
+    sourced, and the two spellings drifted with nothing comparing them. Fails if
+    a site config reappears under `pi-gen/` or `provisioning/`.
     """
-    assert "server_name milo.local" in bodies_of(bodies, "write_nginx_site")
+    assert "server_name milo.local" in NGINX_SITE.read_text()
 
-    for script in _pi_gen_scripts():
+    for script in [*_pi_gen_scripts(), *sorted(PROVISIONING_DIR.glob("*.sh"))]:
         assert "server_name" not in script.read_text(), (
             f"{script.relative_to(REPO_ROOT)} restates the nginx site config; "
-            "source provisioning/network.sh and call write_nginx_site instead"
+            f"copy {NGINX_SITE.relative_to(REPO_ROOT)} instead"
         )
+
+
+SYSTEM_MANIFEST = REPO_ROOT / "system-manifest.env"
+ROOTFS_DIR = REPO_ROOT / "rootfs"
 
 
 def test_the_kernel_command_line_is_written_from_one_place():
-    """pi-gen must reuse the module's cmdline writer, not restate the list.
+    """The command line is declared once, in system-manifest.env, and written by
+    one function, milo-deploy-update's, for the image and for every update.
 
-    `provisioning/boot-common.sh` declares `BOOT_PARAMS_COMMON` and calls itself the
-    single source of truth for it; `pi-gen/…/03-configure/00-run.sh` restated the
-    whole list inline, twenty lines above the block that sources that very file.
-    The two then drifted by exactly one token — `cfg80211.ieee80211_regdom=FR`
-    inline, `=00` in the module — so a flashed unit came up under French radio
-    rules wherever it was sold. Fails if any pi-gen script grows its own copy of
-    the list.
+    The stage once restated the whole list inline, twenty lines above the block
+    that sourced its declaration, and the two drifted by exactly one token —
+    `cfg80211.ieee80211_regdom=FR` inline, `=00` in the module — so a flashed
+    unit came up under French radio rules wherever it was sold. Fails if any
+    stage script, provisioning module or rootfs script grows its own copy.
     """
-    declarations = [
-        p for p in [*PROVISIONING_DIR.glob("*.sh"), *_pi_gen_scripts()]
-        if "BOOT_PARAMS_COMMON=" in p.read_text()
+    # The token below appears only in a full command line, never in a call to
+    # the writer — so its presence anywhere else *is* a restated list.
+    token = "plymouth.ignore-serial-consoles"
+    assert token in SYSTEM_MANIFEST.read_text(), "the manifest no longer declares the command line"
+    scripts = [
+        *_pi_gen_scripts(),
+        *sorted(PROVISIONING_DIR.glob("*.sh")),
+        *(p for p in sorted(ROOTFS_DIR.rglob("*")) if p.is_file()),
     ]
-    assert declarations == [PROVISIONING_DIR / "boot-common.sh"], (
-        "BOOT_PARAMS_COMMON must be declared exactly once, in provisioning/boot-common.sh; "
-        f"found in {[str(p.relative_to(REPO_ROOT)) for p in declarations]}"
+    restated = [str(p.relative_to(REPO_ROOT)) for p in scripts if token in p.read_text(errors="ignore")]
+    assert not restated, (
+        f"these restate the kernel command line; declare it in {SYSTEM_MANIFEST.name} "
+        f"(SYSTEM_CMDLINE) instead: {restated}"
     )
 
-    # The token below appears only in a full command line, never in a call to the
-    # writer — so its presence under pi-gen/ *is* a restated list.
-    for script in _pi_gen_scripts():
-        assert "plymouth.ignore-serial-consoles" not in script.read_text(), (
-            f"{script.relative_to(REPO_ROOT)} restates the kernel command line; "
-            "source provisioning/boot-common.sh + provisioning/display.sh and call "
-            "configure_cmdline \"$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN\" instead"
-        )
+
+def _manifest_enabled() -> set[str]:
+    out = subprocess.run(
+        ["bash", "-c", f'source "{SYSTEM_MANIFEST}"; printf "%s\\n" "${{SYSTEM_UNITS_ENABLED[@]}}"'],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert len(out) >= 10, f"only {out} read from {SYSTEM_MANIFEST.name}"
+    return {_unit_name(u) for u in out}
 
 
 def _source_units() -> set[str]:
     """Units the backend starts on demand, derived from the typed enum.
 
     `milo-<source_id>.service`, `_`→`-`. These carry an [Install] and are
-    deliberately never enabled — `provisioning/system.sh` lists them by name in a
-    comment for exactly that reason.
+    deliberately never enabled — `pi-gen/…/03-configure/01-run.sh` lists them by
+    name in a comment for exactly that reason.
     """
     ids = [s.value for s in AudioSource if s is not AudioSource.NONE]
     assert len(ids) >= 10, f"AudioSource yielded only {ids} — the extractor is broken"
@@ -224,8 +238,10 @@ def test_every_installable_unit_is_enabled_or_is_started_on_demand(bodies):
     }
     assert len(installable) >= 15, f"only {sorted(installable)} units parsed"
 
-    enabled = _units_enabled(_pi_gen_scripts(), bodies)
-    assert "milo-backend" in enabled, "the enabled-unit extractor is broken"
+    # The stage's own seeds, plus what the system manifest enables — which the
+    # stage applies (and every update again) through milo-deploy-update.
+    enabled = _units_enabled(_pi_gen_scripts(), bodies) | _manifest_enabled()
+    assert "milo-backend" in enabled and "milo-kiosk" in enabled, "the enabled-unit extractor is broken"
 
     orphans = sorted(installable - enabled - _source_units())
     assert not orphans, (
@@ -289,7 +305,7 @@ def test_the_consumer_extractor_sees_both_kinds():
     the ones that source a module *on the appliance* — entirely unchecked.
     """
     consumers = _module_consumers()
-    assert len(consumers) >= 10, f"only {len(consumers)} module consumers extracted"
+    assert len(consumers) >= 8, f"only {len(consumers)} module consumers extracted"
     assert any("pi-gen" in name for name, _ in consumers), "no pi-gen stage block found"
     assert any(".service" in name for name, _ in consumers), "no systemd unit found"
 

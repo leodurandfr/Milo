@@ -41,14 +41,10 @@ CHROOT
 # ── ALSA configuration ───────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-# ALSA loopback: 2 cards — "Loopback" (DSP slot 0 + 7 sources) and "LoopbackDLNA"
-# (Qobuz, Music Library, Tidal). snd-aloop caps at 8 substreams/card, so an 8th source
-# needs a second card rather than a 9th substream (which the driver rejects).
-# No index=: every consumer addresses the cards by id, and a slot claimed
-# explicitly that another card already holds fails that card's registration
-# (-EBUSY), taking every multiroom stream on it down without a message.
-echo "snd-aloop" > /etc/modules-load.d/snd-aloop.conf
-echo "options snd-aloop enable=1,1 id=Loopback,LoopbackDLNA pcm_substreams=8,8" > /etc/modprobe.d/snd-aloop.conf
+# The ALSA loopback cards and their options, from rootfs/ (see the files): an
+# update installs them too, where an `echo` here reached new cards only.
+cp /home/milo/milo/rootfs/etc/modules-load.d/snd-aloop.conf /etc/modules-load.d/snd-aloop.conf
+cp /home/milo/milo/rootfs/etc/modprobe.d/snd-aloop.conf /etc/modprobe.d/snd-aloop.conf
 
 # ALSA routing + env files (asound.conf, routing.env, snapclient.env, mac.env).
 # Reuse provisioning/alsa.sh::configure_alsa_complete rather than restating it here —
@@ -149,17 +145,15 @@ cp /home/milo/milo/rootfs/etc/dbus-1/system.d/shairport-sync-dbus.conf \
 CHROOT
 
 # ── Nginx configuration ──────────────────────────────────────────────────────
-# Reuse provisioning/network.sh::write_nginx_site rather than restating
-# /etc/nginx/sites-available/milo here — single source of truth. Inline-writing it
-# is what let two spellings of the site config drift: this was the one module
-# pi-gen copy-pasted rather than sourced. The writer does no service interaction,
-# because `nginx -t` + `systemctl reload nginx` are not valid inside the chroot.
+# The site is a rootfs/ file, so every Milō update installs it too: written by
+# the image alone, a fix to it (the adoption's 150 s read timeout) reached new
+# cards and no running unit. No reload here: first boot starts nginx.
 
 on_chroot << 'CHROOT'
-cd /home/milo/milo
-source provisioning/common.sh
-source provisioning/network.sh
-write_nginx_site
+cp /home/milo/milo/rootfs/etc/nginx/sites-enabled/milo /etc/nginx/sites-enabled/milo
+# Debian's default site answers every request made by address rather than by
+# name. The package puts it in place at its first install only.
+rm -f /etc/nginx/sites-enabled/default
 CHROOT
 
 # ── Nginx permissions ────────────────────────────────────────────────────────
@@ -202,15 +196,8 @@ cp /home/milo/milo/rootfs/etc/NetworkManager/conf.d/90-milo-wifi-powersave.conf 
 cp /home/milo/milo/rootfs/etc/NetworkManager/conf.d/90-milo-ethernet-ipv4.conf /etc/NetworkManager/conf.d/
 
 # NetworkManager connectivity check — drop-in read by the backend connectivity
-# D-Bus subscriber (backend/core/connectivity/service.py). Written inline rather
-# than through provisioning/network.sh: applying it needs a NetworkManager reload,
-# which is not valid inside the build chroot, so first boot applies it.
-mkdir -p /etc/NetworkManager/conf.d
-tee /etc/NetworkManager/conf.d/99-milo-connectivity.conf > /dev/null << 'EOF'
-[connectivity]
-uri=http://nmcheck.gnome.org/check_network_status.txt
-interval=300
-EOF
+# D-Bus subscriber (backend/core/connectivity/service.py).
+cp /home/milo/milo/rootfs/etc/NetworkManager/conf.d/99-milo-connectivity.conf /etc/NetworkManager/conf.d/
 CHROOT
 
 # ── PolicyKit rules ───────────────────────────────────────────────────────────

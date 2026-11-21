@@ -1,9 +1,10 @@
 #!/bin/bash
 # Milo - IR Remote support (Apple Remote via TSOP4838 on GPIO17)
 #
-# Installs the gpio-ir device-tree overlay, the keymap directory, the
-# sudoers-protected keymap helper, and the oneshot service that enables NEC
-# decoding at boot. The ir-keytable package comes from pi-gen's 00-packages.
+# Writes the gpio-ir device-tree overlay's default and installs the
+# sudoers-protected keymap helper. The ir-keytable package and the oneshot
+# service that enables NEC decoding at boot (milo-ir-keytable.service) are the
+# system manifest's (system-manifest.env).
 #
 # Sourced by pi-gen/stage-milo during the image build.
 
@@ -54,14 +55,3 @@ install_ir_helpers() {
 
     log_success "IR helper scripts installed"
 }
-
-install_ir_systemd_service() {
-    log_info "Enabling milo-ir-keytable systemd service..."
-
-    # The unit file itself is copied by the pi-gen stage's system/*.service glob
-    # (02-install-milo/01-run.sh). Here we just enable it so it runs at boot.
-    systemctl enable milo-ir-keytable.service
-
-    log_success "milo-ir-keytable.service enabled"
-}
-

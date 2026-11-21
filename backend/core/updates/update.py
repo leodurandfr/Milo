@@ -65,6 +65,19 @@ QOBUZ_ADAPTER = "/usr/local/bin/milo-qobuz"
 # none for this file": an install of a version past the manifest.
 NO_DIGEST = "-"
 
+# The checksum a release publishes beside its frontend asset: the asset's URL
+# with this suffix, holding `sha256sum`'s line for it — the digest, then the
+# file name. Read by the release installed on a unit, written by the build of
+# the next one: frozen, as test_release_channel.py says.
+FRONTEND_SIDECAR_SUFFIX = ".sha256"
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def sidecar_digest(text: str) -> Optional[str]:
+    """The sha256 a checksum sidecar holds, or None when it holds none."""
+    words = text.split()
+    return words[0] if words and _SHA256_RE.fullmatch(words[0]) else None
+
 
 def source_archive_url(repo: str, tag: str) -> str:
     """The source archive GitHub serves for a tag — what the manifest's digest
@@ -894,9 +907,9 @@ class UpdateService(VersionService):
             archive = staging / "frontend.tar.gz"
             # The sidecar first: it is what the asset is checked against, as it
             # streams in.
-            published = await self._fetch_release_text(f"{url}.sha256")
-            expected = published.split()[0] if published else ""
-            if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            published = await self._fetch_release_text(f"{url}{FRONTEND_SIDECAR_SUFFIX}")
+            expected = sidecar_digest(published)
+            if expected is None:
                 raise Exception(f"The {tag} frontend's checksum sidecar holds no sha256: {published!r}")
             await self._download_release_asset(url, archive, expected)
 
@@ -1314,16 +1327,21 @@ class UpdateService(VersionService):
             return False, str(e)
 
     async def _sync_system_files(self) -> None:
-        """Sync system/ and rootfs/ files to their system destinations.
+        """Sync system/ and rootfs/ files to their system destinations, then
+        the release's system manifest.
 
         Delegates to `milo-deploy-update sync-system-files`, which installs
-        system/*.service and rootfs/** in place, each through a rename, and
-        reloads what reads them.
+        system/*.service and rootfs/** in place, each through a rename, then
+        applies `system-manifest.env` — the packages it names that are
+        missing, config.txt's managed block, cmdline.txt's managed tokens, the
+        units it enables and masks — and reloads what reads them.
 
-        Raises on failure rather than warning: the units and the rootfs helpers
-        this copies are what the new code expects to find on the next boot, so a
-        sync that did not happen is an update that did not happen. The caller
-        hands the unit to the guard, which syncs the previous release's back.
+        Raises on failure rather than warning: the units, the rootfs helpers
+        and the packages this installs are what the new code expects to find on
+        the next boot, so a sync that did not happen is an update that did not
+        happen. A package apt cannot install fails it here, before the reboot,
+        on a line naming the package and apt's reason. The caller hands the unit
+        to the guard, which syncs the previous release's back.
         """
         success, output = await self._run_deploy("sync-system-files", warn_after=60)
         if not success:

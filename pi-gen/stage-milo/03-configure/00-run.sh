@@ -1,6 +1,8 @@
 #!/bin/bash -e
 # Milo pi-gen stage: System configuration
-# Plymouth, boot params, fan control, IPv6 firewall, udev, sudoers, kiosk, cursor theme
+# Plymouth, IR remote, BlueZ, journald, sysctl, IPv6 firewall, udev, sudoers,
+# cursor theme. The boot lines and the unit states are the system manifest's,
+# applied at the end of 01-run.sh.
 
 # ── Plymouth boot splash ─────────────────────────────────────────────────────
 
@@ -15,51 +17,14 @@ done
 
 plymouth-set-default-theme milo
 update-initramfs -u
-
-# Mask plymouth-quit services (milo-readiness handles quit manually)
-systemctl mask plymouth-quit.service plymouth-quit-wait.service
-CHROOT
-
-# ── Boot parameters (cmdline.txt) ────────────────────────────────────────────
-# Single source of truth: the parameter list lives in provisioning/boot-common.sh and
-# the writer in provisioning/display.sh, exactly as for config.txt below. Restating
-# them here is what let the two provisioning paths drift — the inline list said
-# `cfg80211.ieee80211_regdom=FR` while the module's said `=00`, so a flashed
-# unit started under French radio rules wherever it was sold, until someone
-# opened the WiFi-country setting. Every other token was identical, which is how
-# the divergence survived: nothing compared the two lists.
-
-on_chroot << 'CHROOT'
-cd /home/milo/milo
-source provisioning/common.sh
-source provisioning/boot-common.sh
-source provisioning/display.sh
-configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
-CHROOT
-
-# ── Boot config.txt (silent boot, fan, EEE) ──────────────────────────────────
-# Single source of truth: reuse the provisioning/ functions rather than duplicating
-# their sed/cat here.
-# The power button — its LED in config.txt and the bootloader EEPROM — is not
-# set here: it is declared on the Hardware page and applied by
-# milo-apply-hardware (the wizard's apply included), on the device, since a
-# chroot has no EEPROM.
-
-on_chroot << 'CHROOT'
-cd /home/milo/milo
-source provisioning/common.sh
-source provisioning/boot-common.sh
-source provisioning/system.sh
-configure_silent_boot
-configure_fan_control
-configure_ethernet_eee
 CHROOT
 
 # ── IR remote (Apple Remote via TSOP4838 on GPIO17) ──────────────────────────
-# The ir-keytable package is installed in 00-install-deps (apt lists are wiped
-# before this stage, so no apt here).
-# Reuse provisioning/ir-remote.sh as the single source of truth: gpio-ir overlay in
-# config.txt, keymap helper scripts + sudoers, and the boot keytable service.
+# The ir-keytable package is a package of the system manifest, and the boot
+# keytable service one of its units. Reuse provisioning/ir-remote.sh as the
+# single source of truth for the rest: the gpio-ir overlay's default in
+# config.txt (milo-apply-hardware owns that block from the setup wizard on),
+# and the keymap helper scripts + sudoers.
 on_chroot << 'CHROOT'
 cd /home/milo/milo
 source provisioning/common.sh
@@ -67,7 +32,6 @@ source provisioning/ir-remote.sh
 mkdir -p /etc/rc_keymaps
 configure_ir_overlay
 install_ir_helpers
-install_ir_systemd_service
 CHROOT
 
 # ── BlueZ LE connection parameters ───────────────────────────────────────────
@@ -119,13 +83,15 @@ CHROOT
 # ── IPv6 firewall: nothing from beyond the link ──────────────────────────────
 # One `ip6` table replaces Debian's /etc/nftables.conf: a new inbound IPv6
 # connection is accepted from the link and the unit's own prefixes only (see
-# the file). nftables itself is in the base image; 01-run.sh enables it. The
-# satellite tree carries the same three files, so a device converted by
+# the file). nftables itself is in the base image; the system manifest enables
+# it. The satellite tree carries the same three files, so a device converted by
 # milo-first-boot keeps them as installed here.
 
 on_chroot << 'CHROOT'
 cp /home/milo/milo/rootfs/etc/nftables.conf /etc/nftables.conf
-chmod 0755 /etc/nftables.conf
+# 0644, the mode every update installs it with: nftables.service reads it with
+# `nft -f` and nothing executes it, where the cp keeps Debian's 0755.
+chmod 0644 /etc/nftables.conf
 cp /home/milo/milo/rootfs/etc/NetworkManager/dispatcher.d/50-milo-ipv6-link-prefixes /etc/NetworkManager/dispatcher.d/
 chmod 0755 /etc/NetworkManager/dispatcher.d/50-milo-ipv6-link-prefixes
 mkdir -p /etc/systemd/system/nftables.service.d
@@ -162,8 +128,8 @@ CHROOT
 # ── Sudoers ───────────────────────────────────────────────────────────────────
 
 on_chroot << 'CHROOT'
-# Consolidated sudoers for the milo backend service. Same file provisioning/system.sh
-# deploys, so a flashed image and a script-installed unit grant the same set.
+# Consolidated sudoers for the milo backend service: the rootfs/ file every Milō
+# update installs too (milo-deploy-update, which validates it the same way).
 cp /home/milo/milo/rootfs/etc/sudoers.d/milo-backend /etc/sudoers.d/milo-backend
 visudo -c -f /etc/sudoers.d/milo-backend || { echo "FATAL: sudoers syntax error"; exit 1; }
 chmod 0440 /etc/sudoers.d/milo-backend
@@ -214,16 +180,11 @@ echo "" > /etc/issue
 rm -f /etc/issue.d/IP.issue
 CHROOT
 
-# ── Disable lightdm if present ───────────────────────────────────────────────
+# ── No lightdm ───────────────────────────────────────────────────────────────
+# Absent from a Lite base; removed should anything ever pull it in. The system
+# manifest masks it, as it masks getty@tty1 for the kiosk.
 
 on_chroot << 'CHROOT'
 systemctl disable lightdm.service 2>/dev/null || true
-systemctl mask lightdm.service 2>/dev/null || true
 apt-get remove -y lightdm 2>/dev/null || true
-CHROOT
-
-# ── Mask getty@tty1 (kiosk takes over) ────────────────────────────────────────
-
-on_chroot << 'CHROOT'
-systemctl mask getty@tty1.service
 CHROOT

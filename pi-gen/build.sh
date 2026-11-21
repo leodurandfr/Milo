@@ -51,6 +51,10 @@ cp -r "${SCRIPT_DIR}/stage-milo" "${PIGEN_DIR}/stage-milo"
 # the only reason a single declaration works across all three provisioning trees.
 cp "${SCRIPT_DIR}/../dependencies.env" "${PIGEN_DIR}/stage-milo/dependencies.env"
 
+# The system manifest travels the same way, for the same reason: 00-install-deps
+# installs its packages before the checkout that carries it is cloned.
+cp "${SCRIPT_DIR}/../system-manifest.env" "${PIGEN_DIR}/stage-milo/system-manifest.env"
+
 # The frontend travels with it, for the same reason and under the same fixed
 # name the CI workflow uses: the stage installs the artefact it is handed and
 # never builds one, so an image and a unit updated to the same release run the

@@ -40,8 +40,8 @@ TIMEZONE_DEFAULT="Etc/UTC"
 # WPA_ESSID, which this image does not set — measured on a flashed unit, where
 # /etc/wpa_supplicant/wpa_supplicant.conf does not exist at all. The regulatory
 # domain that actually applies travels through cmdline.txt
-# (cfg80211.ieee80211_regdom, declared once in provisioning/boot-common.sh as
-# `00`) and is set for real by milo-set-wifi-country once the user picks a
+# (cfg80211.ieee80211_regdom, seeded once as `00` by system-manifest.env's
+# SYSTEM_CMDLINE_SEED) and is set for real by milo-set-wifi-country once the user picks a
 # country in the wizard, which will not let them past that step without one.
 
 STAGE_LIST="stage0 stage1 stage2 stage-milo"

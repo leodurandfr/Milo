@@ -532,9 +532,10 @@ def test_sync_system_files_skips_no_static_config():
     release moving a Loopback slot in asound.conf, which is synced, left the
     capture reading a slot nobody played into. Only the installers of the
     files a plain copy cannot install are admitted: the script itself, a
-    sudoers policy and an sshd drop-in, each validated before it is read.
+    sudoers policy, an sshd drop-in and an nginx site, each validated before
+    it is read.
     """
-    installers = {"install_self", "install_sudoers", "install_sshd_dropin"}
+    installers = {"install_self", "install_sudoers", "install_sshd_dropin", "install_nginx_conf"}
     branches = _rootfs_case_branches()
     actions = {action.split()[0] for _, action in branches}
     assert installers <= actions, f"the rootfs case was not read: {branches}"
@@ -544,7 +545,10 @@ def test_sync_system_files_skips_no_static_config():
 
 # The functions a sync runs, and how a copy may name its destination there: a
 # staging name beside it, or the sshd drop-in's fallback copy.
-SYNC_FUNCTIONS = ("cmd_sync_system_files", "install_self", "install_atomic", "install_sudoers", "install_sshd_dropin")
+SYNC_FUNCTIONS = (
+    "cmd_sync_system_files", "install_self", "install_atomic", "install_sudoers", "install_sshd_dropin",
+    "install_nginx_conf",
+)
 CP_CALL_RE = re.compile(r'(?:^|&&|\|\||;)\s*cp\s+(?:-\w+\s+)*"[^"]+"\s+"([^"]+)"\s*$')
 STAGED_SUFFIXES = (".new", ".previous")
 

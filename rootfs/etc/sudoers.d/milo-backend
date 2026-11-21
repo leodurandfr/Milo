@@ -20,7 +20,7 @@ Defaults:milo !syslog, !pam_session
 # on every other unit running as `milo`, which keeps a compromised daemon out of
 # this file (backend/tests/architecture/test_unit_hardening.py). Its limits: a
 # process of the same uid can still ptrace the backend, and the units without
-# ProtectHome (kiosk, snapserver, snapclient, camilladsp, navidrome) can still
+# ProtectHome (kiosk, snapclient, camilladsp, navidrome) can still
 # write the checkout the backend and milo-navidrome-config (root) run.
 
 # Take back the image's blanket grant, where the image has one. A Raspberry Pi

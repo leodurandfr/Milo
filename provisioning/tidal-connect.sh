@@ -28,10 +28,9 @@ TIDAL_ROOT="${TIDAL_ROOT:-/opt/milo/tidal-connect}"
 install_tidal_connect() {
     log_info "Installing Tidal Connect..."
 
-    # readelf is what the runtime builder verifies segment alignment with —
-    # without it the install would "succeed" and the source would die on start.
-    apt-get install -y binutils
-
+    # readelf (binutils, a package of the system manifest) is what the runtime
+    # builder verifies segment alignment with — without it the install would
+    # "succeed" and the source would die on start.
     mkdir -p "$(dirname "$TIDAL_ROOT")"
 
     # BASH_SOURCE resolves the script dir even when sourced from a pi-gen stage,

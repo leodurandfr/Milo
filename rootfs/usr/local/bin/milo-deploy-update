@@ -1,7 +1,8 @@
 #!/bin/bash
 # Milo - Secure Update Deployment Wrapper
 # Centralizes all privileged operations needed during updates.
-# Called via: sudo milo-deploy-update <subcommand> [args]
+# Called via: sudo milo-deploy-update <subcommand> [args] — and, for
+# apply-system-manifest alone, by pi-gen/stage-milo as root in its chroot.
 set -euo pipefail
 
 REPO_PATH="/home/milo/milo"
@@ -39,7 +40,9 @@ install_self() {
 # from the backend's next start, where a unit cut in half is a backend that
 # never starts. `.new` is a name the directories written here do not read as
 # config: systemd wants a unit suffix, udev `.rules`, sysctl.d and conf.d
-# `.conf`. Same shape as the satellite's milo-client-deploy-update.
+# `.conf`. nginx's sites-enabled/ is the exception, as it reads every file
+# there, and install_nginx_conf stages outside it. Same shape as the
+# satellite's milo-client-deploy-update.
 install_atomic() {
     # $1 source, $2 destination, then optionally $3 a chmod mode, $4 a chown owner
     cp "$1" "$2.new"
@@ -93,6 +96,270 @@ install_sshd_dropin() {
     fi
     rm -f "$target.previous"
     echo "  Installed $target (validated)"
+}
+
+# nginx refuses to start on a site it cannot parse, and a unit whose nginx is
+# down has no interface at all — while the backend, whose start is all the
+# update guard judges, starts fine. So the site is checked against the whole
+# config (`nginx -t`) and the previous copy put back if it breaks it, which
+# fails the update instead. The previous copy and the new one wait outside
+# sites-enabled/, on the same filesystem: nginx reads every file there, and a
+# second `upstream milo_backend` beside the site — a copy cut by a power loss
+# included — is a config it refuses at its next start, which
+# `try-reload-or-restart` never retries.
+install_nginx_conf() {
+    local rel_path="$1"
+    local target="/$rel_path" name
+    name=$(basename "$target")
+
+    mkdir -p "$(dirname "$target")"
+    [ -f "$target" ] && cp -p "$target" "/etc/nginx/$name.previous"
+    cp "$REPO_PATH/rootfs/$rel_path" "/etc/nginx/$name.new"
+    chmod 0644 "/etc/nginx/$name.new"
+    mv -f "/etc/nginx/$name.new" "$target"
+    if command -v nginx >/dev/null && ! nginx -t -q; then
+        if [ -f "/etc/nginx/$name.previous" ]; then mv -f "/etc/nginx/$name.previous" "$target"; else rm -f "$target"; fi
+        error_exit "nginx rejects $rel_path -- not installed"
+    fi
+    rm -f "/etc/nginx/$name.previous"
+    echo "  Installed $target (validated)"
+}
+
+# --- The system manifest ---
+#
+# What a unit holds besides its files — packages, the managed lines of config.txt
+# and cmdline.txt, unit states — is declared once, in the checkout's
+# system-manifest.env, which says what each declaration means. The image applies
+# it (apply-system-manifest, from pi-gen/stage-milo), and so does every update
+# (sync-system-files), so an updated unit holds what a flashed card holds.
+# Sourced as root, like every file this script installs from the checkout as
+# root: the checkout is the backend's to write, and the backend is root by
+# construction.
+#
+# Additive both ways: nothing is removed, disabled, unmasked or taken out of a
+# boot file. That is what keeps the guard's sync back to the previous release
+# offline and quick at boot: what that release declares is already there.
+
+MANIFEST="$REPO_PATH/system-manifest.env"
+# The arrays a manifest declares cross releases, as the update journal's names
+# do: the installed script reads whatever tree it is handed — the arriving
+# release's on an update, and on the guard's sync back the previous release's,
+# with the newer script. So these six are frozen, never renamed or removed
+# (test_image_update_convergence.py). An array added later goes in
+# MANIFEST_ARRAYS_ADDED and reads as empty in a tree older than it; the release
+# that adds one has it applied from the update after it, since an update is run
+# by the departing release's script.
+MANIFEST_ARRAYS=(SYSTEM_APT_PACKAGES SYSTEM_CMDLINE SYSTEM_CMDLINE_SEED SYSTEM_CONFIG_TXT
+                 SYSTEM_UNITS_ENABLED SYSTEM_UNITS_MASKED)
+MANIFEST_ARRAYS_ADDED=()
+# How long apt-get waits for another dpkg to let go, and so does the dpkg run
+# that finishes an interrupted one: under the guard's 120 s for a whole sync.
+DPKG_LOCK_TIMEOUT_S=60
+CONFIG_BLOCK_BEGIN="# BEGIN MILO SYSTEM"
+CONFIG_BLOCK_END="# END MILO SYSTEM"
+# milo-set-wifi-country's: the two writers of cmdline.txt take turns on it.
+CMDLINE_LOCK=/run/lock/milo-set-wifi-country.lock
+
+read_system_manifest() {
+    [ -f "$MANIFEST" ] || error_exit "$MANIFEST is missing -- no system state applied"
+    # shellcheck source=/dev/null
+    source "$MANIFEST"
+    local name
+    for name in "${MANIFEST_ARRAYS[@]}"; do
+        [[ "$(declare -p "$name" 2>/dev/null)" == "declare -a"* ]] \
+            || error_exit "$MANIFEST declares no $name array"
+    done
+    for name in "${MANIFEST_ARRAYS_ADDED[@]}"; do
+        declare -p "$name" >/dev/null 2>&1 || declare -ga "$name=()"
+        [[ "$(declare -p "$name")" == "declare -a"* ]] \
+            || error_exit "$MANIFEST declares $name, but not as an array"
+    done
+}
+
+# The boot partition, mounted here since Bookworm: no Milō image has another
+# layout, and what Raspberry Pi OS leaves at /boot/config.txt is a stub saying
+# the file moved, which a write would reach in silence.
+boot_file() {
+    echo "/boot/firmware/$1"
+}
+
+# /boot/firmware is vfat, with no journal: a file truncated in place and cut by
+# a power loss is a unit that does not boot. A sibling is written, flushed and
+# renamed over it, then the partition and the file are flushed (syncfs sends no
+# cache flush on vfat, the file's fsync does) — milo-set-wifi-country's steps.
+write_boot_file() {
+    local target="$1" content="$2"
+    local tmp="$target.milo-new"
+    printf '%s\n' "$content" > "$tmp"
+    sync "$tmp"
+    mv -f "$tmp" "$target"
+    sync -f "$target"
+    sync "$target"
+}
+
+apply_config_txt() {
+    local file current block new begins ends
+    file=$(boot_file config.txt)
+    [ -f "$file" ] || error_exit "$file is missing -- boot lines not applied"
+    current=$(cat "$file")
+    block=$(printf '%s\n' "$CONFIG_BLOCK_BEGIN" "${SYSTEM_CONFIG_TXT[@]}" "$CONFIG_BLOCK_END")
+    begins=$(grep -cxF -- "$CONFIG_BLOCK_BEGIN" "$file" || true)
+    ends=$(grep -cxF -- "$CONFIG_BLOCK_END" "$file" || true)
+
+    if [ "$begins" = 0 ] && [ "$ends" = 0 ]; then
+        new="$current"$'\n\n'"$block"
+    elif [ "$begins" = 1 ] && [ "$ends" = 1 ]; then
+        # Replaced where it stands. A block that never ends would swallow the
+        # rest of the file, the hardware's blocks included: refused instead.
+        new=$(BLOCK="$block" awk -v b="$CONFIG_BLOCK_BEGIN" -v e="$CONFIG_BLOCK_END" '
+            $0 == b { print ENVIRON["BLOCK"]; skip = 1; next }
+            skip { if ($0 == e) skip = 0; next }
+            { print }
+            END { if (skip) exit 3 }
+        ' "$file") || error_exit "$file: '$CONFIG_BLOCK_BEGIN' has no end after it -- left untouched"
+    else
+        error_exit "$file holds $begins '$CONFIG_BLOCK_BEGIN' and $ends '$CONFIG_BLOCK_END' lines -- left untouched"
+    fi
+
+    if [ "$new" = "$current" ]; then
+        echo "  config.txt: managed lines already in place"
+        return 0
+    fi
+    write_boot_file "$file" "$new"
+    echo "  config.txt: managed lines written"
+}
+
+apply_cmdline() {
+    local file current token new
+    local -a words=() kept=()
+    local -A managed=() present=()
+    file=$(boot_file cmdline.txt)
+    [ -f "$file" ] || error_exit "$file is missing -- boot lines not applied"
+
+    mkdir -p "$(dirname "$CMDLINE_LOCK")"
+    exec 9>"$CMDLINE_LOCK"
+    flock -w 10 9 || error_exit "milo-set-wifi-country still holds $CMDLINE_LOCK -- cmdline.txt not applied"
+
+    current=$(cat "$file")
+    # Without root= the next boot finds no root filesystem: never write that back.
+    [[ "$current" =~ (^|[[:space:]])root= ]] \
+        || error_exit "$file is empty or carries no root= -- left untouched"
+
+    for token in "${SYSTEM_CMDLINE[@]}"; do managed["${token%%=*}"]=1; done
+    read -r -d '' -a words <<< "$current" || true
+    for token in "${words[@]}"; do
+        present["${token%%=*}"]=1
+        [ -n "${managed[${token%%=*}]:-}" ] || kept+=("$token")
+    done
+    for token in "${SYSTEM_CMDLINE_SEED[@]}"; do
+        [ -n "${present[${token%%=*}]:-}" ] || kept+=("$token")
+    done
+    new="${kept[*]} ${SYSTEM_CMDLINE[*]}"
+
+    if [ "$new" = "$current" ]; then
+        echo "  cmdline.txt: managed tokens already in place"
+    else
+        write_boot_file "$file" "$new"
+        echo "  cmdline.txt: managed tokens written"
+    fi
+    exec 9>&-
+}
+
+# One call per verb; on a refusal the error line carries systemctl's own, which
+# names the unit (missing, masked, a bad [Install]), since that line is the one
+# the guard and the update screen show.
+apply_unit_states() {
+    local out
+    if [ ${#SYSTEM_UNITS_ENABLED[@]} -gt 0 ]; then
+        out=$(systemctl enable -q "${SYSTEM_UNITS_ENABLED[@]}" 2>&1) \
+            || error_exit "systemctl refused to enable the manifest's units: $(failure_line "$out")"
+    fi
+    if [ ${#SYSTEM_UNITS_MASKED[@]} -gt 0 ]; then
+        out=$(systemctl mask -q "${SYSTEM_UNITS_MASKED[@]}" 2>&1) \
+            || error_exit "systemctl refused to mask the manifest's units: $(failure_line "$out")"
+    fi
+    echo "  units: ${#SYSTEM_UNITS_ENABLED[@]} enabled, ${#SYSTEM_UNITS_MASKED[@]} masked"
+}
+
+# The line apt-get, dpkg or systemctl ends a failure on, for an error a person
+# can read.
+failure_line() {
+    local line
+    line=$(grep -E '^(E|Err|dpkg: error)' <<< "$1" | tail -n 1 || true)
+    line="${line:-${1##*$'\n'}}"
+    echo "${line:-no reason given}"
+}
+
+is_installed() {
+    [ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null)" = installed ]
+}
+
+# dpkg takes its lock without waiting where apt-get waits for it. An install cut
+# by a power loss leaves dpkg "interrupted", and apt-get then refuses every
+# install until this runs: it is retried while another dpkg holds the lock, for
+# as long as apt-get would wait. A no-op on a healthy system. Not fatal: what it
+# cannot finish, apt-get reports below, when there is something to install.
+finish_interrupted_dpkg() {
+    local waited=0 out
+    until out=$(dpkg --configure -a --force-confdef --force-confold 2>&1); do
+        # dpkg's own words for a held lock, the frontend's or the database's:
+        # anything else is a failure to report, not a wait.
+        if [[ "$out" == *'locked by another process'* ]] && [ "$waited" -lt "$DPKG_LOCK_TIMEOUT_S" ]; then
+            sleep 2
+            waited=$((waited + 2))
+            continue
+        fi
+        echo "  WARNING: dpkg --configure -a failed: $(failure_line "$out")"
+        return 0
+    done
+    [ -z "$out" ] || printf '%s\n' "$out"
+}
+
+# Only the packages missing are installed, so a unit that has them all — the
+# guard's sync back to a release whose packages were already there, a unit
+# offline — reaches no network. One apt transaction, --no-remove: nothing an
+# install would remove to satisfy a dependency is ever taken away.
+install_system_packages() {
+    local pkg out unreached
+    local -a missing=()
+    export DEBIAN_FRONTEND=noninteractive
+    export DEBCONF_NONINTERACTIVE_SEEN=true
+    export APT_LISTCHANGES_FRONTEND=none
+
+    finish_interrupted_dpkg
+    for pkg in "${SYSTEM_APT_PACKAGES[@]}"; do
+        is_installed "$pkg" || missing+=("$pkg")
+    done
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo "  packages: all ${#SYSTEM_APT_PACKAGES[@]} installed"
+        return 0
+    fi
+
+    echo "Installing ${missing[*]}..."
+    # The image wipes the package lists, so there is nothing to install from
+    # until they are read again.
+    out=$(apt-get -o DPkg::Lock::Timeout="$DPKG_LOCK_TIMEOUT_S" update 2>&1) \
+        || error_exit "apt-get update failed, so ${missing[*]} could not be installed: $(failure_line "$out")"
+    # A source apt-get update cannot reach is only a warning to it, and it exits
+    # 0 (measured, apt 3.0): the other sources may still hold the package, so
+    # the install is tried. When it fails, that source is the likely cause of
+    # the "Unable to locate package" apt then reports, so the error names it —
+    # without it, the line reads as a package that does not exist.
+    unreached=$(grep -m 1 -E '^W: Failed to fetch ' <<< "$out" || true)
+    unreached="${unreached#W: }"
+    [ -z "$unreached" ] || echo "  WARNING: apt-get update: $unreached"
+    out=$(apt-get install -y --no-install-recommends --no-remove \
+            -o DPkg::Lock::Timeout="$DPKG_LOCK_TIMEOUT_S" \
+            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+            "${missing[@]}" 2>&1) || {
+        printf '%s\n' "$out"
+        error_exit "could not install ${missing[*]}: $(failure_line "$out")${unreached:+ -- apt-get update could not reach a source: $unreached}"
+    }
+    printf '%s\n' "$out"
+    for pkg in "${missing[@]}"; do
+        is_installed "$pkg" || error_exit "$pkg is not installed after apt-get"
+    done
+    echo "  packages: installed ${missing[*]}"
 }
 
 # --- Input validation helpers ---
@@ -157,13 +424,16 @@ stage_checked() {
 # --- Subcommands ---
 
 cmd_sync_system_files() {
-    # Sync system/*.service and rootfs/** from the repo to their system destinations.
+    # Sync system/*.service and rootfs/** from the repo to their system
+    # destinations, then the system manifest: packages, boot lines, unit states.
     # Hardcoded repo path — no arguments needed. Run by the updater after its
-    # checkout, and by milo-update-guard after a checkout back: it installs the
-    # tree's set over what is there and removes nothing.
+    # checkout, before the reboot into the release, and by milo-update-guard
+    # after a checkout back: it installs the tree's set over what is there and
+    # removes nothing.
     local synced_udev=false
     local synced_nm_conf=false
     local synced_sshd=false
+    local synced_nginx=false
     local sysctl_files=()
 
     # 1. Deploy rootfs files (preserving directory structure). Before the units:
@@ -177,12 +447,14 @@ cmd_sync_system_files() {
     while read -r rel_path; do
         rel_path="${rel_path#./}"
 
-        # Every rootfs file is installed; these three are the ones a plain copy
-        # cannot install — see install_self, install_sudoers and install_sshd_dropin.
+        # Every rootfs file is installed; these four are the ones a plain copy
+        # cannot install — see install_self, install_sudoers, install_sshd_dropin
+        # and install_nginx_conf.
         case "$rel_path" in
             usr/local/bin/milo-deploy-update) install_self "$rel_path"; continue ;;
             etc/sudoers.d/*) install_sudoers "$rel_path"; continue ;;
             etc/ssh/sshd_config.d/*) install_sshd_dropin "$rel_path"; synced_sshd=true; continue ;;
+            etc/nginx/*) install_nginx_conf "$rel_path"; synced_nginx=true; continue ;;
         esac
 
         target="/$rel_path"
@@ -229,7 +501,19 @@ cmd_sync_system_files() {
     systemctl daemon-reload
     echo "  systemctl daemon-reload done"
 
-    # 3. Reload udev rules if any were synced
+    # 3. The system manifest, read and applied after the files: on the guard's
+    # sync back, a tree with no manifest (a release older than it) or a package
+    # that cannot be installed must not leave the newer release's files in
+    # place with the older release's code. The packages before the unit
+    # states, which may name a unit only a package brings.
+    echo "Applying the system manifest..."
+    read_system_manifest
+    install_system_packages
+    apply_config_txt
+    apply_cmdline
+    apply_unit_states
+
+    # 4. Reload udev rules if any were synced
     if [ "$synced_udev" = true ]; then
         udevadm control --reload-rules
         udevadm trigger
@@ -260,11 +544,31 @@ cmd_sync_system_files() {
         echo "  sshd configuration reloaded"
     fi
 
+    # nginx parsed its configuration at start: reloaded, it serves the site
+    # just installed — the guard's sync back included, which no reboot
+    # follows. Only a running nginx, as for sshd.
+    if [ "$synced_nginx" = true ]; then
+        systemctl try-reload-or-restart nginx.service
+        echo "  nginx configuration reloaded"
+    fi
+
     # The updater moves its journal forward, and the guard closes its rollback,
     # on this exit: what was renamed into place must be on the card by then.
     sync
 
     echo "System files sync complete"
+}
+
+# The image's half of the manifest, run by pi-gen/stage-milo in its chroot once
+# the units are in place: the same boot lines and unit states an update applies,
+# by the same code. The image installs the packages itself, with their
+# recommends, and its own reloads are a first boot.
+cmd_apply_system_manifest() {
+    [ $# -eq 0 ] || error_exit "Usage: apply-system-manifest"
+    read_system_manifest
+    apply_config_txt
+    apply_cmdline
+    apply_unit_states
 }
 
 cmd_install_binary() {
@@ -418,6 +722,7 @@ shift
 case "$subcommand" in
     check)             echo "OK" ;;
     sync-system-files) cmd_sync_system_files "$@" ;;
+    apply-system-manifest) cmd_apply_system_manifest "$@" ;;
     install-binary)    cmd_install_binary "$@" ;;
     install-release-binary) cmd_install_release_binary "$@" ;;
     install-deb)       cmd_install_deb "$@" ;;

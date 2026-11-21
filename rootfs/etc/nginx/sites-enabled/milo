@@ -1,20 +1,11 @@
-#!/bin/bash
-# Milo - Nginx site configuration
+# Milō's site: the built frontend, and the backend behind /api and /ws.
 #
-# Writes /etc/nginx/sites-available/milo and enables it. Avahi, the
-# NetworkManager drop-ins and the package installs are done by
-# pi-gen/stage-milo directly.
-#
-# Sourced by pi-gen/stage-milo during the image build.
+# A regular file in sites-enabled/, installed as it stands by the image
+# (pi-gen/stage-milo) and by every Milō update (milo-deploy-update, which checks
+# it with `nginx -t` before it can take effect and reloads a running nginx).
+# The image removes Debian's default site, which would answer every request
+# made by address rather than by name.
 
-set -e
-
-MILO_USER="${MILO_USER:-milo}"
-
-# No service interaction on purpose: `nginx -t` and `systemctl reload nginx` are
-# not valid inside the build chroot, so the reload is left to first boot.
-write_nginx_site() {
-    tee /etc/nginx/sites-available/milo > /dev/null << 'EOF'
 upstream milo_backend {
     server 127.0.0.1:8000;
 }
@@ -120,9 +111,3 @@ server {
         add_header Cache-Control "no-cache, no-store, must-revalidate";
     }
 }
-EOF
-
-    ln -sf /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/milo
-    rm -f /etc/nginx/sites-enabled/default
-}
-

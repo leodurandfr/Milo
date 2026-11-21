@@ -24,10 +24,17 @@ This uses [pi-gen](https://github.com/RPi-Distro/pi-gen), the official Raspberry
 
 | Stage | Purpose |
 |---|---|
-| `00-install-deps` | APT packages, Chromium, the `milo` user's device groups (PulseAudio is removed later, in `01-install-audio`, once roc-toolkit no longer needs `libpulse-dev`) |
+| `00-install-deps` | Every APT package `system-manifest.env` names (Chromium included), the `milo` user's device groups (PulseAudio is removed later, in `01-install-audio`, once roc-toolkit no longer needs `libpulse-dev`) |
 | `01-install-audio` | Pre-compiled binaries (go-librespot, CamillaDSP, Snapcast) + compiled audio software (shairport-sync, NQPTP, bluez-alsa, roc-toolkit), then cloud-init purged |
 | `02-install-milo` | Clone repo, Python venvs, install the prebuilt frontend artifact (never built in the stage), deploy configs (ALSA, Nginx, Avahi, systemd services) |
-| `03-configure` | Plymouth splash, boot params, fan control, udev rules, sudoers, kiosk mode, service enablement |
+| `03-configure` | Plymouth splash, IR remote, udev rules, sudoers, then the system manifest's boot lines (cmdline.txt, config.txt) and unit states, applied by `milo-deploy-update apply-system-manifest` — the code every Milō update applies them with |
+
+`pi-gen/build.sh` and the CI workflow copy `dependencies.env`, `system-manifest.env` and the
+frontend artifact beside `stage-milo/`: the stage runs from a copy inside the pi-gen checkout,
+which cannot reach this repo. What the stage installs must be in `system-manifest.env`, in
+`rootfs/` or `system/`, or listed with its reason in
+`backend/tests/architecture/test_image_update_convergence.py`, so a unit updated to a release
+holds what a card flashed with it holds.
 
 ## Build Options
 

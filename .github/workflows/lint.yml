@@ -57,9 +57,9 @@ jobs:
             requirements-dev.txt
       # `discid` dlopens libdiscid.so.0 at *import* time, and the CD tests patch
       # `discid.read` -- which imports it; `cairosvg` does the same with
-      # libcairo.so.2 (radio logos). The appliance image ships both libraries
-      # (pi-gen/stage-milo/00-install-deps/00-packages), so the tests pass on the
-      # unit and only ever fail here.
+      # libcairo.so.2 (radio logos). The appliance ships both libraries
+      # (system-manifest.env, installed by the image and by every update), so the
+      # tests pass on the unit and only ever fail here.
       - name: Install the native libraries the tests import
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdiscid0 libcairo2
       # The lock a unit installs, with the same --require-hashes, so the suite

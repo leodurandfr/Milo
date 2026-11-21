@@ -164,7 +164,7 @@ class RequestOriginGate:
         return ""
 
 
-# The address nginx proxies from (`upstream milo_backend`, provisioning/network.sh).
+# The address nginx proxies from (`upstream milo_backend`, rootfs/etc/nginx/sites-enabled/milo).
 _NGINX_PEER = "127.0.0.1"
 
 # The subnet NetworkManager hands the clients of a `shared` connection; the recovery

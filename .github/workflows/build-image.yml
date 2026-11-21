@@ -209,6 +209,10 @@ jobs:
           # backend/tests/architecture/test_rootfs_deployment.py.
           cp dependencies.env pi-gen-build/stage-milo/dependencies.env
 
+          # The system manifest, for the same reason: 00-install-deps installs
+          # its packages before the checkout that carries it is cloned.
+          cp system-manifest.env pi-gen-build/stage-milo/system-manifest.env
+
           # The frontend travels with it for the same reason, under a name that
           # carries no version: the stage installs whatever it is handed, and
           # what it is handed is decided here and in pi-gen/build.sh. 02-install-milo

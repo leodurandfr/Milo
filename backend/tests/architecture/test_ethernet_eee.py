@@ -14,49 +14,43 @@ no EEE at all — which pushed eth0's lease back by up to 20 s and opened the
 window where milo.local was published on WiFi.
 """
 import re
-import subprocess
 from pathlib import Path
 
+from backend.tests.architecture.test_image_update_convergence import _run
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SYSTEM_SH = REPO_ROOT / "provisioning/system.sh"
-CONFIGURE_STAGE = REPO_ROOT / "pi-gen/stage-milo/03-configure/00-run.sh"
 ROOTFS_TREES = (REPO_ROOT / "rootfs", REPO_ROOT / "milo-client/rootfs")
 
 
-def _configure(config: Path) -> None:
-    subprocess.run(
-        [
-            "bash", "-c",
-            f'log_info() {{ :; }}; log_success() {{ :; }}\n'
-            f'source "{SYSTEM_SH}"\n'
-            f'boot_config_file() {{ echo "{config}"; }}\n'
-            "configure_ethernet_eee\nconfigure_ethernet_eee",
-        ],
-        check=True,
-    )
+def _non_comment_lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line and not line.startswith("#")]
 
 
 def test_the_parameter_reaches_every_board_from_any_config_tail(tmp_path):
     """A config.txt can end inside a model filter or an overlay's scope; the
-    line must still apply to every board and to the base device tree. Run
-    twice, it is written once."""
+    line must still apply to every board and to the base device tree. Applied
+    twice — the image, then an update — it is written once.
+
+    The line is the system manifest's, written by `milo-deploy-update` on both
+    paths, so a unit updated to a release turns EEE off the way a flashed card
+    does (e7d5ba25 moved it into config.txt, which only an image wrote then).
+    """
     config = tmp_path / "config.txt"
     config.write_text("arm_64bit=1\n[pi5]\ndtoverlay=nospi10\ndtoverlay=gpio-ir,gpio_pin=17\n")
 
-    _configure(config)
+    for _ in range(2):
+        result = _run(tmp_path, "apply_config_txt")
+        assert result.returncode == 0, result.stderr
 
-    lines = [line for line in config.read_text().splitlines() if line and not line.startswith("#")]
+    lines = _non_comment_lines(config.read_text())
     assert lines.count("dtparam=eee=off") == 1
-    tail = lines[lines.index("dtparam=eee=off") - 2:]
-    assert tail == ["[all]", "dtoverlay=", "dtparam=eee=off"], (
+    before = lines[lines.index("dtparam=eee=off") - 2:lines.index("dtparam=eee=off")]
+    assert before == ["[all]", "dtoverlay="], (
         "dtparam=eee=off is not under [all] with the overlay scope closed: "
-        f"{tail}"
+        f"{before}"
     )
-
-
-def test_the_image_build_turns_eee_off():
-    calls = re.findall(r"^\s*configure_ethernet_eee\s*$", CONFIGURE_STAGE.read_text(), re.M)
-    assert len(calls) == 1, "the pi-gen configure stage no longer calls configure_ethernet_eee"
+    sections = [line for line in lines[:lines.index("dtparam=eee=off")] if line.startswith("[")]
+    assert sections[-1] == "[all]", sections
 
 
 def test_nothing_changes_eee_at_runtime():

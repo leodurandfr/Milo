@@ -1,7 +1,7 @@
 """Structural guardrail: a client that waits longer than nginx must be given the time.
 
-Every `/api` request from the browser goes through the nginx site that
-`provisioning/network.sh::write_nginx_site` writes, and a `location` with no
+Every `/api` request from the browser goes through the nginx site
+`rootfs/etc/nginx/sites-enabled/milo`, and a `location` with no
 `proxy_read_timeout` cuts the upstream at nginx's default of 60 s. A frontend
 call that passes `timeout:` above that is budgeting for an answer the proxy will
 never wait for: nginx replies 504 with an HTML body, the caller reads no
@@ -15,8 +15,10 @@ upstream answering in 65 s: the client failed after 60.1 s with a 504, the UI
 said the speaker refused the configuration, and the upstream's success hit a
 broken pipe — the speaker had accepted and was rebooting onto the LAN.
 
-Nothing else catches this class: the config is a heredoc in a shell module that
-only an image build runs, and the frontend's budget is a literal three layers up.
+Nothing else catches this class: the config is a file only nginx reads, on a
+unit, and the frontend's budget is a literal three layers up. It used to be a
+heredoc only the image build wrote, so the fix itself reached new cards and no
+running unit; it is a rootfs/ file now, which every update installs.
 
 Doctrine note (as in the other guardrails here): every extractor asserts its own
 output is non-trivial first, so a broken parse fails loudly instead of passing on
@@ -30,7 +32,7 @@ from backend.core.multiroom.wifi_adoption import ADOPTION_DEADLINE, RESTORE_WORS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-NETWORK_SH = REPO_ROOT / "provisioning" / "network.sh"
+NGINX_SITE = REPO_ROOT / "rootfs" / "etc" / "nginx" / "sites-enabled" / "milo"
 FRONTEND_SRC = REPO_ROOT / "frontend" / "src"
 
 NGINX_DEFAULT_READ_TIMEOUT_S = 60
@@ -40,7 +42,6 @@ NGINX_DEFAULT_READ_TIMEOUT_S = 60
 # event loop, and the answer's way back.
 ANSWER_MARGIN_S = 10
 
-HEREDOC_RE = re.compile(r"write_nginx_site\(\)\s*\{.*?<< 'EOF'\n(.*?)\nEOF\n", re.DOTALL)
 LOCATION_RE = re.compile(r"^\s*location\s+(?:(=|\^~|~\*|~)\s+)?(\S+)\s*\{", re.MULTILINE)
 READ_TIMEOUT_RE = re.compile(r"^\s*proxy_read_timeout\s+(\d+)(ms|s|m|h|d|w)?\s*;", re.MULTILINE)
 SET_HEADER_RE = re.compile(r"^\s*(proxy_set_header\s+[^;]+;)", re.MULTILINE)
@@ -86,9 +87,9 @@ def _seconds(m: re.Match) -> float:
 
 
 def _locations() -> list[Location]:
-    m = HEREDOC_RE.search(NETWORK_SH.read_text())
-    assert m, f"no `<< 'EOF'` heredoc found in {NETWORK_SH.name}::write_nginx_site"
-    site = m.group(1)
+    # Comments out first: a `location` named in one is not a location.
+    site = "\n".join(re.sub(r"(^|\s)#.*$", "", line) for line in NGINX_SITE.read_text().splitlines())
+    assert "server_name milo.local" in site, f"{NGINX_SITE} is not Milō's site"
     spans = []
     for loc in LOCATION_RE.finditer(site):
         depth, i = 1, loc.end()
