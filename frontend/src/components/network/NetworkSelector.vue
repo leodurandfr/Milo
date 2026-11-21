@@ -1,6 +1,7 @@
 <!-- frontend/src/components/network/NetworkSelector.vue -->
-<!-- Reusable WiFi network picker: country selector + scan list + password input. -->
-<!-- Owns its selectedSsid/password state via useNetwork(); exposes connect/save closures via the `action` slot. -->
+<!-- The one WiFi network list: country selector + scan list + password + the action. -->
+<!-- Owns its selectedSsid/password state via useNetwork(). The wizard, Settings › Network
+     and the satellite adoption all draw it; none redraws a row. -->
 <template>
   <div class="network-selector">
     <!-- WiFi country selector -->
@@ -35,21 +36,20 @@
             class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
         </div>
 
-        <!-- Expand: password + action slot + error -->
+        <!-- Expand: password, then the action and its error -->
         <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
           <InputText v-if="network.security" v-model="password" type="password"
-            :placeholder="t('network.password')" @submit="onPasswordSubmit(network)" />
-          <slot
-            name="action"
-            :network="network"
-            :password="password"
-            :security="network.security"
-            :connecting="connecting"
-            :connect-error="connectError"
-            :connect="() => connectToNetwork(network, t)"
-            :save="() => save(network)"
-          />
-          <NoticeBox v-if="showConnectError && connectError" :detail="connectDetail">{{ connectError }}</NoticeBox>
+            :placeholder="t('network.password')" @submit="act(network)" />
+          <template v-if="action">
+            <Button variant="brand" :loading="connecting"
+              :disabled="connecting || (network.security && !password)"
+              @click="act(network)">
+              {{ connecting
+                ? (action === 'save' ? t('network.saving') : t('network.connecting'))
+                : (action === 'save' ? t('network.save') : t('network.connect')) }}
+            </Button>
+            <NoticeBox v-if="connectError" :detail="connectDetail">{{ connectError }}</NoticeBox>
+          </template>
         </div>
       </div>
 
@@ -80,18 +80,17 @@ const { t } = useI18n();
 const props = defineProps({
   showCountry: { type: Boolean, default: true },
   showLabel: { type: Boolean, default: true },
-  // Action triggered when user presses Enter in the password field.
-  // 'connect' → live connect to wifi, 'save' → just persist the profile, null → nothing
-  // (the parent acts on `update:wifi` with its own button).
-  submitAction: {
+  // A network the parent draws itself (Settings' preferred row, with its Forget).
+  excludeSsid: { type: String, default: null },
+  // What the selected network's button (and Enter in its password) does:
+  // 'connect' joins it now, 'save' only stores the profile (over the recovery
+  // AP, where joining would take the radio from under the browser). null draws
+  // no button: the parent acts on `update:wifi` with its own.
+  action: {
     type: String,
     default: null,
     validator: (v) => v === null || v === 'connect' || v === 'save',
   },
-  // Render the connect error inline. Set to false in flows where the parent
-  // never invokes the slot's `connect`/`save` closures (the ref can't fill,
-  // so the conditional DOM is dead and confusing).
-  showConnectError: { type: Boolean, default: true },
 });
 
 // `saved`: a network was saved here (its SSID), the key typed with it untried.
@@ -116,18 +115,16 @@ const {
 } = useNetwork();
 
 // Every network but the one in use: a network only saved stays, so its key can
-// be typed again.
-const visibleNetworks = computed(() => networks.value.filter(n => !n.in_use));
+// be typed again — unless the parent draws it itself.
+const visibleNetworks = computed(() =>
+  networks.value.filter(n => !n.in_use && n.ssid !== props.excludeSsid)
+);
 
-async function save(network) {
-  if (await saveNetwork(network, t)) emit('saved', network.ssid);
-}
-
-function onPasswordSubmit(network) {
-  if (props.submitAction === 'connect') {
+async function act(network) {
+  if (props.action === 'connect') {
     connectToNetwork(network, t);
-  } else if (props.submitAction === 'save') {
-    save(network);
+  } else if (props.action === 'save' && await saveNetwork(network, t)) {
+    emit('saved', network.ssid);
   }
 }
 
@@ -147,8 +144,11 @@ watch([selectedSsid, password], () => {
 onMounted(async () => {
   await initialize();
 
-  // Pre-select country based on language if not already set.
-  if (!country.value) {
+  // Pre-select the country from the language, where the picker shows the
+  // guess (the wizard). A list drawn without it — Settings › Network, which
+  // has its own row, and the satellite adoption — never writes the regulatory
+  // domain behind the reader's back.
+  if (props.showCountry && !country.value) {
     const lang = i18n.getCurrentLanguage();
     const mapped = LANGUAGE_TO_COUNTRY[lang];
     if (mapped) {

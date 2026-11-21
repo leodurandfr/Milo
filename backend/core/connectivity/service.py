@@ -128,6 +128,11 @@ class ConnectivityService:
         # Consecutive probes that said nothing. Silence is only evidence when
         # it repeats — see _periodic_check.
         self._inconclusive: int = 0
+        # The last verdict our own probes reached: True from a refused connect
+        # or the strikes, until a probe answers. NM reporting a problem itself
+        # ends a refusal, never the strikes — see _end_contradiction. What an
+        # inconclusive adoption holds to, with the strikes — see _adopt.
+        self._ipv4_down: bool = False
         # Held by every writer of _level that probes — see _adopt.
         self._lock = asyncio.Lock()
         self._listener_attached: bool = False
@@ -279,31 +284,53 @@ class ConnectivityService:
 
         async with self._lock:
             if self._nm_level != ConnectivityLevel.FULL:
+                self._end_contradiction()
                 await self._publish(self._nm_level, reason, connectivity)
                 return
 
             result = await self._confirm_ipv4()
             if self._nm_level != ConnectivityLevel.FULL:
                 # NM spoke during the probe; this result answers an older verdict.
+                self._end_contradiction()
                 await self._publish(self._nm_level, reason, self._nm_level.value)
                 return
 
             if result == PROBE_INCONCLUSIVE:
-                # Read, not counted: the loop's strikes are spaced by its
-                # interval, and a burst of link events is not repetition. A
-                # downgrade the loop reached holds; any other silence fails open.
-                if self._inconclusive >= INCONCLUSIVE_STRIKES:
+                # Not counted: the loop's strikes are spaced by its interval,
+                # and a burst of link events is not repetition. A downgrade our
+                # probes reached, by a refusal or by the strikes, holds until a
+                # probe answers: silence is no answer, so it neither confirms
+                # nor lifts it. Any other silence fails open.
+                if self._ipv4_down or self._inconclusive >= INCONCLUSIVE_STRIKES:
                     new_level = ConnectivityLevel.LIMITED
                 else:
                     new_level = ConnectivityLevel.FULL
             else:
                 self._inconclusive = 0
+                self._ipv4_down = result == PROBE_FAILED
                 if result == PROBE_OK:
                     new_level = ConnectivityLevel.FULL
                 else:
                     new_level = ConnectivityLevel.LIMITED
 
             await self._publish(new_level, reason, connectivity)
+
+    def _end_contradiction(self) -> None:
+        """Forget a refusal once NM reports a problem itself.
+
+        NM's verdict supersedes ours, and its next FULL is a new episode —
+        often another link — on which our probes have gathered nothing yet. A
+        refusal kept across it would hold LIMITED on a silent first probe of a
+        network it was never seen on.
+
+        The strikes are kept: they are minutes of silence on a path NM's own
+        check cannot see failing, and an NM blip in the middle of a black hole
+        says nothing about the hole. Cleared here, every blip would publish
+        FULL on the next silent adoption and the loop would need
+        INCONCLUSIVE_STRIKES more passes, ~3 minutes, to take it back. The
+        loop's first probe that answers clears them.
+        """
+        self._ipv4_down = False
 
     async def _publish(self, new_level: ConnectivityLevel, reason: str, nm_value) -> None:
         if new_level == self._level:
@@ -371,6 +398,7 @@ class ConnectivityService:
 
             if result == PROBE_OK:
                 self._inconclusive = 0
+                self._ipv4_down = False
                 self._hold_backoff = HOLD_RECHECK_START_S
                 await self._publish(ConnectivityLevel.FULL, "IPv4 recovered", 4)
                 return
@@ -387,6 +415,7 @@ class ConnectivityService:
             else:
                 self._inconclusive = 0
                 reason = "IPv4 probe"
+            self._ipv4_down = True
 
             if self._level == ConnectivityLevel.FULL:
                 self._hold_backoff = HOLD_RECHECK_START_S

@@ -58,8 +58,8 @@ ADOPTION = REPO_ROOT / "backend/core/multiroom/wifi_adoption.py"
 # over the AP, which no CI run and no unit on Ethernet sees.
 OFF_AP_WIZARD_WRITES = {
     ("POST", "/api/network/wifi/connect"):
-        "NetworkStep joins only while `hotspotActive` is false (`hotspotActive ? save() : connect()`,"
-        " and NetworkSelector's Enter key through `submit-action`): over the AP it saves",
+        "NetworkStep passes `:action=\"hotspotActive ? 'save' : 'connect'\"` to NetworkSelector,"
+        " whose button and Enter key both go through `act()`: over the AP it saves",
 }
 
 # Where a write admitted on a proof may come from: the frontend, through the

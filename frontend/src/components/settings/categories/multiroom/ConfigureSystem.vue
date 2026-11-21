@@ -62,8 +62,6 @@
           <NetworkSelector
             :show-country="false"
             :show-label="false"
-            :submit-action="null"
-            :show-connect-error="false"
             @update:wifi="onManualWifiUpdate"
           />
         </template>

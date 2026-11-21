@@ -46,17 +46,7 @@
 
     <!-- Network selector (country + scan + password). The network saved stays
          in the list: a key mistyped over the AP is typed again there. -->
-    <NetworkSelector :submit-action="hotspotActive ? 'save' : 'connect'" @saved="triedSsid = ''">
-      <template #action="{ network, password, connecting, connect, save }">
-        <Button variant="brand" :loading="connecting"
-          :disabled="connecting || (network.security && !password)"
-          @click="hotspotActive ? save() : connect()">
-          {{ connecting
-            ? (hotspotActive ? t('network.saving') : t('network.connecting'))
-            : (hotspotActive ? t('network.save') : t('network.connect')) }}
-        </Button>
-      </template>
-    </NetworkSelector>
+    <NetworkSelector :action="hotspotActive ? 'save' : 'connect'" @saved="triedSsid = ''" />
   </div>
 </template>
 
@@ -70,7 +60,6 @@ import { isKiosk } from '@/utils/kiosk';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
 import Badge from '@/components/ui/Badge.vue';
-import Button from '@/components/ui/Button.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 

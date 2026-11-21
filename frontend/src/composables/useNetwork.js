@@ -20,6 +20,8 @@ const _scanning = ref(false);
 const _country = ref('');
 let _statusLoaded = false;
 let _countryLoaded = false;
+// The opening in flight, which a second view opening with it joins.
+let _opening = null;
 
 /**
  * A whole status the backend sent. `hotspot_active` is the recovery AP, which
@@ -117,11 +119,6 @@ export function useNetwork() {
     if (fromScan) return fromScan;
     // Not in scan results (out of range) but still saved
     return { ssid, signal: null, security: '', in_use: false };
-  });
-
-  const otherNetworks = computed(() => {
-    const pref = preferredSsid.value;
-    return networks.value.filter(n => !n.in_use && n.ssid !== pref);
   });
 
   function selectNetwork(network) {
@@ -301,14 +298,20 @@ export function useNetwork() {
   }
 
   // Each opening reads the air afresh: the last scan is dropped, so the list
-  // shows the skeletons until the new one lands instead of a stale list.
+  // shows the skeletons until the new one lands instead of a stale list. Views
+  // opening together are one opening — Settings › Network and the list inside
+  // it, the wizard's step and its list — so the second joins the first rather
+  // than emptying the list it is filling and scanning a second time.
   async function initialize() {
-    networks.value = [];
     try {
-      const tasks = [loadSavedNetworks(), scanNetworks()];
-      if (!_statusLoaded) tasks.push(loadStatus());
-      if (!_countryLoaded) tasks.push(loadCountry());
-      await Promise.all(tasks);
+      if (!_opening) {
+        networks.value = [];
+        const tasks = [loadSavedNetworks(), scanNetworks()];
+        if (!_statusLoaded) tasks.push(loadStatus());
+        if (!_countryLoaded) tasks.push(loadCountry());
+        _opening = Promise.all(tasks).finally(() => { _opening = null; });
+      }
+      await _opening;
     } finally {
       loading.value = false;
     }
@@ -329,7 +332,6 @@ export function useNetwork() {
     password,
     preferredSsid,
     preferredNetwork,
-    otherNetworks,
     selectNetwork,
     loadStatus,
     loadSavedNetworks,

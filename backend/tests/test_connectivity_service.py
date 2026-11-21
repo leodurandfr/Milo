@@ -896,3 +896,129 @@ async def test_a_burst_of_silent_adoptions_is_not_repetition():
 
     assert service.level is ConnectivityLevel.FULL
     assert published == []
+
+
+def _refused():
+    return aiohttp.ClientConnectorError(MagicMock(), OSError("Connect call failed"))
+
+
+@pytest.mark.parametrize("condemned_by", ["loop", "adoption"])
+async def test_an_inconclusive_adopt_keeps_a_refusal_downgrade(condemned_by):
+    """A refusal condemns at once, and one silence after it does not acquit.
+
+    IPv4 is refused while NM stays FULL over IPv6, so a probe — the loop's
+    pass, or a link change's adoption — publishes LIMITED and leaves the
+    silence count at 0. Without this, the next link change's probe times out
+    instead of failing and the adoption publishes FULL: Spotify, Tidal, Qobuz,
+    Radio and Podcast are offered again over a dead IPv4 path until a later
+    probe is refused again.
+    """
+    service, published = _recording_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+    service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", _REAL_CONFIRM_IPV4):
+        with _session_raising(_refused()):
+            if condemned_by == "loop":
+                await service._periodic_check()
+            else:
+                await service.recheck("link change")
+        assert service.level is ConnectivityLevel.LIMITED
+
+        published.clear()
+        with _session_raising(asyncio.TimeoutError()):
+            await service.recheck("link change")
+            await service._periodic_check()
+
+    assert service.level is ConnectivityLevel.LIMITED
+    assert ConnectivityLevel.FULL not in published
+
+
+async def test_an_answer_ends_the_hold_and_silence_fails_open_again():
+    """The hold lasts until a probe answers, never past it.
+
+    Without this the downgrade would outlive the outage: after IPv4 came back
+    and a probe said so, a later silent adoption — DNS slow at the next link
+    change — would put LIMITED back on a working path.
+    """
+    service, published = _recording_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+    service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", _REAL_CONFIRM_IPV4):
+        with _session_raising(_refused()):
+            await service._periodic_check()
+        assert service.level is ConnectivityLevel.LIMITED
+
+    await service._periodic_check()  # autouse fixture: the probe answers
+    assert service.level is ConnectivityLevel.FULL
+
+    published.clear()
+    with patch.object(ConnectivityService, "_confirm_ipv4", _REAL_CONFIRM_IPV4), _session_raising(
+        asyncio.TimeoutError()
+    ):
+        await service.recheck("link change")
+
+    assert service.level is ConnectivityLevel.FULL
+    assert published == []
+
+
+async def test_nm_reporting_a_problem_ends_the_hold():
+    """A refusal on one link does not condemn the next one NM calls FULL.
+
+    IPv4 is refused (cable out, NM still FULL over IPv6), so LIMITED. Then
+    every link drops and NM says NONE itself; it comes back FULL on another
+    network, and the adoption's first probe, right after link-up, times out.
+    Without this the refusal seen on the old link would publish LIMITED there,
+    blocking the network sources on evidence never gathered on that network
+    until the loop's next pass, up to PROBE_INTERVAL_S later.
+    """
+    service, published = _recording_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+    service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", _REAL_CONFIRM_IPV4):
+        with _session_raising(_refused()):
+            await service._periodic_check()
+        assert service.level is ConnectivityLevel.LIMITED
+
+        await service._adopt(NM_NONE, "NM signal")
+        assert service.level is ConnectivityLevel.NONE
+
+        with _session_raising(asyncio.TimeoutError()):
+            await service._adopt(NM_FULL, "NM signal")
+
+    assert service.level is ConnectivityLevel.FULL
+
+
+async def test_an_nm_blip_during_a_black_hole_keeps_the_strike_downgrade():
+    """NM reporting a problem ends a refusal, never the silence counted before it.
+
+    The loop reaches LIMITED after INCONCLUSIVE_STRIKES silent probes (the
+    black hole measured 2026-09-20). NM then blips to LIMITED and back to FULL
+    on the same link, and the adoption's probe times out into the same hole.
+    Without this the adoption publishes FULL: Spotify, Tidal, Qobuz, Radio and
+    Podcast are offered again over a dead IPv4 path, and the loop needs
+    INCONCLUSIVE_STRIKES more passes, about 3 minutes, to take it back.
+    """
+    service, published = _recording_service()
+    service._level = ConnectivityLevel.FULL
+    service._nm_level = ConnectivityLevel.FULL
+    service._nm_iface = make_nm_iface(get_connectivity=AsyncMock(return_value=NM_FULL))
+
+    with patch.object(ConnectivityService, "_confirm_ipv4", _REAL_CONFIRM_IPV4), _session_raising(
+        asyncio.TimeoutError()
+    ):
+        for _ in range(INCONCLUSIVE_STRIKES):
+            await service._periodic_check()
+        assert service.level is ConnectivityLevel.LIMITED
+
+        await service._adopt(NM_LIMITED, "NM signal")
+        published.clear()
+        await service._adopt(NM_FULL, "NM signal")
+
+    assert service.level is ConnectivityLevel.LIMITED
+    assert ConnectivityLevel.FULL not in published

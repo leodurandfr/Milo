@@ -67,57 +67,14 @@
           </div>
         </div>
 
-        <!-- Other networks -->
+        <!-- Other networks: the one list, the wizard's. The preferred network
+             is drawn above with its Forget; over the recovery AP the list saves
+             rather than joins. -->
         <div class="wifi-group">
-          <div class="network-subheader">
-            <span class="heading-3 network-subheader__title">{{ t('network.otherNetworks') }}</span>
-            <Button variant="tinted" size="small" left-icon="arrowClockwise"
-              :loading="scanning" :disabled="scanning"
-              @click="scanNetworks">
-              {{ t('network.refresh') }}
-            </Button>
-          </div>
-
-          <div class="network-list">
-            <!-- Skeletons -->
-            <template v-if="(loading || scanning) && otherNetworks.length === 0">
-              <div v-for="i in 3" :key="'sk-' + i" class="network-skeleton">
-                <div class="skeleton-text-line shimmer" :style="{ width: (80 + i * 20) + 'px' }"></div>
-                <div class="skeleton-text-line shimmer" style="width: 40px"></div>
-              </div>
-            </template>
-
-            <!-- Empty state -->
-            <NoticeBox v-if="!loading && !scanning && otherNetworks.length === 0" kind="empty">
-              {{ t('network.noNetworks') }}
-            </NoticeBox>
-
-            <!-- Network items -->
-            <div v-for="network in otherNetworks" :key="'other-' + network.ssid" class="network-item"
-              @click="selectNetwork(network)">
-              <div class="network-item__row">
-                <div class="network-item__ssid-row">
-                  <WifiSignal :signal="network.signal" :size="24" />
-                  <span class="text-body-medium network-item__ssid">{{ network.ssid }}</span>
-                </div>
-                <SvgIcon name="caretDown" :size="24" color="var(--color-text-tertiary)"
-                  class="network-item__caret" :class="{ 'network-item__caret--open': selectedSsid === network.ssid }" />
-              </div>
-
-              <!-- Expand: password + connect, or save over the recovery AP -->
-              <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
-                <InputText v-if="network.security" v-model="password" type="password"
-                  :placeholder="t('network.password')" @submit="choose(network)" />
-                <Button variant="brand" :loading="connecting" :disabled="connecting || (network.security && !password)"
-                  @click="choose(network)">
-                  {{ connecting
-                    ? (overRecoveryAp ? t('network.saving') : t('network.connecting'))
-                    : (overRecoveryAp ? t('network.save') : t('network.connect')) }}
-                </Button>
-                <NoticeBox v-if="connectError" :detail="connectDetail">{{ connectError }}</NoticeBox>
-              </div>
-            </div>
-          </div>
+          <span class="heading-3 wifi-group__title">{{ t('network.otherNetworks') }}</span>
+          <NetworkSelector :show-country="false" :show-label="false"
+            :exclude-ssid="preferredNetwork?.ssid ?? null"
+            :action="overRecoveryAp ? 'save' : 'connect'" />
         </div>
 
         <!-- WiFi country selector. Applies on change and rescans; no reboot.
@@ -148,7 +105,7 @@ import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
 import { COLLAPSE_TRANSITION, COLLAPSE_FOLLOW_MS } from '@/constants/collapse';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import ToggleSection from '@/components/ui/ToggleSection.vue';
-import InputText from '@/components/ui/InputText.vue';
+import NetworkSelector from '@/components/network/NetworkSelector.vue';
 import WifiCountrySelector from '@/components/network/WifiCountrySelector.vue';
 import Badge from '@/components/ui/Badge.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
@@ -162,19 +119,8 @@ const timer = useTimer();
 const {
   status,
   loading,
-  scanning,
-  connecting,
-  connectError,
-  connectDetail,
   wifiRefusal,
-  selectedSsid,
-  password,
   preferredNetwork,
-  otherNetworks,
-  selectNetwork,
-  scanNetworks,
-  connectToNetwork,
-  saveNetwork,
   forgetNetwork,
   toggleWifi,
   initialize,
@@ -187,11 +133,6 @@ const {
 // kiosk, a loopback client, joins at once.
 const settingsStore = useSettingsStore();
 const overRecoveryAp = computed(() => settingsStore.hotspotActive && !isKiosk());
-
-function choose(network) {
-  if (overRecoveryAp.value) saveNetwork(network, t);
-  else connectToNetwork(network, t);
-}
 
 // Two-step, like every other irreversible action here: the first press only
 // changes the label. The network forgotten is the one the unit is on — on a
@@ -209,7 +150,8 @@ function handleForget(ssid) {
 }
 
 // From setup, not onMounted: the view's first frame is then the skeletons, never
-// the last scan swapped for them a tick later.
+// the last scan swapped for them a tick later. The list's own initialize, at
+// its mount, joins this one rather than scanning again.
 initialize();
 
 const wifiDisplaySsid = computed(() =>
@@ -446,7 +388,7 @@ onUnmounted(() => {
   gap: var(--space-03);
 }
 
-/* Network items */
+/* The preferred network's row, drawn like the list's (NetworkSelector) */
 .network-item {
   display: flex;
   flex-direction: column;
@@ -454,15 +396,11 @@ onUnmounted(() => {
   padding: var(--space-03);
   border-radius: var(--radius-04);
   background: var(--color-inset);
-  cursor: pointer;
-  transition: background-color var(--transition-fast), var(--transition-press);
   min-width: 0;
 }
 
 .network-item--preferred {
-  cursor: default;
-    padding: var(--space-03) 6px var(--space-03) var(--space-03);
-
+  padding: var(--space-03) 6px var(--space-03) var(--space-03);
 }
 
 .network-item--preferred button {
@@ -491,51 +429,8 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.network-item__caret {
-  flex-shrink: 0;
-  transform: rotate(-90deg);
-  transition: transform var(--transition-fast);
-}
-
-.network-item__caret--open {
-  transform: rotate(-180deg);
-}
-
-/* Other networks sub-header */
-.network-subheader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.network-subheader__title {
+.wifi-group__title {
   color: var(--color-text-secondary);
-}
-
-/* Network list */
-.network-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-/* Expanded connect form */
-.network-item__expand {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-  padding-top: var(--space-02);
-}
-
-/* Skeleton */
-.network-skeleton {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 48px;
-  padding: 0 var(--space-04);
-  border-radius: var(--radius-04);
-  background: var(--color-inset);
 }
 
 /* Divider above the country row (the row itself lives in WifiCountrySelector) */

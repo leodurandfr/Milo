@@ -19,6 +19,11 @@
  * What breaks if it stops holding: they keep the value `system/initial_state`
  * gave when the socket opened — the kiosk's never reopens — so the banner never
  * shows on a unit that fell back to its AP, or never leaves once it is off it.
+ *
+ * `initialize()` is called by a screen and by the network list inside it as
+ * both open. What breaks if they stop being one opening: the list's call empties
+ * the networks the screen's scan is filling and scans the air a second time, so
+ * every opening of Settings › Network or of the wizard's step costs two scans.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -184,5 +189,45 @@ describe('the recovery AP, as every full status says it', () => {
 
     await preloadNetworkStatus({ force: true });
     expect(settings.hotspotActive).toBe(false);
+  });
+});
+
+describe('views opening together', () => {
+  beforeEach(() => resetApiCallMock());
+
+  const scans = () =>
+    apiCall.get.mock.calls.filter(([url]) => url === '/api/network/wifi/networks').length;
+
+  function answerEveryRead() {
+    apiCall.get.mockImplementation(async (url) => {
+      if (url === '/api/network/wifi/networks') {
+        return ok({ status: 'success', data: [{ ssid: 'Freebox', signal: 61, security: 'WPA2', in_use: false }] });
+      }
+      if (url === '/api/network/wifi/saved') return ok({ status: 'success', data: [] });
+      if (url === '/api/network/wifi/country') return ok({ status: 'success', data: { country_code: 'FR' } });
+      return ok({ status: 'success', data: linkEvent({ wifiConnected: false, ssid: null, signal: null }).data });
+    });
+  }
+
+  it('scan the air once, and each is told when it is done', async () => {
+    answerEveryRead();
+    const screen = useNetwork();
+    const list = useNetwork();
+
+    await Promise.all([screen.initialize(), list.initialize()]);
+
+    expect(scans()).toBe(1);
+    expect(screen.loading.value).toBe(false);
+    expect(list.loading.value).toBe(false);
+    expect(list.networks.value.map(n => n.ssid)).toEqual(['Freebox']);
+  });
+
+  it('leave the next opening its own scan', async () => {
+    answerEveryRead();
+
+    await useNetwork().initialize();
+    await useNetwork().initialize();
+
+    expect(scans()).toBe(2);
   });
 });
