@@ -1,0 +1,95 @@
+name: Bug report
+description: Something Milō does wrong, or does not do.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A security vulnerability does not belong here: report it
+        privately, as [SECURITY.md](https://github.com/leodurandfr/Milo/blob/main/SECURITY.md) says.
+  - type: input
+    id: version
+    attributes:
+      label: Milō version
+      description: Shown in Settings › System.
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      description: What the unit runs.
+      options:
+        - A published release image, or an in-app update to one
+        - A pre-release
+        - A development checkout (npm run dev, or a tree not on a release tag)
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Unit
+      description: Where the problem shows.
+      options:
+        - Main unit
+        - Multiroom speaker
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: pi
+    attributes:
+      label: Raspberry Pi model
+      placeholder: Raspberry Pi 5, 8 GB
+    validations:
+      required: true
+  - type: input
+    id: card
+    attributes:
+      label: Audio card
+      description: As chosen in Settings › Hardware (main unit) or Settings › Multiroom (speaker).
+      placeholder: HiFiBerry Amp4 Pro
+    validations:
+      required: true
+  - type: input
+    id: extras
+    attributes:
+      label: Other hardware
+      description: Screen, volume knob, remote, CD drive, storage, or none.
+  - type: input
+    id: source
+    attributes:
+      label: Source or feature involved
+      placeholder: Spotify, multiroom, equalizer, setup wizard…
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: Diagnostic report
+      description: |
+        Settings › System › Diagnostic › Generate a report, then Copy, right after the problem
+        happened. It leaves out passwords and keys, and replaces the names you gave things with
+        labels; read it before you paste it all the same.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Anything else from `journalctl` (for example `sudo journalctl -u milo-backend -b`), if you have SSH.
+      render: text
