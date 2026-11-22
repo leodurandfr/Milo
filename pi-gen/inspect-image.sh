@@ -493,6 +493,12 @@ section "The release this image carries"
 MILO_CHECKOUT="${ROOT%/}/home/milo/milo"
 
 check "frontend dist installed" "[ -f '$MILO_CHECKOUT/frontend/dist/index.html' ]"
+# The written offer for GPL source has to accompany the binaries the image
+# carries: in the checkout, and in the interface Settings › System opens it
+# from, which the build copies from the checkout's (frontend/vite-plugins/).
+check "third-party notices in the checkout" "[ -s '$MILO_CHECKOUT/THIRD_PARTY_NOTICES.md' ]"
+check "third-party notices in the frontend dist, as in the checkout" \
+    "cmp -s '$MILO_CHECKOUT/frontend/dist/THIRD_PARTY_NOTICES.md' '$MILO_CHECKOUT/THIRD_PARTY_NOTICES.md'"
 # Not built here, so no build tree may be left behind — one would mean the stage
 # fell back to compiling, which is the divergence this removed.
 check "no frontend build tree"  "! [ -d '$MILO_CHECKOUT/frontend/node_modules' ]"

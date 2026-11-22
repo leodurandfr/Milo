@@ -1027,6 +1027,11 @@
       "hidePreview": "Hide the report",
       "notCollected": "Could not be collected:"
     },
+    "licenses": {
+      "title": "Third-party licenses",
+      "description": "The programs Milō is built on, with their versions and licenses, and how to obtain the source code those licenses provide for.",
+      "open": "Show licenses"
+    },
     "reset": {
       "title": "Reset configuration",
       "description": "Runs first boot again: role detection, then the setup assistant. Your radio favorites, podcast subscriptions and music shares are kept.",

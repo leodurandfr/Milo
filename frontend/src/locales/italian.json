@@ -1027,6 +1027,11 @@
       "hidePreview": "Nascondi il rapporto",
       "notCollected": "Non è stato possibile raccogliere:"
     },
+    "licenses": {
+      "title": "Licenze di terze parti",
+      "description": "I programmi su cui si basa Milō, con versione e licenza, e come ottenere il codice sorgente previsto da tali licenze.",
+      "open": "Mostra le licenze"
+    },
     "reset": {
       "title": "Reimposta la configurazione",
       "description": "Riesegue il primo avvio: rilevamento del ruolo, poi l'assistente di configurazione. Le sue stazioni preferite, le iscrizioni ai podcast e le condivisioni musicali vengono mantenute.",

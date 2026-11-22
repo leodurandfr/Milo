@@ -1186,12 +1186,19 @@ line, nothing to notice. "Audio plays" would have passed it.
    (`git ls-remote <repo> 'refs/tags/v<version>*'`, the `^{}` line for an annotated tag): the
    image build refuses a clone whose HEAD is another, so a bump that leaves it stale fails the
    build.
-3. If you skipped step 1, install the version on a unit through the in-app update, or flash an
+3. In the same edit, move the program's row of `THIRD_PARTY_NOTICES.md`: its version and its
+   tag link (and the commit, for a cloned tag), which
+   `backend/tests/architecture/test_third_party_notices.py` holds equal to the manifest — and
+   its license, which nothing can hold: read the license file (or the `Cargo.toml`/package
+   metadata) at the new tag, since an upstream that relicenses changes the written offer's list
+   of copyleft programs. A Roc Toolkit bump also reads the OpenFEC version its
+   `3rdparty/SConscript` pins, and the license files at that OpenFEC tag.
+4. If you skipped step 1, install the version on a unit through the in-app update, or flash an
    image built with the new manifest. Do not hand-build it: what you are validating includes the
    way Milō installs it.
-4. Run the dependency's row below **and** the ~10-minute smoke set from
+5. Run the dependency's row below **and** the ~10-minute smoke set from
    [docs/manual/verification-checklist.md](https://github.com/leodurandfr/Milo/blob/main/docs/manual/verification-checklist.md).
-5. Commit the bump on its own, saying which unit and which rows were run. A bump folded into
+6. Commit the bump on its own, saying which unit and which rows were run. A bump folded into
    a feature commit cannot be reverted alone, and reverting is the whole point of pinning.
 
 #### What to watch, per dependency

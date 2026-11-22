@@ -1027,6 +1027,11 @@
       "hidePreview": "Bericht ausblenden",
       "notCollected": "Konnte nicht erfasst werden:"
     },
+    "licenses": {
+      "title": "Lizenzen von Drittanbietern",
+      "description": "Die Programme, auf denen Milō aufbaut, mit Version und Lizenz, und wie sich der Quellcode beziehen lässt, den diese Lizenzen vorsehen.",
+      "open": "Lizenzen anzeigen"
+    },
     "reset": {
       "title": "Konfiguration zurücksetzen",
       "description": "Führt den ersten Start erneut aus: Rollenerkennung und dann den Einrichtungsassistenten. Ihre Lieblingssender, Podcast-Abonnements und Musikfreigaben bleiben erhalten.",

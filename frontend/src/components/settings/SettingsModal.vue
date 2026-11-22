@@ -149,7 +149,9 @@
       <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
       <SystemSettings v-else-if="currentView === 'system'" key="system" class="view-content"
-        @open-password="push('system-password')" />
+        @open-password="push('system-password')" @open-licenses="push('system-licenses')" />
+
+      <ThirdPartyLicenses v-else-if="currentView === 'system-licenses'" key="system-licenses" class="view-content" />
 
       <SystemPasswordSettings v-else-if="currentView === 'system-password'" key="system-password" class="view-content"
         @back="back" />
@@ -208,6 +210,7 @@ import WizardBrowse from '@/components/settings/categories/music-library/WizardB
 import HardwareSettings from '@/components/settings/categories/HardwareSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import SystemSettings from '@/components/settings/categories/SystemSettings.vue';
+import ThirdPartyLicenses from '@/components/settings/categories/ThirdPartyLicenses.vue';
 import SystemPasswordSettings from '@/components/settings/categories/SystemPasswordSettings.vue';
 import NetworkSettings from '@/components/settings/categories/NetworkSettings.vue';
 import { preloadNetworkStatus } from '@/composables/useNetwork';
@@ -402,6 +405,7 @@ const headerTitle = computed(() => {
     'music-library-share-edit': t('musicLibrary.shares.editTitle'),
     'music-library-usb-edit': t('musicLibrary.usb.renameTitle'),
     'system-password': t('system.password.title'),
+    'system-licenses': t('system.licenses.title'),
     'multiroom-client-password': t('system.password.title'),
   };
   return titles[currentView.value] || t('settings.title');

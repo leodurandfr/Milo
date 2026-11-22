@@ -1027,6 +1027,11 @@
       "hidePreview": "Ocultar o relatório",
       "notCollected": "Não foi possível recolher:"
     },
+    "licenses": {
+      "title": "Licenças de terceiros",
+      "description": "Os programas em que o Milō assenta, com a versão e a licença de cada um, e como obter o código-fonte que essas licenças preveem.",
+      "open": "Mostrar as licenças"
+    },
     "reset": {
       "title": "Repor a configuração",
       "description": "Executa novamente o primeiro arranque: deteção do papel e depois o assistente de configuração. As suas estações favoritas, subscrições de podcast e partilhas de música são mantidas.",

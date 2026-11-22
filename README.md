@@ -125,3 +125,6 @@ Backend in Python (FastAPI, asyncio), frontend in Vue 3, audio on ALSA, CamillaD
 
 [PolyForm Shield 1.0.0](LICENSE): source-available. Read it, run it, change it and self-host
 it, at home or in your business.
+
+The programs a unit runs that other people wrote, their licenses, and the written offer for the
+source of the GPL ones: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
