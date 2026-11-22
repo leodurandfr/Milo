@@ -15,7 +15,9 @@
  * gate (or made to throw) while its real content is kept.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ref } from 'vue';
 import { bcp47For } from '@/constants/countries';
+import { fail } from '../helpers/apiCallMock';
 
 const net = vi.hoisted(() => {
   const gate = () => {
@@ -135,6 +137,18 @@ describe('setLanguage', () => {
 
     expect(net.frenchLoads).toBe(0);
     expect(i18n.currentLanguage.value).toBe('english');
+  });
+
+  it('a refusal hands its cause to the screen that asked', async () => {
+    // Language and region draws this ref as the refusal's detail: dropped
+    // here, a refused language is a tap that does nothing, without a word.
+    const errorRef = ref(null);
+    apiCall.put.mockResolvedValueOnce(fail('refused', 422));
+
+    await i18n.setLanguage('french', { errorRef });
+
+    const [, , options] = apiCall.put.mock.calls[0];
+    expect(options.errorRef).toBe(errorRef);
   });
 });
 

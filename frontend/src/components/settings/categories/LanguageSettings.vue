@@ -15,6 +15,7 @@
           :title="language.name"
           action="radio"
           :model-value="currentLanguage === language.code"
+          :disabled="languageSaving"
           @click="selectLanguage(language.code)"
         >
           <template #icon>
@@ -22,6 +23,9 @@
           </template>
         </ListItemButton>
       </div>
+
+      <!-- A language the backend refused: the check mark stays on the one in use. -->
+      <NoticeBox v-if="languageError !== null" :detail="languageError">{{ t('settings.writeRefused') }}</NoticeBox>
     </SectionCard>
 
     <SectionCard :title="t('timezone.title')">
@@ -62,8 +66,16 @@ const { t, getAvailableLanguages, getCurrentLanguage, setLanguage } = useI18n();
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
 
+const languageSaving = ref(false);
+const languageError = ref(null);
+
+// One language in flight at a time: a refusal landing after a later tap was
+// applied would say "not saved" under the language that was.
 async function selectLanguage(languageCode) {
-  await setLanguage(languageCode);
+  languageError.value = null;
+  languageSaving.value = true;
+  await setLanguage(languageCode, { errorRef: languageError });
+  languageSaving.value = false;
 }
 
 // === Timezone ===

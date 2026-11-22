@@ -30,7 +30,7 @@
  * Mounts nothing: it reads the sources.
  */
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve } from 'node:path';
 import { stripComments } from '../helpers/stripComments';
@@ -95,12 +95,18 @@ function balanced(text, open) {
   return text.slice(open + 1);
 }
 
-/** Each function a store or a composable returns: its name, signature and body. */
-function providerFunctions(text) {
+const NOT_A_METHOD = new Set(['if', 'for', 'while', 'switch', 'catch', 'return']);
+
+/**
+ * Each function a store or a composable returns — or, with `methods`, each
+ * method of a service's class: its name, signature and body.
+ */
+function providerFunctions(text, { methods = false } = {}) {
   const found = [];
-  const head = /\n {2}(?:async )?function (\w+)\(/g;
+  const head = methods ? /\n {2}(?:async )?(\w+)\(/g : /\n {2}(?:async )?function (\w+)\(/g;
   let match;
   while ((match = head.exec(text))) {
+    if (NOT_A_METHOD.has(match[1])) continue;
     const params = balanced(text, match.index + match[0].length - 1);
     const end = text.indexOf('\n  }\n', match.index);
     found.push({ name: match[1], params, body: text.slice(match.index, end < 0 ? undefined : end) });
@@ -118,8 +124,8 @@ const unforwarded = [];
  * refs of its own it hands apiCall instead (updatesStore's `startRefusal`,
  * useNetwork's `wifiRefusal`), which a screen reads back and must draw.
  */
-function writingActions(label, text) {
-  const fns = providerFunctions(stripComments(text));
+function writingActions(label, text, { methods = false } = {}) {
+  const fns = providerFunctions(stripComments(text), { methods });
   const byName = new Map(fns.map(fn => [fn.name, fn]));
   const held = fn => new Set([...fn.body.matchAll(/\berrorRef: (\w+)/g)]
     .map(([, ref]) => ref).filter(ref => ref !== 'errorRef'));
@@ -156,13 +162,47 @@ const storeActions = Object.fromEntries(filesUnder(join(SRC, 'stores'), '.js').m
   return [stem, writingActions(stem, readFileSync(path, 'utf8'))];
 }));
 
+// A composable a scanned component imports from a file of this checkout that
+// cannot be read: its writes would go unchecked, as useI18n's did while only
+// composables/ was read.
+const unresolved = [];
+
+/**
+ * Where a component's `name` comes from: the file its `import { name } from`
+ * names, or null for a package (vue) or a name the script defines itself.
+ */
+function composableFile(component, name) {
+  const source = [...component.script.matchAll(/import \{([^}]*)\} from '([^']+)'/g)]
+    .find(([, list]) => destructured(list).some(({ action }) => action === name))?.[2];
+  if (!source || !(source.startsWith('@/') || source.startsWith('.'))) return null;
+  const path = source.startsWith('@/') ? join(SRC, source.slice(2)) : resolve(dirname(component.path), source);
+  const file = [path, `${path}.js`].find(candidate => existsSync(candidate) && statSync(candidate).isFile());
+  if (!file) unresolved.push(`${component.file}: ${name} from '${source}'`);
+  return file ?? null;
+}
+
+/**
+ * A service's composable hands out its class's methods bound, under the key it
+ * returns them as (`setLanguage: i18n.setLanguage.bind(i18n)`): the writes are
+ * the methods', read by the key a screen destructures.
+ */
+function serviceActions(name, text) {
+  const methods = writingActions(name, text, { methods: true });
+  return Object.fromEntries([...stripComments(text).matchAll(/\b(\w+): \w+\.(\w+)\.bind\(/g)]
+    .filter(([, , method]) => method in methods)
+    .map(([, key, method]) => [key, methods[method]]));
+}
+
 const composableCache = new Map();
 /** A composable's writing actions, read the first time a scanned component takes it. */
-function composableActions(name) {
-  if (!composableCache.has(name)) {
-    composableCache.set(name, writingActions(name, readFileSync(join(SRC, 'composables', `${name}.js`), 'utf8')));
+function composableActions(name, file) {
+  if (!composableCache.has(file)) {
+    const text = readFileSync(file, 'utf8');
+    composableCache.set(file, /^(?:export )?class \w+/m.test(text)
+      ? serviceActions(name, text)
+      : writingActions(name, text));
   }
-  return composableCache.get(name);
+  return composableCache.get(file);
 }
 
 function splitSfc(text) {
@@ -216,7 +256,8 @@ function destructured(list) {
  * calls one — `store.action(` on a store instance, and a bare `action(` once it
  * was destructured out of a store or a composable.
  */
-function reachedActions(script) {
+function reachedActions(component) {
+  const { script } = component;
   const reached = [];
   const instances = new Map();
   for (const [, name, store] of script.matchAll(/const (\w+) = use(\w+)Store\(\)/g)) {
@@ -232,9 +273,8 @@ function reachedActions(script) {
     const stem = store ? `${store[1][0].toLowerCase()}${store[1].slice(1)}Store` : instances.get(source);
     const composable = !stem && source.match(/^(use\w+)\(\)$/)?.[1];
     if (composable && HELD_ELSEWHERE.has(composable)) continue;
-    const actions = stem ? storeActions[stem] ?? {}
-      : composable && existsSync(join(SRC, 'composables', `${composable}.js`)) ? composableActions(composable)
-        : {};
+    const file = composable && composableFile(component, composable);
+    const actions = stem ? storeActions[stem] ?? {} : file ? composableActions(composable, file) : {};
     const owner = stem && instances.has(source) ? source : stem ?? composable;
     for (const { action, local } of destructured(list)) {
       if (!(action in actions)) continue;
@@ -249,7 +289,7 @@ function writeCalls() {
   const calls = [];
   // The whole file, template included: a click handler can call an action inline.
   for (const component of components) {
-    const { file, text, script } = component;
+    const { file, text } = component;
     const spans = unmountSpans(text);
     const where = index => (spans.some(([start, end]) => index > start && index < end) ? ' (on unmount)' : '');
     for (const match of text.matchAll(/\bapiCall\.(post|put|patch|delete)\(/g)) {
@@ -260,7 +300,7 @@ function writeCalls() {
         args: balanced(text, match.index + match[0].length - 1),
       });
     }
-    for (const { pattern, label, info } of reachedActions(script)) {
+    for (const { pattern, label, info } of reachedActions(component)) {
       for (const match of text.matchAll(new RegExp(pattern, 'g'))) {
         // The action's own definition, were a component to name one alike.
         if (/function\s+$/.test(text.slice(0, match.index))) continue;
@@ -330,6 +370,12 @@ describe('a settings action that fails says so, one way', () => {
     // Reached by destructuring, and through a composable.
     expect(calls.some(call => call.label === 'updatesStore.startLocalUpdate')).toBe(true);
     expect(calls.some(call => call.label === 'useNetwork.setCountry')).toBe(true);
+    // Through a composable a service exports, found by the component's import.
+    expect(calls.some(call => call.label === 'useI18n.setLanguage')).toBe(true);
+  });
+
+  it('every composable a settings screen takes is read', () => {
+    expect(unresolved).toEqual([]);
   });
 
   it('every one of them asks apiCall for the cause', () => {

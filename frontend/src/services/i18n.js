@@ -162,11 +162,13 @@ class I18nService {
   // Change language via API (automatic WebSocket broadcast). Applied here as
   // well: after a locale failed to load, the setting already names it, so the
   // broadcast changes no value and the settingsStore watch never retries.
-  async setLanguage(language) {
+  // A refusal's cause lands in `errorRef`, for the screen that asked to draw.
+  async setLanguage(language, { errorRef } = {}) {
     const result = await apiCall.put('/api/settings/language', { language }, {
       category: 'i18n',
       message: 'Error setting language',
-      checkStatus: true
+      checkStatus: true,
+      errorRef
     });
     if (result.ok) await this.handleLanguageChanged(language);
     return result.ok;
