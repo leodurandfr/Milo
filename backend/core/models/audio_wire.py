@@ -156,8 +156,9 @@ class MusicLibraryDetails(BaseModel):
     A window, never the whole queue: a queue has no ceiling (every liked song,
     a genre), and the whole of it was validated and compared on every second
     of playback and sent to every screen on every state — 2,000 tracks cost
-    8 ms a tick and 2.5 MB a screen, measured on a Pi. Milo-Mac and Milo-iOS
-    read `track_id` alone."""
+    8 ms a tick and 2.5 MB a screen, measured on a Pi. The whole queue is read
+    on demand from `GET /api/music-library/queue`, by the queue view. Milo-Mac
+    and Milo-iOS read `track_id` alone."""
     kind: Literal["music_library"] = "music_library"
     queue: List[Dict[str, Any]]      # the Subsonic tracks as they are
     queue_index: Optional[int]

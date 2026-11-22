@@ -3,7 +3,7 @@
 
 # REST operations
 
-The 222 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
+The 223 operations of the backend's OpenAPI schema, 26 of them contracted. Each unit serves the full schema at `/api/openapi.json` and an interactive view at `/api/docs`, where request and response models are described field by field. Request and response name the schema of the body (`untyped JSON` where it is untyped).
 
 **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
@@ -151,6 +151,7 @@ The 222 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | `POST` | `/api/music-library/unstar` | StarRequest | object | internal |
 | `GET` | `/api/music-library/starred` |  | object | internal |
 | `POST` | `/api/music-library/scan` |  | object | internal |
+| `GET` | `/api/music-library/queue` |  | QueueResponse | internal |
 | `GET` | `/api/music-library/storages` |  | object | internal |
 | `PUT` | `/api/music-library/usb-devices/{uuid}` | UsbNameRequest | object | internal |
 | `DELETE` | `/api/music-library/usb-devices/{uuid}` |  | object | internal |

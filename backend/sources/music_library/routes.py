@@ -12,6 +12,7 @@ REST surface for the indexed catalog served by the Navidrome sidecar:
              frontend never talks to Navidrome (or sees its credentials) directly.
 - Favorites — star/unstar a song/album/artist.
 - Scan     — trigger a rescan on demand.
+- Queue    — the whole play queue, which the state carries only a window of.
 - Shares   — CRUD for SMB/NFS network shares: add/edit/remove a share,
              which persists its non-secret config, (re)mounts it read-only under
              /media/milo through milo-mount, and rescans. Credentials are write-
@@ -66,6 +67,7 @@ from backend.sources.music_library.models import (
     AlbumsResponse,
     ArtistResponse,
     CreatePlaylistRequest,
+    QueueResponse,
     SearchResponse,
     ShareBrowseRequest,
     ShareRequest,
@@ -829,6 +831,25 @@ async def trigger_scan(
         # is running, and it pushes `scanning: true` to every client.
         await source.shares.note_scan_started()
         return {"status": "success"}
+
+
+# === Queue ===
+
+@router.get("/queue", response_model=QueueResponse)
+async def get_queue(
+    source: MusicLibrarySource = Depends(get_source),
+) -> QueueResponse:
+    """The whole play queue and the current track's index in it.
+
+    The live queue, else the saved one a play press reopens; empty with a null
+    index when there is neither. The state carries a window of it around the
+    current track (``details.queue``); this is what a list of every queued
+    track is read from, and its index is the one ``play_index``,
+    ``remove_from_queue`` and ``move_in_queue`` take. Read it again when the
+    state's ``queue_offset + queue_index`` or ``queue_length`` moves: nothing
+    pushes it.
+    """
+    return source.whole_queue
 
 
 # === Network shares (SMB/NFS) ===

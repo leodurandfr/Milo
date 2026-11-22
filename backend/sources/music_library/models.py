@@ -60,6 +60,18 @@ class AlbumsResponse(BaseModel):
     albums: List[Dict[str, Any]]
 
 
+class QueueResponse(BaseModel):
+    """Answer of ``GET /music-library/queue``: the whole queue, live or saved.
+
+    ``queue_index`` is the current track's index in ``queue`` — the index
+    ``play_index``, ``remove_from_queue`` and ``move_in_queue`` take — and null
+    with no queue at all. The state carries only a window of it.
+    """
+
+    queue: List[Dict[str, Any]]      # the Subsonic tracks as they are
+    queue_index: Optional[int]
+
+
 class SearchResponse(BaseModel):
     """Answer of ``GET /music-library/search``: three Subsonic lists, at the root."""
 

@@ -49,19 +49,20 @@
 </template>
 
 <script setup>
-import { computed, inject, reactive, ref, watch } from 'vue';
+import { computed, inject, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMusicLibraryStore } from '@/stores/musicLibraryStore';
 import { NAVIGATION_ENTRY_STATE } from '@/composables/useNavigationStack';
 import { useRenderWindow } from '@/composables/useRenderWindow';
 import { useHoldReorder } from '@/composables/useHoldReorder';
 import { useHeldOrder } from '@/composables/useHeldOrder';
+import useWebSocket from '@/services/websocket';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import TrackRow from '@/components/audio/TrackRow.vue';
 import TrackList from '@/components/audio/TrackList.vue';
 import QueueTrackMenu from '../QueueTrackMenu.vue';
-import { moveRow, queueMove, splitQueue } from '../queueRows.js';
+import { listedQueue, moveRow, queueMove, splitQueue } from '../queueRows.js';
 
 const { t } = useI18n();
 const store = useMusicLibraryStore();
@@ -74,13 +75,33 @@ const options = computed(() => [
   { label: t('musicLibrary.previouslyPlayed'), value: 'played' },
 ]);
 
-const split = computed(() => splitQueue(store.queue, store.queueIndex, store.queueOffset));
+// Every queued track, not the window the state carries: the whole queue is
+// read on opening, again whenever the state says the queue moved (its track,
+// its length or the tracks of its window) and after a reconnect, and listed
+// while it agrees with the state — the window meanwhile.
+const listed = computed(() => listedQueue(store.wholeQueue, store.wholeQueueEdits, {
+  queue: store.queue, queueIndex: store.queueIndex, offset: store.queueOffset, length: store.queueLength,
+}));
+const split = computed(() =>
+  splitQueue(listed.value.queue, listed.value.queueIndex, listed.value.offset));
 
 // A state republished for anything but the queue (a pause) keeps a dropped
 // row where it was dropped.
-const queueShape = () =>
-  `${store.queueOffset + store.queueIndex}:${store.queue.map((song) => song.id).join(',')}`;
+const queueShape = () => `${store.queueOffset + store.queueIndex}:${store.queueLength}:`
+  + store.queue.map((song) => song.id).join(',');
 const { held: pendingUpcoming, hold } = useHeldOrder(queueShape);
+// A move with both ends past the window changes nothing the state shows, so
+// the shape alone would keep the dropped order on screen for good, over
+// every read after it: it also gives way once the whole queue is listed with
+// every edit sent read back.
+watch(() => listed.value.whole && !store.wholeQueueEdits.length, (settled) => {
+  if (settled) pendingUpcoming.value = null;
+});
+onUnmounted(store.holdWholeQueue());
+watch(queueShape, () => store.loadWholeQueue(), { immediate: true });
+const { onReconnect, onVisibilityChange } = useWebSocket();
+onReconnect(() => store.loadWholeQueue());
+onVisibilityChange(() => store.loadWholeQueue());
 
 const rows = computed(() =>
   tab.value === 'played' ? split.value.played : (pendingUpcoming.value ?? split.value.upcoming));

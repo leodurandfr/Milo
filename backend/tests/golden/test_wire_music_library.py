@@ -90,6 +90,9 @@ class FakeShares:
     def catalog_unanswered(self):
         """Handed to the client as its on_unanswered; the fake never calls it."""
 
+    def catalog_started(self):
+        """Told once Navidrome is started; the fake's key carries its library id."""
+
     def __getattr__(self, name):
         raise AttributeError(f"FakeShares has no '{name}' — add it")
 

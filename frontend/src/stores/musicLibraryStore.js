@@ -32,7 +32,7 @@
 //      refetch — and the settings rows and the library's storage filter are the
 //      same list, so they cannot disagree.
 import { defineStore } from 'pinia';
-import { ref, computed, watch } from 'vue';
+import { ref, shallowRef, computed, watch } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -272,6 +272,7 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   const queue = computed(() => details.value?.queue ?? []);
   const queueIndex = computed(() => details.value?.queue_index ?? -1);
   const queueOffset = computed(() => details.value?.queue_offset ?? 0);
+  const queueLength = computed(() => details.value?.queue_length ?? 0);
   const currentTrackId = computed(() => details.value?.track_id ?? null);
   // The page the queue was played from (playContext's `contextId`).
   const currentContextId = computed(() => details.value?.context_id ?? null);
@@ -426,9 +427,68 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // The id rides along so a queue that moved since the screen was drawn is
   // refused rather than edited at the wrong row.
   const removeFromQueue = (index, trackId) =>
-    send('remove_from_queue', { index, track_id: trackId });
-  const moveInQueue = (fromIndex, toIndex, trackId) =>
-    send('move_in_queue', { from_index: fromIndex, to_index: toIndex, track_id: trackId });
+    editWholeQueue({ index }, send('remove_from_queue', { index, track_id: trackId }));
+  const moveInQueue = (fromIndex, toIndex, trackId) => editWholeQueue(
+    { from: fromIndex, to: toIndex },
+    send('move_in_queue', { from_index: fromIndex, to_index: toIndex, track_id: trackId }),
+  );
+
+  // The WHOLE queue, read from GET /queue while a queue view holds it (it
+  // loads it; the last holder to let go clears it): the state carries a
+  // window of it only, and nothing pushes the rest. The view lists it while it agrees with the
+  // state, else the window (queueRows.js::listedQueue).
+  // Fed by reads alone, never by a WS delta: the view reads it again whenever
+  // the state's queue moves, and on a reconnect.
+  const wholeQueue = shallowRef(null);
+  // The removes and moves sent since the last read, which its answer may not
+  // hold yet; `done` once the backend has answered the command.
+  const wholeQueueEdits = shallowRef([]);
+  let wholeQueueRead = 0;
+  async function loadWholeQueue() {
+    const read = ++wholeQueueRead;
+    const answered = wholeQueueEdits.value.filter((edit) => edit.done);
+    const result = await apiCall.get(`${BASE}/queue`, {
+      category: 'musicLibrary',
+      message: 'Error loading the queue',
+    });
+    if (read !== wholeQueueRead || !result.ok) return;
+    wholeQueue.value = result.data.queue;
+    wholeQueueEdits.value = wholeQueueEdits.value.filter((edit) => !answered.includes(edit));
+  }
+  // Counted, not a flag: the navigation keeps a popped queue view mounted
+  // until its pages settle, so a queue view opened again meanwhile holds the
+  // queue while the old one still has to let go — and that letting go must
+  // not clear the new view's queue, or drop the read it has on its way.
+  let wholeQueueHolders = 0;
+  function holdWholeQueue() {
+    wholeQueueHolders += 1;
+    let holding = true;
+    return function release() {
+      if (!holding) return;
+      holding = false;
+      wholeQueueHolders -= 1;
+      if (wholeQueueHolders) return;
+      wholeQueueRead += 1;
+      wholeQueue.value = null;
+      wholeQueueEdits.value = [];
+    };
+  }
+  // An edit is laid over the whole queue until a read made after the backend
+  // answered it lands, so the list keeps the edit through the round trip; a
+  // refused one is dropped at once. It is recorded while a view holds the
+  // queue even before its first read has landed: that read was issued before
+  // the answer and may not hold the edit, so it must not settle it.
+  const wantsWholeQueue = () => Boolean(wholeQueue.value) || wholeQueueHolders > 0;
+  function editWholeQueue(edit, request) {
+    if (!wantsWholeQueue()) return request;
+    wholeQueueEdits.value = [...wholeQueueEdits.value, edit];
+    return request.then((ok) => {
+      if (ok) edit.done = true;
+      else wholeQueueEdits.value = wholeQueueEdits.value.filter((other) => other !== edit);
+      if (wantsWholeQueue()) loadWholeQueue();
+      return ok;
+    });
+  }
 
   // =========================================================================
   // CATALOG — Albums (home Albums tab; getAlbumList2 alphabetical, paged)
@@ -1299,6 +1359,11 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     queue,
     queueIndex,
     queueOffset,
+    queueLength,
+    wholeQueue,
+    wholeQueueEdits,
+    loadWholeQueue,
+    holdWholeQueue,
     currentTrackId, currentContextId,
     phase,
     isPlaying,

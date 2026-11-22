@@ -347,6 +347,118 @@ class TestQueueWindow:
         assert details(idle_rig) == live
 
 
+# Past the window on either side of the first track: a queue of a hundred,
+# played from the start, publishes its first WINDOW + 1 tracks only.
+HUNDRED = [
+    {"id": f"h{n}", "title": f"Track {n}", "artist": "DP", "album": "Hundred", "coverArt": "al3", "duration": 100}
+    for n in range(100)
+]
+
+
+class TestWholeQueueRoute:
+    """``GET /api/music-library/queue`` — the whole queue, under the window the
+    state carries, in the indices the queue edits take. What breaks: the
+    queue view lists 32 tracks on either side of the one playing and nothing
+    past them, so a track beyond can be neither seen, played, removed nor
+    moved — with nothing on screen saying the list stops there."""
+
+    @staticmethod
+    @contextlib.asynccontextmanager
+    async def serve(rig):
+        """The library's routes over the rig's source, in the test's loop."""
+        import httpx
+        from fastapi import FastAPI
+
+        from backend.sources.music_library.routes import router, setup_music_library_routes
+
+        lengths(rig, HUNDRED)
+        app = FastAPI()
+        setup_music_library_routes(lambda: rig.source)
+        app.include_router(router, prefix="/api")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://milo") as client:
+            yield client
+
+    @pytest.fixture
+    async def http(self, rig):
+        async with self.serve(rig) as client:
+            yield client
+
+    @staticmethod
+    async def read(http):
+        response = await http.get("/api/music-library/queue")
+        assert response.status_code == 200
+        return response.json()
+
+    @staticmethod
+    def playing_index(rig):
+        return next(i for i, e in enumerate(rig.mpv.playlist) if e is rig.mpv.current)
+
+    async def test_the_whole_queue_is_read_past_the_window(self, rig, http):
+        await rig.select()
+        await play(rig, HUNDRED)
+
+        whole = await self.read(http)
+
+        assert len(details(rig)["queue"]) == WINDOW + 1 < len(HUNDRED)
+        assert [t["id"] for t in whole["queue"]] == mpv_ids(rig) == [t["id"] for t in HUNDRED]
+        assert whole["queue_index"] == 0
+        assert whole["queue"][whole["queue_index"]]["id"] == details(rig)["track_id"]
+
+    async def test_its_indices_are_the_ones_the_queue_edits_take(self, rig, http):
+        """A track past the window is removed, moved and played by the index
+        the route gave it, and each answer after the edit is mpv's queue.
+        Breaks: a row past the 33rd edits another track than the one picked,
+        or is refused because its id is not at that index."""
+        await rig.select()
+        await play(rig, HUNDRED)
+
+        whole = await self.read(http)
+        gone = whole["queue"][80]["id"]
+        removed = await rig.command("remove_from_queue", {"index": 80, "track_id": gone})
+        assert removed["success"] is True
+        assert gone not in mpv_ids(rig)
+
+        whole = await self.read(http)
+        assert [t["id"] for t in whole["queue"]] == mpv_ids(rig)
+        lifted = whole["queue"][90]["id"]
+        moved = await rig.command("move_in_queue", {"from_index": 90, "to_index": 50, "track_id": lifted})
+        assert moved["success"] is True
+        assert mpv_ids(rig)[50] == lifted
+
+        whole = await self.read(http)
+        assert [t["id"] for t in whole["queue"]] == mpv_ids(rig)
+        picked = whole["queue"][70]["id"]
+        played = await rig.command("play_index", {"index": 70})
+        assert played["success"] is True
+        assert details(rig)["track_id"] == picked
+
+        whole = await self.read(http)
+        assert [t["id"] for t in whole["queue"]] == mpv_ids(rig)
+        assert whole["queue_index"] == self.playing_index(rig) == 70
+        assert whole["queue_index"] == details(rig)["queue_offset"] + details(rig)["queue_index"]
+
+    async def test_the_saved_queue_is_read_whole_too(self, monkeypatch):
+        """What a play press would reopen reads like the live queue. Breaks:
+        the queue view of a stopped queue lists the window alone."""
+        rig = LibraryRig(monkeypatch, settings={"audio.auto_stop_delay": 1})
+        async with self.serve(rig) as http:
+            await rig.select()
+            await play(rig, HUNDRED, start_index=60)
+            await rig.tick()
+            await rig.command("pause")          # the idle timeout ends the session
+            assert session(rig) is None
+
+            whole = await self.read(http)
+
+            assert [t["id"] for t in whole["queue"]] == [t["id"] for t in HUNDRED]
+            assert whole["queue_index"] == 60
+
+    async def test_no_queue_reads_as_an_empty_one(self, rig, http):
+        await rig.select()
+
+        assert await self.read(http) == {"queue": [], "queue_index": None}
+
+
 class TestAPausedQueueReplacedByAnother:
     """Pausing arms the auto-stop timer; starting another context must disarm
     it before anything is awaited (E49).

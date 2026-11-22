@@ -1296,3 +1296,148 @@ describe('musicLibraryStore — the picker and the playlist on screen', () => {
     expect(store.playlistWrites['pl-1']).toBeUndefined();
   });
 });
+
+/**
+ * The queue view lists the whole queue, read from GET /queue, under the
+ * window the state carries. Its index is only as good as the read: a read
+ * that lands after a newer one, or after the view closed, would list a queue
+ * the backend has moved past; an edit the read does not hold yet must stay
+ * laid over it until one does, and a refused one must not.
+ */
+describe('musicLibraryStore — the whole queue under the window', () => {
+  let store;
+  let unified;
+  const WHOLE = Array.from({ length: 100 }, (_, n) => ({ id: `h${n}` }));
+  const queueReads = () => apiCall.get.mock.calls.filter(([url]) => url === '/api/music-library/queue');
+  const flushPromises = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+
+  beforeEach(() => {
+    resetApiCallMock();
+    store = useMusicLibraryStore();
+    unified = useUnifiedAudioStore();
+    publishState(unified, {
+      source: 'music_library', service: 'running', session: makeSession(),
+      details: {
+        kind: 'music_library', queue: WHOLE.slice(0, 33), queue_index: 0, queue_offset: 0,
+        queue_length: 100, shuffle: false, repeat: 'off', track_id: 'h0', album_id: null,
+        artist_id: null, context_id: null,
+      },
+      controls: ['pause', 'play_index', 'remove_from_queue', 'move_in_queue'],
+    });
+  });
+
+  it('keeps the newer of two reads whichever lands last', async () => {
+    const older = deferred();
+    const newer = deferred();
+    apiCall.get.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+    const stale = store.loadWholeQueue();
+    const fresh = store.loadWholeQueue();
+    newer.settle(ok({ queue: WHOLE, queue_index: 0 }));
+    await fresh;
+    older.settle(ok({ queue: WHOLE.slice(0, 99), queue_index: 0 }));
+    await stale;
+
+    expect(store.wholeQueue).toBe(WHOLE);
+  });
+
+  it('lays an edit over the whole queue until a read made after its answer lands', async () => {
+    apiCall.get.mockResolvedValueOnce(ok({ queue: WHOLE, queue_index: 0 }));
+    await store.loadWholeQueue();
+    const answer = deferred();
+    apiCall.post.mockReturnValueOnce(answer.promise);
+
+    const removed = store.removeFromQueue(80, 'h80');
+    expect(store.wholeQueueEdits).toEqual([{ index: 80 }]);
+
+    // A read issued before the backend answered may not hold the edit yet.
+    apiCall.get.mockResolvedValueOnce(ok({ queue: WHOLE, queue_index: 0 }));
+    await store.loadWholeQueue();
+    expect(store.wholeQueueEdits).toHaveLength(1);
+
+    const after = WHOLE.filter((_, n) => n !== 80);
+    apiCall.get.mockResolvedValueOnce(ok({ queue: after, queue_index: 0 }));
+    const reads = queueReads().length;
+    answer.settle(ok({ status: 'success' }));
+    expect(await removed).toBe(true);
+    await flushPromises();
+
+    expect(queueReads()).toHaveLength(reads + 1);
+    expect(store.wholeQueue).toBe(after);
+    expect(store.wholeQueueEdits).toEqual([]);
+  });
+
+  it('keeps an edit made before the view\'s first read landed', async () => {
+    store.holdWholeQueue();
+    const first = deferred();
+    apiCall.get.mockReturnValueOnce(first.promise);
+    const read = store.loadWholeQueue();
+    const answer = deferred();
+    apiCall.post.mockReturnValueOnce(answer.promise);
+
+    const moved = store.moveInQueue(3, 8, 'h3');
+    expect(store.wholeQueueEdits).toEqual([{ from: 3, to: 8 }]);
+
+    // The first read was issued before the answer: it may not hold the move.
+    first.settle(ok({ queue: WHOLE, queue_index: 0 }));
+    await read;
+    expect(store.wholeQueueEdits).toHaveLength(1);
+
+    apiCall.get.mockResolvedValueOnce(ok({ queue: WHOLE, queue_index: 0 }));
+    answer.settle(ok({ status: 'success' }));
+    expect(await moved).toBe(true);
+    await flushPromises();
+    expect(store.wholeQueueEdits).toEqual([]);
+  });
+
+  it('drops a refused edit at once and reads the queue again', async () => {
+    apiCall.get.mockResolvedValue(ok({ queue: WHOLE, queue_index: 0 }));
+    await store.loadWholeQueue();
+    apiCall.post.mockResolvedValueOnce(fail('Refused', 409));
+    const reads = queueReads().length;
+
+    expect(await store.moveInQueue(90, 20, 'h90')).toBe(false);
+
+    expect(store.wholeQueueEdits).toEqual([]);
+    expect(queueReads()).toHaveLength(reads + 1);
+  });
+
+  it('keeps nothing once the view released it, not even a read still on its way', async () => {
+    const late = deferred();
+    apiCall.get.mockReturnValueOnce(late.promise);
+    const release = store.holdWholeQueue();
+
+    const read = store.loadWholeQueue();
+    release();
+    late.settle(ok({ queue: WHOLE, queue_index: 0 }));
+    await read;
+    await store.removeFromQueue(80, 'h80');
+
+    expect(store.wholeQueue).toBeNull();
+    expect(store.wholeQueueEdits).toEqual([]);
+  });
+
+  // The navigation keeps a popped queue view mounted until its pages settle:
+  // opened again meanwhile, the new view must not lose its queue — nor the
+  // read it has on its way — when the old one lets go, or it lists the
+  // window alone until the queue next moves.
+  it('keeps the queue while another view still holds it', async () => {
+    apiCall.get.mockResolvedValueOnce(ok({ queue: WHOLE, queue_index: 0 }));
+    const releaseOld = store.holdWholeQueue();
+    await store.loadWholeQueue();
+    const inFlight = deferred();
+    apiCall.get.mockReturnValueOnce(inFlight.promise);
+    const releaseNew = store.holdWholeQueue();
+    const read = store.loadWholeQueue();
+
+    releaseOld();
+    releaseOld();
+    const after = WHOLE.slice(0, 99);
+    inFlight.settle(ok({ queue: after, queue_index: 0 }));
+    await read;
+    expect(store.wholeQueue).toBe(after);
+
+    releaseNew();
+    expect(store.wholeQueue).toBeNull();
+  });
+});

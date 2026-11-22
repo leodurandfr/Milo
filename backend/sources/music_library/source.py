@@ -66,6 +66,7 @@ from backend.sources.music_library.models import (
     MoveInQueueParams,
     PlayContextParams,
     PlayIndexParams,
+    QueueResponse,
     RemoveFromQueueParams,
     SeekParams,
 )
@@ -104,7 +105,8 @@ SCROBBLE_MAX_THRESHOLD_S = 240
 
 # How many tracks on either side of the one playing the state carries: the
 # queue is published as a window, as Spotify's play order is (see
-# MusicLibraryDetails), never whole.
+# MusicLibraryDetails), never whole. The whole of it is `whole_queue`, read
+# on demand by GET /queue.
 QUEUE_WINDOW = 32
 
 
@@ -1662,21 +1664,28 @@ class MusicLibrarySource(MpvAudioSource):
             position_ms=self._resume_point.position_ms,
         )
 
+    def _queue_and_index(self) -> Optional[Tuple[List[Dict[str, Any]], int]]:
+        """The live queue and its index, else the saved one, else None."""
+        session = self._session
+        if isinstance(session, LibrarySession):
+            return session.queue, session.index
+        return self._saved_queue()
+
     def _details(self) -> Optional[MusicLibraryDetails]:
         """The queue around the current track (QUEUE_WINDOW on either side),
         so the frontend renders it without a round-trip, and the ids its
         navigation opens the current track's album/artist by. Only the window
-        is validated, compared and sent: this runs on every playhead tick."""
+        is validated, compared and sent: this runs on every playhead tick.
+        The whole queue is read on demand (``whole_queue``)."""
+        queue = self._queue_and_index()
+        if queue is None:
+            return None
+        tracks, index = queue
         session = self._session
         if isinstance(session, LibrarySession):
-            tracks, index = session.queue, session.index
             shuffle, repeat = session.shuffle, session.repeat
             context_id = session.context_id
         else:
-            saved = self._saved_queue()
-            if saved is None:
-                return None
-            tracks, index = saved
             content = self._resume_point.content
             shuffle, repeat = content["shuffle"], content["repeat"]
             context_id = content["queue_context_id"]
@@ -1707,6 +1716,19 @@ class MusicLibrarySource(MpvAudioSource):
         if upcoming > 1:
             controls.append("move_in_queue")
         return controls
+
+    @property
+    def whole_queue(self) -> QueueResponse:
+        """The whole queue the state publishes a window of, in the same terms:
+        the live queue, else the saved one a play press reopens, with the
+        current track's index in it. Read by routes.py's ``GET /queue`` for
+        the queue view, which lists every track and edits any of them by that
+        index; the state stays the only way the queue is pushed."""
+        queue = self._queue_and_index()
+        if queue is None:
+            return QueueResponse(queue=[], queue_index=None)
+        tracks, index = queue
+        return QueueResponse(queue=tracks, queue_index=index)
 
     # =========================================================================
     # NETWORK SHARES (SMB/NFS)

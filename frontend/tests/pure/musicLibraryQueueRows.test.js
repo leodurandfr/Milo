@@ -9,7 +9,7 @@
  * whenever that other track's id is the one sent.
  */
 import { describe, it, expect } from 'vitest';
-import { moveRow, occurrenceKeys, queueMove, splitQueue } from '@/components/music-library/queueRows';
+import { listedQueue, moveRow, occurrenceKeys, queueMove, splitQueue } from '@/components/music-library/queueRows';
 
 const queue = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id }));
 
@@ -106,5 +106,77 @@ describe('occurrenceKeys', () => {
 
     expect(after[3]).toBe(before[0]);
     expect(after[1]).toBe(before[2]);
+  });
+});
+
+/**
+ * The state carries 32 tracks on either side of the one playing; the queue
+ * view lists the whole queue, read from GET /api/music-library/queue. Listed
+ * past the moment the queue moved, a row past the window plays another track
+ * than the one tapped (play_index carries no track id to refuse it by); never
+ * listed, a track past the 33rd can be neither seen nor played, removed or
+ * moved.
+ */
+describe('listedQueue', () => {
+  const WINDOW = 32;
+  const whole = Array.from({ length: 100 }, (_, n) => ({ id: `h${n}` }));
+  /** The window the backend publishes around entry `index` of `tracks`. */
+  const windowOf = (tracks, index) => {
+    const offset = Math.max(0, index - WINDOW);
+    return {
+      queue: tracks.slice(offset, index + WINDOW + 1), queueIndex: index - offset,
+      offset, length: tracks.length,
+    };
+  };
+  const ids = (list) => list.map((song) => song.id);
+
+  it('lists every track of a whole queue that agrees with the state, by its whole index', () => {
+    const state = windowOf(whole, 0);
+    const listed = listedQueue(whole, [], state);
+    const { upcoming } = splitQueue(listed.queue, listed.queueIndex, listed.offset);
+
+    expect(state.queue).toHaveLength(WINDOW + 1);
+    expect(upcoming).toHaveLength(100);
+    for (const row of upcoming) expect(whole[row.queueIndex]).toBe(row.song);
+  });
+
+  it('takes the current track from the state, which a track change moves alone', () => {
+    const listed = listedQueue(whole, [], windowOf(whole, 70));
+
+    expect(listed).toMatchObject({ queue: whole, queueIndex: 70, whole: true });
+  });
+
+  it.each([
+    ['a track was added', [...whole, { id: 'new' }]],
+    ['the queue was shuffled', [whole[0], ...whole.slice(1).reverse()]],
+  ])('falls back to the window when %s since the read', (_, now) => {
+    const state = windowOf(now, 0);
+
+    expect(listedQueue(whole, [], state)).toEqual(
+      { queue: state.queue, queueIndex: state.queueIndex, offset: state.offset, whole: false });
+  });
+
+  it('lists the window before the first read', () => {
+    const state = windowOf(whole, 50);
+
+    expect(listedQueue(null, [], state).queue).toBe(state.queue);
+  });
+
+  it('keeps a remove sent past the window listed before and after the state answers it', () => {
+    const edits = [{ index: 80 }];
+    const after = whole.filter((_, n) => n !== 80);
+
+    expect(listedQueue(whole, edits, windowOf(whole, 0)).queue).toBe(whole);
+    expect(ids(listedQueue(whole, edits, windowOf(after, 0)).queue)).toEqual(ids(after));
+  });
+
+  it('lists a move sent into the window as the backend makes it', () => {
+    const after = [...whole];
+    after.splice(20, 0, ...after.splice(90, 1));
+
+    const listed = listedQueue(whole, [{ from: 90, to: 20 }], windowOf(after, 0));
+
+    expect(ids(listed.queue)).toEqual(ids(after));
+    expect(listed.queue[20].id).toBe('h90');
   });
 });
