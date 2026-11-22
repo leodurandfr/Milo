@@ -257,7 +257,7 @@ Docstrings say what breaks when the test fails and name the consumer — no stor
 
 ## Lint floor
 
-CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `ruff check backend/ milo-client/`, `pytest backend/`, `pytest milo-client/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`.
+CI ([.github/workflows/lint.yml](.github/workflows/lint.yml)) blocks merge on: `ruff check backend/ milo-client/`, `pytest backend/`, `pytest milo-client/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`, and the `secrets` job (gitleaks, pinned by sha256, over what a push or a pull request adds, with `.gitleaks.toml` as its only allowlist).
 
 **Both halves of the appliance are gated.** `milo-client/` sits in the same job as the backend, not a separate one — the two ship in the same commit, so a satellite regression is a regression of this commit. It was excluded from ruff and never tested until 2026-08-13; the excluding is what let a stale test and an `except: pass` sit red in the tree.
 

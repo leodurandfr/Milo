@@ -1,0 +1,33 @@
+# gitleaks configuration, read by the `secrets` job of .github/workflows/lint.yml.
+#
+# It keeps gitleaks' default rules whole and takes back only strings the tree
+# still carries that a rule reads as a secret although they are public names:
+# each would redden the job again the next time a commit touches its line. An
+# entry names the one rule it quiets and the exact shape it lets through, so a
+# real key written next to it is still caught. Never allowlist a path, a commit
+# or a whole rule here: the job looks at new lines only, so a past finding needs
+# no entry, and a broad one would let the next real secret through unseen.
+# This file is the only allowlist: the job ignores inline `gitleaks:allow`
+# comments, and no .gitleaksignore is kept.
+
+title = "Milo"
+
+[extend]
+useDefault = true
+
+# NetworkManager setting names, as `nmcli -t` prints them and the WiFi code
+# compares them (`key == "802-11-wireless.ssid"`, backend/core/network/service.py,
+# the satellite's milo-client-join-wifi): the word "key" beside a dotted name
+# with digits is what generic-api-key takes for an assignment.
+[[allowlists]]
+description = "NetworkManager setting names (802-11-wireless.*, 802-11-wireless-security.*)"
+targetRules = ["generic-api-key"]
+regexes = ['''^802-11-wireless(-security)?\.[a-z-]+$''']
+
+# The kernel's WiFi regulatory-domain argument on the command line
+# (`cfg80211.ieee80211_regdom=FR`), quoted in the provisioning and WiFi-country
+# tests' docstrings next to the word "token".
+[[allowlists]]
+description = "Kernel command-line WiFi regulatory domain (cfg80211.ieee80211_regdom=XX)"
+targetRules = ["generic-api-key"]
+regexes = ['''^cfg80211\.ieee80211_regdom=[A-Z0-9]{2}$''']

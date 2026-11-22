@@ -115,6 +115,91 @@ jobs:
         working-directory: frontend
         run: npm run test:run
 
+  # No secret enters the history unseen. The repository's own past was swept
+  # once by hand, with the same gitleaks, and what it holds is known (two
+  # revoked podcast keys, documentation examples, none left in the tree); on a
+  # push or a pull request this job looks only at what it brings, so a known
+  # past finding never reddens a run and a new one always does, and any other
+  # run scans the tree as it stands. gitleaks reads the added lines of each
+  # commit in the range, extending its default rules with the narrow allowlist
+  # in .gitleaks.toml (inline `gitleaks:allow` comments are ignored, and no
+  # .gitleaksignore is kept), and prints every finding redacted: the log names
+  # the rule, the commit, the file and the line, never the value. A merge
+  # commit's own patch is not read (`git log -p` shows none), so a line that
+  # exists only in a merge resolution is seen by the tree scan alone; work lands
+  # on main as plain commits, and a merged branch's lines are read in its own.
+  secrets:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The one place the scanner is pinned: a release asset named by its version
+    # and held to its sha256 (from the release's gitleaks_<v>_checksums.txt)
+    # before it runs. To move it, take both from the same release.
+    env:
+      GITLEAKS_VERSION: '8.30.1'
+      GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+    steps:
+      # The whole history, so the start of any pushed range is in the clone.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          asset="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLo "$asset" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${asset}"
+          echo "${GITLEAKS_SHA256}  ${asset}" | sha256sum -c -
+          tar -xzf "$asset" gitleaks
+          echo "GITLEAKS=$RUNNER_TEMP/gitleaks" >> "$GITHUB_ENV"
+      # What each event brings:
+      #   push          the pushed range, before..sha;
+      #   pull_request  the PR's own commits, base..head;
+      #   otherwise     the tree as it stands — an image build (`inputs.ref` set,
+      #                 whatever the caller's event: a tag push has no range of
+      #                 its own), the weekly schedule, a manual run.
+      # A range whose start is not in the clone falls back to the tree too: a
+      # new branch (`before` is all zeros) or a force push that rewrote `before`
+      # away. A secret added and removed inside such a push is then not seen;
+      # the tree that remains is.
+      - name: Scan what this event brings
+        env:
+          EVENT: ${{ github.event_name }}
+          CALLED_REF: ${{ inputs.ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          scan_tree() {
+            echo "Scanning the tree at $(git rev-parse HEAD)"
+            tree="$RUNNER_TEMP/gitleaks-tree"
+            rm -rf "$tree" && mkdir -p "$tree"
+            git archive --format=tar HEAD | tar -x -C "$tree"
+            "$GITLEAKS" dir "$tree" --config .gitleaks.toml --redact --ignore-gitleaks-allow --verbose --no-banner
+          }
+          scan_range() {
+            if ! git cat-file -e "$1^{commit}" 2>/dev/null; then
+              echo "The range start $1 is not in the clone"
+              scan_tree
+              return
+            fi
+            echo "Scanning $1..$2"
+            "$GITLEAKS" git . --config .gitleaks.toml --redact --ignore-gitleaks-allow --verbose --no-banner --log-opts="$1..$2"
+          }
+          if [ -n "$CALLED_REF" ]; then
+            scan_tree
+          elif [ "$EVENT" = pull_request ]; then
+            scan_range "$PR_BASE" "$PR_HEAD"
+          elif [ "$EVENT" = push ]; then
+            scan_range "$PUSH_BEFORE" "$PUSH_AFTER"
+          else
+            scan_tree
+          fi
+
   milo-mac-freshness:
     name: Milo-Mac contract freshness (non-blocking)
     # Staleness detector for the VENDORED snapshot under

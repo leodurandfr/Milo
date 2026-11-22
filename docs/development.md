@@ -1615,7 +1615,7 @@ The deciding question: *is it reproducible from a clean prod boot, or only from 
 
 ## Lint and typing floor
 
-CI ([.github/workflows/lint.yml](https://github.com/leodurandfr/Milo/blob/main/.github/workflows/lint.yml)) blocks merges if any of these fail: `ruff check backend/ milo-client/`, `pytest backend/`, `pytest milo-client/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`. All rules are **built-in** to standard tools — no custom plugins.
+CI ([.github/workflows/lint.yml](https://github.com/leodurandfr/Milo/blob/main/.github/workflows/lint.yml)) blocks merges if any of these fail: `ruff check backend/ milo-client/`, `pytest backend/`, `pytest milo-client/`, `npm run lint:js`, `npm run lint:css`, `npm run test:run`, and gitleaks over what the push or the pull request adds (the `secrets` job: its default rules plus the narrow allowlist in `.gitleaks.toml`, findings redacted). All rules are **built-in** to standard tools — no custom plugins.
 
 | Tool | Rule |
 |---|---|
@@ -1627,6 +1627,7 @@ CI ([.github/workflows/lint.yml](https://github.com/leodurandfr/Milo/blob/main/.
 | stylelint | `color-no-hex` in scoped `.vue` styles |
 | stylelint | `declaration-property-value-disallowed-list`: no `rgb()`/`rgba()`/`hsl()`/`hsla()` on a color property |
 | stylelint | `declaration-property-value-disallowed-list`: no typography redefinition in scoped CSS (use the utility classes) |
+| gitleaks | the default rules, on the lines a push or a pull request adds; an image build, the weekly run and a manual run scan the whole tree |
 
 **Intentional silent swallows** (Python) — use `contextlib.suppress(ExceptionType)` instead of `try: ... except: pass`. The latter trips `ruff S110/S112`; the former is the documented Pythonic idiom and reads as a deliberate, scoped suppression (cleanup paths, idempotent teardown, transient hardware errors in `finally:` blocks).
 
