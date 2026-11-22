@@ -32,7 +32,9 @@ two sessions — its own and the resolver's — so both are pointed at the doubl
 import asyncio
 import gc
 import json
+import threading
 import tracemalloc
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from unittest.mock import MagicMock
@@ -905,6 +907,51 @@ class TestMergingSubscriptions:
 
         assert result["results"] == []
         assert "api_error" not in result
+
+
+class _CountingExecutor(ThreadPoolExecutor):
+    """The loop's default executor, counting the work it is handed."""
+
+    def __init__(self):
+        super().__init__(max_workers=8)
+        self.submitted = 0
+
+    def submit(self, fn, /, *args, **kwargs):
+        self.submitted += 1
+        return super().submit(fn, *args, **kwargs)
+
+
+class TestWhereFeedsAreParsed:
+    """A parse allocates megabytes and frees them, and glibc keeps what a
+    thread freed in that thread's own arena. Spread over the default
+    executor's threads, 120 opened series left the backend 128 MiB heavier for
+    good, against `MemoryMax=512M` (measured on aarch64 glibc); on one thread
+    of their own, about 50 MiB heavier, still about 48 MiB once the feed cache
+    had emptied. So a burst of parses must reach neither the default executor
+    nor a pool wider than one thread."""
+
+    async def test_every_feed_is_parsed_on_one_thread_of_its_own(self, api):
+        feeds = {str(100 + i): _many_episodes(300, title=f"Show {i}") for i in range(8)}
+        feeds["900"] = _many_episodes(300, title="Opened")
+        _serve_feeds(api, feeds)
+        default = _CountingExecutor()
+        asyncio.get_running_loop().set_default_executor(default)
+
+        # A subscriptions screen and a series opened at once: the merge's
+        # fan-out and the series view's parse, all in flight together.
+        merged, series = await asyncio.gather(
+            api.get_latest_episodes([i for i in feeds if i != "900"]),
+            api.get_podcast_series("900"),
+        )
+
+        assert len(merged["results"]) == PodcastCatalog.LATEST_EPISODES_MAX
+        assert series["total_episodes"] == 300
+        assert default.submitted == 0
+        # Counted whole, never as what this burst added: the parser's pool
+        # lives for the process, so a widened one would already have started
+        # its workers in an earlier test and add none here.
+        parsers = [t for t in threading.enumerate() if t.name.startswith("podcast-feed")]
+        assert len(parsers) == 1
 
 
 def _many_episodes(count, title="Show", offset_h=0, step_h=24, description_len=200):

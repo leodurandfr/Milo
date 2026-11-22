@@ -36,6 +36,7 @@ import sys
 import time
 import aiohttp
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from math import ceil
 from typing import Callable, Dict, Any, List, Optional, Tuple
 from urllib.parse import urlencode
@@ -64,6 +65,22 @@ GENRE_TO_ITUNES_ID = {
     'PODCASTSERIES_TV_AND_FILM': 1309,
     'PODCASTSERIES_MUSIC': 1310,
 }
+
+# The one thread every feed is parsed on — never the loop's default executor.
+# A parse allocates about 10 MB for a 4 MB feed and frees most of it, and glibc
+# gives each thread its own malloc arena, which keeps the pages it freed: spread
+# over the default executor's 8 threads, each arena grew to the largest parse it
+# had run, parses running side by side stacked their trees, and none of it was
+# given back. Measured on aarch64 glibc 2.41 over 120 feeds of 2-4 MB opened
+# eight at a time, the feed cache holding about 30 MiB: RSS grew by 128 MiB
+# through the default executor, and by about 50 MiB through this one thread.
+# Neither came back once the cache had emptied: the default executor stayed at
+# +128 MiB, this thread at about +48 MiB, of which about 30 MiB more came back
+# only with malloc_trim(0) (not called here). So this bounds the growth; it
+# does not return what the arena holds. One thread costs no throughput: the
+# parse holds the GIL, so eight of them ran one at a time anyway (3.0 s for
+# the 120 both ways).
+_FEED_PARSER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="podcast-feed")
 
 # The storefront a language stands for when the unit has no country of its own
 # (see PodcastCatalog.storefront). Each is the variant the locale file is written
@@ -754,8 +771,11 @@ class PodcastCatalog:
         # ElementTree is synchronous and a large feed is not cheap — 59 ms for a
         # 1.6 MB / 244-episode feed on this hardware. Off the loop, or a cold
         # subscriptions screen stalls every other client for a second; and so
-        # is the walk that weighs what is kept.
-        kept, size = await asyncio.to_thread(_parse)
+        # is the walk that weighs what is kept. On `_FEED_PARSER`, whose comment
+        # says why it is one thread of its own.
+        kept, size = await asyncio.get_running_loop().run_in_executor(
+            _FEED_PARSER, _parse
+        )
         if kept is None:
             self.logger.error("Feed at %s did not parse as a podcast", feed_url)
             return _upstream_error(), 0
