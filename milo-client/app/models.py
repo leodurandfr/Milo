@@ -119,6 +119,13 @@ class ProgramUpdateRequest(BaseModel):
     a default, a server that stopped sending it would have every speaker
     install unchecked, as root, with a warning only in the speaker's journal.
     Required, that server gets a 422.
+
+    `target_version` is a bare `x.y.z` in ASCII digits, which is every
+    version the server resolves (the manifest's, or an upstream release's
+    tag past it): it is interpolated into the download URL, where a path in it (`1/../x`) is
+    normalized away and, with no digest to check, had the root installer
+    install another repository's binary. The route installs a release
+    upstream published at the version the caller names, and only that.
     """
-    target_version: str = Field(..., min_length=1)
+    target_version: str = Field(..., pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")
     sha256: Optional[str] = Field(..., pattern=r"^[0-9a-f]{64}$")

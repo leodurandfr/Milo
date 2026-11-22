@@ -238,6 +238,35 @@ class TestProgramPushDigest:
         assert client.post(path, json=body).status_code == 422
         getattr(service, install).assert_not_called()
 
+    @pytest.mark.parametrize("version", ["1/../x", "3.0.1/../../../owner/repo/releases/download/v1",
+                                         "v3.0.1", "3.0", "3.0.1-rc1", "3.0.1\n",
+                                         "\u0663.\u0660.\u0661"])
+    def test_a_version_that_is_not_x_y_z_is_refused(
+            self, client, request, path, service_fixture, install, version):
+        """The version is interpolated into the download URL, which normalizes
+        a `..` away: with no digest, a path in it had the root installer fetch
+        a binary from another repository."""
+        service = request.getfixturevalue(service_fixture)
+
+        assert client.post(path, json={"target_version": version, "sha256": None}).status_code == 422
+        getattr(service, install).assert_not_called()
+
+
+@pytest.mark.parametrize("key", ["SNAPCAST_VERSION", "CAMILLADSP_VERSION"])
+def test_the_validated_versions_pass_the_version_pattern(key):
+    """The server pushes the manifest's version as it is declared: a bump
+    to one this pattern refuses would make every speaker push a 422, seen
+    only on a unit."""
+    from models import ProgramUpdateRequest
+
+    manifest = Path(__file__).resolve().parents[3] / "dependencies.env"
+    declared = dict(
+        line.split("=", 1) for line in manifest.read_text().splitlines()
+        if line and not line.startswith("#") and "=" in line
+    )
+    assert declared.get(key), f"{key} is not declared in {manifest}"
+    ProgramUpdateRequest(target_version=declared[key].strip().strip('"'), sha256=None)
+
 
 class TestSnapclientConfigBounds:
     """PUT /snapclient/config carries the ALSA buffer pair the server resolved.

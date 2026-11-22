@@ -1456,7 +1456,10 @@ journal stays on trial, so that restart counts as one of its starts, and every o
 program, a satellite push, the one an admission owes — stays refused until it
 (`milo_update_holds_installs`, a 409 that names the restart): nothing moves for a release the guard
 may still put back. `GET /api/programs` no longer lists `milo` in `active_updates` then, since nothing
-runs that a client could wait for.
+runs that a client could wait for. A commit the guard declines with exit 0 (a restore in progress,
+a failure recorded beside the journal, a HEAD that is not the release on trial) is let go of the
+same way, under the reason the guard printed; `let_go_of_the_trial` reads the journal first, so a
+committed one is left to the post-commit phase.
 
 **Then the post-commit phase** (`UpdateService.run_post_commit`), run by the release that arrived
 and never by the one that left: the dependency set it declares (`_reconcile_dependencies`,

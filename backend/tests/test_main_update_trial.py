@@ -13,19 +13,26 @@ before HOLD_S, a release that dies a minute in is kept.
 The guard is a real executable in tmp_path standing in for
 /usr/local/bin/milo-update-guard, so what is asserted is what a process was
 asked and what came of its exit; the update service is a double, its own
-journal handling is test_update_service.py's.
+journal handling is test_update_service.py's — except in
+TestTheGuardsNotCommitted, which drives the real guard and the real service,
+because what is asserted there is how the two read each other.
 """
 import asyncio
+import json
 import logging
 import os
 import socket
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 import uvicorn
 
 import backend.main as main
+from backend.core.systemd import SystemdServiceManager
+from backend.core.updates import milo_journal as mj
+from backend.core.updates.update import UpdateService
 from backend.tests.golden.harness import settle
+from backend.tests.test_update_guard import GUARD as REAL_GUARD, Server
 
 ON_TRIAL = {
     "phase": "verify", "from_version": "v0.1.4", "to_version": "v0.1.5",
@@ -114,7 +121,9 @@ class TestTheTrial:
 
         assert guard.calls() == ["commit"] * 3
         updates.run_post_commit.assert_awaited_once()
-        updates.let_go_of_the_trial.assert_not_awaited()
+        # Asked once, as after every exit 0: a no-op over the committed journal.
+        (cause,) = updates.let_go_of_the_trial.await_args.args
+        assert "commits failed" not in cause
         failures = [r for r in caplog.records if "commit failed" in r.message]
         assert len(failures) == 2
         assert failures[0].message.endswith("No space left"), "the guard's own line is the diagnosis"
@@ -151,7 +160,9 @@ class TestTheTrial:
         script.chmod(0o755)
         monkeypatch.setattr(main, "GUARD", str(script))
 
-        assert "did not finish" in await main._commit_milo_trial()
+        exited, cause = await main._commit_milo_trial()
+        assert not exited
+        assert "did not finish" in cause
 
         pid = int(pid_file.read_text())
         with pytest.raises(ProcessLookupError):
@@ -182,6 +193,81 @@ class TestTheTrial:
         await main._finish_milo_update()
 
         assert order[:2] == ["hand", "state"]
+
+
+class TestTheGuardsNotCommitted:
+    """`milo-update-guard commit` exits 0 without committing too: over a
+    restore in progress (or a failure recorded beside the journal), and over a
+    HEAD that is not the release on trial. Read as "nothing left to do", the
+    trial was never let go of: the update screen stayed on 'verify' and
+    `refuse_while_milo_updates` answered 409 to the reboot and the power-off
+    until the unit was unplugged."""
+
+    @pytest.fixture
+    def on_trial(self, tmp_path, monkeypatch, mock_settings_service):
+        if os.geteuid() == 0:
+            pytest.skip("the guard refuses to run as root")
+        server = Server(tmp_path / "server").live()
+        server.on_trial()
+        satellites = Mock()
+        satellites.push_client_app_to_fleet = AsyncMock(return_value=[])
+        mock_settings_service._storage["updates.forced_versions"] = {}
+        with patch.dict("os.environ", {}, clear=True):
+            service = UpdateService(systemd_manager=SystemdServiceManager(),
+                                    satellite_update_service=satellites,
+                                    settings_service=mock_settings_service)
+        service.programs["milo"]["state_path"] = str(server.state)
+        service.programs["milo"]["backup_path"] = str(server.backup)
+        completed = AsyncMock()
+        service.set_milo_update_listener(AsyncMock(), completed)
+        for name, value in server.env.items():
+            monkeypatch.setenv(name, value)
+        monkeypatch.setattr(main, "update_service", service)
+        monkeypatch.setattr(main, "GUARD", str(REAL_GUARD))
+        monkeypatch.setattr(main, "HOLD_S", 0)
+        monkeypatch.setattr(main, "COMMIT_RETRY_S", 0)
+        return server, service, completed
+
+    def _restore_in_progress(self, server):
+        (server.state / mj.ROLLING_BACK_NAME).write_text(
+            json.dumps({"detail": "cut", "runs": 1, "step": "venv"}))
+
+    def _head_elsewhere(self, server):
+        server.git("checkout", "-q", "--force", "v0.1.0")
+
+    @pytest.mark.parametrize("not_committable", ["_restore_in_progress", "_head_elsewhere"])
+    async def test_a_trial_the_guard_did_not_commit_is_let_go_of(
+            self, on_trial, not_committable, caplog):
+        server, service, completed = on_trial
+        getattr(self, not_committable)(server)
+        assert service.milo_update_state()["phase"] == "verify"
+        said = server.guard("commit")
+        assert said.returncode == 0, "the case is the guard's exit 0"
+        (why,) = [line for line in said.stderr.splitlines() if "not committed" in line]
+
+        with caplog.at_level(logging.ERROR, logger=service.update_logger.name):
+            await main._finish_milo_update()
+
+        assert server.journal()[mj.KEY_STEP] == mj.TRIAL_STEP, "the guard committed after all"
+        assert service.milo_update_active is False, "the reboot and the power-off stay refused"
+        assert service.milo_update_state() is None, "the update screen stays up"
+        completed.assert_awaited_once_with(False)
+        (error,) = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert why.strip() in error.message, "the guard's reason is the only diagnosis"
+
+    async def test_a_trial_the_guard_committed_is_not_let_go_of(self, on_trial, monkeypatch):
+        """The same exit 0 after a commit: the let-go reads the journal
+        committed and does nothing, and the post-commit phase (which reaches
+        GitHub and the satellites, so stood in for) is what follows."""
+        server, service, completed = on_trial
+        post_commit = AsyncMock()
+        monkeypatch.setattr(service, "run_post_commit", post_commit)
+
+        await main._finish_milo_update()
+
+        assert server.journal()[mj.KEY_STEP] == mj.COMMITTED_STEP
+        completed.assert_not_awaited()
+        post_commit.assert_awaited_once()
 
 
 class TestOnceListening:

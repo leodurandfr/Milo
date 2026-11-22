@@ -11,7 +11,6 @@ import asyncio
 import contextlib
 import logging
 import socket
-from typing import Optional
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 import uvicorn
@@ -157,10 +156,14 @@ def mark_listening() -> None:
         _listening.set()
 
 
-async def _commit_milo_trial() -> Optional[str]:
+async def _commit_milo_trial() -> tuple[bool, str]:
     """`milo-update-guard commit`, as milo like the guard's every run (no sudo:
-    the journal is this account's own state). None once the guard has nothing
-    left to do — committed now, or no trial to commit —, else why it did not.
+    the journal is this account's own state). Returns whether the guard exited
+    0, and its last line on stderr — on a failure, why the attempt failed.
+    Exit 0 is not "committed": the guard also exits 0 over a trial it will not
+    commit (a restore in progress, a failure recorded, a HEAD that is not the
+    release on trial), saying why on stderr, so the caller reads the journal
+    again before it calls the trial done, and has that line to name the cause.
 
     A failed attempt is a warning: the caller tries again, and says it once,
     at error, if it gives up.
@@ -174,7 +177,7 @@ async def _commit_milo_trial() -> Optional[str]:
     except OSError as e:
         cause = f"milo-update-guard commit could not run: {e}"
         logger.warning(cause)
-        return cause
+        return False, cause
     try:
         _, stderr = await asyncio.wait_for(proc.communicate(), GUARD_TIMEOUT_S)
     except asyncio.TimeoutError:
@@ -183,15 +186,14 @@ async def _commit_milo_trial() -> Optional[str]:
         await proc.wait()
         cause = f"milo-update-guard commit did not finish within {GUARD_TIMEOUT_S:.0f} s"
         logger.warning(cause)
-        return cause
+        return False, cause
+    lines = [line.strip() for line in stderr.decode(errors="replace").splitlines() if line.strip()]
+    last = lines[-1] if lines else ""
     if proc.returncode != 0:
-        lines = [line.strip() for line in stderr.decode(errors="replace").splitlines() if line.strip()]
-        cause = "milo-update-guard commit failed: " + (
-            lines[-1] if lines else f"exit code {proc.returncode}"
-        )
+        cause = "milo-update-guard commit failed: " + (last or f"exit code {proc.returncode}")
         logger.warning(cause)
-        return cause
-    return None
+        return False, cause
+    return True, last
 
 
 async def _finish_milo_update() -> None:
@@ -209,7 +211,11 @@ async def _finish_milo_update() -> None:
     A commit that fails is tried again, COMMIT_ATTEMPTS times in all; past
     that the trial is let go of (`let_go_of_the_trial`, which says so once, at
     error): the update screen lifts and the unit may be restarted again, which
-    the guard counts as a start of the trial.
+    the guard counts as a start of the trial. A guard that exits 0 is asked to
+    let go as well: it does so over a trial it did not commit, and the let-go
+    reads the journal first, so a committed one is left to the post-commit
+    phase. Read as done instead, that trial held the update screen and
+    refused the reboot and the power-off until the unit was unplugged.
     """
     await update_service.hand_stranded_journal_to_the_guard()
     state = update_service.milo_update_state()
@@ -219,15 +225,17 @@ async def _finish_milo_update() -> None:
         )
         await asyncio.sleep(HOLD_S)
         for attempt in range(1, COMMIT_ATTEMPTS + 1):
-            cause = await _commit_milo_trial()
-            if cause is None:
+            exited, cause = await _commit_milo_trial()
+            if exited:
+                cause = cause or "the update guard did not commit the trial"
                 break
             if attempt < COMMIT_ATTEMPTS:
                 await asyncio.sleep(COMMIT_RETRY_S)
         else:
-            # A commit the guard wrote but did not report is found by the
-            # let-go's own read, and is then the post-commit phase's below.
-            await update_service.let_go_of_the_trial(f"{COMMIT_ATTEMPTS} commits failed, the last: {cause}")
+            cause = f"{COMMIT_ATTEMPTS} commits failed, the last: {cause}"
+        # A no-op over a committed journal — one the guard wrote, reported or
+        # not —, which is then the post-commit phase's below.
+        await update_service.let_go_of_the_trial(cause)
     await update_service.run_post_commit()
 
 

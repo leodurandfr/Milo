@@ -526,9 +526,9 @@ class UpdateService(VersionService):
         self._journal_abandoned = True
         self.update_logger.error(
             f"The Milo update {journal.get(KEY_ORIGIN_TAG)} -> {journal.get(KEY_TARGET_TAG)} "
-            f"could not be committed ({cause}). Milo runs {journal.get(KEY_TARGET_TAG)} and "
-            "can be restarted again; the next start counts as one of its trial's, and the "
-            f"update guard puts {journal.get(KEY_ORIGIN_TAG)} back if it is never committed."
+            f"could not be committed ({cause}). The update is let go of and the unit can be "
+            "restarted again; at the next start the update guard decides whether "
+            f"{journal.get(KEY_TARGET_TAG)} stays or {journal.get(KEY_ORIGIN_TAG)} is put back."
         )
         await self._notify_milo_complete(False)
         return True
