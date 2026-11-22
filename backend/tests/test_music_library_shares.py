@@ -1347,10 +1347,11 @@ class TestScanChannel:
     def test_an_idle_catalog_is_not_polled_every_minute(self, scanner):
         """Every poll Navidrome answers writes its database — the account's last
         access and the player's last-seen, each at most once a minute — so an
-        idle cadence under that minute is a write a minute, day and night —
-        the probable bulk of the ~100 MB a day measured on the SD card. A
-        catalog that does not answer writes nothing and is asked sooner, and a
-        running scan sooner still."""
+        idle cadence under that minute is a write a minute, day and night:
+        measured on the SD card at rest, about 95-99 MiB a day (336-352 KiB per
+        5 min) at a 15 s idle poll, about 36 MiB a day (128 KiB per 5 min) at
+        the 5 min one. A catalog that does not answer writes nothing and is
+        asked sooner, and a running scan sooner still."""
         navidrome_write_limiter_s = 60.0
         idle = scanner._poll_delay(scanning=False)
         assert idle > navidrome_write_limiter_s

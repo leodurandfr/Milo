@@ -63,8 +63,10 @@ _SHARE_REMOUNT_PLATEAU_S = 300
 # getScanStatus updates the account's last access and the player's last-seen,
 # each rate-limited to once a minute (Navidrome v0.64.2, consts.go). At the 15 s
 # this used to be, that was two SQLite transactions a minute, day and night, on
-# a unit nobody was using — the probable bulk of the ~100 MB a day Navidrome was
-# measured writing to the SD card with nobody using the unit. So the idle
+# a unit nobody was using. Measured on the SD card with nobody using the unit,
+# Navidrome wrote 336-352 KiB per 5 min at the 15 s probe (about 95-99 MiB a
+# day) and writes 128 KiB per 5 min at the 5 min one (about 36 MiB a day,
+# measured 2026-11-22). So the idle
 # cadence sits well past that one-minute limiter, and only Navidrome's own
 # 6-hourly scan is left to it: every scan Milō asks for is announced the moment
 # Navidrome accepts it (StorageManager's scanning hook), and any catalog call

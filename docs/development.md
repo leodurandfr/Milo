@@ -683,8 +683,9 @@ standing in for the podcast catalogue and a mount layer underneath.**
   on screen grows). Three cadences plus a kick — 5 min idle, 15 s while
   Navidrome does not answer, 3 s while scanning. Idle is slow because every
   poll Navidrome answers writes its database (last access, player last-seen,
-  each at most once a minute — at the old 15 s, the probable bulk of the
-  ~100 MB a day measured on the SD card), so only Navidrome's own 6-hourly scan
+  each at most once a minute). Measured on the SD card with the unit at rest:
+  336-352 KiB per 5 min at the old 15 s (about 95-99 MiB a day), 128 KiB per 5 min
+  at 5 min (about 36 MiB a day, 2026-11-22). So only Navidrome's own 6-hourly scan
   is left to it: every scan Milō asks for is announced the moment Navidrome
   accepts it (`StorageManager`'s scanning hook, which also keeps `scanning` up
   while a mount's scan waits behind a running one), and every Subsonic call
