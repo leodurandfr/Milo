@@ -10,6 +10,13 @@
  *
  * What a row does is three calls of `useNetwork()`: select it, join it, save it.
  * A view other than the list calling one of them is drawing a list of its own.
+ *
+ * Settings › Network draws its preferred network in a row of its own, and
+ * whether that row offers Forget and whether the list leaves the network out is
+ * `useNetwork()`'s to decide (`preferredForgettable`, `listExcludedSsid`). What
+ * breaks if the view binds anything else: over the recovery AP the list hides
+ * the very network the "WiFi lost" banner sends a phone to type the key of, and
+ * the row's one action is a Forget the unit refuses.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -54,5 +61,25 @@ describe('the WiFi network list', () => {
     // A view selecting, joining or saving a network from its own rows is a
     // second copy of the list: draw NetworkSelector, and give it a prop.
     expect(Object.keys(views).filter(file => file !== THE_LIST)).toEqual([]);
+  });
+});
+
+describe('Settings › Network\'s preferred row', () => {
+  const view = stripComments(readFileSync(join(SRC_DIR, 'components/settings/categories/NetworkSettings.vue'), 'utf8'));
+  const list = view.match(/<NetworkSelector\b[^>]*>/g) ?? [];
+  const forgets = view.match(/<Button\b[^>]*\bhandleForget\([^>]*>/g) ?? [];
+
+  it('is found, with the list beside it', () => {
+    // Guards the two rules below: a parse that finds nothing would pass them.
+    expect(list).toHaveLength(1);
+    expect(forgets).toHaveLength(1);
+  });
+
+  it('leaves out of the list what useNetwork says to', () => {
+    expect(list[0]).toMatch(/:exclude-ssid="listExcludedSsid"/);
+  });
+
+  it('draws its Forget only where useNetwork says it can be forgotten', () => {
+    expect(forgets[0]).toMatch(/\bv-if="preferredForgettable"/);
   });
 });

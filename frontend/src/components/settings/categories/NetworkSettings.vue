@@ -60,7 +60,8 @@
                 <WifiSignal :signal="wifiShown.signal" :size="24" />
                 <span class="text-body-medium network-item__ssid">{{ preferredNetwork.ssid }}</span>
               </div>
-              <Button variant="important" size="small" @click="handleForget(preferredNetwork.ssid)">
+              <Button v-if="preferredForgettable" variant="important" size="small"
+                @click="handleForget(preferredNetwork.ssid)">
                 {{ confirmForget === preferredNetwork.ssid ? t('network.forgetConfirm') : t('network.forget') }}
               </Button>
             </div>
@@ -68,12 +69,15 @@
         </div>
 
         <!-- Other networks: the one list, the wizard's. The preferred network
-             is drawn above with its Forget; over the recovery AP the list saves
-             rather than joins. -->
+             is drawn above, with its Forget except over the recovery AP. There
+             the list saves rather than joins (the unit tries the network on its
+             next turn back to the home network), and keeps the preferred
+             network so its key can be typed again (useNetwork's
+             listExcludedSsid). -->
         <div class="wifi-group">
           <span class="heading-3 wifi-group__title">{{ t('network.otherNetworks') }}</span>
           <NetworkSelector :show-country="false" :show-label="false"
-            :exclude-ssid="preferredNetwork?.ssid ?? null"
+            :exclude-ssid="listExcludedSsid"
             :action="overRecoveryAp ? 'save' : 'connect'" />
         </div>
 
@@ -99,8 +103,6 @@ import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
 import { useHeldWhileClosed } from '@/composables/useHeldWhileClosed';
-import { useSettingsStore } from '@/stores/settingsStore';
-import { isKiosk } from '@/utils/kiosk';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
 import { COLLAPSE_TRANSITION, COLLAPSE_FOLLOW_MS } from '@/constants/collapse';
 import SectionStack from '@/components/ui/SectionStack.vue';
@@ -121,17 +123,13 @@ const {
   loading,
   wifiRefusal,
   preferredNetwork,
+  overRecoveryAp,
+  preferredForgettable,
+  listExcludedSsid,
   forgetNetwork,
   toggleWifi,
   initialize,
 } = useNetwork();
-
-// A browser on the unit's recovery access point saves the network rather than
-// joining it: joining takes the one radio from under that browser, and the
-// unit refuses it. The unit tries the network on its next turn back to the
-// home network. The kiosk, a loopback client, joins at once.
-const settingsStore = useSettingsStore();
-const overRecoveryAp = computed(() => settingsStore.hotspotActive && !isKiosk());
 
 // Two-step, like every other irreversible action here: the first press only
 // changes the label. The network forgotten is the one the unit is on — on a

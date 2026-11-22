@@ -21,6 +21,13 @@
  * gave when the socket opened — the kiosk's never reopens — so the banner never
  * shows on a unit that lost its network, or never leaves once it has one.
  *
+ * Over the recovery AP, Settings › Network keeps the preferred network in the
+ * list and draws no Forget on its row. What breaks if it stops holding: on a
+ * unit whose network changed, the "WiFi lost" banner sends a phone on the AP to
+ * type that network's key again, the list hides the very network, and the
+ * row's one action is a Forget the unit refuses — a unit with no screen and no
+ * Ethernet is left with no way to be given its key.
+ *
  * `initialize()` is called by a screen and by the network list inside it as
  * both open. What breaks if they stop being one opening: the list's call empties
  * the networks the screen's scan is filling and scans the air a second time, so
@@ -29,6 +36,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
+const kiosk = vi.hoisted(() => ({ value: false }));
+vi.mock('@/utils/kiosk', () => ({ isKiosk: () => kiosk.value }));
 
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
@@ -38,6 +47,10 @@ import {
 import { useSettingsStore } from '@/stores/settingsStore';
 
 const { status } = useNetwork();
+
+// The kiosk flag is module-wide: every test starts as a browser, never as
+// whatever the previous test set.
+beforeEach(() => { kiosk.value = false; });
 
 function linkEvent({ wifiConnected, ssid, signal, hotspotActive = false, linkLost = false }) {
   return {
@@ -155,6 +168,45 @@ describe('the recovery AP, as every full status says it', () => {
 
     await preloadNetworkStatus({ force: true });
     expect(settings.hotspotActive).toBe(false);
+  });
+});
+
+describe('the preferred network over the recovery AP', () => {
+  // What the AP's status says of a configured unit (`_get_wifi_info`): not
+  // connected, the saved profile named.
+  const lostOnAp = () => ({
+    data: {
+      ...linkEvent({ wifiConnected: false, ssid: null, signal: null, hotspotActive: true }).data,
+      wifi: { connected: false, connecting: false, ssid: null, ip_address: null, signal: null, saved_ssid: 'Maison' },
+    },
+  });
+
+  beforeEach(() => resetApiCallMock());
+
+  it('stays in the list, its row with no Forget, for a phone on the AP', () => {
+    handleNetworkStatusChanged(lostOnAp());
+    const { preferredNetwork, listExcludedSsid, preferredForgettable } = useNetwork();
+
+    expect(preferredNetwork.value?.ssid).toBe('Maison');
+    expect(listExcludedSsid.value).toBeNull();
+    expect(preferredForgettable.value).toBe(false);
+  });
+
+  it('is the row\'s alone, with its Forget, at home', () => {
+    handleNetworkStatusChanged(linkEvent({ wifiConnected: true, ssid: 'Maison', signal: 61 }));
+    const { listExcludedSsid, preferredForgettable } = useNetwork();
+
+    expect(listExcludedSsid.value).toBe('Maison');
+    expect(preferredForgettable.value).toBe(true);
+  });
+
+  it('is the row\'s alone on the kiosk, which the AP guard lets forget', () => {
+    kiosk.value = true;
+    handleNetworkStatusChanged(lostOnAp());
+    const { listExcludedSsid, preferredForgettable } = useNetwork();
+
+    expect(listExcludedSsid.value).toBe('Maison');
+    expect(preferredForgettable.value).toBe(true);
   });
 });
 

@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { isKiosk } from '@/utils/kiosk';
 
 /**
  * Module-level singleton state (persists across component instances).
@@ -124,6 +125,24 @@ export function useNetwork() {
     // Not in scan results (out of range) but still saved
     return { ssid, signal: null, security: '', in_use: false };
   });
+
+  // A browser on the unit's recovery access point saves a network rather than
+  // joining it: joining takes the one radio from under that browser, and the
+  // unit refuses it. The kiosk, a loopback client, joins at once. The store is
+  // read in the getter, since the composable may be called at module scope,
+  // before any Pinia is active.
+  const overRecoveryAp = computed(() => useSettingsStore().hotspotActive && !isKiosk());
+
+  // Settings › Network draws the preferred network in a row of its own, whose
+  // one action is Forget, and leaves it out of the list below. Over the
+  // recovery AP that Forget is refused (RecoveryAccessPointGuard) and the
+  // network is the one the unit lost — the "WiFi lost" banner sends the reader
+  // to type its key again — so the row draws no Forget and the list keeps the
+  // network, the only place a key is typed.
+  const preferredForgettable = computed(() => !overRecoveryAp.value);
+  const listExcludedSsid = computed(() =>
+    preferredForgettable.value ? (preferredNetwork.value?.ssid ?? null) : null
+  );
 
   function selectNetwork(network) {
     if (network.in_use) return;
@@ -333,6 +352,9 @@ export function useNetwork() {
     password,
     preferredSsid,
     preferredNetwork,
+    overRecoveryAp,
+    preferredForgettable,
+    listExcludedSsid,
     selectNetwork,
     loadStatus,
     loadSavedNetworks,

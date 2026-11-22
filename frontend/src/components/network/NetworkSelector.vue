@@ -80,7 +80,7 @@ const { t } = useI18n();
 const props = defineProps({
   showCountry: { type: Boolean, default: true },
   showLabel: { type: Boolean, default: true },
-  // A network the parent draws itself (Settings' preferred row, with its Forget).
+  // A network the parent draws itself, left out of the list.
   excludeSsid: { type: String, default: null },
   // What the selected network's button (and Enter in its password) does:
   // 'connect' joins it now, 'save' only stores the profile (over the recovery
