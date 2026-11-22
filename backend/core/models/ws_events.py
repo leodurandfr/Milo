@@ -18,7 +18,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.core.models.audio_wire import AudioState, PositionAnchor
 from backend.core.models.notices import SetAsideNotice
-from backend.core.models.presence import PresenceChallenge
 from backend.core.models.session import EndReason
 from backend.core.network.models import NetworkStatus
 from backend.core.models.settings_config import (
@@ -120,23 +119,6 @@ class SystemTimezoneChanged(WsEvent):
     timezone: Optional[str]
     latitude: Optional[float]
     longitude: Optional[float]
-
-
-class SystemPresenceChanged(WsEvent):
-    """The gesture the unit waits for changed: a challenge opened, was confirmed
-    on the unit, or ended (`challenge` is null). It carries no token: only the
-    request that opened a challenge can spend it.
-
-    App.vue → presenceStore, which sends a guarded request again with its token
-    once its own challenge is `confirmed`, and closes its dialog when that
-    challenge ends; on the unit's own screen, PresenceDialog also draws a
-    challenge another device opened, since the knob under that screen is what
-    would confirm it. Read again by `GET /api/system/presence` at every resync,
-    which is how a power-cut proof reaches the page that waited through it.
-    """
-    CATEGORY = "system"
-    TYPE = "presence_changed"
-    challenge: Optional[PresenceChallenge]
 
 
 class SystemNoticesChanged(WsEvent):
@@ -1030,9 +1012,11 @@ class NetworkStatusChanged(NetworkStatus, WsEvent):
     and Wi-Fi links.
 
     Consumers: `composables/useNetwork.js` (`_setStatus`, the whole NetworkStatus
-    payload — wifi_enabled, ethernet, wifi, hotspot_active), which hands
-    `hotspot_active` to `settingsStore.hotspotActive`, read by App.vue's "WiFi
-    lost" banner, SetupWizard and NetworkSettings.
+    payload — wifi_enabled, ethernet, wifi, hotspot_active, link_lost), which
+    hands `hotspot_active` to `settingsStore.hotspotActive` (SetupWizard,
+    NetworkSettings, the timezone adoption) and `link_lost` to
+    `settingsStore.linkLost`, read by App.vue's "WiFi lost" banner
+    (`networkLost`).
     """
     CATEGORY = "network"
     TYPE = "status_changed"

@@ -114,7 +114,10 @@ class TestSsh:
             response = client.put("/api/system/ssh", json={"enabled": True})
 
         assert response.status_code == 500
-        assert "ssh.service not found" in response.json()["detail"]
+        detail = response.json()["detail"]
+        # The server's panel relays this detail: it names the verb that failed.
+        assert detail.startswith("Failed to enable SSH: ")
+        assert "ssh.service not found" in detail
 
     def test_closing_disables_rather_than_only_stopping(self, client):
         """A stop alone would reopen the door at the next boot."""
@@ -123,7 +126,7 @@ class TestSsh:
         with patched:
             client.put("/api/system/ssh", json={"enabled": False})
 
-        assert spawn.await_args_list[0].args[1:4] == ("systemctl", "disable", "--now")
+        assert spawn.await_args_list[0].args[1:5] == ("-n", "systemctl", "disable", "--now")
 
     def test_a_systemctl_that_hangs_is_killed_and_reported(self, client):
         """A D-Bus stall must not leave a child behind nor answer a bare 500."""
@@ -202,7 +205,7 @@ class TestTimezone:
             response = client.put("/api/system/timezone", json={"timezone": "Europe/Paris"})
 
         assert response.json()["data"] == {"changed": True}
-        assert spawn.await_args.args == ("sudo", "/usr/local/bin/milo-client-set-timezone")
+        assert spawn.await_args.args == ("sudo", "-n", "/usr/local/bin/milo-client-set-timezone")
         assert helper.stdin_received == b"Europe/Paris\n"
         # The app's own log lines are stamped in the zone it read at start.
         tzset.assert_called_once_with()

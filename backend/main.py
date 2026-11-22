@@ -48,7 +48,6 @@ from backend.api.lyrics import create_lyrics_router
 from backend.api.push import create_push_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
-from backend.core.system.presence import PRESENCE_HEADER
 from backend.core.updates.milo_journal import GUARD, HOLD_S
 from backend.shared.background import BackgroundTaskSet
 
@@ -112,7 +111,6 @@ levels_monitor = get_service("levels_monitor")
 network_service = get_service("network_service")
 wifi_adoption_service = get_service("wifi_adoption_service")
 update_service = get_service("update_service")
-presence_service = get_service("presence_service")
 notice_service = get_service("notice_service")
 ws_manager = get_service("websocket_manager")
 websocket_server = WebSocketServer(
@@ -383,7 +381,6 @@ async def lifespan(app: FastAPI):
         ("hostname_conflict", get_service("hostname_conflict_service").cleanup),
         ("music_library_shares", get_service("music_library_source").shares.cleanup),
         ("push_service", get_service("push_service").cleanup),
-        ("presence", presence_service.cleanup),
         ("notices", notice_service.cleanup),
         ("apns", get_service("apns_client").cleanup),
         # Each source's mailbox: its task is ended and a caller still waiting
@@ -419,12 +416,10 @@ app = FastAPI(
 app.add_middleware(RecoveryClientTracker, network_service=network_service)
 
 # Outside the tracker for that reason, inside CORS so an admitted reader reads its
-# 403 — or the 428 of the one write it admits on a proof of presence — like any
-# route's. See backend/api/middleware.py.
+# 403 like any route's. See backend/api/middleware.py.
 app.add_middleware(
     RecoveryAccessPointGuard,
     network_service=network_service, settings_service=settings_service,
-    presence_service=presence_service,
 )
 
 # CORS configuration - restricted to authorized origins
@@ -433,7 +428,7 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept", "Authorization", PRESENCE_HEADER],
+    allow_headers=["Content-Type", "Accept", "Authorization"],
 )
 
 # Added last, so it wraps CORS: what CORS admits as a reader still has to be a
@@ -515,7 +510,6 @@ system_router = create_system_router(
     state_machine=state_machine,
     satellite_timezone_service=get_service("satellite_timezone_service"),
     update_service=update_service,
-    presence_service=presence_service,
     settings_service=settings_service,
     notice_service=notice_service,
 )
@@ -525,7 +519,6 @@ programs_router = create_programs_router(
     update_service=update_service,
     satellite_update_service=get_service("satellite_update_service"),
     state_machine=state_machine,
-    presence_service=presence_service,
 )
 app.include_router(programs_router)
 
@@ -545,7 +538,7 @@ pending_clients_service = get_service("pending_clients_service")
 multiroom_router = create_multiroom_router(
     client_registry_service, multiroom_equalizer_service, pending_clients_service, crossover_service,
     snapcast_service, equalizer_router_service, volume_service,
-    presence_service=presence_service, satellite_secret=get_service("satellite_secret"),
+    satellite_secret=get_service("satellite_secret"),
 )
 app.include_router(multiroom_router)
 

@@ -337,7 +337,7 @@ async def _stop_then_start() -> None:
     for action in ("stop", "start"):
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", action, SNAPCLIENT_SERVICE,
+                "sudo", "-n", "systemctl", action, SNAPCLIENT_SERVICE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

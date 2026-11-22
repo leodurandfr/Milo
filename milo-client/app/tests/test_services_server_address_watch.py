@@ -61,8 +61,8 @@ LAUNCHER = ROOTFS / "usr/local/bin/milo-client-snapclient-launcher"
 SERVER_ADDRESSES_FILE = registration.SERVER_ADDRESSES_FILE
 
 RESTART = [
-    ("sudo", "systemctl", "stop", SNAPCLIENT_SERVICE),
-    ("sudo", "systemctl", "start", SNAPCLIENT_SERVICE),
+    ("sudo", "-n", "systemctl", "stop", SNAPCLIENT_SERVICE),
+    ("sudo", "-n", "systemctl", "start", SNAPCLIENT_SERVICE),
 ]
 
 TCP_HEADER = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
@@ -111,7 +111,7 @@ def _watching(tmp_path, main_pid, resolves_to=None, principal="milo.local",
         spawned.append(argv)
         if argv[0] == "systemctl":
             return _FakeProc(stdout=f"{main_pid}\n".encode())
-        if start_fails and argv[2] == "start":
+        if start_fails and argv[3] == "start":
             return _FakeProc(stdout=b"", returncode=1)
         return _FakeProc()
 
@@ -471,7 +471,7 @@ class _World:
         if argv[0] == "systemctl":
             self.pid_reads.append(self.now)
             return _FakeProc(stdout=b"1077\n")
-        if argv[2] == "start":
+        if argv[3] == "start":
             self.restarts.append(self.now)
             if self.start_fails == "spawn":
                 raise OSError(errno.EAGAIN, "Resource temporarily unavailable")
@@ -988,7 +988,7 @@ class _ServerCableWorld(_World):
 
     async def _exec(self, *argv, **kwargs):
         proc = await super()._exec(*argv, **kwargs)
-        if argv[0] == "sudo" and argv[2] == "start":
+        if argv[0] == "sudo" and argv[3] == "start":
             self.dialled = self.resolves(self.now)
             _write_cmdline(self.tmp_path, 1077, "/usr/bin/snapclient", "-h", self.dialled, "-p", "1704")
             if self.dialled == WIRED:

@@ -866,18 +866,16 @@ state_machine.system_state.active_source = source
    (`milo-client/app/tests/test_{set_timezone,join_wifi,set_password}_helper.py`).
 
 5. **A write over the recovery access point is refused unless it is listed.** A client of the AP
-   may only read, before setup send `PRE_SETUP_WRITES`, and once set up send `PRESENCE_WRITES`
-   on a proof of presence the guard asks itself (`api/middleware.py`; see
+   may only read, before setup send `PRE_SETUP_WRITES`, and once set up send `SET_UP_WRITES`
+   (`api/middleware.py`; see
    [architecture.md § Recovery access point](architecture.md#recovery-access-point)). A new
    wizard or adoption call that must work over the AP joins the first list, as an exact path with
    no parameter, or it answers 403 there; `tests/architecture/test_recovery_ap_guard.py` refuses an
    entry that is not one route of the app or has no caller in `components/setup/`,
    `composables/useNetwork.js` or `core/multiroom/wifi_adoption.py`. The second holds the WiFi
    save alone, the one repair of a unit with no screen and no Ethernet, from the unit's own AP
-   only, with the dialog's Cancel beside it in `PRESENCE_CANCELS`; an entry there needs a
-   `PresenceAction` of its own, a frontend caller on `presenceStore.request()`, and a row in
-   `test_presence_guard.py`. Nothing else is added to either: once set up, a unit is repaired
-   from its screen or over Ethernet.
+   only. Nothing else is added to either: once set up, a unit is repaired from its screen or over
+   Ethernet.
 
 ### Frontend
 
@@ -1181,7 +1179,12 @@ line, nothing to notice. "Audio plays" would have passed it.
    nowhere — every installer refuses a file that is not the declared one. Nothing else — a
    version or digest literal anywhere else fails CI
    (`backend/tests/architecture/test_dependency_manifest.py`). The override is dropped on its
-   own once the manifest declares that version, so nothing is left to clean up.
+   own once the manifest declares that version, so nothing is left to clean up. A build-time
+   dependency the image clones by tag (`BLUEZ_ALSA_VERSION`, `ROC_TOOLKIT_VERSION`) has no
+   digest but a `*_COMMIT` line beside it instead, the commit the tag names
+   (`git ls-remote <repo> 'refs/tags/v<version>*'`, the `^{}` line for an annotated tag): the
+   image build refuses a clone whose HEAD is another, so a bump that leaves it stale fails the
+   build.
 3. If you skipped step 1, install the version on a unit through the in-app update, or flash an
    image built with the new manifest. Do not hand-build it: what you are validating includes the
    way Milō installs it.

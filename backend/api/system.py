@@ -3,7 +3,7 @@
 System power management + status + telemetry routes
 (restart, shutdown, hostname conflict, temperature, resources, network).
 """
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 import asyncio
 import functools
 import logging
@@ -14,16 +14,9 @@ from typing import Optional, TYPE_CHECKING
 
 from backend.api.models import DevicePasswordRequest, SshRequest, TimezoneRequest
 from backend.api.programs import refuse_while_milo_updates
-from backend.api.route_helpers import (
-    PresenceAnswer,
-    api_error_handler,
-    presence_answer,
-    require_presence,
-)
-from backend.core.models.presence import PresenceAction
+from backend.api.route_helpers import api_error_handler
 from backend.core.models.ws_events import SystemTimezoneChanged
 from backend.core.system.localtime import current_timezone
-from backend.core.system.presence import PRESENCE_HEADER
 from backend.core.system.zone_coordinates import (
     read_country_zone,
     read_link_target,
@@ -43,7 +36,6 @@ if TYPE_CHECKING:
     from backend.core.system.diagnostic import DiagnosticService
     from backend.core.system.hostname_conflict import HostnameConflictService
     from backend.core.system.notices import SetAsideNotices
-    from backend.core.system.presence import PresenceService
     from backend.core.settings import SettingsService
     from backend.core.systemd import SystemdServiceManager
     from backend.core.updates.update import UpdateService
@@ -104,7 +96,6 @@ def create_system_router(
     state_machine: Optional["AudioStateMachine"] = None,
     satellite_timezone_service: Optional["SatelliteTimezoneService"] = None,
     update_service: Optional["UpdateService"] = None,
-    presence_service: Optional["PresenceService"] = None,
     settings_service: Optional["SettingsService"] = None,
     notice_service: Optional["SetAsideNotices"] = None,
 ):
@@ -396,10 +387,7 @@ def create_system_router(
             return {"status": "success", "data": result}
 
     @router.post("/reset-setup")
-    async def reset_setup(
-        background_tasks: BackgroundTasks,
-        presence: PresenceAnswer = Depends(presence_answer),
-    ):
+    async def reset_setup(background_tasks: BackgroundTasks):
         """Re-run first-boot: role detection, then the setup wizard.
 
         The way back from the one mistake a multiroom product invites — powering
@@ -416,16 +404,10 @@ def create_system_router(
 
         Durable user data — radio favourites, podcast subscriptions, shares,
         hardware.json — is untouched. This resets the *setup*, and says so.
-
-        Behind a proof of presence (`core/system/presence.py`): it wipes the
-        settings and sends the unit back to its first boot, the speakers it
-        served left without a server, and two requests from anywhere on the
-        LAN used to be enough.
         """
         # Before the marker: a refused reset must leave nothing for the next
-        # boot to act on. The update first: no gesture for a reset it refuses.
+        # boot to act on.
         refuse_while_milo_updates(update_service, "setup reset")
-        await require_presence(presence_service, PresenceAction.RESET_SETUP, presence)
         async with api_error_handler("Error scheduling the setup reset", logger):
             RESET_SETUP_MARKER.parent.mkdir(parents=True, exist_ok=True)
             RESET_SETUP_MARKER.touch()
@@ -455,23 +437,17 @@ def create_system_router(
         }
 
     @router.put("/ssh")
-    async def set_ssh_state(
-        payload: SshRequest,
-        presence: PresenceAnswer = Depends(presence_answer),
-    ):
+    async def set_ssh_state(payload: SshRequest):
         """Open or close SSH.
 
         Opening reaches root — `milo` is root by construction (CLAUDE.md,
         invariant 5) — so it is refused while the factory password is in
-        place, and otherwise answered only behind a proof of presence
-        (`core/system/presence.py`). The factory password first: it is the
-        same on every unit and published with the source, so a door opened
-        on it is open to anyone who reads the repository, and the gesture is
-        not asked for a request that would be refused after it. Nothing else
-        on this API authenticates; the gesture is what a neighbor on the LAN
-        cannot make. Closing is never refused. A client of the open recovery
-        AP may send no write at all, setup or not
-        (`api/middleware.py::RecoveryAccessPointGuard`).
+        place: that password is the same on every unit and published with
+        the source, so a door opened on it is open to anyone who reads the
+        repository. Otherwise it is answered like every other route: nothing
+        on this API authenticates, and the LAN is the boundary. Closing is
+        never refused. A client of the open recovery AP may send no write at
+        all, setup or not (`api/middleware.py::RecoveryAccessPointGuard`).
         """
         if payload.enabled:
             if not PASSWORD_CHANGED_MARKER.exists():
@@ -481,7 +457,6 @@ def create_system_router(
                     detail="Set the device password before opening SSH: the factory "
                            "password is the same on every Milō and published with its source",
                 )
-            await require_presence(presence_service, PresenceAction.SSH_OPEN, presence)
 
         if not await systemd_manager.set_enabled(SSH_UNIT, payload.enabled):
             raise HTTPException(
@@ -500,14 +475,8 @@ def create_system_router(
         }
 
     @router.post("/password")
-    async def set_device_password(
-        payload: DevicePasswordRequest,
-        presence: PresenceAnswer = Depends(presence_answer),
-    ):
+    async def set_device_password(payload: DevicePasswordRequest):
         """Set the `milo` account password (SSH login + sudo).
-
-        Behind a proof of presence (`core/system/presence.py`): the password
-        is sudo's, and set by whoever asks, it is root for them over SSH.
 
         The password goes to the helper on **stdin**: /proc/<pid>/cmdline is
         world-readable, so an argv would publish it to every process on the box
@@ -515,7 +484,6 @@ def create_system_router(
         marker `GET /ssh` reads — one writer for the fact and the flag, so they
         cannot disagree.
         """
-        await require_presence(presence_service, PresenceAction.PASSWORD, presence)
         async with api_error_handler("Error setting the device password", logger):
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "-n", SET_PASSWORD_CMD,
@@ -533,37 +501,6 @@ def create_system_router(
 
             logger.info("Device password updated")
             return {"status": "success", "data": {"password_is_default": False}}
-
-    # =========================================================================
-    # Proof of presence
-    # =========================================================================
-
-    @router.get("/presence")
-    async def get_presence():
-        """The challenge the unit waits on, as every screen may see it, or null.
-
-        What a page reads back after it lost the socket — which a proof by
-        power cut always does — to learn that its own challenge was proven
-        while the unit was off. The token never travels here.
-        """
-        view = presence_service.view() if presence_service is not None else None
-        return {"status": "success", "data": {"challenge": view.model_dump(mode="json") if view else None}}
-
-    @router.delete("/presence")
-    async def cancel_presence(
-        presence_token: Optional[str] = Header(default=None, alias=PRESENCE_HEADER),
-    ):
-        """End the open challenge before its time, with the token its 428 carried.
-
-        The dialog's Cancel: left open, the challenge would hold the power key
-        and refuse every other guarded request until it expires. The token
-        names the challenge — there is never more than one — and only the
-        request that opened it holds that token.
-        """
-        if presence_service is None or not await presence_service.cancel(presence_token):
-            logger.debug("No open challenge for this token")
-            raise HTTPException(status_code=404, detail="No challenge open for this token")
-        return {"status": "success"}
 
     # =========================================================================
     # Notices: the files set aside, until the owner has read the banner

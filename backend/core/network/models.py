@@ -41,6 +41,13 @@ class NetworkStatus(BaseModel):
     # so a client that stays connected — the kiosk, over localhost — is told
     # when it rises and when it ends.
     hotspot_active: bool
+    # The unit lost its network: the recovery AP rose for want of a link, and
+    # no link has come back since (`NetworkService.evaluate_reachability`).
+    # Held while the AP is down for a home-network try (`_retry_station`) or a
+    # connect, so the "WiFi lost" banner does not blink with the AP; never set
+    # by a link that drops without the AP rising — a boot before its lease, a
+    # speaker adoption, a reassociation.
+    link_lost: bool
 
     @property
     def linked(self) -> bool:

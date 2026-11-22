@@ -13,7 +13,7 @@ This directory contains all systemd service files for the Milo Audio System. The
 - **Dependencies**: NetworkManager.service, network-online.target, avahi-daemon.service; ordered `After=` milo-camilladsp, milo-snapserver-multiroom and milo-snapclient-multiroom (ordering only, it pulls none of them in)
 - **Startup**: Enabled at boot
 - **Restart**: `Restart=always`, each automatic restart waiting longer than the last (`RestartSec=10`, `RestartSteps=10`, `RestartMaxDelaySec=5min`: 10 s, 14 s, 20 s… then 5 min), so a backend that cannot start stops re-reading the card every few seconds; the first two restarts, the ones `milo-update-guard` counts, stay fast. While it is down, nginx answers for it with the rescue page (`frontend/milo-down.html`), which says it is restarting, then that it no longer starts
-- **Notes**: Main application logic, WebSocket server, REST API. `ExecStartPre=-/usr/local/bin/milo-update-guard start` runs before every start (as `milo`): it judges a Milō app update from its journal (`backend/core/updates/milo_journal.py`) — an install cut before its reboot is put back at once, a release on trial gets two starts and the third runs the previous release, put back by the guard (checkout, venv, frontend, versioned data, then `milo-deploy-update sync-system-files`). With no journal it does nothing. Its time counts against `TimeoutStartSec`. `ExecStopPost=+/usr/local/bin/milo-presence-record clear` runs as root after every stop, crash and SIGKILL included: it clears a proof-of-presence challenge waiting for a power cut, so a record found at the next start, from another boot, can only be one (`backend/core/system/presence.py`). A unit ordered `After=` this one must never be started with a blocking `systemctl start` before `READY=1`: the start would wait for the backend that issued it
+- **Notes**: Main application logic, WebSocket server, REST API. `ExecStartPre=-/usr/local/bin/milo-update-guard start` runs before every start (as `milo`): it judges a Milō app update from its journal (`backend/core/updates/milo_journal.py`) — an install cut before its reboot is put back at once, a release on trial gets two starts and the third runs the previous release, put back by the guard (checkout, venv, frontend, versioned data, then `milo-deploy-update sync-system-files`). With no journal it does nothing. Its time counts against `TimeoutStartSec`. A unit ordered `After=` this one must never be started with a blocking `systemctl start` before `READY=1`: the start would wait for the backend that issued it
 
 #### milo-update-inhibit.service
 - **Role**: Holds a logind block inhibitor (`shutdown:handle-power-key`) while a Milō app update installs
@@ -21,13 +21,6 @@ This directory contains all systemd service files for the Milo Audio System. The
 - **Dependencies**: `BindsTo=milo-backend.service` (a backend that dies mid-update releases it), no `After=`: ordered after a `Type=notify` backend, a start issued before its `READY=1` would wait for it forever
 - **Startup**: Not enabled (no `[Install]`) — started by the updater once its journal is open, stopped just before the update's reboot; `RuntimeMaxSec=30min` if nothing stops it
 - **Notes**: While it runs, logind refuses every shutdown and reboot, root's included (systemd ≥ 257, unless `-i`/`--force`), and the power key does nothing; the update stops it before its own reboot and before any restart of the backend (`BindsTo=` restarts it along with one). The backend's power routes also refuse with 409, which names the update, for as long as a journal is open
-
-#### milo-presence-inhibit.service
-- **Role**: Holds a logind block inhibitor on the power key alone (`handle-power-key`) while a proof of presence waits on the Raspberry Pi 5's power button (`backend/core/system/presence.py`), so the press confirms instead of powering the unit off
-- **Runs as**: root (logind grants an inhibitor on the power key only to root or an active session)
-- **Dependencies**: `BindsTo=milo-backend.service`, no `After=`, for the same reasons as `milo-update-inhibit.service`
-- **Startup**: Not enabled (no `[Install]`) — started by the backend when a challenge opens on the power button, stopped when it ends, and stopped at the backend's start if found up; `RuntimeMaxSec=5min` if nothing stops it
-- **Notes**: Shutdown is not inhibited: a reboot or a power-off asked meanwhile goes through. Its `ExecStartPost=` fails the start unless `systemd-inhibit --list` shows the lock within a second — a simple service counts as started once forked, lock or not — and the backend then asks for a power cut instead of a press that would power the unit off
 
 #### milo-readiness.service
 - **Role**: Waits for backend and nginx to be ready before dismissing Plymouth splash
@@ -215,8 +208,7 @@ multi-user.target (system-manifest.env: SYSTEM_UNITS_ENABLED)
   ├─ milo-first-boot.service (oneshot, before avahi-daemon, the backend and the readiness)
   ├─ milo-ir-keytable.service (oneshot, before the backend)
   ├─ milo-backend.service
-  │    ├─ milo-update-inhibit.service (BindsTo=, started by the updater only)
-  │    └─ milo-presence-inhibit.service (BindsTo=, started for a power-button challenge only)
+  │    └─ milo-update-inhibit.service (BindsTo=, started by the updater only)
   ├─ milo-readiness.service (Wants= milo-backend, nginx)
   ├─ milo-camilladsp.service (PartOf= milo-backend)
   ├─ milo-bluealsa.service (BindsTo= milo-backend)

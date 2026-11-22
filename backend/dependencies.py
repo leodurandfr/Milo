@@ -55,7 +55,6 @@ def _create_rotary_controller():
     return _import("backend.hardware.rotary", "RotaryVolumeController")(
         volume_service=get_service("volume_service"),
         state_machine=get_service("audio_state_machine"),
-        presence_service=get_service("presence_service"),
         clk_pin=clk, dt_pin=dt, sw_pin=sw
     )
 
@@ -210,13 +209,6 @@ def _create_service(name: str) -> Any:
         ),
 
         # System utilities
-        # The gesture on the unit the routes that reach root wait for. The
-        # rotary encoder, created after it, attaches itself once it runs.
-        "presence_service": lambda: _import("backend.core.system.presence", "PresenceService")(
-            hardware_service=get_service("hardware_service"),
-            systemd_manager=get_service("systemd_manager"),
-            state_machine=get_service("audio_state_machine"),
-        ),
         # The files set aside because they could not be read, kept until the
         # owner acknowledges the banner that names them.
         "notice_service": lambda: _import("backend.core.system.notices", "SetAsideNotices")(
@@ -416,7 +408,6 @@ async def initialize_services() -> None:
     push_token_registry = get_service("push_token_registry")
     apns_client = get_service("apns_client")
     push_service = get_service("push_service")
-    presence_service = get_service("presence_service")
     satellite_secret = get_service("satellite_secret")
     notice_service = get_service("notice_service")
 
@@ -630,8 +621,6 @@ async def initialize_services() -> None:
             ("push_token_registry", push_token_registry.initialize()),
             ("apns_client", apns_client.initialize()),
             ("push_service", push_service.initialize()),
-            # A challenge a power cut proved, and an inhibitor left up
-            ("presence_service", presence_service.initialize()),
             # The satellites' key, made at the first start (fail-open: without
             # it every satellite refuses this server's paths to root, nothing else)
             ("satellite_secret", satellite_secret.initialize()),

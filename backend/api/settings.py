@@ -467,28 +467,15 @@ def create_settings_router(
 
                         # === AUDIO SOURCES ===
                         if app in AUDIO_SOURCE_APPS:
-                            current_source = state_machine.system_state.active_source.value
-
-                            if app == current_source:
-                                # Active source: transition to none (automatically stops)
-                                operations_log.append(f"Transitioning {app} to none")
-                                logger.info(f"Transitioning active source {app} to none")
-                                success = await state_machine.transition_to_source(AudioSource.NONE)
-                                if not success:
-                                    raise ValueError(f"Failed to transition from {app} to none")
-                            else:
-                                # Inactive source: stop its unit directly — the
-                                # one it declares (`service_name`), the same
-                                # declaration the boot sweep (stop_lingering_units)
-                                # reads, so no second unit table exists.
-                                # Bluetooth's writer, bluealsa-aplay, is BindsTo=
-                                # that unit and stops with it.
-                                service = state_machine.get_source(AudioSource(app)).service_name
-                                operations_log.append(f"Stopping service {service}")
-                                logger.info(f"Stopping service {service}")
-                                success = await systemd_manager.stop(service)
-                                if not success:
-                                    raise ValueError(f"Failed to stop service {service}")
+                            # Left for none when it is the active one, its unit
+                            # stopped otherwise — which of the two decided under
+                            # the transition lock (`retire_source`), so a
+                            # selection in flight is never stopped under it.
+                            # Bluetooth's writer, bluealsa-aplay, is BindsTo=
+                            # its unit and stops with it.
+                            operations_log.append(f"Taking {app} out of play")
+                            if not await state_machine.retire_source(AudioSource(app), systemd_manager):
+                                raise ValueError(f"Failed to take {app} out of play")
 
                             # The catalog outlives the player, so stopping the source
                             # left it running. Not awaited: see set_catalog_running.

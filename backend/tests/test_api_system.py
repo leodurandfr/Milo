@@ -42,9 +42,7 @@ from backend.api import system as api_system
 from backend.api.middleware import RECOVERY_AP_REFUSAL, RecoveryAccessPointGuard
 from backend.api.network import create_network_router
 from backend.api.system import create_system_router
-from backend.core.models.presence import PresenceAction
 from backend.core.system import localtime as localtime_module
-from backend.core.system.presence import PresenceBusy
 from backend.tests.conftest import shortened_wait_for
 
 
@@ -107,20 +105,10 @@ def hostname_conflict():
 
 
 @pytest.fixture
-def presence():
-    """A proof of presence that admits every request. Whether the routes that
-    reach root wait for one is `tests/architecture/test_presence_guard.py`'s;
-    these tests are about what the routes do once past it."""
-    service = Mock()
-    service.require = AsyncMock()
-    return service
-
-
-@pytest.fixture
-def client(systemd, hostname_conflict, presence):
+def client(systemd, hostname_conflict):
     app = FastAPI()
     app.include_router(
-        create_system_router(systemd, hostname_conflict, presence_service=presence),
+        create_system_router(systemd, hostname_conflict),
         prefix="/api/system",
     )
     return TestClient(app)
@@ -653,9 +641,26 @@ class TestRemoteAccess:
     `GET` reports whether the password is still the shipped one, which is what
     lets the UI say why the switch will not open: a `password_is_default` that
     stops travelling leaves the owner in front of a refusal nothing explains.
-    The refusal itself, and the proof of presence, are held by
-    `tests/architecture/test_presence_guard.py`.
     """
+
+    def test_ssh_is_not_opened_on_the_factory_password(self, client, systemd, marker):
+        """Same value on every unit, published with the source: a door opened on
+        it is open to whoever reads the repository."""
+        systemd.set_enabled = AsyncMock(return_value=True)
+
+        response = client.put("/api/system/ssh", json={"enabled": True})
+
+        assert response.status_code == 409
+        systemd.set_enabled.assert_not_awaited()
+
+    def test_closing_is_never_refused(self, client, systemd, marker):
+        """The factory password stops the door opening, never closing."""
+        systemd.set_enabled = AsyncMock(return_value=True)
+        systemd.is_enabled = AsyncMock(return_value=False)
+        systemd.is_active = AsyncMock(return_value=False)
+
+        assert client.put("/api/system/ssh", json={"enabled": False}).status_code == 200
+        systemd.set_enabled.assert_awaited_once_with("ssh.service", False)
 
     def test_state_reports_systemd_and_the_marker_together(self, client, systemd, marker):
         """One screen, one read: the switch and what is said next to it."""
@@ -748,16 +753,15 @@ class TestRecoveryAccessPoint:
         return service
 
     @pytest.fixture
-    def reached_from(self, systemd, hostname_conflict, network, settings, presence):
+    def reached_from(self, systemd, hostname_conflict, network, settings):
         app = FastAPI()
         app.include_router(
-            create_system_router(systemd, hostname_conflict, presence_service=presence),
+            create_system_router(systemd, hostname_conflict),
             prefix="/api/system",
         )
         app.include_router(create_network_router(network))
         app.add_middleware(
-            RecoveryAccessPointGuard,
-            network_service=network, settings_service=settings, presence_service=presence,
+            RecoveryAccessPointGuard, network_service=network, settings_service=settings,
         )
         return lambda peer: TestClient(app, client=(peer, 41000))
 
@@ -803,9 +807,8 @@ class TestRecoveryAccessPoint:
 
     OUTLIVE_THE_OUTAGE = ["ssh", "password", "reset-setup", "restart"]
     WIZARD = ["wifi-country", "wifi-save"]
-    # The wizard's writes a unit set up still takes over the AP, on a proof of
-    # presence for this action.
-    ON_A_PROOF = {"wifi-save": PresenceAction.WIFI_SAVE}
+    # The wizard's writes a unit set up still takes over its own AP.
+    ONCE_SET_UP = ["wifi-save"]
 
     THROUGH = [
         pytest.param("127.0.0.1", "10.42.0.5", id="through-nginx"),
@@ -835,34 +838,25 @@ class TestRecoveryAccessPoint:
     @pytest.mark.parametrize("name", WIZARD)
     @pytest.mark.parametrize("peer,real_ip", THROUGH)
     def test_the_wizard_writes_over_the_ap_until_setup_is_done(
-        self, reached_from, routes, network, settings, presence, name, peer, real_ip,
+        self, reached_from, routes, network, settings, name, peer, real_ip,
     ):
         """The first-boot wizard runs over this AP from a phone; refused, a fresh unit
-        cannot be given its home network. Once set up, the same write on its own
-        word is a neighbor's way to point the unit at a network of theirs: the
-        save waits for a gesture on the unit, the rest is refused."""
+        cannot be given its home network. Once set up, saving a network is still
+        the repair of a unit whose home WiFi changed; the rest is refused."""
         settings.stored["setup_completed"] = False
         assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
-        presence.require.assert_not_awaited()
 
         settings.stored["setup_completed"] = True
         network.reset_mock()
-        if name not in self.ON_A_PROOF:
-            assert self._send(reached_from(peer), routes[name], real_ip) == (403, False)
-            presence.require.assert_not_awaited()
-            return
-        presence.require.side_effect = PresenceBusy("no gesture yet")
-        assert self._send(reached_from(peer), routes[name], real_ip) == (409, False)
-        presence.require.side_effect = None
-        assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
-        assert presence.require.await_args.args[0] is self.ON_A_PROOF[name]
+        expected = (200, True) if name in self.ONCE_SET_UP else (403, False)
+        assert self._send(reached_from(peer), routes[name], real_ip) == expected
 
     @pytest.mark.parametrize("failure", [
         pytest.param(OSError("settings.json unreadable"), id="read-raises"),
         pytest.param(None, id="read-answers-nothing"),
     ])
     def test_a_setting_that_cannot_be_read_counts_as_set_up(
-        self, reached_from, routes, settings, presence, failure,
+        self, reached_from, routes, settings, failure,
     ):
         """Opening on a failed read would hand the wizard's writes to the AP of a unit
         set up whenever its settings misbehave."""
@@ -870,11 +864,8 @@ class TestRecoveryAccessPoint:
             settings.get_setting = AsyncMock(return_value=None)
         else:
             settings.get_setting = AsyncMock(side_effect=failure)
-        presence.require.side_effect = PresenceBusy("no gesture yet")
 
         assert self._send(reached_from("10.42.0.5"), routes["wifi-country"], None) == (403, False)
-        assert self._send(reached_from("10.42.0.5"), routes["wifi-save"], None) == (409, False)
-        assert presence.require.await_args.args[0] is PresenceAction.WIFI_SAVE
 
     def test_a_client_of_the_ap_may_still_read(self, reached_from, routes):
         """The AP exists so the owner can see what is wrong; status reads are its point.
@@ -898,16 +889,13 @@ class TestRecoveryAccessPoint:
         pytest.param("10.42.0.5", None, False, id="lan-numbered-like-the-ap"),
     ])
     def test_everyone_else_is_served(
-        self, reached_from, routes, network, presence, name, peer, real_ip, ap_up,
+        self, reached_from, routes, network, name, peer, real_ip, ap_up,
     ):
         """The kiosk is the owner at the unit itself, and the way to repair it once
-        set up; a home LAN may well be 10.42.0.0/24. Neither is asked for a
-        gesture by the guard (the routes that reach root ask it themselves)."""
+        set up; a home LAN may well be 10.42.0.0/24."""
         network.open_ap_reachable = ap_up
 
         assert self._send(reached_from(peer), routes[name], real_ip) == (200, True)
-        asked = [call.args[0] for call in presence.require.await_args_list]
-        assert PresenceAction.WIFI_SAVE not in asked
 
     def test_one_warning_per_client_per_access_point_episode(
         self, reached_from, routes, network, caplog,

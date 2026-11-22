@@ -1,7 +1,6 @@
 // frontend/src/composables/useNetwork.js
 import { ref, computed } from 'vue';
 import { apiCall } from '@/services/apiCall';
-import { usePresenceStore } from '@/stores/presenceStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
@@ -13,6 +12,7 @@ const _status = ref({
   ethernet: { connected: false, ip_address: null },
   wifi: { connected: false, connecting: false, ssid: null, ip_address: null, signal: null, saved_ssid: null },
   hotspot_active: false,
+  link_lost: false,
 });
 const _networks = ref([]);
 const _savedSsids = ref(new Set());
@@ -24,15 +24,19 @@ let _countryLoaded = false;
 let _opening = null;
 
 /**
- * A whole status the backend sent. `hotspot_active` is the recovery AP, which
- * settingsStore holds for the app (the "WiFi lost" banner, the wizard's save):
- * `system/initial_state` carries it only when the socket opens, and the kiosk's
- * socket outlives every network change, so the status keeps it current.
+ * A whole status the backend sent. `hotspot_active` is the recovery AP, and
+ * `link_lost` says the unit lost its network (the AP rose and no link came
+ * back since), both held by settingsStore for the app (the wizard's save, the
+ * "WiFi lost" banner): `system/initial_state` carries the AP only when the
+ * socket opens, and the kiosk's socket outlives every network change, so the
+ * status keeps them current.
  */
 function _setStatus(next) {
   _status.value = next;
   _statusLoaded = true;
-  useSettingsStore().updateHotspotActive(next.hotspot_active);
+  const settings = useSettingsStore();
+  settings.updateHotspotActive(next.hotspot_active);
+  settings.updateLinkLost(next.link_lost);
 }
 
 /**
@@ -211,16 +215,14 @@ export function useNetwork() {
     connecting.value = false;
   }
 
-  // Through the proof of presence: a client of the recovery access point saves
-  // a network only once a gesture on the unit confirms it, the unit being set
-  // up (backend/api/middleware.py::RecoveryAccessPointGuard). Everyone else's
-  // save answers as it would straight through apiCall.
+  // What a client of the recovery access point sends: joining would take the
+  // one radio from under it (backend/api/middleware.py::RecoveryAccessPointGuard).
   async function saveNetwork(network, t) {
     connecting.value = true;
     connectError.value = '';
     connectDetail.value = null;
     const payload = { ssid: network.ssid, password: network.security ? password.value : null };
-    const result = await usePresenceStore().request('post', '/api/network/wifi/save', payload, {
+    const result = await apiCall.post('/api/network/wifi/save', payload, {
       category: 'network',
       message: 'WiFi save failed',
       errorRef: connectDetail
@@ -233,8 +235,7 @@ export function useNetwork() {
         ...status.value,
         wifi: { ...status.value.wifi, saved_ssid: network.ssid },
       };
-    } else if (result.error) {
-      // No error: the gesture was not made, and the presence dialog said so.
+    } else {
       connectError.value = t('network.saveFailed');
     }
     connecting.value = false;

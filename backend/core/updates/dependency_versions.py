@@ -13,8 +13,9 @@ Deliberately a `KEY=value` file rather than JSON or a Python module: the two
 install trees must source it in bash before apt has run, on an OS that ships no
 `jq`, and pi-gen builds from a copy that cannot import anything from `backend/`.
 
-Fails loud on a missing file, an unparseable one, or a line that is neither a
-version nor a digest: a silently empty set would un-pin every dependency at once
+Fails loud on a missing file, an unparseable one, or a line that is not a
+version, a digest or a commit (`*_COMMIT`, the commit a build-time dependency's
+tag named when it was validated, which only the image build reads): a silently empty set would un-pin every dependency at once
 and put the "latest upstream release" button back, which is the exact thing the
 manifest exists to remove — and a digest misread is an install refused, or
 worse, one never checked.
@@ -29,17 +30,19 @@ MANIFEST_PATH = REPO_ROOT / "dependencies.env"
 # expansions, so anything else is a shape this parser must not guess at.
 _ENTRY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=(\S+)$", re.MULTILINE)
 
-# The two kinds of line, by suffix, and the one shape each value may take.
+# The three kinds of line, by suffix, and the one shape each value may take.
 VERSION_SUFFIX = "_VERSION"
 DIGEST_SUFFIX = "_SHA256"
+COMMIT_SUFFIX = "_COMMIT"
 _SHAPES = {
     VERSION_SUFFIX: re.compile(r"\d+(\.\d+)+"),
     DIGEST_SUFFIX: re.compile(r"[0-9a-f]{64}"),
+    COMMIT_SUFFIX: re.compile(r"[0-9a-f]{40}"),
 }
 
 
 def load_dependency_manifest(path: Path | None = None) -> dict[str, str]:
-    """Parse `dependencies.env` into {SHELL_VAR_NAME: value}, versions and digests."""
+    """Parse `dependencies.env` into {SHELL_VAR_NAME: value}: versions, digests and commits."""
     path = path if path is not None else MANIFEST_PATH
     if not path.is_file():
         raise FileNotFoundError(f"dependency manifest missing: {path}")
@@ -53,7 +56,7 @@ def load_dependency_manifest(path: Path | None = None) -> dict[str, str]:
     for key, value in entries.items():
         shape = next((s for suffix, s in _SHAPES.items() if key.endswith(suffix)), None)
         if shape is None:
-            raise ValueError(f"{path}: {key} is neither a *{VERSION_SUFFIX} nor a *{DIGEST_SUFFIX} line")
+            raise ValueError(f"{path}: {key} is not a *{VERSION_SUFFIX}, *{DIGEST_SUFFIX} or *{COMMIT_SUFFIX} line")
         if not shape.fullmatch(value):
             raise ValueError(f"{path}: {key}={value!r} is not the shape a {key.rsplit('_', 1)[1]} line takes")
     return entries

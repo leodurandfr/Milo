@@ -81,21 +81,10 @@ def mock_registry_service():
 
 
 @pytest.fixture
-def proven_presence():
-    """A proof of presence already given: what the relays to a satellite's root
-    wait for is driven in tests/architecture/test_presence_guard.py, not here."""
-    presence = Mock()
-    presence.require = AsyncMock()
-    return presence
-
-
-@pytest.fixture
-def client(mock_registry_service, satellite_secret, proven_presence):
+def client(mock_registry_service, satellite_secret):
     """Create a test client with the multiroom router."""
     app = FastAPI()
-    router = create_multiroom_router(
-        mock_registry_service, presence_service=proven_presence, satellite_secret=satellite_secret,
-    )
+    router = create_multiroom_router(mock_registry_service, satellite_secret=satellite_secret)
     app.include_router(router)
     return TestClient(app)
 
@@ -2383,8 +2372,11 @@ class TestSatelliteRemoteAccess:
     class _Satellite:
         """Answers every request with one status and payload, and records it."""
 
-        def __init__(self, status=200, payload=None):
+        def __init__(self, status=200, payload=None, handover=None):
             self.status = status
+            # What the hand-over each relay sends first answers: the request's
+            # own status unless told otherwise.
+            self.handover = status if handover is None else handover
             self.payload = {"status": "success", "data": {}} if payload is None else payload
             self.requests = []
 
@@ -2396,7 +2388,7 @@ class TestSatelliteRemoteAccess:
 
         def _answer(self, verb, url, json=None, **kwargs):
             self.requests.append((verb, url, json))
-            if url.endswith("/api/system/server-secret") and self.status == 200:
+            if url.endswith("/api/system/server-secret") and self.handover == 200:
                 # The hand-over each relay sends first: it holds this server's secret.
                 return TestVolumeControlPush._FakeResponse(200, {"status": "success", "data": {"changed": False}})
             return TestVolumeControlPush._FakeResponse(self.status, self.payload)
@@ -2424,14 +2416,7 @@ class TestSatelliteRemoteAccess:
         assert "update the satellite" in response.json()["detail"]
 
     def test_a_refused_password_is_relayed_with_the_satellite_reason(self, client):
-        class _RefusingHelper(self._Satellite):
-            def get(self, url, **kwargs):
-                self.requests.append(("GET", url, None))
-                return TestVolumeControlPush._FakeResponse(
-                    200, {"status": "success", "data": {"login_user": "milo", "password_is_default": True}},
-                )
-
-        satellite = _RefusingHelper(status=500, payload={"detail": "Failed to set password: chpasswd: PAM"})
+        satellite = self._Satellite(status=500, payload={"detail": "Failed to set password: chpasswd: PAM"})
 
         with self._patch_session(satellite):
             response = client.post(
@@ -2443,6 +2428,22 @@ class TestSatelliteRemoteAccess:
         assert satellite.requests[-1] == (
             "POST", "http://192.168.1.100:8001/api/system/password", {"password": "a-long-one"}
         )
+
+    def test_a_refusal_from_the_satellites_state_is_relayed_as_a_conflict(self, client, caplog):
+        """SSH opened on the factory password is refused by the satellite
+        itself (409). Relayed as a 502 logged at error, the owner's own
+        expected refusal raised the error banner on every screen."""
+        satellite = self._Satellite(
+            status=409, payload={"detail": "Set this speaker's password first"}, handover=200,
+        )
+
+        with self._patch_session(satellite), caplog.at_level(logging.WARNING, logger="backend.api.multiroom"):
+            response = client.put("/api/multiroom/clients/dc:a6:32:7e:d3:43/ssh", json={"enabled": True})
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Set this speaker's password first"
+        assert satellite.requests[-1][:2] == ("PUT", "http://192.168.1.100:8001/api/system/ssh")
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     def test_a_short_password_never_reaches_the_satellite(self, client):
         """The satellite's helper would refuse it; the server's model refuses it first."""
@@ -2486,9 +2487,9 @@ class TestSatelliteRemoteAccess:
     def test_the_write_itself_tells_a_slow_satellite_from_a_gone_one(
         self, client, mock_registry_service, write, failure, answered, offline,
     ):
-        """The hand-over and the state read before the write answer: only the
-        write fails, so what is asserted is the write's own handling — a slow
-        satellite left online, a gone one marked offline at once."""
+        """The hand-over before the write answers: only the write fails, so
+        what is asserted is the write's own handling — a slow satellite left
+        online, a gone one marked offline at once."""
         mock_registry_service.set_client_online = AsyncMock()
         verb, route, body, satellite_path = self._WRITES[write]
 
@@ -2497,13 +2498,9 @@ class TestSatelliteRemoteAccess:
                 if method != "GET" and url.endswith(satellite_path):
                     self.requests.append((method, url, json))
                     raise failure
-                if url.endswith("/api/system/server-secret"):
-                    return TestVolumeControlPush._FakeResponse(
-                        200, {"status": "success", "data": {"changed": False}},
-                    )
-                # The state read before an opening or a password: an account with its own password.
+                assert url.endswith("/api/system/server-secret"), f"unexpected request: {method} {url}"
                 return TestVolumeControlPush._FakeResponse(
-                    200, {"status": "success", "data": {"login_user": "milo", "password_is_default": False}},
+                    200, {"status": "success", "data": {"changed": False}},
                 )
 
         satellite = _FailingWrite()

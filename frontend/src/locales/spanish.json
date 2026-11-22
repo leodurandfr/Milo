@@ -1014,34 +1014,6 @@
       "mismatch": "Las dos contraseñas no coinciden.",
       "tooShort": "La contraseña debe tener al menos {n} caracteres."
     },
-    "presence": {
-      "title": "Confirme en el dispositivo",
-      "confirmed": "Confirmado en el dispositivo",
-      "expiredTitle": "Sin confirmar",
-      "expired": "No se confirmó nada en el dispositivo a tiempo, así que no se cambió nada.",
-      "cancel": "Cancelar",
-      "remaining": "quedan {time}",
-      "waiting": "Esperando a que el dispositivo vuelva…",
-      "foreignTitle": "Solicitado desde otro dispositivo",
-      "foreign": "Confirme en este dispositivo solo si lo ha solicitado usted.",
-      "elsewhereTitle": "Confirme desde otro dispositivo",
-      "elsewhere": "Para confirmarlo hay que desenchufar el dispositivo y volver a enchufarlo, y esta pantalla se apaga con él. Solicítelo desde un teléfono o un ordenador.",
-      "actions": {
-        "ssh_open": "Abrir SSH",
-        "password": "Cambiar la contraseña",
-        "program_upstream": "Instalar una versión no validada",
-        "reset_setup": "Restablecer la configuración",
-        "wifi_save": "Guardar una red WiFi",
-        "satellite_ssh_open": "Abrir SSH en un altavoz",
-        "satellite_password": "Cambiar la contraseña de un altavoz",
-        "satellite_program_upstream": "Instalar una versión no validada en un altavoz"
-      },
-      "gestures": {
-        "rotary": "Gire o pulse el mando del dispositivo. ¿No tiene mando? Cancele, desactive el codificador rotativo en Ajustes › Hardware y vuelva a solicitarlo dentro de {time}.",
-        "power_button": "Pulse una vez el botón de encendido del dispositivo.",
-        "power_cycle": "Desenchufe el dispositivo y vuelva a enchufarlo. Mantenga esta página abierta: terminará sola cuando el dispositivo vuelva."
-      }
-    },
     "diagnostic": {
       "title": "Diagnóstico",
       "description": "Un informe de texto sobre su Milō (versión, ruta de audio, altavoces, errores recientes), para enviar si algo no funciona.",

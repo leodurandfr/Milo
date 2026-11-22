@@ -5,8 +5,8 @@ What breaks when these fail:
 * **`PUT /dock-apps` switches audio functions on and off.** Removing `multiroom`
   from the dock disables multiroom routing — the whole ALSA reconfiguration and
   a source restart with it; removing `equalizer` bypasses CamillaDSP's effects;
-  removing an audio source stops its systemd units, or transitions away from it
-  if it is the one playing. Each effect is committed to `settings.json` as soon
+  removing an audio source takes it out of play (`retire_source`, whose own
+  tests are the state machine's). Each effect is committed to `settings.json` as soon
   as it lands, so a failure mid-batch leaves the stored list describing exactly
   the effects that were applied. It is not a transaction and nothing is
   compensated — a rollback would mean re-entering the audio path from an error
@@ -29,8 +29,6 @@ writes spied, so the dock the route announces is the one the validator stored.
 """
 import asyncio
 import copy
-import functools
-import importlib
 import logging
 import re
 import subprocess
@@ -52,31 +50,17 @@ from backend.core.settings import SettingsService
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-@functools.cache
-def declared_unit(source: AudioSource) -> str:
-    """The unit a source declares, read off a real instance of its class.
-
-    What `stop_lingering_units` stops at boot, and what the dock must stop
-    too: a second table naming the units is how four sources fell out of it.
-    """
-    package = importlib.import_module(f"backend.sources.{source.value}")
-    (exported,) = package.__all__
-    unit = getattr(package, exported)().service_name
-    assert unit and unit.endswith(".service"), f"{source.value} declares {unit!r}"
-    return unit
-
-
 def _registered(source: AudioSource):
-    """A registered source as the route sees it: its declared unit, and the
-    rest of its surface (catalog, runtime) a mock collaborator."""
-    return Mock(service_name=declared_unit(source))
+    """A registered source as the route sees it: its catalog and runtime a mock
+    collaborator."""
+    return Mock(name=source.value)
 
 
 @pytest.fixture
 def state_machine():
     sm = Mock()
     sm.broadcast = AsyncMock()
-    sm.transition_to_source = AsyncMock(return_value=True)
+    sm.retire_source = AsyncMock(return_value=True)
     sm.system_state.active_source = AudioSource.RADIO
     sm.get_current_state = Mock(return_value={"active_source": "radio"})
     sources = {s: _registered(s) for s in AudioSource if s is not AudioSource.NONE}
@@ -214,49 +198,13 @@ class TestTheDockWithNothingToApply:
 class TestTheDockDisables:
     """Turning a function off. Each one reaches the audio path."""
 
-    def test_disabling_the_playing_source_transitions_away_from_it_first(
-        self, client, settings, state_machine, systemd
-    ):
-        """Stopping its units under a live transition leaves the state machine
-        pointing at a source with no process — the UI shows it playing and
-        nothing answers a command."""
-        _dock(settings, ["radio", "spotify", "multiroom"])
-
-        response = client.put(
-            "/api/settings/dock-apps", json={"enabled_apps": ["spotify", "multiroom"]}
-        )
-
-        assert response.status_code == 200
-        state_machine.transition_to_source.assert_awaited_once_with(AudioSource.NONE)
-        systemd.stop.assert_not_called()
-
-    def test_disabling_an_idle_source_stops_its_units_directly(
-        self, client, settings, state_machine, systemd
-    ):
-        """No transition is due — it is not playing — but its units are running:
-        go-librespot holds its ALSA device whether or not it is the active
-        source, and a second source cannot open the same loopback leg."""
-        _dock(settings, ["radio", "spotify", "multiroom"])
-
-        response = client.put(
-            "/api/settings/dock-apps", json={"enabled_apps": ["radio", "multiroom"]}
-        )
-
-        assert response.status_code == 200
-        state_machine.transition_to_source.assert_not_called()
-        assert [c.args[0] for c in systemd.stop.await_args_list] == [
-            declared_unit(AudioSource.SPOTIFY)
-        ]
-
     @pytest.mark.parametrize("app", sorted(AUDIO_SOURCE_APPS))
-    def test_every_idle_source_disabled_stops_the_unit_it_declares(
+    def test_every_source_disabled_is_taken_out_of_play_by_the_state_machine(
         self, app, client, settings, state_machine, systemd
     ):
-        """Every source, from the enum: the unit table the dock used to keep had
-        lost Tidal, Qobuz, CD and Music Library, so switching one of them off
-        while it was not selected left its daemon up — castable, and holding
-        its loopback leg against the next source picked."""
-        state_machine.system_state.active_source = AudioSource.NONE
+        """Every source, from the enum, through the one method that reads the
+        active source under the transition lock: a stop decided here from a
+        read outside it stopped a source a selection in flight was starting."""
         # The dock keeps one audio source at least: another one stays.
         kept = "podcast" if app == "radio" else "radio"
         _dock(settings, [kept, app])
@@ -264,33 +212,8 @@ class TestTheDockDisables:
         response = client.put("/api/settings/dock-apps", json={"enabled_apps": [kept]})
 
         assert response.status_code == 200
-        assert [c.args[0] for c in systemd.stop.await_args_list] == [
-            declared_unit(AudioSource(app))
-        ]
-
-    def test_disabling_bluetooth_takes_its_writer_down_with_it(self, client, settings, systemd):
-        """BlueALSA answers *who is connected* and bluealsa-aplay carries the
-        audio; leaving either up keeps the phone paired and streaming into a
-        source the dock says is off. The dock stops the unit the source
-        declares, and the writer goes with it only because its unit is
-        `BindsTo=` that one — read here from the file the image ships."""
-        _dock(settings, ["radio", "bluetooth", "multiroom"])
-
-        client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio", "multiroom"]})
-
-        stopped = [c.args[0] for c in systemd.stop.await_args_list]
-        writer = REPO_ROOT / "system" / "milo-bluealsa-aplay.service"
-        binds_to = [
-            unit
-            for line in writer.read_text().splitlines()
-            if line.strip().startswith("BindsTo=")
-            for unit in line.split("=", 1)[1].split()
-        ]
-        assert binds_to, f"no BindsTo= read from {writer}"
-        assert stopped == [declared_unit(AudioSource.BLUETOOTH)]
-        assert stopped[0] in binds_to, (
-            f"bluealsa-aplay binds to {binds_to}, not to {stopped[0]}: it outlives the stop"
-        )
+        state_machine.retire_source.assert_awaited_once_with(AudioSource(app), systemd)
+        systemd.stop.assert_not_called()
 
     def test_disabling_multiroom_goes_through_the_routing_service(
         self, client, settings, routing
@@ -383,16 +306,15 @@ class TestTheDockAndTheLibraryCatalog:
         assert response.status_code == 200
         library.set_catalog_running.assert_called_once_with(False)
 
-    def test_disabling_the_playing_library_stops_its_catalog_too(
+    def test_the_catalog_stops_with_the_player_out_of_play(
         self, client, settings, state_machine, library
     ):
-        """The transition to none stops the player, not the catalog."""
-        state_machine.system_state.active_source = AudioSource.MUSIC_LIBRARY
+        """Taking the source out of play stops the player, not the catalog."""
         _dock(settings, ["radio", "music_library"])
 
         client.put("/api/settings/dock-apps", json={"enabled_apps": ["radio"]})
 
-        state_machine.transition_to_source.assert_awaited_once_with(AudioSource.NONE)
+        state_machine.retire_source.assert_awaited_once()
         library.set_catalog_running.assert_called_once_with(False)
 
     def test_enabling_the_library_starts_its_catalog(self, client, settings, library):
@@ -499,28 +421,19 @@ class TestTheDockAtomicity:
         equalizer.set_local_equalizer_effects_enabled.assert_awaited_once_with(False)
         routing.set_multiroom_enabled.assert_not_called()
 
-    def test_a_failed_source_stop_is_a_failure(self, client, settings, systemd):
-        """A unit that refused to stop still holds its ALSA device."""
+    def test_a_source_left_in_play_is_a_failure(self, client, settings, state_machine):
+        """A unit that refused to stop still holds its ALSA device, and a
+        transition to none that failed leaves the source selected: either way
+        its tile stays."""
         _dock(settings, ["radio", "spotify", "multiroom"])
-        systemd.stop = AsyncMock(return_value=False)
+        state_machine.retire_source = AsyncMock(return_value=False)
 
         response = client.put(
             "/api/settings/dock-apps", json={"enabled_apps": ["radio", "multiroom"]}
         )
 
         assert response.status_code == 500
-
-    def test_a_failed_transition_away_from_the_playing_source_is_a_failure(
-        self, client, settings, state_machine
-    ):
-        _dock(settings, ["radio", "spotify", "multiroom"])
-        state_machine.transition_to_source = AsyncMock(return_value=False)
-
-        response = client.put(
-            "/api/settings/dock-apps", json={"enabled_apps": ["spotify", "multiroom"]}
-        )
-
-        assert response.status_code == 500
+        assert _saved_dock_lists(settings) == [], "a source left in play lost its tile"
 
     def test_a_failed_equalizer_bypass_is_a_failure(self, client, settings, equalizer):
         _dock(settings, ["radio", "equalizer", "multiroom"])

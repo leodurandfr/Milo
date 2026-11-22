@@ -127,20 +127,6 @@ RADIO_SETTLE_INTERVAL_S = 0.5
 AUTOCONNECT_POLLS = 30
 AUTOCONNECT_INTERVAL_S = 1.0
 
-# The longest a unit that starts with no usable link waits before its access
-# point is on air, from the waits `_raise_recovery_ap_after_delay` makes: the
-# settle window, the radio brought back, a saved network's chance, then the AP's
-# two nmcli calls at their bound. About 80 s in practice, with the radio on and
-# an old network saved. A proof of presence made by a power cut waits this long
-# on top of its own window (`core/system/presence.py`): over the AP, its owner's
-# phone can come back only once the AP is there.
-RECOVERY_AP_RAISED_WITHIN_S = (
-    RECOVERY_AP_DELAY_S
-    + RADIO_SETTLE_POLLS * RADIO_SETTLE_INTERVAL_S
-    + AUTOCONNECT_POLLS * AUTOCONNECT_INTERVAL_S
-    + 2 * HOTSPOT_NMCLI_TIMEOUT_S
-)
-
 # NM's own DHCPv4 timeout (the `ipv4.dhcp-timeout` default; its journal says
 # "timeout in 45 seconds"). An activated wlan0 still without a lease past it is
 # no longer joining: under `ipv4.may-fail` it can stay activated on IPv6 alone
@@ -192,6 +178,9 @@ class NetworkService:
         self.state_machine = state_machine
         self.settings_service = settings_service
         self._hotspot_active: bool = False
+        # True from the recovery AP's rise until a link comes back
+        # (`NetworkStatus.link_lost`), whether or not the AP is up meanwhile.
+        self._link_lost: bool = False
         # True while a restart could not read whether NM kept an AP up: neither
         # adopted nor ruled out, read again by `_retry_hotspot_adoption`.
         self._hotspot_unread: bool = False
@@ -417,12 +406,17 @@ class NetworkService:
         else:
             wifi = WifiConnectionStatus(connected=False)
 
-        return NetworkStatus(
+        status = NetworkStatus(
             wifi_enabled=wifi_enabled,
             ethernet=ethernet,
             wifi=wifi,
             hotspot_active=self.hotspot_active,
+            link_lost=self._link_lost,
         )
+        # A link read here is one, before the evaluation that clears the flag.
+        if status.linked:
+            status.link_lost = False
+        return status
 
     async def get_wifi_enabled(self) -> bool:
         """Check if WiFi radio is enabled."""
@@ -901,8 +895,8 @@ class NetworkService:
         offers neither OWE nor SAE in AP mode anyway. What its clients may do
         is the request guard's (`api/middleware.py::RecoveryAccessPointGuard`):
         before setup, the wizard's writes; once the unit is set up, only read,
-        and save a WiFi network on a proof of presence — any other repair goes
-        through the touch screen or Ethernet.
+        and save a WiFi network — any other repair goes through the touch
+        screen or Ethernet.
         """
         # A status the caller already computed is a free first look, and it is
         # used in one direction only: `connected` there is sound (ethernet has
@@ -922,6 +916,7 @@ class NetworkService:
 
         if connected:
             self._cancel_recovery_arm()
+            self._link_lost = False
             if self._hotspot_active:
                 await self._stop_hotspot("a network connection came back")
             await self._restore_radio_preference(status)
@@ -1093,6 +1088,7 @@ class NetworkService:
         """
         self._hotspot_active = True
         self._hotspot_unread = False
+        self._link_lost = True
         self._hotspot_changed()
         try:
             await self._activate_hotspot()
@@ -1276,6 +1272,7 @@ class NetworkService:
 
     def _adopt_hotspot(self) -> None:
         self._hotspot_active = True
+        self._link_lost = True
         self._hotspot_changed()
         self.logger.info("Access point '%s' is up from a previous run — adopted", HOTSPOT_NAME)
 
@@ -1283,9 +1280,9 @@ class NetworkService:
         """Broadcast the status again: `hotspot_active` is part of it, and the AP
         rising or ending moves no link, so the NetworkManager signals that drive
         the broadcast may not follow (deduplicated, a status naming no link
-        twice is not sent again). The "WiFi lost" banner reads it on every
-        client, the kiosk's socket included, which outlives every network
-        change."""
+        twice is not sent again). The "WiFi lost" banner reads `link_lost`
+        from it on every client, the kiosk's socket included, which outlives
+        every network change."""
         self._bg.spawn(self._refresh_and_broadcast(evaluate=False), label="hotspot_status")
 
     async def _retry_hotspot_adoption(self) -> None:

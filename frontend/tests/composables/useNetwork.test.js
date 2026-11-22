@@ -10,15 +10,16 @@
  * next event happens to arrive.
  *
  * `saveNetwork()` is how a server with no screen and no Ethernet is given its
- * new home network from a phone on its AP, which the unit admits only after a
- * gesture on it (428). What breaks if it stops holding: the save fails on the
- * 428, the owner makes the gesture for nothing, and the unit stays on its AP.
+ * new home network from a phone on its AP. What breaks if it stops holding:
+ * the screen keeps naming the old network after the save, or says nothing of
+ * a save the unit refused.
  *
- * Every full status feeds `settingsStore.hotspotActive`, which the "WiFi lost"
- * banner, the wizard's save-or-connect choice and the timezone adoption read.
+ * Every full status feeds `settingsStore.hotspotActive`, which the wizard's
+ * save-or-connect choice and the timezone adoption read, and
+ * `settingsStore.linkLost`, which the "WiFi lost" banner reads.
  * What breaks if it stops holding: they keep the value `system/initial_state`
  * gave when the socket opened — the kiosk's never reopens — so the banner never
- * shows on a unit that fell back to its AP, or never leaves once it is off it.
+ * shows on a unit that lost its network, or never leaves once it has one.
  *
  * `initialize()` is called by a screen and by the network list inside it as
  * both open. What breaks if they stop being one opening: the list's call empties
@@ -28,23 +29,21 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
-// A phone on the AP, never the unit's own screen.
-vi.mock('@/utils/kiosk', () => ({ isKiosk: () => false }));
 
 import { apiCall } from '@/services/apiCall';
 import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 import {
   refreshWifiSignal, handleNetworkStatusChanged, preloadNetworkStatus, useNetwork,
 } from '@/composables/useNetwork';
-import { usePresenceStore } from '@/stores/presenceStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 const { status } = useNetwork();
 
-function linkEvent({ wifiConnected, ssid, signal, hotspotActive = false }) {
+function linkEvent({ wifiConnected, ssid, signal, hotspotActive = false, linkLost = false }) {
   return {
     data: {
       hotspot_active: hotspotActive,
+      link_lost: linkLost,
       wifi_enabled: true,
       ethernet: { connected: false, ip_address: null },
       wifi: {
@@ -98,56 +97,23 @@ describe('refreshWifiSignal', () => {
 });
 
 describe('saveNetwork over the recovery access point', () => {
-  const HEADER = 'X-Milo-Presence';
   const t = (key) => key;
   const network = { ssid: 'Maison', security: 'WPA2' };
-  const view = (status) => ({
-    id: 'c1', action: 'wifi_save', gesture: 'rotary', status, remaining_s: 120, cooldown_s: 300,
-  });
-  const challenged = () => fail(
-    { message: 'Confirm this on the unit itself', challenge: view('pending'), token: 'secret', header: HEADER },
-    428,
-  );
-
-  async function flush() {
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
-  }
 
   beforeEach(() => {
     resetApiCallMock();
     handleNetworkStatusChanged(linkEvent({ wifiConnected: false, ssid: null, signal: null }));
   });
 
-  // How the request is sent again with its token is the presence store's,
-  // held by its own test; what is the composable's is reading the 428 as a
-  // wait, not as a failed save.
-  it('reads the 428 as a wait: once the gesture is made, the network is saved', async () => {
-    const presence = usePresenceStore();
+  it('names the network saved once the unit took it', async () => {
     const { saveNetwork, password, connectError } = useNetwork();
     password.value = 'correct horse';
-    apiCall.post.mockResolvedValueOnce(challenged()).mockResolvedValueOnce(ok({ status: 'success' }));
+    apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
 
-    const saving = saveNetwork(network, t);
-    await flush();
-    presence.handleChallengeEvent({ data: { challenge: view('confirmed') } });
-    await saving;
+    await saveNetwork(network, t);
 
+    expect(apiCall.post.mock.calls[0][1]).toEqual({ ssid: 'Maison', password: 'correct horse' });
     expect(status.value.wifi.saved_ssid).toBe('Maison');
-    expect(connectError.value).toBe('');
-  });
-
-  it('says nothing of its own when the gesture never came: the dialog did', async () => {
-    const presence = usePresenceStore();
-    const { saveNetwork, connectError } = useNetwork();
-    apiCall.post.mockResolvedValueOnce(challenged());
-
-    const saving = saveNetwork(network, t);
-    await flush();
-    presence.handleChallengeEvent({ data: { challenge: null } });
-    await saving;
-
-    expect(apiCall.post).toHaveBeenCalledTimes(1);
-    expect(status.value.wifi.saved_ssid).toBeNull();
     expect(connectError.value).toBe('');
   });
 
@@ -189,6 +155,35 @@ describe('the recovery AP, as every full status says it', () => {
 
     await preloadNetworkStatus({ force: true });
     expect(settings.hotspotActive).toBe(false);
+  });
+});
+
+describe('the "WiFi lost" banner', () => {
+  beforeEach(() => resetApiCallMock());
+
+  // Which statuses say the unit is lost is the backend's (`link_lost`, held
+  // by test_network_service.py); what is the client's is that every status
+  // reaches the banner, and that it waits for setup.
+  it('follows what each status says, the AP up or down', () => {
+    const settings = useSettingsStore();
+    settings.updateSetupCompleted(true);
+
+    handleNetworkStatusChanged(linkEvent({ wifiConnected: false, ssid: null, signal: null, hotspotActive: true, linkLost: true }));
+    expect(settings.networkLost).toBe(true);
+
+    // The home-network try: the AP down, the unit still lost.
+    handleNetworkStatusChanged(linkEvent({ wifiConnected: false, ssid: null, signal: null, linkLost: true }));
+    expect(settings.networkLost).toBe(true);
+
+    handleNetworkStatusChanged(linkEvent({ wifiConnected: true, ssid: 'Maison', signal: 61 }));
+    expect(settings.networkLost).toBe(false);
+  });
+
+  it('says nothing before setup', () => {
+    const settings = useSettingsStore();
+    settings.updateSetupCompleted(false);
+    handleNetworkStatusChanged(linkEvent({ wifiConnected: false, ssid: null, signal: null, hotspotActive: true, linkLost: true }));
+    expect(settings.networkLost).toBe(false);
   });
 });
 

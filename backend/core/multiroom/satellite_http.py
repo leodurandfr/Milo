@@ -34,8 +34,8 @@ on a request:
   asked yet, and any speaker whose heartbeat says it would follow a new
   server), best effort; the relays ask it
   first (`api/multiroom.py::_signed`), so a satellite that pinned another
-  server is refused before a trim, a card or a proof of presence is spent on a
-  request it would then refuse;
+  server is refused before a trim or a card is spent on a request it would
+  then refuse;
 - each answer is recorded where Multiroom reads it — the registry's
   `other_server`, or the pending entry's for a speaker not admitted yet — so a
   speaker that answers another server is announced with the gesture that

@@ -571,25 +571,28 @@ def _interactive_sudo_sites(trees) -> list[str]:
     ]
 
 
-def _backend_modules():
+def _tree_modules(tree_name: str):
     return [
         (str(path.relative_to(REPO_ROOT)), ast.parse(path.read_text(encoding="utf-8")))
-        for path in _modules("backend")
+        for path in _modules(tree_name)
     ]
 
 
-def test_every_backend_sudo_is_non_interactive():
-    """`sudo -n` at every call site of the server's tree, its rootfs programs included.
+@pytest.mark.parametrize("tree_name", sorted(TREES))
+def test_every_sudo_is_non_interactive(tree_name):
+    """`sudo -n` at every call site of each tree, its rootfs programs included.
 
-    A grant that is missing or moved must fail at once. Under systemd the
-    backend has no terminal and a bare `sudo` fails as fast as `-n` does; run
-    from one (`python main.py` on a dev host), a bare `sudo` sits on a
-    password prompt — for as long as its caller's timeout, and forever where
-    there is none (the hardware apply, the snapserver config write, every
-    milo-deploy-update step). Half the call sites carried the flag and half
-    did not, so which behavior a call had was an accident of who wrote it.
+    A grant that is missing or moved must fail at once. Under systemd neither
+    app has a terminal and a bare `sudo` fails as fast as `-n` does; run from
+    one (`python main.py` on a dev host, the satellite's app started by hand
+    on a speaker), a bare `sudo` sits on a password prompt — for as long as its
+    caller's timeout, and forever where there is none (the hardware apply, the
+    snapserver config write, every milo-deploy-update step, a satellite's
+    deploy). Half the server's call sites carried the flag and none of the
+    satellite's did, so which behavior a call had was an accident of who wrote
+    it.
     """
-    trees = _backend_modules()
+    trees = _tree_modules(tree_name)
     sites = [site for where, tree in trees for site in _sudo_sites(tree)]
     assert len(sites) >= 10, f"only {len(sites)} sudo call(s) found — the extractor is broken"
 

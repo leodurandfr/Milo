@@ -404,7 +404,7 @@ class AppUpdateService:
             return self._dpkg_busy(f"held by {held_by} after {DPKG_LOCK_WAIT_S} s")
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", FINISH_DPKG,
+                "sudo", "-n", FINISH_DPKG,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -487,7 +487,7 @@ class AppUpdateService:
         """
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "reboot",
+                "sudo", "-n", "systemctl", "reboot",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -667,7 +667,7 @@ class AppUpdateService:
         self.logger.info("Deploying system files via sudo wrapper...")
 
         proc = await asyncio.create_subprocess_exec(
-            "sudo", DEPLOY_SCRIPT, temp_dir,
+            "sudo", "-n", DEPLOY_SCRIPT, temp_dir,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -734,7 +734,7 @@ class AppUpdateService:
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", "milo-client.service",
+                "sudo", "-n", "systemctl", "restart", "milo-client.service",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )

@@ -104,9 +104,7 @@ The frontend is built before the stage runs — by `build-image.yml` for a relea
 
 - **User**: `milo`, factory password `milo`, **SSH disabled**. The password is a local
   convenience only, so the SSH server stays off until the owner opens it. On the server the
-  switch refuses to open it while the factory password is still in place, and otherwise
-  waits for a gesture on the unit itself (`backend/core/system/presence.py`), as setting the
-  password does. Opened from Settings → System on the server, from a satellite's own panel
+  switch refuses to open it while the factory password is still in place. Opened from Settings → System on the server, from a satellite's own panel
   under Multiroom for a satellite, or by dropping an empty `ssh` file on the boot partition
   (`sshswitch.service`, shipped enabled by Raspberry Pi OS).
 - **No first-boot wizard, no cloud-init**: `DISABLE_FIRST_BOOT_USER_RENAME=1` keeps
@@ -124,8 +122,7 @@ The frontend is built before the stage runs — by `build-image.yml` for a relea
   which also covers the speaker's own open hotspot while the server is on it for an adoption,
   and neither link carries IPv6, so no link-local address gets around that. Before setup the
   access point's clients may send only the wizard's writes. Once the unit is set up they can
-  read, and save a WiFi network only after a gesture on the unit itself
-  (`backend/core/system/presence.py`): that is how a server with no screen and no Ethernet whose
+  read, and save a WiFi network: that is how a server with no screen and no Ethernet whose
   home WiFi changed is repaired. Anything else is repaired from the touch screen or over
   Ethernet.
 - **Hostname**: `milo` (renamed to `milo-client` on first boot if a Milō server announces `_milo._tcp` on the network)

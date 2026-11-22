@@ -37,8 +37,8 @@ fi
 # in a directory only root can write, checked there: the path the app named sits
 # in a directory the app's own user can rewrite after any check it made itself.
 # "-" is the server saying its manifest declares no digest for this version (one
-# past it, installed behind a proof of presence on the server), and is said
-# below, never silent. Same steps as install-deb in the server's
+# past it, the server's trial of what upstream published), and is said below,
+# never silent. Same steps as install-deb in the server's
 # milo-deploy-update.
 [ "$SHA256" = "-" ] || [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || error_exit "Not a sha256 digest: $SHA256"
 STAGE=$(mktemp -d /tmp/milo-client-checked.XXXXXX)

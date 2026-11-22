@@ -22,11 +22,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.core.models.audio_state import AudioSource
-from backend.core.models.presence import PresenceAction
-from backend.core.system.presence import PresenceRequired
 from backend.hardware import rotary as rotary_module
 from backend.hardware.rotary import RotaryVolumeController
-from backend.tests.presence_world import World
 
 CLK, DT, SW = 22, 27, 23
 STEP_DB = 2.0
@@ -125,7 +122,7 @@ def clock(monkeypatch):
 
 
 @pytest.fixture
-def rot(gpio, clock, monkeypatch, tmp_path):
+def rot(gpio, clock, monkeypatch):
     """A controller whose two collaborators are recorded rather than driven.
 
     `VolumeAccumulator` and `PlaybackDispatcher` are separate units with their
@@ -135,9 +132,8 @@ def rot(gpio, clock, monkeypatch, tmp_path):
     volume_service = types.SimpleNamespace(
         volume_config=types.SimpleNamespace(step_rotary_db=STEP_DB)
     )
-    presence = World(tmp_path).service()
     controller = RotaryVolumeController(
-        volume_service, state_machine=types.SimpleNamespace(), presence_service=presence,
+        volume_service, state_machine=types.SimpleNamespace(),
         clk_pin=CLK, dt_pin=DT, sw_pin=SW,
     )
     deltas = []
@@ -147,7 +143,7 @@ def rot(gpio, clock, monkeypatch, tmp_path):
     monkeypatch.setattr(controller._dispatcher, "on_click", clicks)
     monkeypatch.setattr(controller._dispatcher, "cleanup", AsyncMock())
     return types.SimpleNamespace(
-        controller=controller, gpio=gpio, clock=clock, presence=presence,
+        controller=controller, gpio=gpio, clock=clock,
         deltas=deltas, clicks=clicks, volume_service=volume_service,
     )
 
@@ -299,67 +295,6 @@ class TestThePushButton:
         await rot.controller._check_button()
 
         assert rot.clicks.await_count == 2
-
-
-# ----------------------------------------------------------- proof of presence
-class TestTheKnobAsAProofOfPresence:
-    """While a challenge waits on the encoder, its input is the gesture.
-
-    A turn that also moved the volume would make the owner's confirmation a
-    level change in an occupied room; a press that also dispatched would pause
-    the music. Once the challenge has ended, the knob is the volume again.
-    """
-
-    async def _challenge(self, rot):
-        await rot.controller.initialize()
-        await rot.presence.initialize()
-        with pytest.raises(PresenceRequired):
-            await rot.presence.require(PresenceAction.SSH_OPEN, None)
-
-    async def test_a_detent_confirms_and_moves_no_volume(self, rot):
-        await self._challenge(rot)
-        rot.controller.last_clk = 0
-
-        _edge(rot, clk=1, dt=0)
-
-        assert rot.deltas == []
-        assert rot.presence.view().status == "confirmed"
-        await rot.controller.cleanup()
-
-    async def test_a_press_confirms_and_dispatches_nothing(self, rot):
-        await self._challenge(rot)
-        rot.gpio.levels[SW] = 0
-
-        await rot.controller._check_button()
-
-        rot.clicks.assert_not_awaited()
-        assert rot.presence.view().status == "confirmed"
-        await rot.controller.cleanup()
-
-    async def test_the_detent_after_the_confirming_one_is_the_volume_again(self, rot):
-        """One detent is the gesture; a knob that stayed dead after it would
-        leave the owner turning a volume that does not move until the request
-        comes back."""
-        await self._challenge(rot)
-        rot.controller.last_clk = 0
-        _edge(rot, clk=1, dt=0)
-        rot.clock.now += 1.0
-
-        _edge(rot, clk=0, dt=1)
-
-        assert len(rot.deltas) == 1
-        assert rot.presence.view().status == "confirmed"
-        await rot.controller.cleanup()
-
-    async def test_with_no_challenge_open_the_knob_is_the_volume(self, rot):
-        await rot.controller.initialize()
-        await rot.presence.initialize()
-        rot.controller.last_clk = 0
-
-        _edge(rot, clk=1, dt=0)
-
-        assert rot.deltas == [STEP_DB]
-        await rot.controller.cleanup()
 
 
 # ------------------------------------------------------------------- lifecycle
@@ -557,7 +492,7 @@ class TestTheAdaptivePollingLoop:
 
 
 # ------------------------------------------------------------------ refusals
-async def test_a_press_the_source_refuses_is_logged_as_the_rotarys(caplog, tmp_path):
+async def test_a_press_the_source_refuses_is_logged_as_the_rotarys(caplog):
     """The knob, the IR and the BT remote each hold a dispatcher; a refused
     press logged without its device leaves "which button did nothing?"
     unanswered."""
@@ -570,7 +505,7 @@ async def test_a_press_the_source_refuses_is_logged_as_the_rotarys(caplog, tmp_p
     )
     controller = RotaryVolumeController(
         types.SimpleNamespace(), state_machine=state_machine,
-        presence_service=World(tmp_path).service(), clk_pin=CLK, dt_pin=DT, sw_pin=SW,
+        clk_pin=CLK, dt_pin=DT, sw_pin=SW,
     )
 
     await controller._dispatcher.dispatch_play_pause()
@@ -583,7 +518,7 @@ async def test_a_press_the_source_refuses_is_logged_as_the_rotarys(caplog, tmp_p
     assert "rotary" in warnings[0] and "playpause" in warnings[0]
 
 
-async def test_a_turn_of_the_knob_asks_the_screens_for_the_bar(gpio, clock, tmp_path):
+async def test_a_turn_of_the_knob_asks_the_screens_for_the_bar(gpio, clock):
     """The knob sits under the unit's own screen, and the full-screen panel is
     what a remote asks for from across the room: the rotary's turns must reach
     the service as the bar, or turning it would cover the screen being read."""
@@ -591,9 +526,8 @@ async def test_a_turn_of_the_knob_asks_the_screens_for_the_bar(gpio, clock, tmp_
         volume_config=types.SimpleNamespace(step_rotary_db=STEP_DB),
         adjust_volume_db=AsyncMock(),
     )
-    presence = World(tmp_path).service()
     controller = RotaryVolumeController(
-        volume_service, state_machine=types.SimpleNamespace(), presence_service=presence,
+        volume_service, state_machine=types.SimpleNamespace(),
         clk_pin=CLK, dt_pin=DT, sw_pin=SW,
     )
     controller.last_clk = 0

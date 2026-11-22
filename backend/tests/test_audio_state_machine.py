@@ -18,10 +18,13 @@ Tests cover:
   then the source's own reason
 """
 import contextlib
+import functools
+import importlib
 import logging
 
 import pytest
 import asyncio
+from pathlib import Path
 from typing import Optional
 from unittest.mock import Mock, AsyncMock
 
@@ -2248,6 +2251,132 @@ class TestShutdownSources:
 
 RADIO_UNIT = "milo-radio.service"
 SPOTIFY_UNIT = "milo-spotify.service"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@functools.cache
+def real_source(source: AudioSource):
+    """A real instance of the class a source package exports."""
+    package = importlib.import_module(f"backend.sources.{source.value}")
+    (exported,) = package.__all__
+    return getattr(package, exported)()
+
+
+def declared_unit(source: AudioSource) -> str:
+    """The unit a source declares, read off a real instance of its class: what
+    `stop_lingering_units` stops at boot, and `retire_source` for the dock."""
+    unit = real_source(source).service_name
+    assert unit and unit.endswith(".service"), f"{source.value} declares {unit!r}"
+    return unit
+
+
+
+class TestRetireSource:
+    """A source the dock turned off (`PUT /api/settings/dock-apps`): the active
+    one is left for none, any other has its unit stopped, and which of the two
+    is decided under the transition lock."""
+
+    @staticmethod
+    def _machine(systemd: Systemd) -> AudioStateMachine:
+        machine = AudioStateMachine()
+        machine.register_source(AudioSource.RADIO, unit_source(systemd, RADIO_UNIT))
+        machine.register_source(AudioSource.SPOTIFY, unit_source(systemd, SPOTIFY_UNIT))
+        return machine
+
+    async def test_the_active_source_is_left_for_none(self):
+        """Its unit stopped under a live selection, the state would point at a
+        source with no process: shown playing, and nothing answering a command."""
+        systemd = Systemd()
+        machine = self._machine(systemd)
+        await machine.transition_to_source(AudioSource.RADIO)
+        systemd.calls.clear()
+
+        assert await machine.retire_source(AudioSource.RADIO, systemd) is True
+
+        assert machine.system_state.active_source == AudioSource.NONE
+        machine.sources[AudioSource.RADIO].stop.assert_awaited_once()
+        assert systemd.calls == []
+
+    async def test_an_idle_source_has_its_unit_stopped(self):
+        """Not selected, its daemon may still run: go-librespot holds its ALSA
+        device whether or not Spotify is the active source."""
+        systemd = Systemd(up={SPOTIFY_UNIT})
+        machine = self._machine(systemd)
+        await machine.transition_to_source(AudioSource.RADIO)
+        systemd.calls.clear()
+
+        assert await machine.retire_source(AudioSource.SPOTIFY, systemd) is True
+
+        assert systemd.calls == [f"stop {SPOTIFY_UNIT}"]
+        assert machine.system_state.active_source == AudioSource.RADIO
+
+    async def test_a_refused_stop_is_answered(self):
+        """A unit that refused to stop still holds its device: the dock keeps its tile."""
+        systemd = Systemd(up={SPOTIFY_UNIT}, refuse=True)
+        machine = self._machine(systemd)
+
+        assert await machine.retire_source(AudioSource.SPOTIFY, systemd) is False
+
+    async def test_a_selection_asked_before_it_does_not_outlive_it(self):
+        """A press of Spotify queued behind a transition still running, then the
+        dock turning Spotify off. Decided from a read outside the lock, the dock
+        saw Radio active, stopped Spotify's unit at once, and the press then
+        started Spotify: playing, with no tile. Under the lock the retire comes
+        after the press it followed, and leaves Spotify for none."""
+        systemd = Systemd()
+        systemd.start_held = asyncio.Event()
+        machine = self._machine(systemd)
+        spotify = machine.sources[AudioSource.SPOTIFY]
+
+        radio = asyncio.create_task(machine.transition_to_source(AudioSource.RADIO))
+        await _until(lambda: systemd.calls == [f"start {RADIO_UNIT}"])
+        press = asyncio.create_task(machine.transition_to_source(AudioSource.SPOTIFY))
+        retire = asyncio.create_task(machine.retire_source(AudioSource.SPOTIFY, systemd))
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert f"stop {SPOTIFY_UNIT}" not in systemd.calls, "stopped while a transition held the lock"
+
+        systemd.start_held.set()
+        assert await radio is True
+        assert await press is True
+        assert await retire is True
+
+        assert machine.system_state.active_source == AudioSource.NONE
+        spotify.stop.assert_awaited_once()
+
+    @pytest.mark.parametrize("source", [s for s in AudioSource if s is not AudioSource.NONE], ids=lambda s: s.value)
+    async def test_every_source_stops_the_unit_it_declares(self, source):
+        """Every source, from the enum, by the unit its own class declares: the
+        unit table the dock used to keep had lost Tidal, Qobuz, CD and Music
+        Library, so switching one of them off while it was not selected left
+        its daemon up — castable, and holding its loopback leg."""
+        instance = real_source(source)
+        systemd = Systemd(up={instance.service_name})
+        machine = AudioStateMachine()
+        machine.register_source(source, instance)
+
+        assert await machine.retire_source(source, systemd) is True
+
+        assert systemd.calls == [f"stop {declared_unit(source)}"]
+
+    def test_bluetooths_writer_goes_down_with_the_unit_it_declares(self):
+        """BlueALSA answers *who is connected* and bluealsa-aplay carries the
+        audio; leaving either up keeps the phone paired and streaming into a
+        source the dock says is off. The writer goes with the unit Bluetooth
+        declares only because its unit is `BindsTo=` that one — read here from
+        the file the image ships."""
+        writer = REPO_ROOT / "system" / "milo-bluealsa-aplay.service"
+        binds_to = [
+            unit
+            for line in writer.read_text().splitlines()
+            if line.strip().startswith("BindsTo=")
+            for unit in line.split("=", 1)[1].split()
+        ]
+        assert binds_to, f"no BindsTo= read from {writer}"
+        assert declared_unit(AudioSource.BLUETOOTH) in binds_to, (
+            f"bluealsa-aplay binds to {binds_to}, not to {declared_unit(AudioSource.BLUETOOTH)}: "
+            "it outlives the stop"
+        )
 
 
 class TestLingeringUnitSweep:

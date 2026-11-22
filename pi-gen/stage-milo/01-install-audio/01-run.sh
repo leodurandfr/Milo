@@ -53,11 +53,14 @@ cd /tmp && rm -rf shairport-sync-${SHAIRPORT_SYNC_VERSION}
 systemctl disable shairport-sync.service 2>/dev/null || true
 CHROOT
 
-# bluez-alsa
+# bluez-alsa and roc-toolkit are cloned by tag, and each clone is held to the
+# commit the manifest declares for that tag (`*_COMMIT`): a tag is a pointer
+# its owner can move, and the commit is what was validated.
 on_chroot << CHROOT
 cd /tmp
 git clone --branch v${BLUEZ_ALSA_VERSION} --depth 1 https://github.com/arkq/bluez-alsa.git
 cd bluez-alsa
+[ "\$(git rev-parse HEAD)" = "${BLUEZ_ALSA_COMMIT}" ] || { echo "bluez-alsa v${BLUEZ_ALSA_VERSION} is not commit ${BLUEZ_ALSA_COMMIT}" >&2; exit 1; }
 autoreconf --install
 mkdir build && cd build
 ../configure --prefix=/usr --localstatedir=/var --disable-systemd \
@@ -79,6 +82,7 @@ on_chroot << CHROOT
 cd /tmp
 git clone --branch v${ROC_TOOLKIT_VERSION} --depth 1 https://github.com/roc-streaming/roc-toolkit.git
 cd roc-toolkit
+[ "\$(git rev-parse HEAD)" = "${ROC_TOOLKIT_COMMIT}" ] || { echo "roc-toolkit v${ROC_TOOLKIT_VERSION} is not commit ${ROC_TOOLKIT_COMMIT}" >&2; exit 1; }
 scons -Q --build-3rdparty=openfec
 scons -Q --build-3rdparty=openfec install
 ldconfig

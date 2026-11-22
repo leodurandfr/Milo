@@ -330,7 +330,7 @@ class TestSnapclientConfigRestart:
             proc.returncode = 0
             stdout = b"1077\n" if argv[0] == "systemctl" else b""
             proc.communicate = AsyncMock(return_value=(stdout, b""))
-            if argv[:3] == ("sudo", "systemctl", "start"):
+            if argv[:4] == ("sudo", "-n", "systemctl", "start"):
                 started_with.append(override.read_text() if override.exists() else None)
             return proc
 
@@ -349,8 +349,8 @@ class TestSnapclientConfigFailedRestart:
     nothing — the room stayed silent until the satellite was rebooted.
     """
 
-    STOP = ("sudo", "systemctl", "stop", "milo-client-snapclient.service")
-    START = ("sudo", "systemctl", "start", "milo-client-snapclient.service")
+    STOP = ("sudo", "-n", "systemctl", "stop", "milo-client-snapclient.service")
+    START = ("sudo", "-n", "systemctl", "start", "milo-client-snapclient.service")
     OLD_ENV = "MILO_PRINCIPAL_IP=192.168.1.10\nMILO_SNAPCLIENT_BUFFER_TIME=80\nMILO_SNAPCLIENT_FRAGMENTS=4\n"
 
     @pytest.fixture(autouse=True)

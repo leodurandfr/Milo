@@ -878,9 +878,8 @@ class LastUpdatePatch(BaseModel):
 class SshRequest(BaseModel):
     """Open or close the SSH server.
 
-    Opening is refused (409) while the factory password is in place, and
-    otherwise asks for a proof of presence (428) — the reasoning lives on
-    `set_ssh_state`. Closing is never refused.
+    Opening is refused (409) while the factory password is in place — the
+    reasoning lives on `set_ssh_state`. Closing is never refused.
     """
     enabled: bool
 

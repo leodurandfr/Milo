@@ -827,7 +827,7 @@ class TestDpkgBeforeTheInstall:
         assert result["success"] is True
         assert holder.call_count == 3, "two looks at a held lock, a third at a free one"
         assert _ran_finish_dpkg(spawned[0]), f"dpkg must be finished first, not after {spawned[0]}"
-        assert spawned[0] == ("sudo", app_update_module.FINISH_DPKG), "the helper takes no argument"
+        assert spawned[0] == ("sudo", "-n", app_update_module.FINISH_DPKG), "the helper takes no argument"
         assert trial_at_finish == [False], "nothing is opened or swapped under an unfinished dpkg"
 
     @pytest.mark.asyncio
@@ -930,7 +930,7 @@ class TestRebootAfterThePush:
 
         ended = await self._end_of_push(tmp_path, no_restart_timer, silent=True)
 
-        assert ended == [("sudo", "systemctl", "reboot")]
+        assert ended == [("sudo", "-n", "systemctl", "reboot")]
         assert _trial_open(state)
 
     @pytest.mark.parametrize("silent", [False, None, "absent"], ids=["playing", "unknown", "no-reader"])
@@ -943,7 +943,7 @@ class TestRebootAfterThePush:
 
         ended = await self._end_of_push(tmp_path, no_restart_timer, silent=silent)
 
-        assert ended == [("sudo", "systemctl", "restart", "milo-client.service")]
+        assert ended == [("sudo", "-n", "systemctl", "restart", "milo-client.service")]
 
     @pytest.mark.asyncio
     async def test_no_fix_waiting_means_no_reboot(
@@ -951,7 +951,7 @@ class TestRebootAfterThePush:
     ):
         ended = await self._end_of_push(tmp_path, no_restart_timer, silent=True)
 
-        assert ended == [("sudo", "systemctl", "restart", "milo-client.service")]
+        assert ended == [("sudo", "-n", "systemctl", "restart", "milo-client.service")]
 
     @pytest.mark.asyncio
     async def test_a_dpkg_run_at_the_end_of_the_push_defers_the_reboot(
@@ -971,7 +971,7 @@ class TestRebootAfterThePush:
                 await no_restart_timer[0]()
 
         assert [argv for argv in spawned if _ran_reboot(argv) or _ran_restart(argv)] == [
-            ("sudo", "systemctl", "restart", "milo-client.service"),
+            ("sudo", "-n", "systemctl", "restart", "milo-client.service"),
         ]
 
     @pytest.mark.asyncio
@@ -995,7 +995,7 @@ class TestRebootAfterThePush:
                 await no_restart_timer[0]()
 
         assert [argv for argv in spawned if _ran_reboot(argv) or _ran_restart(argv)] == [
-            ("sudo", "systemctl", "restart", "milo-client.service"),
+            ("sudo", "-n", "systemctl", "restart", "milo-client.service"),
         ]
         assert any("/proc is gone" in r.getMessage() for r in caplog.records)
         assert _trial_open(state), "the restart that followed is the trial's start"
@@ -1013,8 +1013,8 @@ class TestRebootAfterThePush:
             ended = await self._end_of_push(tmp_path, no_restart_timer, silent=True, reboot_returncode=1)
 
         assert ended == [
-            ("sudo", "systemctl", "reboot"),
-            ("sudo", "systemctl", "restart", "milo-client.service"),
+            ("sudo", "-n", "systemctl", "reboot"),
+            ("sudo", "-n", "systemctl", "restart", "milo-client.service"),
         ]
         assert any("Access denied" in r.getMessage() for r in caplog.records)
         assert _trial_open(state), "the restart that followed is the trial's start"

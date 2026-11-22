@@ -49,6 +49,7 @@ import pytest
 
 from backend.core.updates.catalog import PROGRAMS
 from backend.core.updates.dependency_versions import (
+    COMMIT_SUFFIX,
     DIGEST_SUFFIX,
     MANIFEST_PATH,
     VERSION_SUFFIX,
@@ -365,6 +366,47 @@ def test_every_image_download_of_a_digested_asset_is_checked(manifest, scripts):
     # CamillaDSP, the two snapcast .debs, NQPTP, shairport-sync and qobuz-proxy.
     assert counted >= 8, f"only {counted} downloads of a digested asset recognized"
     assert not unchecked, "\n".join(unchecked)
+
+
+# A clone by tag, `git clone --branch v${X_VERSION} …`, and the check of its HEAD.
+CLONE_RE = re.compile(r"\bgit\s+clone\b[^\n]*--branch\s+\S*?\$\{?([A-Z][A-Z0-9_]*" + VERSION_SUFFIX + r")\b")
+HEAD_CHECK_RE = re.compile(r"\bgit\s+rev-parse\s+HEAD\b")
+
+
+def test_every_tag_the_image_clones_is_held_to_its_commit(manifest, scripts):
+    """A tag is a pointer its owner can move: a clone by tag alone builds, as
+    root, whatever the tag names the day the image is built, which is no
+    longer what was validated once it moves.
+
+    Fails when a stage script or a module it sources clones a `*_VERSION`'s
+    tag and the manifest declares no `*_COMMIT` right after that version, or
+    the same file has fewer `git rev-parse HEAD` checks against that commit
+    than it has clones of the tag.
+    """
+    lines = [ln.split("=", 1)[0] for ln in MANIFEST_PATH.read_text().splitlines() if ln and not ln.startswith("#")]
+    counted = 0
+    failures = []
+    for path, code in scripts.items():
+        statements = re.sub(r"\\\n\s*", " ", code).splitlines()
+        for version in {v for st in statements for v in CLONE_RE.findall(st)}:
+            commit = version[: -len(VERSION_SUFFIX)] + COMMIT_SUFFIX
+            clones = [st for st in statements if version in CLONE_RE.findall(st)]
+            counted += len(clones)
+            where = path.relative_to(REPO_ROOT)
+            if commit not in manifest:
+                failures.append(f"{where} clones ${{{version}}}'s tag, and dependencies.env declares no {commit}")
+                continue
+            if lines.index(commit) != lines.index(version) + 1:
+                failures.append(f"{commit} is not right after {version} in dependencies.env")
+            checks = [st for st in statements if HEAD_CHECK_RE.search(st) and commit in VAR_READ_RE.findall(st)]
+            if len(checks) < len(clones):
+                failures.append(
+                    f"{where}: {len(clones)} clone(s) of ${{{version}}}'s tag, "
+                    f"{len(checks)} check(s) of git rev-parse HEAD against ${{{commit}}}"
+                )
+    # bluez-alsa and roc-toolkit, the two the image builds from a clone.
+    assert counted >= 2, f"only {counted} clone(s) by tag recognized"
+    assert not failures, "\n".join(failures)
 
 
 def test_pi_gen_stage_scripts_can_reach_the_manifest():

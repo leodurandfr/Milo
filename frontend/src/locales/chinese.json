@@ -1014,34 +1014,6 @@
       "mismatch": "两次输入的密码不一致。",
       "tooShort": "密码至少需要 {n} 个字符。"
     },
-    "presence": {
-      "title": "请在设备上确认",
-      "confirmed": "已在设备上确认",
-      "expiredTitle": "未确认",
-      "expired": "未能及时在设备上确认，因此未做任何更改。",
-      "cancel": "取消",
-      "remaining": "剩余 {time}",
-      "waiting": "正在等待设备恢复…",
-      "foreignTitle": "来自另一台设备的请求",
-      "foreign": "只有在您本人发起此请求时，才在本设备上确认。",
-      "elsewhereTitle": "请从另一台设备确认",
-      "elsewhere": "确认此操作需要拔下设备电源再重新插上，而此屏幕会随设备一起关闭。请从手机或电脑发起请求。",
-      "actions": {
-        "ssh_open": "打开 SSH",
-        "password": "更改密码",
-        "program_upstream": "安装未经验证的版本",
-        "reset_setup": "重置配置",
-        "wifi_save": "保存 WiFi 网络",
-        "satellite_ssh_open": "在音箱上打开 SSH",
-        "satellite_password": "更改音箱的密码",
-        "satellite_program_upstream": "在音箱上安装未经验证的版本"
-      },
-      "gestures": {
-        "rotary": "请转动或按下设备上的旋钮。没有旋钮？请取消，在“设置 › 硬件”中关闭旋转编码器，然后在 {time} 后重新请求。",
-        "power_button": "请按一下设备的电源按钮。",
-        "power_cycle": "请拔下设备电源，然后重新插上。请保持此页面打开：设备恢复后会自动完成。"
-      }
-    },
     "diagnostic": {
       "title": "诊断",
       "description": "一份关于您的 Milō 的文本报告（版本、音频通路、音箱、近期错误），出现问题时可发送。",

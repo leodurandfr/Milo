@@ -75,11 +75,7 @@ const EXCUSED = {
 // taking it to draw.
 const HELD_ELSEWHERE = new Set(['useSettingsAPI']);
 
-// A write goes through apiCall, or through presenceStore.request, which takes
-// apiCall's arguments after the verb and sends the write behind the proof of
-// presence (opening SSH, the password, an upstream install, the reset).
-const WRITE = /\bapiCall\.(post|put|patch|delete)\(|\bpresence(?:Store)?\.request\(\s*'(?:post|put|patch|delete)'/;
-const PRESENCE_WRITE = /\bpresence(?:Store)?\.request\((?=\s*'(?:post|put|patch|delete)')/g;
+const WRITE = /\bapiCall\.(post|put|patch|delete)\(/;
 
 function filesUnder(dir, ext) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -264,14 +260,6 @@ function writeCalls() {
         args: balanced(text, match.index + match[0].length - 1),
       });
     }
-    for (const match of text.matchAll(PRESENCE_WRITE)) {
-      calls.push({
-        component,
-        file,
-        label: `presenceStore.request${where(match.index)}`,
-        args: balanced(text, match.index + match[0].length - 1),
-      });
-    }
     for (const { pattern, label, info } of reachedActions(script)) {
       for (const match of text.matchAll(new RegExp(pattern, 'g'))) {
         // The action's own definition, were a component to name one alike.
@@ -342,8 +330,6 @@ describe('a settings action that fails says so, one way', () => {
     // Reached by destructuring, and through a composable.
     expect(calls.some(call => call.label === 'updatesStore.startLocalUpdate')).toBe(true);
     expect(calls.some(call => call.label === 'useNetwork.setCountry')).toBe(true);
-    // Sent behind the proof of presence.
-    expect(calls.some(call => call.label === 'presenceStore.request')).toBe(true);
   });
 
   it('every one of them asks apiCall for the cause', () => {

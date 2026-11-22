@@ -465,140 +465,174 @@ class AudioStateMachine:
                 which the source alone cannot tell apart).
         """
         async with self._transition_lock:
-            logger.debug(
-                "START TRANSITION: %s -> %s",
-                self.system_state.active_source.value,
-                target_source.value
+            return await self._transition(
+                target_source, expected_source, expected_activity=expected_activity,
             )
 
-            # CAS guard: abort if active source changed since caller's decision
-            if expected_source is not None and self.system_state.active_source != expected_source:
-                logger.info(
-                    "Transition skipped: expected %s but active is %s",
-                    expected_source.value,
-                    self.system_state.active_source.value
-                )
-                return False
+    async def retire_source(self, source: AudioSource, systemd_manager) -> bool:
+        """Take a source the dock turned off out of play (`PUT /api/settings/dock-apps`).
 
-            if expected_activity is not None and self._last_activity_time != expected_activity:
-                logger.info(
-                    "Transition skipped: %s saw activity since the caller's decision",
-                    self.system_state.active_source.value,
-                )
-                return False
+        The active one is left for none, as a selection of none would; any
+        other has its unit — the one it declares, which the boot's sweep
+        (`stop_lingering_units`) reads too — stopped. Which of the two is read
+        under the transition lock, so the retire comes after every selection
+        asked before it: read outside it, a selection of the source queued
+        behind a running transition found its unit already stopped, started
+        it, and left it playing with no tile. Answers whether the source is
+        out of play.
+        """
+        async with self._transition_lock:
+            if self.system_state.active_source == source:
+                return await self._transition(AudioSource.NONE)
+            instance = self.sources.get(source)
+            unit = instance.service_name if instance else None
+            if not unit:
+                return True
+            logger.info("Stopping the unit of %s, turned off in the dock: %s", source.value, unit)
+            return await systemd_manager.stop(unit)
 
-            # Re-selecting the active source is a no-op — unless its last start
-            # failed, where the same gesture is the retry: a failed transition
-            # leaves its source selected, so this is the path back.
-            if self.system_state.active_source == target_source and \
-               self.system_state.service_error is None:
-                logger.info(f"Already on source {target_source.value}")
+    async def _transition(
+        self,
+        target_source: AudioSource,
+        expected_source: Optional[AudioSource] = None,
+        *,
+        expected_activity: Optional[float] = None,
+    ) -> bool:
+        """`transition_to_source`'s work, under the transition lock its caller holds."""
+        logger.debug(
+            "START TRANSITION: %s -> %s",
+            self.system_state.active_source.value,
+            target_source.value
+        )
+
+        # CAS guard: abort if active source changed since caller's decision
+        if expected_source is not None and self.system_state.active_source != expected_source:
+            logger.info(
+                "Transition skipped: expected %s but active is %s",
+                expected_source.value,
+                self.system_state.active_source.value
+            )
+            return False
+
+        if expected_activity is not None and self._last_activity_time != expected_activity:
+            logger.info(
+                "Transition skipped: %s saw activity since the caller's decision",
+                self.system_state.active_source.value,
+            )
+            return False
+
+        # Re-selecting the active source is a no-op — unless its last start
+        # failed, where the same gesture is the retry: a failed transition
+        # leaves its source selected, so this is the path back.
+        if self.system_state.active_source == target_source and \
+           self.system_state.service_error is None:
+            logger.info(f"Already on source {target_source.value}")
+            return True
+
+        # The key always exists — self.sources is built with every AudioSource
+        # as a key — so it is the value that says whether a source was
+        # registered. Checked here, before the old source is stopped.
+        if target_source != AudioSource.NONE and not self.sources.get(target_source):
+            logger.error(f"No source registered for: {target_source.value}")
+            return False
+
+        # The previous source's teardown, while it runs. The timeout below
+        # cuts the *wait* for it, never the teardown itself (it is shielded,
+        # and a source's stop runs in its own actor): a failed transition
+        # waits for it to end before settling, so nothing — not even the
+        # user's retry, queued on the lock — starts over a source still
+        # letting go of the device.
+        teardown: Optional[asyncio.Task] = None
+
+        try:
+            async with asyncio.timeout(self.TRANSITION_TIMEOUT) as budget:
+                async with self._state_lock:
+                    old_source = self.system_state.active_source
+                    self.system_state.transitioning = True
+                    self.system_state.active_source = target_source
+                    self.system_state.view = SourceView()
+                    # A retry of a failed source starts from a clean slate.
+                    self.system_state.service_error = None
+                    # Stamped with the selection, so a start that fails is
+                    # not swept at the next tick, and no tick lands in the
+                    # final publish of one that succeeds.
+                    self._last_activity_time = monotonic()
+
+                await self.publish_state()
+
+                # Stop old source
+                if old_source != AudioSource.NONE:
+                    teardown = asyncio.ensure_future(self._stop_source(old_source))
+                    teardown.set_name(old_source.value)
+                    stopping = await asyncio.shield(teardown)
+                    if stopping is not None:
+                        await self._wait_for_unit_down(stopping, budget)
+                    # Over, its wait included: a failure from here on has
+                    # nothing of it left to wait for.
+                    teardown = None
+
+                # Start new source — in multiroom, once every room is on its
+                # stream, so its first samples are heard: the meta stream
+                # left alone held the old one for its idle_threshold.
+                if target_source != AudioSource.NONE:
+                    if self.routing_service:
+                        await self.routing_service.point_multiroom_at(target_source)
+                    success = await self._start_source(target_source)
+                    if not success:
+                        raise ValueError(f"Failed to start {target_source.value}")
+
+                async with self._state_lock:
+                    self.system_state.transitioning = False
+                    # Resync from the source's actual post-start view. This
+                    # recovers any publish dropped while transitioning
+                    # (_do_start may have opened a session) — there is no
+                    # buffer/replay, just this re-read.
+                    source = self.sources.get(target_source)
+                    self.system_state.view = source.view if source else SourceView()
+
+                await self.publish_state()
+
+                # The one place the two axes are worth recording: a source
+                # that started fine and still cannot work. Without it, "the
+                # card showed the wrong screen" is unfalsifiable from the
+                # logs — nothing else prints what the state carried.
+                blocked = (
+                    self.availability_of(target_source)
+                    if target_source != AudioSource.NONE else None
+                )
+                logger.info(
+                    "Transition completed: %s%s",
+                    target_source.value,
+                    f" (unavailable: {blocked})" if blocked else "",
+                )
                 return True
 
-            # The key always exists — self.sources is built with every AudioSource
-            # as a key — so it is the value that says whether a source was
-            # registered. Checked here, before the old source is stopped.
-            if target_source != AudioSource.NONE and not self.sources.get(target_source):
-                logger.error(f"No source registered for: {target_source.value}")
-                return False
-
-            # The previous source's teardown, while it runs. The timeout below
-            # cuts the *wait* for it, never the teardown itself (it is shielded,
-            # and a source's stop runs in its own actor): a failed transition
-            # waits for it to end before settling, so nothing — not even the
-            # user's retry, queued on the lock — starts over a source still
-            # letting go of the device.
-            teardown: Optional[asyncio.Task] = None
-
-            try:
-                async with asyncio.timeout(self.TRANSITION_TIMEOUT) as budget:
-                    async with self._state_lock:
-                        old_source = self.system_state.active_source
-                        self.system_state.transitioning = True
-                        self.system_state.active_source = target_source
-                        self.system_state.view = SourceView()
-                        # A retry of a failed source starts from a clean slate.
-                        self.system_state.service_error = None
-                        # Stamped with the selection, so a start that fails is
-                        # not swept at the next tick, and no tick lands in the
-                        # final publish of one that succeeds.
-                        self._last_activity_time = monotonic()
-
-                    await self.publish_state()
-
-                    # Stop old source
-                    if old_source != AudioSource.NONE:
-                        teardown = asyncio.ensure_future(self._stop_source(old_source))
-                        teardown.set_name(old_source.value)
-                        stopping = await asyncio.shield(teardown)
-                        if stopping is not None:
-                            await self._wait_for_unit_down(stopping, budget)
-                        # Over, its wait included: a failure from here on has
-                        # nothing of it left to wait for.
-                        teardown = None
-
-                    # Start new source — in multiroom, once every room is on its
-                    # stream, so its first samples are heard: the meta stream
-                    # left alone held the old one for its idle_threshold.
-                    if target_source != AudioSource.NONE:
-                        if self.routing_service:
-                            await self.routing_service.point_multiroom_at(target_source)
-                        success = await self._start_source(target_source)
-                        if not success:
-                            raise ValueError(f"Failed to start {target_source.value}")
-
-                    async with self._state_lock:
-                        self.system_state.transitioning = False
-                        # Resync from the source's actual post-start view. This
-                        # recovers any publish dropped while transitioning
-                        # (_do_start may have opened a session) — there is no
-                        # buffer/replay, just this re-read.
-                        source = self.sources.get(target_source)
-                        self.system_state.view = source.view if source else SourceView()
-
-                    await self.publish_state()
-
-                    # The one place the two axes are worth recording: a source
-                    # that started fine and still cannot work. Without it, "the
-                    # card showed the wrong screen" is unfalsifiable from the
-                    # logs — nothing else prints what the state carried.
-                    blocked = (
-                        self.availability_of(target_source)
-                        if target_source != AudioSource.NONE else None
-                    )
-                    logger.info(
-                        "Transition completed: %s%s",
-                        target_source.value,
-                        f" (unavailable: {blocked})" if blocked else "",
-                    )
-                    return True
-
-            except Exception as e:
-                # A timeout only earns its own reason; both failures settle
-                # identically (asyncio.TimeoutError is a builtin Exception).
-                if isinstance(e, asyncio.TimeoutError):
-                    error = ServiceError(
-                        reason="start_timeout",
-                        message=f"Transition timeout after {self.TRANSITION_TIMEOUT}s",
-                    )
-                else:
-                    error = ServiceError(reason="start_failed", message=str(e))
-
-                blocked = self._connectivity_reason(target_source)
-                # WARNING, never ERROR. This module's logger is under the
-                # `backend` hierarchy, which WebSocketLogHandler forwards to the
-                # notification banner wholesale, so an ERROR here would be a
-                # second user-facing report of one failure — the state already
-                # says `service: failed`, and the card offers the retry.
-                # errors.log and the journal keep WARNING and above.
-                logger.warning(
-                    "Transition failed: %s%s",
-                    error.message,
-                    f" (link is {blocked})" if blocked else "",
+        except Exception as e:
+            # A timeout only earns its own reason; both failures settle
+            # identically (asyncio.TimeoutError is a builtin Exception).
+            if isinstance(e, asyncio.TimeoutError):
+                error = ServiceError(
+                    reason="start_timeout",
+                    message=f"Transition timeout after {self.TRANSITION_TIMEOUT}s",
                 )
-                await self._land_failure(target_source, error)
-                await self._settle_failed_transition(target_source, error, teardown)
-                return False
+            else:
+                error = ServiceError(reason="start_failed", message=str(e))
+
+            blocked = self._connectivity_reason(target_source)
+            # WARNING, never ERROR. This module's logger is under the
+            # `backend` hierarchy, which WebSocketLogHandler forwards to the
+            # notification banner wholesale, so an ERROR here would be a
+            # second user-facing report of one failure — the state already
+            # says `service: failed`, and the card offers the retry.
+            # errors.log and the journal keep WARNING and above.
+            logger.warning(
+                "Transition failed: %s%s",
+                error.message,
+                f" (link is {blocked})" if blocked else "",
+            )
+            await self._land_failure(target_source, error)
+            await self._settle_failed_transition(target_source, error, teardown)
+            return False
 
     async def _land_failure(self, source: AudioSource, error: ServiceError) -> None:
         """Put a failed start on the wire before its source is stopped (E03).

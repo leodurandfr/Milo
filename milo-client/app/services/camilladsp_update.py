@@ -217,7 +217,7 @@ class CamillaDSPUpdateService:
         an update, `<binary>` for the rollback's kept copy."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", INSTALL_WRAPPER, *args,
+                "sudo", "-n", INSTALL_WRAPPER, *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -278,7 +278,7 @@ class CamillaDSPUpdateService:
         """Stops the CamillaDSP service."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "stop", CAMILLADSP_SERVICE,
+                "sudo", "-n", "systemctl", "stop", CAMILLADSP_SERVICE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -292,7 +292,7 @@ class CamillaDSPUpdateService:
         """Starts the CamillaDSP service."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "start", CAMILLADSP_SERVICE,
+                "sudo", "-n", "systemctl", "start", CAMILLADSP_SERVICE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )

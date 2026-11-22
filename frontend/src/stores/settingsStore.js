@@ -1,6 +1,6 @@
 // frontend/src/stores/settingsStore.js
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { ALL_AUDIO_SOURCES } from '@/constants/audioSources';
@@ -21,6 +21,14 @@ export const useSettingsStore = defineStore('settings', () => {
   // === SETUP WIZARD ===
   const setupCompleted = ref(null); // null = unknown, false = show wizard, true = normal UI
   const hotspotActive = ref(false); // true when first-boot hotspot is running
+  // The unit lost its network: its recovery AP rose for want of a link and no
+  // link came back since (the backend's `NetworkStatus.link_lost`), whether
+  // the AP is up or down for a home-network try (`_retry_station`, backend
+  // core/network/service.py). A link that drops without the AP rising (a boot
+  // before its lease, a speaker adoption) is not lost.
+  const linkLost = ref(false);
+  // The "WiFi lost" banner. Before setup the wizard says what to do itself.
+  const networkLost = computed(() => setupCompleted.value === true && linkLost.value === true);
 
   // === LOADING STATE ===
   const isLoading = ref(false);
@@ -591,6 +599,10 @@ export const useSettingsStore = defineStore('settings', () => {
     hotspotActive.value = value;
   }
 
+  function updateLinkLost(value) {
+    linkLost.value = value;
+  }
+
   /**
    * Ask the backend again whether setup is complete. A unit set up over its
    * recovery AP counts as set up at its first link (backend/api/setup.py), and
@@ -629,6 +641,8 @@ export const useSettingsStore = defineStore('settings', () => {
     // State
     setupCompleted,
     hotspotActive,
+    linkLost,
+    networkLost,
     isLoading,
     isLoaded,
     language,
@@ -663,6 +677,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateSetupCompleted,
     refreshSetupCompleted,
     updateHotspotActive,
+    updateLinkLost,
     updateLanguage,
     updateVolumeLimits,
     updateVolumeStartup,

@@ -50,10 +50,6 @@
       </Modal>
 
       <VolumeOverlay :variant="isDarkSurface ? 'on-contrast' : 'default'" />
-
-      <!-- The gesture on the unit a request reaching root waits for, over the
-           settings it was asked from. -->
-      <PresenceDialog />
     </template>
 
     <!-- Global Virtual Keyboard (available in wizard too) -->
@@ -92,7 +88,6 @@ import NotificationBanner from '@/components/ui/NotificationBanner.vue';
 // Not a lazy chunk: it is on screen while the update swaps dist/, after which
 // a chunk the running bundle never loaded is gone.
 import UpdateInProgressView from '@/components/system/UpdateInProgressView.vue';
-import PresenceDialog from '@/components/system/PresenceDialog.vue';
 
 const EqualizerModal = defineAsyncComponent(() =>
   import('@/components/equalizer/EqualizerModal.vue')
@@ -129,7 +124,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useSystemStore } from '@/stores/systemStore';
-import { usePresenceStore } from '@/stores/presenceStore';
 import { useFanStore } from '@/stores/fanStore';
 import { useUpdatesStore } from '@/stores/updatesStore';
 import { i18n, useI18n } from '@/services/i18n';
@@ -191,7 +185,6 @@ const settingsStore = useSettingsStore();
 const multiroomStore = useMultiroomStore();
 const equalizerStore = useEqualizerStore();
 const systemStore = useSystemStore();
-const presenceStore = usePresenceStore();
 const fanStore = useFanStore();
 const updatesStore = useUpdatesStore();
 const { on, parsedOn, onReconnect, onVisibilityChange, showDisconnectedBanner } = useWebSocket();
@@ -274,7 +267,7 @@ function processInitialState(event) {
 const deltaStores = [
   unifiedStore, multiroomStore, equalizerStore, systemStore, fanStore,
   radioStore, podcastStore, updatesStore, settingsStore,
-  musicLibraryStore, snapcastStore, macLinkStore, spotifyStore, presenceStore,
+  musicLibraryStore, snapcastStore, macLinkStore, spotifyStore,
 ];
 
 // Every resync goes through serverSync, which retries what failed and folds
@@ -471,16 +464,12 @@ const setAsideNotice = computed(() => {
   };
 });
 
-// A unit set up that runs its recovery AP lost its network: a client of the AP
-// can then only read, and save a network on a gesture at the unit
-// (backend/api/middleware.py::RecoveryAccessPointGuard). Said on every client,
-// for as long as the AP stands: it ends only with a link, never dismissed.
-// Before setup the AP is the wizard's, which says what to do itself.
-const showWifiLost = computed(() =>
-  isBootComplete.value
-  && settingsStore.setupCompleted === true
-  && settingsStore.hotspotActive
-);
+// A unit set up that lost its network (settingsStore.networkLost: its recovery
+// AP rose, and no link came back since): a client of the AP can then only
+// read, and save a network (backend/api/middleware.py::RecoveryAccessPointGuard).
+// Said on every client, the AP up or down for a home-network try, until a link
+// comes back; never dismissed.
+const showWifiLost = computed(() => isBootComplete.value && settingsStore.networkLost);
 
 // Connectivity is deliberately absent from this banner. A missing link is only
 // worth telling the user about when it blocks the source they selected, and
@@ -496,7 +485,7 @@ const notificationTitle = computed(() => {
   if (currentError.value?.title) return currentError.value.title;
   // Priority 3: a Milō update finishing, or put back
   if (miloUpdateNotice.value) return miloUpdateNotice.value.title;
-  // Priority 4: the unit lost its network and is on its recovery AP
+  // Priority 4: the unit lost its network (its recovery AP rose, no link since)
   if (showWifiLost.value) return t('notification.wifiLostTitle');
   // Priority 5: files set aside at a boot nobody was watching
   if (setAsideNotice.value) return setAsideNotice.value.title;
@@ -781,8 +770,6 @@ const RAW_EVENTS = [
   ['system', 'hostname_conflict_changed', systemStore.handleConflictEvent],
   // The files set aside, as far as no screen has acknowledged them.
   ['system', 'notices_changed', systemStore.handleNoticesEvent],
-  // The gesture the unit waits for: opened, confirmed on the unit, or ended.
-  ['system', 'presence_changed', presenceStore.handleChallengeEvent],
   // The timezone's point, which the auto theme reads sunset from.
   ['system', 'timezone_changed', settingsStore.handleTimezoneEvent],
   // Live network status (cable plug/unplug, wifi associate/dissociate), pushed

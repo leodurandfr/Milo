@@ -1014,34 +1014,6 @@
       "mismatch": "Die beiden Passwörter stimmen nicht überein.",
       "tooShort": "Das Passwort muss mindestens {n} Zeichen lang sein."
     },
-    "presence": {
-      "title": "Bestätigen Sie am Gerät",
-      "confirmed": "Am Gerät bestätigt",
-      "expiredTitle": "Nicht bestätigt",
-      "expired": "Am Gerät wurde nicht rechtzeitig bestätigt, daher wurde nichts geändert.",
-      "cancel": "Abbrechen",
-      "remaining": "noch {time}",
-      "waiting": "Warten, bis das Gerät wieder da ist…",
-      "foreignTitle": "Von einem anderen Gerät angefordert",
-      "foreign": "Bestätigen Sie an diesem Gerät nur, wenn Sie dies selbst angefordert haben.",
-      "elsewhereTitle": "Bestätigen Sie von einem anderen Gerät",
-      "elsewhere": "Zur Bestätigung muss das Gerät vom Strom getrennt und wieder angeschlossen werden, und dieser Bildschirm geht dabei mit aus. Stellen Sie die Anfrage von einem Telefon oder Computer.",
-      "actions": {
-        "ssh_open": "SSH öffnen",
-        "password": "Passwort ändern",
-        "program_upstream": "Nicht validierte Version installieren",
-        "reset_setup": "Konfiguration zurücksetzen",
-        "wifi_save": "WLAN-Netzwerk speichern",
-        "satellite_ssh_open": "SSH auf einem Lautsprecher öffnen",
-        "satellite_password": "Passwort eines Lautsprechers ändern",
-        "satellite_program_upstream": "Nicht validierte Version auf einem Lautsprecher installieren"
-      },
-      "gestures": {
-        "rotary": "Drehen oder drücken Sie den Drehknopf am Gerät. Kein Drehknopf vorhanden? Brechen Sie ab, deaktivieren Sie den Drehregler unter Einstellungen › Hardware und versuchen Sie es in {time} erneut.",
-        "power_button": "Drücken Sie einmal die Ein-/Aus-Taste des Geräts.",
-        "power_cycle": "Ziehen Sie den Netzstecker des Geräts und stecken Sie ihn wieder ein. Lassen Sie diese Seite geöffnet: Der Vorgang wird von selbst abgeschlossen, sobald das Gerät wieder da ist."
-      }
-    },
     "diagnostic": {
       "title": "Diagnose",
       "description": "Ein Textbericht über Ihr Milō (Version, Audiopfad, Lautsprecher, jüngste Fehler), zum Senden, falls etwas nicht stimmt.",

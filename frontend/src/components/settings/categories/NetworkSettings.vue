@@ -128,9 +128,8 @@ const {
 
 // A browser on the unit's recovery access point saves the network rather than
 // joining it: joining takes the one radio from under that browser, and the
-// unit refuses it. The save waits for a gesture on the unit itself, and the
-// unit tries the network on its next turn back to the home network. The
-// kiosk, a loopback client, joins at once.
+// unit refuses it. The unit tries the network on its next turn back to the
+// home network. The kiosk, a loopback client, joins at once.
 const settingsStore = useSettingsStore();
 const overRecoveryAp = computed(() => settingsStore.hotspotActive && !isKiosk());
 

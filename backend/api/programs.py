@@ -5,9 +5,8 @@ API routes for program management — Full version with satellites
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from backend.core.models.audio_state import AudioSource
-from backend.core.models.presence import PresenceAction
 from backend.core.models.ws_events import (
     MiloUpdateNoticeDismissed,
     ProgramsCompleteEvent,
@@ -22,11 +21,9 @@ from backend.core.models.ws_events import (
     SatelliteUpdateProgress,
 )
 from backend.api.models import LastUpdatePatch, ProgramUpdateRequest
-from backend.api.route_helpers import PresenceAnswer, presence_answer, require_presence
 
 if TYPE_CHECKING:
     from backend.core.state import AudioStateMachine
-    from backend.core.system.presence import PresenceService
     from backend.core.updates.satellite import SatelliteUpdateService
     from backend.core.updates.update import UpdateService
 
@@ -72,7 +69,6 @@ def create_programs_router(
     update_service: "UpdateService",
     satellite_update_service: "SatelliteUpdateService",
     state_machine: "AudioStateMachine",
-    presence_service: Optional["PresenceService"] = None,
 ):
     """Router for local and satellite programs
 
@@ -80,7 +76,6 @@ def create_programs_router(
         update_service: Singleton service for version checks and updates
         satellite_update_service: Singleton service for satellite updates
         state_machine: AudioStateMachine for broadcasting events and deactivating active sources
-        presence_service: the proof of presence an upstream install waits for
     """
     router = APIRouter(prefix="/api/programs", tags=["programs"])
 
@@ -503,18 +498,15 @@ def create_programs_router(
         return version, update_service.declared_sha256(program_key, version, asset)
 
     async def _claim_fleet_push(
-        satellite_key: str, program_key: str, asset: str, label: str, presence: PresenceAnswer,
+        satellite_key: str, program_key: str, asset: str, label: str,
     ) -> tuple[str, Optional[str]]:
         """What a satellite push installs, `(version, sha256)`, with its key
         claimed — or the refusal, raised.
 
         A version with no digest is one past the manifest: the fleet follows the
         server, and the server runs one while the owner tries it
-        (`updates.forced_versions`). The speaker would install it as root with
-        nothing to check it against, so the push waits for a proof of presence,
-        as the server's own `target: upstream` install does. As there, every
-        refusal comes before the gesture and the key is claimed after it: a
-        request waiting for a gesture holds nothing.
+        (`updates.forced_versions`). Every refusal comes before the claim, so a
+        refused push holds nothing.
         """
         blocker = _blocker(satellite_key)
         if blocker:
@@ -522,8 +514,6 @@ def create_programs_router(
         target = await _fleet_target(program_key, asset)
         if target is None:
             raise _refusal(f"Could not resolve the {label} version to install")
-        if target[1] is None:
-            await require_presence(presence_service, PresenceAction.SATELLITE_PROGRAM_UPSTREAM, presence)
         # The claim checks and writes with no await between: a second device
         # that passed the same checks meanwhile is refused here.
         blocker = _claim_update(satellite_key)
@@ -594,17 +584,13 @@ def create_programs_router(
     satellite_service.set_admission_push_runner(_push_app_at_admission)
 
     @router.post("/satellites/{mac_id}/update")
-    async def update_satellite(
-        mac_id: str,
-        background_tasks: BackgroundTasks,
-        presence: PresenceAnswer = Depends(presence_answer),
-    ):
+    async def update_satellite(mac_id: str, background_tasks: BackgroundTasks):
         """Launch a satellite's snapclient update in the background: the .deb
         the server's own multiroom update installs, and its digest."""
 
         satellite_key = f"satellite_{mac_id}"
 
-        target = await _claim_fleet_push(satellite_key, "multiroom", "snapclient", "snapclient", presence)
+        target = await _claim_fleet_push(satellite_key, "multiroom", "snapclient", "snapclient")
         target_version, sha256 = target
 
         do_update = _create_background_update(
@@ -641,17 +627,13 @@ def create_programs_router(
         }
 
     @router.post("/satellites/{mac_id}/update-camilladsp")
-    async def update_satellite_camilladsp(
-        mac_id: str,
-        background_tasks: BackgroundTasks,
-        presence: PresenceAnswer = Depends(presence_answer),
-    ):
+    async def update_satellite_camilladsp(mac_id: str, background_tasks: BackgroundTasks):
         """Launch a satellite CamillaDSP update in the background: the release
         archive the server's own update installs, and its digest."""
 
         satellite_key = f"satellite_camilladsp_{mac_id}"
 
-        target = await _claim_fleet_push(satellite_key, "camilladsp", "main", "CamillaDSP", presence)
+        target = await _claim_fleet_push(satellite_key, "camilladsp", "main", "CamillaDSP")
         target_version, sha256 = target
 
         do_update = _create_background_update(
@@ -697,49 +679,28 @@ def create_programs_router(
         program_key: str,
         payload: ProgramUpdateRequest,
         background_tasks: BackgroundTasks,
-        presence: PresenceAnswer = Depends(presence_answer),
     ):
         """Launch a local program update in the background.
 
-        `target: "upstream"` installs, as root, a release nothing in this
-        checkout pinned — whatever GitHub serves under that name — so it
-        waits for a proof of presence (`core/system/presence.py`). The
-        validated target is the manifest's own pin, and stays open. Every
-        refusal the route can answer comes before the gesture — the owner
-        is never asked for one the request then refuses — and the key is
-        claimed after it: a request waiting for a gesture holds nothing.
+        `target: "validated"` installs the manifest's own pin; `"upstream"`,
+        what GitHub publishes past it, which has no digest to check
+        (`updates.forced_versions`, invariant 8).
         """
-        if payload.target == "upstream":
-            blocker = _blocker(program_key)
-            if blocker:
-                raise _refuse(blocker, program_key)
+        blocker = _claim_update(program_key)
+        if blocker:
+            raise _refuse(blocker, program_key)
+
+        try:
             can_update = await update_service.can_update_program(
                 program_key, payload.target, payload.version
             )
-            if not can_update.get("can_update"):
-                raise _cannot_update(can_update)
-            await require_presence(presence_service, PresenceAction.PROGRAM_UPSTREAM, presence)
-            # The claim checks and writes with no await between: a second
-            # device that passed the same checks meanwhile is refused here.
-            blocker = _claim_update(program_key)
-            if blocker:
-                raise _refuse(blocker, program_key)
-        else:
-            blocker = _claim_update(program_key)
-            if blocker:
-                raise _refuse(blocker, program_key)
+        except Exception:
+            _release(program_key)
+            raise
 
-            try:
-                can_update = await update_service.can_update_program(
-                    program_key, payload.target, payload.version
-                )
-            except Exception:
-                _release(program_key)
-                raise
-
-            if not can_update.get("can_update"):
-                _release(program_key)
-                raise _cannot_update(can_update)
+        if not can_update.get("can_update"):
+            _release(program_key)
+            raise _cannot_update(can_update)
 
         do_update = _create_background_update(
             update_key=program_key,

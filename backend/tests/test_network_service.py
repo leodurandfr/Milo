@@ -872,6 +872,7 @@ async def test_a_status_that_already_shows_a_link_costs_no_extra_nmcli(service):
         ethernet=EthernetStatus(connected=True, ip_address="192.168.1.10"),
         wifi=WifiConnectionStatus(connected=False),
         hotspot_active=False,
+        link_lost=False,
     )
 
     fake, patcher = with_nmcli()
@@ -898,6 +899,7 @@ async def test_a_status_showing_no_link_is_confirmed_before_acting(service):
         ethernet=EthernetStatus(connected=False),
         wifi=WifiConnectionStatus(connected=False),
         hotspot_active=False,
+        link_lost=False,
     )
 
     def router(args):
@@ -1183,6 +1185,7 @@ async def test_the_restore_reads_ethernet_from_the_status_it_is_handed(service):
         ethernet=EthernetStatus(connected=True, ip_address="192.168.1.55"),
         wifi=WifiConnectionStatus(connected=False),
         hotspot_active=False,
+        link_lost=False,
     )
 
     fake, patcher = with_nmcli()
@@ -1203,6 +1206,7 @@ async def test_a_restore_that_fails_is_tried_again(service):
         ethernet=EthernetStatus(connected=True, ip_address="192.168.1.55"),
         wifi=WifiConnectionStatus(connected=False),
         hotspot_active=False,
+        link_lost=False,
     )
 
     def router(args):
@@ -1366,6 +1370,7 @@ async def test_an_access_point_left_up_by_a_previous_process_is_adopted_and_take
         ethernet=EthernetStatus(connected=True, ip_address="192.168.1.55"),
         wifi=WifiConnectionStatus(connected=False),
         hotspot_active=False,
+        link_lost=False,
     )
     fake, patcher = with_nmcli(nm.route)
     with patcher, patch("backend.core.network.service.MessageBus") as bus:
@@ -4115,7 +4120,7 @@ async def test_the_listener_has_written_before_the_link_is_broadcast(service):
 
 @pytest.mark.asyncio
 async def test_the_access_point_rising_and_ending_is_broadcast(service):
-    """The "WiFi lost" banner reads `hotspot_active` from the status. The AP
+    """The status carries the AP (`hotspot_active`, `link_lost`). The AP
     rising over a unit already without a link moves no link, so the status the
     NM signals produce is the one already sent, deduplicated: the kiosk, whose
     socket outlives every network change, never heard of the AP — and once it
@@ -4143,6 +4148,38 @@ async def test_the_access_point_rising_and_ending_is_broadcast(service):
         await service.cleanup()
 
     assert hotspot_broadcasts()[-1:] == [False]
+
+
+@pytest.mark.asyncio
+async def test_the_unit_is_lost_from_the_access_points_rise_until_a_link(service):
+    """The "WiFi lost" banner reads `link_lost`. Read from the AP, it went away
+    for the half-minute of every home-network try, which takes the AP down
+    while the unit is still unlinked; read from the link alone, it rose at
+    every boot before the lease, for the whole of a speaker adoption and at
+    every reassociation — none of which raises the AP."""
+    nm = FakeNetworkManager(profiles={STATION: "infrastructure"})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 0):
+        unlinked = await service.get_network_status()
+
+        nm.hold(*STATION_UP)
+        await service.evaluate_reachability()
+        await settle_until(lambda: nm.in_flight)
+        trying = await service.get_network_status()
+
+        nm.release()
+        await settle_until(lambda: STATION in nm.active)
+        linked = await service.get_network_status()
+        await service.evaluate_reachability(linked)
+
+        nm.active.clear()
+        dropped = await service.get_network_status()
+        await service.cleanup()
+
+    assert (unlinked.linked, unlinked.link_lost) == (False, False)
+    assert (trying.hotspot_active, trying.linked, trying.link_lost) == (False, False, True)
+    assert (linked.linked, linked.link_lost) == (True, False)
+    assert (dropped.hotspot_active, dropped.linked, dropped.link_lost) == (False, False, False)
 
 
 @pytest.mark.asyncio

@@ -195,7 +195,7 @@ def test_closing_ssh_is_never_held_by_the_factory_password(client, sudo, server)
     response = client.put("/api/system/ssh", json={"enabled": False}, headers=server)
 
     assert response.status_code == 200, response.text
-    assert sudo.call_args_list[0].args[1:4] == ("systemctl", "disable", "--now")
+    assert sudo.call_args_list[0].args[1:5] == ("-n", "systemctl", "disable", "--now")
 
 
 def test_reading_stays_open_to_the_lan(client, sudo, secret_file):

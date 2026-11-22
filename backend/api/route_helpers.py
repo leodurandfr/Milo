@@ -6,31 +6,15 @@ Provides:
 - run_source_command(): Wraps source.command() with standard success check + error handling
 - api_error_handler(): Async context manager for the common try/except HTTPException/Exception pattern
 - parse_audio_source(): Parse user-provided source name to enum, or raise HTTP 400
-- require_presence(): The proof of presence a route that reaches root waits for, as HTTP
 - CONTRACTED: the `openapi_extra` of every operation a companion app's manifest pins
 """
 import logging
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
 
-from fastapi import Header, HTTPException
+from fastapi import HTTPException
 
 from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.core.models.audio_state import AudioSource
-from backend.core.models.presence import Gesture, PresenceAction
-from backend.core.system.presence import (
-    PRESENCE_GESTURES_HEADER,
-    PRESENCE_HEADER,
-    PresenceBusy,
-    PresenceElsewhere,
-    PresenceRequired,
-    PresenceUnavailable,
-)
-
-if TYPE_CHECKING:
-    from backend.core.system.presence import PresenceService
-
 logger = logging.getLogger(__name__)
 
 # Marks an operation Milo-Mac or Milo-iOS calls (tests/contracts/milo_*_contract.json)
@@ -163,56 +147,3 @@ def parse_audio_source(name: str) -> AudioSource:
             detail=f"Unknown audio source: '{name}'",
         )
 
-
-@dataclass(frozen=True)
-class PresenceAnswer:
-    """What a guarded request says of the proof: the token its 428 carried, and
-    the gestures its client can wait through (None: any)."""
-    token: Optional[str]
-    follows: Optional[frozenset[Gesture]]
-
-
-def presence_answer(
-    token: Optional[str] = Header(default=None, alias=PRESENCE_HEADER),
-    gestures: Optional[str] = Header(default=None, alias=PRESENCE_GESTURES_HEADER),
-) -> PresenceAnswer:
-    """The `Depends()` of a guarded route. An unknown gesture name is a 400:
-    read as none, it would send the unit's own screen elsewhere with no word
-    of why."""
-    follows = None
-    if gestures is not None:
-        names = [name.strip() for name in gestures.split(",") if name.strip()]
-        try:
-            follows = frozenset(Gesture(name) for name in names)
-        except ValueError:
-            logger.error(f"Refused a {PRESENCE_GESTURES_HEADER} naming an unknown gesture: {gestures!r}")
-            raise HTTPException(
-                status_code=400, detail=f"Unknown gesture in {PRESENCE_GESTURES_HEADER}: {gestures!r}",
-            ) from None
-    return PresenceAnswer(token=token, follows=follows)
-
-
-async def require_presence(
-    service: Optional["PresenceService"], action: PresenceAction, answer: PresenceAnswer,
-) -> None:
-    """Return once `answer` spends a proof of presence for `action` (core/system/presence.py).
-
-    Otherwise 428 with the challenge to answer — or, with no token and no
-    challenge, the gesture its client said it cannot wait through —, 409 while
-    another one is open, 503 when none can be opened — and 503 without the
-    service: a router built without one refuses its guarded routes rather than
-    opening them. A 428 is the route working, so nothing is logged for it here.
-    """
-    if service is None:
-        logger.error(f"Refused {action.value}: no presence service to prove it")
-        raise HTTPException(status_code=503, detail="Proof of presence unavailable")
-    try:
-        await service.require(action, answer.token, answer.follows)
-    except PresenceRequired as challenge:
-        raise HTTPException(status_code=428, detail=challenge.detail) from None
-    except PresenceElsewhere as elsewhere:
-        raise HTTPException(status_code=428, detail=elsewhere.detail) from None
-    except PresenceBusy as busy:
-        raise HTTPException(status_code=409, detail=str(busy)) from None
-    except PresenceUnavailable as unavailable:
-        raise HTTPException(status_code=503, detail=str(unavailable)) from None

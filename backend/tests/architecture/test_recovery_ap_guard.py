@@ -6,14 +6,12 @@ The AP is open, so its clients are anyone in radio range, and
 the API's writes. It refuses by default, which is what this file holds against
 the whole route table rather than a sample: before setup, the wizard's and the
 adoption's writes reach their endpoint and nothing else does; once set up,
-only saving a WiFi network does, from the unit's own AP and only once a gesture
-on the unit proved its owner there — and the Cancel of the dialog that asked for
-it. A route added tomorrow is refused without anyone listing it.
+only saving a WiFi network does, and only from the unit's own AP. A route added
+tomorrow is refused without anyone listing it.
 
-Both directions of that one door are held: without the gesture the save never
-reaches its endpoint, nor from a speaker's hotspot at all, and a server with no
-screen and no Ethernet whose home network changed has, with it, its one repair
-— a proof that admits nothing else, spent once.
+Both directions of that one door are held: from a speaker's hotspot the save
+never reaches its endpoint, and a server with no screen and no Ethernet whose
+home network changed has, from its own AP, its one repair.
 
 The lists themselves are held the other way: every entry names a route the app
 serves, under the one spelling the guard compares, and one that its caller
@@ -35,13 +33,10 @@ import pytest
 
 from backend.api.middleware import (
     PRE_SETUP_WRITES,
-    PRESENCE_CANCELS,
-    PRESENCE_WRITES,
+    SET_UP_WRITES,
     RecoveryAccessPointGuard,
 )
 from backend.config.constants import RECOVERY_AP_ADDRESS
-from backend.core.models.presence import Gesture
-from backend.tests.presence_world import World
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -62,10 +57,7 @@ OFF_AP_WIZARD_WRITES = {
         " whose button and Enter key both go through `act()`: over the AP it saves",
 }
 
-# Where a write admitted on a proof may come from: the frontend, through the
-# presence store, which holds the challenge and sends the request again with
-# its token. A caller on plain apiCall would read the 428 as a failure. The
-# store's Cancel comes from there too.
+# Where a write admitted once set up comes from: the frontend.
 FRONTEND = REPO_ROOT / "frontend/src"
 
 AP_CLIENT = RECOVERY_AP_ADDRESS.rsplit(".", 1)[0] + ".5"
@@ -102,16 +94,7 @@ def _writes():
 WRITES = _writes()
 
 
-@pytest.fixture
-async def presence(tmp_path, monkeypatch):
-    """The real proof of presence, on a unit whose rotary encoder is its gesture."""
-    service = World(tmp_path, monkeypatch, rotary=True).service()
-    await service.initialize()
-    yield service
-    await service.cleanup()
-
-
-def _installed_guard(setup_completed, presence=None, own_ap=True):
+def _installed_guard(setup_completed, own_ap=True):
     """The guard class main.py installs, as a wrapper, on a unit whose AP is up —
     or, `own_ap=False`, held by an adoption on a speaker's open hotspot."""
     from backend.main import app as main_app
@@ -126,9 +109,7 @@ def _installed_guard(setup_completed, presence=None, own_ap=True):
         async def get_setting(self, key):
             return {"setup_completed": setup_completed}[key]
 
-    return lambda app: entry.cls(
-        app, network_service=Network(), settings_service=Settings(), presence_service=presence,
-    )
+    return lambda app: entry.cls(app, network_service=Network(), settings_service=Settings())
 
 
 def _concrete(template):
@@ -183,108 +164,45 @@ async def _send(guard, method, path, scope_type="http", headers=None, real_ip=AP
 
 
 @pytest.mark.parametrize("setup_completed", [False, True], ids=["first-boot", "set-up"])
-async def test_every_write_but_the_wizards_is_refused_to_a_client_of_the_ap(setup_completed, presence):
+async def test_every_write_but_the_wizards_is_refused_to_a_client_of_the_ap(setup_completed):
     """A route reached here is a write anyone in radio range of an outage can send:
-    WiFi pointed at their network, SSH opened, the unit rebooted or updated. Once
-    set up, the one write the guard admits on a proof answers for its challenge
-    (428), and reaches nothing either."""
-    guard = _installed_guard(setup_completed, presence)
+    WiFi pointed at their network, SSH opened, the unit rebooted or updated."""
+    guard = _installed_guard(setup_completed)
     wrong = []
     for method, template in WRITES:
         if not setup_completed and (method, template) in PRE_SETUP_WRITES:
-            expected = {"reached"}
-        elif (method, template) in PRESENCE_WRITES:
-            # One challenge at a time: a second listed write meets the first's.
-            expected = {428, 409}
-        elif (method, template) in PRESENCE_CANCELS:
-            expected = {"reached"}
+            expected = "reached"
+        elif setup_completed and (method, template) in SET_UP_WRITES:
+            expected = "reached"
         else:
-            expected = {403}
+            expected = 403
         answer = await _send(guard, method, _concrete(template))
-        if answer not in expected:
+        if answer != expected:
             wrong.append((method, template, answer))
 
     assert wrong == []
 
 
-@pytest.mark.parametrize("write", list(PRESENCE_WRITES), ids=[f"{m} {p}" for m, p in PRESENCE_WRITES])
-async def test_a_set_up_unit_saves_a_wifi_over_the_ap_only_after_a_gesture(presence, write):
-    """Without the gesture, a neighbor in radio range points the unit at a
-    network of theirs; with it, a server with no screen and no Ethernet whose
-    home network changed is repaired from a phone on its AP — its only way."""
-    guard = _installed_guard(setup_completed=True, presence=presence)
-    method, path = write
-    answer, refused = await _exchange(guard, method, path)
-    assert answer == 428, (method, path, answer)
-    challenge = refused["detail"]["challenge"]
-    assert (challenge["action"], challenge["status"]) == (PRESENCE_WRITES[write].value, "pending")
-    proof = {refused["detail"]["header"]: refused["detail"]["token"]}
-    assert await _send(guard, method, path, headers=proof) == 428, "reached before the gesture"
-
-    assert presence.on_gesture(Gesture.ROTARY)
-
-    assert await _send(guard, method, path, headers=proof) == "reached"
-    assert await _send(guard, method, path, headers=proof) == 428, "a proof is spent once"
-
-
-@pytest.mark.parametrize("write", list(PRESENCE_WRITES), ids=[f"{m} {p}" for m, p in PRESENCE_WRITES])
-async def test_a_proof_admits_no_other_write(presence, write):
-    """The token rides a header any request can carry: a write the guard does
-    not list stays refused with it, and the proof stays for the save it was for."""
-    guard = _installed_guard(setup_completed=True, presence=presence)
-    method, path = write
-    refused = (await _exchange(guard, method, path))[1]["detail"]
-    proof = {refused["header"]: refused["token"]}
-    presence.on_gesture(Gesture.ROTARY)
-
-    assert await _send(guard, "PUT", "/api/system/ssh", headers=proof) == 403
-    assert await _send(guard, "POST", "/api/system/restart", headers=proof) == 403
-    assert await _send(guard, method, path, headers=proof) == "reached"
-
-
-async def test_a_speakers_hotspot_saves_nothing_on_a_proof(presence):
+async def test_a_speakers_hotspot_saves_nothing():
     """While an adoption holds this unit on a speaker's open hotspot, a 10.42.0.x
-    client is a stranger on that hotspot. Asked a gesture, the owner — at the unit
-    for the adoption — would prove it with the next turn of the knob, and save the
-    stranger's network under the home name; left unspent, the challenge would
-    quiet every other guarded request for the cooldown."""
-    guard = _installed_guard(setup_completed=True, presence=presence, own_ap=False)
-    for method, path in (*PRESENCE_WRITES, *PRESENCE_CANCELS):
+    client is a stranger on that hotspot: the network saved would be theirs,
+    under the home name, and `save_network` deletes that name's other profiles."""
+    guard = _installed_guard(setup_completed=True, own_ap=False)
+    for method, path in SET_UP_WRITES:
         assert await _send(guard, method, path) == 403, (method, path)
-    assert presence.view() is None
 
 
-async def test_without_a_presence_service_the_save_is_refused():
-    """The guard's own default: a guard built without the proof refuses what
-    it would admit on one, rather than admitting it on nothing."""
-    guard = _installed_guard(setup_completed=True, presence=None)
-    for method, path in PRESENCE_WRITES:
-        assert await _send(guard, method, path) == 503, (method, path)
-
-
-async def test_the_kiosk_and_the_lan_save_a_wifi_without_a_gesture(presence):
-    """The proof is the AP's alone: on the unit's own screen and on the home
-    network, saving a WiFi network is a setting like any other."""
-    guard = _installed_guard(setup_completed=True, presence=presence)
-    for method, path in PRESENCE_WRITES:
+async def test_the_kiosk_and_the_lan_save_a_wifi_on_a_speakers_hotspot_too():
+    """The guard is the AP's clients' alone: on the unit's own screen and on the
+    home network, saving a WiFi network is a setting like any other."""
+    guard = _installed_guard(setup_completed=True, own_ap=False)
+    for method, path in SET_UP_WRITES:
         for real_ip in ("127.0.0.1", "192.168.1.20"):
             assert await _send(guard, method, path, real_ip=real_ip) == "reached", real_ip
-    assert presence.view() is None
-
-
-def test_main_hands_the_guard_its_proof_of_presence():
-    """Built without one, the guard answers 503 to every save over the AP, and
-    the repair this door exists for is gone with no error at start."""
-    from backend.main import app as main_app, presence_service
-
-    entry = next(m for m in main_app.user_middleware if m.cls is RecoveryAccessPointGuard)
-
-    assert presence_service is not None
-    assert entry.kwargs.get("presence_service") is presence_service
 
 
 @pytest.mark.parametrize(
-    "writes", [PRE_SETUP_WRITES, PRESENCE_WRITES, PRESENCE_CANCELS], ids=["pre-setup", "presence", "cancel"],
+    "writes", [PRE_SETUP_WRITES, SET_UP_WRITES], ids=["pre-setup", "set-up"],
 )
 def test_every_listed_write_is_one_route_spelled_as_the_router_matches_it(writes):
     """The guard compares the decoded path verbatim, which is the router's own
@@ -366,8 +284,8 @@ def _wizard_writes():
 
     One hop only: a module's functions are followed within that module, never
     into a module it imports. A wizard-named function that hands its write to
-    another module's function (a store action wrapping `presenceStore.request`)
-    is not traced, so such a write must be sent from the module the wizard
+    another module's function (a composable calling a store action) is not
+    traced, so such a write must be sent from the module the wizard
     imports, or this extractor taught to follow it."""
     components, modules, todo = {}, set(), [WIZARD_ENTRY]
     while todo:
@@ -440,29 +358,14 @@ def _quoted(path):
     return rf"""['"`]{re.escape(path)}['"`]"""
 
 
-def test_every_presence_write_is_sent_through_the_presence_store():
-    """Sent through plain apiCall, the 428 reads as a failed save: no dialog
-    names the gesture, and nothing sends the request again with its token. So
-    every caller goes through presenceStore.request(), not only one."""
+def test_every_set_up_write_has_a_caller():
+    """An entry no page sends is a write handed to the AP's neighbors for nothing."""
     sources = _frontend_sources()
 
-    for method, path in PRESENCE_WRITES:
-        through_the_store = re.compile(rf"""\.request\(\s*['"]{method.lower()}['"],\s*{_quoted(path)}""")
-        straight = re.compile(rf"""apiCall\.\w+\(\s*{_quoted(path)}""")
-        callers = [f.name for f, text in sources.items() if through_the_store.search(text)]
-        assert callers, f"{method} {path} is never sent through presenceStore.request()"
-        bypassing = [f.name for f, text in sources.items() if straight.search(text)]
-        assert bypassing == [], f"{method} {path} sent past the presence store by {bypassing}"
-
-
-def test_every_presence_cancel_is_one_the_dialog_sends():
-    """An entry no dialog sends is a write handed to the AP's neighbors for nothing."""
-    sources = _frontend_sources()
-
-    for method, path in PRESENCE_CANCELS:
+    for method, path in SET_UP_WRITES:
         sent = re.compile(rf"""apiCall\.{method.lower()}\(\s*{_quoted(path)}""")
         callers = [f.name for f, text in sources.items() if sent.search(text)]
-        assert callers, f"{method} {path} has no caller left: drop it from PRESENCE_CANCELS"
+        assert callers, f"{method} {path} has no caller left: drop it from SET_UP_WRITES"
 
 
 @pytest.mark.parametrize("spell", [
@@ -471,17 +374,16 @@ def test_every_presence_cancel_is_one_the_dialog_sends():
     pytest.param(str.upper, id="upper-case"),
     pytest.param(lambda p: p.replace("/", "//", 2), id="inner-doubled-slash"),
 ])
-async def test_another_spelling_of_a_listed_write_is_refused(spell, presence):
+async def test_another_spelling_of_a_listed_write_is_refused(spell):
     """Starlette may redirect or 404 these, and a redirect the client follows lands
     on the exact spelling the guard judges again; admitted as spelled, a path
     the router normalizes some day would be a write let through unjudged."""
     guard = _installed_guard(setup_completed=False)
     for method, path in PRE_SETUP_WRITES:
         assert await _send(guard, method, spell(path)) == 403, (method, spell(path))
-    guard = _installed_guard(setup_completed=True, presence=presence)
-    for method, path in (*PRESENCE_WRITES, *PRESENCE_CANCELS):
+    guard = _installed_guard(setup_completed=True)
+    for method, path in SET_UP_WRITES:
         assert await _send(guard, method, spell(path)) == 403, (method, spell(path))
-    assert presence.view() is None
 
 
 @pytest.mark.parametrize("method", sorted(READS))

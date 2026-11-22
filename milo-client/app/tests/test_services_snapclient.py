@@ -114,8 +114,8 @@ class FakeMachine:
     returned and put everything back.
     """
 
-    STOP = ("sudo", "systemctl", "stop", "milo-client-snapclient.service")
-    START = ("sudo", "systemctl", "start", "milo-client-snapclient.service")
+    STOP = ("sudo", "-n", "systemctl", "stop", "milo-client-snapclient.service")
+    START = ("sudo", "-n", "systemctl", "start", "milo-client-snapclient.service")
 
     def __init__(self, install_returncode=0, install_raises=False):
         self.calls = []
@@ -142,7 +142,7 @@ class FakeMachine:
         if argv == self.START:
             self.running = True
             return _FakeProc()
-        if argv[1].endswith("milo-client-install-snapclient"):
+        if argv[:2] == ("sudo", "-n") and argv[2].endswith("milo-client-install-snapclient"):
             if self.install_raises:
                 raise OSError(13, "Permission denied")
             return _FakeProc(returncode=self.install_returncode, stderr=b"dpkg: dependency problems")
@@ -363,7 +363,7 @@ class TestSnapclientUpdateLeavesTheServiceRunning:
         assert result["success"] is False
         assert "checksum mismatch" in result["error"]
         assert FakeMachine.STOP not in machine.calls
-        assert not [argv for argv in machine.calls if argv[1].endswith("milo-client-install-snapclient")]
+        assert not [argv for argv in machine.calls if argv[:2] == ("sudo", "-n") and argv[2].endswith("milo-client-install-snapclient")]
 
     @pytest.mark.asyncio
     async def test_the_wrapper_checks_the_same_digest_again(self, snapclient_service, patched_world):
@@ -377,8 +377,8 @@ class TestSnapclientUpdateLeavesTheServiceRunning:
         result = await snapclient_service.update_snapclient("0.29.0", digest)
 
         assert result["success"] is True, result
-        install = next(argv for argv in machine.calls if argv[1].endswith("milo-client-install-snapclient"))
-        assert install[2].endswith("snapclient_0.29.0-1_arm64_bookworm.deb") and install[3] == digest
+        install = next(argv for argv in machine.calls if argv[:2] == ("sudo", "-n") and argv[2].endswith("milo-client-install-snapclient"))
+        assert install[3].endswith("snapclient_0.29.0-1_arm64_bookworm.deb") and install[4] == digest
 
     @pytest.mark.asyncio
     async def test_an_applied_update_does_not_start_it_twice(self, snapclient_service, patched_world):

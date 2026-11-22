@@ -42,8 +42,8 @@ class FakeMachine:
     wrapper succeeds.
     """
 
-    STOP = ("sudo", "systemctl", "stop", "milo-client-camilladsp.service")
-    START = ("sudo", "systemctl", "start", "milo-client-camilladsp.service")
+    STOP = ("sudo", "-n", "systemctl", "stop", "milo-client-camilladsp.service")
+    START = ("sudo", "-n", "systemctl", "start", "milo-client-camilladsp.service")
 
     def __init__(self):
         self.calls = []
@@ -64,7 +64,7 @@ class FakeMachine:
         if argv == self.START:
             self.running = True
             return _FakeProc()
-        if argv[:2] == ("sudo", camilladsp_update.INSTALL_WRAPPER):
+        if argv[:3] == ("sudo", "-n", camilladsp_update.INSTALL_WRAPPER):
             code = self.install_returncodes.pop(0) if self.install_returncodes else 0
             return _FakeProc(returncode=code, stderr=b"not an aarch64 ELF")
         raise AssertionError(f"unexpected command: {argv}")
@@ -180,8 +180,8 @@ async def test_the_wrapper_is_handed_the_archive_and_the_servers_digest(machine)
     result = await CamillaDSPUpdateService().update_camilladsp("3.0.2", digest)
 
     assert result["success"] is True, result
-    install = next(argv for argv in machine.calls if argv[:2] == ("sudo", camilladsp_update.INSTALL_WRAPPER))
-    assert install[2] == "--release" and install[3].endswith(".tar.gz") and install[4] == digest
+    install = next(argv for argv in machine.calls if argv[:3] == ("sudo", "-n", camilladsp_update.INSTALL_WRAPPER))
+    assert install[3] == "--release" and install[4].endswith(".tar.gz") and install[5] == digest
 
 
 @pytest.mark.asyncio
@@ -192,7 +192,7 @@ async def test_an_archive_that_is_not_the_declared_one_stops_nothing(machine):
     assert result["success"] is False
     assert "checksum mismatch" in result["error"]
     assert FakeMachine.STOP not in machine.calls
-    assert not [argv for argv in machine.calls if argv[:2] == ("sudo", camilladsp_update.INSTALL_WRAPPER)]
+    assert not [argv for argv in machine.calls if argv[:3] == ("sudo", "-n", camilladsp_update.INSTALL_WRAPPER)]
 
 
 @pytest.mark.asyncio

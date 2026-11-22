@@ -140,8 +140,9 @@ async def _run_capturing(argv, timeout, stdin=None):
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        # The command itself, past a leading sudo — never one of its flags.
-        name = argv[1] if argv[0] == "sudo" else argv[0]
+        # The command itself, past a leading `sudo -n` (every sudo here carries
+        # the flag: test_every_sudo_is_non_interactive) — never one of its flags.
+        name = argv[2] if argv[0] == "sudo" else argv[0]
         logger.error("%s did not answer within %s s", name, timeout)
         raise HTTPException(status_code=500, detail=f"{name} did not answer within {timeout} s")
     return proc.returncode, stdout.decode().strip(), stderr.decode().strip()
@@ -242,15 +243,18 @@ def create_system_router() -> APIRouter:
                 detail="Set this speaker's password before opening SSH: the factory "
                        "password is the same on every Milō and published with its source",
             )
+        # Both argvs stay literal: the privileged-exec contract reads them
+        # against the sudoers grants, which are argument-scoped.
+        action = "enable" if request.enabled else "disable"
         argv = (
-            ("sudo", "systemctl", "enable", "--now", SSH_UNIT) if request.enabled
-            else ("sudo", "systemctl", "disable", "--now", SSH_UNIT)
+            ("sudo", "-n", "systemctl", "enable", "--now", SSH_UNIT) if request.enabled
+            else ("sudo", "-n", "systemctl", "disable", "--now", SSH_UNIT)
         )
         returncode, stderr = await _run(argv, SYSTEMCTL_WRITE_TIMEOUT_S)
         if returncode != 0:
             detail = stderr or f"exit code {returncode}"
-            logger.error("systemctl %s ssh.service failed: %s", argv[2], detail)
-            raise HTTPException(status_code=500, detail=f"Failed to {argv[2]} SSH: {detail}")
+            logger.error("systemctl %s %s failed: %s", action, SSH_UNIT, detail)
+            raise HTTPException(status_code=500, detail=f"Failed to {action} SSH: {detail}")
 
         logger.info("SSH %s", "enabled" if request.enabled else "disabled")
         return {"status": "success", "data": await _ssh_state()}
@@ -269,7 +273,7 @@ def create_system_router() -> APIRouter:
             logger.error("No %s account on this unit; its password cannot be set", LOGIN_USER)
             raise _no_login_user()
         returncode, stderr = await _run(
-            ("sudo", SET_PASSWORD_CMD), SYSTEMCTL_WRITE_TIMEOUT_S, stdin=request.password.encode()
+            ("sudo", "-n", SET_PASSWORD_CMD), SYSTEMCTL_WRITE_TIMEOUT_S, stdin=request.password.encode()
         )
         if returncode != 0:
             detail = stderr or f"exit code {returncode}"
@@ -313,7 +317,7 @@ def create_system_router() -> APIRouter:
         """
         async with wifi_lock:
             returncode, stdout, stderr = await _run_capturing(
-                ("sudo", JOIN_WIFI_CMD), JOIN_WIFI_TIMEOUT_S,
+                ("sudo", "-n", JOIN_WIFI_CMD), JOIN_WIFI_TIMEOUT_S,
                 stdin=f"{request.country}\n{request.ssid}\n{request.password}\n".encode(),
             )
         if returncode != 0:
@@ -337,7 +341,7 @@ def create_system_router() -> APIRouter:
         """
         async with timezone_lock:
             returncode, stdout, stderr = await _run_capturing(
-                ("sudo", SET_TIMEZONE_CMD), SET_TIMEZONE_TIMEOUT_S,
+                ("sudo", "-n", SET_TIMEZONE_CMD), SET_TIMEZONE_TIMEOUT_S,
                 stdin=f"{request.timezone}\n".encode(),
             )
         if returncode == ZONE_REFUSED:

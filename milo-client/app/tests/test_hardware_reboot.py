@@ -65,6 +65,6 @@ def test_a_reboot_writes_no_file_and_logs_no_error(server, armed, apply_script_r
         response = TestClient(app).post("/api/hardware/reboot", headers=server)
 
     assert response.status_code == 200
-    assert apply_script_reboots.call_args.args[:2] == ("sudo", APPLY_HARDWARE_SCRIPT)
+    assert apply_script_reboots.call_args.args[:3] == ("sudo", "-n", APPLY_HARDWARE_SCRIPT)
     assert armed == []
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []

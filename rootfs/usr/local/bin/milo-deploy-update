@@ -397,8 +397,8 @@ validate_not_symlink() {
 # is copied into a directory only root can write, and the copy is checked —
 # and the copy, never the path the caller named, is what dpkg or the install
 # reads. The digest is the caller's to name, from the manifest; "-" says the
-# manifest declares none (a version past it, installed behind a proof of
-# presence), and is said in the output, never silent.
+# manifest declares none (a version past it, the operator's trial of what
+# upstream published), and is said in the output, never silent.
 
 STAGE=""
 cleanup_stage() { [ -z "$STAGE" ] || rm -rf "$STAGE"; }

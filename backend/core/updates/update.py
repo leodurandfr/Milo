@@ -78,9 +78,8 @@ def digest_for(entry: Dict[str, Any], version: str, asset: str = "main") -> Opti
 
     Only the validated version has one. Any other is what upstream published
     past the manifest — a `target: upstream` install — and nothing says what
-    its files should hash to. That is why such an install waits for a proof of
-    presence; the return to the manifest is the validated version again, and
-    checked.
+    its files should hash to; the return to the manifest is the validated
+    version again, and checked.
     """
     if version != entry.get("validated_version"):
         return None

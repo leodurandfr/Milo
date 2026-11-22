@@ -127,19 +127,15 @@ def satellites(monkeypatch):
 
 @pytest.fixture
 def relays(satellite_secret):
-    """The multiroom router over a registry holding Bureau, a proof of presence given."""
+    """The multiroom router over a registry holding Bureau."""
     registry = Mock()
     registry.get_client = Mock(side_effect={
         BUREAU: Client(mac_id=BUREAU, name="Bureau", ip=BUREAU_IP, online=True),
     }.get)
     registry.update_client = AsyncMock()
     registry.set_client_online = AsyncMock()
-    presence = Mock()
-    presence.require = AsyncMock()
     app = FastAPI()
-    app.include_router(create_multiroom_router(
-        registry, presence_service=presence, satellite_secret=satellite_secret,
-    ))
+    app.include_router(create_multiroom_router(registry, satellite_secret=satellite_secret))
     return TestClient(app)
 
 
@@ -212,8 +208,8 @@ async def test_a_satellite_that_pinned_another_server_is_refused_before_anything
 ):
     """A server reflashed since, or a host that reached the speaker first.
     Found out only at the last request, the trim would be gone (the speaker
-    louder), the card on disk for its next power cut, and the owner's gesture
-    spent on a request the satellite then refuses."""
+    louder) and the card on disk for its next power cut, for a request the
+    satellite then refuses."""
     stranger = SatelliteSecret(key_file=tmp_path / "another-key")
     await stranger.hand_over(BUREAU, BUREAU_IP)
     satellites.writes.clear()
@@ -222,12 +218,8 @@ async def test_a_satellite_that_pinned_another_server_is_refused_before_anything
         mac_id=BUREAU, name="Bureau", ip=BUREAU_IP, online=True, gain_db=8.0,
     ))
     registry.set_client_gain = AsyncMock()
-    presence = Mock()
-    presence.require = AsyncMock()
     app = FastAPI()
-    app.include_router(create_multiroom_router(
-        registry, presence_service=presence, satellite_secret=satellite_secret,
-    ))
+    app.include_router(create_multiroom_router(registry, satellite_secret=satellite_secret))
 
     response = getattr(TestClient(app), method)(path, json=body)
 
@@ -235,7 +227,6 @@ async def test_a_satellite_that_pinned_another_server_is_refused_before_anything
     assert satellites.refusals == [("PUT", "/api/system/server-secret")]
     assert satellites.writes == []
     registry.set_client_gain.assert_not_awaited()
-    presence.require.assert_not_awaited()
 
 
 async def test_a_satellite_whose_app_predates_the_secret_still_takes_the_relays(

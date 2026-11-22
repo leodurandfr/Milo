@@ -17,7 +17,6 @@ from fastapi import BackgroundTasks, HTTPException
 
 from backend.api.models import LastUpdatePatch, ProgramUpdateRequest
 from backend.api.programs import create_programs_router, refuse_while_milo_updates
-from backend.api.route_helpers import PresenceAnswer
 from backend.core.updates import milo_journal as mj
 from backend.core.updates.dependency_versions import load_dependency_manifest
 from backend.core.updates.update import UpdateService
@@ -81,12 +80,7 @@ def router():
     state_machine = MagicMock()
     state_machine.broadcast = AsyncMock()
 
-    # Admits every request: the proof of presence an upstream install waits
-    # for is tests/architecture/test_presence_guard.py's.
-    presence = MagicMock()
-    presence.require = AsyncMock()
-
-    r = create_programs_router(update_service, MagicMock(), state_machine, presence_service=presence)
+    r = create_programs_router(update_service, MagicMock(), state_machine)
     r.update_service = update_service
     r.state_machine = state_machine
     return r
@@ -266,8 +260,7 @@ async def test_a_satellite_is_sent_the_digest_of_the_file_it_installs(
     is the one this route picks out of the server's. Picking the snapclient
     .deb's and not snapserver's — the other file of the same version — is the
     route's choice, and the wrong one has every speaker refuse its update as a
-    checksum mismatch. Built with no presence service, which refuses any
-    guarded request: a validated version asks for no gesture."""
+    checksum mismatch."""
     with patch.dict("os.environ", {}, clear=True):
         service = UpdateService(
             systemd_manager=MagicMock(), satellite_update_service=MagicMock(),
@@ -362,8 +355,7 @@ async def test_a_chosen_version_reaches_the_check_and_the_install(router):
     tasks = BackgroundTasks()
     payload = ProgramUpdateRequest(target="upstream", version="0.8.1")
 
-    proof = PresenceAnswer(token="proof", follows=None)
-    assert (await endpoint("go-librespot", payload, tasks, presence=proof))["status"] == "success"
+    assert (await endpoint("go-librespot", payload, tasks))["status"] == "success"
     await tasks()
 
     router.update_service.can_update_program.assert_awaited_once_with(

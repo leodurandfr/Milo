@@ -116,7 +116,7 @@ def create_hardware_router() -> APIRouter:
         """
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", APPLY_HARDWARE_SCRIPT,
+                "sudo", "-n", APPLY_HARDWARE_SCRIPT,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )

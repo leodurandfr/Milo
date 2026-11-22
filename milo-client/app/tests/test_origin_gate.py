@@ -52,7 +52,7 @@ def sudo():
 
 
 def _sudo_ran(exec_, script):
-    return any(call.args[:2] == ("sudo", script) for call in exec_.call_args_list)
+    return any(call.args[:3] == ("sudo", "-n", script) for call in exec_.call_args_list)
 
 
 def _update_form(secret=SERVER_SECRET):

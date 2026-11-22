@@ -15,7 +15,6 @@ import { ref, computed } from 'vue';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
 import { i18n } from '@/services/i18n';
-import { usePresenceStore } from '@/stores/presenceStore';
 
 const CACHE_KEY = 'multiroom_cache';
 
@@ -622,10 +621,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   // itself (systemStore) relayed to the speaker. The panel and its password
   // sub-view are two views over one satellite, so a save in flight is held here:
   // going back mid-save remounts the panel, whose read would otherwise answer
-  // from before the save and keep the factory warning up. Opening SSH and
-  // setting the password are root on the speaker: this unit waits for a
-  // gesture on itself before relaying either (presenceStore), as for its own.
-  const presence = usePresenceStore();
+  // from before the save and keep the factory warning up.
   const clientPasswordSaves = new Map();
 
   function toSshState(data) {
@@ -651,8 +647,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   /** @returns {Promise<{enabled, active, passwordIsDefault, loginUser}|null>} the state the satellite answered */
   async function setClientSsh(macId, enabled, { errorRef } = {}) {
-    const result = await presence.request(
-      'put',
+    const result = await apiCall.put(
       `/api/multiroom/clients/${encodeURIComponent(macId)}/ssh`,
       { enabled },
       { category: 'store', message: 'Failed to change client SSH state', errorRef },
@@ -661,8 +656,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   async function setClientPassword(macId, password, { errorRef } = {}) {
-    const saving = presence.request(
-      'post',
+    const saving = apiCall.post(
       `/api/multiroom/clients/${encodeURIComponent(macId)}/password`,
       { password },
       { category: 'store', message: 'Failed to set client password', errorRef },

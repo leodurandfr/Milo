@@ -5,13 +5,12 @@
 
 Every frame on `/ws` is an envelope `{category, type, origin, data, timestamp}`. `data` is the event's payload, described below; `origin` is its `source` field when it has one, else the category; `timestamp` is UTC seconds since the epoch. Besides these events the server sends `{"category": "system", "type": "ping", "timestamp": …}` every 30 seconds, with no `data`.
 
-75 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
+74 `(category, type)` pairs. **Contracted** marks what Milo-Mac or Milo-iOS relies on: a change to it is listed under *API and integration changes* in the release notes. Everything else is **internal** and may change in any release. See [Integration](../integration.md#stability).
 
 | Event | Stability |
 |---|---|
 | [`system/hostname_conflict_changed`](#systemhostname_conflict_changed) | internal |
 | [`system/timezone_changed`](#systemtimezone_changed) | internal |
-| [`system/presence_changed`](#systempresence_changed) | internal |
 | [`system/notices_changed`](#systemnotices_changed) | internal |
 | [`system/backend_error`](#systembackend_error) | internal |
 | [`system/initial_state`](#systeminitial_state) | internal |
@@ -108,14 +107,6 @@ The unit's time zone changed. `latitude` and `longitude` are the zone's referenc
 | `timezone` | string \| null |
 | `latitude` | number \| null |
 | `longitude` | number \| null |
-
-### system/presence_changed
-
-The gesture the unit waits for changed: a challenge opened, was confirmed on the unit, or ended (`challenge` is null). It carries no token: only the request that opened a challenge can spend it.
-
-| Field | Type |
-|---|---|
-| `challenge` | [PresenceChallenge](#presencechallenge) \| null |
 
 ### system/notices_changed
 
@@ -767,6 +758,7 @@ The network status changed: Wi-Fi on or off, and the state of the Ethernet and W
 | `ethernet` | [EthernetStatus](#ethernetstatus) |
 | `wifi` | [WifiConnectionStatus](#wificonnectionstatus) |
 | `hotspot_active` | boolean |
+| `link_lost` | boolean |
 
 ## programs
 
@@ -872,19 +864,6 @@ The banner of the last Milō update was closed, for every screen (PATCH /api/pro
 | `source` | "program_update" |
 
 ## Models
-
-### PresenceChallenge
-
-A gesture the unit waits for before a request that reaches root.
-
-| Field | Type |
-|---|---|
-| `id` | string |
-| `action` | [PresenceAction](#presenceaction) |
-| `gesture` | [Gesture](#gesture) |
-| `status` | "pending" \| "confirmed" |
-| `remaining_s` | integer |
-| `cooldown_s` | integer |
 
 ### SetAsideNotice
 
@@ -1102,15 +1081,3 @@ Current WiFi connection status.
 Why a session ended.
 
 `eof`, `user_stop`, `idle_timeout`, `source_switch`, `reroute`, `sender_left`, `daemon_died`, `load_failed`, `stream_lost`, `storage_gone`
-
-### PresenceAction
-
-What a challenge was opened for: one member per thing the owner is asked to confirm, which the dialog names.
-
-`ssh_open`, `password`, `program_upstream`, `reset_setup`, `wifi_save`, `satellite_ssh_open`, `satellite_password`, `satellite_program_upstream`
-
-### Gesture
-
-What the unit waits for: the first of the three this unit can offer.
-
-`rotary`, `power_button`, `power_cycle`

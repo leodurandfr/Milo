@@ -98,7 +98,7 @@ async def _start_bound_unit(unit: str) -> None:
     """`sudo systemctl start <unit>`, logged at error when it fails."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            "sudo", "systemctl", "start", unit,
+            "sudo", "-n", "systemctl", "start", unit,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

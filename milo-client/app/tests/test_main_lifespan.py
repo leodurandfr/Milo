@@ -26,8 +26,8 @@ import uvicorn
 
 import main
 
-START_CAMILLADSP = ("sudo", "systemctl", "start", "milo-client-camilladsp.service")
-START_SNAPCLIENT = ("sudo", "systemctl", "start", "milo-client-snapclient.service")
+START_CAMILLADSP = ("sudo", "-n", "systemctl", "start", "milo-client-camilladsp.service")
+START_SNAPCLIENT = ("sudo", "-n", "systemctl", "start", "milo-client-snapclient.service")
 
 
 class _FakeProc:

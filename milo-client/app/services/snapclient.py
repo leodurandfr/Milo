@@ -239,7 +239,7 @@ class SnapclientService:
             self.logger.info(f"Installing {Path(deb_path).name} via secure wrapper...")
 
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "/usr/local/bin/milo-client-install-snapclient", deb_path, sha256 or NO_DIGEST,
+                "sudo", "-n", "/usr/local/bin/milo-client-install-snapclient", deb_path, sha256 or NO_DIGEST,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -263,7 +263,7 @@ class SnapclientService:
         """Stops the snapclient service."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "stop", SNAPCLIENT_SERVICE,
+                "sudo", "-n", "systemctl", "stop", SNAPCLIENT_SERVICE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -279,7 +279,7 @@ class SnapclientService:
         """Starts the snapclient service."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "start", SNAPCLIENT_SERVICE,
+                "sudo", "-n", "systemctl", "start", SNAPCLIENT_SERVICE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
