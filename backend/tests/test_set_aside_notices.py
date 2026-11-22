@@ -64,8 +64,18 @@ def _broadcast_lists(machine):
 
 
 async def _settle():
-    for _ in range(5):
+    """Lets the service's own tasks run to their end. A persist writes on a
+    worker thread, so a fixed number of loop turns raced it: on a loaded host
+    the broadcast that follows the write had not happened yet (seen on CI).
+    The service names its tasks after itself (`BackgroundTaskSet`'s owner)."""
+    for _ in range(20):
         await asyncio.sleep(0)
+        pending = [
+            task for task in asyncio.all_tasks()
+            if task.get_name().startswith("notices.") and not task.done()
+        ]
+        if pending:
+            await asyncio.wait(pending, timeout=10)
 
 
 async def test_a_set_aside_made_before_the_service_exists_is_claimed_and_kept(tmp_path):
