@@ -273,8 +273,9 @@ def test_every_sibling_a_stage_sources_is_placed_there_by_every_builder(builder)
 def test_every_repo_file_a_stage_sources_exists_in_this_repo():
     """The stage reads `provisioning/` out of the clone the image carries.
 
-    That clone is this repo at `MILO_BRANCH`, so a module renamed here is a stage
-    that aborts under `bash -e` mid-build — after the frontend has been compiled.
+    That clone is the building repository at the ref in `milo-checkout.env`
+    (pi-gen/checkout-env.sh), so a module renamed here is a stage that aborts
+    under `bash -e` mid-build — after the frontend has been compiled.
     """
     missing = [
         f"{script.relative_to(REPO_ROOT)} sources {rel}, which this repo does not ship"

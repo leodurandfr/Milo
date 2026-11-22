@@ -395,7 +395,7 @@ IMAGE_ONLY_LINES = {
         "a removal: an update never removes a package, since a rollback cannot put one back",
 
     # The checkout and what is built from it — the Milō update moves all of it
-    r"git clone \"\$\{MILO_REPO\}\"":
+    r"git clone \$\(printf '%q' \"\$\{MILO_REPO\}\"\)":
         "the checkout itself, which the Milō update moves to each release",
     r"python3 -m venv /home/milo/milo(?:/milo-client)?/venv":
         "the checkout's venvs, which the Milō update installs the lock into",

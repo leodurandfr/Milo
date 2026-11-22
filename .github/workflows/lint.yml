@@ -20,6 +20,19 @@ on:
     - cron: '17 6 * * 1'
   workflow_dispatch:
 
+# A fork runs this file too, on its own pushes and pull requests, and the checks
+# are how its owner proves a change before proposing it (a pull request opened
+# here from a fork runs here, as this repository), so every job below runs on
+# a fork's push, pull request and manual run. What a fork does not run is what
+# spends or writes on the owner's behalf: the schedule (a fork's Actions would
+# burn a weekly run on a tree its owner never asked to watch) and
+# milo-mac-freshness, which opens issues. Each
+# job is guarded by name, because GitHub has no workflow-level `if:`; the
+# repository is the one units take their releases from
+# (backend/core/updates/catalog.py), and the guards are held by
+# backend/tests/architecture/test_ci_forks.py, which evaluates every condition
+# here as a fork and as this repository.
+
 # The checks need nothing more. Said here because build-image.yml grants the
 # call `issues: write` for milo-mac-freshness, and a job declaring nothing
 # would inherit it.
@@ -38,6 +51,7 @@ permissions:
 jobs:
   backend:
     name: Backend + satellite (ruff + pytest)
+    if: github.event_name != 'schedule' || github.repository == 'leodurandfr/Milo'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -86,6 +100,7 @@ jobs:
 
   frontend:
     name: Frontend (eslint + stylelint + vitest)
+    if: github.event_name != 'schedule' || github.repository == 'leodurandfr/Milo'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -130,6 +145,7 @@ jobs:
   # on main as plain commits, and a merged branch's lines are read in its own.
   secrets:
     name: Secrets (gitleaks)
+    if: github.event_name != 'schedule' || github.repository == 'leodurandfr/Milo'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # The one place the scanner is pinned: a release asset named by its version
@@ -213,8 +229,9 @@ jobs:
     # Runs on every push to main + a weekly cron backstop, never on PRs, and never
     # blocks: a network hiccup or an upstream refactor can't gate a merge. Nor
     # when build-image.yml calls this file (`inputs.ref` set): an image build
-    # has nothing to learn from it.
-    if: github.event_name != 'pull_request' && !inputs.ref
+    # has nothing to learn from it. Nor on a fork: the issue it opens would land
+    # in the fork, about a snapshot only this repository refreshes.
+    if: github.repository == 'leodurandfr/Milo' && github.event_name != 'pull_request' && !inputs.ref
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # Never block a merge or redden the run: a network/repo hiccup or an upstream

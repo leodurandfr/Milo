@@ -30,8 +30,9 @@ This uses [pi-gen](https://github.com/RPi-Distro/pi-gen), the official Raspberry
 | `03-configure` | Plymouth splash, IR remote, udev rules, sudoers, then the system manifest's boot lines (cmdline.txt, config.txt) and unit states, applied by `milo-deploy-update apply-system-manifest` — the code every Milō update applies them with |
 
 `pi-gen/build.sh` and the CI workflow copy `dependencies.env`, `system-manifest.env` and the
-frontend artifact beside `stage-milo/`: the stage runs from a copy inside the pi-gen checkout,
-which cannot reach this repo. What the stage installs must be in `system-manifest.env`, in
+frontend artifact beside `stage-milo/`, and write `milo-checkout.env` there (the repository and
+the ref `02-install-milo` clones, printed by `checkout-env.sh`): the stage runs from a copy inside
+the pi-gen checkout, which cannot reach this repo. What the stage installs must be in `system-manifest.env`, in
 `rootfs/` or `system/`, or listed with its reason in
 `backend/tests/architecture/test_image_update_convergence.py`, so a unit updated to a release
 holds what a card flashed with it holds.
@@ -60,12 +61,31 @@ Requires a Debian/Ubuntu host with ARM64 QEMU support.
 MILO_BRANCH=v1.0.0 ./build.sh
 ```
 
+### Build From Another Repository
+
+The image clones the repository that builds it: in CI, the one the workflow runs in; locally,
+this checkout's `origin` (a GitHub SSH remote is cloned over https, since the chroot holds no
+key). `MILO_REPO` names another:
+
+```bash
+MILO_REPO=https://github.com/<owner>/<repo>.git ./build.sh
+```
+
+That URL becomes the `origin` of every unit flashed from the image, which each Milō update
+fetches the release's tag from, so it must be an https URL that clones without credentials;
+`checkout-env.sh` refuses anything else. Which releases a unit is offered does not depend on it:
+that is `releases/latest` of the repository `backend/core/updates/catalog.py` names.
+
 ## CI/CD
 
 The GitHub Actions workflow (`.github/workflows/build-image.yml`) automatically builds images:
 
-- **On tag push** (`v*`): Builds, uploads artifact, and creates a GitHub Release with the image attached
+- **On tag push** (`v*`): Builds, uploads artifact, and creates a draft GitHub Release with the image attached
+- **Weekly**: Builds `main` and uploads it as an artifact
 - **Manual dispatch**: Builds any branch/tag and uploads as an artifact
+
+On a fork the workflow builds on a tag push and a manual dispatch, from the fork, but skips the
+weekly build and never creates a release.
 
 Build time is approximately 1-2 hours due to ARM64 cross-compilation via QEMU.
 

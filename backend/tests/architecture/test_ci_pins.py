@@ -33,6 +33,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from backend.tests.architecture.test_ci_forks import CANONICAL, FORK, simulate
+from backend.tests.architecture.test_ci_forks import events as fork_events
 from backend.tests.architecture.test_rootfs_deployment import STAGE_BUILDERS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -199,7 +201,15 @@ def test_the_secret_scan_runs_the_gitleaks_its_job_pins():
     archive is unpacked.
     """
     job = _secrets_job()
-    assert "if" not in job, "the secret scan must run on every event lint.yml runs on"
+    # Every event lint.yml runs on, here and on a fork — a fork's schedule
+    # apart, which test_ci_forks.py holds to running nothing.
+    name = next(n for n, j in yaml.safe_load(LINT.read_text())["jobs"].items() if j == job)
+    for event in fork_events(LINT):
+        for repository in (CANONICAL, FORK):
+            if (event, repository) == ("schedule", FORK):
+                continue
+            jobs, _ = simulate(LINT, event, repository)
+            assert jobs[(LINT.name, name)].must, f"the secret scan does not run on {repository}'s {event}"
     assert not job.get("continue-on-error"), "a scan that may fail without failing the run blocks nothing"
     assert not [s for s in job["steps"] if s.get("continue-on-error")], "a secrets step may not fail open"
     env = job.get("env", {})

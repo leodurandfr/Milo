@@ -19,6 +19,14 @@ on:
         required: false
         default: 'main'
 
+# A fork runs this file too. It builds there on a tag it pushes and on a manual
+# run, from its own repository (the Configure pi-gen step names it to the
+# image), but it never spends its schedule — the `vars` job every other job
+# needs is skipped on a fork's cron — and never publishes a release: units are
+# offered the releases of the repository backend/core/updates/catalog.py names,
+# and a fork's draft beside its own tags would only look like one. Held by
+# backend/tests/architecture/test_ci_forks.py.
+
 # Actions are named by commit, with their release beside them, and no checkout
 # keeps the token — lint.yml says why and how a pin moves. pi-gen is pinned the
 # same way, in pi-gen/upstream.env. Held by
@@ -33,6 +41,7 @@ jobs:
   # backend/tests/architecture/test_release_channel.py.
   vars:
     name: Resolve what is being built
+    if: github.event_name != 'schedule' || github.repository == 'leodurandfr/Milo'
     runs-on: ubuntu-24.04
     outputs:
       milo_ref: ${{ steps.set.outputs.milo_ref }}
@@ -193,15 +202,23 @@ jobs:
           git -C pi-gen-build checkout -q --detach "$PIGEN_COMMIT"
 
       - name: Configure pi-gen
+        env:
+          MILO_REF: ${{ needs.vars.outputs.milo_ref }}
         run: |
           # Copy Milo configuration
           cp pi-gen/config pi-gen-build/config
 
-          # Set the branch/tag to build
-          echo "MILO_BRANCH=${{ needs.vars.outputs.milo_ref }}" >> pi-gen-build/config
-
           # Copy custom stage
           cp -r pi-gen/stage-milo pi-gen-build/stage-milo
+
+          # What the image clones: the repository running this workflow, at the
+          # ref being built. It travels beside the stage like the files below,
+          # written by the helper pi-gen/build.sh calls too. Not in pi-gen's
+          # config: pi-gen sources it without exporting it, so the MILO_BRANCH
+          # line once appended there never reached the stage script, a child
+          # process, and every image this workflow built cloned main.
+          pi-gen/checkout-env.sh "${MILO_REF}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" \
+             > pi-gen-build/stage-milo/milo-checkout.env
 
           # The validated dependency set travels with the stage. 01-install-audio
           # sources it as a sibling under `bash -e`, so without this the build
@@ -363,7 +380,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        if: needs.vars.outputs.is_release == 'true'
+        if: needs.vars.outputs.is_release == 'true' && github.repository == 'leodurandfr/Milo'
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           # Append-only, the image first: release N downloads by these names.

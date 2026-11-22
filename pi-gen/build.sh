@@ -8,6 +8,9 @@
 #   ./build.sh                    # Build using Docker (recommended)
 #   ./build.sh --native           # Build natively (requires Debian/Ubuntu host)
 #   MILO_BRANCH=v1.0.0 ./build.sh # Build a specific branch/tag
+#   MILO_REPO=https://github.com/<owner>/<repo>.git ./build.sh
+#                                 # Clone another repository than this
+#                                 # checkout's origin (checkout-env.sh)
 
 set -e
 
@@ -25,6 +28,13 @@ fi
 echo "=== Milo Image Builder ==="
 echo "Build mode: ${BUILD_MODE}"
 echo "Milo branch: ${MILO_BRANCH:-main}"
+
+# What the image clones, decided before anything is fetched or built: the
+# repository this checkout came from, unless MILO_REPO names another, at
+# MILO_BRANCH. Refused here, a remote the chroot cannot clone (or one carrying a
+# token, which every flashed unit would keep as its origin) costs nothing.
+CHECKOUT_ENV="$("${SCRIPT_DIR}/checkout-env.sh" "${MILO_BRANCH:-main}" "${MILO_REPO:-}")"
+echo "${CHECKOUT_ENV}"
 echo ""
 
 # The pinned commit and nothing else, into a checkout made here or one an
@@ -66,10 +76,11 @@ echo "Building the frontend artefact..."
 tar -czf "${PIGEN_DIR}/stage-milo/frontend-dist.tar.gz" \
     -C "${SCRIPT_DIR}/../frontend" dist
 
-# Pass MILO_BRANCH to the build environment
-if [[ -n "${MILO_BRANCH}" ]]; then
-    echo "MILO_BRANCH=${MILO_BRANCH}" >> "${PIGEN_DIR}/config"
-fi
+# The repository and the ref travel beside the stage too, under the name the CI
+# workflow writes. Not in pi-gen's config: pi-gen sources it without exporting
+# it, so a line appended there reaches the stage script, a child process, only
+# when the variable was in the environment already — never in Docker.
+printf '%s\n' "${CHECKOUT_ENV}" > "${PIGEN_DIR}/stage-milo/milo-checkout.env"
 
 # Prevent intermediate image exports (only stage-milo exports)
 touch "${PIGEN_DIR}/stage2/SKIP_IMAGES"

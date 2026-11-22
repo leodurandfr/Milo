@@ -1,11 +1,14 @@
 #!/bin/bash -e
 # Milo pi-gen stage: install the application at a given ref
-#
-# MILO_BRANCH can be set in the environment to build a specific tag/branch.
-# Defaults to "main".
 
-MILO_BRANCH="${MILO_BRANCH:-main}"
-MILO_REPO="https://github.com/leodurandfr/Milo.git"
+# MILO_REPO and MILO_BRANCH: the repository that builds the image and the ref
+# being built, written beside the stage by both image builders
+# (pi-gen/checkout-env.sh, called by pi-gen/build.sh and by
+# .github/workflows/build-image.yml), as dependencies.env is. The stage names no
+# repository of its own: one written here made every fork's image clone this
+# one, and made it the origin of every unit flashed from it.
+source "$(dirname "${BASH_SOURCE[0]}")/../milo-checkout.env"
+: "${MILO_REPO:?milo-checkout.env names no repository}" "${MILO_BRANCH:?milo-checkout.env names no ref}"
 FRONTEND_TARBALL="$(dirname "${BASH_SOURCE[0]}")/../frontend-dist.tar.gz"
 
 # The frontend is not built here. It is built once in CI, published with the
@@ -30,9 +33,14 @@ FRONTEND_TARBALL="$(dirname "${BASH_SOURCE[0]}")/../frontend-dist.tar.gz"
 # fetch nothing but the tag it was built from — measured — and every later
 # release is unreachable from the update button, forever. The default refspec is
 # what makes `git fetch origin --tags` in the update flow able to see anything.
+#
+# The heredoc is expanded here and run as shell code in the chroot (on_chroot
+# hands it to `bash -e`), so each value is quoted again for that second shell:
+# a ref is free text from a manual dispatch, and git accepts `"`, `$(` and
+# backticks in one — pasted bare, it would be run as root in the chroot.
 on_chroot << CHROOT
-sudo -u milo git clone "${MILO_REPO}" /home/milo/milo
-sudo -u milo git -C /home/milo/milo checkout --force ${MILO_BRANCH}
+sudo -u milo git clone $(printf '%q' "${MILO_REPO}") /home/milo/milo
+sudo -u milo git -C /home/milo/milo checkout --force $(printf '%q' "${MILO_BRANCH}")
 CHROOT
 
 # Set up Python virtual environment and install dependencies.
