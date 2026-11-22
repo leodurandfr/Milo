@@ -38,7 +38,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from backend.config.constants import DEPLOY_UPDATE_CMD
 from backend.core.updates import dpkg_lock
 from backend.core.updates.catalog import PROGRAMS
-from backend.core.updates.update import UpdateService
+from backend.core.updates.update import QOBUZ_PROXY_LOCK, UpdateService
 from backend.api.programs import create_programs_router
 from backend.core.models.audio_state import AudioSource
 from backend.core.systemd import SystemdServiceManager
@@ -1435,6 +1435,29 @@ class TestDependencyReconciliation:
         # raised, and every one of them is reported rather than propagated.
         assert failed == [k for k, _ in dispatched]
         assert "navidrome" in failed
+
+    @pytest.mark.asyncio
+    async def test_a_relocked_dependency_at_its_pin_is_installed_again(self, update_service):
+        """A lock that moved at an unchanged version is an install the version
+        comparison cannot see; without it the venv keeps the set it had."""
+        installed = update_service.programs["qobuz-proxy"]["validated_version"]
+        with self._reconciling(update_service, installed=installed.encode(),
+                               tag=f"v{installed}") as dispatched:
+            failed = await update_service._reconcile_dependencies(relock=frozenset({"qobuz-proxy"}))
+
+        assert failed == []
+        assert ("qobuz-proxy", installed) in dispatched
+
+    @pytest.mark.asyncio
+    async def test_a_trial_past_the_manifest_is_not_relocked(self, update_service, mock_settings_service):
+        """A `target: upstream` trial installs no lock, so a moved lock is no
+        reason to stop the sidecar and install the trial's version again."""
+        mock_settings_service._storage["updates.forced_versions"] = {"qobuz-proxy": self.BUMPED}
+        with self._reconciling(update_service, installed=self.BUMPED.encode(),
+                               tag=f"v{self.BUMPED}") as dispatched:
+            await update_service._reconcile_dependencies(relock=frozenset({"qobuz-proxy"}))
+
+        assert "qobuz-proxy" not in [k for k, _ in dispatched]
 
     @pytest.mark.asyncio
     async def test_qobuz_proxy_is_installed_before_the_rest_of_the_set(self, update_service):
@@ -3447,8 +3470,49 @@ class TestUpdateQobuzProxyFlow:
         assert sha256 is None
         pip_argv = flow["_local"].calls[0]
         assert pip_argv[0] == f"{QOBUZ['venv_path']}/bin/pip"
-        assert pip_argv[1:3] == ("install", "--upgrade")
-        assert pip_argv[3] == f"qobuz-proxy[local] @ {Path(archive).as_uri()}"
+        assert pip_argv[1] == "install" and "--upgrade" in pip_argv
+        assert pip_argv[-1] == f"qobuz-proxy[local] @ {Path(archive).as_uri()}"
+
+    @staticmethod
+    def _pip_runs(flow):
+        return [call for call in flow["_local"].calls if Path(call[0]).name == "pip"]
+
+    @pytest.mark.asyncio
+    async def test_the_validated_version_resolves_nothing_unhashed(self, update_service):
+        """At the manifest's version, qobuz-proxy's dependencies come from the
+        release's qobuz-proxy.lock with --require-hashes and the checked archive
+        goes in with --no-deps — as provisioning/qobuz-proxy.sh installs them.
+        Fails when the update lets pip resolve the sidecar's dependencies from
+        PyPI, unchecked, or reads a lock the release does not ship.
+        """
+        version = QOBUZ["validated_version"]
+        status = {"latest": {"version": version, "tag_name": f"v{version}"}}
+        with self._flow(update_service) as flow:
+            assert await update_service._update_qobuz_proxy(status) == {"success": True}
+
+        runs = self._pip_runs(flow)
+        assert len(runs) == 2, runs
+        lock, package = runs
+        assert "--require-hashes" in lock
+        git_path = Path(update_service.programs["milo"]["git_path"])
+        assert lock[lock.index("-r") + 1] == str(git_path / QOBUZ_PROXY_LOCK)
+        archive = flow["_download_release_asset"].await_args.args[1]
+        assert "--no-deps" in package
+        assert package[-1] == f"qobuz-proxy[local] @ {Path(archive).as_uri()}"
+
+    @pytest.mark.asyncio
+    async def test_a_version_past_the_manifest_reads_no_lock(self, update_service, caplog):
+        """The lock is qobuz-proxy's set at the manifest's version: installed
+        under another release, it would hold that release below what it asks
+        for. A `target: upstream` install has no digest and no lock, and says so.
+        """
+        with caplog.at_level(logging.WARNING), self._flow(update_service) as flow:
+            assert await update_service._update_qobuz_proxy(self.STATUS) == {"success": True}
+
+        runs = self._pip_runs(flow)
+        assert len(runs) == 1, runs
+        assert "-r" not in runs[0] and "--no-deps" not in runs[0]
+        assert "no lock" in caplog.text
 
     @pytest.mark.asyncio
     async def test_the_validated_release_is_checked_against_the_manifest_digest(self, update_service):
@@ -4385,13 +4449,24 @@ class MiloUnit:
         f"    --hash=sha256:{'b' * 64}\n"
         "    # via -r requirements.txt\n"
     )
+    # qobuz-proxy.lock, the same at both commits unless a test moves it.
+    QOBUZ_LOCK = (
+        "# This file was autogenerated by uv via the following command:\n"
+        "#    uv pip compile qobuz-proxy-1.7.7/pyproject.toml --extra local --universal "
+        "--python-version 3.13 --generate-hashes -o qobuz-proxy.lock\n"
+        "aiohttp==3.14.5 \\\n"
+        f"    --hash=sha256:{'a' * 64}\n"
+        "    # via qobuz-proxy\n"
+    )
 
     def __init__(self, service, tmp_path, *, target_requirements=REQUIREMENTS,
+                 origin_qobuz_lock=QOBUZ_LOCK, target_qobuz_lock=QOBUZ_LOCK,
                  porcelain=b"", fail=None, other=None, free_bytes=1 << 40):
         from backend.core.updates import milo_journal
 
         self.journal_names = milo_journal
         self.target_requirements = target_requirements
+        self.qobuz_locks = {self.ORIGIN: origin_qobuz_lock, self.TARGET: target_qobuz_lock}
         self.porcelain = porcelain
         self.fail = fail or (lambda argv: None)
         self.other = other
@@ -4483,6 +4558,11 @@ class MiloUnit:
                 return 0, self.REQUIREMENTS.encode(), b""
             if command == ("show", f"{self.TARGET}:requirements.lock"):
                 return 0, self.target_requirements.encode(), b""
+            for commit, lock in self.qobuz_locks.items():
+                if command == ("show", f"{commit}:qobuz-proxy.lock"):
+                    if lock is None:
+                        return 128, b"", f"fatal: path 'qobuz-proxy.lock' does not exist in '{commit}'".encode()
+                    return 0, lock.encode(), b""
             if command == ("status", "--porcelain"):
                 return 0, self.porcelain, b""
             if command[0] in ("fetch", "checkout"):
@@ -5202,18 +5282,24 @@ class TestTheMiloPostCommit:
     }
 
     @contextmanager
-    def _arrived(self, service, tmp_path, *, journal, installed=(), pushed=(), rooms=()):
+    def _arrived(self, service, tmp_path, *, journal, installed=(), at_pin=(), pushed=(), rooms=(),
+                 **unit_kwargs):
         """The arriving release's world; the fleet push announces `rooms` and
-        answers `pushed` (the rooms left behind), or raises it."""
+        answers `pushed` (the rooms left behind), or raises it. A program in
+        `installed` reads off its pin, one in `at_pin` at it."""
         def other(argv):
-            if any(name in " ".join(map(str, argv)) for name in installed):
+            command = " ".join(map(str, argv))
+            for key in at_pin:
+                if key in command:
+                    return 0, f"{service.programs[key]['validated_version']}\n".encode(), b""
+            if any(name in command for name in installed):
                 return 0, b"0.0.1\n", b""
             # What a version command over a program the unit does not have
             # meets: no executable (multiroom's two), or a `sh -c` that prints
             # nothing over a file that is not there (the binary paths, below).
             raise FileNotFoundError(argv[0])
 
-        unit = MiloUnit(service, tmp_path, other=other)
+        unit = MiloUnit(service, tmp_path, other=other, **unit_kwargs)
         _write_journal(unit.state, **journal)
         progress, complete = [], []
 
@@ -5382,6 +5468,33 @@ class TestTheMiloPostCommit:
                 await update_service.run_post_commit()
 
         assert unit.journal()["post_commit_at"] == "satellites (Canapé)"
+
+
+    # qobuz-proxy.lock compiled again at the same qobuz-proxy version: one pin moved.
+    MOVED_QOBUZ_LOCK = MiloUnit.QOBUZ_LOCK.replace("aiohttp==3.14.5", "aiohttp==3.14.6")
+
+    @pytest.mark.parametrize("origin_lock, target_lock, reached", [
+        (MiloUnit.QOBUZ_LOCK, MiloUnit.QOBUZ_LOCK, False),
+        (MiloUnit.QOBUZ_LOCK, MOVED_QOBUZ_LOCK, True),
+        (None, MiloUnit.QOBUZ_LOCK, True),
+    ], ids=["lock unchanged", "lock moved", "origin had no lock"])
+    @pytest.mark.asyncio
+    async def test_a_qobuz_lock_that_moved_reinstalls_the_sidecar_at_its_pin(
+            self, update_service, tmp_path, origin_lock, target_lock, reached):
+        """qobuz-proxy.lock decides what the sidecar's venv holds, and it can
+        be compiled again while QOBUZ_PROXY_VERSION stays put. Compared by
+        version alone, every updated unit kept the set it had until the next
+        bump — and a unit from before the lock kept the one pip resolved
+        unhashed. A sidecar at its pin is reached iff the lock moved between
+        the two commits the journal names; GitHub is unreachable here, so
+        reached reads as named in the outcome's detail."""
+        with self._arrived(update_service, tmp_path, journal=self.COMMITTED, at_pin=("qobuz-proxy",),
+                           origin_qobuz_lock=origin_lock, target_qobuz_lock=target_lock) as (unit, _, _c):
+            await update_service.run_post_commit()
+
+        assert unit.ran(lambda argv: "qobuz-proxy" in " ".join(map(str, argv))), "the sidecar was never read"
+        detail = update_service.last_update_record()["detail"] or ""
+        assert ("qobuz-proxy" in detail) is reached, detail
 
 
 class TestAStaleShutdownInhibitor:

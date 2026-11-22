@@ -7,7 +7,8 @@
 # Milō only renders audio + metadata. See PLAN_QOBUZ / docs.
 #
 # qobuz-proxy is NOT on PyPI — it is installed from its tag's source archive
-# into a venv, once the archive matches the digest dependencies.env declares.
+# into a venv, once the archive matches the digest dependencies.env declares,
+# over the dependencies qobuz-proxy.lock pins and hashes.
 # The one-time Qobuz account login is done by the operator via the settings
 # screen (or http://milo.local:8689) and cached in credentials.json; it is
 # user-specific and intentionally NOT baked into the image.
@@ -27,19 +28,24 @@ install_qobuz_proxy() {
     # of the system manifest, installed by 00-install-deps and by every update.
     mkdir -p "$MILO_DATA_DIR/qobuz"
 
-    # Build the venv + install the pinned tag. The '[local]' extra pulls
-    # sounddevice/soundfile/numpy for the PortAudio backend that targets the
-    # named ALSA PCM 'milo_qobuz'. From the tag's archive, checked first — the
-    # file the in-app update installs too (UpdateService._update_qobuz_proxy):
-    # a `git+…@tag` reference is whatever the tag points at when pip clones it.
+    # Build the venv + install the pinned tag. From the tag's archive, checked
+    # first — the file the in-app update installs too
+    # (UpdateService._update_qobuz_proxy): a `git+…@tag` reference is whatever
+    # the tag points at when pip clones it. What it depends on — with the
+    # '[local]' extra, sounddevice/soundfile/numpy for the PortAudio backend
+    # that targets the named ALSA PCM 'milo_qobuz' — is the checkout's
+    # qobuz-proxy.lock, every file named by its sha256, compiled from that
+    # tag's pyproject.toml; the archive itself goes in with --no-deps, so pip
+    # resolves nothing on its own. No `pip install --upgrade pip`: that is a
+    # file from PyPI that no hash names.
     local archive
     archive="$(mktemp -d)/qobuz-proxy-v${QOBUZ_PROXY_VERSION}.tar.gz"
     wget -q -O "$archive" \
         "https://github.com/leolobato/qobuz-proxy/archive/refs/tags/v${QOBUZ_PROXY_VERSION}.tar.gz"
     echo "${QOBUZ_PROXY_SHA256}  $archive" | sha256sum -c -
     python3 -m venv "$MILO_DATA_DIR/qobuz/venv"
-    "$MILO_DATA_DIR/qobuz/venv/bin/pip" install --upgrade pip
-    "$MILO_DATA_DIR/qobuz/venv/bin/pip" install "qobuz-proxy[local] @ file://$archive"
+    "$MILO_DATA_DIR/qobuz/venv/bin/pip" install --no-cache-dir --require-hashes -r "$MILO_APP_DIR/qobuz-proxy.lock"
+    "$MILO_DATA_DIR/qobuz/venv/bin/pip" install --no-cache-dir --no-deps "qobuz-proxy[local] @ file://$archive"
     rm -rf "$(dirname "$archive")"
 
     install_qobuz_adapter

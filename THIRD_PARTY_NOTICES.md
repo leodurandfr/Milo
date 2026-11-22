@@ -30,7 +30,7 @@ from `rootfs/usr/local/bin/milo-qobuz` in this repository.
 | NQPTP (AirPlay 2 timing) | 1.2.9 | `NQPTP_VERSION` | GPL-2.0-only | https://github.com/mikebrady/nqptp/tree/1.2.9 | built from the tag's source archive |
 | Snapcast (snapserver, snapclient) | 0.35.0 | `SNAPCAST_VERSION` | GPL-3.0-or-later | https://github.com/snapcast/snapcast/tree/v0.35.0 | upstream's arm64 Debian packages |
 | CamillaDSP | 4.1.3 | `CAMILLADSP_VERSION` | GPL-3.0-only OR MPL-2.0 | https://github.com/HEnquist/camilladsp/tree/v4.1.3 | upstream's aarch64 binary |
-| qobuz-proxy (Qobuz Connect) | 1.7.7 | `QOBUZ_PROXY_VERSION` | MIT | https://github.com/leolobato/qobuz-proxy/tree/v1.7.7 | Python package, installed from the tag's source archive with the dependencies pip resolves for it, run through `milo-qobuz` |
+| qobuz-proxy (Qobuz Connect) | 1.7.7 | `QOBUZ_PROXY_VERSION` | MIT | https://github.com/leolobato/qobuz-proxy/tree/v1.7.7 | Python package, installed from the tag's source archive (`--no-deps`) over the dependencies [qobuz-proxy.lock](qobuz-proxy.lock) pins by hash, run through `milo-qobuz` |
 | Navidrome (Music Library) | 0.64.2 | `NAVIDROME_VERSION` | GPL-3.0 (to confirm: `-only` or `-or-later`) | https://github.com/navidrome/navidrome/tree/v0.64.2 | upstream's arm64 binary |
 | BlueALSA (bluez-alsa) | 4.3.1 | `BLUEZ_ALSA_VERSION` | MIT; linked against BlueZ's `libbluetooth` (GPL-2.0-or-later) | https://github.com/arkq/bluez-alsa/tree/v4.3.1 (commit `f11569451b98a765adf9abc081632bb013f89f57`) | built from the tag |
 | Roc Toolkit (Mac streaming) | 0.4.0 | `ROC_TOOLKIT_VERSION` | MPL-2.0; linked statically with OpenFEC 1.4.2.9, which is CECILL-C (every OpenFEC source file that carries a CeCILL header names CeCILL-C), with parts under their authors' permissive terms and one file under CC-BY-SA-3.0 | https://github.com/roc-streaming/roc-toolkit/tree/v0.4.0 (commit `62401be9877ee087de49a40c35ae64c75a820387`); OpenFEC: https://github.com/roc-streaming/openfec/tree/v1.4.2.9 | built from the tag; roc's own build (`--build-3rdparty=openfec`) downloads OpenFEC at the version roc's `3rdparty/SConscript` pins and builds it with roc |
@@ -89,9 +89,10 @@ them. The test above holds each name to the manifest.
 ## 4. Python packages
 
 The backend runs in a virtual environment installed from [requirements.lock](requirements.lock),
-a multiroom speaker's from `milo-client/app/requirements.lock`; each lock pins the version and
-the hash of every package. A Python package is installed as its source, plus whatever compiled
-extension its wheel carries. The packages of note, at the version the lock pins:
+a multiroom speaker's from `milo-client/app/requirements.lock`, and qobuz-proxy's (section 1)
+from [qobuz-proxy.lock](qobuz-proxy.lock); each lock pins the version and the hash of every
+package. A Python package is installed as its source, plus whatever compiled extension its wheel
+carries. The packages of note, at the version the backend's lock pins:
 
 | Package | Version | License |
 |---|---|---|

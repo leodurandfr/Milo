@@ -25,7 +25,12 @@ Nothing can compile the lock again offline, so this file holds what can be read:
   * the satellite's lock pins what it shares with the server's at the server's
     version, because one CI venv runs both suites;
   * CI tests with the Python the locks were compiled for;
-  * every shell or workflow install reads a lock with `--require-hashes`. The
+  * qobuz-proxy's lock, `qobuz-proxy.lock` (what the sidecar's venv installs
+    beside the tag's archive, which goes in with `--no-deps`), was compiled
+    from the pyproject.toml of the tag dependencies.env pins, so a bump that
+    leaves it behind fails here rather than on a unit;
+  * every shell or workflow install reads a lock with `--require-hashes`, or
+    installs an archive checked against its digest with `--no-deps`. The
     Python call sites are behavior, held in test_update_service.py and the
     satellite's test_services_app_update.py.
 
@@ -41,14 +46,22 @@ from packaging.markers import Marker
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from backend.core.updates.dependency_versions import load_dependency_manifest
+from backend.core.updates.update import PYTHON_LOCK, QOBUZ_PROXY_LOCK
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 APPS = {
-    "backend": (REPO_ROOT / "requirements.txt", REPO_ROOT / "requirements.lock"),
+    "backend": (REPO_ROOT / "requirements.txt", REPO_ROOT / PYTHON_LOCK),
     "satellite": (
         REPO_ROOT / "milo-client" / "app" / "requirements.txt",
         REPO_ROOT / "milo-client" / "app" / "requirements.lock",
     ),
+}
+# Every lock a unit installs. qobuz-proxy's has no requirements file here: it is
+# compiled from the pyproject.toml of the tag the manifest pins.
+LOCKS = {app: lock for app, (_, lock) in APPS.items()} | {
+    "qobuz-proxy": REPO_ROOT / QOBUZ_PROXY_LOCK,
 }
 
 # The machines a lock must hold on, as PEP 508 sees them: a unit (a Pi, 64-bit
@@ -165,13 +178,13 @@ def test_nothing_in_the_lock_outlives_its_reason(app):
     assert not stale, f"{lock_path.relative_to(REPO_ROOT)} must be compiled again:\n" + "\n".join(stale)
 
 
-@pytest.mark.parametrize("app", sorted(APPS))
+@pytest.mark.parametrize("app", sorted(LOCKS))
 def test_every_pin_is_exact_and_every_file_hashed(app):
     """`--require-hashes` refuses an install whole when one package has no hash
     or is not pinned with `==`, and it does so on the unit, mid-update. A lock
     compiled without `--generate-hashes`, or edited by hand, fails here instead.
     """
-    _, lock_path = APPS[app]
+    lock_path = LOCKS[app]
     lock = _lock(lock_path)
     unhashed = sorted(name for name, entry in lock.items() if not entry["hashes"])
     assert not unhashed, f"{lock_path.relative_to(REPO_ROOT)} pins without a hash: {unhashed}"
@@ -196,10 +209,14 @@ BUILT_ON_INSTALL = {
         "lgpio": "no cp313 wheel; built against the liblgpio-dev and swig the image installs",
     },
     "satellite": {},
+    # qobuz-proxy itself is not in its lock: it is the tag's archive, checked
+    # against QOBUZ_PROXY_SHA256 and built on install by an unpinned setuptools
+    # like the two above.
+    "qobuz-proxy": {},
 }
 
 
-@pytest.mark.parametrize("app", sorted(APPS))
+@pytest.mark.parametrize("app", sorted(LOCKS))
 def test_every_package_built_on_install_is_named(app):
     """Fails when a lock compiled again names a new package by a single file,
     an sdist and nothing else — one more package compiled on the unit by a
@@ -212,7 +229,7 @@ def test_every_package_built_on_install_is_named(app):
     unit all the same. lgpio is that case, named by hand once found; another
     one shows the same way, as a "Building wheel for" line in the image build.
     """
-    _, lock_path = APPS[app]
+    lock_path = LOCKS[app]
     lock = _lock(lock_path)
     single_file = {name for name, entry in lock.items() if len(entry["hashes"]) == 1}
     accepted = set(BUILT_ON_INSTALL[app])
@@ -256,42 +273,105 @@ def test_ci_tests_with_the_python_the_locks_were_compiled_for():
     workflow = (REPO_ROOT / ".github" / "workflows" / "lint.yml").read_text()
     ci = set(re.findall(r"python-version:\s*'([0-9.]+)'", workflow))
     assert ci, "no python-version read from lint.yml"
-    for app, (_, lock_path) in APPS.items():
+    for app, lock_path in LOCKS.items():
         header = lock_path.read_text().split("\n", 3)[1]
         compiled = re.search(r"--python-version\s+([0-9.]+)", header)
         assert compiled, f"{app}: the lock's header names no --python-version: {header!r}"
         assert ci == {compiled.group(1)}, f"CI runs Python {sorted(ci)}, the {app} lock is for {compiled.group(1)}"
 
 
-# An install from a requirements file, in a shell script or a workflow step.
-PIP_INSTALL_RE = re.compile(r"\bpip3?\s+install\b[^\n]*?\s-r\s+(\S+)")
+def test_the_qobuz_proxy_lock_is_compiled_at_the_manifest_version():
+    """Fails when QOBUZ_PROXY_VERSION moves and qobuz-proxy.lock is not compiled
+    again from the new tag's pyproject.toml. The sidecar's venv takes its
+    dependencies from the lock alone (the archive goes in with `--no-deps`), so
+    a stale lock installs the old release's set under the new release, and a
+    floor it raised or a package it added is missing on the unit — found only
+    when Qobuz fails to start, after the update's own checks. Also fails when
+    the lock pins a package nothing in it was pulled in by, or was compiled
+    without the `[local]` extra the PortAudio backend needs.
+    """
+    version = load_dependency_manifest()["QOBUZ_PROXY_VERSION"]
+    lock_path = LOCKS["qobuz-proxy"]
+    header = lock_path.read_text().split("\n", 3)[1]
+    compiled = re.search(r"\bqobuz-proxy-([0-9][^/\s]*)/pyproject\.toml\b", header)
+    assert compiled, f"{lock_path.name}'s header names no qobuz-proxy-<version>/pyproject.toml: {header!r}"
+    assert compiled.group(1) == version, (
+        f"{lock_path.name} was compiled for qobuz-proxy {compiled.group(1)}, dependencies.env pins "
+        f"{version}: compile it again from that tag's pyproject.toml (docs/development.md § The Python lock)"
+    )
+    assert "--extra local" in header, f"{lock_path.name} was compiled without the [local] extra: {header!r}"
+
+    project = f"qobuz-proxy (qobuz-proxy-{version}/pyproject.toml)"
+    lock = _lock(lock_path)
+    direct = {name for name, entry in lock.items() if project in entry["via"]}
+    assert len(direct) >= 5, f"only {sorted(direct)} pinned for {project}"
+    stale = sorted(
+        f"{name} (via {entry['via']})"
+        for name, entry in lock.items()
+        if project not in entry["via"]
+        and not {canonicalize_name(v) for v in entry["via"]} & set(lock)
+    )
+    assert not stale, f"{lock_path.name} pins what neither {project} nor a package it pins pulls in: {stale}"
+
+
+# A pip install, in a shell script or a workflow step — the binary may be
+# quoted ("$MILO_DATA_DIR/qobuz/venv/bin/pip" install …).
+PIP_ANY_RE = re.compile(r"\bpip3?[\"']?\s+install\b")
+# The requirements file it reads, when it reads one.
+PIP_FILE_RE = re.compile(r"\s-r\s+(\S+)")
+# The one other shape a unit's install may take: a file the script checked
+# against its digest first, with nothing resolved beside it.
+PIP_CHECKED_ARCHIVE_RE = re.compile(r"\s--no-deps\s[^\n]*@ file://")
+
+
+def _scripted_installs(sources):
+    """(path, install line) for every pip install, continuation lines joined."""
+    installs = []
+    for path in sources:
+        text = path.read_text().replace("\\\n", " ")
+        installs += [
+            (path, line.strip())
+            for line in text.splitlines()
+            if not line.lstrip().startswith("#") and PIP_ANY_RE.search(line)
+        ]
+    return installs
 
 
 def test_every_scripted_install_reads_a_lock_with_hashes():
     """The image build and CI install a venv through pip in shell, where no test
-    runs them. Fails when one of them installs a requirements file other than a
-    lock, or a lock without `--require-hashes` — CI's requirements-dev.txt alone
-    excepted, which holds the test runner and the linter and never reaches a
-    unit.
+    runs them. Fails when one of them lets pip resolve what it installs: a
+    requirements file other than a lock, a lock without `--require-hashes`, or
+    a package named on the command line — with its dependencies, or straight
+    from PyPI (`pip install --upgrade pip` was one, in qobuz-proxy's venv). The
+    one package a unit installs by name is an archive the script checked
+    against its digest, with `--no-deps`. CI's requirements-dev.txt and its pip
+    upgrade alone are excepted: they hold the test runner and the linter and
+    never reach a unit.
     """
-    sources = [
+    unit = [
         *(REPO_ROOT / "pi-gen" / "stage-milo").rglob("*run.sh"),
         *(REPO_ROOT / "provisioning").glob("*.sh"),
-        REPO_ROOT / ".github" / "workflows" / "lint.yml",
     ]
-    installs = [
-        (path, line.strip())
-        for path in sources
-        for line in path.read_text().splitlines()
-        if not line.lstrip().startswith("#") and PIP_INSTALL_RE.search(line)
-    ]
-    assert len(installs) >= 3, f"only {installs} pip installs from a file read"
+    ci = REPO_ROOT / ".github" / "workflows" / "lint.yml"
+    installs = _scripted_installs([*unit, ci])
+    assert len(installs) >= 6, f"only {installs} pip installs read"
 
-    wrong = [
-        f"{path.relative_to(REPO_ROOT)}: {line}"
-        for path, line in installs
-        for target in (t.strip("\"'") for t in PIP_INSTALL_RE.findall(line))
-        if not target.endswith("requirements-dev.txt")
-        and not (target.endswith("requirements.lock") and "--require-hashes" in line)
-    ]
-    assert not wrong, "these installs read no lock, or read one without --require-hashes:\n" + "\n".join(wrong)
+    def accepted(path, line):
+        targets = [t.strip("\"'") for t in PIP_FILE_RE.findall(line)]
+        if targets:
+            return all(
+                (t.endswith(".lock") and "--require-hashes" in line)
+                or (path == ci and t.endswith("requirements-dev.txt"))
+                for t in targets
+            )
+        if path == ci:
+            return re.search(r"install --upgrade pip$", line) is not None
+        return PIP_CHECKED_ARCHIVE_RE.search(line) is not None
+
+    wrong = [f"{path.relative_to(REPO_ROOT)}: {line}" for path, line in installs if not accepted(path, line)]
+    assert not wrong, "these installs let pip resolve what they install, unhashed:\n" + "\n".join(wrong)
+    read = {Path(t.strip("\"'")).name for _, line in installs for t in PIP_FILE_RE.findall(line)}
+    assert {lock.name for lock in LOCKS.values()} <= read, (
+        f"the scripts install {sorted(read)}, not every lock a unit runs: "
+        f"{sorted(lock.name for lock in LOCKS.values())}"
+    )

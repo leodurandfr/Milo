@@ -61,6 +61,9 @@ from backend.config.constants import DEPLOY_UPDATE_CMD
 # service runs, which also answers whether a release still offers what they bind
 # to.
 QOBUZ_ADAPTER = "/usr/local/bin/milo-qobuz"
+# What qobuz-proxy depends on at the manifest's version, every file named by its
+# sha256, relative to the checkout — the file the image build installs too.
+QOBUZ_PROXY_LOCK = "qobuz-proxy.lock"
 
 # What the root helpers read, in a digest's place, as "dependencies.env declares
 # none for this file": an install of a version past the manifest.
@@ -406,7 +409,7 @@ class UpdateService(VersionService):
                 await self._close_post_commit(journal, cut)
             else:
                 await self._write_journal(**{KEY_POST_COMMIT_RUNS: runs + 1})
-                await self._close_post_commit(journal, await self._run_post_commit_phase())
+                await self._close_post_commit(journal, await self._run_post_commit_phase(journal))
             finished = True
         except Exception as e:
             self._post_commit_stalled = True
@@ -419,11 +422,13 @@ class UpdateService(VersionService):
             self._milo_phase = None
         await self._notify_milo_complete(finished)
 
-    async def _run_post_commit_phase(self) -> Optional[str]:
+    async def _run_post_commit_phase(self, journal: dict) -> Optional[str]:
         """The dependency set, then the satellites; what stayed behind, for the
         outcome's detail."""
         await self._milo_progress("dependencies")
-        dependency_failures = await self._reconcile_dependencies()
+        dependency_failures = await self._reconcile_dependencies(
+            relock=await self._qobuz_lock_moved(journal)
+        )
         await self._milo_progress("satellites")
         satellite_failures = await self._satellites.push_client_app_to_fleet(
             on_push=lambda name, index, total: self._milo_progress(
@@ -436,6 +441,31 @@ class UpdateService(VersionService):
         if satellite_failures:
             left.append(f"satellites left behind: {', '.join(satellite_failures)}")
         return "; ".join(left) or None
+
+    async def _qobuz_lock_moved(self, journal: dict) -> frozenset[str]:
+        """{"qobuz-proxy"} when this update moved qobuz-proxy.lock, else nothing.
+
+        The lock is what the sidecar's venv holds, and it can move while
+        `QOBUZ_PROXY_VERSION` does not (compiled again for a fixed dependency):
+        compared by version alone, the reconciliation would leave every updated
+        unit on the set it already had until the next bump, as the app venv
+        would be without `requirements_moved_up`. Read from the two commits the
+        journal names, by the same rule. An origin that carries no lock is the
+        release before the lock existed, whose venv pip resolved unhashed, so
+        it reads as an empty lock. Never raises: a target that cannot be read
+        reinstalls from the lock on disk, which costs a venv copy at worst.
+        """
+        origin, target = journal.get(KEY_ORIGIN_COMMIT), journal.get(KEY_TARGET_COMMIT)
+        try:
+            after = await self._git_output("show", f"{target}:{QOBUZ_PROXY_LOCK}")
+        except Exception as e:
+            self.update_logger.error(f"qobuz-proxy.lock of {target} could not be read ({e}); reinstalling it")
+            return frozenset({"qobuz-proxy"})
+        try:
+            before = await self._git_output("show", f"{origin}:{QOBUZ_PROXY_LOCK}")
+        except Exception:
+            before = ""
+        return frozenset({"qobuz-proxy"}) if requirements_moved_up(before, after) else frozenset()
 
     async def _close_post_commit(self, journal: dict, detail: Optional[str]) -> None:
         record = {
@@ -675,8 +705,13 @@ class UpdateService(VersionService):
         else:
             return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
-    async def _reconcile_dependencies(self) -> list[str]:
+    async def _reconcile_dependencies(self, relock: frozenset[str] = frozenset()) -> list[str]:
         """Bring every dependency to the version this release's manifest declares.
+
+        `relock` names the dependencies installed again at the version they
+        already run, because the lock their install reads moved
+        (`_qobuz_lock_moved`) — never one held off its pin on purpose, whose
+        install reads no lock.
 
         Run by the release that arrived, once its trial committed: the catalog
         it imported at start resolved its own `dependencies.env`, so what it
@@ -732,7 +767,9 @@ class UpdateService(VersionService):
                 # already on it is not reported for an offer it does not need.
                 forced = (await self.get_forced_versions()).get(program_key)
                 if installed == (forced or self.programs[program_key]["validated_version"]):
-                    continue
+                    if program_key not in relock or forced:
+                        continue
+                    self.update_logger.info(f"{program_key}: its lock moved at {installed}; installing it again")
                 latest = status["latest"]
                 if latest.get("status") != "success":
                     failed.append(program_key)
@@ -2429,11 +2466,13 @@ class UpdateService(VersionService):
         milo-owned venv — unprivileged, since the backend runs as milo. What pip
         installs is the tag's source archive, downloaded and checked against the
         manifest's digest first: a `git+…@tag` reference is whatever the tag
-        points at the moment pip clones it, which nothing can check. Nothing
-        is written into site-packages: Milō's volume policy and status progress
-        are applied at runtime by the launcher the service runs, so the venv
-        matches the released package exactly. What is asked here instead is
-        whether the new release still offers what those adaptations bind to.
+        points at the moment pip clones it, which nothing can check. At the
+        manifest's version, what it depends on is the release's
+        qobuz-proxy.lock (`_qobuz_pip_installs`). Nothing is written into
+        site-packages: Milō's volume policy and status progress are applied at
+        runtime by the launcher the service runs, so the venv matches the
+        released package exactly. What is asked here instead is whether the new
+        release still offers what those adaptations bind to.
         The whole venv is backed up first so any failure rolls back to the
         working version; config.yaml and credentials.json are left untouched.
         """
@@ -2484,14 +2523,11 @@ class UpdateService(VersionService):
                     return self._failure_after_rollback("Failed to stop service.", rolled_back)
 
             # Phase 3: pip upgrade to the checked archive (70%) — unprivileged
-            pip_ok, pip_out = await self._run_local(
-                f"{venv}/bin/pip", "install", "--upgrade",
-                f"qobuz-proxy[local] @ {archive.as_uri()}",
-                timeout=600
-            )
-            if not pip_ok:
-                rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
-                return self._failure_after_rollback(f"pip install failed: {pip_out}.", rolled_back)
+            for argv in self._qobuz_pip_installs(config, archive, latest_version):
+                pip_ok, pip_out = await self._run_local(*argv, timeout=600)
+                if not pip_ok:
+                    rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
+                    return self._failure_after_rollback(f"pip install failed: {pip_out}.", rolled_back)
 
             # Phase 4: does this release still offer what Milō adapts? (85%)
             # Asked before the service is restarted onto it, so a refactor that
@@ -2535,6 +2571,33 @@ class UpdateService(VersionService):
 
         finally:
             await self._cleanup_temp_files(temp_dir)
+
+    def _qobuz_pip_installs(self, config: Dict[str, Any], archive: Path, version: str) -> list[list[str]]:
+        """The pip runs that put qobuz-proxy `version`, from its checked
+        `archive`, into the venv — what provisioning/qobuz-proxy.sh runs too.
+
+        At the manifest's version, its dependencies come from the release's
+        qobuz-proxy.lock with `--require-hashes`, then the archive goes in with
+        `--no-deps`, so pip resolves nothing itself: left to resolve them, it
+        installed whatever PyPI served that day, unchecked, for a sidecar that
+        holds the account's token. Any other version is what upstream published
+        past the manifest (a `target: upstream` install): nothing names its
+        archive's digest, no lock was compiled for it, and pip resolves what
+        that release asks for, said so in the log.
+        """
+        pip = f"{config['venv_path']}/bin/pip"
+        package = f"qobuz-proxy[local] @ {archive.as_uri()}"
+        if digest_for(config, version) is None:
+            self.update_logger.warning(
+                f"qobuz-proxy {version}: no lock (a version past dependencies.env), "
+                "its dependencies are resolved by pip, unhashed"
+            )
+            return [[pip, "install", "--no-cache-dir", "--upgrade", package]]
+        lock = Path(self.programs["milo"]["git_path"]) / QOBUZ_PROXY_LOCK
+        return [
+            [pip, "install", "--no-cache-dir", "--require-hashes", "-r", str(lock)],
+            [pip, "install", "--no-cache-dir", "--upgrade", "--no-deps", package],
+        ]
 
     async def _backup_qobuz_venv(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Copies the whole venv to backup_path/venv so a failed upgrade can roll back."""

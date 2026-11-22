@@ -81,8 +81,9 @@ CHROOT
 # ── qobuz-proxy (Qobuz Connect) ──────────────────────────────────────────────
 # Reuse provisioning/qobuz-proxy.sh::install_qobuz_proxy rather than restating the
 # venv + config.yaml build here — single source of truth.
-# Installs libportaudio2 + the pinned tag's checked archive into /var/lib/milo/qobuz/venv and
-# writes the flat single-speaker config. The one-time Qobuz login is done by the
+# Installs the pinned tag's checked archive into /var/lib/milo/qobuz/venv, over the
+# dependencies qobuz-proxy.lock names by sha256 (--require-hashes), and writes the
+# single-speaker config. The one-time Qobuz login is done by the
 # operator later (settings screen / :8689) and cached in credentials.json — it
 # is user-specific and intentionally NOT baked into the image.
 

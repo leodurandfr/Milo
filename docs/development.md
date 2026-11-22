@@ -550,11 +550,14 @@ is driven entirely by an external app:
   release, so
   [provisioning/qobuz-proxy.sh](https://github.com/leodurandfr/Milo/blob/main/provisioning/qobuz-proxy.sh) downloads the
   pinned tag's archive (`archive/refs/tags/v${QOBUZ_PROXY_VERSION}.tar.gz`), checks
-  it against `QOBUZ_PROXY_SHA256`, creates a venv under `/var/lib/milo/qobuz/` and
-  `pip install`s that file (PEP 508 `file://` URL, `[local]` extra for the PortAudio
-  backend + `libportaudio2` from apt) — never `git+…@tag`, which is whatever the tag
-  points at when pip clones it, and nothing a digest can be taken over. The in-app
-  update (`UpdateService._update_qobuz_proxy`) installs the same checked file. The
+  it against `QOBUZ_PROXY_SHA256`, creates a venv under `/var/lib/milo/qobuz/`,
+  installs `qobuz-proxy.lock` into it with `--require-hashes` (its dependencies with the
+  `[local]` extra for the PortAudio backend, + `libportaudio2` from the system manifest),
+  then `pip install --no-deps`s that file (PEP 508 `file://` URL) — never `git+…@tag`,
+  which is whatever the tag points at when pip clones it, and nothing a digest can be
+  taken over. The in-app update (`UpdateService._update_qobuz_proxy`) installs the same
+  checked file over the same lock; a `target: upstream` trial has neither a digest nor a
+  lock, and pip resolves what that release asks for, said in the update log. The
   pi-gen stage-02 sources the module rather than restating the install (single
   source of truth).
 - **Six adaptations**, applied at runtime by the launcher the unit runs,
@@ -1185,7 +1188,8 @@ line, nothing to notice. "Audio plays" would have passed it.
    digest but a `*_COMMIT` line beside it instead, the commit the tag names
    (`git ls-remote <repo> 'refs/tags/v<version>*'`, the `^{}` line for an annotated tag): the
    image build refuses a clone whose HEAD is another, so a bump that leaves it stale fails the
-   build.
+   build. A `QOBUZ_PROXY_VERSION` bump also compiles `qobuz-proxy.lock` again
+   ([The Python lock](#the-python-lock)); CI fails on a lock left at the old version.
 3. In the same edit, move the program's row of `THIRD_PARTY_NOTICES.md`: its version and its
    tag link (and the commit, for a cloned tag), which
    `backend/tests/architecture/test_third_party_notices.py` holds equal to the manifest — and
@@ -1245,6 +1249,24 @@ uv pip compile requirements.txt --universal --python-version 3.13 --generate-has
 uv pip compile requirements.txt -c ../../requirements.lock --universal --python-version 3.13 --generate-hashes -o requirements.lock
 ```
 
+qobuz-proxy's venv has a lock of its own, `qobuz-proxy.lock` at the repo root: what the tag
+`QOBUZ_PROXY_VERSION` names depends on, compiled from that tag's `pyproject.toml` with the
+`[local]` extra. Compile it again in the same commit as every bump of that line, from the tag's
+source archive checked against `QOBUZ_PROXY_SHA256` and unpacked at the repo root (then removed),
+so the header names the version:
+
+```bash
+# from the repo root, with qobuz-proxy-<version>/ unpacked beside dependencies.env
+uv pip compile qobuz-proxy-<version>/pyproject.toml --extra local --universal --python-version 3.13 --generate-hashes -o qobuz-proxy.lock
+```
+
+The image and the update install it with `--require-hashes`, then the checked archive with
+`--no-deps`, so pip resolves nothing for the sidecar; only qobuz-proxy itself is built on
+install, from that archive, by an unpinned setuptools. The lock can also be compiled again at an
+unchanged version (a fixed dependency): a Milō update whose `qobuz-proxy.lock` gained or changed
+a line between the two commits it moves across installs the sidecar again at its pin, in the
+post-commit phase, by the rule `requirements_moved_up` applies to `requirements.lock`.
+
 Each lock's header repeats its command. `--universal` resolves once for every machine Milō runs
 on — a unit (Linux aarch64), CI (x86_64), a Mac — with markers where they differ; `lgpio` has no
 cp313 wheel, so on aarch64 it builds from its sdist, against the `liblgpio-dev` and `swig` the
@@ -1256,7 +1278,8 @@ serves the day an image is built or an update moves them. `BUILT_ON_INSTALL` in
 every package to what PyPI serves that day, so it is a dependency bump like any other: run the
 suites, then the smoke set on a unit. `backend/tests/architecture/test_python_lock.py` fails
 when a lock no longer covers its requirements, keeps a package nothing asks for, lacks a hash,
-names a new package by its sdist alone, or when the two locks disagree.
+names a new package by its sdist alone, when the two locks disagree, or when qobuz-proxy's lock
+was compiled for another version than the manifest's.
 
 ### Updating an installation
 
