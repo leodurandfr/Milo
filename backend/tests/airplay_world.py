@@ -59,8 +59,8 @@ from unittest.mock import AsyncMock, Mock
 
 Item = Tuple[str, str, Optional[bytes]]
 
-PHONE = "2a01:e0a:1048:b5b0:30a7:b5b1:3abc:a092"
-MAC = "2a01:e0a:1048:b5b0:1452:d968:54ba:8b5f"
+PHONE = "2001:db8:0:1:7d2e:91c4:5b08:e3f1"
+MAC = "2001:db8:0:1:c61a:3f9e:2d74:86b0"
 FIRST_PID = 4242
 
 # The commands each sender listed (CommandInformation, enabled ones only).

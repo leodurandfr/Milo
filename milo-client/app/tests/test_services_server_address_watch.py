@@ -951,8 +951,8 @@ async def test_an_ipv6_stream_is_left_to_the_address_check(tmp_path):
     the check of a dropped stream hands that unit an IPv4 literal instead.
     """
     world = await _World(
-        tmp_path, dialled="2a01:e0a:1::55", resolves=lambda t: WIRED,
-        connected=lambda t: True, local=lambda t: "2a01:e0a:1::69",
+        tmp_path, dialled="2001:db8:0:1::55", resolves=lambda t: WIRED,
+        connected=lambda t: True, local=lambda t: "2001:db8:0:1::69",
         carrier=lambda t: "1", wired=lambda t: SAT_WIRED, preferred=lambda t: SAT_WIRED,
     ).run()
 

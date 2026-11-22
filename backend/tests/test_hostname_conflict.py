@@ -20,11 +20,13 @@ Two boundaries are doubled here, both of them the **outside world**:
     the LAN — and `ip` only picks the address printed in the takeover.
 
 Every canned stdout below is a verbatim capture from this appliance against the
-live LAN (browse + `ip` on 2026-08-26, D-Bus answers on 2026-08-31):
+live LAN (browse + `ip` on 2026-08-26, D-Bus answers on 2026-08-31), but for the
+addresses that would name the household: the global IPv6 is moved into
+2001:db8::/32 and the tunnel's into 100.64.0.1, still inside 100.64.0.0/10:
 
     avahi-browse -rt -p _workstation._tcp
     =;eth0;IPv4;milo\\032\\0912c\\058cf…\\093;Workstation;local;milo.local;192.168.1.55;9;
-    =;eth0;IPv6;…;Workstation;local;milo.local;2a01:e0a:1048:b5b0:e079:41ff:e835:8628;9;
+    =;eth0;IPv6;…;Workstation;local;milo.local;2001:db8:0:1:a4c3:1eff:fe2b:9d55;9;
 
     ip -4 -o addr show
     2: eth0    inet 192.168.1.55/24 brd … scope global dynamic noprefixroute eth0\\  …
@@ -66,7 +68,7 @@ IP_ADDR_SHOW = (
     "       valid_lft 42917sec preferred_lft 42917sec\n"
     "3: wlan0    inet 192.168.1.39/24 brd 192.168.1.255 scope global dynamic noprefixroute wlan0\\"
     "       valid_lft 42905sec preferred_lft 42905sec\n"
-    "4: tun0    inet 100.100.100.100/32 scope global tun0\\"
+    "4: tun0    inet 100.64.0.1/32 scope global tun0\\"
     "       valid_lft forever preferred_lft forever\n"
 )
 
@@ -74,7 +76,7 @@ IP_ADDR_SHOW = (
 # lease has landed yet. This is the snapshot the old code judged itself on.
 IP_ADDR_SHOW_BOOT = (
     "1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever preferred_lft forever\n"
-    "4: tun0    inet 100.100.100.100/32 scope global tun0\\"
+    "4: tun0    inet 100.64.0.1/32 scope global tun0\\"
     "       valid_lft forever preferred_lft forever\n"
 )
 
@@ -90,14 +92,14 @@ def browse_record(fqdn, ip, proto="IPv4"):
 BROWSE_SELF_ONLY = "\n".join([
     "+;eth0;IPv6;" + _NAME + ";Workstation;local",
     "+;eth0;IPv4;" + _NAME + ";Workstation;local",
-    browse_record("milo.local", "2a01:e0a:1048:b5b0:e079:41ff:e835:8628", "IPv6"),
+    browse_record("milo.local", "2001:db8:0:1:a4c3:1eff:fe2b:9d55", "IPv6"),
     browse_record("milo.local", "192.168.1.55"),
     browse_record("milo-client-2.local", "192.168.1.153"),
 ]) + "\n"
 
 # The LAN as it looks when this unit lost the probe race and Avahi renamed it.
 BROWSE_RENAMED_SELF = "\n".join([
-    browse_record("milo-2.local", "2a01:e0a:1048:b5b0:e079:41ff:e835:8628", "IPv6"),
+    browse_record("milo-2.local", "2001:db8:0:1:a4c3:1eff:fe2b:9d55", "IPv6"),
     browse_record("milo-2.local", "192.168.1.55"),
     browse_record("milo-client-2.local", "192.168.1.153"),
 ]) + "\n"
@@ -427,7 +429,7 @@ class TestTheBootRace:
     ~9 s before either DHCP lease lands. The old detection sampled `ip -4`
     first and `avahi-resolve milo.local` last, and the answer named an address
     acquired in between — so the unit did not recognise itself and mounted the
-    takeover, showing "This device: ? (100.100.100.100)".
+    takeover, showing "This device: ? (100.64.0.1)".
     """
 
     async def test_a_lease_that_lands_mid_check_is_not_another_milo(self, service):
@@ -516,7 +518,7 @@ class TestRenamedMiloScan:
         """avahi-browse resolves every host twice, once per family. The list is
         what the warning names, so a peer must appear once, not twice."""
         browse = "\n".join([
-            browse_record("milo-2.local", "2a01:e0a:1048:b5b0::77", "IPv6"),
+            browse_record("milo-2.local", "2001:db8:0:1::77", "IPv6"),
             browse_record("milo-2.local", "192.168.1.77"),
         ]) + "\n"
         with on_unit(default_router(browse=(browse, 0))):
@@ -657,7 +659,7 @@ class TestDisplayAddress:
     is the only thing identifying which box is speaking."""
 
     async def test_the_lan_address_is_shown_not_the_tunnel_one(self, service):
-        """The takeover of 2026-08-31 read "? (100.100.100.100)". A carrier-grade
+        """The takeover of 2026-08-31 read "? (100.64.0.1)". A carrier-grade
         NAT address names nothing on the owner's network, and it sorts before every
         RFC-1918 one, so only an explicit RFC-1918 test rejects it."""
         with on_unit():
@@ -668,14 +670,14 @@ class TestDisplayAddress:
         """`_get_local_ips` returns a *set*, which iterates in hash order: fed an
         iterable already in the opposite order, the sort is the only thing that
         can produce the answer."""
-        descending = ["192.168.1.55", "192.168.1.39", "127.0.0.1", "100.100.100.100"]
+        descending = ["192.168.1.55", "192.168.1.39", "127.0.0.1", "100.64.0.1"]
         assert HostnameConflictService._display_address(descending) == "192.168.1.39"
 
     def test_a_host_with_only_a_cgnat_address_still_shows_something(self):
         """Mid-boot, before either DHCP lease lands: better the carrier-grade NAT
         address than nothing."""
         assert HostnameConflictService._display_address(
-            {"127.0.0.1", "100.100.100.100"}) == "100.100.100.100"
+            {"127.0.0.1", "100.64.0.1"}) == "100.64.0.1"
 
     def test_a_host_with_only_loopback_reports_no_address(self):
         """A unit whose interfaces are all down: the takeover then shows the

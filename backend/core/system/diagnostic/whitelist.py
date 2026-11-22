@@ -462,10 +462,11 @@ def strip_global_ipv6(text: str) -> str:
     fault cannot be read without them. A *global* IPv6 address is a different
     thing: its /64 is handed out by the ISP and identifies the subscriber line,
     not a device on the LAN. Measured in this unit's own avahi journal, which
-    announces the address it registered on every start:
+    announces the address it registered on every start (shown here with a
+    2001:db8::/32 stand-in for the subscriber's own):
 
         avahi-daemon[…]: Registering new address record for
-        2a01:e0a:1048:b5b0:e079:41ff:e835:8628 on eth0.*.
+        2001:db8:0:1:a4c3:1eff:fe2b:9d55 on eth0.*.
 
     Nothing is diagnosed from it that `eth0 is up` does not already say.
     """

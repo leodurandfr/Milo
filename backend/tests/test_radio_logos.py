@@ -205,7 +205,7 @@ class TestTheFetch:
         ("192.168.1.60", "a satellite on the LAN"),
         ("10.0.0.1", "an RFC1918 host"),
         ("169.254.1.1", "link-local"),
-        ("100.100.100.100", "the carrier-grade NAT range"),
+        ("100.64.0.1", "the carrier-grade NAT range"),
     ])
     async def test_an_address_off_the_public_internet_is_never_fetched(
         self, fetches, dns, address, what

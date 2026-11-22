@@ -309,14 +309,16 @@ def test_a_global_ipv6_address_is_replaced_and_a_local_one_is_not():
 
     A global IPv6 is a different thing: its /64 comes from the ISP and names the
     subscriber line. Measured in this unit's avahi journal, which announces the
-    address it registered on every start. Link-local and ULA are local, and are
-    what a routing or an mDNS problem is actually read from.
+    address it registered on every start (the line below carries a 2001:db8::/32
+    stand-in: the redaction reads the 2000::/3 shape, which it shares).
+    Link-local and ULA are local, and are what a routing or an mDNS problem is
+    actually read from.
     """
     out = wl.strip_global_ipv6(
-        "Registering 2a01:e0a:1048:b5b0:e079:41ff:e835:8628 on eth0; "
+        "Registering 2001:db8:0:1:a4c3:1eff:fe2b:9d55 on eth0; "
         "nameserver fd7a:115c:a1e0::53; peer fe80::1; host 192.168.1.55"
     )
-    assert "2a01" not in out and "<global-ipv6>" in out
+    assert "2001:db8" not in out and "<global-ipv6>" in out
     assert "fd7a:115c:a1e0::53" in out
     assert "fe80::1" in out
     assert "192.168.1.55" in out

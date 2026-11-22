@@ -328,7 +328,7 @@ class TestNetworkInfo:
         reads as unreachable from its own settings screen.
         """
         shell["hostname -I"] = _Proc(stdout=(
-            "192.168.1.55 100.100.100.100 2a01:e0a:1048:b5b0:e079:41ff:e835:8628\n"
+            "192.168.1.55 100.64.0.1 2001:db8:0:1:a4c3:1eff:fe2b:9d55\n"
         ))
 
         data = client.get("/api/system/network-info").json()
@@ -339,7 +339,7 @@ class TestNetworkInfo:
         """Better than printing an address the user cannot type into a browser
         bar without brackets.
         """
-        shell["hostname -I"] = _Proc(stdout="2a01:e0a:1048:b5b0:e079:41ff:e835:8628\n")
+        shell["hostname -I"] = _Proc(stdout="2001:db8:0:1:a4c3:1eff:fe2b:9d55\n")
 
         data = client.get("/api/system/network-info").json()
 
