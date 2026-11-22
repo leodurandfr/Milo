@@ -15,10 +15,12 @@ was told.
   under AudioStateMachine.TRANSITION_TIMEOUT. TestConnectBudget guards that its
   budget is time, not attempts.
 - Reads observe the link and only a play command re-opens it. TestLinkOwnership.
-- This is the only file that drives the real controller: Radio, Podcast, CD and
-  Music Library all swap it for a Mock, so the classes from TestTransportCommands
-  down pin the frame each public method sends. A renamed property or an inverted
-  boolean here is wrong audio on four sources at once and on nothing else.
+- This is the only file that drives the real controller's commands: Radio,
+  Podcast, CD and Music Library all swap it for a Mock (MpvSim), so the classes
+  from TestTransportCommands down pin the frame each public method sends.
+  A renamed property or an inverted boolean here is wrong audio on four
+  sources at once and on nothing else. (test_music_library_long_queue.py runs
+  it too, for the length of a queue's reply, which no double can see.)
 """
 import asyncio
 import json
@@ -354,6 +356,94 @@ class TestReplyRouting:
 
         assert controller.is_connected is True
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def _playlist(count):
+    """mpv's `playlist` for `count` Navidrome streams: ~174 bytes an entry on
+    the wire, as measured on the unit (87 kB for 500 tracks)."""
+    url = "http://127.0.0.1:4533/rest/stream?u=milo&t={t}&s={s}&v=1.16.1&c=milo&id={i}&format=raw"
+    return [
+        {"filename": url.format(t="0" * 32, s="1" * 16, i=f"{n:022d}"), "id": n + 1}
+        for n in range(count)
+    ]
+
+
+@pytest.fixture
+async def narrow_mpv(tmp_path, monkeypatch):
+    """A connected controller whose read limit is 4 KiB, so a line past it
+    is cheap to send; no reply waits out a deadline here unnoticed (60 s)."""
+    monkeypatch.setattr("backend.shared.mpv.READ_LIMIT", 4096)
+    monkeypatch.setattr("backend.shared.mpv.COMMAND_TIMEOUT", 60.0)
+    fake = FakeMpv(tmp_path / "ipc.sock")
+    await fake.start()
+    controller = MpvController(ipc_socket_path=fake.path)
+    assert await controller.connect(timeout=2.0, retry_delay=0.1) is True
+    yield controller, fake
+    await controller.disconnect()
+    await fake.stop()
+
+
+class TestLongLines:
+    """A reply is one line, as long as its value: the Music Library's
+    `playlist` grows with the queue. asyncio's default 64 KiB limit cut it at
+    ~375 tracks (measured 2026-11-22), and the reader skipped the line, so
+    the read waited out its deadline and the queue edit ended the session as
+    a lost stream while mpv played on."""
+
+    async def test_a_reply_past_asyncios_default_limit_reaches_its_caller(self, live_mpv):
+        controller, fake = live_mpv
+        playlist = _playlist(2000)
+        fake.properties["playlist"] = [playlist]
+
+        assert len(json.dumps(playlist)) > 4 * 64 * 1024
+        assert await controller.get_playlist() == playlist
+
+    async def test_a_reply_over_the_limit_answers_its_own_caller_at_once(self, narrow_mpv):
+        """mpv answered: its caller is told so now, not after its deadline —
+        and the other caller, answered after it, still gets its own value."""
+        controller, fake = narrow_mpv
+        fake.reverse_every = 2
+        fake.properties.update({"metadata": [{"icy-title": "x" * 8000}], "volume": 11.0})
+
+        async with asyncio.timeout(10):
+            values = await asyncio.gather(
+                controller.get_property("volume"), controller.get_property("metadata")
+            )
+
+        assert values == [11.0, None]
+        assert controller.is_connected is True
+        fake.reverse_every = 0
+        assert await controller.get_property("volume") == 11.0
+
+    async def test_an_event_over_the_limit_is_skipped_not_taken_for_a_reply(
+        self, narrow_mpv, caplog
+    ):
+        controller, fake = narrow_mpv
+        fake.events_before_reply = [
+            {"event": "property-change", "name": "metadata", "data": "x" * 8000, "request_id": 1}
+        ]
+        fake.properties["volume"] = 11.0
+
+        with caplog.at_level(logging.WARNING, logger="backend.shared.mpv"):
+            async with asyncio.timeout(10):
+                assert await controller.get_property("volume") == 11.0
+
+        assert "'property-change' event" in caplog.text
+        assert controller.is_connected is True
+
+    async def test_a_playlist_over_the_limit_is_read_entry_by_entry(self, narrow_mpv):
+        """Past even READ_LIMIT, a live mpv's playlist is still read, one
+        short reply per entry."""
+        controller, fake = narrow_mpv
+        playlist = _playlist(50)
+        fake.properties["playlist"] = [playlist]
+        fake.properties["playlist-count"] = len(playlist)
+        for index, entry in enumerate(playlist):
+            fake.properties[f"playlist/{index}/id"] = entry["id"]
+            fake.properties[f"playlist/{index}/filename"] = entry["filename"]
+
+        async with asyncio.timeout(10):
+            assert await controller.get_playlist() == playlist
 
 
 class TestEvents:

@@ -1919,12 +1919,10 @@ async def test_a_reorder_mpv_cannot_read_back_ends_the_session(rig):
     await rig.select()
     await play(rig)
     await rig.tick()
-    real = rig.mpv.get_property
+    async def playlist_unanswered():
+        return None
 
-    async def playlist_unanswered(name, timeout=None):
-        return None if name == "playlist" else await real(name, timeout)
-
-    rig.mpv.get_property = playlist_unanswered
+    rig.mpv.get_playlist = playlist_unanswered
     result = await rig.command("set_shuffle", {"shuffle": True})
 
     assert result["success"] is False

@@ -5,8 +5,9 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Union
 from pathlib import Path
 
 from backend.shared.pidfd import ProcessWatch
@@ -48,11 +49,71 @@ CONNECT_TIMEOUT = 12.0
 # the moment the cheap branch got the reserve it actually costs.
 RECONNECT_TIMEOUT = PROBE_TIMEOUT
 
+# The longest line the link reads whole. asyncio's default (64 KiB) is what
+# cut a Music Library queue past ~375 tracks: every queue edit reads mpv's
+# `playlist` back, and that reply grows ~174 bytes an entry (measured on the
+# unit 2026-11-22: 300 tracks read, 500 tracks were an 87 kB reply that never
+# reached its caller, so the edit ended as a lost stream). 16 MiB is ~96,000
+# entries, past any queue the unit opens one loadfile at a time. It is a
+# ceiling, not an allocation: the reader holds only what mpv has sent. A queue
+# past it is still read, entry by entry (get_playlist).
+READ_LIMIT = 16 * 1024 * 1024
+
+# The error a caller is answered with when mpv's reply was over READ_LIMIT:
+# mpv answered, and the answer could not be taken in. Never one of mpv's own.
+REPLY_OVER_LIMIT = "reply over the read limit"
+
+# How much of a line over the limit is kept to tell what it was: its head
+# names an event, its tail the request a reply answers.
+_KEPT = 128
+_EVENT_HEAD = re.compile(rb'^\s*\{\s*"event"\s*:\s*"([^"]*)"')
+_REQUEST_ID = re.compile(rb'"request_id"\s*:\s*(\d+)')
+
+# How many playlist entries get_playlist's fallback reads at once (two
+# requests each): enough to keep the link busy, few enough that the replies
+# of one batch arrive well inside COMMAND_TIMEOUT.
+_ENTRY_BATCH = 500
+
 # The event subscribers receive when a link ends, whoever ended it. mpv never
 # sends it; nothing more arrives on that link afterwards.
 LINK_LOST = "link-lost"
 
 EventCallback = Callable[[Dict[str, Any], "MpvLink"], None]
+
+
+class _OverLimit(NamedTuple):
+    """A line longer than READ_LIMIT, read through to its end and not kept:
+    its first and last bytes, and its length."""
+    head: bytes
+    tail: bytes
+    size: int
+
+
+async def _read_line(reader: asyncio.StreamReader) -> Union[bytes, _OverLimit]:
+    """The next line, b"" at the end of the link.
+
+    A line over the reader's limit is consumed to its newline, so the next
+    one is intact, and comes back as an _OverLimit. readline() would discard
+    the bytes it holds and leave the rest of the line to be read as the next
+    one, with nothing left to say whose reply it was.
+    """
+    try:
+        return await reader.readuntil(b"\n")
+    except asyncio.IncompleteReadError as e:
+        return e.partial
+    except asyncio.LimitOverrunError as e:
+        chunk = await reader.readexactly(e.consumed)
+    head, tail, size = chunk[:_KEPT], chunk[-_KEPT:], len(chunk)
+    while True:
+        try:
+            chunk = await reader.readuntil(b"\n")
+        except asyncio.LimitOverrunError as e:
+            chunk = await reader.readexactly(e.consumed)
+            tail, size = (tail + chunk)[-_KEPT:], size + len(chunk)
+            continue
+        except asyncio.IncompleteReadError:
+            return b""
+        return _OverLimit(head, (tail + chunk)[-_KEPT:], size + len(chunk))
 
 
 class MpvLink:
@@ -201,7 +262,9 @@ class MpvController:
                         )
                         return False
 
-                    reader, writer = await asyncio.open_unix_connection(self.ipc_socket_path)
+                    reader, writer = await asyncio.open_unix_connection(
+                        self.ipc_socket_path, limit=READ_LIMIT
+                    )
                     self._open_link(reader, writer)
 
                     # Verify mpv responds to commands before declaring connected
@@ -278,12 +341,9 @@ class MpvController:
         """
         try:
             while True:
-                try:
-                    line = await link.reader.readline()
-                except ValueError:
-                    # Over the StreamReader limit: readline() has discarded it
-                    # and the next line is intact.
-                    self.logger.warning("mpv sent a line over the read limit; skipped")
+                line = await _read_line(link.reader)
+                if isinstance(line, _OverLimit):
+                    self._over_limit(line, link)
                     continue
                 if not line:
                     return
@@ -306,6 +366,40 @@ class MpvController:
             self.logger.error(f"mpv IPC reader failed, link dropped: {e}")
         finally:
             self._close_link(link)
+
+    def _over_limit(self, line: _OverLimit, link: MpvLink) -> None:
+        """A line over READ_LIMIT: answer the request it replied to, at once.
+
+        Left to its deadline, the caller read the silence as a dead mpv — a
+        queue edit on a long queue ended as a lost stream while mpv played on.
+        mpv's input/ipc.c adds a reply's `data` before its `request_id` (read
+        in the source, not measured on the unit), so the id is looked for in
+        the tail; the head is searched too, should that order differ.
+        An event over the limit is skipped: nobody waits on it.
+        """
+        event = _EVENT_HEAD.match(line.head)
+        ids = _REQUEST_ID.findall(line.tail)[-1:] or _REQUEST_ID.findall(line.head)[:1]
+        if event is not None or not ids:
+            what = (
+                f"a '{event.group(1).decode(errors='replace')}' event" if event
+                else "a line naming no request"
+            )
+            self.logger.warning(
+                f"mpv sent {what} of {line.size} bytes, over the "
+                f"{READ_LIMIT}-byte read limit; skipped"
+            )
+            return
+        request_id = int(ids[0])
+        future = link.pending.get(request_id)
+        if future is None or future.done():
+            self.logger.debug(
+                f"mpv's reply to request {request_id} was {line.size} bytes, over "
+                f"the {READ_LIMIT}-byte read limit, and nobody waits on it; skipped"
+            )
+            return
+        future.set_result(
+            {"request_id": request_id, "error": REPLY_OVER_LIMIT, "size": line.size}
+        )
 
     def _close_link(self, link: MpvLink) -> None:
         """End `link` once: release every caller waiting on it, then announce it.
@@ -466,8 +560,14 @@ class MpvController:
             self.logger.debug(f"mpv socket closed while awaiting request {request_id}")
             return None
         error = response.get("error")
+        if error == REPLY_OVER_LIMIT:
+            asked = " ".join(str(arg) for arg in (command, *args))[:80]
+            self.logger.warning(
+                f"mpv's reply to '{asked}' was {response.get('size')} bytes, "
+                f"over the {READ_LIMIT}-byte read limit"
+            )
         # Only log real errors, not transient errors
-        if error not in ("success", None, "null", "property unavailable"):
+        elif error not in ("success", None, "null", "property unavailable"):
             self.logger.warning(f"mpv command error: {error}")
         return response
 
@@ -613,6 +713,47 @@ class MpvController:
         if response and response.get('error') == 'success':
             return response.get('data')
         return None
+
+    async def get_playlist(self) -> Optional[List[Dict[str, Any]]]:
+        """mpv's playlist, in order: each entry's `id` and `filename` at least.
+
+        One read of `playlist` — a reply of ~174 bytes an entry, so a long
+        queue is a long line (READ_LIMIT). Past the limit, the same answer is
+        read entry by entry (`playlist-count`, then each `playlist/N/id` and
+        `playlist/N/filename`, per mpv's manual), `_ENTRY_BATCH` entries in
+        flight at a time so neither the requests waiting nor any read's
+        deadline grows with the queue: the playlist of a live mpv is never
+        unreadable for its length alone. The fallback starts past ~96,000
+        entries and its speed there has not been measured on the unit.
+
+        Returns:
+            The entries, or None when mpv did not answer every read.
+        """
+        response = await self._send_command("get_property", "playlist")
+        if response is None:
+            return None
+        if response.get("error") == "success":
+            data = response.get("data")
+            return data if isinstance(data, list) else None
+        if response.get("error") != REPLY_OVER_LIMIT:
+            return None
+        count = await self.get_property("playlist-count")
+        if not isinstance(count, int) or isinstance(count, bool):
+            return None
+        entries: List[Dict[str, Any]] = []
+        for first in range(0, count, _ENTRY_BATCH):
+            indexes = range(first, min(first + _ENTRY_BATCH, count))
+            values = await asyncio.gather(*(
+                self.get_property(f"playlist/{index}/{key}")
+                for index in indexes for key in ("id", "filename")
+            ))
+            if any(value is None for value in values):
+                return None
+            entries.extend(
+                {"id": values[2 * n], "filename": values[2 * n + 1]}
+                for n in range(len(indexes))
+            )
+        return entries
 
     async def get_metadata(self) -> Dict[str, str]:
         """

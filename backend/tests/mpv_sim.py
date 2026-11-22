@@ -56,10 +56,23 @@ consistent truth. Every behaviour below was observed on the unit
   (`playlist_insert_id`, `playlist_insert_num_entries` 1), which starts next.
   (Measured 2026-10-30, mpv 0.40 with the radio unit's options.)
 
+- On the IPC socket (`MpvSimServer`), every reply is one JSON line, and
+  `playlist` lists every entry on that one line (~174 bytes an entry with
+  Navidrome's stream URLs: 87 kB for 500 tracks, measured 2026-11-22).
+
+Not measured on the unit, and modeled from mpv's own text until a raw reply
+is recorded: the reply's key order, `data` first, then `request_id` and
+`error` (read in mpv's input/ipc.c); each entry readable alone, as
+`playlist/N/id` and `playlist/N/filename`, and a property with no value
+answering `property unavailable` (mpv's manual).
+
 Events reach subscribers synchronously, as the controller's reader task hands
 them over. What happens *when* is the test's to say: an entry that starts
 waits for `opens()` unless `auto_open` is set, a stall waits for `stalls()`.
 """
+import asyncio
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -212,6 +225,9 @@ class MpvSim:
             return None
         return self._read(name)
 
+    async def get_playlist(self) -> Optional[List[Dict[str, Any]]]:
+        return self._read("playlist") if self.is_connected else None
+
     async def set_property(self, name: str, value: Any) -> bool:
         self.sent.append(("set_property", name, value))
         if not self._ok():
@@ -338,6 +354,12 @@ class MpvSim:
         return self.accept and self.is_connected
 
     def _read(self, name: str) -> Any:
+        entry = re.fullmatch(r"playlist/(\d+)/(id|filename)", name)
+        if entry is not None:
+            index = int(entry.group(1))
+            if index >= len(self.playlist):
+                return None
+            return self.playlist[index].id if entry.group(2) == "id" else self.playlist[index].url
         playing_file = self.current is not None and self.opened
         position = self.playlist.index(self.current) if self.current in self.playlist else -1
         values = {
@@ -475,3 +497,95 @@ class MpvSim:
     def _dispatch(self, event: Dict[str, Any], link: SimLink) -> None:
         for callback in list(self._subscribers):
             callback(event, link)
+
+
+class MpvSimServer:
+    """An MpvSim behind mpv's JSON IPC, on a real Unix socket.
+
+    For the one thing the sim cannot show from behind the controller's
+    surface: what the bytes of the wire do to the real MpvController (a reply
+    as long as a queue). Every frame the controller sends is handed to the
+    sim's own method, so a test over the socket and a test on the sim meet
+    the same mpv; an event the sim emits is written before the reply of the
+    command that caused it. The sim dying hangs up.
+    """
+
+    def __init__(self, sim: MpvSim, path: str) -> None:
+        self.sim = sim
+        self.path = path
+        self.longest_line = 0       # bytes, the longest line written
+        self._server: Optional[asyncio.AbstractServer] = None
+        self._writers: List[asyncio.StreamWriter] = []
+
+    async def start(self) -> None:
+        self._server = await asyncio.start_unix_server(self._serve, self.path)
+
+    async def stop(self) -> None:
+        for writer in self._writers:
+            writer.close()
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+
+    def _write(self, writer: asyncio.StreamWriter, message: Dict[str, Any]) -> None:
+        line = (json.dumps(message, separators=(",", ":")) + "\n").encode()
+        self.longest_line = max(self.longest_line, len(line))
+        if not writer.is_closing():
+            writer.write(line)
+
+    async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        self._writers.append(writer)
+        await self.sim.connect()
+
+        def on_event(event: Dict[str, Any], _link: Any) -> None:
+            if event.get("event") == LINK_LOST:
+                writer.close()
+            else:
+                self._write(writer, event)
+
+        unsubscribe = self.sim.subscribe(on_event)
+        try:
+            while line := await reader.readline():
+                request = json.loads(line)
+                data, error = await self._run(request["command"])
+                reply = {} if error != "success" else {"data": data}
+                self._write(writer, {**reply, "request_id": request["request_id"], "error": error})
+                await writer.drain()
+        except ConnectionError:
+            return
+        finally:
+            unsubscribe()
+            writer.close()
+
+    async def _run(self, command: List[Any]) -> tuple:
+        """(data, error) for one frame, as mpv answers it."""
+        name, args = command[0], command[1:]
+        sim = self.sim
+        if name == "get_property":
+            value = await sim.get_property(args[0])
+            return (value, "success") if value is not None else (None, "property unavailable")
+        if name == "loadfile":
+            options = dict(o.split("=", 1) for o in args[3].split(",")) if len(args) > 3 else {}
+            start = options.get("start")
+            entry = await sim.loadfile(
+                args[0], mode=args[1], start_s=float(start) if start is not None else None,
+            )
+            return ({"playlist_entry_id": entry}, "success") if entry is not None else (None, "error running command")
+        if name == "playlist-move":
+            # mpv's `playlist-move i1 i2` puts i1 before i2; the sim takes
+            # the final position (MpvController.move_entry sends the inverse).
+            index, before = args
+            done = await sim.move_entry(index, before - 1 if index < before else before)
+        else:
+            calls = {
+                "set_property": lambda: sim.set_property(*args),
+                "observe_property": lambda: sim.observe(args[1]),
+                "stop": sim.stop,
+                "playlist-play-index": lambda: sim.play_index(*args),
+                "playlist-remove": lambda: sim.remove_entry(*args),
+                "seek": lambda: (sim.seek if args[1] == "absolute" else sim.seek_by)(args[0]),
+            }
+            if name not in calls:
+                raise ValueError(f"mpv command {name!r} is not modeled")
+            done = await calls[name]()
+        return (None, "success") if done not in (None, False) else (None, "error running command")

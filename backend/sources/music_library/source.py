@@ -1247,6 +1247,12 @@ class MusicLibrarySource(MpvAudioSource):
         playlist once they are done, and handed to the session in one step — a
         stop that cuts the edit keeps the whole queue to come back to.
 
+        The whole playlist, every time: a read narrowed to the entries the
+        commands meant to touch would be that rewrite again. Its reply grows
+        with the queue (~174 bytes an entry, an 87 kB line for 500 tracks),
+        and MpvController.get_playlist reads it whatever its length — so an
+        unanswered read here is an mpv gone, never a long queue.
+
         `by_entry` names the track of every entry id this may meet; `lost` is
         a load whose answer never came, found by its URL. The track playing
         keeps playing, so the index follows its entry without the reset of a
@@ -1254,9 +1260,9 @@ class MusicLibrarySource(MpvAudioSource):
         current one gone, is a queue that is not mpv's, whose end would never
         be recognized."""
         current = session.entries[session.index]
-        playlist = await self._mpv.get_property("playlist")
+        playlist = await self._mpv.get_playlist()
         entries, queue = [], []
-        for item in playlist if isinstance(playlist, list) else []:
+        for item in playlist or []:
             track = by_entry.get(item.get("id"))
             if track is None and lost is not None and item.get("filename") == lost[0]:
                 track, lost = lost[1], None
