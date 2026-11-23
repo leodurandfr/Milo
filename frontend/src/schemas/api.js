@@ -18,8 +18,7 @@ import { DEFAULT_VOLUME_DB } from '@/constants/volume';
 //
 // The audio state as the backend publishes it — the same object in
 // GET /api/audio/state, the `source/state` event and system/initial_state
-// (docs: "Développeurs : le fil", frozen 2026-09-24; backend
-// core/models/audio_wire.py::AudioState).
+// (frozen 2026-09-24; backend core/models/audio_wire.py::AudioState).
 //
 // STRICT, unlike the resilience schemas below: `service` and `phase` are frozen
 // enums and a state that does not parse is refused whole (the store keeps the

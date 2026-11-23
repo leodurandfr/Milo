@@ -3,8 +3,8 @@
 AirPlay 2 audio source using shairport-sync.
 
 The session belongs to shairport-sync, not to Milō: a sender connects, streams,
-pauses and leaves on its own. The source follows it through `reconcile()`
-(docs: source architecture, "reconcile"), from two feeds that each say what the
+pauses and leaves on its own. The source follows it through `reconcile()`,
+from two feeds that each say what the
 other cannot:
 
 - the metadata pipe (metadata_reader.py) carries the session: who connected
@@ -957,7 +957,7 @@ class AirPlaySource(BaseAudioSource):
                     "(will be created by shairport-sync)"
                 )
 
-    # === The view (docs: "le fil") ===
+    # === The view ===
 
     def _session_fields(self, session: AirPlaySession) -> Dict[str, Any]:
         item = session.now_playing

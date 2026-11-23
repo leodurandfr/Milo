@@ -1,8 +1,8 @@
 // frontend/src/composables/useSourceStatusDisplay.js
 // The single owner of the vocabulary AudioSourceStatus renders.
 //
-// The card reads a *display* state composed from the audio state (docs: "le
-// fil"): the service (starting, failed), the two drive operations the CD's
+// The card reads a *display* state composed from the audio state: the
+// service (starting, failed), the two drive operations the CD's
 // availability names (reading a disc, ejecting — something under way, drawn
 // with a spinner), and otherwise the session's own phase — loading, playing,
 // paused, or connected ("Connecté à X") — so a paused session no longer says

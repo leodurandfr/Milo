@@ -1,5 +1,5 @@
-"""Tidal's outside world, as measured on the unit (docs: source architecture,
-phase 3b): tidal_connect_application's `tisoc` controller socket and systemd
+"""Tidal's outside world, as measured on the unit:
+tidal_connect_application's `tisoc` controller socket and systemd
 holding the daemon.
 
 What the daemon was measured to send (2026-09-24, the owner's Mac, strace on

@@ -18,7 +18,7 @@ sent at all. The pipe still carries the session itself, which D-Bus does not
 (no sender name, no goodbye):
 
   Session control (type "ssnc"), what shairport-sync 5.5.1 was measured to
-  send (2026-09-23; docs: source architecture, phase 3a) and 5.6 still sends:
+  send (2026-09-23) and 5.6 still sends:
     - conn / disc: a sender connected / left (data: its IP). In 5.6 `conn`
       comes with the second SETUP (the one carrying `streams`), so a player
       that only checks the receiver is there no longer sends it

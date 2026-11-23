@@ -1,5 +1,5 @@
 # backend/tests/test_music_library_source.py
-"""MusicLibrarySource playback + queue (P1-6), driven through the outside world.
+"""MusicLibrarySource playback + queue, driven through the outside world.
 
 Covers the play_context → gapless mpv queue path, transport commands
 (pause/resume/next/prev/seek/play_index/set_shuffle/stop), the now-playing on

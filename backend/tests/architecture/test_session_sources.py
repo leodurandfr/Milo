@@ -1,6 +1,6 @@
 """A source on the session model declares its policies and owns no playback flag.
 
-Every source is on it (docs: source architecture): a module that defines a
+Every source is on it: a module that defines a
 `Session` subclass has moved its playback truth onto that session, so it must
 say how a pause ends it (IDLE_POLICY), what a multiroom toggle does to it
 (REROUTE), what survives it (RESUME_POLICY) and whether a daemon holds it
@@ -154,9 +154,9 @@ def session_violations_scope(tree: ast.Module) -> bool:
 
 
 def test_migrated_sources_are_found():
-    """Non-trivial first: phase 1 migrated Radio, Podcast and Music Library,
-    phase 2 the CD, phase 3a AirPlay, phase 3b Spotify and Tidal, phase 3c
-    Qobuz, phase 3d Mac, phase 4 Bluetooth — every source."""
+    """Non-trivial first: every source is on the session model — Radio,
+    Podcast, Music Library, the CD, AirPlay, Spotify, Tidal, Qobuz, Mac and
+    Bluetooth."""
     names = {cls.__name__ for cls in _migrated_classes()}
     assert {
         "RadioSource", "PodcastSource", "MusicLibrarySource", "CdSource", "AirPlaySource",

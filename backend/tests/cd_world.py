@@ -1,5 +1,5 @@
-"""The CD's outside world, as measured on the unit (docs: source architecture,
-phase 2): the drive, the disc, udev, the drive-status ioctl, `eject`, the
+"""The CD's outside world, as measured on the unit: the
+drive, the disc, udev, the drive-status ioctl, `eject`, the
 sector reader and mpv.
 
 One world, two ways to observe it. The drive answers CDROM_DRIVE_STATUS (what

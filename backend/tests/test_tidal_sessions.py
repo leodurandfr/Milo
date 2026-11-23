@@ -1,9 +1,9 @@
 """Tidal sessions, driven through the tisoc daemon the unit was measured to run
-(tests/tidal_world.py; docs: source architecture, phase 3b).
+(tests/tidal_world.py).
 
 What is asserted is what the wire says, and what Milō did to the daemon, after
 the sender or the daemon did something. Each gap test was seen red on the code
-before phase 3b for the reason its docstring gives.
+before Tidal moved onto the session model, for the reason its docstring gives.
 """
 import pytest
 

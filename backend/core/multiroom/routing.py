@@ -593,7 +593,7 @@ class AudioRoutingService:
 
             # `switching` spans the whole toggle, volume sync included: its end
             # is the first state where it is false again, carrying the new
-            # mode — what Milo-Mac and the frontend wait for (docs: "le fil").
+            # mode — what Milo-Mac and the frontend wait for.
             switch = (
                 self.state_machine.multiroom_switch() if self.state_machine
                 else contextlib.nullcontext()

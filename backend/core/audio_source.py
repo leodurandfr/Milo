@@ -192,7 +192,7 @@ _handling: ContextVar[Optional[Tuple["BaseAudioSource", object, asyncio.Task]]] 
 END_REQUEST_TIMEOUT_S = 10.0
 
 # How far a playhead reading may stray from where the anchor puts it before it
-# is a discontinuity worth a `source/position` (docs: "le fil", §7) — the
+# is a discontinuity worth a `source/position` — the
 # tolerance AirPlay, Spotify, Tidal and Qobuz each kept before the anchor was
 # one implementation.
 POSITION_TOLERANCE_MS = 2000
@@ -292,7 +292,7 @@ class BaseAudioSource(ABC):
     # it actually breaks. NONE is the safe default: it reports nothing.
     NETWORK_REQUIREMENT: NetworkRequirement = NetworkRequirement.NONE
 
-    # The session model (docs: source architecture). Every source declares
+    # The session model. Every source declares
     # these four and opens/ends its sessions through open_session() and
     # end_session().
     IDLE_POLICY: Optional[IdlePolicy] = None
@@ -916,7 +916,7 @@ class BaseAudioSource(ABC):
         """Apply `apply` in the actor, unless `token` (a session) ended since."""
         self._post(Result(apply, token))
 
-    # === Publication (docs: "le fil") ===
+    # === Publication ===
     #
     # A source publishes one thing, its view: the live session (with its
     # position anchor), the resume point, its own content and the commands it
@@ -958,7 +958,7 @@ class BaseAudioSource(ABC):
 
     @staticmethod
     def _clean_resume(resume: Optional[ResumeView]) -> Optional[ResumeView]:
-        """An empty string is never published: it is null (§2, §5)."""
+        """An empty string is never published: it is null."""
         if resume is None:
             return None
         return resume.model_copy(update={
@@ -980,8 +980,8 @@ class BaseAudioSource(ABC):
         return None
 
     def _controls(self) -> List[str]:
-        """The commands this source takes now and that would do something
-        (docs: "le fil", §4). The state machine empties the list while the
+        """The commands this source takes now and that would do something.
+        The state machine empties the list while the
         source cannot take any (switching, service not running)."""
         return []
 
@@ -1143,7 +1143,7 @@ class BaseAudioSource(ABC):
             scale=now - step_reference(), settles_until=self._settle_window(),
         )
 
-    # === Sessions (docs: source architecture, "the session") ===
+    # === Sessions ===
     #
     # One place opens a session and one place ends it, always for a named
     # reason. Ending it drops everything it owned — its timers, its tasks — and
@@ -1280,7 +1280,7 @@ class BaseAudioSource(ABC):
             return None
         return None if window is None else float(window)
 
-    # === Sessions a daemon holds (docs: source architecture, "reconcile") ===
+    # === Sessions a daemon holds ===
     #
     # Where a daemon holds the session (a sender on shairport-sync), Milō does
     # not decide when it opens or ends: it follows what the daemon reports.

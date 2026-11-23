@@ -5,11 +5,10 @@ Spotify Connect via go-librespot.
 The session belongs to go-librespot, not to Milō. It opens two ways: a phone
 picks the speaker, or Milō plays a context (`play_context`) on the account the
 daemon is signed in as. Either way the daemon plays, pauses and ends it, and
-the source follows it through `reconcile()` (docs: source architecture,
-"reconcile"). One thing decides where the session stands: go-librespot's own
-GET /status, read once after every burst of /events. An event is when to look,
-never what to believe — two writers (the event and /status) is how the screen
-said "playing" while the auto-stop counted down a pause. With no session
+the source follows it through `reconcile()`. One thing decides where the
+session stands: go-librespot's own GET /status, read once after every burst of
+/events. An event is when to look, never what to believe — two writers (the
+event and /status) is how the screen said "playing" while the auto-stop counted down a pause. With no session
 here, GET /connect/devices is read after it (another device's playback, below);
 a burst of `cluster` events alone reads only that, and nothing at all while a
 session plays here. The play order
@@ -2949,7 +2948,7 @@ class SpotifySource(BaseAudioSource):
         self._standing_reason = None
         super().broadcast_error_cleared()
 
-    # === The view (docs: "le fil") ===
+    # === The view ===
 
     def _session_fields(self, session: SpotifySession) -> Dict[str, Any]:
         # The account is an identity, not a name to show: `senders` stays empty.

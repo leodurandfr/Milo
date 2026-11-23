@@ -696,7 +696,7 @@ class TestCamillaDSPService:
         """End-to-end of the disconnected→reconnect window: update_cache captures the
         intent while CamillaDSP is DISCONNECTED; on reconnect restore_effects() pushes
         those exact cache values to the daemon. Proves equalizer.json never drifts from
-        the live DSP across the boot/reconnect window (carried-over Phase 1 fix)."""
+        the live DSP across the boot/reconnect window."""
         from backend.core.multiroom.models import (
             EqualizerSettings, EqFilter, FilterType,
         )

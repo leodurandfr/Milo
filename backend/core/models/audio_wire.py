@@ -3,7 +3,7 @@
 
 `GET /api/audio/state`, the `source/state` event and `system/initial_state`
 (key `state`) all carry an `AudioState`. It publishes the six axes as they
-are (docs: source architecture, "Développeurs : le fil", frozen 2026-09-24):
+are (the shape frozen on 2026-09-24):
 the selection (`source`, `switching`), the service (`service`,
 `service_error`), what each source can do right now (`availability`), the
 live session with its position anchor, the resume point, the commands the
@@ -310,7 +310,7 @@ Details = Annotated[
 
 
 class AudioState(BaseModel):
-    """The whole audio state (docs: "Développeurs : le fil", §1)."""
+    """The whole audio state."""
     source: AudioSource
     switching: bool
     service: ServiceState

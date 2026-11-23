@@ -2,14 +2,14 @@
 """Pydantic models for the Music Library source.
 
 Three groups:
-- REST request bodies (P1-5): the favorite (star) toggle. Browse/search/genres/
+- REST request bodies: the favorite (star) toggle. Browse/search/genres/
   playlists are GET endpoints validated with FastAPI Query params.
 - REST response envelopes for the four browse routes a companion app's contract
   pins (artist, album, albums, search): they declare the top-level keys only.
   The Subsonic objects inside are proxied through as-is (raw dicts) — the
   frontend and Milo-Mac read Subsonic fields directly, and a song dict travels
   back unchanged in ``play_context`` — so nothing below the envelope is modelled.
-- Command params (P1-6): the typed contract for the playback commands dispatched
+- Command params: the typed contract for the playback commands dispatched
   through the generic ``/api/audio/control/music_library`` path and validated at
   the source's ``command()`` boundary (play_context / play_index / seek, and
   the queue edits: add_to_queue / remove_from_queue / move_in_queue).

@@ -285,7 +285,7 @@ export function useViewTransition({
   /**
    * Called when the entering view starts its enter transition. One rAF lets Vue
    * finish laying out the stacked views, then we size the modal and land the
-   * scroll in the mandated order: height → reflow → scrollTop → clip (§3.6).
+   * scroll in the mandated order: height → reflow → scrollTop → clip.
    *
    * The navigation's decisions are read here, at once: a view that mounts its
    * content late (whenReady) is landed after it has, which can be after the

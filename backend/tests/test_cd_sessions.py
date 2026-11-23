@@ -1,7 +1,7 @@
-"""The CD on the session model: each scenario is a gap of the source audit
-(E-numbers, docs: source architecture) or an owner decision, observed only
-through the outside world (tests/cd_world.py — the drive, udev and mpv as
-measured on the unit) and the wire a real AudioStateMachine publishes.
+"""The CD on the session model: each scenario is a failure measured on a unit
+or an owner decision, observed only through the outside world
+(tests/cd_world.py — the drive, udev and mpv as measured on the unit) and the
+wire a real AudioStateMachine publishes.
 """
 import asyncio
 import errno

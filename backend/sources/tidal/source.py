@@ -8,7 +8,7 @@ replaces Spotify's `websocket.py` as the event feed — a Unix socket instead of
 an HTTP WebSocket.
 
 The session belongs to the daemon, and the source follows it through
-`reconcile()` (docs: source architecture, "reconcile"). What was measured on
+`reconcile()`. What was measured on
 the unit (2026-09-24, a Mac's Tidal app, strace on the controller socket):
 
   - A session opens with `notifySessionState` 1 then 2 and names no track
@@ -612,7 +612,7 @@ class TidalSource(BaseAudioSource):
         else:
             await self._restart_to_end(session)
 
-    # === The view (docs: "le fil") ===
+    # === The view ===
 
     def _session_fields(self, session: TidalSession) -> Dict[str, Any]:
         """Unlike Qobuz there is no sender name: with transport controls on

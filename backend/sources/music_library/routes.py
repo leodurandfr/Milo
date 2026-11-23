@@ -37,7 +37,7 @@ A second endpoint reporting Navidrome's own global counter is what showed a
 frozen "2419 tracks indexed…" for the 18 minutes it took to index an iPod.
 
 Playback (play_context/transport) is NOT here — it goes through the generic
-`/api/audio/control/{source}` path and lands in source.py (P1-6). All catalog
+`/api/audio/control/{source}` path and lands in source.py. All catalog
 reads go through the source's shared NavidromeClient; a missing cred file (daemon
 not provisioned yet) surfaces as 503 on browse routes.
 """

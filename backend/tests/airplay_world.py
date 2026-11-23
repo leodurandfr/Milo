@@ -1,5 +1,5 @@
-"""AirPlay's outside world, as measured on the unit (docs: source architecture,
-phase 3a): shairport-sync writing its metadata pipe and publishing the sender's
+"""AirPlay's outside world, as measured on the unit:
+shairport-sync writing its metadata pipe and publishing the sender's
 item on D-Bus, systemd holding the daemon.
 
 A scenario states what a sender does once, in the order shairport-sync was

@@ -5,9 +5,9 @@ of them says: BlueALSA prints a PCMAdded/PCMRemoved line on `bluealsa-cli
 monitor`, BlueZ emits InterfacesAdded/InterfacesRemoved/PropertiesChanged for
 `org.bluez.MediaPlayer1`, answers a Get on Position by extrapolating from its
 last anchor, and iTunes answers the cover lookup. The adapter below decides
-which entry point hears it today — a later phase rewrites the adapter, never a
+which entry point hears it today — a later change rewrites the adapter, never a
 scenario. The adapter and the world it drives live in tests/bluetooth_world.py,
-shared with the behaviour tests (phase 4).
+shared with the behaviour tests.
 """
 import pytest
 

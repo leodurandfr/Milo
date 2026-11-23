@@ -2,8 +2,7 @@
 """
 The CD drive as udev announces it, and the drive-status ioctl that confirms.
 
-Measured on the unit (Apple USB SuperDrive, a slot drive; docs: source
-architecture, phase 2):
+Measured on the unit (Apple USB SuperDrive, a slot drive):
 - insert: one `change`, with ID_CDROM_MEDIA and the audio track count, once
   the disc is readable (~10 s). The kernel's own 2 s poll relies on the
   drive's event report, which says "new media" only then; an open() makes it

@@ -5,7 +5,7 @@ Plays the user's own music, indexed by a Navidrome sidecar and streamed to mpv
 over localhost HTTP. Controlled from Milō's UI, with rich metadata
 (artwork/title/artist).
 
-Playback model (P1-6): a queue is built from any context (album / genre /
+Playback model: a queue is built from any context (album / genre /
 playlist / search) — the frontend hands the ordered Subsonic song dicts to the
 ``play_context`` command, the source maps each id to a bit-perfect Navidrome
 ``stream?id=…&format=raw`` URL, and mpv plays them as one native playlist. With
@@ -163,7 +163,7 @@ class LibrarySession(MpvSession):
 
 class MusicLibrarySource(MpvAudioSource):
     """Music Library source (Family C): UI-driven gapless queue playback over a
-    Navidrome-indexed local library, with the USB storage layer (P1-4) live.
+    Navidrome-indexed local library, with the USB storage layer live.
 
     **`NETWORK_REQUIREMENT` is left at NONE, and that is a decision.** It reads
     as an oversight next to Radio's INTERNET and AirPlay's LAN, because half the
@@ -245,7 +245,7 @@ class MusicLibrarySource(MpvAudioSource):
         # the source is inactive — and it borrows the same lazy accessor to turn
         # a cover id into an artist name.
         self._artist_images = ArtistImageService(self.get_navidrome_client)
-        # Why the library cannot play now (docs: "le fil", §3), as of the last
+        # Why the library cannot play now, as of the last
         # storage picture broadcast_storages() saw: no mounted storage bearing a
         # library, or no catalog (Navidrome not answering / not provisioned).
         self._availability: Optional[str] = None
@@ -1632,7 +1632,7 @@ class MusicLibrarySource(MpvAudioSource):
         cover_id = song.get("coverArt") or song.get("albumId")
         return f"/api/music-library/cover/{cover_id}" if cover_id else None
 
-    # The view (docs: "le fil"). A live queue and a saved one read the same:
+    # The view. A live queue and a saved one read the same:
     # only where the numbers come from differs.
 
     def availability(self) -> Optional[str]:

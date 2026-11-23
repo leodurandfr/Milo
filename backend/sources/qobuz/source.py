@@ -11,7 +11,7 @@ control endpoints. Album art is a Qobuz CDN URL loaded directly by the kiosk —
 there is no binary artwork route (unlike AirPlay).
 
 The session belongs to the Qobuz cloud, and the source follows it through
-`reconcile()` (docs: source architecture, "reconcile"), from two fields
+`reconcile()`, from two fields
 rootfs/usr/local/bin/milo-qobuz adds to the status beside the playhead. What was
 measured on the unit (2026-09-24, qobuz-proxy 1.7.2, the owner's Mac app on a
 free account):
@@ -135,7 +135,7 @@ class QobuzSource(BaseAudioSource):
         self._audio_device = self._config.get("audio_device", QOBUZ_AUDIO_DEVICE)
 
         self._monitor: Optional[QobuzMonitor] = None
-        # The account (docs: "le fil", §3): while the sidecar runs, what its
+        # The account: while the sidecar runs, what its
         # poll says (auth.authenticated, held LOGOUT_S to call a logout);
         # otherwise the token cache the account route reads.
         self._authenticated = True
@@ -388,7 +388,7 @@ class QobuzSource(BaseAudioSource):
         return QobuzSession(phase=snapshot.phase, sender=snapshot.sender)
 
     # ------------------------------------------------------------------
-    # The view (docs: "le fil")
+    # The view
     # ------------------------------------------------------------------
 
     def _session_fields(self, session: QobuzSession) -> Dict[str, Any]:

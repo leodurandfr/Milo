@@ -1,12 +1,11 @@
 """Radio, Podcast and Music Library on the session model, driven through mpv.
 
-Each scenario is a gap of the source audit (E-numbers, docs: source
-architecture) or a decision of the target architecture, observed only through
-the outside world: MpvSim for mpv (tests/mpv_sim.py — what mpv 0.40 was
-measured to announce), a real AudioStateMachine for the wire, fakes for the
-catalogues and the podcast progress file. What mpv says is the truth: a
-session plays when mpv says sound started, ends for the reason mpv's end
-gives, and survives what the architecture says it survives.
+Each scenario is a failure measured on a unit or an owner decision, observed
+only through the outside world: MpvSim for mpv (tests/mpv_sim.py — what mpv
+0.40 was measured to announce), a real AudioStateMachine for the wire, fakes
+for the catalogues and the podcast progress file. What mpv says is the truth:
+a session plays when mpv says sound started, ends for the reason mpv's end
+gives, and survives what the source's declared policies say it survives.
 """
 import asyncio
 from typing import Any, Dict, List, Optional

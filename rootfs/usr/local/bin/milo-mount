@@ -2,9 +2,9 @@
 # milo-mount — privileged read-only mount helper for the Music Library source.
 #
 # Three modes, dispatched on the first argument:
-#   milo-mount <device>                                   USB partition (Phase 1)
+#   milo-mount <device>                                   USB partition
 #   milo-mount --network <cifs|nfs> --id <id> \
-#              --host <host> --path <share|export>        SMB/NFS share (Phase 2)
+#              --host <host> --path <share|export>        SMB/NFS share
 #   milo-mount --forget --id <id>                         drop a share's creds
 #
 # Navidrome only indexes what is mounted under /media/milo — getting a device or
@@ -17,7 +17,7 @@
 # filesystem, then mount read-only with nosuid,nodev,noexec at a stable
 # /media/milo/<label-or-uuid>.
 #
-# Network (P2-8): mount a CIFS or NFS share read-only at /media/milo/<id>. CIFS
+# Network: mount a CIFS or NFS share read-only at /media/milo/<id>. CIFS
 # credentials are fed on STDIN (never argv — argv is world-readable in /proc) as
 # `username=`/`password=`/`domain=` lines and persisted to a ROOT-ONLY cred file
 # (CRED_DIR/<id>.cred, 0600 root:root) so a later boot remount needs no secret
@@ -100,7 +100,7 @@ prepare_mountpoint() {
 sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | sed 's/^[._]*//; s/_*$//'; }
 
 # =============================================================================
-# USB partition (Phase 1)
+# USB partition
 # =============================================================================
 mount_usb() {
     # Resolve symlinks (/dev/disk/by-*) and require an actual block device.
@@ -183,7 +183,7 @@ mount_usb() {
 }
 
 # =============================================================================
-# Network share (Phase 2) — credentials root-only, fed on stdin
+# Network share — credentials root-only, fed on stdin
 # =============================================================================
 ensure_cred_dir() {
     # The parent (/var/lib/milo) is milo-owned, so guard against a pre-planted

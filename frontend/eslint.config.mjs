@@ -128,7 +128,7 @@ export default [
       'vue/require-valid-default-prop': 'off',
     },
   },
-  // === Frontend timer lock (CLAUDE.md §8) ===
+  // === Frontend timer lock (CLAUDE.md § Frontend architecture & conventions (Timers)) ===
   // Inside components and composables, every setTimeout/setInterval must go
   // through useTimer() so the handle is auto-cleared on unmount (prevents
   // stale callbacks firing into a destroyed component). Bare global timer
@@ -148,10 +148,10 @@ export default [
     ],
     rules: {
       'no-restricted-globals': ['error',
-        { name: 'setTimeout', message: "Use useTimer().setTimeout() from '@/composables/useTimer' (auto-cleared on unmount). See CLAUDE.md §8. window.setTimeout is allowed only in the timer-primitive layer + directives." },
-        { name: 'setInterval', message: "Use useTimer().setInterval() from '@/composables/useTimer' (auto-cleared on unmount). See CLAUDE.md §8. window.setInterval is allowed only in the timer-primitive layer + directives." },
-        { name: 'clearTimeout', message: "Use useTimer().clear() from '@/composables/useTimer'. See CLAUDE.md §8. window.clearTimeout is allowed only in the timer-primitive layer + directives." },
-        { name: 'clearInterval', message: "Use useTimer().clear() from '@/composables/useTimer'. See CLAUDE.md §8. window.clearInterval is allowed only in the timer-primitive layer + directives." },
+        { name: 'setTimeout', message: "Use useTimer().setTimeout() from '@/composables/useTimer' (auto-cleared on unmount). See CLAUDE.md § Frontend architecture & conventions (Timers). window.setTimeout is allowed only in the timer-primitive layer + directives." },
+        { name: 'setInterval', message: "Use useTimer().setInterval() from '@/composables/useTimer' (auto-cleared on unmount). See CLAUDE.md § Frontend architecture & conventions (Timers). window.setInterval is allowed only in the timer-primitive layer + directives." },
+        { name: 'clearTimeout', message: "Use useTimer().clear() from '@/composables/useTimer'. See CLAUDE.md § Frontend architecture & conventions (Timers). window.clearTimeout is allowed only in the timer-primitive layer + directives." },
+        { name: 'clearInterval', message: "Use useTimer().clear() from '@/composables/useTimer'. See CLAUDE.md § Frontend architecture & conventions (Timers). window.clearInterval is allowed only in the timer-primitive layer + directives." },
       ],
     },
   },

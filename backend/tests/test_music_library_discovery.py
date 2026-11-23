@@ -1,5 +1,5 @@
 # backend/tests/test_music_library_discovery.py
-"""Tests for mDNS SMB/NFS server discovery (the Phase 2 add-share convenience).
+"""Tests for mDNS SMB/NFS server discovery (the add-share convenience).
 
 Covers the parseable-output parser, the browse/dedupe/sort aggregation, the
 fail-open behaviour (missing binary, a browse that reports nothing), the rule

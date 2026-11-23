@@ -173,7 +173,7 @@ const currentSourceType = computed(() => activeSource.value);
 const { displayState, unavailableReason } = useSourceStatusDisplay();
 
 // Who is sending: AirPlay's client, the Bluetooth device, the Macs (a list,
-// one per Mac). Spotify, Tidal and Qobuz name none (docs: "le fil").
+// one per Mac). Spotify, Tidal and Qobuz name none.
 const currentDeviceName = computed(() => unifiedStore.systemState.session?.senders || []);
 
 // Key for transitions: the card crosses over when what it says changes

@@ -2,7 +2,7 @@
 /**
  * useSourceProgress draws one source's playhead from the backend's position
  * anchor: `ms` at the instant `at`, moving at `rate` while the phase is
- * playing (docs: "le fil", §2). Three rules carry the weight:
+ * playing. Three rules carry the weight:
  *
  *  - the formula is the only interpolation: a consumer mounting mid-track reads
  *    the same number as one open for an hour, with no staleness to compensate,

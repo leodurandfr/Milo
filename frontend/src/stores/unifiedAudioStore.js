@@ -15,7 +15,7 @@ export const STATION_INTRO_MS = 2500;
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === THE AUDIO STATE ===
-  // The backend's AudioState, whole (docs: "Développeurs : le fil"): the
+  // The backend's AudioState, whole: the
   // selection, the service, every source's availability, the session with its
   // position anchor, the commands the source takes now, the resume point and
   // the source's own content. Replaced by every `source/state`, never merged;

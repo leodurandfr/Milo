@@ -1,7 +1,7 @@
 // frontend/src/composables/useSourceProgress.js
 // The playhead of one source, from its position anchor, and seeking it.
 //
-// The one interpolation every client uses (docs: "le fil", §2):
+// The one interpolation every client uses:
 //   position_now = ms + (phase == "playing" ? (now − at) × 1000 × rate : 0),
 //   bounded to [0, duration_ms].
 // The backend republishes the anchor only on a discontinuity (a seek, a drift

@@ -5,10 +5,10 @@ commands through the public API, daemon/mpv/D-Bus stimuli through a
 per-source adapter — and compares every envelope a real AudioStateMachine
 broadcasts, plus the REST answer at the end, with a recording.
 
-History: recorded on the old wire before the source refactor (docs: source
-architecture, phases 0b-4), which then rewrote every source's internals under
-it and re-recorded a source only where its phase changed that source's wire on
-purpose. Phase 5b switched the wire itself (docs: "Développeurs : le fil"):
+History: recorded on the old wire before the source refactor, which
+then rewrote every source's internals under it and re-recorded a source only
+where a step of it changed that source's wire on purpose. Then the wire itself
+was switched to the one `AudioState` object (core/models/audio_wire.py):
 every recording was re-recorded then, each scenario reviewed against its old
 recording through a condensed side-by-side (the sequence of source state and
 playing flags before, of service, phase, controls and availability after).
@@ -128,7 +128,7 @@ class WireReader:
 
     def position_ms(self) -> Optional[int]:
         """Where the session's anchor puts the playhead now — the one formula
-        every client uses (docs: "le fil", §2)."""
+        every client uses."""
         from backend.core import audio_source
         session = self.session()
         anchor = session["position"] if session else None

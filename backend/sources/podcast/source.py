@@ -63,7 +63,7 @@ class PodcastSource(MpvAudioSource):
         capture_on=frozenset({
             EndReason.USER_STOP, EndReason.IDLE_TIMEOUT, EndReason.SOURCE_SWITCH,
             EndReason.REROUTE, EndReason.DAEMON_DIED, EndReason.STREAM_LOST,
-            # An episode that would not open stays to listen (the doc).
+            # An episode that would not open stays to listen.
             EndReason.LOAD_FAILED,
         }),
         # Played to the end: finished, not paused. The rest cannot happen here.
@@ -375,7 +375,7 @@ class PodcastSource(MpvAudioSource):
 
     # === Helpers ===
 
-    # === The view (docs: "le fil") ===
+    # === The view ===
 
     def _session_fields(self, session: PodcastSession) -> Dict[str, Any]:
         episode = session.episode

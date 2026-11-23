@@ -1,7 +1,7 @@
 // frontend/src/composables/useRichDisplay.js
 // Single source of truth for "does the selected source show its full view (its
 // dedicated component / AudioPlayerFull / AudioSourceLayout), or the
-// AudioSourceStatus card?" (docs: "le fil", §9). A browser
+// AudioSourceStatus card?". A browser
 // source draws its own view even with nothing playing.
 //
 // Consumed by AudioSourceView (to pick which component to mount) AND by
@@ -41,7 +41,7 @@ export function richSourceFor(state) {
   }
   if (reason && !playing) return null;
 
-  // A sender Milō cannot tell playing from paused is "Connecté à X" (§9) —
+  // A sender Milō cannot tell playing from paused is the "Connected to X" card —
   // until it names a cover, a title and an artist: an iPhone's AirPlay stream
   // stays connected from start to end while naming every track (measured
   // 2026-09-25), and the card hid all of it. The Lock Screen follows the

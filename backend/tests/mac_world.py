@@ -1,5 +1,5 @@
-"""The Mac source's outside world, as measured on the unit (docs: source
-architecture, phase 3d): roc-recv 0.4.0 under milo-mac.service, its journal,
+"""The Mac source's outside world, as measured on the unit:
+roc-recv 0.4.0 under milo-mac.service, its journal,
 systemd holding it, and each Mac's own mDNS responder naming it.
 
 What roc-recv was measured to do (2026-09-24, the owner's Mac with roc-vad):

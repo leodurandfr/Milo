@@ -1,9 +1,9 @@
 """Spotify sessions, driven through the go-librespot the unit was measured to
-run (tests/spotify_world.py; docs: source architecture, phase 3b).
+run (tests/spotify_world.py).
 
 What is asserted is what the wire says, and what Milō asked of the daemon,
 after the phone or the daemon did something. Each gap test was seen red on
-the code before phase 3b for the reason its docstring gives.
+the code before Spotify moved onto the session model, for the reason its docstring gives.
 """
 import json
 

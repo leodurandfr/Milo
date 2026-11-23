@@ -623,7 +623,8 @@ class TestStandaloneReconnectionSyncIntegration:
 class TestWhatAReconnectReplays:
     """Which of a client's stored values survive its reconnection.
 
-    Both of them, since the volume-ownership plan's phase 1 — and the pair is
+    Both of them, since a client's level stopped being derived from its
+    peers — and the pair is
     kept together because they used to answer oppositely. `PATCH
     /api/volume/client/mac/{mac}` on an offline client once recorded a level
     nothing would ever apply, while `/mute` recorded one the reconnect did

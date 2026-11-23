@@ -1,4 +1,4 @@
-"""Unit tests for the Music Library Navidrome client + REST routes (P1-5).
+"""Unit tests for the Music Library Navidrome client + REST routes.
 
 Two layers, both off the real Navidrome daemon:
 - NavidromeClient: the browse/search/genres/playlists/star/coverArt surface,

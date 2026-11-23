@@ -155,10 +155,10 @@ class CdAsyncio(AsyncioProxy):
 class Cd:
     """Adapter: how each outside-world stimulus reaches CdSource today.
 
-    The drive is heard through udev (measured on the unit, docs: source
-    architecture phase 2): each `drive_tick()` announces what changed in the
-    drive since the last one — `add`, `remove`, or a `change` with or without
-    media — the way the scenarios' poll used to discover it.
+    The drive is heard through udev (measured on the unit): each
+    `drive_tick()` announces what changed in the drive since the last one —
+    `add`, `remove`, or a `change` with or without media — the way the
+    scenarios' poll used to discover it.
     """
 
     def __init__(self, monkeypatch, settings=None):

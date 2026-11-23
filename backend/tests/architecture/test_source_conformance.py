@@ -579,7 +579,7 @@ def test_mpv_sources_attach_through_the_base_class(source_id):
 
 
 
-# === Publication (docs: "le fil") ================================================
+# === Publication ================================================
 #
 # A source publishes one thing, its view — the live session, the resume point,
 # its own details and the commands it takes now — and the base composes that
@@ -724,7 +724,7 @@ def test_a_source_that_keeps_a_resume_point_shows_it(source_id):
 # The commands that start content: each names *what* to play, so a `controls`
 # entry for it would be a button with no argument. `playpause` is a remote's
 # convenience the wire never offers — `controls` says which of pause/resume is
-# the one that does something now (docs: "le fil", §4).
+# the one that does something now.
 NEVER_A_CONTROL = frozenset({"play_station", "play_episode", "play_context", "playpause"})
 
 
@@ -806,7 +806,7 @@ def test_the_sources_on_the_base_controls_are_the_named_ones():
 
 @pytest.mark.parametrize("source_id", sorted(set(SOURCE_IDS) - BASE_CONTROLS))
 def test_controls_name_commands_the_source_takes(source_id):
-    """`controls` is the command vocabulary, not a second one (docs: "le fil", §4).
+    """`controls` is the command vocabulary, not a second one.
 
     Every name `_controls()` can return is a key of the source's COMMANDS —
     the UI sends it back verbatim to `/api/audio/control/{source}`, and a name

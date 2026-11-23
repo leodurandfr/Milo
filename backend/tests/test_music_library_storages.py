@@ -164,7 +164,7 @@ async def test_unplugging_the_key_being_played_ends_its_session_before_the_stora
 
 async def test_a_library_with_no_storage_mounted_says_so(monkeypatch):
     """No mounted storage bearing a library leaves nothing to browse or play,
-    and the state says why (availability, docs: "le fil", §3). Breaks: the
+    and the state says why (availability). Breaks: the
     dock and Milo-Mac offer a library that can only show an empty grid; or,
     once the key is back, it stays marked unavailable."""
     rig = LibraryRig(monkeypatch)

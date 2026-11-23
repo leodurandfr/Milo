@@ -1,17 +1,16 @@
-"""The wire, source by source and phase by phase (docs: "Développeurs : le
-fil", frozen 2026-09-24).
+"""The wire, source by source and phase by phase (the shape frozen 2026-09-24).
 
 Each scenario drives one source through its outside world into one of the
-states §10 of the frozen spec gives an example of. Two families of tests read
-them:
+states a client must decode (the shape of core/models/audio_wire.py::AudioState,
+documented in docs/reference/audio-state.md). Two families of tests read them:
 
 - the acceptance: what the state machine would put on the wire has the shape
-  the spec froze — every field present, the session's phase, senders and
+  AudioState declares — every field present, the session's phase, senders and
   anchor, the exact `controls`, the resume point and the `details`. The three
   clients decode these fields into fixed types (Milo-Mac, Milo-iOS, the
   frontend's strict schema): a field missing or spelled another way is a
   client that stops reading the state.
-- the guardrail (§4): every command a state lists in `controls` is accepted by
+- the guardrail: every command a state lists in `controls` is accepted by
   the source in that state. A button drawn from `controls` that the source
   refuses is a press that does nothing; each command is sent on a scenario of
   its own, rebuilt from scratch, so one command's effect never hides the next.
@@ -441,7 +440,7 @@ CONTROL_CASES = [
     ids=[f"{s.name}:{c}" for s, c in CONTROL_CASES],
 )
 async def test_every_listed_command_is_accepted(scenario, command, monkeypatch, tmp_path):
-    """§4: a command is listed only if it is accepted and does something."""
+    """A command is listed only if it is accepted and does something."""
     world = await scenario.build(monkeypatch, tmp_path)
     try:
         assert command in world.state()["controls"]
@@ -453,7 +452,7 @@ async def test_every_listed_command_is_accepted(scenario, command, monkeypatch, 
 
 
 def test_the_guardrail_meets_every_command_the_spec_lists():
-    """Every command name §4 lists for any source appears in some scenario,
+    """Every command name a state can list for any source appears in some scenario,
     so the guardrail cannot pass by never meeting one."""
     listed = {c for _, c in CONTROL_CASES}
     assert listed == {

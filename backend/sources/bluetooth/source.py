@@ -3,7 +3,7 @@
 Bluetooth audio source using BlueALSA for audio and BlueZ AVRCP for control.
 
 Family C (active player): UI control, rich metadata. A phone holding the A2DP
-link is a session a daemon holds (docs: source architecture, phase 4), and
+link is a session a daemon holds, and
 three feeds describe it, none of which can answer another's question:
 
   - `monitor.py` watches BlueALSA — is a sender *linked* (PCM added/removed),
@@ -869,7 +869,7 @@ class BluetoothSource(BaseAudioSource):
             await self.agent.unregister(agent_timeout)
         self._discard_feed()
 
-    # === The view (docs: "le fil") ===
+    # === The view ===
 
     def _session_fields(self, session: BluetoothSession) -> Dict[str, Any]:
         """Whatever the phone's AVRCP player supplied, plus a cover resolved

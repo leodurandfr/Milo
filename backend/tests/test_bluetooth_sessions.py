@@ -1,11 +1,10 @@
 """Bluetooth sessions, driven through BlueZ and BlueALSA as the unit was
-measured to run them (tests/bluetooth_world.py; docs: source architecture,
-phase 4).
+measured to run them (tests/bluetooth_world.py).
 
 What is asserted is what the wire says, what Milō left BlueZ in, and which
 units it asked systemd for, after a phone or a daemon did something. Each gap
-test was seen red on the code before phase 4 for the reason its docstring
-gives.
+test was seen red on the code before Bluetooth moved onto the session
+model, for the reason its docstring gives.
 """
 import asyncio
 import logging

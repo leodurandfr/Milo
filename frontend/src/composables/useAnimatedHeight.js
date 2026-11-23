@@ -70,7 +70,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
   }
 
   /**
-   * The single height writer. Order is load-bearing on WebKit (§3.6):
+   * The single height writer. Order is load-bearing on WebKit:
    *   1. scroller explicit height (transition:none → lands instantly)
    *   2. forced reflow (flush scroller geometry)
    *   3. beforeClip() — the navigation's scrollTop write, after maxScroll is final
@@ -83,7 +83,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
    * @param {boolean} [opts.immediate=false] - write the clip without a spring
    * @param {(() => void)|null} [opts.beforeClip=null] - runs AFTER the reflow and
    *   BEFORE the clip write, so a scrollTop write lands in the mandated order
-   *   height → reflow → scrollTop → clip (§3.6, the one load-bearing ordering).
+   *   height → reflow → scrollTop → clip (the one load-bearing ordering).
    */
   function setTargetHeight(px = null, { immediate = false, beforeClip = null } = {}) {
     const scroller = scrollerRef?.value;
@@ -95,7 +95,7 @@ export function useAnimatedHeight(contentRef, options = {}) {
     scroller.style.height = `${target}px`;
 
     // 2. Forced reflow — flush clientHeight/scrollHeight before any scrollTop
-    //    write (load-bearing on WebKit, §3.6).
+    //    write (load-bearing on WebKit).
     void scroller.offsetHeight;
 
     // 3. Scroll restore slots here: maxScroll is final and the clip is not yet
@@ -105,9 +105,9 @@ export function useAnimatedHeight(contentRef, options = {}) {
     // 4. Clip: animated height (spring from CSS), or instant on init/immediate.
     //    Skip sub-threshold deltas so jitter (e.g. a 1px nav delta, or an integer
     //    offsetHeight target vs a fractional observer target) doesn't fire the
-    //    1.6s spring — §2.2 "Delta nul / <2px". The scroller height + scroll
-    //    restore above already ran, so maxScroll/scrollTop stay exact. Advance the
-    //    anchor only when we actually move the clip (no sub-threshold drift).
+    //    1.6s spring. The scroller height + scroll restore above already ran,
+    //    so maxScroll/scrollTop stay exact. Advance the anchor only when we
+    //    actually move the clip (no sub-threshold drift).
     const clip = clipRef?.value;
     if (clip && (immediate || Math.abs(target - currentTargetPx) > threshold)) {
       if (immediate) {

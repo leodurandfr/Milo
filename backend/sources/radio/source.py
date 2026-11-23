@@ -617,7 +617,7 @@ class RadioSource(MpvAudioSource):
             return None
         return (track.get("title"), track.get("artist"))
 
-    # === The view (docs: "le fil") ===
+    # === The view ===
 
     def _session_fields(self, session: RadioSession) -> Dict[str, Any]:
         """Two layers in one line: the recognized track when there is one, the

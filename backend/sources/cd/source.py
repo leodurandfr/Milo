@@ -2,7 +2,7 @@
 """
 CD audio source: the drive's sectors, read by ioctl, played by mpv through a FIFO.
 
-Two axes live here (docs: source architecture):
+Two axes live here:
 - the device — what is in the drive (`DiscState`), moved by what udev
   announces (drive.py). The drive-status ioctl answers the one question udev
   cannot: a disc spinning up, or no disc — and, while CD is on screen over an
@@ -1115,7 +1115,7 @@ class CdSource(MpvAudioSource):
         return None
 
     # =========================================================================
-    # PUBLICATION (docs: "le fil")
+    # PUBLICATION
     # =========================================================================
 
     _AVAILABILITY = {

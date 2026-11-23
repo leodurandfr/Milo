@@ -81,7 +81,7 @@ def _names_its_track(record: Dict[str, Any]) -> bool:
 
 def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """What the card shows: the session if it names something, else the
-    resume point, else nothing (docs: "le fil", §9 — the rule Milo-iOS'
+    resume point, else nothing (the rule Milo-iOS'
     `MiloAudioState.shown` follows too). An untitled CD track is shown by its
     number, `details.current_track`, carried as `track_number`: Milō does not
     know the phone's language, so Milo-iOS names it (`MiloUntitledTrack`).

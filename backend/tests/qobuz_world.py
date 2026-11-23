@@ -1,5 +1,5 @@
-"""Qobuz's outside world, as measured on the unit (docs: source architecture,
-phase 3c): qobuz-proxy 1.7.2 behind rootfs/usr/local/bin/milo-qobuz, polled at
+"""Qobuz's outside world, as measured on the unit:
+qobuz-proxy 1.7.2 behind rootfs/usr/local/bin/milo-qobuz, polled at
 GET /api/status, and systemd holding the sidecar.
 
 What the sidecar was measured to report (2026-09-24, the owner's Mac app on a

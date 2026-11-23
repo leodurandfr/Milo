@@ -5,7 +5,7 @@ Audio State Machine - single source of truth for audio state.
 Owns the selection (which source, whether a switch is under way) and the
 service axis (running, starting, failed), composes them with what the selected
 source publishes (its view) and with every source's availability into the one
-`AudioState` the wire carries (docs: "Développeurs : le fil"), and broadcasts
+`AudioState` the wire carries, and broadcasts
 it as `source/state` whenever it changes.
 
 Usage:
@@ -207,7 +207,7 @@ class AudioStateMachine:
 
     def availability_of(self, source: AudioSource) -> Optional[str]:
         """Why `source` cannot work now, or None: the link first, then the
-        source's own reason (docs: "le fil", §3)."""
+        source's own reason."""
         reason = self._connectivity_reason(source)
         if reason is not None:
             return reason
@@ -304,7 +304,7 @@ class AudioStateMachine:
     async def multiroom_switch(self):
         """Hold `switching` for a whole multiroom toggle (AudioRoutingService):
         from its start to the end of its volume sync. Its end is the first
-        state where `switching` is false again (docs: "le fil").
+        state where `switching` is false again.
         `restart_source_if_active` holds it too, around the source it carries:
         the flag is "a switch is in flight", whichever one it is."""
         async with self._state_lock:

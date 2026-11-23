@@ -800,7 +800,8 @@ def test_the_fanout_extractor_discriminates():
 def test_the_spawn_extractor_discriminates():
     """Same, for the exit status.
 
-    `blind` is `_screen_cmd` as it stood before phase 6 — including the
+    `blind` is `_screen_cmd` as it stood before it read its command's exit
+    status — including the
     `@handle_errors(default=None)` it carried, which is the point: the decorator
     sees exceptions, and an exit code is not one.
 

@@ -1,9 +1,10 @@
 """AirPlay sessions, driven through the world shairport-sync was measured to be
-(tests/airplay_world.py; docs: source architecture, phase 3a).
+(tests/airplay_world.py).
 
 What is asserted is what the wire says — the state a screen, the lock screen and
 Milo-iOS read — after a sender or the daemon did something. Each gap test was
-seen red on the code before phase 3a for the reason its docstring gives.
+seen red on the code before AirPlay moved onto the session model, for the
+reason its docstring gives.
 """
 import pytest
 

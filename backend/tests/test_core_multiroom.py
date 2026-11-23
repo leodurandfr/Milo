@@ -2409,8 +2409,8 @@ class TestReconnectRepushesEqualizer:
 class TestResolveTargetVolume:
     """Tests for `_resolve_target_volume` — the level an admission brings a client to.
 
-    One rule since the volume-ownership plan's phase 1: a client's level changes
-    only when someone changes it, so what a reconnection applies is the client's
+    One rule since a client's level stopped being derived from its peers: it
+    changes only when someone changes it, so what a reconnection applies is the client's
     own stored level, gated by `restore_last_volume`, with `startup_volume_db`
     for a client the store has never seen. The peer average this used to read
     (the zone's or the fleet's) is what made a member rejoining a zone adopt

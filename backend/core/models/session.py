@@ -1,6 +1,6 @@
 """The listening-session vocabulary every source migrates onto.
 
-Six axes, one owner each (docs: source architecture, "the six axes"): the
+Six axes, one owner each: the
 selection belongs to the state machine; the service, the session, its position
 anchor and the resume point to the source; the device to each source. This
 module holds the types for the axes the sources own and the one table that

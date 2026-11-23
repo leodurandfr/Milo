@@ -1,5 +1,5 @@
-"""Spotify's outside world, as measured on the unit (docs: source architecture,
-phase 3b): go-librespot 0.10.0 — its HTTP API and its /events WebSocket — and
+"""Spotify's outside world, as measured on the unit:
+go-librespot 0.10.0 — its HTTP API and its /events WebSocket — and
 systemd holding it; the stored account as go-librespot 0.10.3 keeps it.
 
 What go-librespot was measured to say (2026-09-24, the owner's iPhone):

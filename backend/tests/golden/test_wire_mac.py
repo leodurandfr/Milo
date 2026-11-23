@@ -9,7 +9,7 @@ what the sender answers.
 
 The journal is timestamped: lines an earlier roc-recv wrote precede the
 running one's start, and `journalctl -f --since=@<start>` replays from there
-(phase 3d: the replay is bounded to the running process). A Mac already
+(the replay is bounded to the running process). A Mac already
 streaming when the source is selected reattaches to the new roc-recv within
 its first milliseconds, measured — before Milō follows the journal.
 """

@@ -1,5 +1,5 @@
-"""The Bluetooth source's outside world, as measured on the unit (docs: source
-architecture, phase 4): BlueZ 5.82 and bluez-alsa 4.3.1, the owner's iPhone
+"""The Bluetooth source's outside world, as measured on the unit:
+BlueZ 5.82 and bluez-alsa 4.3.1, the owner's iPhone
 and Mac mini, systemd holding the units.
 
 What was measured (2026-09-24, a passive probe on the system bus, a second

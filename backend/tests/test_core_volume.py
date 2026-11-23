@@ -1895,7 +1895,7 @@ class TestPerClientApplyVerdict:
 
 
 # ============================================================================
-# A relative adjustment reaches a client that was absent for it (plan phase 3)
+# A relative adjustment reaches a client that was absent for it
 # ============================================================================
 
 class TestAbsentClientKeepsItsPlaceInTheRoom:

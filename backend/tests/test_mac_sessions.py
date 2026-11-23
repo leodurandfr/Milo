@@ -1,9 +1,9 @@
 """Mac sessions, driven through the roc-recv the unit was measured to run
-(tests/mac_world.py; docs: source architecture, phase 3d).
+(tests/mac_world.py).
 
 What is asserted is what the wire says, and what Milō asked the journal for,
 after a Mac or roc-recv did something. Each gap test was seen red on the code
-before phase 3d for the reason its docstring gives.
+before the Mac moved onto the session model, for the reason its docstring gives.
 """
 import asyncio
 

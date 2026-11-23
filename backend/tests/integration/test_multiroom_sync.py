@@ -388,10 +388,10 @@ class TestReconnectsRestoreEachClientsOwnLevel:
 
     These used to assert the opposite: a reconnecting client took the average
     of its online peers, and the class existed to show that average stayed
-    stable through rapid sequential reconnects. Since the volume-ownership
-    plan's phase 1 no peer is read at all — each client comes back at the level
-    it had — which is what makes the outcome independent of reconnection order
-    instead of merely stable under it.
+    stable through rapid sequential reconnects. Since a client's level stopped
+    being derived from its peers, no peer is read at all — each client comes
+    back at the level it had — which is what makes the outcome independent of
+    reconnection order instead of merely stable under it.
     """
 
     @pytest.mark.asyncio
@@ -633,7 +633,7 @@ class TestFireAndForgetTaskRecovery:
         self, mock_settings_service, mock_state_machine
     ):
         """
-        With set_online_after=True (P1 fix), if the sync task fails after
+        With set_online_after=True, if the sync task fails after
         all retries, the client correctly remains offline — it never appears
         in the frontend with a stale volume.
         """

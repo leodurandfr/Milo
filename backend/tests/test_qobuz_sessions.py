@@ -1,9 +1,9 @@
 """Qobuz sessions, driven through the sidecar the unit was measured to run
-(tests/qobuz_world.py; docs: source architecture, phase 3c).
+(tests/qobuz_world.py).
 
 What is asserted is what the wire says, and what Milō did to systemd, after
 the app or the sidecar did something. Each gap test was seen red on the code
-before phase 3c for the reason its docstring gives.
+before Qobuz moved onto the session model, for the reason its docstring gives.
 """
 import pytest
 
