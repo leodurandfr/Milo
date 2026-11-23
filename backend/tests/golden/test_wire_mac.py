@@ -153,7 +153,7 @@ class Mac:
         self.lan.journal.extend((START_USEC + i + 1, ROC_PID, line) for i, line in enumerate(lines))
 
     def logged_by_an_earlier_run(self, lines: List[str]) -> None:
-        """What a roc-recv stopped before this select wrote (E28)."""
+        """What a roc-recv stopped before this select wrote."""
         self.lan.journal.extend(
             (START_USEC - 1_000_000 + i, ROC_PID - 1, line) for i, line in enumerate(lines)
         )

@@ -200,7 +200,7 @@ const buildingSubtitle = computed(() =>
 //   5. the index lost its files     → the music is there, re-index it
 //   6. there is genuinely nothing   → this tab's own empty message
 // (1) and (2) are the source's availability, which this view draws itself
-// rather than the status card, so the library stays at hand (D13) — and (2) is
+// rather than the status card, so the library stays at hand — and (2) is
 // also the tab's own read answered 503, which can land before the state says
 // so (the first opening of the library starts Navidrome as the view mounts).
 // The list reloads by itself once the catalog answers. (2) has to come before

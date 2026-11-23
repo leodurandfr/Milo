@@ -1,7 +1,8 @@
 // frontend/src/composables/useRichDisplay.js
 // Single source of truth for "does the selected source show its full view (its
 // dedicated component / AudioPlayerFull / AudioSourceLayout), or the
-// AudioSourceStatus card?" (docs: "le fil", §9, read with D13).
+// AudioSourceStatus card?" (docs: "le fil", §9). A browser
+// source draws its own view even with nothing playing.
 //
 // Consumed by AudioSourceView (to pick which component to mount) AND by
 // MainView (the logo is hidden exactly when a full view is on screen), so the
@@ -14,7 +15,7 @@ import { untitledTrackOf } from '@/utils/nowPlayingMetadata';
 
 // What takes a browser source off its view: the link (and, for Spotify, no
 // account signed in). The Music Library draws its own storage and catalog
-// states, with the storage wizard at hand (D13).
+// states, with the storage wizard at hand.
 const LINK_REASONS = ['no_network', 'no_internet'];
 
 /**
@@ -28,7 +29,7 @@ export function richSourceFor(state) {
   const reason = availability?.[source] ?? null;
   // A track still coming out keeps its player whatever the link says: a
   // buffered track plays on after the link drops (measured 2026-09-04), and
-  // the card would take away the only control that stops it (D13).
+  // the card would take away the only control that stops it.
   const playing = session?.phase === 'playing';
 
   if (BROWSER_SOURCES.includes(source)) {
@@ -43,7 +44,7 @@ export function richSourceFor(state) {
   // A sender Milō cannot tell playing from paused is "Connecté à X" (§9) —
   // until it names a cover, a title and an artist: an iPhone's AirPlay stream
   // stays connected from start to end while naming every track (measured
-  // 2026-09-25), and the card hid all of it (D14). The Lock Screen follows the
+  // 2026-09-25), and the card hid all of it. The Lock Screen follows the
   // same clause, in the push (`payloads.shown_track`) and in the apps
   // (`MiloAudioState.shown`): backend/tests/contracts/connected_naming_cases.json
   // holds this clause and the push's to the same answers, and the apps' text is

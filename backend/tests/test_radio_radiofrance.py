@@ -575,7 +575,7 @@ class TestTheFeedDiesWithTheSession:
 
     async def test_a_station_change_stops_the_reads(self, radio, feed):
         """A read in flight when another station is tuned is dropped, and no
-        read follows: the feed is the session's, like Shazam (E44)."""
+        read follows: the feed is the session's, like Shazam."""
         feed.song_now(FIP_ID, "Ya bismillah", started_ago=ICECAST_LEAD_S + 5)
         feed.held = asyncio.Event()
         await play(radio, FIP_RF)

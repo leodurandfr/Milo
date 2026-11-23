@@ -1,6 +1,6 @@
 <!-- frontend/src/components/settings/categories/QobuzSettings.vue -->
 <!--
-  Qobuz account screen (D4). Unlike Spotify Connect (zeroconf, no login),
+  Qobuz account screen. Unlike Spotify Connect (zeroconf, no login),
   qobuz-proxy needs a one-time Qobuz account login before "Milō" advertises in
   the Qobuz app. This screen drives the backend relay (backend/api/qobuz_account.py):
     - GET  /api/qobuz/account            → login status (from the cached token,

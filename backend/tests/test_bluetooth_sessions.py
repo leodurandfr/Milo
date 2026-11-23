@@ -40,7 +40,7 @@ async def playing_iphone(bt, track=SAYS):
 
 def has_player(bt) -> bool:
     """Whether the wire offers the linked phone's transport: `controls` holds
-    it only while that phone has an AVRCP player (E33)."""
+    it only while that phone has an AVRCP player."""
     return "next" in bt.state()["controls"]
 
 
@@ -64,7 +64,7 @@ async def test_a_pause_on_the_phone_is_a_pause_and_the_link_stays(bt):
 
 
 async def test_a_stream_that_stops_under_a_playing_player_is_not_playing(bt):
-    """E76, measured: the Mac switching its output to its own speakers keeps
+    """Measured: the Mac switching its output to its own speakers keeps
     the link, the PCM and a player that says `playing` — BlueALSA alone says
     the stream stopped. The old code showed "playing" on silence for as long
     as the link lasted."""
@@ -130,10 +130,10 @@ async def test_a_long_pause_keeps_the_link(bt):
     assert ("stop", "milo-bluealsa.service") not in bt.unit_calls
 
 
-# === The player belongs to the phone holding the link (E30) ===
+# === The player belongs to the phone holding the link ===
 
 async def test_a_player_outliving_its_link_is_not_published(bt):
-    """E30, measured once: the player outlived its A2DP link by 1.0 s, and the
+    """Measured once: the player outlived its A2DP link by 1.0 s, and the
     idle state published meanwhile still offered its transport."""
     await playing_iphone(bt)
     await bt.pcm_removed(IPHONE)
@@ -142,7 +142,7 @@ async def test_a_player_outliving_its_link_is_not_published(bt):
 
 
 async def test_another_phones_player_never_names_the_one_connected(bt):
-    """E30: the player a first phone left behind was stored and published for
+    """The player a first phone left behind was stored and published for
     the next phone to connect, and took its transport commands."""
     await bt.select()
     await bt.player_added(IPHONE, SAYS, status="playing", position=0)
@@ -163,10 +163,10 @@ async def test_the_player_arriving_before_the_link_is_the_phones(bt):
     assert bt.playing() and bt.session()["title"] == "Says"
 
 
-# === bluetoothd (E31, E75) ===
+# === bluetoothd ===
 
 async def test_bluetoothd_killed_forgets_the_player(bt):
-    """E31, measured: SIGKILL removes nothing from the bus; BlueALSA drops the
+    """Measured: SIGKILL removes nothing from the bus; BlueALSA drops the
     PCM 7 ms later, but the old code kept the dead daemon's player for good
     (its transport still offered with no phone linked)."""
     await playing_iphone(bt)
@@ -176,14 +176,14 @@ async def test_bluetoothd_killed_forgets_the_player(bt):
 
 
 async def test_bluetoothd_killed_under_a_session_is_a_death_with_a_banner(bt):
-    """E31: the audio stopped because a daemon died, not because the phone left."""
+    """The audio stopped because a daemon died, not because the phone left."""
     await playing_iphone(bt)
     await bt.bluetoothd_killed_and_restarted()
     assert bt.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
 
 
 async def test_a_restarted_bluetoothd_is_opened_and_given_the_agent_again(bt):
-    """E75, measured twice: the bluetoothd systemd brings back is closed and has
+    """Measured twice: the bluetoothd systemd brings back is closed and has
     no agent, so it refuses every audio connection ("Authentication attempt
     without agent") while the screen says ready."""
     await bt.select()
@@ -208,7 +208,7 @@ async def test_a_phone_back_after_bluetoothd_restarted_clears_the_banner(bt):
 
 
 async def test_a_phone_back_after_bluetoothd_died_inherits_nothing_from_it(bt):
-    """The dead daemon's player went unannounced (E31): the phone linking again
+    """The dead daemon's player went unannounced: the phone linking again
     before its new player is published must not be shown the old track."""
     await playing_iphone(bt)
     await bt.bluetoothd_killed_and_restarted()
@@ -237,7 +237,7 @@ async def test_a_new_bluetoothd_still_powering_up_is_configured_anyway(bt):
 
 
 async def test_a_new_bluetoothd_that_cannot_be_configured_is_reported(bt):
-    """E75's failure is a closed appliance under a screen that says ready:
+    """A new bluetoothd left unconfigured fails as a closed appliance under a screen that says ready:
     when it cannot be undone, it is said."""
     await bt.select()
     bt.bluez.adapter_busy = 100
@@ -311,10 +311,10 @@ async def test_a_clean_bluetoothd_restart_is_the_phone_leaving(bt):
     assert bt.errors() == []
 
 
-# === BlueALSA (E32) ===
+# === BlueALSA ===
 
 async def test_bluealsa_killed_ends_the_session_with_a_banner(bt):
-    """E32, measured: the monitor prints `ServiceStopped` and keeps running, so
+    """Measured: the monitor prints `ServiceStopped` and keeps running, so
     the old code kept the phone's name on screen and every other phone
     blocked, forever."""
     await playing_iphone(bt)
@@ -324,7 +324,7 @@ async def test_bluealsa_killed_ends_the_session_with_a_banner(bt):
 
 
 async def test_bluealsa_back_gets_its_player_back(bt):
-    """E32, measured: systemd restarts BlueALSA but not bluealsa-aplay, which
+    """Measured: systemd restarts BlueALSA but not bluealsa-aplay, which
     `BindsTo=` it — a phone reconnecting would have been silent."""
     await playing_iphone(bt)
     await bt.bluealsa_killed()
@@ -545,7 +545,7 @@ async def test_a_monitor_terminated_while_bluealsa_runs_is_still_a_lost_feed(bt)
 
 
 async def test_the_monitor_dying_is_reported_on_screen_and_changes_nothing(bt):
-    """E32: the feed's death was logged under `source.bluetooth`, a logger that
+    """The feed's death was logged under `source.bluetooth`, a logger that
     never reaches the banner. Reported once; the state is left alone."""
     await playing_iphone(bt)
     await bt.monitor_dies()

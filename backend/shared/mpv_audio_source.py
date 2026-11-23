@@ -409,7 +409,7 @@ class MpvAudioSource(BaseAudioSource):
         """The IPC link died under a live session: systemd brings a new mpv
         up, but it knows nothing of this session. A stop systemd was asked
         for is not a death: a backend restart stops the source units first,
-        while the backend still runs (E71)."""
+        while the backend still runs."""
         if await self._unit_stopped_on_purpose():
             self._logger.info(f"{self.service_name} was stopped under the session — ending it")
             await self._end_playback(EndReason.USER_STOP, stop_mpv=False)

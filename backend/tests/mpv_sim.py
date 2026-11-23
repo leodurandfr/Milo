@@ -3,8 +3,8 @@
 One in-memory player behind MpvController's public surface — both the polled
 reads the sources used to make and the events they now consume — so a test
 drives the outside world once and any source implementation sees one
-consistent truth. Every behaviour below was observed on the unit
-(docs/plans/source-architecture.md, phase 0a and phase 1 measurements):
+consistent truth. Every behaviour below was observed on the unit, in the
+measurements taken before and during the source refactor:
 
 - `loadfile … append` plays nothing and answers the new entry's id;
   `replace` clears the playlist and starts the file; per-entry `start=` and
@@ -44,7 +44,7 @@ consistent truth. Every behaviour below was observed on the unit
   true). `playlist` lists each entry's `filename` and `id`, with `current`
   and `playing` true on the one playing; `playlist-playing-pos` is -1 while
   idle. (Measured 2026-11-01, mpv 0.40 with a null audio output.)
-- A seek before the file is open is refused (E57, measured 3/3).
+- A seek before the file is open is refused (measured 3/3).
 - A stream that stops delivering sets `paused-for-cache` and sends nothing
   else (measured: 155 s before an `eof`, never for a stalled socket).
 - A link that dies sends LINK_LOST to subscribers; reads answer None.

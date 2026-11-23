@@ -744,7 +744,7 @@ class TestFailedTransition:
     async def test_an_idle_sweep_spares_a_source_with_a_session(self, clock, selected, phase):
         """The 12 h sweep deselects a source with no session, never one with a session.
 
-        A paused session stays selected however long it waits (E15), and no
+        A paused session stays selected however long it waits, and no
         idle timeout applies to a CONNECTED one (a Mac sending its output).
         Neither publishes anything while it waits, so on the clock alone the
         sweep's switch to "no source" would stop their unit under the sender.
@@ -983,7 +983,7 @@ class TestAFailureIsTheLastWordOfAFailedStart:
     async def test_the_failure_is_on_the_wire_while_the_failed_target_still_stops(
         self, state_machine, mock_source, start, budget, reason
     ):
-        """The failure is what clients are shown while the failed target stops (E03).
+        """The failure is what clients are shown while the failed target stops.
 
         That stop can take seconds (a unit that will not stop is stopped
         again). A failure landing only once the target had stopped would leave
@@ -1031,7 +1031,7 @@ class TestAFailureIsTheLastWordOfAFailedStart:
     ):
         """The CD's disc watcher runs whether or not its start succeeded, and its
         next publish replaced the failure — the card lost "Retry" and
-        re-selecting the source became a no-op (E07)."""
+        re-selecting the source became a no-op."""
         mock_source.start = AsyncMock(return_value=False)
         state_machine.register_source(AudioSource.CD, mock_source)
         await state_machine.transition_to_source(AudioSource.CD)
@@ -1882,7 +1882,7 @@ class TestRerouteActiveSource:
     async def test_a_failed_output_switch_still_reacquires_the_source(
         self, state_machine, mock_source
     ):
-        """E08: a switch that raised (snapcast refusing to move) left the source
+        """A switch that raised (snapcast refusing to move) left the source
         released — Spotify's output parked on `null`, any other source stopped —
         although the mode had not changed. The source is taken back under the
         mode in force, and the failure still reaches the caller."""
@@ -1938,7 +1938,7 @@ class TestRerouteActiveSource:
     async def test_a_failed_reacquire_lands_before_the_source_is_stopped(
         self, state_machine, mock_source
     ):
-        """E03 on the reroute: the failure is on the wire before the source that
+        """On the reroute too: the failure is on the wire before the source that
         did not come back is stopped, so no client reads the stale session for
         as long as the stop takes."""
         sent = recorded(state_machine)
@@ -2532,7 +2532,7 @@ class TestRerouteOfAFailedSource:
         self, state_machine, mock_source
     ):
         """A switch that raised still has its source taken back, under the old
-        mode (E08). Raised before the resync, a reacquire that succeeded left
+        mode. Raised before the resync, a reacquire that succeeded left
         the source playing under a card still saying "Retry"."""
         mock_source.start = AsyncMock(return_value=False)
         mock_source.release_for_reroute = AsyncMock(return_value=True)

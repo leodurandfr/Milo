@@ -301,7 +301,7 @@ class SenderClock:
 
 @dataclass(eq=False)
 class AirPlaySession(Session):
-    """One sender's session: everything it owns goes with it (E19 — the next
+    """One sender's session: everything it owns goes with it (the next
     sender used to inherit the previous track's position and duration).
 
     The stream facts are what the pipe announced, the item what D-Bus last

@@ -72,7 +72,7 @@ class AudioStateResponse(AudioState):
 
     The model *is* the state (core/models/audio_wire.py): the same object
     `source/state` carries, so the REST read and the WebSocket cannot disagree
-    on a field (E59), and its OpenAPI schema is what Milo-iOS' contract walks.
+    on a field, and its OpenAPI schema is what Milo-iOS' contract walks.
     """
 
 

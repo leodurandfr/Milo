@@ -454,7 +454,7 @@ class RadioSource(MpvAudioSource):
         await self._end_playback(EndReason.STREAM_LOST, detail="the stream ended")
 
     async def _session_ended(self, session: RadioSession, reason: EndReason) -> None:
-        """Shazam listens to the session's stream: it stops with it (E44)."""
+        """Shazam listens to the session's stream: it stops with it."""
         if self._shazam:
             await self._shazam.stop()
 

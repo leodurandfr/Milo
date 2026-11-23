@@ -4,7 +4,7 @@ The net behind every source (core/audio_source.py): after each message the
 actor compares the source's view with the last one it published and
 republishes when it moved. Radio and Podcast both end their session when mpv
 refuses a load, and the card kept a loading session with an hourglass and no
-stop button, for good (E41). Driven through the wire adapters: mpv refusing is
+stop button, for good. Driven through the wire adapters: mpv refusing is
 the outside world, the envelopes are what a client receives.
 """
 import pytest

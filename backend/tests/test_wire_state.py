@@ -275,7 +275,7 @@ SCENARIOS: List[Scenario] = [
     }),
     Scenario("podcast paused", lambda mp, t: _podcast(mp, t, pause=True),
              expect={"controls": ["resume", "seek", "skip"]}, session_has={"phase": "paused"}),
-    # E50: the resume view offers what the source takes — the kept episode
+    # The resume view offers what the source takes — the kept episode
     # moves without playing, as a disc's does.
     Scenario("podcast kept to resume", lambda mp, t: _podcast(mp, t, kept=True), expect={
         "session": None, "controls": ["resume", "seek", "skip"],
@@ -315,7 +315,7 @@ SCENARIOS: List[Scenario] = [
     Scenario("library paused", lambda mp, t: _library(mp, t, pause=True),
              expect={"controls": ["resume", "seek", "skip", "next", "prev", *LIBRARY_TAIL, *LIBRARY_EDITS]},
              session_has={"phase": "paused"}),
-    # E50: the resume view offers what the source takes — no seek, no next.
+    # The resume view offers what the source takes — no seek, no next.
     Scenario("library resume", lambda mp, t: _library(mp, t, idle_end=True), expect={
         "session": None, "controls": ["resume", "play_index", "stop"],
         "resume": {
@@ -330,7 +330,7 @@ SCENARIOS: List[Scenario] = [
     Scenario("cd playing", lambda mp, t: _cd(mp, t, play=True),
              expect={"controls": ["pause", "seek", "skip", "next", "prev", *CD_TAIL]},
              session_has={"phase": "playing"}),
-    # E67: a disc Milō cannot play still comes out.
+    # A disc Milō cannot play still comes out.
     Scenario("cd unreadable", lambda mp, t: _cd(mp, t, disc="data"), expect={
         "session": None, "controls": ["eject"], "resume": None,
         "details": {
@@ -341,7 +341,7 @@ SCENARIOS: List[Scenario] = [
     Scenario("cd no drive", lambda mp, t: _cd(mp, t, plugged=False), expect={
         "session": None, "controls": [], "resume": None, "details": None,
     }),
-    # Spotify — no sender name (an account is an identity, D3); the account is
+    # Spotify — no sender name (an account is an identity, not a sender); the account is
     # in `details`, where the browser reads whose library it shows.
     Scenario("spotify playing", _spotify, expect={
         "controls": ["pause", "seek", "skip", "next", "prev", "set_shuffle", "set_repeat"],
@@ -382,7 +382,7 @@ SCENARIOS: List[Scenario] = [
              session_has={"phase": "paused"}),
     Scenario("airplay realtime", lambda mp, t: _airplay(mp, t, system_audio=True),
              session_has={"phase": "connected"}),
-    # Bluetooth — the transport when the linked phone has a player (E33).
+    # Bluetooth — the transport when the linked phone has a player.
     Scenario("bluetooth playing", _bluetooth,
              expect={"controls": ["pause", "next", "prev", "disconnect"],
                      "details": {"kind": "bluetooth", "artwork_pending": False}},
@@ -475,7 +475,7 @@ async def test_a_fresh_machine_publishes_every_field():
 
 
 async def test_the_rest_answer_and_the_event_carry_the_same_object(monkeypatch, tmp_path):
-    """E59: one object, whether read over REST or received over WS."""
+    """One object, whether read over REST or received over WS."""
     rig = await _radio(monkeypatch, tmp_path)
     try:
         sent = [e["data"] for e in rig.recorder.envelopes if (e["category"], e["type"]) == ("source", "state")]

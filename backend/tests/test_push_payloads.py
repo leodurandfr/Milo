@@ -216,7 +216,7 @@ class TestNowPlayingAttributes:
         """A sender Milō cannot call playing or paused that names a title, an
         artist and a cover (an AirPlay stream naming every track, a Bluetooth
         phone whose cover was found): CONNECTED, and Milō's full player draws
-        it with its artist line (D14). The Lock Screen says the same, and
+        it with its artist line. The Lock Screen says the same, and
         Milo-iOS' `buildAttributes` is held to it by
         `test_the_app_writes_the_artist_line_as_the_push_does`."""
         state = {
@@ -233,7 +233,7 @@ class TestNowPlayingAttributes:
     def test_a_half_named_connected_session_shows_the_source_card(self):
         """A Bluetooth phone names its track while its stream is stopped and
         its cover is still being looked up: Milō's screen draws "Connected to
-        iPhone de Léo" (D14), so the Lock Screen draws the source's card, not
+        iPhone de Léo", so the Lock Screen draws the source's card, not
         a title the kiosk does not show. Which states name a track is
         `connected_naming_cases.json`'s; this pins the card it falls back to."""
         state = {

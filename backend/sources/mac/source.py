@@ -15,7 +15,7 @@ D-Bus. So the journal is the feed, and what was measured on the unit
     with the process. Its journal therefore describes the Macs attached to it
     *since its process started*, and nothing older — a replay across an
     earlier run is how a Mac that had left came back as "Audio reçu de …"
-    forever (E28). The feed is one `journalctl -f` bounded by that start and
+    forever. The feed is one `journalctl -f` bounded by that start and
     following on from it, across the restarts `Restart=always` makes (a Mac
     still streaming reattaches to the new process by itself, measured). The
     time bound is journald's *reception* time, so each line also carries the
@@ -328,5 +328,5 @@ class MacSource(BaseAudioSource):
 
     def _session_fields(self, session: MacSession) -> Dict[str, Any]:
         """The Macs attached, by name — one entry per Mac, however many
-        streams it has opened (D3)."""
+        streams it has opened."""
         return {"senders": list(dict.fromkeys(session.senders.values()))}

@@ -9,7 +9,7 @@ the source follows it through `reconcile()` (docs: source architecture,
 "reconcile"). One thing decides where the session stands: go-librespot's own
 GET /status, read once after every burst of /events. An event is when to look,
 never what to believe — two writers (the event and /status) is how the screen
-said "playing" while the auto-stop counted down a pause (E11). With no session
+said "playing" while the auto-stop counted down a pause. With no session
 here, GET /connect/devices is read after it (another device's playback, below);
 a burst of `cluster` events alone reads only that, and nothing at all while a
 session plays here. The play order
@@ -31,7 +31,7 @@ start and after every session end. Measured on 0.10.3 (2026-10-03):
   8 tries: stored credentials that have not signed in within SIGNIN_TIMEOUT get
   the daemon restarted once. A /status that still answers 204 after it is a
   refusal, and the account goes; one that does not answer at all learned
-  nothing (E10), so the account stays and /status is read again every
+  nothing, so the account stays and /status is read again every
   SIGNIN_REREAD_S until it answers.
 - With nobody signed in, /player/* answers 204. Signed in, shuffle and repeat
   are taken, but a `play` with no session starts from a fresh state, shuffle
@@ -83,8 +83,8 @@ sends it, and GET /connect/devices lists it: `active_device_id`, the `devices`
 (the one `is_self`, each with its name and type) and `now_playing`, the
 active device's playback. A `cluster` event carries the same answer at every
 change of the cluster — a device joining, a volume moved anywhere, the re-send
-of Milō's own pushes — and is, here too, when to look, never what to believe
-(E11). Read in go-librespot's code (master 9085364, #428), not measured yet:
+of Milō's own pushes — and is, here too, when to look, never what to believe.
+Read in go-librespot's code (master 9085364, #428), not measured yet:
 the first cluster of a session comes with no event, in the answer to the
 daemon's first push, before its `playback_ready`; the route answers 404 until
 then and 204 with no session (as a go-librespot without it answers: the two
@@ -494,7 +494,7 @@ class SpotifyResume:
 class PendingModes:
     """A play from the resume point owes the session it starts the point's
     shuffle and repeat as they stand once its track has loaded (a toggle
-    pressed while it loads sets the point: no session is open yet, E14) —
+    pressed while it loads sets the point: no session is open yet) —
     until `until` (wall time), and each only until the session's own toggle
     sets it."""
     played: str
@@ -969,7 +969,7 @@ class SpotifySource(BaseAudioSource):
         one outcome worse than a dropped session.
 
         The pause's own `paused` event waits in the mailbox the reroute holds,
-        and is read against /status after the reacquire's resume (E09: it used
+        and is read against /status after the reacquire's resume (it used
         to publish "paused" over the reroute and arm the auto-stop).
         """
         self._soft_reroute = False
@@ -1014,7 +1014,7 @@ class SpotifySource(BaseAudioSource):
         The device name is explicit rather than the `milo_spotify` alias: that
         alias resolves MILO_MODE from the daemon's own environment, frozen when
         it started, so with no restart it would still name the old mode — which
-        is also why a reopen that fails restarts the daemon (E08): a start is a
+        is also why a reopen that fails restarts the daemon: a start is a
         no-op on a unit already running, and the daemon would go on writing to
         `null`, every later session silent.
 
@@ -1946,7 +1946,7 @@ class SpotifySource(BaseAudioSource):
     async def _apply_session(self, status: LibrespotStatus) -> None:
         """Make the session match a /status that names one.
 
-        A session opens at its first displayable track (E14): go-librespot
+        A session opens at its first displayable track: go-librespot
         reports a session before it knows the track, and a phone that picked
         the speaker without playing has nothing to draw.
         """
@@ -2046,7 +2046,7 @@ class SpotifySource(BaseAudioSource):
         /connect/devices names is taken at once, held or not, once Spotify
         has named its track (artist and cover, _name_remote): until then the
         remote shown stands as it was, and none is shown if none was. A read
-        that failed changes nothing (E10).
+        that failed changes nothing.
         """
         kept, self._announced_here = self._announced_here, None
         if self._session is not None:
@@ -2326,7 +2326,7 @@ class SpotifySource(BaseAudioSource):
         """Stored credentials that have not signed the daemon in: restart it
         once — a sign-in hung for minutes once, and a restart signs in within
         a second (measured). Then a 204 gives up, nobody signed in; a /status
-        that does not answer learned nothing (E10), so the stored account
+        that does not answer learned nothing, so the stored account
         stays and /status is read again until it answers."""
         status = await self._read_status()
         if isinstance(status, LibrespotStatus):
@@ -2505,7 +2505,7 @@ class SpotifySource(BaseAudioSource):
 
     async def _read(self, path: str, what: str) -> Union[Tuple[int, Any], _Unreadable]:
         """GET one of go-librespot's routes: its HTTP status and its JSON body
-        (None unless 200), or UNREADABLE — the one failure rule (E10): a read
+        (None unless 200), or UNREADABLE — the one failure rule: a read
         that failed learned nothing, and nothing is changed on it."""
         if not self._http or not self._api_url:
             return UNREADABLE

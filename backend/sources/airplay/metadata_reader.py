@@ -32,7 +32,7 @@ sent at all. The pipe still carries the session itself, which D-Bus does not
       follows it in the same millisecond
   `pfls` (a flush) is not a pause and is not read: it never appeared in the
   measurements, and treating it as one armed the idle timeout under a sender
-  that was playing (E54).
+  that was playing.
 """
 import asyncio
 import contextlib

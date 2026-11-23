@@ -147,7 +147,7 @@ def radio(monkeypatch):
 
 
 async def test_radio_stream_that_stalls_ends_and_keeps_the_station(radio):
-    """E43: a stream that stops delivering (mpv: paused-for-cache, then nothing
+    """A stream that stops delivering (mpv: paused-for-cache, then nothing
     for minutes) used to keep its session on silence forever. Past the loading
     watchdog the session ends as a lost stream: a banner, no session, and the station
     kept so a press re-tunes it."""
@@ -331,7 +331,7 @@ async def test_radio_playlist_stream_that_ends_is_a_lost_stream(radio):
 
 
 async def test_radio_knob_during_buffering_stops_then_retunes_the_shown_station(radio, monkeypatch):
-    """E42: while a station buffers, the knob re-tuned whatever was stopped
+    """While a station buffers, the knob re-tuned whatever was stopped
     last — not the station on screen. A press on a loading station stops it;
     the next press brings back that same station."""
     from backend.hardware.playback_dispatch import PlaybackDispatcher
@@ -380,7 +380,7 @@ async def test_a_knob_press_the_radio_refuses_leaves_a_warning(radio, caplog):
 
 
 async def test_radio_shazam_stops_with_the_session(radio):
-    """E44: after mpv died, Shazam kept recording the station every 20 s."""
+    """After mpv died, Shazam kept recording the station every 20 s."""
     await radio.select()
     await radio.tune(NOVA)                  # no in-band titles
     await radio.tick(1 + 4 * 8)             # past the in-band grace
@@ -411,7 +411,7 @@ async def test_radio_reroute_mid_play_plays_the_station_again(radio):
 
 
 async def test_radio_mpv_stopped_by_systemd_ends_without_a_banner(radio):
-    """E71: a backend restart stops the source's mpv unit first (BindsTo +
+    """A backend restart stops the source's mpv unit first (BindsTo +
     After=), while the backend still runs. Read as a crash, it logged an
     ERROR and raised a "stream disconnected" banner the kiosk kept after the
     restart; it is a stop someone asked for (measured 5 times on 2026-09-25)."""
@@ -428,7 +428,7 @@ async def test_radio_mpv_stopped_by_systemd_ends_without_a_banner(radio):
 
 
 async def test_radio_mpv_that_crashes_is_still_a_death_with_a_banner(radio):
-    """The other half of E71: an mpv killed under a session (systemd brings it
+    """The other half of a stop on purpose: an mpv killed under a session (systemd brings it
     back: `activating`, Result `signal`) is still a death, reported once."""
     radio.systemd.unit_state = AsyncMock(return_value=("activating", "signal"))
     await radio.select()
@@ -506,7 +506,7 @@ def podcast(monkeypatch):
 
 
 async def test_podcast_switching_away_keeps_the_episode_to_resume(podcast):
-    """E46: a source switch handed nothing to the resume slot — coming back
+    """A source switch handed nothing to the resume slot — coming back
     showed the episode before, or nothing. The episode left comes back, at the
     second it was left."""
     await podcast.select()
@@ -548,7 +548,7 @@ async def test_podcast_resume_after_leaving_is_refused_not_failed(podcast):
 
 
 async def test_podcast_dead_url_is_not_marked_listened(podcast):
-    """E47: an episode whose URL does not open was marked "listened" and left
+    """An episode whose URL does not open was marked "listened" and left
     the in-progress list, with no message."""
     podcast.mpv.broken["daily-0921"] = "loading failed"
     await podcast.select()
@@ -562,7 +562,7 @@ async def test_podcast_dead_url_is_not_marked_listened(podcast):
 
 
 async def test_podcast_outgoing_episode_is_not_marked_listened(podcast, monkeypatch):
-    """E48: a playhead read already in flight when another episode starts saw
+    """A playhead read already in flight when another episode starts saw
     mpv idle between the two loads and marked the outgoing one "listened"."""
     await podcast.select()
     await podcast.play(EPISODE_A)
@@ -640,7 +640,7 @@ async def test_podcast_play_during_a_feed_outage_reports_the_catalog(podcast, ou
 
 
 async def test_podcast_play_starts_at_the_position_it_carries(podcast, monkeypatch):
-    """E57: the resume seek went out before mpv had opened the file, was
+    """The resume seek went out before mpv had opened the file, was
     refused, and the request answered 400 over an episode playing from 0:00.
     The load carries the position instead: one command, no seek."""
     monkeypatch.setattr(MpvAudioSource, "STALL_TIMEOUT_S", 60.0, raising=False)
@@ -660,7 +660,7 @@ async def test_podcast_play_starts_at_the_position_it_carries(podcast, monkeypat
 
 
 async def test_podcast_play_from_zero_is_not_a_resume(podcast):
-    """E65: a position of 0 read as "no position", so asking for the start of
+    """A position of 0 read as "no position", so asking for the start of
     an episode listened to up to 5:00 played it from 5:00."""
     podcast.data.progress[EPISODE_A["uuid"]] = {"position": 300, "duration": 3600}
     await podcast.select()
@@ -672,7 +672,7 @@ async def test_podcast_play_from_zero_is_not_a_resume(podcast):
 
 
 async def test_podcast_play_without_a_position_resumes_where_it_was(podcast):
-    """The other half of E65: no position is the resume, from the progress file."""
+    """The other half of a position of 0: no position is the resume, from the progress file."""
     podcast.data.progress[EPISODE_A["uuid"]] = {"position": 300, "duration": 3600}
     await podcast.select()
 
@@ -799,7 +799,7 @@ def library(monkeypatch):
 
 
 async def test_library_storage_gone_ends_the_session_not_the_source(library):
-    """E01: a storage space leaving mid-play stopped the whole source, which
+    """A storage space leaving mid-play stopped the whole source, which
     stayed selected and dead: nothing played again, from any storage, until
     it was re-selected. Only the session ends; the library plays on."""
     await library.select()
@@ -815,7 +815,7 @@ async def test_library_storage_gone_ends_the_session_not_the_source(library):
 
 
 async def test_library_resume_from_a_storage_gone_since_is_forgotten(library):
-    """E51: a queue snapshotted before its storage left was restored on the
+    """A queue snapshotted before its storage left was restored on the
     next open, onto tracks that no longer exist."""
     await library.select()
     await library.play_album(library_id=3)
@@ -832,7 +832,7 @@ async def test_library_resume_from_a_storage_gone_since_is_forgotten(library):
 
 
 async def test_library_queue_that_cannot_load_is_reported(library):
-    """E53: with Navidrome down every track fails to open, mpv skips them all,
+    """With Navidrome down every track fails to open, mpv skips them all,
     and the library announced a finished queue with no message."""
     library.mpv.broken["rest/stream"] = "loading failed"
     await library.select()
@@ -845,7 +845,7 @@ async def test_library_queue_that_cannot_load_is_reported(library):
 
 
 async def test_library_queue_that_cannot_load_resumes_the_track_chosen(library):
-    """E63: mpv skips a track it cannot open, and the queue followed it, so
+    """mpv skips a track it cannot open, and the queue followed it, so
     the resume point offered after the failure named the last track mpv
     tried (tr-3), never heard, instead of the one the listener chose."""
     library.mpv.broken["rest/stream"] = "loading failed"
@@ -858,7 +858,7 @@ async def test_library_queue_that_cannot_load_resumes_the_track_chosen(library):
 
 
 async def test_library_resume_after_failures_is_the_first_track_not_heard(library):
-    """E63, mid-queue: tr-1 played out, then Navidrome went away and tr-2 and
+    """Failed tracks mid-queue: tr-1 played out, then Navidrome went away and tr-2 and
     tr-3 failed. What was listened to ends at tr-1; the point to come back to
     is tr-2, the first track the listener never heard."""
     library.mpv.broken["tr-2"] = "loading failed"
@@ -891,7 +891,7 @@ async def test_library_failed_track_then_one_heard_resumes_the_one_heard(library
 
 
 async def test_library_queue_reopened_after_leaving_is_refused_not_failed(library):
-    """`play_index` and `resume` reopen the queue left behind (E50) — loads
+    """`play_index` and `resume` reopen the queue left behind — loads
     reached by RESUME commands — and are refused like a play while the
     library is not started."""
     await library.select()
@@ -908,7 +908,7 @@ async def test_library_queue_reopened_after_leaving_is_refused_not_failed(librar
 
 
 async def test_library_play_index_from_the_resume_view_plays(monkeypatch):
-    """E50: the resume view is drawn like a paused queue, but tapping one of
+    """The resume view is drawn like a paused queue, but tapping one of
     its tracks answered "No active queue". A resume-scope command restores
     the queue, then acts."""
     library = LibraryRig(monkeypatch, settings={"audio.auto_stop_delay": 1})
@@ -1067,7 +1067,7 @@ async def test_library_new_queue_mpv_refuses_leaves_nothing_playing(library):
 
 
 async def test_library_track_heard_then_cut_is_the_point_to_come_back_to(library):
-    """Review of E63: tr-1 failed, tr-2 played three minutes and then its
+    """Review of the resume after failed tracks: tr-1 failed, tr-2 played three minutes and then its
     stream broke, tr-3 failed. The run of failures began again at tr-2 — the
     point to come back to is tr-2 where it broke, not tr-1 from the start."""
     library.mpv.broken["tr-1"] = "loading failed"

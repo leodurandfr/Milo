@@ -88,7 +88,7 @@ def shown_track(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     A CONNECTED session — a sender Milō cannot call playing or paused — names
     its track only with a title, an artist and a cover, as Milō's own screen
-    draws it (D14, `richSourceFor`); otherwise the card is the source's. The
+    draws it (`richSourceFor`); otherwise the card is the source's. The
     screen's 300 px gate on an AirPlay sender's cover is left out on purpose:
     it is the kiosk's image-quality call, not the Lock Screen's. This rule and
     the screen's are held to `tests/contracts/connected_naming_cases.json`; the

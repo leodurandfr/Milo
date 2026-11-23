@@ -6,7 +6,7 @@
 // availability names (reading a disc, ejecting — something under way, drawn
 // with a spinner), and otherwise the session's own phase — loading, playing,
 // paused, or connected ("Connecté à X") — so a paused session no longer says
-// "Playing" (E26). With no session, the source is ready.
+// "Playing". With no session, the source is ready.
 //
 // Alongside the state, this owns the second question the card asks: *can* this
 // source work at all right now? It is the source's `availability` entry — the
@@ -43,7 +43,7 @@ const OPERATION_STATES = {
  * Every prerequisite whose absence the card names. Ordered as the backend
  * resolves them: a missing link is upstream of everything else. The Music
  * Library's own two (no_storage, catalog_unavailable) are not here: its view
- * draws them itself, with the storage wizard at hand (D13).
+ * draws them itself, with the storage wizard at hand.
  */
 export const UNAVAILABLE_REASONS = [
   'no_network',

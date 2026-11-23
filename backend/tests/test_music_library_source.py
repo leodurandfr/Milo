@@ -461,7 +461,7 @@ class TestWholeQueueRoute:
 
 class TestAPausedQueueReplacedByAnother:
     """Pausing arms the auto-stop timer; starting another context must disarm
-    it before anything is awaited (E49).
+    it before anything is awaited.
 
     What breaks when this fails: a timer that expires while the new playlist is
     loading stops mpv under it — the play then reports success and publishes a
@@ -1374,7 +1374,7 @@ class TestResume:
     async def test_a_return_reopens_the_queue_paused_at_its_second(self, rig):
         """Breaks: coming back to the library after a detour to the radio loses
         the album, or starts it playing in a room nobody asked, or from 0:00.
-        The second rides on the load itself (E57: a seek before the file is
+        The second rides on the load itself (a seek before the file is
         open is refused)."""
         await rig.select()
         await play(rig, start_index=1)

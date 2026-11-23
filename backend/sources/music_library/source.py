@@ -626,8 +626,7 @@ class MusicLibrarySource(MpvAudioSource):
     async def _storage_changed(self, entries: List[Dict[str, Any]], scan: Dict[str, Any]) -> None:
         """A storage space that is no longer mounted takes with it the session
         playing from it — the session, never the source: mpv and the other
-        storages stay playable (E01) — and a resume point that would reopen it
-        (E51).
+        storages stay playable — and a resume point that would reopen it.
 
         A queue built unscoped is attributed to no storage and left alone: an
         unasked-for stop is worse than a track that plays on out of page cache.
@@ -745,7 +744,7 @@ class MusicLibrarySource(MpvAudioSource):
         index, position = session.index, session.position
         if session.failed_from is not None and not session.opened:
             # The tracks mpv skipped were never heard: come back to the first
-            # of them, not to the last one it tried (E63).
+            # of them, not to the last one it tried.
             index, position = session.failed_from
         track = session.queue[index]
         return track.get("id") or "", position * 1000, {
@@ -923,7 +922,7 @@ class MusicLibrarySource(MpvAudioSource):
 
     async def _handle_play_index(self, params: PlayIndexParams) -> Dict[str, Any]:
         """Jump to an entry of the queue — the live one, or the one on the
-        resume view (restored, then played there: E50)."""
+        resume view (restored, then played there)."""
         session = self._session
         if session is None:
             point = self._resume_point
@@ -1438,8 +1437,8 @@ class MusicLibrarySource(MpvAudioSource):
         After the last entry, mpv either starts the queue over (repeat) or
         drains the sound it still holds and goes idle, and only what it
         announces next says which: the queue ends on `idle-active`
-        (_property_changed), never here — played out (EOF), or failed (E53:
-        Navidrome down fails every track, and the queue used to end as if it
+        (_property_changed), never here — played out (EOF), or failed (with
+        Navidrome down, every track fails, and the queue used to end as if it
         had played). Deciding from the repeat mode instead would be deciding
         from a command: a mode changed as the last track ended would leave
         mpv playing with no session, or a session over a silent mpv.

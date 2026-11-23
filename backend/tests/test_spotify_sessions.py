@@ -61,7 +61,7 @@ async def test_a_play_while_spotify_is_not_started_is_refused_as_such(monkeypatc
 # === A session opens at its first track, and follows what the daemon says ===
 
 async def test_a_transfer_shows_nothing_until_the_track_is_known(world):
-    """E14: a session opens at its first displayable track. go-librespot says
+    """A session opens at its first displayable track. go-librespot says
     `active` and `will_play` before it knows the track; nothing is drawn yet."""
     d = world.daemon
     d.session, d.account, d.track, d.paused, d.buffering = True, "account", None, True, True
@@ -357,7 +357,7 @@ async def test_a_queue_event_read_with_an_unreadable_status_is_not_lost(world):
 
 
 async def test_an_unreadable_play_order_keeps_the_last_one_and_is_read_again(world):
-    """E10 for the order: a read that fails learns nothing, so the carousel
+    """The one failure rule, for the order: a read that fails learns nothing, so the carousel
     keeps the neighbours it had rather than collapsing to one cell — and,
     the `queue` event being said once, the read is tried again on its own."""
     d = world.daemon
@@ -439,7 +439,7 @@ async def test_a_seek_moves_the_published_position(world):
 
 
 async def test_a_track_that_did_not_announce_its_start_is_not_left_spinning(world):
-    """E12: the spinner was an override set by `metadata` that only a later
+    """The spinner was an override set by `metadata` that only a later
     `playing`/`paused` cleared, so a track change with no such event behind it
     spun for the rest of the track. The daemon's own status says it plays."""
     await world.phone_plays(PARAPLUIE)
@@ -452,7 +452,7 @@ async def test_a_track_that_did_not_announce_its_start_is_not_left_spinning(worl
 # === One writer for the phase: the timer and the screen agree ===
 
 async def test_a_stale_pause_event_arms_no_auto_stop_under_a_playing_track(world):
-    """E11: the event armed the auto-stop while /status, read right after,
+    """The event armed the auto-stop while /status, read right after,
     published "playing" — two writers. A pause the daemon no longer reports
     must not end a session that plays."""
     await world.phone_plays(PARAPLUIE)
@@ -480,7 +480,7 @@ async def test_a_pause_asks_the_daemon_to_end_the_session_once(world):
 
 
 async def test_a_phone_that_leaves_leaves_no_auto_stop_behind(world):
-    """E69 (measured): `stopped` follows `inactive` and armed the pause timer
+    """Measured: `stopped` follows `inactive` and armed the pause timer
     on a source with no session left, which then posted /player/stop on nothing. (A
     next session's first `paused`/`playing` replaced that timer, so it could
     not cut the next session.)"""
@@ -504,7 +504,7 @@ async def test_a_resume_withdraws_the_end_request(world):
 # === The daemon ===
 
 async def test_a_daemon_killed_mid_play_ends_the_session_at_once(world):
-    """E17 (Spotify, measured: 6 s of "playing" with no banner): the session
+    """Spotify, measured: 6 s of "playing" with no banner. The session
     belongs to go-librespot's process; its death ends it, reported once."""
     await world.phone_plays(PARAPLUIE)
     await world.kill_daemon()
@@ -554,7 +554,7 @@ async def test_a_crash_heard_before_systemd_reaped_it_is_a_death(world):
 
 
 async def test_an_unreadable_status_on_reconnect_keeps_the_session(world):
-    """E10: when /events came back and /status could not be read, the source
+    """When /events came back and /status could not be read, the source
     published "no session" over music still playing. A failed read learns nothing: the
     session stays as it was, and the read is tried again."""
     await world.phone_plays(PARAPLUIE)
@@ -926,7 +926,7 @@ async def test_a_connection_that_could_not_open_restarts_nothing(world):
 # === Multiroom ===
 
 async def test_a_reroute_keeps_the_session_and_publishes_no_pause(world):
-    """E09 (measured both ways): the reroute's own pause published "active,
+    """Measured both ways: the reroute's own pause published "active,
     paused" 7 ms after STARTING and armed the auto-stop."""
     await world.phone_plays(PARAPLUIE)
     before = len(world.published())
@@ -940,7 +940,7 @@ async def test_a_reroute_keeps_the_session_and_publishes_no_pause(world):
 
 
 async def test_a_reroute_whose_reopen_fails_does_not_leave_the_output_on_null(world):
-    """E08: when the output could not be reopened, the fallback was a start —
+    """When the output could not be reopened, the fallback was a start —
     a no-op on a unit already running — and go-librespot went on writing to
     `null`: every later session played into nothing."""
     await world.phone_plays(PARAPLUIE)
@@ -951,7 +951,7 @@ async def test_a_reroute_whose_reopen_fails_does_not_leave_the_output_on_null(wo
 
 
 async def test_a_reroute_whose_output_switch_fails_reopens_the_output(world):
-    """E08: snapcast refusing to move raised out of the reroute between the
+    """Snapcast refusing to move raised out of the reroute between the
     release and the reacquire, and the parked output was never reopened."""
     await world.phone_plays(PARAPLUIE)
     await world.reroute(fails=True)
@@ -984,7 +984,7 @@ async def test_a_backend_restart_under_the_session_is_not_a_death(world):
 
 
 async def test_another_account_taking_over_shows_nothing_until_its_track(world):
-    """E14's rule holds on a takeover too: a session of another account opens at
+    """The first-track rule holds on a takeover too: a session of another account opens at
     its first named track — not on the untitled status that precedes it."""
     await world.phone_plays(PARAPLUIE)
     d = world.daemon
@@ -998,7 +998,7 @@ async def test_another_account_taking_over_shows_nothing_until_its_track(world):
 
 
 async def test_a_reroute_whose_resume_lags_publishes_no_pause(world):
-    """E09 after the reacquire: go-librespot's /status lags its commands (the
+    """The same pause, after the reacquire: go-librespot's /status lags its commands (the
     reason the release confirms its pause), so a /status read right after the
     resume could still say paused — and publish it, arming the auto-stop."""
     await world.phone_plays(PARAPLUIE)
@@ -1013,7 +1013,7 @@ async def test_a_reroute_whose_resume_lags_publishes_no_pause(world):
 async def test_a_daemon_that_never_answers_is_on_screen_until_its_events_connect(
     monkeypatch, tmp_path
 ):
-    """E27: go-librespot never answering at start was an ERROR in the journal
+    """go-librespot never answering at start was an ERROR in the journal
     only (`source.*` loggers never reach the banner), so the phone found no
     Milō and the screen said nothing. It is a banner now, withdrawn as soon as
     the daemon's /events stream connects."""
@@ -1039,7 +1039,7 @@ async def test_a_daemon_that_answers_raises_no_banner(world):
 
 
 async def test_the_unanswered_banner_leaves_with_the_source(monkeypatch, tmp_path):
-    """Review of E27: the banner a deaf daemon raised stayed over the next
+    """Review of the deaf-daemon banner: the banner a deaf daemon raised stayed over the next
     source once Spotify was left, the daemon still silent."""
     from backend.sources.spotify import source as spotify_module
     from backend.tests.test_spotify_source import deaf_daemon_clock
@@ -1057,7 +1057,7 @@ async def test_the_unanswered_banner_leaves_with_the_source(monkeypatch, tmp_pat
 
 
 async def test_the_daemon_answering_late_leaves_a_newer_banner_standing(monkeypatch, tmp_path):
-    """Review of E27: /events connecting late withdrew whatever banner stood,
+    """Review of the deaf-daemon banner: /events connecting late withdrew whatever banner stood,
     a track that failed to load meanwhile included."""
     from backend.sources.spotify import source as spotify_module
     from backend.tests.test_spotify_source import deaf_daemon_clock
@@ -1881,7 +1881,7 @@ async def test_the_first_cluster_of_a_session_is_read_without_its_event(monkeypa
 
 
 async def test_a_devices_read_that_fails_changes_nothing(signed_in):
-    """A /connect/devices read that did not answer learned nothing (E10):
+    """A /connect/devices read that did not answer learned nothing:
     what is shown stands, and it is read again, since the daemon may say
     nothing more."""
     d = signed_in.daemon

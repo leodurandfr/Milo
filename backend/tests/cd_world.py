@@ -17,7 +17,7 @@ seen red on the code before its fix. What was measured, and is modeled here:
 - unplug: `remove`; replug with a disc in: `add`, then a `change` with media
   once it is readable — no spinning step;
 - the TOC's offsets are libdiscid's, which count the 150-sector lead-in; the
-  kernel (and CDROMREADAUDIO) counts from 0 (E66);
+  kernel (and CDROMREADAUDIO) counts from 0;
 - mpv on the FIFO: the reader ending, at the leadout or on an error, is an
   `end-file reason=eof` either way.
 
@@ -439,5 +439,5 @@ class CdWorld(WireReader):
 
 
 def kernel_lba(track: int, seconds: float = 0) -> int:
-    """Where CDROMREADAUDIO must start for `track` at `seconds` (E66)."""
+    """Where CDROMREADAUDIO must start for `track` at `seconds`."""
     return OFFSETS[track - 1] - LEAD_IN + int(seconds) * 75

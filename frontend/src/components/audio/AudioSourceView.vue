@@ -125,7 +125,7 @@ function handleRetry() {
 }
 
 // A disc the drive holds but Milō cannot read: ejecting it is the only way out
-// of a slot drive (E67).
+// of a slot drive.
 function handleEject() {
   unifiedStore.sendCommand(activeSource.value, 'eject');
 }
@@ -173,7 +173,7 @@ const currentSourceType = computed(() => activeSource.value);
 const { displayState, unavailableReason } = useSourceStatusDisplay();
 
 // Who is sending: AirPlay's client, the Bluetooth device, the Macs (a list,
-// one per Mac). Spotify, Tidal and Qobuz name none (docs: "le fil", D3).
+// one per Mac). Spotify, Tidal and Qobuz name none (docs: "le fil").
 const currentDeviceName = computed(() => unifiedStore.systemState.session?.senders || []);
 
 // Key for transitions: the card crosses over when what it says changes

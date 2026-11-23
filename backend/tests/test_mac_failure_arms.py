@@ -121,7 +121,7 @@ async def test_a_link_local_v6_sender_is_asked_on_its_scope(lan):
 
 
 async def test_a_host_without_a_responder_refusing_the_port_ends_at_once(lan):
-    """Review of E73: a host with nothing on 5353 answers the query with an
+    """Review of the Mac's mDNS naming: a host with nothing on 5353 answers the query with an
     ICMP port unreachable within milliseconds, which asyncio hands to the
     socket as an error; ignored, every such sender waited the whole bound."""
     lan.closed_ports.add(MINI_IP)
@@ -130,7 +130,7 @@ async def test_a_host_without_a_responder_refusing_the_port_ends_at_once(lan):
 
 
 async def test_an_exchange_that_breaks_is_logged_and_keeps_what_it_had(lan, caplog):
-    """Review of E73: an exception inside the exchange was swallowed by the
+    """Review of the Mac's mDNS naming: an exception inside the exchange was swallowed by the
     bound's cleanup — the sender shown by a lesser name with no trace. A type
     listed with an empty label (b"_x." + "_tcp.local") cannot be asked for."""
     import struct

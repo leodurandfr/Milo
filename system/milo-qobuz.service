@@ -21,8 +21,8 @@ ExecStart=/var/lib/milo/qobuz/venv/bin/python /usr/local/bin/milo-qobuz --config
 # ~/.config/pulse (measured 2026-11-03): HOME sits in the data dir, since
 # ProtectHome below makes /home read-only.
 Environment=HOME=/var/lib/milo/qobuz
-# Force qobuz-proxy's config + OAuth token cache under the D3 data dir
-# (/var/lib/milo/qobuz), owned/writable by the milo user (see PLAN_QOBUZ D3).
+# Force qobuz-proxy's config + OAuth token cache under Milō's data dir for it
+# (/var/lib/milo/qobuz), owned/writable by the milo user.
 Environment=QOBUZPROXY_DATA_DIR=/var/lib/milo/qobuz
 # routing.env supplies MILO_MODE (direct|multiroom); the milo_qobuz ALSA PCM
 # switches its backing device on it, same wiring as every other source.

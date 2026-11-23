@@ -31,7 +31,7 @@ READ_CHUNK = 20  # sectors per ioctl call (~0.27s of audio)
 # libdiscid's track offsets count the 2 s lead-in; CDROMREADAUDIO's LBAs count
 # from 0 (the kernel's own TOC puts track 1 at 32 where libdiscid says 182,
 # measured). Read at an offset as given, every track started 2 s late and the
-# last 2 s of a disc answered EIO (E66).
+# last 2 s of a disc answered EIO.
 LEAD_IN_SECTORS = 150
 
 # FIFO path (RuntimeDirectory=milo already exists)

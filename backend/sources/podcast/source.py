@@ -50,7 +50,7 @@ class PodcastSource(MpvAudioSource):
 
     Family C (active player): controlled from Milō's UI. A session is one
     episode; mpv says when its sound starts and why it ends, and only its own
-    `eof` makes an episode "listened" (E47, E48). What any other end leaves is
+    `eof` makes an episode "listened". What any other end leaves is
     the episode to resume, at its second; the progress file stays the
     authority on where a resume starts.
     """
@@ -158,7 +158,7 @@ class PodcastSource(MpvAudioSource):
 
     @handle_errors(default=False)
     async def _do_stop(self) -> bool:
-        """Save where the episode is, keep it to resume (E46), stop mpv."""
+        """Save where the episode is, keep it to resume, stop mpv."""
         await self._end_with_position(EndReason.SOURCE_SWITCH)
         await self._cleanup()
         return await self._stop_service()
@@ -238,7 +238,7 @@ class PodcastSource(MpvAudioSource):
                 await self._sync_position(self._session)
                 await self._save_progress(self._session)
 
-            # None is "resume where it was"; 0 is the start (E65). A listened
+            # None is "resume where it was"; 0 is the start. A listened
             # episode has nothing to resume: it is played again, and reopened
             # at its first second of sound, so a load mpv refuses (announced
             # after the load was accepted) keeps it "listened".
@@ -263,7 +263,7 @@ class PodcastSource(MpvAudioSource):
         self, episode: Dict[str, Any], start_position: int, reopen: bool = False
     ) -> Dict[str, Any]:
         """Open a session on `episode` and load it at `start_position`: one
-        command, no wait-then-seek (E57)."""
+        command, no wait-then-seek."""
         # Replaced, not stopped: the load below replaces the entry in mpv.
         await self.end_session(EndReason.USER_STOP)
         session = PodcastSession(

@@ -304,7 +304,7 @@ class AudioStateMachine:
     async def multiroom_switch(self):
         """Hold `switching` for a whole multiroom toggle (AudioRoutingService):
         from its start to the end of its volume sync. Its end is the first
-        state where `switching` is false again (docs: "le fil", D7).
+        state where `switching` is false again (docs: "le fil").
         `restart_source_if_active` holds it too, around the source it carries:
         the flag is "a switch is in flight", whichever one it is."""
         async with self._state_lock:
@@ -326,7 +326,7 @@ class AudioStateMachine:
         transition_to_source(). The source to carry is read *inside* that lock,
         never handed in: a caller's read predates the lock, and a source picked
         in that window would be rerouted as the one it replaced — restarting a
-        stopped source next to the new one (E04).
+        stopped source next to the new one.
 
         Posts RELEASE, runs `apply_mode` (snapcast reconcile + routing.env,
         owned by AudioRoutingService), then posts ACQUIRE. Messages the source
@@ -335,7 +335,7 @@ class AudioStateMachine:
         caller, `multiroom_switch()`) already says the service is starting.
         ACQUIRE follows RELEASE even when `apply_mode` raised: the mode in force
         is then the old one, and a source left released would stay silent under
-        it (E08: Spotify's output parked on `null`). `apply_mode` raising is
+        it (as Spotify's output was, parked on `null`). `apply_mode` raising is
         re-raised after that, once the state says how the ACQUIRE went. One
         that does not come back raises nothing of its own: the source is
         settled as a failed start (stopped, `service: failed`), so re-selecting
@@ -412,7 +412,7 @@ class AudioStateMachine:
             if not reacquired:
                 # Silent and not started: settled as a failed start, so the card
                 # offers the retry and re-selecting the source is that retry.
-                # The failure lands before the stop (E03).
+                # The failure lands before the stop.
                 error = ServiceError(
                     reason="start_failed",
                     message=f"{active.value} did not come back after the output switch",
@@ -635,7 +635,7 @@ class AudioStateMachine:
             return False
 
     async def _land_failure(self, source: AudioSource, error: ServiceError) -> None:
-        """Put a failed start on the wire before its source is stopped (E03).
+        """Put a failed start on the wire before its source is stopped.
 
         `transitioning` is cleared in the same write: a "starting" left in it
         drew a spinner under the failure for as long as the failed target took
@@ -667,7 +667,7 @@ class AudioStateMachine:
             # the resync of a transition or of a reroute, never through here. A
             # source with a feed that outlives its start (the CD's disc watcher)
             # otherwise published over it: the card lost "Retry" and
-            # re-selecting became a no-op (E07).
+            # re-selecting became a no-op.
             if self.system_state.service_error is not None:
                 logger.debug(f"Ignoring a publish from {source.value}: its start failed")
                 return
@@ -721,7 +721,7 @@ class AudioStateMachine:
         it: mpv starts `--idle` with no output open, and each source writes its
         own Loopback substream. Starting the next source over it kept the old
         one audible (in multiroom, in every room), so the unit is stopped here,
-        and the end that follows is the source's own (USER_STOP, E71). A stop
+        and the end that follows is the source's own (USER_STOP). A stop
         whose budget ran out while systemd was still waiting for the daemon to
         exit leaves the unit `deactivating`, the daemon still holding its
         device: that one is not stopped again, it is waited for.

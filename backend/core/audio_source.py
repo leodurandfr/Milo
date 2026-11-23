@@ -51,7 +51,7 @@ def _format_validation_error(cmd: str, error: ValidationError) -> str:
 #
 # Everything that touches a source's state is a message, handled one at a time
 # by the source's own task. A check made before an await is then still true
-# after it — the property four separate races lacked (E04, E05, E48, E49).
+# after it — the property four separate races lacked.
 # Feeds (what a player or a daemon announces) and results (work done elsewhere)
 # join the same mailbox: a callback never touches the source, it posts.
 
@@ -400,8 +400,8 @@ class BaseAudioSource(ABC):
     def is_playing(self) -> bool:
         """Whether a press on play/pause should stop what runs.
 
-        A session that is loading counts: the press means "stop that" (E42 —
-        the knob used to resume an older station over one still buffering).
+        A session that is loading counts: the press means "stop that" (the
+        knob used to resume an older station over one still buffering).
         """
         return self._session is not None and self._session.phase in (Phase.PLAYING, Phase.LOADING)
 
@@ -1019,7 +1019,7 @@ class BaseAudioSource(ABC):
 
     def _republish_if_moved(self) -> None:
         """The net after a message: a handler that changed the source and
-        published nothing (mpv refusing a load — E41, a seek that moved only
+        published nothing (mpv refusing a load, a seek that moved only
         the anchor) is published anyway. Compared, not repeated: a handler
         that did publish costs no second envelope."""
         if self._published is not None:
@@ -1355,7 +1355,7 @@ class BaseAudioSource(ABC):
 
         Read when the session opens, never kept across sessions: a pid kept
         from the previous one is how a sender reconnecting to a restarted
-        daemon came to be watched against the dead one (E21). A daemon that
+        daemon came to be watched against the dead one. A daemon that
         cannot be named is not watched — nothing is claimed about it. No
         process at all (MainPID 0: the daemon announced the session and died
         before it was read) is the end of the session, like a watched exit.
@@ -1635,8 +1635,8 @@ class BaseAudioSource(ABC):
         (AUTO_STOP_SUPPORTED) and the global delay is not 0; leaving PAUSED
         disarms it. Armed on the session, so it dies with it. The player's
         announcement moves the phase (mpv's `pause`, a daemon's snapshot), so
-        a play handled before the expiry disarms it (E49), and a stop cuts it
-        short if it is already running (E06)."""
+        a play handled before the expiry disarms it, and a stop cuts it
+        short if it is already running."""
         if session.phase is Phase.PAUSED:
             if before is not Phase.PAUSED and self.AUTO_STOP_SUPPORTED and self.auto_stop_enabled:
                 self._arm_timer("idle", self.auto_stop_delay, session)
@@ -1843,7 +1843,7 @@ class BaseAudioSource(ABC):
         Touches systemd only, never the session — a mailbox message could wait
         behind the feeds of a player still playing. The end that follows comes
         through the player's link or the pidfd watch, as a unit stopped on
-        purpose: USER_STOP (E71).
+        purpose: USER_STOP.
         """
         return await self._stop_service()
 

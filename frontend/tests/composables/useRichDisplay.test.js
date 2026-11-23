@@ -135,7 +135,7 @@ describe('useRichDisplay', () => {
     expect(richSource.value).toBeNull();
   });
 
-  it('shows the player for a connected sender naming a cover, a title and an artist (D14)', () => {
+  it('shows the player for a connected sender naming a cover, a title and an artist', () => {
     // An iPhone's AirPlay stream stayed connected from start to end while it
     // named every track (measured 2026-09-25): the card hid all of it.
     const named = { title: 'Pas vraiment', artist: 'Malik Djoudi', artwork: '/api/airplay/artwork?v=1' };
@@ -156,7 +156,7 @@ describe('useRichDisplay', () => {
     }
   });
 
-  it('shows a browser source its own view with nothing playing (D13)', () => {
+  it('shows a browser source its own view with nothing playing', () => {
     // Radio, Podcast and the Music Library are where the first thing to play is
     // chosen: the card would put the browser out of reach.
     for (const source of ['radio', 'podcast', 'music_library']) {
@@ -165,7 +165,7 @@ describe('useRichDisplay', () => {
     }
   });
 
-  it('lets the Music Library draw its own storage state (D13)', () => {
+  it('lets the Music Library draw its own storage state', () => {
     publishState(store, {
       source: 'music_library',
       service: 'running',

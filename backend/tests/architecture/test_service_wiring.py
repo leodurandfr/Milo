@@ -254,7 +254,7 @@ def test_no_module_writes_the_machines_record():
     `….service_error = None` to force a card on screen skips the three filters
     `update_source_view` applies — an inactive source, a view arriving during
     `transitioning`, a sticky failed start — and a CD whose start failed loses
-    its Retry (E07). Publish the view (`_publish()`) or ask the state machine
+    its Retry. Publish the view (`_publish()`) or ask the state machine
     through a public method instead.
     """
     owner_writes = _record_writes(_TREES[_STATE_MODULE])

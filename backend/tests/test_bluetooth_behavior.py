@@ -338,7 +338,7 @@ async def test_a_player_with_nothing_to_say_is_still_announced(bt):
     """The transport buttons are drawn from `controls`, and a client can
     only tell a pause from a sender that never reports playback by reading
     them: a Mac registers a player that serves no track and no Status for
-    100 s, and its transport works meanwhile (E33)."""
+    100 s, and its transport works meanwhile."""
     await bt.select()
     await bt.pcm_added(MAC_MINI)
 

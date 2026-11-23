@@ -34,7 +34,7 @@ async def test_a_mac_picking_milo_is_shown_by_its_bonjour_name(world):
 
 
 async def test_the_mac_itself_is_asked_for_its_name(world):
-    """E73: the router's reverse zone answered for the Mac, with a name DHCP
+    """The router's reverse zone answered for the Mac, with a name DHCP
     had rotated ('mac-mini-de-leo2' once the Mac leased on Ethernet and
     Wi-Fi), and avahi kept one address per name. The name now comes from
     the one responder that cannot confuse the Mac with another: its own."""
@@ -103,10 +103,10 @@ async def test_two_macs_are_one_session_until_the_last_leaves(world):
     assert not world.active()
 
 
-# === The replay is the running roc-recv's, never an earlier one's (E28) ===
+# === The replay is the running roc-recv's, never an earlier one's ===
 
 async def test_a_mac_that_left_while_the_source_was_off_is_not_shown(world):
-    """E28, reproduced on the unit: roc-recv stopped under a live session
+    """Reproduced on the unit: roc-recv stopped under a live session
     (Milō switched to another source) writes no goodbye, the Mac then picked
     its own speakers, and the next selection replayed the previous run's
     connect line — "Audio reçu de …" from a Mac sending nothing, forever."""
@@ -139,10 +139,10 @@ async def test_a_mac_that_left_while_roc_recv_restarted_is_not_shown(world):
     assert not world.active()
 
 
-# === Selecting the source never waits on a name (E29) ===
+# === Selecting the source never waits on a name ===
 
 async def test_selecting_the_source_never_waits_for_a_senders_name(world):
-    """E29: the old start replayed the journal and resolved every sender it
+    """The old start replayed the journal and resolved every sender it
     found before the transition could end — 6.3 s per Mac that no longer
     answers (measured: avahi-resolve gives up after 5 s), 7.45 s measured for
     one, and three over the 15 s budget. The start now starts roc-recv and
@@ -330,7 +330,7 @@ async def test_an_unreadable_probe_after_the_settle_does_not_fail_the_selection(
 
 async def test_without_a_start_time_the_journal_is_followed_from_now(world, caplog):
     """Fail open: systemd cannot say when roc-recv started, so nothing is
-    replayed (an unbounded replay is E28) — and the source still works for
+    replayed (an unbounded replay brought back a Mac that had left) — and the source still works for
     every Mac arriving from now on."""
     world.systemd.main_start_usec.side_effect = RuntimeError("no system bus")
     with caplog.at_level("WARNING", logger="source.mac"):

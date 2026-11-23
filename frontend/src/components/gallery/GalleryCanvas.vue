@@ -130,7 +130,7 @@ const VIEWPORTS = [
 ];
 
 /**
- * The canvas document's theme, so A2/A3 can read every primitive in both. It
+ * The canvas document's theme, so every primitive can be read in both. It
  * sets `data-theme` inside the iframe only: the gallery around it stays as it
  * is, which keeps the controls readable whatever is being judged.
  */

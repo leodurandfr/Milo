@@ -156,7 +156,7 @@ async def test_a_signin_that_hangs_restarts_the_daemon_once(monkeypatch, tmp_pat
 
 async def test_an_unreadable_status_after_the_restart_keeps_the_stored_account(monkeypatch, tmp_path):
     """A /status that never answers (a daemon stuck reaching Spotify, a loaded
-    unit) learned nothing (E10): after the one restart the stored account
+    unit) learned nothing: after the one restart the stored account
     stays named, so the browser keeps its listings instead of "cast from your
     phone", and the daemon is not restarted again."""
     w = SpotifyWorld(monkeypatch, tmp_path, stored=ACCOUNT)
@@ -386,7 +386,7 @@ async def _load_ends(world):
 
 async def test_a_mode_set_while_the_track_loads_is_kept(resuming, monkeypatch):
     """The point's toggles stay up while the resumed track loads (no session
-    opens before its track is named, E14): a press there is the newer
+    opens before its track is named): a press there is the newer
     choice, and is what the loaded session gets."""
     await _left_with_modes(resuming)
     plays = _plays_slowly(resuming, monkeypatch)
@@ -555,7 +555,7 @@ async def test_a_prev_that_may_not_rewind_goes_back_a_track_or_is_refused(resumi
 
 
 async def test_a_press_while_a_cast_arrives_leaves_it_alone(resuming):
-    """A phone's transfer opens no session before its track is named (E14):
+    """A phone's transfer opens no session before its track is named:
     a play over the point would replace what the phone just sent."""
     await _left_between_neighbors(resuming, 30)
     d = resuming.daemon

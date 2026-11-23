@@ -28,7 +28,7 @@ async def world(monkeypatch, tmp_path):
 # === A session opens at its first track ===
 
 async def test_a_session_with_no_track_yet_shows_nothing(world):
-    """E14 (measured: 260 ms): `notifySessionState` opened a session
+    """Measured: 260 ms. `notifySessionState` opened a session
     with no title, drawn "playing" with nothing named. A session opens at its
     first displayable track."""
     await world.mac_picks_the_speaker()
@@ -36,7 +36,7 @@ async def test_a_session_with_no_track_yet_shows_nothing(world):
 
 
 async def test_a_media_frame_that_names_nothing_opens_nothing(world):
-    """E14's rule, on the frame that would open a session: one with no title
+    """The first-track rule, on the frame that would open a session: one with no title
     has nothing to draw."""
     from backend.tests.tidal_world import media
     await world.mac_picks_the_speaker()
@@ -63,7 +63,7 @@ async def test_a_sender_that_plays_is_loading_then_playing(world):
 
 
 async def test_a_repeated_media_frame_does_not_drop_the_spinner(world):
-    """E70 (measured): the daemon sends each track's media twice, the second
+    """Measured: the daemon sends each track's media twice, the second
     between two BUFFERING frames; a media frame replaced the whole record and
     dropped the loading phase, so the spinner blinked off and on as a track opened."""
     await world.mac_picks_the_speaker()
@@ -112,8 +112,8 @@ async def test_a_new_track_carries_nothing_of_the_previous_ones_playhead(world):
 
 
 async def test_repeated_idle_frames_publish_once(world):
-    """E18 (measured: two identical publishes per pair of IDLE frames, three
-    when a sender left): an IDLE frame always forced a full-state publish."""
+    """Measured: two identical publishes per pair of IDLE frames, three
+    when a sender left. An IDLE frame always forced a full-state publish."""
     await world.mac_plays(STILL_DRE)
     await world.mac_pauses()
     await world.sends(status("IDLE"))
@@ -147,7 +147,7 @@ async def test_a_long_pause_keeps_the_session(world):
 # === Errors and the daemon ===
 
 async def test_a_playback_error_banner_goes_when_a_track_plays(world):
-    """E16: the banner of `notifyPlaybackError` was never withdrawn, even with
+    """The banner of `notifyPlaybackError` was never withdrawn, even with
     the next track playing under it."""
     await world.mac_plays(STILL_DRE)
     await world.playback_fails()
@@ -159,8 +159,8 @@ async def test_a_playback_error_banner_goes_when_a_track_plays(world):
 
 
 async def test_a_daemon_killed_mid_play_ends_the_session_at_once(world):
-    """E17 (measured: 6 s of "playing", no banner, and for good if the daemon
-    did not come back): the session belongs to the daemon's process."""
+    """Measured: 6 s of "playing", no banner, and for good if the daemon
+    did not come back. The session belongs to the daemon's process."""
     await world.mac_plays(STILL_DRE)
     await world.kill_daemon()
     assert not world.active()
@@ -290,7 +290,7 @@ async def test_the_controller_reattaches_at_once_after_the_end_request(world):
 
 
 async def test_an_audio_device_the_controller_cannot_grant_is_on_screen(world):
-    """E27: the daemon asks for the audio device and decodes nothing until it
+    """The daemon asks for the audio device and decodes nothing until it
     is granted. A grant that cannot be written (the socket closed between the
     request and its answer) left Tidal active and silent with an ERROR in the
     journal only — `source.*` loggers never reach the banner."""
@@ -308,9 +308,9 @@ async def test_a_granted_audio_device_raises_no_banner(world):
 
 
 async def test_an_ungranted_daemon_that_says_playing_keeps_its_banner(world):
-    """Review of E27: a PLAYING the daemon reports after a grant that never
+    """Review of the ungranted-device banner: a PLAYING the daemon reports after a grant that never
     reached it (its socket closed) is not sound — the banner a playing track
-    clears (E16) stays until a grant goes through."""
+    clears stays until a grant goes through."""
     world.daemon.closed_its_end = True
 
     await world.mac_plays()
@@ -320,7 +320,7 @@ async def test_an_ungranted_daemon_that_says_playing_keeps_its_banner(world):
 
 
 async def test_a_grant_that_goes_through_later_withdraws_the_banner(world):
-    """Review of E27: the banner of an ungranted device outlived its cause
+    """Review of the ungranted-device banner: the banner of an ungranted device outlived its cause
     when the next request was granted but no track played afterwards."""
     world.daemon.closed_its_end = True
     await world.mac_picks_the_speaker()
@@ -342,7 +342,7 @@ async def buffers_for(world, seconds: float) -> None:
 
 
 async def test_a_daemon_that_never_leaves_buffering_is_on_screen(world):
-    """E27 as it can happen: a daemon that stops reading its controller socket
+    """The ungranted device as it can happen: a daemon that stops reading its controller socket
     without closing it takes the grant into the kernel buffer, where `send()`
     cannot see it, and buffers forever — the room silent, the session on
     screen, nothing in any log. Past 30 s of loading the session fails: a

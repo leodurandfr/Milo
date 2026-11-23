@@ -4,7 +4,7 @@
  * source is doing, and what stops it from working.
  *
  * The phase is the card's word for a session — a paused session saying
- * "Playing" (E26) is what reading a single `is_playing` did — and the CD's two
+ * "Playing" is what reading a single `is_playing` did — and the CD's two
  * operations under way (reading a disc, ejecting) outrank the session because
  * the drive is busy either way.
  */
@@ -23,7 +23,7 @@ function stateOf(overrides) {
 }
 
 describe('displayStateFor', () => {
-  it('names each session phase as it is, a pause included (E26)', () => {
+  it('names each session phase as it is, a pause included', () => {
     for (const phase of ['loading', 'playing', 'paused', 'connected']) {
       expect(stateOf({ session: makeSession({ phase }) })).toBe(phase);
     }
@@ -84,7 +84,7 @@ describe('unavailableReasonFor', () => {
     expect(unavailableReasonFor('tidal', { tidal: 'download_failed' })).toBe('download_failed');
   });
 
-  it("leaves the Music Library's storage states to its own view (D13)", () => {
+  it("leaves the Music Library's storage states to its own view", () => {
     expect(unavailableReasonFor('music_library', { music_library: 'no_storage' })).toBeNull();
     expect(unavailableReasonFor('music_library', { music_library: 'catalog_unavailable' })).toBeNull();
   });

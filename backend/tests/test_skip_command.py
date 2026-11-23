@@ -204,7 +204,7 @@ async def test_cd_skip_stops_at_the_start_of_the_track(cd_world):  # noqa: F811
 
 
 async def test_cd_skip_with_nothing_loaded_moves_the_resume_point(cd_world):  # noqa: F811
-    """Like a seek (E39): no reload, the drive stays released."""
+    """Like a seek: no reload, the drive stays released."""
     w = await cd_world(settings={"audio.auto_stop_delay": 30})
     await _playing_track(w, 2, 20)
     await w.command("pause")

@@ -519,7 +519,7 @@ AirPlay 2 does not carry them and the pipeline is fixed at 48 kHz.
 - A disc already in the drive when the source opens is preloaded paused; a
   disc inserted while CD is the active source plays by itself. Inserted, then
   left before it played, it is a disc already in the drive on the next open;
-  asked out by an eject the drive did not carry out (E35), it is parked paused
+  asked out by an eject the drive did not carry out, it is parked paused
 - A disc MusicBrainz has not named within `IDENTIFY_GRACE_S` (3 s) of CD
   being active does the same, unnamed (tracks numbered by each screen); the
   lookup still in flight stands for the retry, and its answer names the disc

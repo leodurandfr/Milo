@@ -36,7 +36,7 @@ async def test_the_app_picking_the_speaker_shows_nothing_yet(world):
 
 
 async def test_an_active_status_with_no_title_never_opens_a_session(world):
-    """E14: the old source held an active status with no track for three
+    """The old source held an active status with no track for three
     ticks, then published the session anyway — a player with nothing on it
     over audio. A session opens at its first displayable track, however long
     that takes."""
@@ -260,8 +260,8 @@ async def test_the_app_picking_another_output_ends_the_session_at_once(world):
 
 
 async def test_a_sidecar_killed_mid_play_ends_the_session_at_once(world):
-    """E17 (measured on the old code: 9 s of "playing" on a dead sidecar, then
-    READY with no message): the session is bound to the process."""
+    """Measured on the old code: 9 s of "playing" on a dead sidecar, then
+    READY with no message. The session is bound to the process."""
     await world.app_plays(ON_AND_ON)
     await world.kill_sidecar()
     assert not world.active()

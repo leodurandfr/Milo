@@ -77,10 +77,10 @@ async def test_a_drive_replugged_with_its_disc_in_does_not_play(world):
     assert not w.playing()
 
 
-# === E66: CDROMREADAUDIO counts from 0, libdiscid from the lead-in ===
+# === CDROMREADAUDIO counts from 0, libdiscid from the lead-in ===
 
 async def test_a_track_is_read_from_its_first_sector(world):
-    """E66: libdiscid's offsets include the 150-sector lead-in and the reader
+    """libdiscid's offsets include the 150-sector lead-in and the reader
     handed them to the ioctl as they were: every track started 2 s late and
     the last 2 s of a disc were never read."""
     w = await world()
@@ -92,10 +92,10 @@ async def test_a_track_is_read_from_its_first_sector(world):
     assert end == 60150 - 150
 
 
-# === E34: an eject the drive refuses ===
+# === An eject the drive refuses ===
 
 async def test_a_refused_eject_leaves_the_disc_as_it_was(world):
-    """E34: a failed eject cleared the disc from the screen and left the drive
+    """A failed eject cleared the disc from the screen and left the drive
     marked present and read: a permanent loader, the disc never read again."""
     w = await world()
     await _playing_track(w, 2, 30)
@@ -110,10 +110,10 @@ async def test_a_refused_eject_leaves_the_disc_as_it_was(world):
     assert w.track() == 4
 
 
-# === E35: an eject whose disc comes back ===
+# === An eject whose disc comes back ===
 
 async def test_an_eject_is_over_when_the_disc_is_out_even_if_it_is_pushed_back(world):
-    """E35: 'ejecting' waited for a poll to see an empty drive. A disc pushed
+    """'ejecting' waited for a poll to see an empty drive. A disc pushed
     back in before that poll kept the screen on 'ejecting' for good. The eject's
     own no-media change ends it (measured: a slot drive announces nothing when
     the disc is pulled out)."""
@@ -129,10 +129,10 @@ async def test_an_eject_is_over_when_the_disc_is_out_even_if_it_is_pushed_back(w
     assert w.disc()["id"] == DISC_ID
 
 
-# === E36: a disc that cannot be read ===
+# === A disc that cannot be read ===
 
 async def test_a_disc_that_never_becomes_readable_is_reported(world):
-    """E36: a disc that spins and never reads stayed on 'loading the disc'
+    """A disc that spins and never reads stayed on 'loading the disc'
     for good, with no message."""
     w = await world(disc=None)
     await w.select()
@@ -141,7 +141,7 @@ async def test_a_disc_that_never_becomes_readable_is_reported(world):
 
     assert w.availability() == "unreadable_disc"
     assert w.errors() == ["disc_unreadable"]
-    # E67: a disc Milō cannot play still comes out.
+    # A disc Milō cannot play still comes out.
     assert w.state()["controls"] == ["eject"]
 
 
@@ -156,10 +156,10 @@ async def test_a_disc_with_no_audio_track_is_reported(world):
     assert w.errors() == ["disc_unreadable"]
 
 
-# === E37: a probe error is not a removal ===
+# === A probe error is not a removal ===
 
 async def test_a_drive_status_glitch_does_not_stop_the_disc(world):
-    """E37: one drive-status probe answering an error counted as the disc
+    """One drive-status probe answering an error counted as the disc
     being removed: playback stopped and the album started again at track 1.
     It cannot come back while a disc plays because nothing asks the drive
     then — udev says when the disc leaves — so that is what is pinned."""
@@ -188,10 +188,10 @@ async def test_a_read_error_mid_track_keeps_the_disc_and_the_track(world):
     assert w.reader.starts[-1][0] == kernel_lba(2, 40)
 
 
-# === E38: a multiroom toggle mid-play ===
+# === A multiroom toggle mid-play ===
 
 async def test_a_reroute_at_track_7_comes_back_playing_there(world):
-    """E38 (owner decision): a multiroom toggle brought the disc back to track
+    """Owner decision: a multiroom toggle brought the disc back to track
     1, 0:00, paused. It resumes playing, same track, same second."""
     w = await world()
     await _playing_track(w, 7, 25)
@@ -215,10 +215,10 @@ async def test_a_reroute_while_paused_comes_back_paused(world):
     assert w.reader.starts[-1][0] == kernel_lba(3, 12)
 
 
-# === E39: a seek with nothing loaded ===
+# === A seek with nothing loaded ===
 
 async def test_a_seek_with_nothing_playing_moves_the_resume_point_only(world):
-    """E39: a seek from READY restarted the reader, paused, holding /dev/sr0
+    """A seek from READY restarted the reader, paused, holding /dev/sr0
     with no timer to release it. It moves the resume point; the next play
     starts there."""
     w = await world(settings={"audio.auto_stop_delay": 30})
@@ -238,10 +238,10 @@ async def test_a_seek_with_nothing_playing_moves_the_resume_point_only(world):
     assert w.reader.starts[-1][0] == kernel_lba(2, 90)
 
 
-# === E40, E61: mpv dies mid-play ===
+# === mpv dies mid-play ===
 
 async def test_after_mpv_dies_next_plays_the_following_track(world):
-    """E40: after an mpv crash the screen showed the disc but next and prev
+    """After an mpv crash the screen showed the disc but next and prev
     answered 'no disc'."""
     w = await world()
     await _playing_track(w, 2, 30)
@@ -254,7 +254,7 @@ async def test_after_mpv_dies_next_plays_the_following_track(world):
 
 
 async def test_after_mpv_dies_the_disc_resumes_where_it_was(world):
-    """E61: an mpv crash forgot the resume point (track 1, 0:00) where the
+    """An mpv crash forgot the resume point (track 1, 0:00) where the
     auto-stop keeps it."""
     w = await world()
     await _playing_track(w, 2, 30)
@@ -802,7 +802,7 @@ async def test_a_disc_inserted_under_cd_then_left_is_restored_paused_on_reopen(w
 
 
 async def test_an_eject_the_drive_does_not_carry_out_still_ends_in_a_playable_disc(world):
-    """E35 inside the grace: the grace expires while the disc is "ejecting",
+    """An eject whose disc comes back, inside the grace: the grace expires while the disc is "ejecting",
     and the disc the drive kept goes back to waiting for its name. It must
     get a grace of its own, or play stays refused for the lookup's full
     120 s. Pressed eject, it is parked paused, never played by itself."""
@@ -924,7 +924,7 @@ async def test_opening_the_source_again_asks_for_a_jacket_left_unfetched(world):
 # === The drive ===
 
 async def test_an_eject_udev_never_confirms_is_settled_by_asking_the_drive(world):
-    """E35's net: past 5 s with no news, the drive says the disc is out."""
+    """The net under "ejecting": past 5 s with no news, the drive says the disc is out."""
     w = await world()
     await w.select()
     w.eject_silent = True
@@ -1004,7 +1004,7 @@ async def test_an_idle_timeout_for_a_source_left_meanwhile_stops_nothing(world):
 
 async def test_a_disc_that_left_the_drive_forgets_where_it_was(world):
     """The disc's resume point is forgotten when the disc leaves, even with no
-    session to end (the same rule as a storage leaving, E51): left at track 4
+    session to end (the same rule as a storage leaving): left at track 4
     by a source switch, the disc unplugged and plugged back starts at track 1."""
     w = await world()
     await _playing_track(w, 4, 10)
@@ -1059,7 +1059,7 @@ async def test_no_probe_runs_for_a_closed_source_or_a_drive_holding_a_disc(world
 
 
 async def test_the_probe_can_find_a_disc_but_never_lose_one(world):
-    """E37 cannot come back through it: a probe answering an error on an empty
+    """A probe error read as a removal cannot come back through it: a probe answering an error on an empty
     drive changes nothing, and it does not run once a disc is in."""
     w = await world(disc=None)
     await w.select()
@@ -1138,7 +1138,7 @@ async def test_a_toc_read_that_hangs_does_not_hold_up_leaving_the_source(world):
 
 
 async def test_a_refused_eject_keeps_the_track_and_second(world):
-    """E34, the other half: the drive refused, so nothing left the drive —
+    """A refused eject, the other half: the drive refused, so nothing left the drive —
     play resumes where the eject interrupted it, not at track 1."""
     w = await world()
     await _playing_track(w, 7, 30)
@@ -1149,10 +1149,10 @@ async def test_a_refused_eject_keeps_the_track_and_second(world):
     assert w.reader.starts[-1][0] == kernel_lba(7, 30)
 
 
-# === E58: the drive's state rides on the one state ===
+# === The drive's state rides on the one state ===
 
 async def test_a_drive_change_off_screen_is_one_state_carrying_it(world):
-    """E58: a drive change was its own event (`system/cd_drive_status`), which
+    """A drive change was its own event (`system/cd_drive_status`), which
     a client could see before or after the state it belonged to. It is now
     the CD's `availability` in the one state, published whether or not CD is
     on screen — a client that shows the CD card greyed reads it there."""

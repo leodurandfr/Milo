@@ -51,7 +51,7 @@ export function keepOutcome(scroll, destMax) {
  *   its edge, so the scrolling header doesn't pop (opt-in via headerRef)
  *
  * The NavigationHeader stays inside the scroller and scrolls with the content
- * (decision D1). Its title cross-fades via its own internal `header-fade`
+ * by design. Its title cross-fades via its own internal `header-fade`
  * transition — there is no header clone here. Because it scrolls, any scroll
  * write moves it: a navigation that resets scrollTop while the header is still
  * partly on screen would drop it into place in one frame. So such a navigation

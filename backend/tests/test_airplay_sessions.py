@@ -34,7 +34,7 @@ async def _phone_plays(world: AirPlayWorld) -> None:
 # === A sender's pause (Buffered: iPhone Music) ===
 
 async def test_a_music_pause_is_published(world):
-    """E55: shairport announces a Buffered pause (`paus`); the screen and
+    """shairport announces a Buffered pause (`paus`); the screen and
     the lock screen read is_playing, which stayed true."""
     await _phone_plays(world)
     await world.pauses()
@@ -90,7 +90,7 @@ async def test_a_skip_is_not_left_as_a_pause(world):
 
 
 async def test_a_flush_is_not_a_pause(world):
-    """E54: `pfls` (a flush) was read as a pause: it armed the auto-stop, which
+    """`pfls` (a flush) was read as a pause: it armed the auto-stop, which
     restarted shairport-sync under a sender that never paused."""
     await _phone_plays(world)
     await world.send(ssnc("pfls", b"12345"))
@@ -171,7 +171,7 @@ async def test_a_sender_that_stops_sending_stays_paused(world):
 # === One session per sender ===
 
 async def test_the_next_sender_inherits_nothing(world):
-    """E19: the next session published the previous track's duration and
+    """The next session published the previous track's duration and
     position (the lock screen drew the phone's bar under the Mac)."""
     await _phone_plays(world)
     await world.advance(30)
@@ -187,7 +187,7 @@ async def test_the_next_sender_inherits_nothing(world):
 
 
 async def test_a_newcomer_replaces_a_sender_whose_goodbye_is_late(world):
-    """E20: a second sender's `conn` while the first one's `disc` is still to
+    """A second sender's `conn` while the first one's `disc` is still to
     come (measured a minute late, 2026-09-03) — the newcomer showed the first
     sender's title and cover until it sent tags of its own."""
     await _phone_plays(world)
@@ -221,7 +221,7 @@ async def test_a_killed_daemon_ends_the_session_at_once(world):
 
 
 async def test_a_session_on_the_restarted_daemon_is_not_cut(world):
-    """E21: the pid was read once per session and kept, so a sender that
+    """The pid was read once per session and kept, so a sender that
     reconnected to the restarted daemon within the check interval was watched
     against the dead one — and cut, with a banner, while it played."""
     await _phone_plays(world)
@@ -274,7 +274,7 @@ async def test_a_new_stream_after_a_pause_is_not_paused(world):
 async def test_announcements_left_over_from_a_stopped_source_are_not_replayed(world):
     """What the feeds posted just before a source switch belongs to that run:
     replayed at the next start, it opened a session with no sender that the
-    next sender's `conn` adopted — with the previous sender's title (E19)."""
+    next sender's `conn` adopted — with the previous sender's title."""
     await _phone_plays(world)
     world.remote.on_update(RemoteUpdate("now_playing", world.item("Left Over")))  # posted, not handled
     await world.leave()

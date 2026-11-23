@@ -13,7 +13,7 @@ the unit (2026-09-24, a Mac's Tidal app, strace on the controller socket):
 
   - A session opens with `notifySessionState` 1 then 2 and names no track
     until its first `notifyMediaChanged`, 0.25-0.6 s later: the Milō session
-    opens at that first track (E14). Every track's media comes twice, the
+    opens at that first track. Every track's media comes twice, the
     second between two BUFFERING frames.
   - The phase is the player state the daemon pushes about twice a second:
     PLAYING, PAUSED, BUFFERING (loading) and IDLE, which is a skip's first
@@ -89,8 +89,8 @@ _STATE_IDLE = "IDLE"
 
 # How long a session may stay LOADING (the daemon's BUFFERING) before it is
 # failed. The mpv sources' STALL_TIMEOUT_S budget, restated: a daemon that
-# stopped reading its controller socket took the grant into the kernel buffer
-# (E27), and it buffers forever with nothing in any log.
+# stopped reading its controller socket took the grant into the kernel buffer,
+# and it buffers forever with nothing in any log.
 LOADING_TIMEOUT_S = 30.0
 
 # How long the daemon may say PLAYING over a track that has not sounded. Its
@@ -100,7 +100,7 @@ LOADING_TIMEOUT_S = 30.0
 # claim already made. A silent track is one whose stream the daemon hands to
 # its FLAC decoder, which loses sync on every frame (traced: ~370 warnings a
 # second, mp3 on every track that played) — warnings the unit's
-# LogFilterPatterns keep out of the journal (E74), so nothing else says so.
+# LogFilterPatterns keep out of the journal, so nothing else says so.
 SOUND_TIMEOUT_S = 8.0
 
 # A resume is BUFFERING, then PLAYING 2-7 ms later (measured), two frames read
@@ -180,7 +180,7 @@ class TidalSource(BaseAudioSource):
             on_settled=self._runtime_settled,
         )
         self._controller: Optional[TidalControllerSocket] = None
-        # The last player status seen before any track was named (E14): the
+        # The last player status seen before any track was named: the
         # session it describes opens with the first media.
         self._early_status: Optional[Dict[str, Any]] = None
         # The daemon's last request for the audio device was not granted: it
@@ -361,7 +361,7 @@ class TidalSource(BaseAudioSource):
                     self._observe_position(reading)
                 playing = session.phase is Phase.PLAYING and not self._ungranted
                 if playing:
-                    # A track plays: the playback error it followed is over (E16).
+                    # A track plays: the playback error it followed is over.
                     self.broadcast_error_cleared()
         self._publish_changes()
         if failed and not playing:
@@ -402,7 +402,7 @@ class TidalSource(BaseAudioSource):
 
         elif command == "requestResources":
             # The controller answers it; a grant it could not deliver leaves the
-            # daemon unable to play (E27), whatever it reports, until the next
+            # daemon unable to play, whatever it reports, until the next
             # request is granted — which ends the failure it was shown for.
             was_ungranted, self._ungranted = self._ungranted, bool(message.get("grant_failed"))
             if was_ungranted and not self._ungranted:
@@ -447,7 +447,7 @@ class TidalSource(BaseAudioSource):
         return False
 
     async def _apply_media(self, media_info: Dict[str, Any]) -> None:
-        """Name the track on screen; the first one opens the session (E14).
+        """Name the track on screen; the first one opens the session.
 
         `duration` is milliseconds here as in the player status (a 3:57 track
         arrives as 237000), but the two do not always mean the same span: this

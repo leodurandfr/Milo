@@ -4,7 +4,7 @@
 # Installs qobuz-proxy, a virtual Qobuz Connect device (reverse-engineered),
 # as a sidecar under /var/lib/milo/qobuz — the exact model as go-librespot for
 # Spotify. Family B source (passive receiver): the Qobuz app controls playback,
-# Milō only renders audio + metadata. See PLAN_QOBUZ / docs.
+# Milō only renders audio + metadata. See docs/architecture.md.
 #
 # qobuz-proxy is NOT on PyPI — it is installed from its tag's source archive
 # into a venv, once the archive matches the digest dependencies.env declares,

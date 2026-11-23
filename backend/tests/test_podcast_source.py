@@ -448,7 +448,7 @@ class TestProperties:
     async def test_is_playing_property(self, rig, slow_watchdog):
         """`is_playing` is what the rotary and the IR remote's play/pause press
         reads (hardware/playback_dispatch.py): an episode still loading counts
-        as playing (the press means "stop that", E42), a paused one does not.
+        as playing (the press means "stop that"), a paused one does not.
         If it fails, a press on a buffering episode resumes instead of pausing,
         or a press on a paused one pauses it again."""
         rig.mpv.auto_open = False

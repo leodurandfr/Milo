@@ -103,8 +103,9 @@ const SPINNING_STATES = ['starting', 'loading_disc', 'ejecting'];
  *
  * Ready is the one that needs the source to answer (see below), so it is not in
  * here. Everything else says the same thing whatever the source is — which is
- * the whole of P4: there is no combination left to fall through, and therefore
- * no terminal "waiting" line to print when one did.
+ * why the lines come from one table rather than per-source switches: there is
+ * no combination left to fall through, and therefore no terminal "waiting"
+ * line to print when one did.
  */
 const PHRASE_KEYS = {
   starting: 'status.loading',   // only reached with no source name to append
@@ -224,7 +225,7 @@ const status = computed(() => {
 // exclusive by construction: a missing prerequisite is answered first, since
 // its fix is what unblocks everything downstream — retrying a start that has no
 // network cannot succeed. A disc Milō cannot read is answered by ejecting it
-// (E67: a slot drive has no button of its own). `no_drive` and `no_disc` have
+// (a slot drive has no button of its own). `no_drive` and `no_disc` have
 // no button: plugging a drive in, or a disc, is not something the UI can offer.
 //
 // `starting` shows none of them, prerequisites included: the card reads

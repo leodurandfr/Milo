@@ -49,7 +49,8 @@ from backend.sources.qobuz.monitor import QobuzMonitor
 # One-byte volume-policy flag the patched qobuz-proxy stream reads
 # ($QOBUZPROXY_DATA_DIR/allow_app_volume): "1" → honor the Qobuz app's volume
 # slider, anything else → stay at unity (CamillaDSP owns volume). Written here
-# from the qobuz.allow_app_volume setting; the sidecar's data dir is D3.
+# from the qobuz.allow_app_volume setting; the sidecar's data dir is
+# /var/lib/milo/qobuz (QOBUZPROXY_DATA_DIR in milo-qobuz.service).
 QOBUZ_VOLUME_FLAG = MILO_DATA_DIR / "qobuz" / "allow_app_volume"
 
 # qobuz-proxy's HTTP port: its `server.http_port`, written into config.yaml by
@@ -339,7 +340,7 @@ class QobuzSource(BaseAudioSource):
         session = self._session
         if not isinstance(session, QobuzSession) and not now.get("title"):
             # The app picked the speaker and has nothing loaded, or the first
-            # track is still loading: nothing to name, so no session yet (E14).
+            # track is still loading: nothing to name, so no session yet.
             return failed
 
         phase = _PHASES.get(player_state, Phase.LOADING)

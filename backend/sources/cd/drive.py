@@ -18,9 +18,10 @@ architecture, phase 2):
 A `change` with no media is an insertion spinning up or an eject: that one
 question goes to the ioctl. The one poll left is the source's insertion probe
 (an empty drive, CD on screen), and it can only find a disc, never lose one —
-a poller that could read a failed probe as a removal was E37. No native push
-exists for this drive: SATA drives can notify asynchronously
-(/sys/block/sr0/events_async), USB ones cannot (measured: empty).
+a poller that could read a failed probe as a removal stopped a playing disc
+and started the album again at track 1. No native push exists for this drive:
+SATA drives can notify asynchronously (/sys/block/sr0/events_async), USB ones
+cannot (measured: empty).
 """
 import asyncio
 import fcntl

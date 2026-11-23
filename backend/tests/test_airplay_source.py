@@ -454,7 +454,7 @@ class TestThePhase:
         assert world.phase() == "playing"
 
     async def test_a_flush_neither_pauses_nor_freezes_the_playhead(self, world):
-        """E54. `pfls` (a flush) was read as a pause: it stopped the playback
+        """`pfls` (a flush) was read as a pause: it stopped the playback
         and froze the position under a sender that never paused, and armed the
         auto-stop behind it. It is not read: the session plays on, and its
         anchor keeps moving."""

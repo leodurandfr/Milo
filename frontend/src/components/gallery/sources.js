@@ -312,7 +312,7 @@ function published(source, label, note, overrides = {}) {
 /**
  * A source switch under way: `switching` with the service starting, which is
  * what every source's first state looks like — and, since the multiroom switch
- * raises `switching` too (D7), what a reroute looks like while the source is
+ * raises `switching` too, what a reroute looks like while the source is
  * released and taken again. Nothing is listed in `controls` meanwhile.
  */
 function starting(source) {
@@ -1030,7 +1030,7 @@ export const SOURCE_PAGES = [
     uses: 'AudioSourceStatus · AudioPlayerFull (+ both slots)',
     via: 'dispatcher',
     summary:
-      'The widest matrix here, and the one source whose player shows with nothing in session: a disc that is READY publishes a resume point (track 1 at 0:00 by default, D8), and a resume point with a title is enough for the player. Everything else about the drive is its availability entry — no_drive, no_disc, reading_disc, unreadable_disc, ejecting. Two of those are operations under way, drawn as the display states loading_disc and ejecting with a spinner; the other three are missing prerequisites, and only unreadable_disc has a CTA: eject, the one way out of a slot drive.',
+      'The widest matrix here, and the one source whose player shows with nothing in session: a disc that is READY publishes a resume point (track 1 at 0:00 by default), and a resume point with a title is enough for the player. Everything else about the drive is its availability entry — no_drive, no_disc, reading_disc, unreadable_disc, ejecting. Two of those are operations under way, drawn as the display states loading_disc and ejecting with a spinner; the other three are missing prerequisites, and only unreadable_disc has a CTA: eject, the one way out of a slot drive.',
     scenarios: [
       starting('cd'),
       published('cd', 'No drive', 'availability no_drive — the source is up but the hardware is missing. The card names the reason and offers nothing: plugging a drive in is not something the UI can do.', {
@@ -1043,7 +1043,7 @@ export const SOURCE_PAGES = [
         availability: { cd: 'reading_disc' },
         controls: ['eject']
       }),
-      published('cd', 'Disc unreadable', 'availability unreadable_disc, with `details.disc` null: the drive holds something Milō cannot read. The card offers eject, because a slot drive has no button of its own (E67) and the disc would otherwise be stuck.', {
+      published('cd', 'Disc unreadable', 'availability unreadable_disc, with `details.disc` null: the drive holds something Milō cannot read. The card offers eject, because a slot drive has no button of its own and the disc would otherwise be stuck.', {
         availability: { cd: 'unreadable_disc' },
         controls: ['eject'],
         details: cdDetails(null, null)

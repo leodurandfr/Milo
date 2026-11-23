@@ -82,8 +82,8 @@ METADATA_RETRY_INTERVAL_S = 60.0
 # is two requests at MusicBrainz's 1 request/s.
 IDENTIFY_GRACE_S = 3.0
 
-# A disc still unreadable this long after it went in is reported unreadable
-# (E36). Measured: 10.2-10.3 s from insertion to a readable TOC, 8.7 s after
+# A disc still unreadable this long after it went in is reported unreadable.
+# Measured: 10.2-10.3 s from insertion to a readable TOC, 8.7 s after
 # a replug.
 READING_TIMEOUT_S = 30.0
 
@@ -94,7 +94,7 @@ TOC_READ_ATTEMPTS = 3
 TOC_RETRY_S = 2.0
 
 # An eject that succeeded is followed by udev's no-media change (measured,
-# every time). Past this without one, the drive is asked directly (E35).
+# every time). Past this without one, the drive is asked directly.
 EJECT_CONFIRM_S = 5.0
 
 # The drive-status ioctl's open blocks while a drive spins up (measured: 8 s
@@ -105,7 +105,7 @@ STATUS_TIMEOUT_S = 2.0
 # whether a disc is spinning up. udev says nothing until the disc is readable
 # (~10 s, measured): the kernel's own poll relies on the drive's event report,
 # and only an open() makes it ask TEST UNIT READY. Owner decision 2026-09-23:
-# this probe can only move EMPTY to READING — it never removes a disc (E37).
+# this probe can only move EMPTY to READING — it never removes a disc.
 INSERTION_PROBE_S = 2.0
 
 # A reader failing on one of these lost the drive or its disc, not a sector.
@@ -148,7 +148,7 @@ class CdSource(MpvAudioSource):
         capture_on=frozenset({
             EndReason.IDLE_TIMEOUT, EndReason.SOURCE_SWITCH, EndReason.REROUTE,
             # The disc is still in the drive: a crash, a load or a sector that
-            # failed leaves the track to play again, where it was (E61).
+            # failed leaves the track to play again, where it was.
             EndReason.DAEMON_DIED, EndReason.LOAD_FAILED, EndReason.STREAM_LOST,
         }),
         # The disc played out (back to track 1), was ejected, or left the
@@ -179,7 +179,7 @@ class CdSource(MpvAudioSource):
         "resume": CommandScope.RESUME,
         "next": CommandScope.RESUME,
         "prev": CommandScope.RESUME,
-        # With nothing loaded, a seek moves the resume point (E39).
+        # With nothing loaded, a seek moves the resume point.
         "seek": CommandScope.RESUME,
         "skip": CommandScope.RESUME,
         # The modes belong to the disc, session or not.
@@ -308,7 +308,7 @@ class CdSource(MpvAudioSource):
 
     async def _restore_on_start(self) -> None:
         """What opening the source brings back: after a multiroom toggle, the
-        disc playing where it was (E38); otherwise the resume point, or track
+        disc playing where it was; otherwise the resume point, or track
         1, loaded and paused — never played."""
         if self._session is not None or self._disc_state is not DiscState.READY:
             return
@@ -573,8 +573,8 @@ class CdSource(MpvAudioSource):
 
     async def _disc_left(self, reason: EndReason) -> None:
         """The disc is out of the drive: its session ends, its resume point is
-        forgotten even with no session (the same rule as a storage leaving,
-        E51), and nothing read from it survives."""
+        forgotten even with no session (the same rule as a storage leaving),
+        and nothing read from it survives."""
         if isinstance(self._session, CdSession):
             await self._end_playback(reason, stop_mpv=self._mpv is not None)
         point = self._resume_point
@@ -598,7 +598,7 @@ class CdSource(MpvAudioSource):
     async def _publish_device(self) -> None:
         """Publish a device change: the drive's state is the CD's
         `availability`, read whether CD is on screen or not; the disc it holds
-        is the source's view when it is (E58: one state, never an event
+        is the source's view when it is (one state, never an event
         announcing the one before)."""
         if self._is_active_source:
             self._publish()
@@ -627,7 +627,7 @@ class CdSource(MpvAudioSource):
 
     async def _confirm_eject(self) -> None:
         """No no-media change came after an eject that succeeded: ask the
-        drive what it holds, rather than showing "ejecting" for good (E35)."""
+        drive what it holds, rather than showing "ejecting" for good."""
         if self._disc_state is not DiscState.EJECTING:
             return
         status = await self._drive_status()
@@ -867,7 +867,7 @@ class CdSource(MpvAudioSource):
     async def _handle_seek(self, params: SeekParams) -> Dict[str, Any]:
         """Move the playhead; never decide to play. A live session reloads at
         the target in its own phase; with nothing loaded, the resume point
-        moves and nothing touches the drive (E39)."""
+        moves and nothing touches the drive."""
         if not self._playable():
             return self.error_response("No disc loaded")
         position = max(0, int(params.position_ms / 1000))
@@ -943,7 +943,7 @@ class CdSource(MpvAudioSource):
     async def _handle_eject(self) -> Dict[str, Any]:
         """Eject the disc. The session ends first (the drive is released); the
         disc stays read until the drive says it is out, so an eject the drive
-        refuses leaves it exactly as it was (E34)."""
+        refuses leaves it exactly as it was."""
         if self._disc_state in (DiscState.NO_DRIVE, DiscState.EJECTING):
             return self.error_response("Nothing to eject")
         # A disc asked out is not played by itself if the drive keeps it.
@@ -1163,7 +1163,7 @@ class CdSource(MpvAudioSource):
 
     def _resume_view(self) -> Optional[ResumeView]:
         """What play brings back: the resume point for this disc, or track 1
-        at 0:00 — a READY disc always has one (D8)."""
+        at 0:00 — a READY disc always has one."""
         if self._disc_state is not DiscState.READY or self._disc is None:
             return None
         track, position = self._resume_track()
@@ -1198,7 +1198,7 @@ class CdSource(MpvAudioSource):
     def _controls(self) -> List[str]:
         state = self._disc_state
         if not self._playable():
-            # A disc the drive holds but Milō cannot play still comes out (E67).
+            # A disc the drive holds but Milō cannot play still comes out.
             return ["eject"] if state in (
                 DiscState.READING, DiscState.IDENTIFYING, DiscState.UNREADABLE,
             ) else []

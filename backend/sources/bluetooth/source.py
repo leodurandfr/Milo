@@ -35,7 +35,7 @@ tearing the link down would make the player's own pause button undo itself.
 
 The AVRCP player counts only for the phone holding the link: a player can
 outlive its link (1.0 s measured) or belong to a phone the appliance turned
-away, and neither may name, or take the commands of, the one connected (E30).
+away, and neither may name, or take the commands of, the one connected.
 
 There is no seek. AVRCP offers only hold-style FastForward/Rewind, not a
 position command, so the progress bar is read-only (no `seek` in `controls`)
@@ -106,7 +106,7 @@ class BluetoothSession(Session):
     `playback` is its AVRCP player's snapshot (avrcp.snapshot()), `status`
     that player's Status, `running` whether BlueALSA says its stream flows.
     `has_player` holds only for a player that is this phone's and plays here:
-    another phone's (E30) or one publishing a remote card is none, and leaves
+    another phone's or one publishing a remote card is none, and leaves
     `playback` and `status` empty.
     Cover art is resolved from the track text and held apart from `playback`:
     the position poll replaces that dict wholesale, and the key it was
@@ -506,7 +506,7 @@ class BluetoothSource(BaseAudioSource):
             return False
         session.name = name
         session.running = bool(running)
-        # Only this phone's players count from now on (E30).
+        # Only this phone's players count from now on.
         self.avrcp.follow_device(session.sender)
         self._read_player(session)
         await self._follow(session)
@@ -539,7 +539,7 @@ class BluetoothSource(BaseAudioSource):
             session.running = running
 
     def _read_player(self, session: BluetoothSession) -> None:
-        """The AVRCP player, if it is this phone's (E30) and names no other
+        """The AVRCP player, if it is this phone's and names no other
         device's track, and a cover lookup when its track changed."""
         mine = self.avrcp.has_player and _same_device(self.avrcp.device_address, session.sender)
         snapshot = self.avrcp.snapshot() if mine else {}
@@ -605,7 +605,7 @@ class BluetoothSource(BaseAudioSource):
         Killed, it announced nothing (measured): a session still open here is
         a death. Back, it knows nothing of what Milō set on its predecessor —
         measured, it starts closed and with no agent, and refuses every audio
-        connection while the screen says ready (E75).
+        connection while the screen says ready.
         """
         if not up:
             if self._session is None:
@@ -899,8 +899,8 @@ class BluetoothSource(BaseAudioSource):
         ))
 
     def _controls(self) -> List[str]:
-        """The transport only when the phone holding the link has a player
-        (E33): a Mac's publishes its Status 100 s late, and its transport
+        """The transport only when the phone holding the link has a player:
+        a Mac's publishes its Status 100 s late, and its transport
         works meanwhile."""
         session = self._session
         if not isinstance(session, BluetoothSession):

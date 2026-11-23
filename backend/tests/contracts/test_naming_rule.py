@@ -35,7 +35,7 @@ assert len(_CASES) >= 8 and {c["shown"] for c in _CASES} == {True, False}, (
 @pytest.mark.parametrize("case", _CASES, ids=[c["id"] for c in _CASES])
 def test_the_lock_screen_names_what_milos_screen_draws(case):
     """A CONNECTED session names its track only with a title, an artist and a
-    cover (Milō's D14); any other session with a title. Fails when the push
+    cover, as Milō's screen draws it; any other session with a title. Fails when the push
     names a track the kiosk draws as the source card, or the reverse."""
     state = AudioState.model_validate(case["state"]).wire()
     assert state["service"] == "running" and not state["switching"], "outside the table's domain"

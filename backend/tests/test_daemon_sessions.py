@@ -172,7 +172,7 @@ async def test_the_same_report_twice_changes_nothing(daemon):
 
 
 async def test_a_report_from_another_sender_is_another_session(daemon):
-    """E20's shape: the second sender does not inherit the first one's session."""
+    """Two senders overlapping, in shape: the second sender does not inherit the first one's session."""
     first = await _report(daemon, "phone", Phase.PLAYING)
     second = await _report(daemon, "mac", Phase.CONNECTED)
     assert second is not first
@@ -235,7 +235,7 @@ async def test_a_unit_stopped_after_a_failure_is_still_a_death(daemon, pids):
 
 
 async def test_each_session_reads_the_pid_anew(daemon, pids):
-    """E21: a pid kept from the previous session is how a sender reconnecting
+    """A pid kept from the previous session is how a sender reconnecting
     to the restarted daemon was watched against the dead one — and cut."""
     await _report(daemon, "phone", Phase.PLAYING)
     pids.exit()

@@ -13,7 +13,7 @@ mpv was sent, what reached the wire and what reached the progress file.
 Three invariants live in here and nowhere else:
 
 * **the second to start at rides on the load.** One `loadfile` carrying
-  `start=`, never a load followed by a seek (E57): a seek sent before mpv has
+  `start=`, never a load followed by a seek: a seek sent before mpv has
   opened the file is refused, and the episode plays from 0:00.
 * **a stream that will not load leaves nothing loading.** A spinner left
   behind is a card for an episode that is not playing; the episode itself is
@@ -192,7 +192,7 @@ class TestTheOutgoingEpisode:
     async def test_switching_replaces_the_entry_and_never_stops_mpv(self, rig):
         """The new episode replaces the old one in mpv in one load; a stop in
         between made mpv idle under the outgoing episode, which is what read as
-        its end (E48). The replaced entry's own end (reason=stop) must not end
+        its end. The replaced entry's own end (reason=stop) must not end
         the new session."""
         await rig.select()
         await rig.play(EPISODE_A)
@@ -208,7 +208,7 @@ class TestTheOutgoingEpisode:
 class TestResumingWhereTheOwnerLeftOff:
     async def test_a_stored_position_past_the_threshold_rides_on_the_load(self, rig):
         """The resume second goes out with the load (`start=`), not as a seek
-        after it (E57). If it fails, a resumed episode plays from 0:00."""
+        after it. If it fails, a resumed episode plays from 0:00."""
         rig.data.progress[EPISODE_A["uuid"]] = {"position": 640, "duration": 1800}
         await rig.select()
 
@@ -701,7 +701,7 @@ class TestAFailingSaveNeverBlocksAnEnd:
 
 class TestAPausedEpisodeReplacedByAnother:
     """Pausing arms the auto-stop timer; starting another episode must disarm
-    it (E49).
+    it.
 
     What breaks when this fails: a timer that expires while the new episode is
     loading stops mpv under it. The play then reports success over an idle
