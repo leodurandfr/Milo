@@ -1,7 +1,9 @@
 # Manual verification checklist
 
-**Audience:** whoever changed the code. Not an end-user document — the user manual is
-[manual_en.md](manual_en.md).
+**Audience:** the maintainer, on their own units (see
+[docs/development.md § Maintainer tools](../development.md#maintainer-tools)); a contributor
+who ran items on a unit of their own says which in the pull request. Not an end-user
+document — the user documentation is at [milo-audio.com/docs](https://milo-audio.com/docs).
 
 Most of what Milō *is* cannot be seen by CI. ALSA device selection, CamillaDSP in the path,
 snapcast sync, the rotary encoder, the IR receiver, the screen, ROC from a Mac, a real

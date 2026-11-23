@@ -41,6 +41,17 @@ step.
 
 <img src="docs/images/icons/macos.png" width="20" height="20" align="top" alt="">&nbsp;&nbsp;**Your Mac's sound**, with low latency, through [Milō Mac](https://github.com/leodurandfr/Milo-Mac)
 
+Milō is an independent project, not affiliated with or endorsed by Spotify, Apple, TIDAL,
+Qobuz or Shazam, and its integrations with them are unofficial: Spotify Connect runs on
+[go-librespot](https://github.com/devgianlu/go-librespot), AirPlay on
+[shairport-sync](https://github.com/mikebrady/shairport-sync) and Qobuz Connect on
+[qobuz-proxy](https://github.com/leolobato/qobuz-proxy), three open-source reimplementations;
+TIDAL Connect runs Tidal's own daemon with another manufacturer's device certificate, from a
+community-published image a unit downloads the first time TIDAL is selected; track recognition calls Shazam through
+[shazamio](https://github.com/shazamio/ShazamIO). A service can change in a way that stops one
+of them working until the program behind it catches up. The names and logos of these services
+are their owners' trademarks.
+
 ## Features
 
 <p align="center">
@@ -69,15 +80,21 @@ step.
 
 ## Hardware
 
-- **Raspberry Pi 5** (8 GB recommended) for the main unit; a Raspberry Pi 4 (2 GB) is enough
-  for a multiroom speaker.
+- **Raspberry Pi 5** recommended for the main unit; a Raspberry Pi 4 or 5 for a multiroom
+  speaker. The Raspberry Pi 3 and earlier models are not supported: Milō is developed and
+  tested on the Pi 4 and Pi 5 only. How much memory each role needs has not been measured yet.
 - **A HiFiBerry board, on every unit**: Milō plays through it alone, not through HDMI or a USB
-  DAC, and does not set up without one. An amplifier for passive speakers (Amp2, Amp4, Amp4 Pro, Amp100) or a DAC for an amplifier you already own (DAC2 HD, DAC2 Pro, DAC2 ADC Pro).
-  With a screen, the Amp4 Pro is the only amplifier that can power it.
+  DAC, and does not set up without one. The supported boards are the ones the setup wizard
+  offers: an amplifier for passive speakers (Amp2, Amp4, Amp4 Pro, Amp100) or a DAC for an
+  amplifier you already own (DAC2 HD, DAC2 Pro or DAC+ Pro, DAC2 ADC Pro). Any other board is
+  untested and cannot be picked. With a screen, the Amp4 Pro is the only amplifier that can
+  power it.
 - **Optional**: a Waveshare touchscreen (7" USB or 8" DSI), a volume knob, an Apple Remote or a
   Bluetooth remote, a USB CD drive.
 
 Parts list and wiring: [Required hardware](https://milo-audio.com/docs/quick-start/hardware).
+Every board, screen and default GPIO pin the code supports, generated from it:
+[Supported hardware](docs/reference/hardware.md).
 
 ## Installation
 
@@ -95,9 +112,24 @@ Parts list and wiring: [Required hardware](https://milo-audio.com/docs/quick-sta
      own. That network is open, so the Wi-Fi password you type there crosses it unencrypted.
 5. Follow the wizard, then Milō restarts, ready to play.
 
-**Multiroom speakers** use the same image. Connect them with an Ethernet cable for their first
-boot: that is how they find your Milō and become its speakers. Without a cable there is nothing
-to search on, and the Pi sets itself up as a second main unit instead.
+**If http://milo.local does not open**, the device you are on may not resolve `.local` names:
+some Android phones and some Windows computers do not, nor does a device on a VPN or on a guest
+network kept apart from the rest. Look for `milo` in your router's list of connected devices and
+open the address shown there, `http://` followed by that address; with a screen, Settings ›
+Network on Milō shows it too.
+
+**Multiroom speakers** use the same image, and your Milō turns each one into a speaker. New
+speakers appear in Settings › Multiroom on the main unit once multiroom is turned on there.
+Power the new speaker on:
+
+- **with an Ethernet cable**, it finds your Milō on its first boot (the main unit announces
+  itself on the network as a Milō, `_milo._tcp`), becomes its speaker and restarts; it then
+  appears in Settings › Multiroom, where you pick its audio card and its name;
+- **without a cable**, it raises the same open **Milō** Wi-Fi network as a fresh main unit.
+  Do not join it to run the wizard, which would make it a second main unit. Settings ›
+  Multiroom on your main unit lists it instead: pick its audio card, its name and the Wi-Fi
+  network it should join, and your Milō joins that open network for a moment to hand it over.
+  That network is open, so the Wi-Fi password crosses it unencrypted; a cable avoids that.
 
 Step by step: [Installation](https://milo-audio.com/docs/quick-start/install) and
 [First boot](https://milo-audio.com/docs/quick-start/first-boot).
@@ -110,7 +142,16 @@ companion apps go further:
 - **[Milō Mac](https://github.com/leodurandfr/Milo-Mac)**: sources, volume and multiroom from
   the menu bar or keyboard shortcuts, and your Mac's own sound streamed to Milō.
 - **[Milō iOS](https://github.com/leodurandfr/Milo-iOS)**: Milō's interface as an iPhone app, a
-  volume widget on the Home Screen, and what Milō plays on the lock screen.
+  volume widget on the Home Screen, and what Milō plays on the lock screen. It is not on the
+  App Store: you install it by building it with Xcode from its repository.
+
+## Get help
+
+- **Something does not work**: open an
+  [issue](https://github.com/leodurandfr/Milo/issues/new/choose) with the bug report form, and
+  paste the diagnostic report it asks for (Settings › System › Diagnostic).
+- **A security vulnerability**: never in a public issue. Report it privately, as
+  [SECURITY.md](SECURITY.md) explains.
 
 ## For developers
 
@@ -118,6 +159,9 @@ companion apps go further:
 - [API overview](docs/api-overview.md): the REST and WebSocket surface
 - [Developer guide](docs/development.md): setup, adding a source, testing
 - [Wiring reference](docs/hardware/wiring.md): physical connections
+
+Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) first. Opening a pull request
+means accepting the [Contributor License Agreement](CLA.md).
 
 Backend in Python (FastAPI, asyncio), frontend in Vue 3, audio on ALSA, CamillaDSP and Snapcast.
 

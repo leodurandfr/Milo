@@ -14,7 +14,9 @@ This guide is for developers who want to contribute to or fork the Milō project
 - **Node.js 24** — the version CI uses
 - The system libraries two Python packages load at import: `libdiscid0` and `libcairo2`
   (`sudo apt-get install libdiscid0 libcairo2`)
-- Git
+- Git, and a GitHub account to fork the repository and open a pull request
+- **[uv](https://docs.astral.sh/uv/)**, only if you change a Python requirements file: it compiles
+  the locks again ([The Python lock](#the-python-lock)). Installing and testing need only pip.
 
 Contributions are accepted under the [Contributor License Agreement](https://github.com/leodurandfr/Milo/blob/main/CLA.md);
 see [CONTRIBUTING.md](https://github.com/leodurandfr/Milo/blob/main/CONTRIBUTING.md). Milō is
@@ -22,21 +24,28 @@ licensed under the [PolyForm Shield License 1.0.0](https://github.com/leodurandf
 
 ### Development installation
 
+Fork the repository on GitHub first, then work in a clone of your fork:
+
 ```bash
-# Clone the repository
-git clone https://github.com/leodurandfr/Milo.git
+# Clone your fork, and name the original repository as `upstream`
+git clone https://github.com/<you>/Milo.git
 cd Milo
+git remote add upstream https://github.com/leodurandfr/Milo.git
 
 # Python backend: the lock a unit installs, then the test runner and the linter
-python3 -m venv venv
+python3.13 -m venv venv
 source venv/bin/activate
 pip install --require-hashes -r requirements.lock
 pip install -r requirements-dev.txt
 
-# Vue frontend
+# Vue frontend: exactly what package-lock.json pins, as CI installs it
 cd frontend
-npm install
+npm ci
 ```
+
+`npm ci`, not `npm install`: `npm install` may resolve newer versions and rewrite
+`package-lock.json`, which then lands in your pull request by accident. Change the lock only on
+purpose, in a commit that says why.
 
 ### Run in development mode
 
@@ -723,8 +732,17 @@ python -m pytest tests/test_radio_source.py::TestRadioSourceLifecycle::test_sele
 python -m pytest --durations=10                           # 10 slowest tests
 ```
 
-The satellite app has its own suite, run from the repository root as a separate invocation —
-`pytest milo-client/` (a combined `pytest backend/ milo-client/` loses `backend/pytest.ini`).
+The satellite app has its own suite, run from the repository root as a separate invocation:
+
+```bash
+# from the repository root, with the same venv
+pytest backend/        # the backend, as CI runs it (the same as python -m pytest from backend/)
+pytest milo-client/    # the satellite app
+```
+
+Never run them as one `pytest backend/ milo-client/`: a combined run puts pytest's rootdir at the
+repository root, which drops `backend/pytest.ini` and with it `asyncio_mode = auto`, so the
+backend's async tests stop running as they should.
 
 There is **no backend coverage tooling**: `pytest-cov` is deliberately not a dependency, and CI has
 no coverage threshold. Coverage as a target rewards exactly the tests this project excludes (see
@@ -1389,20 +1407,10 @@ install — which takes a real release newer than the one installed.
 What a *development* checkout does is a different thing, and the update screen
 says so rather than offering a button: a tree that is not sitting exactly on a
 tag reads as a development build. The guard leaves it alone: it acts only on a
-journal naming `HEAD`, and only an update writes one.
-
-```bash
-cd ~/milo
-git pull origin main
-
-source venv/bin/activate
-pip install --require-hashes -r requirements.lock
-sudo systemctl restart milo-backend
-
-# The frontend, for development only. A release never builds one here.
-cd frontend
-npm ci && npm run build
-```
+journal naming `HEAD`, and only an update writes one. To put a branch on a unit,
+follow [Trying a branch on a Pi](#trying-a-branch-on-a-pi): a flashed unit's
+checkout sits on a detached tag, so there is no branch to pull, and the image
+carries no Node.js, so the frontend is built on another machine and copied over.
 
 ## Debugging
 
@@ -1477,19 +1485,23 @@ wsDebug()  // Shows WebSocket state (dev mode only)
 
 ### Git workflow
 
+Work on a branch of your fork, and open the pull request from it against `main`:
+
 ```bash
-# Create a branch
-git checkout -b feature/my-feature
+# Start from the current upstream main
+git fetch upstream
+git checkout -b fix/my-fix upstream/main
 
-# Commits
-git add .
-git commit -m "feat: add my feature"
+# Commit, then push the branch to your fork
+git add <the files you changed>
+git commit -m "fix(radio): what the change does"
+git push -u origin fix/my-fix
 
-# Push
-git push origin feature/my-feature
-
-# Create a Pull Request on GitHub
+# Then open a pull request on GitHub, from your fork's branch to leodurandfr/Milo:main
 ```
+
+CI runs on the pull request: the lint floor below, on the tree your branch brings. Opening
+the pull request means accepting the [Contributor License Agreement](https://github.com/leodurandfr/Milo/blob/main/CLA.md).
 
 ### Commit convention
 
@@ -1521,6 +1533,63 @@ Commit messages are in **English**, written `type(scope): summary` — for examp
 - [ ] A change to the audio path, a source or hardware: the smoke subset of
       [the verification checklist](https://github.com/leodurandfr/Milo/blob/main/docs/manual/verification-checklist.md)
       run on a unit — or, without one, say so in the PR, so it is run before merging
+
+### Trying a branch on a Pi
+
+CI runs no audio, so a change to a source, the audio path or the hardware is worth hearing on a
+real unit. Use one you can reflash: a unit on a branch is a development build, which Settings ›
+Updates offers nothing, and the way back to a release is to flash the card again.
+
+1. Flash a release image and go through the setup wizard ([README § Installation](https://github.com/leodurandfr/Milo#installation)).
+2. In Settings › System, set an SSH password (SSH stays refused while the factory password is in
+   place), then switch SSH on.
+3. Build the frontend on your computer, from the branch: the image carries no Node.js.
+
+   ```bash
+   # from the repository root
+   (cd frontend && npm ci && npm run build)
+   ```
+
+4. On the unit, check the branch out from your fork and install its Python lock:
+
+   ```bash
+   ssh milo@milo.local
+   cd ~/milo
+   git fetch https://github.com/<you>/Milo.git <branch>
+   git checkout --detach FETCH_HEAD
+   source venv/bin/activate
+   pip install --require-hashes -r requirements.lock
+   ```
+
+5. From your computer, replace the unit's frontend with the one you built, then restart the
+   backend:
+
+   ```bash
+   # from the repository root
+   tar -C frontend/dist -czf - . | ssh milo@milo.local \
+     'rm -rf ~/milo/frontend/dist && mkdir ~/milo/frontend/dist && tar -xzf - -C ~/milo/frontend/dist'
+   ssh milo@milo.local sudo systemctl restart milo-backend
+   ```
+
+This covers `backend/` and `frontend/`. A branch that changes `rootfs/`, `system/`,
+`system-manifest.env`, `dependencies.env` or `milo-client/` needs more than a checkout — those
+reach a unit through an update's install, and a satellite through the server's push — so say so
+in the pull request rather than installing them by hand.
+
+### Maintainer tools
+
+Two things in this repository are the maintainer's, and a contributor is not expected to run
+them:
+
+- **The on-unit checklists**, [verification-checklist.md](https://github.com/leodurandfr/Milo/blob/main/docs/manual/verification-checklist.md)
+  and [physical-verification.md](https://github.com/leodurandfr/Milo/blob/main/docs/manual/physical-verification.md).
+  They assume the maintainer's units — a server and two multiroom speakers, named in some
+  checks — and the maintainer runs the smoke set before merging a change that needs it. If you
+  ran some of it on your own unit, say which items in the pull request.
+- **`sat`**, the command many checklist rows use (`sat journal`, `sat logs`, `sat restart`,
+  `sat conf`…): the maintainer's own shortcut for reaching the multiroom speakers over SSH. It
+  is not part of the repository. On your own units, the same reads are `journalctl` and
+  `systemctl` over SSH on the speaker.
 
 ## Important points
 

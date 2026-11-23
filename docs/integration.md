@@ -237,12 +237,12 @@ curl -s http://milo.local/api/volume/state
     "volume_control": true,
     "any_volume_control": true,
     "clients": {
-      "dc:a6:32:7e:d3:43": {"volume_db": -44.0, "volume": 0.4857, "mute": false,
+      "00:00:5e:00:53:01": {"volume_db": -44.0, "volume": 0.4857, "mute": false,
                             "available": true, "volume_control": true}
     },
     "zones": {
-      "ec51dad4-1cfd-4d94-88f8-b8be3606e716": {"id": "ec51dad4-1cfd-4d94-88f8-b8be3606e716",
-        "name": "Living room", "client_ids": ["dc:a6:32:7e:d3:43"],
+      "00000000-0000-4000-8000-000000000001": {"id": "00000000-0000-4000-8000-000000000001",
+        "name": "Living room", "client_ids": ["00:00:5e:00:53:01"],
         "average_volume_db": -44.0, "all_muted": false}
     }
   }
@@ -256,7 +256,7 @@ set in the unit's settings (`limit_min_db`, `limit_max_db`). The writes, all con
 |---|---|---|
 | `POST /api/volume/adjust` | `{"delta_db": 2}` | Moves the volume by a step, from where it is when the request lands. Answers the new level on both scales. |
 | `PATCH /api/volume/global` | `{"volume": 0.5}` | Sets the volume, on the 0–1 scale. |
-| `PATCH /api/volume/client/mac/{mac}` | `{"volume_db": -40}` | Sets one speaker. `{mac}` is written **without colons** (`dca6327ed343`); a `volume_db` outside the limits is answered `400`. |
+| `PATCH /api/volume/client/mac/{mac}` | `{"volume_db": -40}` | Sets one speaker. `{mac}` is written **without colons** (`00005e005301`); a `volume_db` outside the limits is answered `400`. |
 | `PATCH /api/volume/client/mac/{mac}/mute` | `{"mute": true}` | Mutes or unmutes one speaker. |
 | `PATCH /api/volume/zone/{zone_id}` | `{"delta_db": -3}` or `{"volume_db": -40}` | Moves every speaker of a zone together. |
 
@@ -275,19 +275,21 @@ layout — speakers and the zones that group them — is `GET /api/multiroom/sta
 ```jsonc
 {
   "clients": {
-    "dc:a6:32:7e:d3:43": {"mac_id": "dc:a6:32:7e:d3:43", "name": "Sofa", "ip": "192.168.1.153",
-                          "zone_id": "ec51dad4-1cfd-4d94-88f8-b8be3606e716", "online": true,
+    "00:00:5e:00:53:01": {"mac_id": "00:00:5e:00:53:01", "name": "Sofa", "ip": "192.0.2.153",
+                          "zone_id": "00000000-0000-4000-8000-000000000001", "online": true,
                           "is_local": false, "volume_control": true /* … */}
   },
   "zones": {
-    "ec51dad4-1cfd-4d94-88f8-b8be3606e716": {"id": "ec51dad4-1cfd-4d94-88f8-b8be3606e716",
-      "name": "Living room", "client_ids": ["dc:a6:32:7e:d3:43"], "online_client_count": 1 /* … */}
+    "00000000-0000-4000-8000-000000000001": {"id": "00000000-0000-4000-8000-000000000001",
+      "name": "Living room", "client_ids": ["00:00:5e:00:53:01"], "online_client_count": 1 /* … */}
   }
 }
 ```
 
 A speaker is identified by its MAC address everywhere; `is_local` marks the unit's own output.
-Changes arrive as `multiroom/client_state_changed` and `multiroom/zone_changed`.
+Changes arrive as `multiroom/client_state_changed` and `multiroom/zone_changed`. The MAC
+address, IP address and zone id in these examples are documentation values (RFC 7042, RFC 5737),
+not a real unit's.
 
 Multiroom is switched on and off with `PUT /api/routing/multiroom`:
 

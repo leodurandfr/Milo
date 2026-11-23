@@ -28,6 +28,12 @@ the [Architecture overview](docs/architecture.md) for how the pieces fit togethe
 
 ## Reporting a bug
 
-Open an issue with your Raspberry Pi model, your Milō version, and the steps to
-reproduce. Service logs from `journalctl` are usually what turns a report into something
-actionable.
+Open an issue with the bug report form: it asks for your Milō version, your Raspberry Pi
+model, your audio card and the steps to reproduce. Attach the diagnostic report (Settings ›
+System › Diagnostic › Generate a report, then Copy), generated right after the problem
+happened: it carries the version, the audio path, the speakers and the recent errors, with
+passwords and keys left out, and is usually what turns a report into something actionable.
+Read it before you paste it.
+
+A security vulnerability does not go in an issue: report it privately, as
+[SECURITY.md](SECURITY.md) explains.
