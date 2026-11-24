@@ -40,7 +40,9 @@ _SERVICE_TYPES = {
 }
 
 # avahi's parseable output escapes bytes in the service name as `\DDD` (decimal),
-# e.g. a space is `\032` — turn those back into characters for a readable label.
+# e.g. a space is `\032`. They are bytes, not characters: a non-ASCII letter is
+# its UTF-8 sequence (`é` is `\195\169`), so the label is rebuilt as bytes and
+# decoded once — one character per escape showed a Mac named "Léo" as "LÃ©o".
 _ESCAPE_RE = re.compile(r"\\(\d{3})")
 
 
@@ -144,4 +146,11 @@ def _parse_resolved(line: str, share_type: str) -> Optional[Dict[str, str]]:
 
 
 def _unescape(value: str) -> str:
-    return _ESCAPE_RE.sub(lambda m: chr(int(m.group(1))), value)
+    raw = bytearray()
+    pos = 0
+    for match in _ESCAPE_RE.finditer(value):
+        raw += value[pos:match.start()].encode("utf-8")
+        raw.append(int(match.group(1)) & 0xFF)
+        pos = match.end()
+    raw += value[pos:].encode("utf-8")
+    return raw.decode("utf-8", errors="replace")

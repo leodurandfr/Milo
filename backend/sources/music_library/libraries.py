@@ -198,6 +198,15 @@ class NavidromeLibraryService:
                     continue
                 changed |= (await admin.create_library(name, path)) is not None
             elif lib.get("name") != name:
+                # Navidrome validates the path on a PUT exactly as on a create:
+                # renaming a share's library between the unmount and the remount
+                # an edit performs answered 400 `pathInvalid` (measured
+                # 2026-11-24). The next reconcile with the space mounted renames it.
+                if path not in self._mounted:
+                    self.logger.debug(
+                        "Renaming the Navidrome library at %s once it is mounted", path,
+                    )
+                    continue
                 changed |= await admin.rename_library(lib["id"], name, path)
 
         if changed:

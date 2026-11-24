@@ -9,9 +9,12 @@ It exists because eight cleanup passes each ended with *"on-Pi smoke not run"*, 
 
 > **"exécute docs/manual/physical-verification.md"**
 
-and be in the room. Do one group per sitting; groups are independent, order inside a group is
-not. This file is a **backlog, not a checklist**: strike what passes, and when a group is empty
-delete it. When the file is empty, delete the file — anything worth keeping goes to
+and be in the room for the groups that need eyes, ears or hands. Everything else can be driven
+from a Mac on the LAN: the server through `ssh milo`, each satellite through
+`ssh milo ~/.local/bin/sat …` (including `sat exec`), and a reboot is observed from outside —
+that is how the session of 2026-11-24 ran the reboot, satellite, library and streaming checks.
+Do one group per sitting; groups are independent, order inside a group is not. This file is a
+**backlog, not a checklist**: strike what passes, and when a group is empty delete it. When the file is empty, delete the file — anything worth keeping goes to
 [verification-checklist.md](verification-checklist.md) instead, which is the standing one.
 
 > **Why this is not verification-checklist.md.** That file is the *standing* regression net,
@@ -56,10 +59,11 @@ git log --oneline -3 -- milo-client/          # control: this MUST print somethi
 git status --porcelain
 ```
 
-**Known state, so you do not chase it:** `ANTICATER_MINI` (the BT remote) reconnects in a loop
-— see [F3](#f3--the-bt-remote-reconnects-in-a-loop) — and a disc (*The Best of Sade*) is
-already in the drive, so the CD group needs no hardware brought in **except F-CD7**, which needs
-a disc no lookup identifies and is the reason that group is not self-contained.
+**Known state, so you do not chase it:** `ANTICATER_MINI` (the BT remote) reconnected in a loop
+in 2026-07 — see [F3](#f3--the-bt-remote-reconnects-in-a-loop), not seen since — and a disc is already in
+the drive (Moby's *Play* on 2026-11-24), so the CD group needs no hardware brought in **except
+F-CD7**, which needs a disc no lookup identifies and is the reason that group is not
+self-contained.
 
 ---
 
@@ -94,51 +98,18 @@ Also here, because they need the panel and nothing else:
 
 ---
 
-## Group 2 — something that can be rebooted · *and someone to watch it*
-
-**Structural constraint, found the hard way:** an agent session runs *on the unit*, so a reboot
-kills the observer. These need you, or a session started *after* you reboot.
-
-| # | Observable |
-|---|---|
-| C9 | **Cold boot** → every settings panel shows its **stored** value, not a default |
-| C10 | A cold boot with a configured satellite → speakers, zones, volumes and EQ all present |
-| C14 | A changed setting (rotary step, custom station) survives a **reboot** — the `systemctl restart` half is already ✅ |
-| C7 | The power menu's **second tap** (the actual reboot) and the failed-request path. Arming and disarming are already ✅ |
-| C15 | Set the fan to **manual at a distinctly audible speed** (say 80 %), restart the backend → the fan comes back **at that speed**, not at a default; then switch mode manual → target from the UI and hear it follow each time |
-
-C9 is the one that matters most now: phase 6 made `settings.json` gain a `mac` section and
-changed how every default resolves. The restart path is verified; the cold-boot path is not.
-
-C15 is phase 7's: `FanController._load_config_from_settings` stopped re-validating what
-`SettingsService` already resolved, and it runs **only at controller init**, so a backend
-restart is the trigger. Proved equivalent over 233 validator outputs including this unit's real
-`settings.json` (0 differing) and guarded by `tests/test_fan_controller.py`, but it is a thermal
-path and no CI test hears a fan. `reload_config` — the `PUT` route's partial-payload path — was
-deliberately not touched, which is what the second half of the row checks.
-
----
-
 ## Group 3 — a satellite · ⚠ *second unit*
 
 | # | Observable |
 |---|---|
 | B12 | Change a client's speaker type to **subwoofer** in a zone → the crossover recalculates. **Needs ears**: the satellite exposes `crossover`/`lowpass` as PUT-only, with no `GET` and nothing in `/equalizer/status` |
 | B13 | A zone **crossover** change still applies — the DSP path, and the only backend change phase 1c made. **Needs ears**, same blind spot |
-| B17 | A snapclient buffer change and the client **still plays**. Everything else about B17 is ✅, including 4 rejected values → HTTP 502 with the stored value untouched |
 
-**Run these last in this group — they destroy the pairing.** Re-pairing goes through the
-wizard, which writes the audio overlay and reboots the satellite, so budget for it:
-
-| # | Observable |
-|---|---|
-| B8 | Select a satellite in the EQ page, close it, **forget that client** from Réglages, reopen → the page lands on Milō and accepts writes, **no 404** |
-| B9 | A **two-client zone**, forget one member → the survivor's EQ still accepts a write and is **not** shown as zoned |
-| B10 | Same, then **reboot** → the survivor is still standalone |
-
-> **There is no shell on the satellite** — no SSH key, and password auth is refused for
-> `milo` / `milo-client` / `pi`. Its HTTP surface on `:8001` is the whole of what can be
-> observed remotely, which is why B12/B13 need ears rather than a probe.
+> **A satellite has a shell, from the server:** `ssh milo ~/.local/bin/sat exec <name> "<cmd>"`
+> runs as `milo-client` (key on the server, scoped `NOPASSWD` grants; root asks for that
+> account's password). `sat audio` shows the PCM state and `sat logs` the journal. CamillaDSP's
+> own websocket (`127.0.0.1:1234` on the satellite) reports volume, mute and signal peaks, but
+> not what a crossover *sounds* like — which is why B12/B13 still need ears.
 
 ---
 
@@ -148,6 +119,12 @@ wizard, which writes the audio overlay and reboots the satellite, so budget for 
 |---|---|
 | B19 | **Cut power to both units and restore them together**, so the satellite's snapclient reaches snapserver before its API is up → the speaker comes back **audible**, not muted-but-online |
 | B20 | Configure a satellite in the wizard and toggle multiroom **while it reboots** → it comes back under the chosen name, not "Milō Client" |
+
+**Approximated 2026-11-24, still open:** Canapé (`systemctl reboot`) and milo (`systemctl
+reboot -ff`, no clean stop) restarted together. Canapé's hello reached snapserver 2.2 s after the
+backend started and before its admission; its DSP came back at the server's target. The order a
+power cut produces — a client already there before the backend — was **not** reproduced: snapserver
+starts with the backend (`PartOf=`), so only a real cut answers B19.
 
 **B19 is the highest-value scenario in this file.** It is the only path for a client that
 connected before the backend did — i.e. **every satellite after a power cut** — and the bug it
@@ -168,9 +145,9 @@ but a real power cut reproduces it.
 | F-CD6 | Transport: play/pause, next; **previous** early in a track goes back, late in a track restarts it. Eject releases the disc and leaves the source cleanly |
 | F-CD7 | ⚠ **needs a disc no lookup identifies** — a burned CD or an obscure pressing. The player's big title reads the track in the interface's language (`Morceau 1`, then `Morceau 2` on skip, in French) instead of "Unknown Title", with "Unknown Artist" (« Artiste inconnu » in French) underneath and the disc placeholder as the cover |
 
-**F-CD7 is the one line in this group that the disc already in the drive cannot answer.** *The
-Best of Sade* is identified, as are all three discs in `cd_data.json`, so it renders the path
-that already worked. The scenario covers `02ee1526`, which accepted a title-only metadata
+**F-CD7 is the one line in this group that the disc already in the drive cannot answer.** It is
+identified (Moby's *Play*, named by MusicBrainz again on 2026-11-24), as are all eight discs in
+`cd_data.json`, so it renders the path that already worked. The scenario covers `02ee1526`, which accepted a title-only metadata
 snapshot for `cd` alone: before it, an unidentified disc left the player's cache on its empty
 seed, so the title never changed between tracks. "Unknown Artist" is **correct** here and is not
 what the fix is about — the artist genuinely is unknown, and `CDSource.vue` shows the same in its
@@ -207,17 +184,21 @@ minutes later with nobody touching the remote, « Non connectée ».
 Whether this is the remote sleeping (F-BT5 treats sleep as normal) or a real reconnect loop is
 undecided — but a healthy sleep should not re-open the device every 12 s forever.
 
+**2026-11-24:** not one `bt_remote` disconnect in 27 h of journal (the boot of 2026-11-23 20:36 →
+11-24 23:58) — but the remote (paired, trusted) never connected in that window either, so this
+proves nothing about the loop. Judge it with the remote awake.
+
 ---
 
 ## Group 7 — a USB key and a NAS · ⚠ *USB, NAS*
 
 | # | Observable |
 |---|---|
-| F-ML1 | Play an album, pause, let the **idle auto-stop** fire, switch to Spotify, come back → it restores the same track at the same position, paused (needs a non-zero auto-stop delay in Réglages) |
-| F-ML2 | The same **without** the auto-stop (switch away while playing) → unchanged |
 | F-ML3 | Plug a USB key in while **another source is playing** → it is still indexed and appears in the grid |
-| F-ML4 | Add, edit and delete an **SMB share** from the wizard → mounts, remounts and unmounts, with the `mounted` badge correct |
-| F-ML5 | Reboot with the NAS powered **off**, then power it on → the share reconnects within ~2 min with no manual re-save |
+
+F-ML5 passed on 2026-11-24 against the retry schedule, not the "~2 min" it used to promise: after
+a boot with the share away, `shares.py` retries at 15, 30 and 60 s, then every 300 s, so a share
+that comes back later waits for the next 300 s pass (measured: 249 s).
 
 ---
 
@@ -225,12 +206,7 @@ undecided — but a healthy sleep should not re-open the device every 12 s forev
 
 | # | Observable | Needs |
 |---|---|---|
-| A3 | Spotify: Milō appears on the phone; handoff starts audio with artwork, title, artist; progress advances | phone |
-| F-B1 | AirPlay: artwork, title and artist appear within ~2 s of a track change — the historical silent-failure point | ⚠ iPhone |
-| F-B3 | Qobuz: playback with artwork and progress, no transport buttons; sign-in survives a reboot | ⚠ paid acct |
 | F-TD1 | Tidal: casting from the phone starts audio with artwork and progress, and Milō's own pause / next act on it | ⚠ paid acct |
-| F-PC1 | Podcast: pause / resume, and the episode plays at its normal pace with no speed control anywhere | ⚠ PI creds |
-| F-PC2 | Podcast: leaving mid-episode and returning resumes near where it stopped, **after a reboot too** | ⚠ PI creds |
 
 ---
 

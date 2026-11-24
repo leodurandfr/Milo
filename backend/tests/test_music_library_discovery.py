@@ -96,6 +96,12 @@ class TestUnescape:
     def test_decimal_escapes(self):
         assert _unescape("My\\032NAS\\040v2\\041") == "My NAS(v2)"
 
+    def test_a_non_ascii_letter_is_its_utf8_bytes(self):
+        """What a Mac named after its owner advertises (captured 2026-11-24):
+        avahi escapes each byte of `é`, and a per-escape chr() rendered it "Ã©"
+        in the add-server wizard and in the name the share was saved under."""
+        assert _unescape("Mac\\032mini\\032de\\032L\\195\\169o") == "Mac mini de Léo"
+
 
 class TestDiscoverServers:
     async def test_dedupes_and_sorts_by_name(self):

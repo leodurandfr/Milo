@@ -106,14 +106,22 @@ class TestAnAbsentSpaceKeepsWhatItHas:
         admin.delete_library.assert_not_awaited()
         assert service.library_id(IPOD) == 3
 
-    async def test_an_absent_space_is_still_renamed(self, service, admin):
-        """A rename is a write on an existing library, not a create."""
+    async def test_an_absent_space_is_renamed_only_once_mounted(self, service, admin):
+        """Navidrome refuses a rename whose path is not there (400 `pathInvalid`,
+        measured 2026-11-24 when a share edit's unmount raced the rename), so an
+        absent space waits — without counting as a failure — and is renamed by
+        the reconcile that sees it mounted again."""
         admin.list_libraries = AsyncMock(side_effect=[
+            [{"id": 3, "path": IPOD, "name": "old name"}],
             [{"id": 3, "path": IPOD, "name": "old name"}],
             [{"id": 3, "path": IPOD, "name": "iPod de Claire"}],
         ])
 
         assert await service.reconcile({IPOD: "iPod de Claire"}, set()) is True
+        admin.rename_library.assert_not_awaited()
+        service._schedule_retry.assert_not_called()
+
+        assert await service.reconcile({IPOD: "iPod de Claire"}, {IPOD}) is True
         admin.rename_library.assert_awaited_once_with(3, "iPod de Claire", IPOD)
 
     async def test_a_library_no_storage_space_claims_is_still_dropped(
