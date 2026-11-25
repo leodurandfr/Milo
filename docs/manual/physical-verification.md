@@ -59,179 +59,27 @@ git log --oneline -3 -- milo-client/          # control: this MUST print somethi
 git status --porcelain
 ```
 
-**Known state, so you do not chase it:** `ANTICATER_MINI` (the BT remote) reconnected in a loop
-in 2026-07 — see [F3](#f3--the-bt-remote-reconnects-in-a-loop), not seen since — and a disc is already in
-the drive (Moby's *Play* on 2026-11-24), so the CD group needs no hardware brought in **except
-F-CD7**, which needs a disc no lookup identifies and is the reason that group is not
-self-contained.
+**Where it stands (2026-11-25, session C3):** groups 1, 3, 4, 7 and 9 ran on the units and
+are struck; so is all of group 6 but its day-long line, all of group 5 but F-CD7, and F3 (the
+remote's HID node is re-created by BlueZ a few times after a wake, with the link up and every
+knob step taken; no continuous loop). What a result found went to
+[verification-checklist.md](verification-checklist.md): the CD cover download (*Cover of a disc
+named now*) and the name a re-configured speaker keeps (B20, *A re-configured speaker keeps the
+name it is given*). Five lines are left, each waiting on something the session did not have.
 
 ---
 
-## Group 1 — you and the unit's screen · *nothing else* · ~15 min
+## What is left
 
-The standing checklist's smoke set. **It has never been run end-to-end**, which is phase 0's
-own open item — running it also replaces its estimated ~10-minute budget with a measured one.
-
-| # | Observable |
-|---|---|
-| A1 | Kiosk shows the UI and the dock — no blank page, no Vite banner |
-| A2 | Radio: the station logo, name and bitrate are visible; play/pause responds |
-| A4 | Volume: the rotary knob **and** the on-screen +/− both move the level and the audible output |
-| A5 | Equalizer: a preset change (Flat → Bass Boost) is **audible immediately** and survives a source switch |
-| A6 | Source switch radio → spotify → radio: the old source stops within ~1 s, no ghost audio, no ghost metadata |
-| A7 | Screen: the sleep delay turns it off, touch wakes it to the same view, brightness applies immediately |
-| A8 | Background the tab ≥60 s, return: volume, active source, metadata and multiroom state all match reality |
-
-**A8 is worth more than usual:** phase 2 rewrote the boot path so `resyncStores()` is the only
-recipe. Watch the backend's request log while it runs — the claim is a *strict superset* of the
-old requests with **no refetch storm**.
-
-Also here, because they need the panel and nothing else:
-
-| # | Observable |
-|---|---|
-| C6 | Turn **Écran**, **Ventilateur** and **Multiroom** off in turn → the matching tile disappears and the remaining sections keep their spacing. (The Sources rows and the spacing half are already ✅; these three gates are not cheap — multiroom stops snapcast, the other two are hardware-derived) |
-| ~~D1~~ | **No longer an eye call — measured, and it fails.** The warm filter was then a plain DOM overlay (`.color-filter-overlay`, `rgba(255,119,0,0.286)`), and these figures were taken through it; a headless render reproduces it exactly. (It is now a color matrix on the root element, `html.screen-color`, which a headless render reproduces too.) `.fan-warning` carries `text-mono-medium`, so its WCAG floor is **4.5:1**; composited through the overlay it measures **1.57–1.72:1** depending on the section background — and phase 4's move from `--color-brand` to `--color-warning` made it **worse** (brand: 1.97–2.16). Phase 4's reasoning was semantic and right on its own terms; nobody had measured contrast. **This now needs a colour decision, not a look.** See *Design decisions* below |
-| D3 | The virtual keyboard's press popup vs accent popup — they differ **only in alpha** (.15 vs .20), same offset and blur. Do they read as two depths, or should one move? **A design call, not a bug** |
-| D7 | Podcasts → the genre grid and a podcast card shrink on tap. The machinery is proved (held → `pressed`, 40 px move → cleared); only **how it looks on glass** is open |
-| E | The virtual keyboard's accent popup — how it *looks*. Its behaviour is fully verified |
-
----
-
-## Group 3 — a satellite · ⚠ *second unit*
-
-| # | Observable |
-|---|---|
-| B12 | Change a client's speaker type to **subwoofer** in a zone → the crossover recalculates. **Needs ears**: the satellite exposes `crossover`/`lowpass` as PUT-only, with no `GET` and nothing in `/equalizer/status` |
-| B13 | A zone **crossover** change still applies — the DSP path, and the only backend change phase 1c made. **Needs ears**, same blind spot |
-
-> **A satellite has a shell, from the server:** `ssh milo ~/.local/bin/sat exec <name> "<cmd>"`
-> runs as `milo-client` (key on the server, scoped `NOPASSWD` grants; root asks for that
-> account's password). `sat audio` shows the PCM state and `sat logs` the journal. CamillaDSP's
-> own websocket (`127.0.0.1:1234` on the satellite) reports volume, mute and signal peaks, but
-> not what a crossover *sounds* like — which is why B12/B13 still need ears.
-
----
-
-## Group 4 — a real power cut · ⚠ *two units*
-
-| # | Observable |
-|---|---|
-| B19 | **Cut power to both units and restore them together**, so the satellite's snapclient reaches snapserver before its API is up → the speaker comes back **audible**, not muted-but-online |
-| B20 | Configure a satellite in the wizard and toggle multiroom **while it reboots** → it comes back under the chosen name, not "Milō Client" |
-
-**Approximated 2026-11-24, still open:** Canapé (`systemctl reboot`) and milo (`systemctl
-reboot -ff`, no clean stop) restarted together. Canapé's hello reached snapserver 2.2 s after the
-backend started and before its admission; its DSP came back at the server's target. The order a
-power cut produces — a client already there before the backend — was **not** reproduced: snapserver
-starts with the backend (`PartOf=`), so only a real cut answers B19.
-
-**B19 is the highest-value scenario in this file.** It is the only path for a client that
-connected before the backend did — i.e. **every satellite after a power cut** — and the bug it
-covers left the speaker silent while shown online with working controls, unretryably. Nothing
-but a real power cut reproduces it.
-
----
-
-## Group 5 — the CD drive · *a disc is already in it*
-
-| # | Observable |
-|---|---|
-| F-CD1 | Open CD with a disc and, **without pressing play**, drag the progress bar → nothing becomes audible and the bar sits at the target |
-| F-CD2 | Pause mid-track, drag the bar, then press play → playback resumes at the **dragged** position |
-| F-CD3 | Seek during normal playback → unchanged, audio continues |
-| F-CD4 | Let the **auto-stop** timeout fire, then press play → the disc resumes the same track at the same position |
-| F-CD5 | Insert a disc → it becomes playable (the TOC latch now retries 3×; a disc that used to stick on the spinner should not) |
-| F-CD6 | Transport: play/pause, next; **previous** early in a track goes back, late in a track restarts it. Eject releases the disc and leaves the source cleanly |
-| F-CD7 | ⚠ **needs a disc no lookup identifies** — a burned CD or an obscure pressing. The player's big title reads the track in the interface's language (`Morceau 1`, then `Morceau 2` on skip, in French) instead of "Unknown Title", with "Unknown Artist" (« Artiste inconnu » in French) underneath and the disc placeholder as the cover |
-
-**F-CD7 is the one line in this group that the disc already in the drive cannot answer.** It is
-identified (Moby's *Play*, named by MusicBrainz again on 2026-11-24), as are all eight discs in
-`cd_data.json`, so it renders the path that already worked. The scenario covers `02ee1526`, which accepted a title-only metadata
-snapshot for `cd` alone: before it, an unidentified disc left the player's cache on its empty
-seed, so the title never changed between tracks. "Unknown Artist" is **correct** here and is not
-what the fix is about — the artist genuinely is unknown, and `CDSource.vue` shows the same in its
-header. The owner waived this check on 2026-08-17 rather than hold the plan for it, so the fix
-ships unobserved: if the CD player ever shows a wrong title, this is the first suspect.
-
----
-
-## Group 6 — the BT remote · ⚠ *ANTICATER_MINI*
-
-**Start with F3 below.** The remote already flaps, so any result in this group taken before F3
-is understood may be measuring the loop rather than the change.
-
-| # | Observable |
-|---|---|
-| F-BT1 | With the remote connected, disable the BT remote from Réglages **on the phone** → the kiosk's panel stops showing it connected, and vice-versa |
-| F-BT2 | With the remote **asleep**, toggle the feature off then on → "Recherche" becomes clickable again instead of spinning forever, and pressing it still runs a discovery |
-| F-BT3 | Enable while the remote is awake → it reconnects and the panel shows connected with a battery reading |
-| F-BT4 | Press Recherche while the remote is **already connected** → the button settles rather than spins |
-| F-BT5 | Let the remote sleep, wake it by turning the knob → volume still responds and the panel follows |
-| F-BT6 | Over a day: battery drain unchanged. A **no-regression** check, not a validation |
-
-### F3 — the BT remote reconnects in a loop
-
-**Observed 2026-07-27, never investigated.** `backend.hardware.bt_remote` cycles *found →
-monitoring → disconnected (`[Errno 19] No such device`)* for `ANTICATER_MINI`
-(`f5:cc:0a:83:e2:89`) roughly **every 12 seconds, continuously** — 189 disconnects in 37 minutes
-of an otherwise idle backend. It is `INFO`, so it raises no banner; it was only seen while
-grepping for something else.
-
-**It is visible in the UI too:** the Télécommandes list read « Connectée · 92 % » and, three
-minutes later with nobody touching the remote, « Non connectée ».
-
-Whether this is the remote sleeping (F-BT5 treats sleep as normal) or a real reconnect loop is
-undecided — but a healthy sleep should not re-open the device every 12 s forever.
-
-**2026-11-24:** not one `bt_remote` disconnect in 27 h of journal (the boot of 2026-11-23 20:36 →
-11-24 23:58) — but the remote (paired, trusted) never connected in that window either, so this
-proves nothing about the loop. Judge it with the remote awake.
-
----
-
-## Group 7 — a USB key and a NAS · ⚠ *USB, NAS*
-
-| # | Observable |
-|---|---|
-| F-ML3 | Plug a USB key in while **another source is playing** → it is still indexed and appears in the grid |
-
-F-ML5 passed on 2026-11-24 against the retry schedule, not the "~2 min" it used to promise: after
-a boot with the share away, `shares.py` retries at 15, 30 and 60 s, then every 300 s, so a share
-that comes back later waits for the next 300 s pass (measured: 249 s).
-
----
-
-## Group 8 — a phone and the streaming accounts
-
-| # | Observable | Needs |
+| # | Observable | Waiting on |
 |---|---|---|
-| F-TD1 | Tidal: casting from the phone starts audio with artwork and progress, and Milō's own pause / next act on it | ⚠ paid acct |
+| F-CD7 | A disc **no lookup identifies** plays with the player's big title reading the track in the interface's language (`Morceau 1`, then `Morceau 2` on skip, in French) instead of "Unknown Title", "Unknown Artist" (« Artiste inconnu ») underneath and the disc placeholder as the cover. Covers `02ee1526`, which accepted a title-only metadata snapshot for `cd` alone | a disc MusicBrainz does not know: the burned CD tried on 2026-11-25 (St Germain, *Tourist*) was named in 4 s |
+| F-BT6 | Over a day: the BT remote's battery drain unchanged. A **no-regression** check, not a validation | a day of ordinary use |
+| F-UP1 (rollback half) | A **forced** install failure of go-librespot / CamillaDSP / Navidrome **rolls back** to the binary it replaced, and CamillaDSP comes back up. The other halves passed on 2026-11-25: an older go-librespot (0.10.6) and CamillaDSP (4.1.2) installed by hand, then updated through `POST /api/programs/<key>/update`; go-librespot, stopped, stayed stopped; CamillaDSP restarted, the backend reconnected and re-applied the volume, and a station was heard | a way to make one install fail on a unit without editing the code (the update flow's rollback is covered by its tests) |
+| F-TD2 | Tidal's first activation **downloads its runtime**: on a server card flashed from an image that no longer carries `/opt/milo/tidal-connect`, enabling Tidal in the Dock shows it *unavailable: installing* while `milo-deploy-update install-tidal-runtime` runs, then a cast from the Tidal app plays within 5 min. On 2026-11-25 the activation ran on a unit whose runtime dated from 2026-08-04, so nothing was downloaded | the next fresh server card (the spare one used for the first-boot checks will do) |
+| F-TD1 | Tidal: casting from the phone starts audio with artwork and progress, and Milō's own pause / next act on it. A free account (30 s previews) cast from the Mac on 2026-11-25: audio, artwork and title came, but the first cast was cut by the 8 s no-sound watchdog and the account cannot go past a preview | a paid Tidal account |
 
 ---
-
-## Group 9 — an update that can actually run · ⚠ *release*
-
-| # | Observable |
-|---|---|
-| F-UP1 | Install an **older** go-librespot / CamillaDSP / Navidrome binary by hand, then update from the UI → the always-on pair comes back up (**CamillaDSP is in the live audio path**), go-librespot left stopped **stays stopped**, and a forced install failure **rolls back** |
-
-The trick this needs: the flow only runs when an update is genuinely available, so the older
-binary has to be installed first. This is phase 0's *release* blind spot.
-
----
-
-## Design decisions — surfaced here, but decidable at a desk
-
-None of these needs the unit. They are recorded here because the sweep that produced this file
-is what found them, and because each one changes something you will then want to *look* at.
-
-| # | Decision | Where it is recorded |
-|---|---|---|
-| ~~K1~~ | ✅ **decided 2026-07-28 — no second affordance.** The existing verb (shrink 4 px, fade to 60 %, hold 150 ms) is the app's whole press vocabulary, and the 15 surfaces that carry no feedback stay as they are. Press applies to the mouse too, so there is no `@media (hover: hover)` split to make — and the hover half of the question was answered by measurement: `:hover` exists **exactly once** in all of `src/`, on `.dismiss-btn`. The list is no longer a pending bucket: it is `NO_PRESS_BY_DECISION`, and adding to it is now a stated choice to ship a control that does not acknowledge a tap | [`pressFeedback.test.js`](../../frontend/tests/architecture/pressFeedback.test.js) |
-| ~~K4~~ | ✅ **closed 2026-07-28 — accepted.** The warm overlay is a **user-tunable screen-temperature correction** for a panel that reads too blue, not a fixed design condition, so measuring a contrast ratio "through the filter" measures a setting rather than the design. The owner accepts the result. Recorded for whoever reads the numbers later: without the overlay `--color-warning` on the section background is still 2.01:1 against a `text-mono-medium` floor of 4.5:1, so this is an accepted deviation, not a passing measurement. **Since 2026-10-15** the panel's blue is corrected by a fixed layer measured with a colorimeter (`SCREENS["waveshare_8_dsi"]["color_correction"]`, always on, 79 % of the native luminance) and the warm filter is an effect on top: both are now one color matrix on the root element (`html.screen-color`; an opaque `rgb()` multiply layer until 2026-10-16), so every contrast reading on that panel is through the correction too | [`FanSettings.vue:292`](../../frontend/src/components/settings/categories/FanSettings.vue#L292) |
-| ~~K5~~ | ✅ **decided 2026-07-28 — left as it is.** The `-webkit-line-clamp` recipe is written 12 times across 7 files with its 3 core declarations byte-identical in 11 of them, i.e. **zero drift** — where every duplication this programme collapsed (`update.py`'s flows, the four EQ pushes, the settings defaults, the three `_persist_*`) had *already* produced a defect. The utility would have to be applied in templates, and 3 sites are `:deep()` rules styling slot content, so the clamp would stop being guaranteed by the component that owns it and become a class someone can forget with no possible guardrail. Recorded where someone would go to add it | [`design-system.css`](../../frontend/src/assets/styles/design-system.css), below the utility classes |
-| **K3** | ✅ **closed 2026-07-28** — the four files phase 2 handed over (`AudioPlayer.vue`, `MultiroomItem.vue`, `Dock.vue`, `musicLibraryStore.js`) were swept mechanically and in a live prod render: 0 dead CSS class, 0 dead script symbol of 194, 0 unused prop of 15, 0 emit never emitted of 14, 82/82 store exports consumed, the 6 hex literals are mask channels correctly whitelisted per-rule, and the live render shows 0 horizontal overflow and 0 clipped text. K4 and K5 are what it found | — |
 
 ## What to do with a result
 
