@@ -1654,6 +1654,27 @@ async def test_a_network_saved_over_the_access_point_is_the_next_one_tried(servi
 
 
 @pytest.mark.asyncio
+async def test_a_save_that_asks_for_a_try_gets_it_under_a_client_of_the_access_point(service):
+    """Settings › Network over the AP is how a phone repairs a unit whose home
+    network changed. Its save waited for the retry loop, which the phone that
+    saved holds off: measured on a unit, ten minutes of "Not connected" on the
+    phone with nothing said, the network joined only once the holds ran out.
+    `try_now` is that turn, taken whoever is on the AP."""
+    nm = FakeNetworkManager(profiles={})
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 1000), \
+         patch("backend.core.network.service.STATION_TRY_AFTER_SAVE_S", 0):
+        with service.serving_recovery_client():
+            await service.evaluate_reachability()
+            await settle_until(lambda: HOTSPOT_NAME in nm.active)
+            await service.save_network("Maison", "secret", try_now=True)
+            await settle_until(lambda: STATION in nm.active)
+        await service.cleanup()
+
+    assert service.hotspot_active is False
+
+
+@pytest.mark.asyncio
 async def test_an_access_point_adopted_after_a_restart_still_retries_the_home_network(service):
     """The adoption gives the new process the AP's teardown; without the retry
     loop too, a backend restart while the box was away would leave the AP the

@@ -170,7 +170,7 @@ The 223 operations of the backend's OpenAPI schema, 26 of them contracted. Each 
 | `GET` | `/api/network/wifi/signal` |  | WifiSignalEnvelope | internal |
 | `GET` | `/api/network/wifi/networks` |  | WifiNetworksEnvelope | internal |
 | `POST` | `/api/network/wifi/connect` | WifiConnectRequest | NetworkStatusEnvelope | internal |
-| `POST` | `/api/network/wifi/save` | WifiConnectRequest | WifiSaveEnvelope | internal |
+| `POST` | `/api/network/wifi/save` | WifiSaveRequest | WifiSaveEnvelope | internal |
 | `DELETE` | `/api/network/wifi/saved/{ssid}` |  | StatusResponse | internal |
 | `GET` | `/api/network/wifi/saved` |  | WifiSavedEnvelope | internal |
 | `PUT` | `/api/network/wifi/radio` | WifiRadioRequest | NetworkStatusEnvelope | internal |

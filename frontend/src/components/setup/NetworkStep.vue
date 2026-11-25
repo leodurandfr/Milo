@@ -41,8 +41,10 @@
     <!-- The wizard went through once, and the unit did not join the network saved -->
     <NoticeBox v-if="joinFailedSsid" kind="warning">{{ t('setup.wifi.joinFailed', { ssid: joinFailedSsid }) }}</NoticeBox>
 
-    <!-- A browser on the open setup AP sends the key it types in clear; the kiosk types it locally -->
-    <p v-if="showEthernetHint" class="text-body-small ethernet-hint">{{ t('setup.wifi.ethernetHint') }}</p>
+    <!-- What the grayed Continue waits for: the country and a link are both
+         required and neither says so. Here rather than over the footer, where
+         the list scrolled under it. -->
+    <p v-if="showContinueHint" class="text-body-small continue-hint">{{ t('setup.wifi.continueHint') }}</p>
 
     <!-- Network selector (country + scan + password). The network saved stays
          in the list: a key mistyped over the AP is typed again there. -->
@@ -56,7 +58,6 @@ import { useI18n } from '@/services/i18n';
 import { useNetwork, refreshWifiSignal } from '@/composables/useNetwork';
 import { useTimer } from '@/composables/useTimer';
 import { WIFI_SIGNAL_POLL_MS } from '@/constants/network';
-import { isKiosk } from '@/utils/kiosk';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -67,7 +68,7 @@ const { t } = useI18n();
 const timer = useTimer();
 
 // Status display state — selection state lives inside NetworkSelector.
-const { status, networks, loading, initialize } = useNetwork();
+const { status, networks, country, loading, initialize } = useNetwork();
 
 const emit = defineEmits(['update:modelValue']);
 
@@ -102,8 +103,8 @@ const joinFailedSsid = computed(() => {
   return triedSsid.value;
 });
 
-const showEthernetHint = computed(() =>
-  props.hotspotActive && !isKiosk() && !loading.value && !status.value.ethernet.connected
+const showContinueHint = computed(() =>
+  !loading.value && (!country.value || !props.modelValue)
 );
 
 // WiFi display: connected SSID or saved SSID (ready when ethernet takes over)
@@ -214,7 +215,7 @@ onMounted(() => {
   margin-left: auto;
 }
 
-.ethernet-hint {
+.continue-hint {
   color: var(--color-text-secondary);
 }
 </style>

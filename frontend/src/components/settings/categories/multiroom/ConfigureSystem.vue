@@ -66,7 +66,6 @@
           />
         </template>
 
-        <p class="text-body-small adopt-hint">{{ t('multiroom.adopt.ethernetHint') }}</p>
       </SectionCard>
 
       <!-- Audio Card Selection -->
@@ -141,6 +140,7 @@ import NoticeBox from '@/components/ui/NoticeBox.vue';
 import SectionStack from '@/components/ui/SectionStack.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
 import NetworkSelector from '@/components/network/NetworkSelector.vue';
+import { isWpaKey } from '@/utils/wifiKey';
 
 const props = defineProps({
   macId: {
@@ -203,7 +203,7 @@ const wifiCredsReady = computed(() => {
   if (props.mode !== 'wifi') return true;
   if (canUseServerWifi.value && useServerWifi.value) return true;
   return !!manualWifi.value?.ssid
-    && (manualWifi.value.security === '' || !!manualWifi.value.password);
+    && (manualWifi.value.security === '' || isWpaKey(manualWifi.value.password));
 });
 
 const canApply = computed(() => !!selectedAudioId.value && wifiCredsReady.value);

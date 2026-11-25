@@ -159,6 +159,7 @@
     },
     "pending": {
       "title": "Novo Milō Client detetado",
+      "enableToAdd": "Um Milō Client está à espera: ative o multiroom para o adicionar. | {count} Milō Clients estão à espera: ative o multiroom para os adicionar.",
       "notConfigured": "Placa de áudio não configurada",
       "rebooting": "A reiniciar…",
       "configureTitle": "Configurar Milō Client",
@@ -180,7 +181,6 @@
       "useServerWifi": "Usar a rede do servidor ({ssid})",
       "changeNetwork": "Alterar",
       "enterCredentials": "Escolha a rede WiFi a que esta coluna se deve ligar.",
-      "ethernetHint": "Por WiFi, a sua palavra-passe WiFi chega à coluna através de uma rede aberta: ligá-la com um cabo Ethernet é mais seguro.",
       "adopting": "A configurar…",
       "errorPush": "A coluna não aceitou a configuração",
       "errors": {
@@ -604,12 +604,14 @@
     "otherNetworks": "Outras redes WiFi",
     "noNetworks": "Nenhuma rede detetada",
     "password": "Palavra-passe",
+    "keyLength": "Uma chave WiFi tem de 8 a 63 caracteres.",
     "connect": "Ligar",
     "connecting": "A ligar…",
     "connectFailed": "Falha na ligação",
     "save": "Guardar",
     "saving": "A guardar…",
     "saveFailed": "Falha ao guardar a rede",
+    "joiningOverAp": "O Milō está a ligar-se a {ssid}: o seu ponto de acesso desaparece por um momento. Se voltar a aparecer, a chave não foi aceite.",
     "forget": "Esquecer",
     "forgetConfirm": "Esquecer esta rede?",
     "refresh": "Atualizar",
@@ -954,7 +956,6 @@
     "wifi": {
       "title": "Configure a rede",
       "continueHint": "Selecione um país e ligue o Milō a uma rede para continuar.",
-      "ethernetHint": "Por WiFi, a sua palavra-passe WiFi chega ao Milō através de uma rede aberta: um cabo Ethernet é mais seguro.",
       "joinFailed": "O Milō não conseguiu ligar-se a {ssid}. Selecione-a abaixo e introduza novamente a palavra-passe."
     },
     "language": {

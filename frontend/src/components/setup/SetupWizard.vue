@@ -48,28 +48,23 @@
         </div>
       </Transition>
 
-      <!-- Unified footer (absolute positioned, all steps) -->
+      <!-- Unified footer (all steps), in the card's flow under the scrolling
+           body: absolute over it, the step's last rows scrolled under a hint
+           drawn with no ground of its own. -->
       <div class="setup-card__footer">
         <Button floating v-if="currentStep === 0" variant="brand" @click="nextStep">
           {{ t('setup.welcome.getStarted') }}
         </Button>
 
         <template v-else-if="currentStep === 2">
-          <!-- A greyed button with no reason next to it is where a first boot
-               with no network stalls: the country and a link are both required
-               and neither says so. -->
-          <span v-if="!wifiCountry || !wizardState.wifiSsid" class="text-mono-small setup-card__hint">
-            {{ t('setup.wifi.continueHint') }}
-          </span>
+          <!-- Its hint, what the grayed button waits for, is NetworkStep's. -->
           <Button floating variant="brand" :disabled="!wifiCountry || !wizardState.wifiSsid" @click="nextStep">
             {{ t('setup.continue') }}
           </Button>
         </template>
 
         <template v-else-if="currentStep === 3">
-          <span v-if="!wizardState.audioId && !hardwareLoadFailed" class="text-mono-small setup-card__hint">
-            {{ t('setup.audio.continueHint') }}
-          </span>
+          <!-- Its hint, what the grayed button waits for, is AudioStep's. -->
           <Button floating variant="brand" :disabled="!wizardState.audioId" @click="nextStep">
             {{ t('setup.continue') }}
           </Button>
@@ -387,7 +382,7 @@ onUnmounted(() => {
   flex-direction: column;
   overflow-y: auto;
   min-height: 0;
-  padding: 0 var(--space-05) calc(48px + var(--space-03) + var(--space-05));
+  padding: 0 var(--space-05) var(--space-05);
 }
 
 /* Sticky gradient at top of scroll area */
@@ -429,20 +424,25 @@ onUnmounted(() => {
   gap: var(--space-03);
 }
 
-/* Footer: absolute positioned at bottom of card */
-.setup-card__hint {
-  display: block;
-  padding-bottom: var(--space-02);
-  color: var(--color-text-secondary);
-  text-align: center;
-}
+/* Footer: below the body, faded into it as the body is at its top */
 
 .setup-card__footer {
-  position: absolute;
-  bottom: calc(var(--space-03) + env(safe-area-inset-bottom, 0px));
-  left: calc(var(--space-03) + env(safe-area-inset-left, 0px));
-  right: calc(var(--space-03) + env(safe-area-inset-right, 0px));
+  position: relative;
+  flex-shrink: 0;
+  padding: 0 calc(var(--space-03) + env(safe-area-inset-right, 0px)) calc(var(--space-03) + env(safe-area-inset-bottom, 0px)) calc(var(--space-03) + env(safe-area-inset-left, 0px));
+  background: var(--color-surface-solid);
   z-index: 2;
+}
+
+.setup-card__footer::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: var(--space-06);
+  background: linear-gradient(to top, var(--color-surface-solid), transparent);
+  pointer-events: none;
 }
 
 .setup-card__footer .btn {
@@ -465,7 +465,7 @@ onUnmounted(() => {
   }
 
   .setup-card__body {
-    padding: 0 calc(var(--space-06) + env(safe-area-inset-right, 0px)) calc(48px + var(--space-06) + var(--space-05)) calc(var(--space-06) + env(safe-area-inset-left, 0px));
+    padding: 0 calc(var(--space-06) + env(safe-area-inset-right, 0px)) var(--space-05) calc(var(--space-06) + env(safe-area-inset-left, 0px));
   }
 
   .setup-card__header {
@@ -477,9 +477,7 @@ onUnmounted(() => {
   }
 
   .setup-card__footer {
-    left: calc(var(--space-06) + env(safe-area-inset-left, 0px));
-    right: calc(var(--space-06) + env(safe-area-inset-right, 0px));
-    bottom: var(--space-06);
+    padding: 0 calc(var(--space-06) + env(safe-area-inset-right, 0px)) var(--space-06) calc(var(--space-06) + env(safe-area-inset-left, 0px));
   }
 
   /* Force desktop button size in setup */
@@ -504,7 +502,7 @@ onUnmounted(() => {
 /* PWA standalone: button flush to bottom (white body fills safe area) */
 @media (max-aspect-ratio: 4/3) and (max-width: 1023px) and (display-mode: standalone) {
   .setup-card__footer {
-    bottom: 0;
+    padding-bottom: 0;
   }
 }
 </style>

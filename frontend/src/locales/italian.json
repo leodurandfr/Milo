@@ -159,6 +159,7 @@
     },
     "pending": {
       "title": "Nuovo Milō Client rilevato",
+      "enableToAdd": "Un Milō Client è in attesa: attivi il multiroom per aggiungerlo. | {count} Milō Client sono in attesa: attivi il multiroom per aggiungerli.",
       "notConfigured": "Scheda audio non configurata",
       "rebooting": "Riavvio…",
       "configureTitle": "Configura Milō Client",
@@ -180,7 +181,6 @@
       "useServerWifi": "Usa la rete del server ({ssid})",
       "changeNetwork": "Cambia",
       "enterCredentials": "Scelga la rete WiFi a cui questo altoparlante deve connettersi.",
-      "ethernetHint": "Via WiFi, la sua password WiFi raggiunge l'altoparlante attraverso una rete aperta: collegarlo con un cavo Ethernet è più sicuro.",
       "adopting": "Configurazione in corso…",
       "errorPush": "L'altoparlante non ha accettato la configurazione",
       "errors": {
@@ -604,12 +604,14 @@
     "otherNetworks": "Altre reti WiFi",
     "noNetworks": "Nessuna rete rilevata",
     "password": "Password",
+    "keyLength": "Una chiave WiFi è lunga da 8 a 63 caratteri.",
     "connect": "Connetti",
     "connecting": "Connessione in corso…",
     "connectFailed": "Connessione non riuscita",
     "save": "Salva",
     "saving": "Salvataggio in corso…",
     "saveFailed": "Impossibile salvare la rete",
+    "joiningOverAp": "Milō si sta collegando a {ssid}: il suo punto di accesso scompare per un momento. Se ricompare, la chiave non è stata accettata.",
     "forget": "Dimentica",
     "forgetConfirm": "Dimenticare questa rete?",
     "refresh": "Aggiorna",
@@ -954,7 +956,6 @@
     "wifi": {
       "title": "Configuri la rete",
       "continueHint": "Selezioni un paese e colleghi Milō a una rete per continuare.",
-      "ethernetHint": "Via WiFi, la sua password WiFi raggiunge Milō attraverso una rete aperta: un cavo Ethernet è più sicuro.",
       "joinFailed": "Milō non è riuscito a collegarsi a {ssid}. La selezioni qui sotto e digiti di nuovo la password."
     },
     "language": {

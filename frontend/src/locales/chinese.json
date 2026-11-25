@@ -159,6 +159,7 @@
     },
     "pending": {
       "title": "检测到新 Milō Client",
+      "enableToAdd": "有 {count} 台 Milō Client 正在等待：请启用多房间以添加。",
       "notConfigured": "声卡未配置",
       "rebooting": "正在重启…",
       "configureTitle": "配置 Milō Client",
@@ -180,7 +181,6 @@
       "useServerWifi": "使用服务器网络 ({ssid})",
       "changeNetwork": "更改",
       "enterCredentials": "请选择您希望此音箱加入的 WiFi 网络。",
-      "ethernetHint": "通过 WiFi 配置时，您的 WiFi 密码会经由开放网络传送到音箱：用以太网线连接音箱更安全。",
       "adopting": "配置中…",
       "errorPush": "音箱未接受该配置",
       "errors": {
@@ -604,12 +604,14 @@
     "otherNetworks": "其他 WiFi 网络",
     "noNetworks": "未检测到网络",
     "password": "密码",
+    "keyLength": "WiFi 密钥长度为 8 到 63 个字符。",
     "connect": "连接",
     "connecting": "正在连接…",
     "connectFailed": "连接失败",
     "save": "保存",
     "saving": "正在保存…",
     "saveFailed": "保存网络失败",
+    "joiningOverAp": "Milō 正在加入 {ssid}：其接入点会暂时消失。如果它重新出现，说明密钥未被接受。",
     "forget": "忘记",
     "forgetConfirm": "忘记此网络？",
     "refresh": "刷新",
@@ -954,7 +956,6 @@
     "wifi": {
       "title": "配置网络",
       "continueHint": "请选择国家并将 Milō 连接到网络后继续。",
-      "ethernetHint": "通过 WiFi 设置时，您的 WiFi 密码会经由开放网络传送到 Milō：使用以太网线更安全。",
       "joinFailed": "Milō 无法连接到 {ssid}。请在下方选择该网络，并重新输入其密码。"
     },
     "language": {

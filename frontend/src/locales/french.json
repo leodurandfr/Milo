@@ -159,6 +159,7 @@
     },
     "pending": {
       "title": "Nouveau Milō Client détecté",
+      "enableToAdd": "Un Milō Client attend : activez le multiroom pour l'ajouter. | {count} Milō Clients attendent : activez le multiroom pour les ajouter.",
       "notConfigured": "Carte audio non configurée",
       "rebooting": "Redémarrage…",
       "configureTitle": "Configurer le Milō Client",
@@ -180,7 +181,6 @@
       "useServerWifi": "Utiliser le réseau du serveur ({ssid})",
       "changeNetwork": "Changer",
       "enterCredentials": "Choisissez le réseau WiFi que cette enceinte doit rejoindre.",
-      "ethernetHint": "En WiFi, votre mot de passe WiFi parvient à l'enceinte par un réseau ouvert : la brancher avec un câble Ethernet est plus sûr.",
       "adopting": "Configuration en cours…",
       "errorPush": "L'enceinte n'a pas accepté la configuration",
       "errors": {
@@ -604,12 +604,14 @@
     "otherNetworks": "Autres réseaux WiFi",
     "noNetworks": "Aucun réseau détecté",
     "password": "Mot de passe",
+    "keyLength": "Une clé WiFi compte de 8 à 63 caractères.",
     "connect": "Se connecter",
     "connecting": "Connexion en cours…",
     "connectFailed": "Échec de la connexion",
     "save": "Enregistrer",
     "saving": "Enregistrement…",
     "saveFailed": "Échec de l'enregistrement du réseau",
+    "joiningOverAp": "Milō rejoint {ssid} : son point d'accès disparaît un instant. S'il réapparaît, la clé n'a pas été acceptée.",
     "forget": "Oublier",
     "forgetConfirm": "Oublier ce réseau ?",
     "refresh": "Actualiser",
@@ -954,7 +956,6 @@
     "wifi": {
       "title": "Configurez le réseau",
       "continueHint": "Sélectionnez un pays et connectez Milō à un réseau pour continuer.",
-      "ethernetHint": "En WiFi, votre mot de passe WiFi parvient à Milō par un réseau ouvert : un câble Ethernet est plus sûr.",
       "joinFailed": "Milō n'a pas pu rejoindre {ssid}. Sélectionnez-le ci-dessous et saisissez à nouveau son mot de passe."
     },
     "language": {

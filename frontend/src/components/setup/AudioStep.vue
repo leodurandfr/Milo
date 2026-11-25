@@ -1,6 +1,9 @@
 <!-- frontend/src/components/setup/AudioStep.vue -->
 <template>
   <div class="audio-step">
+    <!-- What the grayed Continue waits for, until a card is picked -->
+    <p v-if="!modelValue" class="text-body-small audio-step__hint">{{ t('setup.audio.continueHint') }}</p>
+
     <!-- Grouped audio cards by category -->
     <template v-for="group in groupedCards" :key="group.category">
       <span class="text-mono-medium audio-step__category">
@@ -127,12 +130,7 @@ const groupedCards = computed(() =>
   pointer-events: none;
 }
 
-/* Disabled toggle: no opacity, use muted track color instead */
-.audio-step__volume-control:disabled :deep(.toggle) {
-  opacity: 1;
-}
-
-.audio-step__volume-control:disabled :deep(.slider) {
-  background-color: var(--color-text-tertiary);
+.audio-step__hint {
+  color: var(--color-text-secondary);
 }
 </style>

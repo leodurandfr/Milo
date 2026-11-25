@@ -40,9 +40,11 @@
         <div v-if="selectedSsid === network.ssid" class="network-item__expand" @click.stop>
           <InputText v-if="network.security" v-model="password" type="password"
             :placeholder="t('network.password')" @submit="act(network)" />
+          <p v-if="network.security && password && !isWpaKey(password)"
+            class="text-body-small network-item__hint">{{ t('network.keyLength') }}</p>
           <template v-if="action">
             <Button variant="brand" :loading="connecting"
-              :disabled="connecting || (network.security && !password)"
+              :disabled="connecting || (network.security && !isWpaKey(password))"
               @click="act(network)">
               {{ connecting
                 ? (action === 'save' ? t('network.saving') : t('network.connecting'))
@@ -68,6 +70,7 @@ import { computed, onMounted, watch } from 'vue';
 import { useI18n, i18n } from '@/services/i18n';
 import { useNetwork } from '@/composables/useNetwork';
 import { LANGUAGE_TO_COUNTRY } from '@/constants/wifiCountries';
+import { isWpaKey } from '@/utils/wifiKey';
 import WifiSignal from '@/components/settings/categories/wifi/WifiSignal.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
@@ -91,6 +94,9 @@ const props = defineProps({
     default: null,
     validator: (v) => v === null || v === 'connect' || v === 'save',
   },
+  // With action 'save': the unit tries the network seconds after the save
+  // rather than at its next retry (backend NetworkService.save_network).
+  tryNow: { type: Boolean, default: false },
 });
 
 // `saved`: a network was saved here (its SSID), the key typed with it untried.
@@ -121,9 +127,11 @@ const visibleNetworks = computed(() =>
 );
 
 async function act(network) {
+  // Enter in the field reaches here past the disabled button.
+  if (network.security && !isWpaKey(password.value)) return;
   if (props.action === 'connect') {
     connectToNetwork(network, t);
-  } else if (props.action === 'save' && await saveNetwork(network, t)) {
+  } else if (props.action === 'save' && await saveNetwork(network, t, { tryNow: props.tryNow })) {
     emit('saved', network.ssid);
   }
 }
@@ -230,6 +238,10 @@ onMounted(async () => {
   flex-direction: column;
   gap: var(--space-03);
   padding-top: var(--space-02);
+}
+
+.network-item__hint {
+  color: var(--color-text-secondary);
 }
 
 /* Skeleton */

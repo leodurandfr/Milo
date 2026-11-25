@@ -90,6 +90,12 @@ STATION_RETRY_S = 300.0
 # unit over it is done well within that; a device that merely rejoined the open
 # AP and keeps polling it would otherwise keep the unit off its home network.
 STATION_RETRY_MAX_HOLDS = 2
+# A save over the AP that asks for a try now (Settings › Network, repairing a
+# unit whose home network changed) gets it this long after the save: time for
+# the answer to reach the phone before the AP it came through goes down. Holding
+# the try off for the phone, as the retry loop does, kept a repair waiting up to
+# (STATION_RETRY_MAX_HOLDS + 1) × STATION_RETRY_S with nothing on screen.
+STATION_TRY_AFTER_SAVE_S = 5.0
 
 # How often a restart that could not read whether NM kept the access point up
 # reads it again: quickly for a few tries, then slowly for as long as it takes.
@@ -439,7 +445,7 @@ class NetworkService:
             raise RuntimeError(f"Failed to set WiFi radio {state}: {stderr}")
         self.logger.info("WiFi radio set to %s", state)
 
-    async def save_network(self, ssid: str, password: Optional[str] = None) -> None:
+    async def save_network(self, ssid: str, password: Optional[str] = None, *, try_now: bool = False) -> None:
         """Save WiFi credentials without connecting.
 
         Creates a NM profile for the given SSID so NetworkManager will
@@ -450,6 +456,9 @@ class NetworkService:
         its next turn, ahead of the ones saved before it. The wizard that saves
         a network this way counts the unit as set up only once a link has come
         up (`api/setup.py`), so a mistyped key brings the wizard back on the AP.
+
+        `try_now` (Settings › Network over the AP) has that turn come
+        STATION_TRY_AFTER_SAVE_S after the save, whoever is on the AP.
         """
         async with self._connect_lock:
             # Saving a network is choosing the radio as much as connecting is:
@@ -469,6 +478,17 @@ class NetworkService:
             with contextlib.suppress(RuntimeError):
                 await self._delete_ssid_profiles(ssid, keep=uuid)
             self.logger.info("WiFi profile saved for '%s' (will connect on next boot)", ssid)
+            if try_now and self._hotspot_active:
+                self._bg.spawn(self._try_station_after_save(), label="station_try_after_save")
+
+    async def _try_station_after_save(self) -> None:
+        """The turn a save over the AP asked for: the network just saved goes
+        first (`_retry_station`), and the AP comes back at once if it fails."""
+        await asyncio.sleep(STATION_TRY_AFTER_SAVE_S)
+        try:
+            await self._retry_station()
+        except Exception as e:
+            self.logger.error("The network just saved could not be tried: %s", e)
 
     async def connect(self, ssid: str, password: Optional[str] = None) -> NetworkStatus:
         """Connect to a WiFi network, without ever losing the one that worked.

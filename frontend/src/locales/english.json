@@ -159,6 +159,7 @@
     },
     "pending": {
       "title": "New Milō Client detected",
+      "enableToAdd": "A Milō Client is waiting: enable multiroom to add it. | {count} Milō Clients are waiting: enable multiroom to add them.",
       "notConfigured": "Audio card not configured",
       "rebooting": "Rebooting…",
       "configureTitle": "Configure Milō Client",
@@ -180,7 +181,6 @@
       "useServerWifi": "Use the server's network ({ssid})",
       "changeNetwork": "Change",
       "enterCredentials": "Choose the WiFi network this speaker should join.",
-      "ethernetHint": "Over WiFi, your WiFi password reaches the speaker through an open network: connecting it with an Ethernet cable is safer.",
       "adopting": "Configuring…",
       "errorPush": "The speaker did not accept the configuration",
       "errors": {
@@ -604,12 +604,14 @@
     "otherNetworks": "Other WiFi networks",
     "noNetworks": "No networks detected",
     "password": "Password",
+    "keyLength": "A WiFi key is 8 to 63 characters long.",
     "connect": "Connect",
     "connecting": "Connecting…",
     "connectFailed": "Connection failed",
     "save": "Save",
     "saving": "Saving…",
     "saveFailed": "Failed to save network",
+    "joiningOverAp": "Milō is joining {ssid}: its access point goes away for a moment. If it comes back, the key was not accepted.",
     "forget": "Forget",
     "forgetConfirm": "Forget this network?",
     "refresh": "Refresh",
@@ -954,7 +956,6 @@
     "wifi": {
       "title": "Set up the network",
       "continueHint": "Select a country and connect Milō to a network to continue.",
-      "ethernetHint": "Over WiFi, your WiFi password reaches Milō through an open network: an Ethernet cable is safer.",
       "joinFailed": "Milō could not join {ssid}. Select it below and type its password again."
     },
     "language": {

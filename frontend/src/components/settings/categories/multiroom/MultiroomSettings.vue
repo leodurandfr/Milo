@@ -6,15 +6,15 @@
           <MessageContent :loading="isLoading" :loading-delay="0"
             :icon="isLoading ? null : 'multiroom'" :title="messageTitle" />
           <NoticeBox v-if="toggleRefusal !== null" :detail="toggleRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
+          <!-- A speaker presenting itself opens this modal (App.vue) whether
+               multiroom is on or not: off, this is what says why it opened. -->
+          <NoticeBox v-if="waitingSpeakers > 0" kind="warning">
+            {{ t('multiroom.pending.enableToAdd', { count: waitingSpeakers }) }}
+          </NoticeBox>
         </SectionStack>
         <!-- SETTINGS: Active and ready -->
         <SectionStack v-else key="settings">
           <NoticeBox v-if="toggleRefusal !== null" :detail="toggleRefusal">{{ t('settings.writeRefused') }}</NoticeBox>
-          <!-- A speaker that refuses this server's secret answers another
-               server (this one reflashed): the gesture that moves it. -->
-          <NoticeBox v-for="speaker in otherServerSpeakers" :key="speaker.macId" kind="warning">
-            {{ t('multiroom.otherServer.notice', { name: speaker.name }) }}
-          </NoticeBox>
           <!-- Discovered Speakers Section (pending ethernet + wifi hotspots) -->
           <SectionCard v-if="discoveryItems.length > 0">
             <template #header>
@@ -89,6 +89,13 @@
                 </div>
               </template>
             </div>
+
+            <!-- A speaker that refuses this server's secret answers another
+                 server (this one reflashed): the gesture that moves it, under
+                 the row that says "paired with another Milō". -->
+            <NoticeBox v-for="speaker in otherServerSpeakers" :key="speaker.macId" kind="warning">
+              {{ t('multiroom.otherServer.notice', { name: speaker.name }) }}
+            </NoticeBox>
           </SectionCard>
 
           <!-- No modes. The analysis is an action, not a state one sits in --
@@ -246,6 +253,12 @@ const showMessage = computed(() => {
   return multiroomClientStore.transitionState !== 'idle' || !isMultiroomActive.value;
 });
 const isLoading = computed(() => multiroomClientStore.transitionState === 'enabling');
+// Speakers waiting while multiroom is off, at rest (not while it starts).
+const waitingSpeakers = computed(() =>
+  multiroomClientStore.transitionState === 'idle' && !isMultiroomActive.value
+    ? multiroomClientStore.pendingClientList.length
+    : 0
+);
 const messageTitle = computed(() => {
   if (multiroomClientStore.transitionState === 'error') {
     return multiroomClientStore.transitionError || t('multiroom.error');

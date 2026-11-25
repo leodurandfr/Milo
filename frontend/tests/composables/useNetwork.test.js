@@ -125,9 +125,21 @@ describe('saveNetwork over the recovery access point', () => {
 
     await saveNetwork(network, t);
 
-    expect(apiCall.post.mock.calls[0][1]).toEqual({ ssid: 'Maison', password: 'correct horse' });
+    expect(apiCall.post.mock.calls[0][1]).toEqual({ ssid: 'Maison', password: 'correct horse', try_now: false });
     expect(status.value.wifi.saved_ssid).toBe('Maison');
     expect(connectError.value).toBe('');
+  });
+
+  it('asks for the try only when its caller does', async () => {
+    // Settings › Network repairs a set-up unit and wants the try now; the
+    // wizard saves, then goes on over the AP to its apply, and must not lose it.
+    const { saveNetwork, password } = useNetwork();
+    password.value = 'correct horse';
+    apiCall.post.mockResolvedValueOnce(ok({ status: 'success' }));
+
+    await saveNetwork(network, t, { tryNow: true });
+
+    expect(apiCall.post.mock.calls[0][1].try_now).toBe(true);
   });
 
   it('still says a refused save failed', async () => {

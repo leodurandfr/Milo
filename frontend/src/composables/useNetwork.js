@@ -236,11 +236,18 @@ export function useNetwork() {
 
   // What a client of the recovery access point sends: joining would take the
   // one radio from under it (backend/api/middleware.py::RecoveryAccessPointGuard).
-  async function saveNetwork(network, t) {
+  // `tryNow`: over the AP once the unit is set up (Settings › Network), the
+  // unit tries the network seconds after answering — the wizard saves, then
+  // goes on over the AP, and leaves it off.
+  async function saveNetwork(network, t, { tryNow = false } = {}) {
     connecting.value = true;
     connectError.value = '';
     connectDetail.value = null;
-    const payload = { ssid: network.ssid, password: network.security ? password.value : null };
+    const payload = {
+      ssid: network.ssid,
+      password: network.security ? password.value : null,
+      try_now: tryNow,
+    };
     const result = await apiCall.post('/api/network/wifi/save', payload, {
       category: 'network',
       message: 'WiFi save failed',

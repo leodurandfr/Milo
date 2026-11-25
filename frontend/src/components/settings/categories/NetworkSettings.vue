@@ -70,15 +70,17 @@
 
         <!-- Other networks: the one list, the wizard's. The preferred network
              is drawn above, with its Forget except over the recovery AP. There
-             the list saves rather than joins (the unit tries the network on its
-             next turn back to the home network), and keeps the preferred
-             network so its key can be typed again (useNetwork's
-             listExcludedSsid). -->
+             the list saves rather than joins, and the unit tries the network
+             seconds later, taking the AP down under this very page — which is
+             what the notice says. It keeps the preferred network so its key can
+             be typed again (useNetwork's listExcludedSsid). -->
         <div class="wifi-group">
           <span class="heading-3 wifi-group__title">{{ t('network.otherNetworks') }}</span>
           <NetworkSelector :show-country="false" :show-label="false"
             :exclude-ssid="listExcludedSsid"
-            :action="overRecoveryAp ? 'save' : 'connect'" />
+            :action="overRecoveryAp ? 'save' : 'connect'" :try-now="overRecoveryAp"
+            @saved="(ssid) => { triedOverAp = ssid; }" />
+          <NoticeBox v-if="triedOverAp" kind="warning">{{ t('network.joiningOverAp', { ssid: triedOverAp }) }}</NoticeBox>
         </div>
 
         <!-- WiFi country selector. Applies on change and rescans; no reboot.
@@ -136,6 +138,9 @@ const {
 // WiFi-only unit with no screen, the way back is an Ethernet cable. Kept as the
 // SSID it was armed for, so a status that moves to another network disarms it.
 const confirmForget = ref(null);
+
+// The network saved over the recovery AP, which the unit is about to try.
+const triedOverAp = ref(null);
 
 function handleForget(ssid) {
   if (confirmForget.value !== ssid) {

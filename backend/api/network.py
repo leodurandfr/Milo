@@ -19,7 +19,7 @@ from backend.api.responses import (
     WifiSavedEnvelope,
     WifiSignalEnvelope,
 )
-from backend.core.network.models import WifiConnectRequest, WifiRadioRequest, WifiCountryRequest
+from backend.core.network.models import WifiConnectRequest, WifiRadioRequest, WifiCountryRequest, WifiSaveRequest
 
 if TYPE_CHECKING:
     from backend.core.network.service import NetworkService
@@ -66,14 +66,14 @@ def create_network_router(network_service: "NetworkService"):
             return {"status": "success", "data": status.model_dump()}
 
     @router.post("/wifi/save", response_model=WifiSaveEnvelope)
-    async def save_network(request: WifiConnectRequest):
+    async def save_network(request: WifiSaveRequest):
         """Save WiFi credentials without connecting: what a client of the recovery
         access point sends, which taking the radio to connect would cut off. The
         setup wizard's write over it, and once the unit is set up, its one repair
         over it — admitted by `api/middleware.py::RecoveryAccessPointGuard`, which
         this route leaves the judging to."""
         async with api_error_handler("WiFi save", logger):
-            await network_service.save_network(request.ssid, request.password)
+            await network_service.save_network(request.ssid, request.password, try_now=request.try_now)
             return {"status": "success", "data": {"ssid": request.ssid}}
 
     @router.delete("/wifi/saved/{ssid:path}", response_model=StatusResponse)

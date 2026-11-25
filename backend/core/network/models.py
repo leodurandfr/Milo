@@ -59,10 +59,41 @@ class NetworkStatus(BaseModel):
         return self.ethernet.connected or self.wifi.connected
 
 
+def is_wpa_psk(key: str) -> bool:
+    """Whether NetworkManager takes `key` as a WPA-PSK: 8 to 63 characters, or
+    64 hexadecimal digits (the raw key). The one key type a station profile is
+    written with (`NetworkService._write_station_profile`); any other is refused
+    by nmcli as ``802-11-wireless-security.psk: property is invalid``, logged at
+    error and shown as a system fault for what was a typing mistake.
+    Mirrored by frontend/src/utils/wifiKey.js, which refuses it before sending."""
+    if len(key) == 64:
+        return all(c in "0123456789abcdefABCDEF" for c in key)
+    return 8 <= len(key) <= 63
+
+
 class WifiConnectRequest(BaseModel):
     """Request to connect to a WiFi network."""
     ssid: str = Field(..., min_length=1)
     password: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def must_be_a_wpa_key(cls, v: Optional[str]) -> Optional[str]:
+        if v and not is_wpa_psk(v):
+            raise ValueError("a WiFi key holds 8 to 63 characters, or 64 hexadecimal digits")
+        return v
+
+
+class WifiSaveRequest(WifiConnectRequest):
+    """Request to save a WiFi network without joining it."""
+    try_now: bool = Field(
+        default=False,
+        description="Over the recovery access point, try the network a few "
+                    "seconds after answering instead of at the next retry, "
+                    "which a client of the AP holds off for up to a quarter of "
+                    "an hour. The setup wizard leaves it off: it saves, then "
+                    "goes on over the AP to its apply and reboot.",
+    )
 
 
 class WifiRadioRequest(BaseModel):

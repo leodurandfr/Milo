@@ -159,6 +159,7 @@
     },
     "pending": {
       "title": "Neuer Milō Client erkannt",
+      "enableToAdd": "Ein Milō Client wartet: Aktivieren Sie Multiroom, um ihn hinzuzufügen. | {count} Milō Clients warten: Aktivieren Sie Multiroom, um sie hinzuzufügen.",
       "notConfigured": "Audiokarte nicht konfiguriert",
       "rebooting": "Neustart…",
       "configureTitle": "Milō Client konfigurieren",
@@ -180,7 +181,6 @@
       "useServerWifi": "Netzwerk des Servers verwenden ({ssid})",
       "changeNetwork": "Ändern",
       "enterCredentials": "Wählen Sie das WLAN, mit dem sich dieser Lautsprecher verbinden soll.",
-      "ethernetHint": "Per WLAN gelangt Ihr WLAN-Passwort über ein offenes Netzwerk zum Lautsprecher: Ihn per Ethernet-Kabel anzuschließen ist sicherer.",
       "adopting": "Konfiguration läuft…",
       "errorPush": "Der Lautsprecher hat die Konfiguration nicht akzeptiert",
       "errors": {
@@ -604,12 +604,14 @@
     "otherNetworks": "Andere WLAN-Netzwerke",
     "noNetworks": "Keine Netzwerke erkannt",
     "password": "Passwort",
+    "keyLength": "Ein WLAN-Schlüssel ist 8 bis 63 Zeichen lang.",
     "connect": "Verbinden",
     "connecting": "Verbindung wird hergestellt…",
     "connectFailed": "Verbindung fehlgeschlagen",
     "save": "Speichern",
     "saving": "Wird gespeichert…",
     "saveFailed": "Netzwerk konnte nicht gespeichert werden",
+    "joiningOverAp": "Milō verbindet sich mit {ssid}: Sein Zugangspunkt verschwindet kurz. Erscheint er wieder, wurde der Schlüssel nicht akzeptiert.",
     "forget": "Vergessen",
     "forgetConfirm": "Dieses Netzwerk vergessen?",
     "refresh": "Aktualisieren",
@@ -954,7 +956,6 @@
     "wifi": {
       "title": "Netzwerk einrichten",
       "continueHint": "Wählen Sie ein Land und verbinden Sie Milō mit einem Netzwerk, um fortzufahren.",
-      "ethernetHint": "Per WLAN gelangt Ihr WLAN-Passwort über ein offenes Netzwerk zu Milō: Ein Ethernet-Kabel ist sicherer.",
       "joinFailed": "Milō konnte sich nicht mit {ssid} verbinden. Wählen Sie es unten aus und geben Sie das Passwort erneut ein."
     },
     "language": {
