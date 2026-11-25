@@ -153,6 +153,15 @@ UPDATE_ATTEMPTS = 5
 # next runs — it reports the session, which is adopted and ended then.
 END_WATCH_S = 300.0
 
+# How often a cycle held for the wall clock looks again (`_clock_held`). Until
+# timesyncd's first synchronization every push would answer ClockNotSet — sent
+# nowhere, so neither a device's refusal nor a reason to spend a retry: counted
+# as one, an update was given up after its 5 spaced retries (150 s) while the
+# clock took ~240 s to set at a boot (measured 2026-11-25), and an `end` let its
+# tokens go without ever having been sent. Short, because the first cycle after
+# the clock is set is the one that brings the Lock Screen up to date.
+CLOCK_WAIT_S = 5.0
+
 # How late a scheduled re-check wakes past the deadline it serves. Those
 # deadlines are read on the wall clock (`time.time()`) while asyncio sleeps on
 # the monotonic one, and timesyncd slews and steps the first against the second
@@ -238,6 +247,8 @@ class PushService:
         # exists to avoid.
         self._session_lock = asyncio.Lock()
         self._bg = BackgroundTaskSet(logger, "push")
+        # A wake is pending for a cycle held until the clock is set.
+        self._clock_wake_armed = False
         self._session_id: Optional[str] = None
         self._session_started_at: float = 0.0
         self._session_renewed_at: float = 0.0
@@ -441,6 +452,8 @@ class PushService:
         """
         if not self._apns.available or self._state_machine is None:
             return
+        if await self._clock_held():
+            return
 
         state = self._state_machine.get_current_state()
         if state.get("switching"):
@@ -613,6 +626,30 @@ class PushService:
             except Exception as e:
                 logger.error(f"Push cycle failed: {e}", exc_info=True)
 
+    async def _clock_held(self) -> bool:
+        """Is every push held until the wall clock is set? Then a wake is armed.
+
+        Asked by both seams before anything else, so a cycle held here tries
+        nothing, counts nothing and decides nothing — no `start`, no `end`, no
+        refusal recorded against a device that was sent nothing. The cycle is
+        simply run again once the clock may be set (`CLOCK_WAIT_S`), and the
+        first one after it starts from the state as it is then.
+        """
+        if await self._apns.clock_synchronized():
+            return False
+        if not self._clock_wake_armed:
+            self._clock_wake_armed = True
+            self._bg.spawn(self._wake_for_the_clock(), label="clock-wait")
+        return True
+
+    async def _wake_for_the_clock(self) -> None:
+        """Stir the coalescer once `CLOCK_WAIT_S` has passed. See `_clock_held`."""
+        try:
+            await asyncio.sleep(CLOCK_WAIT_S)
+        finally:
+            self._clock_wake_armed = False
+        self._dirty.set()
+
     def _leaves_at(self) -> float:
         """When the next cycle may leave. See `_loop`."""
         at = self._quiet_since + MIN_PUSH_INTERVAL_S
@@ -620,6 +657,8 @@ class PushService:
 
     async def _publish(self) -> None:
         if not self._apns.available or self._state_machine is None:
+            return
+        if await self._clock_held():
             return
 
         state = self._through_a_skip(self._state_machine.get_current_state())
@@ -1087,7 +1126,7 @@ class PushService:
             due.append(target)
         if not due:
             return
-        delivered, dead = await self._deliver(due, payload, "nowplaying")
+        delivered, dead, reasons = await self._deliver(due, payload, "nowplaying")
         for token in delivered:
             taken[token] = card
         for token in (*delivered, *dead):
@@ -1108,7 +1147,8 @@ class PushService:
                     logger.warning(
                         f"Now Playing session {self._session_id}: update never "
                         f"taken by device {target.device_id} after "
-                        f"{UPDATE_ATTEMPTS} retries — left to the next cycle"
+                        f"{UPDATE_ATTEMPTS} retries ({reasons[target.token]}) "
+                        "— left to the next cycle"
                     )
                 continue
             if refused.armed:
@@ -1117,8 +1157,8 @@ class PushService:
             self._bg.spawn(self._retry_update_when_due(refused), label="update-retry")
             logger.warning(
                 f"Now Playing session {self._session_id}: update refused for "
-                f"device {target.device_id}, retrying in {UPDATE_RETRY_S:.0f}s "
-                f"(attempt {refused.count}/{UPDATE_ATTEMPTS})"
+                f"device {target.device_id} ({reasons[target.token]}), retrying "
+                f"in {UPDATE_RETRY_S:.0f}s (attempt {refused.count}/{UPDATE_ATTEMPTS})"
             )
 
     async def _retry_update_when_due(self, refused: _Refused) -> None:
@@ -1319,7 +1359,7 @@ class PushService:
             return
         ending.knock = False
 
-        delivered, dead = await self._deliver(
+        delivered, dead, reasons = await self._deliver(
             targets, now_playing_payload("end", session_id), "nowplaying"
         )
         for token in delivered:
@@ -1328,6 +1368,7 @@ class PushService:
         if not waiting:
             ending.refused = 0
             return
+        why = ", ".join(sorted({reasons[t.token] for t in waiting}))
 
         ending.refused += 1
         if ending.refused < END_ATTEMPTS:
@@ -1335,7 +1376,7 @@ class PushService:
             self._bg.spawn(self._wake_after(END_RETRY_S), label="end-retry")
             logger.warning(
                 f"Now Playing session {session_id}: end refused for "
-                f"{len(waiting)} device(s), retrying in {END_RETRY_S:.0f}s "
+                f"{len(waiting)} device(s) ({why}), retrying in {END_RETRY_S:.0f}s "
                 f"(attempt {ending.refused}/{END_ATTEMPTS})"
             )
             return
@@ -1344,7 +1385,7 @@ class PushService:
         ending.refused = 0
         logger.warning(
             f"Now Playing session {session_id}: end never taken by "
-            f"{len(waiting)} device(s) after {END_ATTEMPTS} attempts — let go"
+            f"{len(waiting)} device(s) after {END_ATTEMPTS} attempts ({why}) — let go"
         )
 
     async def _retry_endings(self, state: Dict[str, Any]) -> None:
@@ -1486,15 +1527,16 @@ class PushService:
     async def _send_all(self, targets, payload: Dict[str, Any], push_type: str,
                         priority: int = 10) -> bool:
         """Send to each target, purge the ones APNs called dead. True if any landed."""
-        delivered, _ = await self._deliver(targets, payload, push_type, priority)
+        delivered, _, _ = await self._deliver(targets, payload, push_type, priority)
         return bool(delivered)
 
     async def _deliver(self, targets, payload: Dict[str, Any], push_type: str,
-                       priority: int = 10) -> Tuple[List[str], List[str]]:
-        """`_send_all`, saying which tokens Apple took and which it called dead.
+                       priority: int = 10) -> Tuple[List[str], List[str], Dict[str, str]]:
+        """`_send_all`, saying which tokens Apple took, which it called dead,
+        and why it refused each of the rest.
 
-        The rest — refused for a reason that may pass — is what `_end_session`
-        sends again.
+        The rest — refused for a reason that may pass — is what `_send_end`
+        and `_send_changed` send again, naming the reason in their logs.
         """
         results = await asyncio.gather(*(
             self._apns.send(t, payload, push_type, priority=priority) for t in targets
@@ -1505,7 +1547,7 @@ class PushService:
             # which would otherwise leave a fraction of a second behind it.
             self._quiet_since = time.monotonic()
 
-        delivered, dead = [], []
+        delivered, dead, refused = [], [], {}
         for target, result in zip(targets, results):
             if result.ok:
                 delivered.append(target.token)
@@ -1513,6 +1555,11 @@ class PushService:
                 dead.append(target.token)
                 await self._registry.purge(
                     target.token, invalidated_at=result.invalidated_at
+                )
+            else:
+                refused[target.token] = (
+                    f"{result.status} {result.reason}".strip() if result.status
+                    else result.reason or "no answer"
                 )
 
         if push_type == "nowplaying" and delivered:
@@ -1524,7 +1571,7 @@ class PushService:
         # it say the opposite of what happened.
         if delivered:
             await self._registry.mark_pushed(delivered)
-        return delivered, dead
+        return delivered, dead, refused
 
     def _shown(self, payload: Dict[str, Any], delivered: List[str]) -> None:
         """Apple took this Now Playing push: it is what the card shows now.

@@ -77,6 +77,14 @@ DEAD_TOKEN_REASONS = {"Unregistered", "BadDeviceToken", "DeviceTokenNotForTopic"
 # each was purged on its first push for three days, at info, unseen.
 MISREGISTERED_TOKEN_REASONS = {"BadDeviceToken", "DeviceTokenNotForTopic"}
 
+# The refusals that say something about this unit rather than about one push:
+# a key Apple does not trust (revoked, or not of APNS_TEAM_ID's team) and a push
+# type it does not know. They hold until the owner changes something, and each
+# push meets them again — every cycle, and every retry the service spaces. Since
+# this logger sits under `backend`, an ERROR is a banner on every screen, so one
+# is written per episode and the episode ends at the next push Apple takes.
+DURABLE_REFUSALS = {"InvalidProviderToken", "InvalidPushType"}
+
 _KEY_FILENAME = re.compile(r"AuthKey_([A-Z0-9]{10})\.p8")
 
 
@@ -102,6 +110,9 @@ class ApnsClient:
         # Once set, the clock stays set for the boot: read until then only.
         self._clock_set: bool = False
         self._clock_wait_logged: bool = False
+        # The durable refusals already said, per push type: their episode.
+        # See DURABLE_REFUSALS.
+        self._refusals_said: set = set()
         self._key_pem: Optional[str] = None
         self._key_id: Optional[str] = None
         self._jwt: Optional[str] = None
@@ -179,7 +190,7 @@ class ApnsClient:
         if not self.available:
             return ApnsResult(ok=False, status=0, reason="NoSigningKey")
         # Not dead: a push refused here is one the caller may send again.
-        if not await self._clock_synchronized():
+        if not await self.clock_synchronized():
             return ApnsResult(ok=False, status=0, reason="ClockNotSet")
 
         client = await self._client_for(target.environment)
@@ -201,7 +212,7 @@ class ApnsClient:
             logger.warning(f"APNs unreachable ({type(e).__name__}): {e}")
             return ApnsResult(ok=False, status=0, reason="Unreachable")
 
-        result = self._interpret(response)
+        result = self._interpret(response, push_type)
         if result.reason in MISREGISTERED_TOKEN_REASONS:
             logger.warning(
                 f"APNs refused a {target.kind.value} token as registered "
@@ -211,15 +222,23 @@ class ApnsClient:
             )
         return result
 
-    def _interpret(self, response: httpx.Response) -> ApnsResult:
+    def _interpret(self, response: httpx.Response, push_type: str) -> ApnsResult:
         """Turn an APNs response into a verdict, and log what an operator needs.
 
         A 200 means Apple accepted the request for delivery. It does not mean
         the device displayed anything — a payload iOS cannot decode is dropped
         on the phone, silently, and looks exactly like this.
+
+        What reaches ERROR — a banner, this logger being under `backend` — is
+        what asks the owner to act, and a durable refusal says so once per
+        episode (DURABLE_REFUSALS). Apple's own trouble — a 429, a 5xx — is
+        what the service sends again, spaced: at warning, kept in errors.log,
+        a banner per retry for a fault no gesture here corrects.
         """
         apns_id = response.headers.get("apns-id", "")
         if response.status_code == 200:
+            # The key is trusted and this push type known: their episodes end.
+            self._refusals_said -= {("InvalidProviderToken", None), ("InvalidPushType", push_type)}
             return ApnsResult(ok=True, status=200, apns_id=apns_id)
 
         try:
@@ -238,16 +257,29 @@ class ApnsClient:
         dead = reason in DEAD_TOKEN_REASONS
         if dead and reason not in MISREGISTERED_TOKEN_REASONS:
             logger.info(f"APNs reports a token unusable ({reason}) — it will be purged")
-        elif reason == "InvalidProviderToken":
-            logger.error(
-                f"APNs refused the signing key {self._key_id}: it is not trusted for "
-                f"team {APNS_TEAM_ID}. Note this is checked BEFORE the push type, so "
-                f"it says nothing about the payload."
-            )
-        elif reason == "InvalidPushType":
-            logger.error(
-                "APNs does not know this push type. Measured accepted: widgets, "
-                "nowplaying, liveactivity."
+        elif reason in DURABLE_REFUSALS:
+            # The key is shared by every push type; a push type is its own.
+            episode = (reason, push_type if reason == "InvalidPushType" else None)
+            if episode in self._refusals_said:
+                logger.debug(f"APNs refused a {push_type} push again: {reason}")
+            elif reason == "InvalidProviderToken":
+                self._refusals_said.add(episode)
+                logger.error(
+                    f"APNs refused the signing key {self._key_id}: it is not trusted for "
+                    f"team {APNS_TEAM_ID}. Note this is checked BEFORE the push type, so "
+                    f"it says nothing about the payload. Said once, until a push is taken."
+                )
+            else:
+                self._refusals_said.add(episode)
+                logger.error(
+                    f"APNs does not know the push type {push_type!r}. Measured "
+                    "accepted: widgets, nowplaying, liveactivity. Said once, until "
+                    "a push of that type is taken."
+                )
+        elif response.status_code == 429 or response.status_code >= 500:
+            logger.warning(
+                f"APNs could not take a {push_type} push now: HTTP "
+                f"{response.status_code} {reason} — it is sent again, spaced"
             )
         else:
             logger.error(f"APNs refused a push: HTTP {response.status_code} {reason}")
@@ -258,12 +290,17 @@ class ApnsClient:
         )
 
     # =========================================================================
-    # PRIVATE
+    # CLOCK
     # =========================================================================
 
-    async def _clock_synchronized(self) -> bool:
+    async def clock_synchronized(self) -> bool:
         """Whether the wall clock a provider token is dated from has been set
-        (TIMESYNC_DIR). Said once at info while it has not."""
+        (TIMESYNC_DIR). Said once at info while it has not.
+
+        Public because a push held here is not a refusal: PushService asks
+        first, and while the clock is unset it tries nothing and counts
+        nothing (`PushService._clock_held`). `send` still answers ClockNotSet
+        to a caller that did not ask."""
         if self._clock_set:
             return True
         directory = self.timesync_dir
@@ -279,6 +316,10 @@ class ApnsClient:
             self._clock_wait_logged = True
             logger.info("Pushes held until the wall clock is synchronized (a token dated before would be expired)")
         return synchronized
+
+    # =========================================================================
+    # PRIVATE
+    # =========================================================================
 
     async def _provider_token(self) -> str:
         """The cached ES256 JWT, reminted only when it is close to expiring.

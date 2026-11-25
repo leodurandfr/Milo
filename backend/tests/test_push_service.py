@@ -149,6 +149,7 @@ def registry():
 def apns():
     client = MagicMock()
     client.available = True
+    client.clock_synchronized = AsyncMock(return_value=True)
     client.send = AsyncMock(return_value=ApnsResult(ok=True, status=200))
     return client
 
@@ -549,6 +550,21 @@ class TestSessionLifecycle:
         await service.cleanup()
 
         assert reached_by_its_wake == [["sess-ipad"]] * (UPDATE_ATTEMPTS + 2)
+
+    async def test_a_refusal_is_logged_with_the_reason_apple_gave(
+        self, service, registry, apns, caplog
+    ):
+        """"Refused" alone reads the same for Apple's throttle, its outage and
+        a push this side never sent: the line names what came back."""
+        refusing = await self._two_devices_on_one_session(service, registry, apns)
+        refusing["ipad"] = True
+
+        with caplog.at_level("WARNING", logger="backend.core.push.service"):
+            await service._publish()
+        await service.cleanup()
+
+        refusals = [r.getMessage() for r in caplog.records if "refused" in r.getMessage()]
+        assert refusals and all("429 TooManyRequests" in m for m in refusals)
 
     async def test_a_dead_device_arms_no_retry(self, service, registry, apns, caplog):
         """A token Apple calls dead is purged, not refused: arming a wake for
@@ -3111,3 +3127,105 @@ class TestTheDeviceList:
         )
 
         assert [d.id for d in await service._devices()] == ["kitchen"]
+
+
+class TestAWallClockNotSetYet:
+    """A Pi has no battery clock: until timesyncd's first synchronization,
+    measured at ~240 s after a boot, the real ApnsClient answers every send
+    ClockNotSet and sends nothing. That is not a device refusing a card.
+    Counted as one, the update was given up after its retries (150 s) while
+    the clock was still unset, and the Lock Screen kept the previous track
+    until the next one; an `end` let its tokens go without ever being sent,
+    and the card stayed up. The mock below is Apple behind that client."""
+
+    @staticmethod
+    def _behind_an_unset_clock(service, registry, apns, monkeypatch):
+        """The client as it answers before the clock is set, the service's
+        waits scaled down so the unset spell outlasts every retry budget.
+        Returns the clock switch and what reached Apple, in order, with each
+        unregistration among them."""
+        monkeypatch.setattr("backend.core.push.service.MIN_PUSH_INTERVAL_S", 0.01)
+        monkeypatch.setattr("backend.core.push.service.UPDATE_RETRY_S", 0.02)
+        monkeypatch.setattr("backend.core.push.service.END_RETRY_S", 0.02)
+        monkeypatch.setattr("backend.core.push.service.WAKE_MARGIN_S", 0.001)
+        monkeypatch.setattr("backend.core.push.service.CLOCK_WAIT_S", 0.01)
+        clock = {"set": False}
+        world = {"held": [], "events": []}
+
+        async def synchronized():
+            return clock["set"]
+
+        async def send(target, payload, push_type, **kwargs):
+            if not clock["set"]:
+                world["held"].append(target.token)
+                return ApnsResult(ok=False, status=0, reason="ClockNotSet")
+            world["events"].append(("sent", target.token, payload["aps"].get("event")))
+            return ApnsResult(ok=True, status=200)
+
+        apns.clock_synchronized = AsyncMock(side_effect=synchronized)
+        apns.send.side_effect = send
+        unregister = registry.unregister
+
+        async def unregistering(token):
+            world["events"].append(("unregistered", token))
+            return await unregister(token)
+
+        registry.unregister = unregistering
+        return clock, world
+
+    @staticmethod
+    async def _until(condition, deadline=3.0):
+        """Poll for `condition`; a slow machine makes this slower, never wrong."""
+        waited = 0.0
+        while not condition() and waited < deadline:
+            await asyncio.sleep(0.01)
+            waited += 0.01
+
+    async def test_an_update_waits_for_the_clock_and_then_goes(
+        self, service, registry, apns, monkeypatch, caplog
+    ):
+        """The app opened its session while the clock was unset: nothing is
+        tried, nothing is counted, and the update goes on the first cycle the
+        clock allows — with nothing else on the bus."""
+        clock, world = self._behind_an_unset_clock(service, registry, apns, monkeypatch)
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="APP-2")
+
+        with caplog.at_level("INFO", logger="backend.core.push.service"):
+            await service.initialize()
+            service.on_event(a_state_event())
+            await service.align_session_to_playback("phone-1")
+            await asyncio.sleep(0.3)          # ~15 retry spacings, unset throughout
+            clock["set"] = True
+            await self._until(lambda: world["events"])
+            await service.cleanup()
+
+        assert world["held"] == [], "a push was tried before the clock was set"
+        assert ("sent", "sess", "update") in world["events"]
+        assert not [r for r in caplog.records
+                    if "refused" in r.getMessage() or "never taken" in r.getMessage()]
+
+    async def test_an_end_waits_for_the_clock_and_is_sent_before_its_token_goes(
+        self, service, registry, apns, monkeypatch
+    ):
+        """The source is left while the clock is unset: the `end` goes once
+        the clock is set, and its token is let go only after Apple took it."""
+        clock, world = self._behind_an_unset_clock(service, registry, apns, monkeypatch)
+        registry.held["pts"] = tok(PushTokenKind.PUSH_TO_START, "pts")
+        registry.held["sess"] = tok(PushTokenKind.SESSION, "sess", session_id="APP-2")
+
+        await service.initialize()
+        service.on_event(a_state_event())
+        await asyncio.sleep(0.05)
+        service.machine.get_current_state.return_value = dict(STOPPED)
+        service.on_event(a_state_event())
+        await asyncio.sleep(0.3)              # past END_ATTEMPTS spacings, unset throughout
+        clock["set"] = True
+        await self._until(lambda: ("unregistered", "sess") in world["events"])
+        await service.cleanup()
+
+        assert world["held"] == [], "a push was tried before the clock was set"
+        assert ("sent", "sess", "end") in world["events"]
+        assert world["events"].index(("sent", "sess", "end")) < world["events"].index(
+            ("unregistered", "sess")
+        )

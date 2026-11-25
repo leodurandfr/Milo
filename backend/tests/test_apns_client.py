@@ -17,7 +17,8 @@ import pytest
 
 from backend.core.push import apns_client
 from backend.core.push.apns_client import (
-    ApnsClient, DEAD_TOKEN_REASONS, JWT_LIFETIME_S, MISREGISTERED_TOKEN_REASONS,
+    ApnsClient, DEAD_TOKEN_REASONS, DURABLE_REFUSALS, JWT_LIFETIME_S,
+    MISREGISTERED_TOKEN_REASONS,
 )
 from backend.core.push.models import ApnsEnvironment, PushToken, PushTokenKind
 
@@ -286,4 +287,56 @@ class TestClockNotSet:
         went = await client.send(token(), {"aps": {}}, "widgets")
 
         assert went.ok is True and len(sent) == 1
+
+
+def banners(caplog):
+    """The records the banner would show: ERROR and above under `backend`,
+    which is where main.py hangs the WebSocketLogHandler."""
+    return [r for r in caplog.records
+            if r.levelno >= 40 and (r.name == "backend" or r.name.startswith("backend."))]
+
+
+class TestWhatReachesTheBanner:
+    """This logger sits under `backend`, so every ERROR is a red banner on the
+    kiosk and in every browser. A refusal that holds until the owner acts is
+    said once; Apple's passing trouble, which the service sends again spaced,
+    is never one."""
+
+    @pytest.mark.parametrize("reason", sorted(DURABLE_REFUSALS))
+    async def test_a_durable_refusal_is_one_banner_per_episode(self, client, caplog, reason):
+        """A revoked key answered every push, and each of its five spaced
+        retries, with the same banner. Said once; a push Apple takes ends the
+        episode, and the next refusal is news again."""
+        answer = {"status": 403, "json": {"reason": reason}}
+        stub_transport(client, lambda r: httpx.Response(answer["status"], json=answer["json"]))
+
+        with caplog.at_level("DEBUG", logger="backend"):
+            for _ in range(6):
+                await client.send(token(), {}, "nowplaying")
+            assert len(banners(caplog)) == 1
+
+            answer.update(status=200, json={})
+            await client.send(token(), {}, "nowplaying")
+            answer.update(status=403, json={"reason": reason})
+            await client.send(token(), {}, "nowplaying")
+
+        assert len(banners(caplog)) == 2
+
+    @pytest.mark.parametrize("status, reason", [
+        (429, "TooManyRequests"), (500, "InternalServerError"), (503, "ServiceUnavailable"),
+    ])
+    async def test_apples_passing_trouble_raises_no_banner(self, client, caplog, status, reason):
+        """The service sends these again every 30 s: a banner per retry for a
+        fault no gesture on this unit corrects. Kept at warning, so errors.log
+        still has them, with what Apple said."""
+        stub_transport(client, lambda r: httpx.Response(status, json={"reason": reason}))
+
+        with caplog.at_level("DEBUG", logger="backend"):
+            for _ in range(3):
+                result = await client.send(token(), {}, "nowplaying")
+
+        assert result.ok is False and result.dead is False
+        assert banners(caplog) == []
+        warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 3 and all(f"{status} {reason}" in m for m in warnings)
 

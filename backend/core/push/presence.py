@@ -39,8 +39,9 @@ DISCARD_PORT = 9
 GONE = frozenset({"FAILED", "INCOMPLETE"})
 HERE = frozenset({"REACHABLE", "PERMANENT", "NOARP"})
 
-# Tailscale and other carrier-grade NAT addresses are not on this LAN: the
-# phone reaching Milō through one says nothing about its Wi-Fi.
+# Carrier-grade NAT addresses (RFC 6598, 100.64.0.0/10), what a VPN overlay
+# hands out, are not on this LAN: the phone reaching Milō through one says
+# nothing about its Wi-Fi.
 _NOT_LAN = (ipaddress.ip_network("100.64.0.0/10"),)
 
 

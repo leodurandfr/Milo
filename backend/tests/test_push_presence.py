@@ -46,7 +46,7 @@ class TestLanAddress:
         ("::ffff:192.168.1.179", "192.168.1.179"),
         ("10.0.0.4", "10.0.0.4"),
         ("127.0.0.1", None),            # nginx itself
-        ("100.64.0.7", None),          # Tailscale: says nothing of the Wi-Fi
+        ("100.64.0.7", None),          # carrier-grade NAT: says nothing of the Wi-Fi
         ("8.8.8.8", None),
         ("169.254.1.2", None),
         ("testclient", None),
