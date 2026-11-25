@@ -116,6 +116,38 @@ async def api_error_handler(context: str, log=None):
         raise HTTPException(status_code=500, detail=reason)
 
 
+# When a refused write is taken, by default (`refused_detail`).
+WHEN_DSP_IS_BACK = "when its DSP is back"
+
+
+def refused_detail(what: str, speaker: str, applies: str = WHEN_DSP_IS_BACK) -> str:
+    """The 502's detail for a write a speaker refused after the server kept it.
+
+    One spelling for every route whose write is stored before it is sent — a
+    level, a mute, an equalizer edit, a zone's crossover — so a client reads
+    one sentence for one situation: nothing is wrong with the request, the
+    speaker said no, and the value it was asked for is the one it takes later.
+    ``applies`` says when, and must be what the system does: by default when
+    its DSP is back (a satellite caches a level and is resent its EQ record;
+    the local unit is re-applied from the store). The crossover says
+    otherwise, since a satellite that refused it is sent it again only when it
+    reconnects.
+    """
+    return f"{what} recorded but not applied: {speaker} refused it, and applies it {applies}"
+
+
+def is_satellite_refusal(error: BaseException) -> bool:
+    """A satellite that answered and refused, as opposed to one nothing reached.
+
+    A satellite says "refused" with a 4xx (milo-client's ``_refused`` answers
+    400 when its CamillaDSP did not take the command) — the reading
+    EqualizerController makes too. Passed through as-is, that 400 told the
+    caller its own request was invalid. An unreachable satellite (503) and a
+    proxy fault (500) are not refusals.
+    """
+    return isinstance(error, SatelliteUnreachable) and 400 <= error.status_code < 500
+
+
 def raise_on_error_status(result: dict, context: str, log=None) -> dict:
     """A controller answer whose ``status`` is ``"error"``, raised as HTTP 500.
 

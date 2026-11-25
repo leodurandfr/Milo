@@ -602,7 +602,8 @@ class VolumeService:
         The stored value keeps what was asked either way: the reconnect
         replays both the stored mute and the stored volume, and a satellite that
         refused has cached it for its own reconnect. The refusal itself is
-        logged once by EqualizerController, so nothing is logged here.
+        logged by EqualizerController — every request a route answers for
+        (`report=True`), so nothing is logged here or in the route.
         """
         if applied or not self._client_registry:
             return False
@@ -618,7 +619,7 @@ class VolumeService:
         the satellite's own cache does, and the reconnect applies it.
         """
         await self._state_store.set_client_volume(client_id, volume_db)
-        applied = await self._equalizer_controller.set_equalizer_volume(client_id, volume_db)
+        applied = await self._equalizer_controller.set_equalizer_volume(client_id, volume_db, report=True)
         refused = self._refused(client_id, applied)
 
         if broadcast:
@@ -632,7 +633,7 @@ class VolumeService:
         Stored, then sent, like a level; the store keeps the mute asked for.
         """
         await self._state_store.set_client_mute(client_id, mute)
-        applied = await self._equalizer_controller.set_equalizer_mute(client_id, mute)
+        applied = await self._equalizer_controller.set_equalizer_mute(client_id, mute, report=True)
         refused = self._refused(client_id, applied)
 
         if broadcast:
@@ -662,7 +663,7 @@ class VolumeService:
         for mac_id in members:
             await self._state_store.set_client_mute(mac_id, mute)
             if mac_id in reachable:
-                answers[mac_id] = self._equalizer_controller.submit_mute(mac_id, mute)
+                answers[mac_id] = self._equalizer_controller.submit_mute(mac_id, mute, report=True)
         refused = [
             mac_id for mac_id, answer in answers.items()
             if self._refused(mac_id, await answer)

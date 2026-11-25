@@ -278,8 +278,9 @@ class CrossoverService:
         )
 
         # Apply the updated crossover filters to all zone clients. Its verdict is
-        # this method's: the route raises a 500 on False, and the pin above stays
-        # persisted either way — it is what the reconnection sync replays.
+        # this method's: the route answers 502 on False (api/equalizer.py::
+        # _not_applied), and the pin above stays persisted either way — it is
+        # what the reconnection sync replays.
         return await self.apply_zone_crossover(zone_id)
 
     @handle_errors(default=False)

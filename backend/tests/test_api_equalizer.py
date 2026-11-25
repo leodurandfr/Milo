@@ -10,20 +10,33 @@ family and the /zone/{id}/* family. Every read/write now flows through one gramm
 that the route resolves to (target_type, target_id) and dispatches to the access
 layer (MultiroomEqualizerService).
 """
+import inspect
 import logging
 from types import SimpleNamespace
 from unittest.mock import Mock, AsyncMock
 
+import aiohttp
 import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from backend.api.equalizer import create_equalizer_router
-from backend.core.equalizer.client_proxy import SatelliteUnreachable
+from backend.api.models import (
+    EqualizerCompressorRequest,
+    EqualizerEnabledRequest,
+    EqualizerFilterUpdateRequest,
+    EqualizerLoudnessRequest,
+    EqualizerPresetRequest,
+    ZoneCrossoverRequest,
+)
+from backend.config.constants import CLIENT_API_PORT
+from backend.core.equalizer.client_proxy import EqualizerClientProxyService, SatelliteUnreachable
 from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
 from backend.core.models.ws_events import EqualizerZoneEnabledChanged
 from backend.core.multiroom.client_registry import ClientRegistryService
+from backend.core.multiroom.crossover import CrossoverService
 from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.multiroom.models import (
     EqualizerSettings,
@@ -606,7 +619,7 @@ class TestUnknownTargetsAreNamedNotSwallowed:
 
         assert response.status_code == 400
 
-    def test_a_crossover_the_service_refuses_is_a_500_not_a_silent_success(
+    def test_a_crossover_the_service_refuses_is_a_502_not_a_silent_success(
         self, client, mock_crossover
     ):
         """The frequency is pushed into every zone member's CamillaDSP; a
@@ -617,7 +630,7 @@ class TestUnknownTargetsAreNamedNotSwallowed:
 
         response = client.put("/api/equalizer/target/zone:7/crossover", json={"frequency": 120})
 
-        assert response.status_code == 500
+        assert response.status_code == 502
 
 
 class TestACallerMistakeRaisesNoBanner:
@@ -645,6 +658,7 @@ class TestACallerMistakeRaisesNoBanner:
         ("put", "/target/zone:nope/mono", {"enabled": True}, 404),
         ("put", "/target/zone:nope/enabled", {"enabled": True}, 404),
         ("put", f"/target/{UNKNOWN_MAC}/crossover", {"frequency": 120}, 400),
+        ("put", "/target/zone:nope/crossover", {"frequency": 120}, 404),
         ("post", "/target/zone:nope/preset", {"preset_id": "rock"}, 404),
         ("post", "/target/local/preset", {"preset_id": "nope"}, 404),
         ("post", "/target/zone:nope/save-custom", None, 404),
@@ -705,7 +719,7 @@ class TestACallerMistakeRaisesNoBanner:
         ), "the refusal leaves no trace in errors.log"
 
     @pytest.mark.parametrize("verb,path,body,status", [
-        ("put", "/target/zone:7/crossover", {"frequency": 120}, 500),
+        ("put", "/target/zone:7/crossover", {"frequency": 120}, 502),
         ("post", "/target/zone:7/preset", {"preset_id": "rock"}, 502),
     ])
     def test_a_refusal_the_server_could_not_carry_out_still_logs_an_error(
@@ -951,3 +965,208 @@ class TestAZoneStateIsItsRecordsMembers:
 
         assert response.status_code == 200
         assert (response.json()["state"], response.json()["available"]) == ("disconnected", False)
+
+
+class _RefusingSatelliteHttp:
+    """Stands in for `aiohttp.ClientSession`: every satellite answers `status`,
+    400 until a test says otherwise.
+
+    That 400 is how a satellite says "refused" (milo-client's
+    routes/equalizer.py::_refused), what it answers while its CamillaDSP is
+    stopped. Callable, so every session the proxy opens is this one.
+    """
+
+    class _Answer:
+        def __init__(self, status):
+            self.status = status
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def json(self):
+            return {"detail": "Failed"} if self.status != 200 else {"status": "success"}
+
+    def __init__(self):
+        self.calls = []
+        self.status = 400
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+    def _record(self, method, url, kwargs):
+        self.calls.append((method, url))
+        return self._Answer(self.status)
+
+    def get(self, url, **kwargs):
+        return self._record("GET", url, kwargs)
+
+    def put(self, url, **kwargs):
+        return self._record("PUT", url, kwargs)
+
+    def post(self, url, **kwargs):
+        return self._record("POST", url, kwargs)
+
+    async def close(self):
+        pass
+
+
+def _write_routes():
+    """Every write of the router, read off the router itself: a route added
+    later is held to the same answer without anyone listing it here."""
+    router = create_equalizer_router(camilladsp_service=Mock())
+    return [
+        route for route in router.routes
+        if route.path.startswith("/api/equalizer/target/{target}/")
+        and route.methods & {"PUT", "POST"}
+    ]
+
+
+def _body_model(route):
+    """The request model a route's endpoint takes, or None for a bodiless write."""
+    models = [
+        parameter.annotation
+        for parameter in inspect.signature(route.endpoint).parameters.values()
+        if isinstance(parameter.annotation, type) and issubclass(parameter.annotation, BaseModel)
+    ]
+    return models[0] if models else None
+
+
+WRITE_ROUTES = _write_routes()
+
+# One valid body per request model. A write whose model is missing here fails
+# below on a KeyError rather than being left out.
+BODIES = {
+    None: None,
+    EqualizerFilterUpdateRequest: {"gain": 3.0},
+    EqualizerCompressorRequest: {"enabled": True, "threshold": -25.0},
+    EqualizerLoudnessRequest: {"enabled": True},
+    EqualizerEnabledRequest: {"enabled": True},
+    ZoneCrossoverRequest: {"frequency": 120},
+    EqualizerPresetRequest: {"preset_id": "rock"},
+}
+
+
+class TestASatelliteRefusalAnswersLikeTheVolume:
+    """A satellite that answered and refused an equalizer write (its CamillaDSP
+    stopped) answers 502 and says the edit is recorded, as PATCH volume and
+    mute do.
+
+    What breaks when these fail: the satellite's own 400 crossed to the
+    caller as "Client error: 400" — an invalid request, for an edit the server
+    had stored, announced and armed to resend — while the volume of the same
+    speaker answered 502; or a bool write (enabled, preset, save-custom,
+    crossover) said "not applied" with no word of the edit being kept, and the
+    crossover answered 500. Consumer: the web EQ screen, which shows the
+    detail. The registry, the access layer, the router, the crossover
+    service and the proxy are real; the outside world is the satellite's HTTP.
+    """
+
+    LOCAL_MAC = "2c:cf:67:a0:00:01"
+    BUREAU, BUREAU_IP = "dc:a6:32:00:00:0b", "192.168.1.60"
+    CANAPE_IP = "192.168.1.61"
+    CHAMBRE, CHAMBRE_IP = "dc:a6:32:00:00:0c", "192.168.1.62"
+
+    def test_the_writes_are_read_off_the_router(self):
+        """The extractor below is what makes the next test cover every write: an
+        empty or partial read would leave it passing on nothing."""
+        suffixes = {route.path.rsplit("/", 1)[-1] for route in WRITE_ROUTES}
+        assert {"{filter_id}", "compressor", "loudness", "mono", "enabled", "preset",
+                "save-custom", "crossover"} <= suffixes
+
+    @pytest.fixture
+    async def world(self, monkeypatch):
+        satellite = _RefusingSatelliteHttp()
+        monkeypatch.setattr(aiohttp, "ClientSession", satellite)
+        registry = await _registry_world(
+            members_of_zone=[REMOTE_MAC, self.CHAMBRE],
+            local_mac=self.LOCAL_MAC,
+            satellites={
+                self.BUREAU: self.BUREAU_IP,
+                REMOTE_MAC: self.CANAPE_IP,
+                self.CHAMBRE: self.CHAMBRE_IP,
+            },
+        )
+        camilladsp = Mock()
+        camilladsp.connected = True
+        camilladsp.get_equalizer_settings = Mock(side_effect=EqualizerSettings.default)
+        camilladsp.get_status = AsyncMock(return_value={"available": True, "state": "running"})
+        proxy = EqualizerClientProxyService()
+        router = EqualizerRouter(registry, camilladsp, proxy)
+        router.set_local_mac_source(lambda: self.LOCAL_MAC)
+        state_machine = Mock()
+        state_machine.broadcast = AsyncMock()
+        service = MultiroomEqualizerService(
+            client_registry_service=registry,
+            camilladsp_service=camilladsp,
+            proxy_service=proxy,
+            equalizer_router=router,
+            state_machine=state_machine,
+        )
+        crossover = CrossoverService(proxy_service=proxy)
+        crossover.set_registry(registry)
+        app = FastAPI()
+        app.include_router(create_equalizer_router(
+            camilladsp_service=camilladsp,
+            crossover_service=crossover,
+            client_registry_service=registry,
+            equalizer_router_service=router,
+            multiroom_equalizer_service=service,
+        ))
+        yield SimpleNamespace(app=app, satellite=satellite, registry=registry, crossover=crossover)
+        await service.cleanup()
+        await crossover.cleanup()
+
+    @pytest.mark.parametrize("route", WRITE_ROUTES, ids=lambda r: f"{sorted(r.methods)[0]} {r.path}")
+    async def test_every_write_a_satellite_refuses_answers_502_recorded(self, world, route):
+        # The crossover is the one write a client does not have (a zone's split).
+        targets = ("zone:salon",) if route.path.endswith("/crossover") else (self.BUREAU, "zone:salon")
+        body = BODIES[_body_model(route)]
+        transport = httpx.ASGITransport(app=world.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            for target in targets:
+                world.satellite.calls.clear()
+                path = route.path.format(target=target, filter_id="eq_band_00")
+                method = sorted(route.methods)[0]
+                response = await http.request(
+                    method, path, **({} if body is None else {"json": body})
+                )
+
+                assert world.satellite.calls, f"{method} {path} never reached the satellite"
+                assert response.status_code == 502, (target, response.text)
+                assert "recorded but not applied" in response.json()["detail"], target
+
+    async def test_a_refused_crossover_promises_only_what_the_satellite_gets(self, world):
+        """A crossover a satellite refused while online is not resent: it is
+        queued for the satellite's next connection, and the 502 says so.
+
+        What breaks when this fails: the detail said the split "applies when
+        its DSP is back", as an EQ record's does — but an EQ record is resent
+        until it is taken, and a split is not. A satellite whose CamillaDSP
+        came back under a snapclient that stayed connected played full range
+        under the subwoofer, while the screen had said it would follow.
+        """
+        transport = httpx.ASGITransport(app=world.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            response = await http.put(
+                "/api/equalizer/target/zone:salon/crossover", json={"frequency": 120}
+            )
+
+        assert response.status_code == 502, response.text
+        detail = response.json()["detail"]
+        assert "recorded but not applied" in detail
+        assert "at its next reconnection" in detail
+        assert "when its DSP is back" not in detail
+        assert world.crossover.has_pending_settings(REMOTE_MAC)
+
+        # Its DSP is back; the split reaches it when it next connects.
+        world.satellite.status = 200
+        world.satellite.calls.clear()
+        await world.registry.set_client_online(REMOTE_MAC, False)
+        await world.registry.set_client_online(REMOTE_MAC, True)
+
+        assert ("PUT", f"http://{self.CANAPE_IP}:{CLIENT_API_PORT}/equalizer/crossover") in world.satellite.calls, \
+            world.satellite.calls
+        assert not world.crossover.has_pending_settings(REMOTE_MAC)

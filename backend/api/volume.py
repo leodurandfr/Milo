@@ -12,7 +12,7 @@ import logging
 from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException
 
-from backend.api.route_helpers import CONTRACTED, api_error_handler
+from backend.api.route_helpers import CONTRACTED, api_error_handler, refused_detail
 from backend.api.models import (
     VolumeAdjustRequest,
     VolumeSetRequest,
@@ -237,13 +237,13 @@ def create_volume_router(
                 raise HTTPException(status_code=404, detail=str(e))
 
             if not ok:
-                logger.error(f"Zone {zone_id}: the local speaker did not take the move")
+                # Already said, so the route adds no line: EqualizerController
+                # names the local speaker once per spell (its DSP's reconnect
+                # ends it), and VolumeService._move says "LOCAL server volume
+                # update failed" on every refused move — the one report in
+                # direct mode, where the registry holds no local client online.
                 raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Volume recorded but not applied: the local speaker refused it, "
-                        "and applies it when its DSP is back"
-                    ),
+                    status_code=502, detail=refused_detail("Volume", "the local speaker")
                 )
 
             applied_to = []
@@ -281,13 +281,10 @@ def create_volume_router(
                 raise HTTPException(status_code=404, detail=str(e))
 
             if refused:
-                logger.error(f"Zone {zone_id}: {', '.join(refused)} did not take mute={request.mute}")
+                # EqualizerController has said which members refused, one line
+                # each for this request (`report=True`).
                 raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        f"Mute recorded but not applied: {', '.join(refused)} refused it, "
-                        "and applies it when its DSP is back"
-                    ),
+                    status_code=502, detail=refused_detail("Mute", ", ".join(refused))
                 )
 
             return {"status": "success", "zone_id": zone_id, "mute": request.mute}
@@ -368,13 +365,10 @@ def create_volume_router(
                 )
 
             if not await volume_service.update_client_volume_db(mac_id, volume_db):
-                logger.error(f"Client {mac_id} did not take volume {volume_db:.1f} dB")
+                # EqualizerController has logged this request's refusal
+                # (`report=True`): its one line.
                 raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        f"Volume recorded but not applied: client {mac_id} refused it, "
-                        "and applies it when its DSP is back"
-                    ),
+                    status_code=502, detail=refused_detail("Volume", f"client {mac_id}")
                 )
 
             return {
@@ -408,13 +402,10 @@ def create_volume_router(
             _validate_mac_exists(mac_id)
 
             if not await volume_service.set_client_mute(mac_id, request.mute):
-                logger.error(f"Client {mac_id} did not take mute={request.mute}")
+                # EqualizerController has logged this request's refusal
+                # (`report=True`): its one line.
                 raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        f"Mute recorded but not applied: client {mac_id} refused it, "
-                        "and applies it when its DSP is back"
-                    ),
+                    status_code=502, detail=refused_detail("Mute", f"client {mac_id}")
                 )
 
             return {

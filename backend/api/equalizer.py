@@ -5,10 +5,17 @@ Full equalizer capabilities including EQ, compressor, loudness, and volume contr
 Supports multi-client equalizer control for multiroom setups
 """
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException
 
-from backend.api.route_helpers import CONTRACTED, api_error_handler
+from backend.api.route_helpers import (
+    CONTRACTED,
+    WHEN_DSP_IS_BACK,
+    api_error_handler,
+    is_satellite_refusal,
+    refused_detail,
+)
 
 from backend.api.responses import (
     EqualizerEnabledResponse,
@@ -30,7 +37,7 @@ from backend.api.models import (
     ZoneCrossoverRequest,
     EqualizerPresetRequest
 )
-from backend.core.equalizer.client_proxy import CommandNotApplied
+from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.core.equalizer.presets import DEFAULT_CUSTOM_GAINS
 
 if TYPE_CHECKING:
@@ -59,17 +66,40 @@ def _resolve_target(target: str) -> tuple[str, str]:
     return "client", target
 
 
-def _not_applied(detail: str) -> CommandNotApplied:
-    """A write the target did not take, raised as the router's one failure.
+# When a refused crossover is taken: CrossoverService queues a satellite's
+# split for its next connection (CLIENT_CONNECTED), and the local CamillaDSP
+# restores its own on reconnect. Nothing resends it to a satellite that stays
+# online with its DSP back.
+CROSSOVER_APPLIES = "at its next reconnection"
 
-    Every write here says it the same way: a band, the compressor, loudness and
-    mono raise ``CommandNotApplied`` from the access layer, and the three that
-    answer a bool (enabled, preset, save-custom) raise it here. So a speaker
-    that answered and refused is a 502 and one that could not be reached a
-    503, both logged by ``api_error_handler`` — never a 200 carrying
-    ``"status": "error"``, which a client had to know to look for.
+
+def _speaker(target: str) -> str:
+    """The speaker a refusal names, as the target addressed it."""
+    if target.startswith(ZONE_PREFIX):
+        return f"a member of zone {target[len(ZONE_PREFIX):]}"
+    return f"client {target}"
+
+
+@asynccontextmanager
+async def _target_write(context: str, what: str, target: str):
+    """``api_error_handler`` for a write of this router, with a satellite's
+    refusal answered as the volume answers it.
+
+    Every write here is stored before it is sent — a satellite's record in the
+    registry, resent until it takes it (or at its admission) — so a satellite
+    that answered and refused (its 400) is a 502 saying the edit is recorded
+    (``refused_detail``), never its own 400 passed through, which accused the
+    caller of an invalid request. One that could not be reached keeps its 503,
+    an unknown client its 404, and this unit's CamillaDSP refusing its 502.
+    Logged once, by ``api_error_handler``.
     """
-    return CommandNotApplied(detail)
+    async with api_error_handler(context, logger):
+        try:
+            yield
+        except SatelliteUnreachable as e:
+            if not is_satellite_refusal(e):
+                raise
+            raise CommandNotApplied(refused_detail(what, _speaker(target))) from e
 
 
 def create_equalizer_router(
@@ -83,6 +113,31 @@ def create_equalizer_router(
 ):
     """Creates equalizer router with injected dependencies"""
     router = APIRouter(prefix="/api/equalizer", tags=["equalizer"])
+
+    def _not_applied(what: str, target: str, applies: str = WHEN_DSP_IS_BACK) -> CommandNotApplied:
+        """A write the target did not take, raised as the router's one failure.
+
+        Every write here says it the same way: a band, the compressor, loudness
+        and mono raise ``CommandNotApplied`` from the access layer, and the four
+        that answer a bool (enabled, preset, save-custom, crossover) raise it
+        here — a 502, logged by ``api_error_handler``, never a 200 carrying
+        ``"status": "error"``, which a client had to know to look for.
+
+        A satellite or a zone kept the write (the registry's record, resent
+        until it is taken; the zone's pin), so its detail is the volume's
+        ``refused_detail``, saying when it ``applies``. This unit addressed
+        alone is told apart: its bypass toggle keeps the old flag when its
+        CamillaDSP refuses.
+        """
+        target_type, target_id = _resolve_target(target)
+        client = (
+            client_registry_service.get_client(target_id)
+            if target_type == "client" and target_id != "local" and client_registry_service
+            else None
+        )
+        if target_id == "local" or (client is not None and client.is_local):
+            return CommandNotApplied(f"{what} not applied to target {target}")
+        return CommandNotApplied(refused_detail(what, _speaker(target), applies))
 
     # === Audio Levels ===
 
@@ -201,7 +256,7 @@ def create_equalizer_router(
     @router.put("/target/{target}/filter/{filter_id}", response_model=TargetFilterResponse)
     async def update_target_filter(target: str, filter_id: str, payload: EqualizerFilterUpdateRequest):
         """Update one EQ band for any target through the unified access layer."""
-        async with api_error_handler(f"Error updating filter for target {target}", logger):
+        async with _target_write(f"Error updating filter for target {target}", "Equalizer band", target):
             target_type, target_id = _resolve_target(target)
             try:
                 await multiroom_equalizer_service.update_filter(
@@ -222,7 +277,7 @@ def create_equalizer_router(
     @router.put("/target/{target}/compressor", response_model=TargetStatusResponse)
     async def update_target_compressor(target: str, payload: EqualizerCompressorRequest):
         """Update the compressor for any target through the unified access layer."""
-        async with api_error_handler(f"Error updating compressor for target {target}", logger):
+        async with _target_write(f"Error updating compressor for target {target}", "Compressor", target):
             target_type, target_id = _resolve_target(target)
             try:
                 await multiroom_equalizer_service.update_compressor(
@@ -243,7 +298,7 @@ def create_equalizer_router(
     @router.put("/target/{target}/loudness", response_model=TargetStatusResponse)
     async def update_target_loudness(target: str, payload: EqualizerLoudnessRequest):
         """Update loudness for any target through the unified access layer."""
-        async with api_error_handler(f"Error updating loudness for target {target}", logger):
+        async with _target_write(f"Error updating loudness for target {target}", "Loudness", target):
             target_type, target_id = _resolve_target(target)
             try:
                 await multiroom_equalizer_service.update_loudness(
@@ -265,7 +320,7 @@ def create_equalizer_router(
         (The legacy local route was missing — toggling Mono on the local device
         used to 404. This uniform route fixes that by construction.)
         """
-        async with api_error_handler(f"Error updating mono for target {target}", logger):
+        async with _target_write(f"Error updating mono for target {target}", "Mono", target):
             target_type, target_id = _resolve_target(target)
             try:
                 await multiroom_equalizer_service.update_mono(
@@ -286,8 +341,16 @@ def create_equalizer_router(
         `local` and a bare `<mac>` have nothing to set — they get a 400 rather
         than silently doing nothing. Deliberately untyped: the frequency mixes
         int/float/None and a response_model would coerce 80 to 80.0.
+
+        The frequency is pinned on the zone before it is pushed, so a member
+        that did not take it answers 502 like every other write of this router
+        (see `_not_applied`), and an unknown zone 404. Unlike an EQ record, a
+        split a satellite refused while online is not resent: CrossoverService
+        queues it for the satellite's next connection, and the local unit's
+        CamillaDSP restores its own when it reconnects — so the detail says
+        "at its next reconnection", never "when its DSP is back".
         """
-        async with api_error_handler(f"Error setting crossover for target {target}", logger):
+        async with _target_write(f"Error setting crossover for target {target}", "Crossover", target):
             target_type, zone_id = _resolve_target(target)
             if target_type != "zone":
                 logger.warning("Crossover requested for a non-zone target: %s", target)
@@ -295,9 +358,11 @@ def create_equalizer_router(
                     status_code=400,
                     detail="Crossover applies to zone targets only (zone:<id>)",
                 )
+            if client_registry_service and not client_registry_service.get_zone(zone_id):
+                logger.warning("Crossover requested for an unknown zone: %s", zone_id)
+                raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
             if not await crossover_service.set_zone_crossover_frequency(zone_id, payload.frequency):
-                logger.error("Crossover update rejected for zone %s", zone_id)
-                raise HTTPException(status_code=500, detail="Failed to update zone crossover")
+                raise _not_applied("Crossover", target, CROSSOVER_APPLIES)
             return {
                 "status": "success",
                 "zone_id": zone_id,
@@ -315,8 +380,9 @@ def create_equalizer_router(
         A target that did not take it answers 502, like every other write of this
         router (see `_not_applied`).
         """
-        async with api_error_handler(f"Error updating equalizer enabled for target {target}", logger):
-            enabled = payload.enabled
+        enabled = payload.enabled
+        what = f"Equalizer {'enable' if enabled else 'bypass'}"
+        async with _target_write(f"Error updating equalizer enabled for target {target}", what, target):
             target_type, target_id = _resolve_target(target)
             try:
                 if target_type == "zone":
@@ -335,7 +401,7 @@ def create_equalizer_router(
                 logger.warning(f"Equalizer enabled update failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             if not success:
-                raise _not_applied(f"Equalizer {'enable' if enabled else 'bypass'} not applied to target {target}")
+                raise _not_applied(what, target)
             return {"status": "success", "target": target, "enabled": enabled}
 
     @router.post("/target/{target}/preset", response_model=TargetPresetResponse)
@@ -348,7 +414,9 @@ def create_equalizer_router(
         later is not a refusal: an offline satellite, or this unit's CamillaDSP
         while it reconnects, records it and answers 200, as a band edit does.
         """
-        async with api_error_handler(f"Error loading preset for target {target}", logger):
+        async with _target_write(
+            f"Error loading preset for target {target}", f"Preset {payload.preset_id}", target
+        ):
             target_type, target_id = _resolve_target(target)
             try:
                 success, gains = await multiroom_equalizer_service.load_preset(
@@ -358,7 +426,7 @@ def create_equalizer_router(
                 logger.warning(f"Preset load failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             if not success:
-                raise _not_applied(f"Preset {payload.preset_id} not applied to target {target}")
+                raise _not_applied(f"Preset {payload.preset_id}", target)
             return {
                 "status": "success",
                 "target": target,
@@ -369,7 +437,7 @@ def create_equalizer_router(
     @router.post("/target/{target}/save-custom", response_model=TargetSaveCustomResponse)
     async def save_target_custom_preset(target: str):
         """Snapshot the target's current gains as its 'custom' preset and activate it."""
-        async with api_error_handler(f"Error saving custom preset for target {target}", logger):
+        async with _target_write(f"Error saving custom preset for target {target}", "Custom preset", target):
             target_type, target_id = _resolve_target(target)
             try:
                 saved = await multiroom_equalizer_service.save_custom_preset(target_type, target_id)
@@ -377,7 +445,7 @@ def create_equalizer_router(
                 logger.warning(f"Custom-preset save failed for target {target}: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             if not saved:
-                raise _not_applied(f"Custom preset not applied to target {target}")
+                raise _not_applied("Custom preset", target)
             return {"status": "success", "target": target, "preset_id": "custom"}
 
     return router

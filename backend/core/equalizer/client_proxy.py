@@ -35,7 +35,10 @@ class CommandNotApplied(Exception):
     (api_error_handler in route_helpers.py): 502 when this unit's CamillaDSP
     refused, 503 when nothing could carry the command, 404 for a satellite the
     registry no longer holds, and a satellite's own status
-    (``SatelliteUnreachable``) for anything it answered or failed to.
+    (``SatelliteUnreachable``) for anything it answered or failed to — save
+    the equalizer writes, which answer a satellite's refusal (its 400) 502,
+    as the volume does, since the edit is recorded and resent
+    (api/equalizer.py::_target_write).
     """
 
     def __init__(self, detail: str, status_code: int = 502):

@@ -21,8 +21,11 @@ import logging
 from dataclasses import replace
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
+from fastapi import FastAPI
 
+from backend.api.volume import create_volume_router
 from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
 from backend.core.models.volume import VolumeConfig
 from backend.core.volume import EqualizerController, VolumeService, VolumeStateStore
@@ -911,3 +914,56 @@ async def test_a_level_saved_under_older_limits_is_brought_into_them_at_load():
     await restored.initialize()
 
     assert restored.get_client_volume("room") == -78.0
+
+
+# ============================================================================
+# The routes a refusal answers through
+# ============================================================================
+
+SAT_MAC = "dc:a6:32:00:00:0b"
+
+
+@pytest.mark.parametrize("path, body", [
+    ("/api/volume/client/mac/dca63200000b", {"volume_db": -40.0}),
+    ("/api/volume/client/mac/dca63200000b/mute", {"mute": True}),
+    ("/api/volume/zone/z/mute", {"mute": True}),
+], ids=["client volume", "client mute", "zone mute"])
+async def test_a_refusal_answered_through_a_route_is_one_error_line(caplog, path, body):
+    """Each PATCH a speaker refused is one ERROR record: not two, and not none.
+
+    Each ERROR is a backend-error banner on every open screen and a line in
+    errors.log. The route used to say the refusal again in its own words
+    after EqualizerController had, so one refused mute raised two banners for
+    one fact. And the controller's own line is once per spell — a spell that
+    nothing ends when a satellite's CamillaDSP stops, comes back and stops
+    again under a snapclient that stays connected, since the server sends
+    nothing in between and readmits nobody: the second outage's refused
+    request was a 502 with no line anywhere. So a route's request says its own
+    refusal (`report=True`), once, and the route adds nothing.
+    """
+    router = Router()
+    service = make_service({LOCAL: -60.0, SAT_MAC: -60.0}, online=[LOCAL, SAT_MAC], router=router)
+    zone(service, [LOCAL, SAT_MAC])
+    app = FastAPI()
+    app.include_router(create_volume_router(service, service._client_registry))
+
+    def errors():
+        return [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+    with caplog.at_level(logging.WARNING):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            for outage in (1, 2):
+                # Its CamillaDSP stops; between the two, it came back on its
+                # own and the server sent it nothing.
+                router.answer[SAT_MAC] = refused_by_satellite()
+                router.mute_answer[SAT_MAC] = refused_by_satellite()
+                response = await http.patch(path, json=body)
+                await settle()
+
+                assert response.status_code == 502, response.text
+                assert "recorded but not applied" in response.json()["detail"]
+                assert len(errors()) == outage, errors()
+                assert SAT_MAC in errors()[-1]
+                router.answer.pop(SAT_MAC)
+                router.mute_answer.pop(SAT_MAC)
