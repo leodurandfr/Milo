@@ -1068,3 +1068,41 @@ class TestACoverArchiveOutageIsReportedOnce:
         assert len(messages) == 2, messages
         assert all("Cover Art Archive" in m for m in messages)
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def test_the_bounded_opener_follows_a_redirect():
+    """The Cover Art Archive answers every image with a redirect to
+    archive.org, and urllib's redirect handler re-opens the target through
+    `opener.open(new, timeout=...)`. The bounded opener once took no
+    `timeout`, so every CD cover download raised TypeError — no jacket on
+    any disc, an error banner instead. A real redirect, on localhost."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from backend.sources.cd.data import _opener_with_timeout
+
+    class Archive(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/release/front":
+                self.send_response(307)
+                self.send_header("Location", "/archive.org/front.jpg")
+                self.end_headers()
+            else:
+                self.send_response(200)
+                self.send_header("Content-Length", "4")
+                self.end_headers()
+                self.wfile.write(b"JPEG")
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Archive)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        opener = _opener_with_timeout()
+        with opener.open(f"http://127.0.0.1:{server.server_port}/release/front") as answer:
+            assert answer.read() == b"JPEG"
+    finally:
+        server.shutdown()
+

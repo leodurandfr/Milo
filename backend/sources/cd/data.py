@@ -66,12 +66,20 @@ def _opener_with_timeout(*handlers: Any) -> urllib.request.OpenerDirector:
     """musicbrainzngs' `compat.build_opener`, with a socket timeout on every
     request it opens: both its calls (`opener.open(req)` and
     `opener.open(req, body)`) go through here, for MusicBrainz and the Cover
-    Art Archive alike."""
+    Art Archive alike.
+
+    `timeout` stays a parameter: urllib's redirect handler re-opens the target
+    through this same method with `timeout=req.timeout`, and the Cover Art
+    Archive answers every image with a redirect to archive.org. Without it each
+    cover download raised TypeError (measured 2026-11-25: no CD showed a
+    jacket, and the error reached the banner)."""
     opener = urllib.request.build_opener(*handlers)
     open_without_timeout = opener.open
 
-    def open_with_timeout(request: Any, data: Any = None) -> Any:
-        return open_without_timeout(request, data, timeout=MUSICBRAINZ_SOCKET_TIMEOUT_S)
+    def open_with_timeout(
+        request: Any, data: Any = None, timeout: float = MUSICBRAINZ_SOCKET_TIMEOUT_S
+    ) -> Any:
+        return open_without_timeout(request, data, timeout=timeout)
 
     opener.open = open_with_timeout
     return opener
