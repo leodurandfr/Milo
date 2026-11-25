@@ -17,7 +17,8 @@ import { serverClock } from '@/services/serverClock';
  * Categories currently emitted by the backend, and the stores App.vue sends
  * them to (App.vue's tables are the authority; this is the map):
  *   system    → unifiedAudioStore (initial_state), systemStore
- *               (hostname_conflict_changed), settingsStore (timezone_changed),
+ *               (hostname_conflict_changed, notices_changed), settingsStore
+ *               (timezone_changed),
  *               App.vue's own banner (backend_error); ping is consumed
  *               internally as the keepalive
  *   source    → unifiedAudioStore + per-source stores (state, position,

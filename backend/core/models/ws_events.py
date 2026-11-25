@@ -1023,17 +1023,24 @@ class NetworkStatusChanged(NetworkStatus, WsEvent):
 
 
 # =============================================================================
-# PROGRAMS (update progress/complete; detail is reconstructed over REST)
+# PROGRAMS (update progress/complete; the versions are read again over REST)
 # =============================================================================
 
 class ProgramsProgressEvent(WsEvent):
-    """Base: progress broadcasts carry status only (detail lives in GET /api/programs)."""
+    """Base: a progress broadcast carries `status`, plus what its subclass
+    names besides — the target (`program`, `mac_id`), and for an update of
+    Milō where it stands (`phase`, `from_version`, `to_version`, `item`,
+    `index`, `total`). The full inventory lives in GET /api/programs."""
     CATEGORY = "programs"
     status: Literal["updating"] = "updating"
 
 
 class ProgramsCompleteEvent(WsEvent):
-    """Base: completion carries success only; the UI refetches versions over REST."""
+    """Base: a completion carries `success`, plus, per subclass, the cause of
+    a failure — `error` on this unit's program, `verdict` and `detail` on a
+    satellite's. The versions themselves are read again over REST.
+
+    updatesStore keeps that cause on the row that failed."""
     CATEGORY = "programs"
     success: bool
 

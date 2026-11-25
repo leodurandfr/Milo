@@ -32,7 +32,11 @@ UNITS = ("milo-backend.service", "milo-kiosk.service")
 
 # A unit failing for good restarts at most this often.
 SLOWEST_AT_LEAST_S = 60
-# The previous release a trial falls back to starts within this of the first failure.
+# What the restart delays add up to before the start that runs the previous
+# release a trial falls back to. The failed starts' own durations are not in
+# it: a start that hangs before READY=1 lasts up to the unit's TimeoutStartSec=,
+# so a trial that hangs twice falls back minutes after its first failure, not
+# within this.
 FALLBACK_WITHIN_S = 60
 
 _SPAN = re.compile(r"^(?P<n>\d+(?:\.\d+)?)\s*(?P<unit>s|sec|min|m|h)?$")

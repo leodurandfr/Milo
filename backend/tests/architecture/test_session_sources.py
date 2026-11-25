@@ -1,7 +1,8 @@
 """A source on the session model declares its policies and owns no playback flag.
 
 Every source is on it: a module that defines a
-`Session` subclass has moved its playback truth onto that session, so it must
+session class — a subclass of `Session`, directly or through `MpvSession` as
+the four mpv sources' are — has moved its playback truth onto that session, so it must
 say how a pause ends it (IDLE_POLICY), what a multiroom toggle does to it
 (REROUTE), what survives it (RESUME_POLICY) and whether a daemon holds it
 (SESSION_DAEMON) — and it may no longer write the booleans the session
@@ -29,11 +30,23 @@ def _base_names(cls: ast.ClassDef):
             yield base.attr
 
 
+def session_violations_scope(tree: ast.Module) -> bool:
+    """Whether a module is on the session model: it defines a class whose
+    base is a session — `Session` itself or an intermediate such as the mpv
+    sources' `MpvSession`. The one predicate of this file: the rule below and
+    the class scan further down arm on the same modules."""
+    return any(
+        name.endswith("Session")
+        for c in tree.body if isinstance(c, ast.ClassDef)
+        for name in _base_names(c)
+    )
+
+
 def session_violations(tree: ast.Module) -> list[str]:
     """What a module on the session model still owes, as readable lines."""
-    classes = [n for n in tree.body if isinstance(n, ast.ClassDef)]
-    if not any("Session" in _base_names(c) for c in classes):
+    if not session_violations_scope(tree):
         return []
+    classes = [n for n in tree.body if isinstance(n, ast.ClassDef)]
     problems = []
     for cls in (c for c in classes if set(_base_names(c)) & set(SOURCE_BASES)):
         declared = {
@@ -122,6 +135,24 @@ def test_the_rule_bites_on_a_session_assigned_by_hand():
     assert any("writes self._session" in p for p in session_violations(ast.parse(by_hand)))
 
 
+def test_the_rule_bites_on_a_session_through_an_intermediate_base():
+    """The four mpv sources' sessions extend MpvSession, not Session: a scan
+    armed only by a base spelled `Session` read their modules as owing
+    nothing, so a session written by hand in Radio stayed green."""
+    mpv = MIGRATED_BUT_INCOMPLETE.replace(
+        "from backend.core.models.session import Session",
+        "from backend.shared.mpv_audio_source import MpvSession",
+    ).replace("class RadioSession(Session):", "class RadioSession(MpvSession):").replace(
+        "self._is_playing = True", "self._session = None",
+    )
+    assert "class RadioSession(MpvSession):" in mpv and "self._session = None" in mpv, (
+        "the fixture no longer plants a session through MpvSession"
+    )
+    problems = session_violations(ast.parse(mpv))
+    assert any("writes self._session" in p for p in problems)
+    assert "RadioSource does not declare REROUTE" in problems
+
+
 def test_a_module_not_yet_migrated_owes_nothing():
     legacy = MIGRATED_BUT_INCOMPLETE.replace("class RadioSession(Session):\n    pass\n", "")
     assert session_violations(ast.parse(legacy)) == []
@@ -142,15 +173,6 @@ def _migrated_classes():
             if set(_base_names(cls)) & set(SOURCE_BASES):
                 found.append(getattr(module, cls.name))
     return found
-
-
-def session_violations_scope(tree: ast.Module) -> bool:
-    """Whether a module is on the session model (defines a Session subclass)."""
-    return any(
-        "Session" in name or name.endswith("Session")
-        for c in tree.body if isinstance(c, ast.ClassDef)
-        for name in _base_names(c)
-    )
 
 
 def test_migrated_sources_are_found():

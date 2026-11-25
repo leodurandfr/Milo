@@ -7,7 +7,6 @@ settings stay open to the LAN. Two trees carry that decision and no import
 connects them — a satellite update ships `milo-client/` alone — so it is held
 here, from source, on both sides:
 
-- the two spellings of the secret's header and form field are equal;
 - the satellite requires the secret on exactly `TO_ROOT`, the decision's list:
   a route of that list that drops the guard, or a setting that gains one,
   fails. The list is not every route that reaches root: `POST /update` and
@@ -19,6 +18,12 @@ here, from source, on both sides:
 - the pin lives where an update's trial cannot take it: a pin lost with an
   `app/` rolled back is a satellite that pins the next host that asks.
 
+The two spellings of the secret's header and form field, equal and frozen,
+and the field optional on the app push's form, are held by
+`tests/contracts/test_milo_client_contract.py`, whose reader of the satellite's
+`server_secret.py` is the one this file uses too: two readers of one file drift
+apart, and a change to it would have to be taught to both.
+
 Behavior is driven elsewhere: `milo-client/app/tests/test_server_secret.py`
 (the satellite's refusals, the pin) and `tests/test_satellite_secret.py` (the
 key, one secret on every path). Every extractor asserts its own output is
@@ -28,12 +33,13 @@ import ast
 import re
 from pathlib import Path
 
+from backend.tests.contracts.test_milo_client_contract import _satellite_secret_constants
+
 REPO = Path(__file__).resolve().parents[3]
 BACKEND = REPO / "backend"
 CLIENT_APP = REPO / "milo-client" / "app"
 CLIENT_ROUTES = CLIENT_APP / "routes"
 SERVER_HALF = BACKEND / "core" / "multiroom" / "satellite_http.py"
-SATELLITE_HALF = CLIENT_APP / "server_secret.py"
 UPDATER = CLIENT_APP / "services" / "app_update.py"
 
 # The decision, route by route: the paths to root it closes on a satellite, and
@@ -70,14 +76,7 @@ def _constants(path: Path) -> dict:
 
 
 SERVER = _constants(SERVER_HALF)
-SATELLITE = _constants(SATELLITE_HALF)
-
-
-def test_both_halves_spell_the_secret_alike():
-    """A header renamed on one side is every path to root refused, fleet-wide,
-    after the release that carried it."""
-    assert SERVER["SATELLITE_SECRET_HEADER"] == SATELLITE["SECRET_HEADER"]
-    assert SERVER["SATELLITE_SECRET_FIELD"] == SATELLITE["SECRET_FIELD"]
+SATELLITE = _satellite_secret_constants()
 
 
 # --------------------------------------------------------------------------- #
@@ -128,21 +127,6 @@ def test_the_satellite_requires_the_secret_on_every_path_to_root_and_nowhere_els
     }
 
     assert guarded == TO_ROOT
-
-
-def test_the_update_form_takes_the_secret_without_requiring_it():
-    """The form's names are frozen and append-only: required, the field would
-    be a 422 from every satellite a retracted release's server pushes to,
-    rather than the 403 that says why."""
-    handler, _ = _satellite_routes()[MULTIPART]
-    args = handler.args
-    defaults = dict(zip([a.arg for a in args.args[len(args.args) - len(args.defaults):]], args.defaults))
-    field = defaults.get(SATELLITE["SECRET_FIELD"])
-
-    assert isinstance(field, ast.Call) and getattr(field.func, "id", None) == "Form", (
-        f"POST /app/update declares no Form() parameter named {SATELLITE['SECRET_FIELD']!r}"
-    )
-    assert field.args and isinstance(field.args[0], ast.Constant) and field.args[0].value is None
 
 
 # The satellite's state that outlives its app: the pin, and how its last stop

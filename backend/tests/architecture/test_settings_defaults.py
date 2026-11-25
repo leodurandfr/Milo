@@ -323,9 +323,11 @@ def literal_fallbacks_on_settings(path):
 def test_the_offender_extractor_discriminates(tmp_path):
     """Guards the rule below: a broken extractor would report a clean backend.
 
-    The last two cases are the ones that matter — the rule must stay silent on a
-    direct read and on a fallback for data the validator does not guarantee,
-    or it would push both towards a `defaults` lookup that has no entry.
+    The two silent cases are the ones that matter — a direct read
+    (`section['limit_max_db']`) and a fallback on `multiroom`, data the
+    validator does not guarantee: flagged, the rule would push both towards a
+    `defaults` lookup that has no entry. `hardware.ir_remote` sits between
+    them and is flagged: `SettingsService.defaults` declares it.
     """
     planted = tmp_path / "planted.py"
 

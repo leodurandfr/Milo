@@ -237,37 +237,60 @@ def _raw_aiohttp_calls(tree, markers, bindings, param_values):
     for scope in ast.walk(tree):
         if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        bound = {
-            target.id: _join(node.value)
-            for node in ast.walk(scope)
-            if isinstance(node, ast.Assign) and isinstance(node.value, ast.JoinedStr)
-            for target in node.targets
-            if isinstance(target, ast.Name)
-        }
+        bound = _url_locals(scope)
         for node in ast.walk(scope):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            endpoint = _satellite_endpoint(node, bound, markers, param_values)
+            if endpoint is None:
                 continue
-            verb = node.func.attr.upper()
-            if verb not in _HTTP_METHODS or not node.args:
-                continue
-            arg = node.args[0]
-            url = (
-                _join(arg) if isinstance(arg, ast.JoinedStr)
-                else bound.get(arg.id, "") if isinstance(arg, ast.Name)
-                else ""
-            )
-            marker = next((m for m in markers if m in url), None)
-            if marker is None:
-                continue
-            suffix = url.split(marker, 1)[1]
-            if re.fullmatch(r"\{[^}]*\}", suffix):
-                continue  # generic transport, not a concrete endpoint
-            candidates = _resolve_template(suffix, param_values)
+            verb, paths = endpoint
             body = next((kw.value for kw in node.keywords if kw.arg == "json"), None)
             keys = _literal_dict_keys(body, bindings) if body is not None else None
-            for candidate in candidates:
-                calls.add((verb, _normalise(candidate), keys))
+            for candidate in paths:
+                calls.add((verb, candidate, keys))
     return calls
+
+
+def _url_locals(scope) -> dict[str, str]:
+    """name → the f-string it is bound to in `scope`, rendered by `_join`."""
+    return {
+        target.id: _join(node.value)
+        for node in ast.walk(scope)
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.JoinedStr)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+
+def _satellite_endpoint(node, bound, markers, param_values):
+    """(verb, normalized paths) when `node` is `session.<verb>(url)` on a satellite, else None.
+
+    The URL is the f-string itself or a local bound to one (`bound`); it names a
+    satellite when it carries one of the CLIENT_API_PORT `markers`. Its suffix
+    resolves through the literals this module passes to the parameters it
+    interpolates (`/{route}` becomes `/update` and `/camilladsp/update`). A
+    suffix that is a bare `{path}` is the generic transport in client_proxy.py,
+    not a concrete endpoint, and reads as None: its paths come from the
+    request()/try_request() call sites. Both sides of the contract read a call
+    through this one function, so what one resolves the other does.
+    """
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+        return None
+    verb = node.func.attr.upper()
+    if verb not in _HTTP_METHODS or not node.args:
+        return None
+    arg = node.args[0]
+    url = (
+        _join(arg) if isinstance(arg, ast.JoinedStr)
+        else bound.get(arg.id, "") if isinstance(arg, ast.Name)
+        else ""
+    )
+    marker = next((m for m in markers if m in url), None)
+    if marker is None:
+        return None
+    suffix = url.split(marker, 1)[1]
+    if re.fullmatch(r"\{[^}]*\}", suffix):
+        return None
+    return verb, {_normalise(c) for c in _resolve_template(suffix, param_values)}
 
 
 def _proxy_calls(tree, param_values, bindings):
@@ -1085,7 +1108,12 @@ def test_every_required_app_update_field_is_frozen():
 
 
 def _satellite_secret_constants() -> dict:
-    """The module-level string constants of milo-client's server_secret.py, read as source."""
+    """The module-level string constants of milo-client's server_secret.py, read as source.
+
+    The one reader of that file: tests/architecture/test_satellite_secret.py
+    imports it for the state files' places, so a new spelling of a constant is
+    taught here once.
+    """
     found = {}
     for node in ast.parse(SATELLITE_SECRET_MODULE.read_text()).body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -1169,80 +1197,134 @@ async def test_the_secret_derivation_is_frozen(tmp_path):
 # Side D: the answer, not just the question.
 #
 # The two checks above cover what the backend SENDS. Nothing covered what it
-# READS back, and `satellite.py` subscripts a satellite's answer bare —
-# `data["target_version"]` at the one moment a fleet update commits. A satellite
-# that renamed that key raises KeyError inside a `try:` whose handler reports
-# "Error updating satellite <mac>", which is indistinguishable from the network
-# being down and points at nothing.
+# READS back, and a key the satellite stops answering is no error on the server:
+# `.get()` reads None. Renamed `started` on POST /update, an install the
+# satellite began is reported `rejected` with the text "Update started: x -> y";
+# renamed `update_in_progress` on GET /update/status, the wait reads the install
+# as over at its first poll and reports `rolled_back` for one that lands; renamed
+# `last_result`, the cause of a failure is lost. None of it reproduces without a
+# second physical unit.
 #
-# Scope: the responses read inline off a raw aiohttp call. The proxy service
-# returns parsed JSON to its caller, far from the URL that produced it, so a
-# proxy response's keys cannot be attributed to an endpoint by reading the code —
-# those stay uncovered here rather than covered vaguely.
+# Scope: the responses read off a raw aiohttp call — inline in its `async with`
+# block, through a local the function reads after the block, or through
+# `self._json_of(session.<verb>(url))`, which parses one answer for its caller.
+# The proxy service returns parsed JSON to its caller, far from the URL that
+# produced it, so a proxy response's keys cannot be attributed to an endpoint by
+# reading the code — those stay uncovered here rather than covered vaguely.
 # --------------------------------------------------------------------------- #
 
-def _json_read_path(node, bindings, resp_var):
-    """Dotted path of a read rooted at `await <resp_var>.json()`, else None.
+def _json_read_path(node, resolve, roots):
+    """Dotted path of a read rooted at one satellite answer, else None.
 
-    Resolves the three forms the backend uses, through any depth of chaining:
-    the root itself, `.get("k")` (with or without a default) and `["k"]`. So
-    `data.get("app", {}).get("payload")` reads as `app.payload`. The root is
-    `await <resp_var>.json()` or `await _satellite_reply(<resp_var>, …)`, which
-    is that JSON once the satellite's refusal has been told apart from it.
+    `roots` holds the ids of the `await` nodes that ARE that answer: `await
+    <resp>.json()` and `await _satellite_reply(<resp>, …)` inside its `async
+    with` block, or `await self._json_of(session.<verb>(url))`. A local is
+    followed through `resolve`, which answers the path it holds where it is
+    read. Resolves the three forms the backend uses, through any depth of
+    chaining: the root itself, `.get("k")` (with or without a default) and
+    `["k"]`. So `data.get("app", {}).get("payload")` reads as `app.payload`.
     """
     if isinstance(node, ast.Await):
-        call = node.value
-        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
-                and call.func.attr == "json"
-                and isinstance(call.func.value, ast.Name)
-                and call.func.value.id == resp_var):
-            return ""
-        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
-                and call.func.id == "_satellite_reply" and call.args
-                and isinstance(call.args[0], ast.Name)
-                and call.args[0].id == resp_var):
-            return ""
-        return None
+        return "" if id(node) in roots else None
     if isinstance(node, ast.Name):
-        return bindings.get(node.id)
+        return resolve(node) if isinstance(node.ctx, ast.Load) else None
     if isinstance(node, ast.Call):
         fn = node.func
         if (isinstance(fn, ast.Attribute) and fn.attr == "get" and node.args
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)):
-            base = _json_read_path(fn.value, bindings, resp_var)
+            base = _json_read_path(fn.value, resolve, roots)
             return None if base is None else f"{base}.{node.args[0].value}".lstrip(".")
         return None
     if (isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant)
             and isinstance(node.slice.value, str)):
-        base = _json_read_path(node.value, bindings, resp_var)
+        base = _json_read_path(node.value, resolve, roots)
         return None if base is None else f"{base}.{node.slice.value}".lstrip(".")
     return None
 
 
-def _reads_in_block(block, resp_var) -> set[str]:
-    """Every response key read inside one `async with session.<verb>(…)` block.
+def _own_nodes(fn) -> list:
+    """Every node of `fn` but those of the functions it defines.
 
-    Bindings are resolved to a fixed point first: the payload is bound to a local
-    once (`data = await response.json()`) or twice (`audio = (await
-    _satellite_reply(resp, mac_id)).get("audio", {})`), and only reads on THAT
-    local count — which is what keeps a nested block's own payload from being
-    attributed here.
+    A router factory defines every handler inside itself, each with its own
+    `resp` and its own `data`; walked as one function, they would read each
+    other's answers.
     """
-    bindings = {}
-    for _ in range(3):
-        for node in ast.walk(block):
-            if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
-                continue
-            if not isinstance(node.targets[0], ast.Name):
-                continue
-            path = _json_read_path(node.value, bindings, resp_var)
-            if path is not None:
-                bindings[node.targets[0].id] = path
+    out, stack = [], list(fn.body)
+    while stack:
+        node = stack.pop()
+        out.append(node)
+        stack.extend(
+            child for child in ast.iter_child_nodes(node)
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))
+        )
+    return out
+
+
+def _parses(node, resp_var) -> bool:
+    """`await <resp_var>.json()`, or `await _satellite_reply(<resp_var>, …)` —
+    the same JSON once the satellite's refusal has been told apart from it."""
+    if not isinstance(node, ast.Await) or not isinstance(node.value, ast.Call):
+        return False
+    call = node.value
+    if (isinstance(call.func, ast.Attribute) and call.func.attr == "json"
+            and isinstance(call.func.value, ast.Name) and call.func.value.id == resp_var):
+        return True
+    return (isinstance(call.func, ast.Name) and call.func.id == "_satellite_reply"
+            and bool(call.args) and isinstance(call.args[0], ast.Name)
+            and call.args[0].id == resp_var)
+
+
+def _json_of_request(node):
+    """The `session.<verb>(url)` call of `await self._json_of(<it>)`, else None."""
+    if not (isinstance(node, ast.Await) and isinstance(node.value, ast.Call)):
+        return None
+    call = node.value
+    name = call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", None)
+    return call.args[0] if name == "_json_of" and call.args else None
+
+
+def _reads_in_function(nodes, roots) -> set[str]:
+    """Every key one function reads off one answer (`roots`).
+
+    A local holds the path of its LATEST assignment before the read, so
+    `data = await response.json()` inside the block and `data.get("started")`
+    after it are one read of `started`, and a local rebound to another answer,
+    or to anything else, stops carrying the first. Position is where the
+    assignment ends: the right-hand side of `data = data.get("x")` reads the
+    `data` bound before it.
+    """
+    stores = {}
+    plain = set()
+    for node in nodes:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            plain.add(id(node.targets[0]))
+            stores.setdefault(node.targets[0].id, []).append(
+                ((node.end_lineno, node.end_col_offset), node.value)
+            )
+    for node in nodes:
+        # Any other binding (a loop target, an unpacking, `as`) rebinds to
+        # something that is not this answer.
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and id(node) not in plain:
+            stores.setdefault(node.id, []).append(((node.end_lineno, node.end_col_offset), None))
+
+    memo = {}
+
+    def resolve(name_node):
+        here = (name_node.lineno, name_node.col_offset)
+        earlier = [s for s in stores.get(name_node.id, ()) if s[0] <= here]
+        if not earlier:
+            return None
+        _, value = max(earlier, key=lambda s: s[0])
+        if value is None:
+            return None
+        if id(value) not in memo:
+            memo[id(value)] = _json_read_path(value, resolve, roots)
+        return memo[id(value)]
 
     reads = set()
-    for node in ast.walk(block):
-        path = _json_read_path(node, bindings, resp_var)
+    for node in nodes:
+        path = _json_read_path(node, resolve, roots)
         if path:
             reads.add(path)
     return reads
@@ -1254,39 +1336,31 @@ def _response_reads() -> dict[tuple[str, str], set[str]]:
     for module in _backend_modules():
         tree = ast.parse(module.read_text())
         markers = _port_markers(tree)
+        param_values = _literal_values_by_param_name(tree)
         for scope in ast.walk(tree):
             if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            bound = {
-                target.id: _join(node.value)
-                for node in ast.walk(scope)
-                if isinstance(node, ast.Assign) and isinstance(node.value, ast.JoinedStr)
-                for target in node.targets
-                if isinstance(target, ast.Name)
-            }
-            for node in ast.walk(scope):
-                if not isinstance(node, ast.AsyncWith):
-                    continue
-                for item in node.items:
-                    call = item.context_expr
-                    if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
-                        continue
-                    verb = call.func.attr.upper()
-                    if verb not in _HTTP_METHODS or not call.args:
-                        continue
-                    arg = call.args[0]
-                    url = (
-                        _join(arg) if isinstance(arg, ast.JoinedStr)
-                        else bound.get(arg.id, "") if isinstance(arg, ast.Name)
-                        else ""
-                    )
-                    marker = next((m for m in markers if m in url), None)
-                    if marker is None or not isinstance(item.optional_vars, ast.Name):
-                        continue
-                    suffix = _normalise(url.split(marker, 1)[1])
-                    reads = _reads_in_block(node, item.optional_vars.id)
-                    if reads:
-                        out.setdefault((verb, suffix), set()).update(reads)
+            bound = _url_locals(scope)
+            nodes = _own_nodes(scope)
+            answers = []  # (endpoint, the ids of the awaits that are its JSON)
+            for node in nodes:
+                if isinstance(node, ast.AsyncWith):
+                    for item in node.items:
+                        endpoint = _satellite_endpoint(item.context_expr, bound, markers, param_values)
+                        if endpoint is None or not isinstance(item.optional_vars, ast.Name):
+                            continue
+                        var = item.optional_vars.id
+                        answers.append((endpoint, {id(n) for n in ast.walk(node) if _parses(n, var)}))
+                request = _json_of_request(node)
+                if request is not None:
+                    endpoint = _satellite_endpoint(request, bound, markers, param_values)
+                    if endpoint is not None:
+                        answers.append((endpoint, {id(node)}))
+            for (verb, paths), roots in answers:
+                reads = _reads_in_function(nodes, roots)
+                if reads:
+                    for path in paths:
+                        out.setdefault((verb, path), set()).update(reads)
     return out
 
 
@@ -1313,10 +1387,11 @@ def _flatten_returned(dict_node, prefix, keys, opaque) -> bool:
 def _client_response_shapes() -> dict[tuple[str, str], tuple[set[str], set[str], bool]]:
     """(method, path) → (returned keys, opaque keys, enumerable).
 
-    The union of every `return {...}` in the handler, deliberately: `POST /update`
-    answers `target_version` on the branch that started one and `latest_version`
-    on the branch that found nothing to do, and the backend reads the first only
-    after `data.get("success")`. Per-branch would report a false mismatch.
+    The union of every `return {...}` in the handler, deliberately: a handler
+    may answer a key on one branch only, and the backend read it only after a
+    key that names that branch. Per-branch would report a false mismatch, and
+    which branch a read follows is not knowable from the source. So a key every
+    branch dropped fails here; one a single branch dropped does not.
     """
     shapes = {}
     for path in sorted(CLIENT_ROUTES_DIR.glob("*.py")):
@@ -1361,9 +1436,56 @@ _CHECKED_RESPONSES = sorted(
 )
 
 
+# Every satellite answer the backend reads, and every key it reads there, as
+# the walk above must find them. Named rather than counted, and per key rather
+# than per endpoint: when a refactor moved the program updates' reads out of
+# their `async with` block and behind `self._json_of`, the walk lost four
+# endpoints and a `>= 5` floor stayed green on the six left; a set of endpoints
+# alone would stay green the same way on an endpoint that lost `started` but
+# kept `message`. A read the backend starts making is added here; one it stops
+# making is removed here, in the commit that stops.
+_EXPECTED_RESPONSE_READS = {
+    ("GET", "/status"): {
+        "app", "app.last_update", "app.payload", "app.started_at", "app.trial",
+        "app.version", "camilladsp", "camilladsp.version", "snapclient",
+        "snapclient.running", "snapclient.version", "uptime",
+    },
+    ("GET", "/diagnostic"): {"hostname", "text", "unavailable"},
+    ("GET", "/api/hardware"): {"audio", "audio.id", "audio.overlay"},
+    ("POST", "/update"): {"started", "current_version", "message"},
+    ("GET", "/update/status"): {
+        "update_in_progress", "last_result", "last_result.error",
+        "last_result.target_version",
+    },
+    ("POST", "/camilladsp/update"): {"started", "current_version", "message"},
+    ("GET", "/camilladsp/update/status"): {
+        "update_in_progress", "last_result", "last_result.error",
+        "last_result.target_version",
+    },
+    ("PUT", "/api/system/server-secret"): {"data", "data.changed"},
+    ("PUT", "/api/system/timezone"): {"data", "data.changed"},
+    ("PUT", "/api/system/wifi"): {"data", "data.changed"},
+}
+
+
 def test_response_extractors_are_not_vacuous():
     """A read the walk stops resolving must fail here, not shrink the contract."""
-    assert len(_RESPONSE_READS) >= 5, f"response-read extraction looks broken: {_RESPONSE_READS}"
+    found = {endpoint: set(reads) for endpoint, reads in _RESPONSE_READS.items()}
+    moved = {
+        endpoint: {
+            "no longer found": sorted(_EXPECTED_RESPONSE_READS.get(endpoint, set()) - reads),
+            "newly found": sorted(reads - _EXPECTED_RESPONSE_READS.get(endpoint, set())),
+        }
+        for endpoint in sorted(set(found) | set(_EXPECTED_RESPONSE_READS))
+        for reads in [found.get(endpoint, set())]
+        if reads != _EXPECTED_RESPONSE_READS.get(endpoint, set())
+    }
+    assert not moved, (
+        f"the satellite answers the backend is seen reading moved: {moved}. A lost "
+        "key is an extractor that stopped following a read (a new call shape, a "
+        "helper it does not know) — teach it, do not drop the entry; a new one is "
+        "named in _EXPECTED_RESPONSE_READS"
+    )
     # The nested form is the fragile one: every version the update path compares
     # is read two levels down (`app.version`, `snapclient.version`).
     nested = {k for reads in _RESPONSE_READS.values() for k in reads if "." in k}
