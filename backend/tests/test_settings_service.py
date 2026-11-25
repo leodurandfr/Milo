@@ -42,6 +42,14 @@ def unwritable_dir(path):
         os.chmod(directory, mode)
 
 
+def _reread(service):
+    """A second service over the same file: what it reads is on the disk, since
+    a write leaves what it wrote in the writer's own cache."""
+    reader = SettingsService()
+    reader.settings_file = service.settings_file
+    return reader
+
+
 class TestSettingsService:
     """Tests for the settings service"""
 
@@ -373,11 +381,8 @@ class TestSettingsService:
 
         assert result is True
 
-        # Check that cache has been invalidated
-        assert service._cache is None
-
-        # Check that value has been saved
-        saved_value = await service.get_setting('language')
+        # Check that value has been saved, read back by a reader of the file
+        saved_value = await _reread(service).get_setting('language')
         assert saved_value == 'spanish'
 
     @pytest.mark.asyncio
@@ -481,13 +486,12 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_set_setting_strict_persists_value(self, service):
-        """set_setting_strict succeeds on a normal write and clears the cache."""
+        """set_setting_strict succeeds on a normal write, and the file holds it."""
         service._cache = service.defaults.copy()
 
         await service.set_setting_strict('language', 'spanish')
 
-        assert service._cache is None
-        assert await service.get_setting('language') == 'spanish'
+        assert await _reread(service).get_setting('language') == 'spanish'
 
     @pytest.mark.asyncio
     async def test_set_setting_strict_raises_on_disk_failure(self, service):
@@ -669,13 +673,52 @@ class TestSettingsService:
 
         assert value is False
 
+    @pytest.mark.parametrize("strict", [False, True], ids=["lossy", "strict"])
+    @pytest.mark.asyncio
+    async def test_a_write_leaves_what_it_wrote_in_the_cache(
+        self, service, temp_settings_file, strict
+    ):
+        """The state machine reads `routing.multiroom_enabled` through
+        `get_setting_sync` on every composition of the audio state. A write that
+        emptied the cache sent the next composition back to settings.json —
+        read, parsed and validated on the event loop, once per write. With the
+        file gone, only the cache can answer."""
+        if strict:
+            await service.set_settings_strict({'routing.multiroom_enabled': True})
+        else:
+            assert await service.set_settings({'routing.multiroom_enabled': True}) is True
+
+        os.remove(temp_settings_file)
+
+        assert service.get_setting_sync('routing.multiroom_enabled') is True
+
+    @pytest.mark.asyncio
+    async def test_a_failed_read_is_said_and_a_write_that_lands_clears_it(
+        self, service, temp_settings_file
+    ):
+        """`RecoveryAccessPointGuard` counts a failed read as set up: the
+        defaults served in its place say "not set up" of any unit. A fresh
+        install is not a failed read, and once a write lands, what is served is
+        the file again."""
+        assert await service.get_setting('setup_completed') is False
+        assert service.read_failed is False
+
+        service.invalidate_cache()
+        with patch("backend.core.settings.load_versioned_json",
+                   side_effect=OSError(5, "Input/output error")):
+            assert await service.get_setting('setup_completed') is False
+        assert service.read_failed is True
+
+        assert await service.set_setting('setup_completed', True) is True
+        assert service.read_failed is False
+
     # ------------------------------------------------------------------ #
     # Atomic multi-key writes (set_settings / set_settings_strict)        #
     # ------------------------------------------------------------------ #
 
     @pytest.mark.asyncio
     async def test_set_settings_persists_all_keys(self, service):
-        """A multi-key write lands every key and invalidates the cache."""
+        """A multi-key write lands every key in the file."""
         await service.save_settings(service.defaults)
         service._cache = None
 
@@ -685,9 +728,9 @@ class TestSettingsService:
         })
 
         assert result is True
-        assert service._cache is None
-        assert await service.get_setting('volume.limit_min_db') == -60.0
-        assert await service.get_setting('volume.limit_max_db') == -10.0
+        on_disk = _reread(service)
+        assert await on_disk.get_setting('volume.limit_min_db') == -60.0
+        assert await on_disk.get_setting('volume.limit_max_db') == -10.0
 
     @pytest.mark.asyncio
     async def test_set_settings_single_write(self, service):

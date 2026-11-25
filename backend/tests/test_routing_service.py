@@ -171,7 +171,7 @@ class TestAudioRoutingService:
         assert routing_service.state_machine == mock_sm
 
     def test_multiroom_enabled_property_reads_from_settings(self, routing_service, mock_settings_service):
-        """Property reads through to settings.get_setting_sync (no in-memory cache)."""
+        """Property reads through to settings.get_setting_sync, never a copy of its own."""
         _seed_multiroom(mock_settings_service, False)
         assert routing_service.multiroom_enabled is False
 

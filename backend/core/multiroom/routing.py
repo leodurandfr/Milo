@@ -337,8 +337,9 @@ class AudioRoutingService:
         return bool(value)
 
     # === State accessors ===
-    # multiroom_enabled reads directly from settings.json (single source of
-    # truth, no cache). equalizer_effects_enabled is owned by CamillaDSPService
+    # multiroom_enabled is read from SettingsService's validated cache of
+    # settings.json (the single source of truth, which every write keeps the
+    # cache equal to). equalizer_effects_enabled is owned by CamillaDSPService
     # — we proxy reads/writes through a get/set pair for _guarded_simple_toggle.
 
     async def _get_equalizer_effects_enabled(self) -> bool:
@@ -352,9 +353,11 @@ class AudioRoutingService:
     def multiroom_enabled(self) -> bool:
         """Read multiroom enabled state from settings.json (sync, cache-backed).
 
-        SettingsService.get_setting_sync returns a validated cached dict (the
-        cache is populated through _validate_and_merge), so this is a hot-path
-        dict lookup, not a disk read.
+        SettingsService.get_setting_sync answers from its validated cache, which
+        every settings write leaves holding what it wrote, so this is a hot-path
+        dict lookup. It is a blocking disk read only when that cache is empty:
+        before the boot's first read, or while a caller of `invalidate_cache`
+        awaits its reload.
         """
         if not self.settings_service:
             return False

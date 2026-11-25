@@ -249,7 +249,8 @@ class RecoveryAccessPointGuard:
     (`scope["path"]`, decoded, matched verbatim), and anything that is not exactly an
     entry — a trailing slash, a doubled slash, another case — is refused, never let
     through. Without a network service (a dev host) no AP exists and it passes; a
-    setting it cannot read counts as set up.
+    settings.json that could not be read (`SettingsService.read_failed`) counts as
+    set up, since the defaults served in its place say "not set up" of any unit.
 
     One warning per client per AP episode: a phone left on the AP refused every write
     it tries would otherwise fill errors.log. The episode ends when a request finds
@@ -300,13 +301,21 @@ class RecoveryAccessPointGuard:
         )
 
     async def _set_up(self) -> bool:
-        """Whether the unit is set up; a setting that cannot be read counts as set up."""
+        """Whether the unit is set up; a settings.json that could not be read counts
+        as set up.
+
+        `get_setting` never raises: a failed read serves the defaults, whose
+        `setup_completed` is False, and says so in `read_failed`, asked after it.
+        The failed read is SettingsService's to report, once, at error, and the
+        refusal it leads to is warned of once per client like any other, so it is
+        only a debug line here: a warning per write would let anyone in radio
+        range rotate that error out of errors.log.
+        """
         if self.settings_service is None:
             return True
-        try:
-            completed = await self.settings_service.get_setting("setup_completed")
-        except Exception as e:
-            logger.warning("Recovery AP guard: setup_completed unreadable, counted as set up: %s", e)
+        completed = await self.settings_service.get_setting("setup_completed")
+        if self.settings_service.read_failed:
+            logger.debug("Recovery AP guard: settings.json could not be read, counted as set up")
             return True
         return completed is not False
 

@@ -26,6 +26,7 @@ that let `POST /api/system/restart` through would reboot it. The installed guard
 class wraps a sentinel that records what reached it.
 """
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -106,10 +107,35 @@ def _installed_guard(setup_completed, own_ap=True):
         recovery_ap_possible = own_ap
 
     class Settings:
+        read_failed = False
+
         async def get_setting(self, key):
             return {"setup_completed": setup_completed}[key]
 
-    return lambda app: entry.cls(app, network_service=Network(), settings_service=Settings())
+    return _guard_over(entry, Network(), Settings())
+
+
+def _guard_over(entry, network, settings):
+    return lambda app: entry.cls(app, network_service=network, settings_service=settings)
+
+
+def _guard_on_settings_at(path, first_read):
+    """The installed guard, on the unit's own AP, over a real `SettingsService`
+    reading `path` — read first by the boot's sync reader or by the guard."""
+    from backend.core.settings import SettingsService
+    from backend.main import app as main_app
+
+    entry = next(m for m in main_app.user_middleware if m.cls is RecoveryAccessPointGuard)
+
+    class Network:
+        open_ap_reachable = True
+        recovery_ap_possible = True
+
+    settings = SettingsService()
+    settings.settings_file = str(path)
+    if first_read == "boot":
+        settings.get_setting_sync("routing.multiroom_enabled")
+    return settings, _guard_over(entry, Network(), settings)
 
 
 def _concrete(template):
@@ -181,6 +207,56 @@ async def test_every_write_but_the_wizards_is_refused_to_a_client_of_the_ap(setu
             wrong.append((method, template, answer))
 
     assert wrong == []
+
+
+@pytest.mark.parametrize("first_read", ["boot", "guard"])
+async def test_a_settings_file_that_cannot_be_read_counts_as_set_up(tmp_path, caplog, first_read):
+    """A card that answers EIO, or an unreadable file that cannot be renamed
+    aside, serves the defaults, whose `setup_completed` is False — and opening
+    the wizard's writes to anyone in radio range of a unit already set up would
+    let a stranger rewrite its hardware and finish its setup. A directory where
+    settings.json should be is that failed read, on a real OSError."""
+    unreadable = tmp_path / "settings.json"
+    unreadable.mkdir()
+    settings, guard = _guard_on_settings_at(unreadable, first_read)
+
+    assert await settings.get_setting("setup_completed") is False, (
+        "this setup must serve the defaults' 'not set up', or this test proves nothing"
+    )
+    set_up = _installed_guard(setup_completed=True)
+    for method, path in PRE_SETUP_WRITES:
+        assert await _send(guard, method, path) == await _send(set_up, method, path), (method, path)
+    assert await _send(guard, "POST", "/api/setup/complete") == 403
+
+    # The failed read is SettingsService's to report, at error: a warning per
+    # refused write would let a stranger looping on the wizard rotate it out of
+    # errors.log, so a client is warned of once, like any refused client.
+    from backend.api import middleware
+
+    installed = []
+
+    def one_instance(app):  # main.py installs one guard, which keeps its warnings
+        if not installed:
+            installed.append(guard(app))
+        installed[0].app = app
+        return installed[0]
+
+    caplog.clear()
+    stranger = AP_CLIENT.rsplit(".", 1)[0] + ".6"
+    for method, path in [*PRE_SETUP_WRITES, *PRE_SETUP_WRITES]:
+        await _send(one_instance, method, path, real_ip=stranger)
+    warnings = [
+        r for r in caplog.records
+        if r.name == middleware.logger.name and r.levelno >= logging.WARNING
+    ]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+
+    (tmp_path / "fresh").mkdir()
+    fresh_settings, fresh = _guard_on_settings_at(tmp_path / "fresh" / "settings.json", first_read)
+    assert await fresh_settings.get_setting("setup_completed") is False
+    assert await _send(fresh, "POST", "/api/setup/complete") == "reached", (
+        "a fresh install, with no file at all, is not a failed read: its wizard must reach setup"
+    )
 
 
 async def test_a_speakers_hotspot_saves_nothing():

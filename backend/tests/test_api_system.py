@@ -749,6 +749,7 @@ class TestRecoveryAccessPoint:
         stored = {"setup_completed": True}
         service = Mock()
         service.get_setting = AsyncMock(side_effect=lambda key: stored[key])
+        service.read_failed = False
         service.stored = stored
         return service
 
@@ -851,19 +852,18 @@ class TestRecoveryAccessPoint:
         expected = (200, True) if name in self.ONCE_SET_UP else (403, False)
         assert self._send(reached_from(peer), routes[name], real_ip) == expected
 
-    @pytest.mark.parametrize("failure", [
-        pytest.param(OSError("settings.json unreadable"), id="read-raises"),
-        pytest.param(None, id="read-answers-nothing"),
-    ])
+    @pytest.mark.parametrize("failure", ["read-failed", "read-answers-nothing"])
     def test_a_setting_that_cannot_be_read_counts_as_set_up(
         self, reached_from, routes, settings, failure,
     ):
         """Opening on a failed read would hand the wizard's writes to the AP of a unit
-        set up whenever its settings misbehave."""
-        if failure is None:
-            settings.get_setting = AsyncMock(return_value=None)
+        set up whenever its settings misbehave. A failed read serves the defaults'
+        "not set up" without raising, as `SettingsService` does, and says so."""
+        if failure == "read-failed":
+            settings.stored["setup_completed"] = False
+            settings.read_failed = True
         else:
-            settings.get_setting = AsyncMock(side_effect=failure)
+            settings.get_setting = AsyncMock(return_value=None)
 
         assert self._send(reached_from("10.42.0.5"), routes["wifi-country"], None) == (403, False)
 

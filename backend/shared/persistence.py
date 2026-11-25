@@ -186,12 +186,15 @@ async def load_versioned_json(
 def load_versioned_json_sync(
     file: Path, expected_version: int, *, required: Iterable[str] = ()
 ) -> Dict[str, Any]:
-    """Blocking twin of ``load_versioned_json``, for the bootstrap reads.
+    """Blocking twin of ``load_versioned_json``, for readers that do not await.
 
     ``SettingsService.get_setting_sync`` is the *first* reader of settings.json
     on every boot (``dependencies.py`` STEP 3b derives routing.env / mac.env /
     snapclient.env from it), and ``HardwareService`` answers bootstrap getters
-    before its ``initialize()``. Same contract, same implementation.
+    before its ``initialize()``. Each fills a cache and blocks the loop only
+    while it is empty: a settings write leaves what it wrote in the cache, while
+    ``HardwareService.save_config`` empties its own, so the getter after a
+    hardware write reads the file again. Same contract, same implementation.
     """
     file = Path(file)
     data, aside = _load(file, expected_version, tuple(required))

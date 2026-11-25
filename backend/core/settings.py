@@ -76,6 +76,10 @@ class SettingsService:
         self.logger = logging.getLogger(__name__)
         self.settings_file = str(SETTINGS_FILE)
         self._cache = None
+        # True while the cache holds defaults because settings.json could not be
+        # read (an OSError on the card, a file that could not be renamed aside):
+        # the file may still hold a set-up unit, so `read_failed` says so.
+        self._read_failed = False
         self._file_lock = asyncio.Lock()  # Native async lock instead of fcntl.flock
 
         # The single declaration of every settings default. `_validate_and_merge`
@@ -256,15 +260,18 @@ class SettingsService:
 
             if validated is None:
                 self._cache = self._default_settings()
+                self._read_failed = False
                 await self.save_settings(self.defaults)
                 return self._cache
 
             self._cache = validated
+            self._read_failed = False
             return validated
 
         except Exception as e:
             self.logger.error(f"Error loading settings: {e}")
             self._cache = self._default_settings()
+            self._read_failed = True
             return self._cache
 
     async def save_settings(self, settings: Dict[str, Any]) -> bool:
@@ -278,6 +285,7 @@ class SettingsService:
                 )
 
             self._cache = validated
+            self._read_failed = False
             self.logger.debug("Settings saved successfully")
             return True
 
@@ -560,17 +568,28 @@ class SettingsService:
         return validated
 
     def get_setting_sync(self, key_path: str) -> Any:
-        """Get a setting by path (SYNCHRONOUS — bootstrap and sync property reads only).
+        """Get a setting by path (SYNCHRONOUS — for a reader that does not await).
 
         Prefer the async ``get_setting`` from runtime code. The legitimate
         callers are:
 
         * ``AudioRoutingService.regenerate_env_files`` — derives the three
-          env-file artifacts from settings during boot (event loop not yet
-          running) and during ``_detect_initial_state``.
+          env-file artifacts from settings at boot (STEP 3b of
+          ``initialize_services``, on the running loop, before any source
+          unit starts) and during ``_detect_initial_state``.
         * ``AudioRoutingService.multiroom_enabled`` property — hot-path
           sync read used by the state machine when composing the audio
-          state.
+          state; a property cannot await.
+
+        ``regenerate_env_files`` is ``async`` and reads it by choice, the
+        one consolidation point of the sync read; the property is the one
+        caller that could not do otherwise.
+
+        Both read the cache. It reads the disk only when the cache is empty —
+        the boot's first read, or a read that lands while a caller of
+        ``invalidate_cache`` awaits its reload — and that read blocks the loop:
+        every write leaves the validated dict it wrote in the cache, so none
+        sends this method back to the file.
 
         Loaded data is run through ``_validate_and_merge`` before caching
         so missing keys (e.g. older installs without a ``routing`` block)
@@ -586,9 +605,11 @@ class SettingsService:
             try:
                 validated = self._load_sync()
                 self._cache = validated if validated is not None else self._default_settings()
+                self._read_failed = False
             except Exception as e:
                 self.logger.warning(f"get_setting_sync fallback to defaults: {e}")
                 self._cache = self._default_settings()
+                self._read_failed = True
 
         try:
             keys = key_path.split('.')
@@ -618,6 +639,18 @@ class SettingsService:
         if not self._cache:
             self._cache = await self.load_settings()
         return dict(self._cache)
+
+    @property
+    def read_failed(self) -> bool:
+        """Whether the settings served now are defaults held in memory because
+        settings.json could not be read — an OSError on the card, or a file that
+        could not be renamed aside — rather than what the file holds.
+
+        A fresh install, or a file set aside, is not a failed read: the defaults
+        are then what the file holds. `RecoveryAccessPointGuard` counts a failed
+        read as set up, since the file it could not read may hold a unit that is.
+        """
+        return self._read_failed
 
     def invalidate_cache(self) -> None:
         """Invalidates cache to force a reload"""
@@ -661,7 +694,7 @@ class SettingsService:
         current[keys[-1]] = value
 
     async def set_setting(self, key_path: str, value: Any) -> bool:
-        """Sets a setting atomically and invalidates cache (async).
+        """Sets a setting atomically; the cache holds what was written (async).
 
         Lossy variant: swallows exceptions and returns ``False`` on failure.
         Use :meth:`set_setting_strict` from code paths that must not silently
@@ -702,9 +735,8 @@ class SettingsService:
                 self._apply_key(settings, key_path, value)
             success = await self._write_locked(settings, updates.keys())
 
-        if success:
-            self._cache = None
-
+        # A success leaves the cache `_write_locked` set: the validated dict it
+        # just wrote, so no reader goes back to the disk for it.
         return success
 
     async def set_settings_strict(self, updates: Dict[str, Any]) -> None:
@@ -725,8 +757,6 @@ class SettingsService:
             raise SettingsWriteError(
                 f"Failed to persist settings {sorted(updates)}"
             )
-
-        self._cache = None
 
     async def _read_locked(self) -> Dict[str, Any]:
         """Read + validate settings. Caller must hold self._file_lock.
@@ -793,6 +823,7 @@ class SettingsService:
                 Path(self.settings_file), validated, self.SCHEMA_VERSION
             )
             self._cache = validated
+            self._read_failed = False
             return True
         except Exception as e:
             self.logger.error(f"Error writing settings: {e}")
