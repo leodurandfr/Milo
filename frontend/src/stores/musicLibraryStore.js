@@ -1108,12 +1108,13 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
   // …and while it runs, the storage space on screen fills as it is indexed.
   // Driven by its album count rather than a timer: the count only moves when
   // Navidrome has actually committed albums, so this refetches only when there
-  // is something new to show, and never on an idle poll. Paced, though: the
-  // count moves on nearly every push of a scan (3 s apart), and reloading every
-  // cached list each time was ~1,400 requests per client over an 18-minute
-  // first index, to a Navidrome busy indexing — for an album grid the backend
-  // serves from a cache of the same age as this pace anyway. The end of the
-  // scan reloads them all regardless.
+  // is something new to show, and never on an idle poll. The count is the
+  // grid's (box sets merged), read from the backend's merged-album cache: it
+  // moves when a background walk of the catalog completes, at most once per
+  // cache lifetime (30 s) during a scan, not on every 3 s push. The pace below
+  // stays as a bound of its own: reloading every cached list on each move was
+  // once ~1,400 requests per client over an 18-minute first index, to a
+  // Navidrome busy indexing. The end of the scan reloads them all regardless.
   const SCAN_RELOAD_INTERVAL_MS = 30000;
   let lastScanReload = -Infinity;
   const activeStorageAlbumCount = computed(() => {
