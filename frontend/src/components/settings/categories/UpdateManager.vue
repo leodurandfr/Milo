@@ -49,10 +49,11 @@
                           <span class="text-body-small failure-cause">{{ t('updates.checkFailed') }}</span>
                         </div>
                         <!-- The channel published a release this unit will not
-                             install: no key it trusts signed it. -->
-                        <div v-if="miloAction === 'refusedSignature'" class="program-failure">
+                             install: no key it trusts signed it, or going back
+                             to it would set the data aside. -->
+                        <div v-if="miloRefusalCause" class="program-failure">
                           <span class="text-body-small failure-cause">
-                            {{ t('updates.refusedSignatureCause', { version: stripTagPrefix(localPrograms.milo.latest?.tag_name) }) }}
+                            {{ t(miloRefusalCause, { version: stripTagPrefix(localPrograms.milo.latest?.tag_name) }) }}
                           </span>
                         </div>
                         <!-- The last update, put back by the unit itself: drawn
@@ -541,8 +542,16 @@ const miloAction = computed(() => miloRowAction(localPrograms.value.milo));
 const MILO_STATUS_LABELS = {
   developmentBuild: 'updates.developmentBuild',
   refusedSignature: 'updates.refusedSignature',
+  refusedSchema: 'updates.refusedSchema',
 };
 const miloStatusLabel = computed(() => t(MILO_STATUS_LABELS[miloAction.value] || 'updates.upToDate'));
+
+// The sentence under a refused row, saying why the channel's release is not offered.
+const MILO_REFUSAL_CAUSES = {
+  refusedSignature: 'updates.refusedSignatureCause',
+  refusedSchema: 'updates.refusedSchemaCause',
+};
+const miloRefusalCause = computed(() => MILO_REFUSAL_CAUSES[miloAction.value] || null);
 
 // A row's Retry after its check failed: the rows stay drawn while it runs, and
 // after it when it is refused, the server's detail folded under the sentence.

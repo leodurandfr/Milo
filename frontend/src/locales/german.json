@@ -554,6 +554,8 @@
     "developmentBuild": "Entwicklungsversion",
     "refusedSignature": "Abgelehnt: Signatur",
     "refusedSignatureCause": "Die Signatur der Version {version} konnte nicht überprüft werden",
+    "refusedSchema": "Abgelehnt: Datenformat",
+    "refusedSchemaCause": "Version {version} speichert ihre Daten in einem anderen Format: Bei einer Rückkehr zu ihr gingen die aktuellen Einstellungen und Daten verloren",
     "dependenciesHint": "Installiert die App und die damit validierten Programmversionen.",
     "clientsHint": "Die Milō Clients erhalten sie ebenfalls.",
     "revertTo": "Zurück zu {version}",

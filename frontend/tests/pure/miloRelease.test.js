@@ -80,6 +80,19 @@ describe('miloRowAction', () => {
     expect(miloRowAction(milo)).toBe('refusedSignature');
   });
 
+  it('says a return was refused for its data format rather than offering it', () => {
+    // The withdrawn release moved a file to another schema_version: going back
+    // would start that file from its defaults, so the backend offers nothing.
+    const milo = {
+      development_build: false,
+      update_available: false,
+      check_failed: false,
+      refused: 'schema',
+      latest: { status: 'success', tag_name: 'v0.2.0' },
+    };
+    expect(miloRowAction(milo)).toBe('refusedSchema');
+  });
+
   it('offers what the backend offers when it refused nothing', () => {
     expect(miloRowAction({ development_build: false, update_available: true, refused: null })).toBe('update');
   });

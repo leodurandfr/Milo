@@ -554,6 +554,8 @@
     "developmentBuild": "Versión de desarrollo",
     "refusedSignature": "Rechazada: firma",
     "refusedSignatureCause": "No se pudo verificar la firma de la versión {version}",
+    "refusedSchema": "Rechazada: formato de datos",
+    "refusedSchemaCause": "La versión {version} guarda sus datos en otro formato: volver a ella haría perder los ajustes y los datos actuales",
     "dependenciesHint": "Instala la aplicación y las versiones de los programas validadas con ella.",
     "clientsHint": "Los Milō Clients también la reciben.",
     "revertTo": "Volver a {version}",

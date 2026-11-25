@@ -3,6 +3,7 @@
 Version management service - Version with GitHub token support
 """
 import asyncio
+import contextlib
 import copy
 import time
 import aiohttp
@@ -13,6 +14,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.core.updates.catalog import PROGRAMS
+from backend.core.updates.data_snapshot import (
+    CONSTANTS_SOURCE,
+    SNAPSHOT_SOURCE,
+    declared_data_files,
+    declared_schema_version,
+    owner_source,
+    schema_changes,
+)
 from backend.core.updates.helpers import compare_versions, is_stable_release
 from backend.core.updates.release_signature import (
     MAX_MANIFEST_BYTES,
@@ -27,6 +36,10 @@ from backend.core.updates.release_signature import (
 RELEASES_RETRY_S = 300
 # The offer's verdict on one release's signature, cached per tag.
 SIGNATURE_CACHE_PREFIX = "signature_"
+# The offer's verdict on whether a return to one commit crosses a data format.
+SCHEMA_CACHE_PREFIX = "schema_"
+# How long the offer waits for the fetch of a release this checkout lacks.
+RELEASE_FETCH_TIMEOUT_S = 60
 
 
 class VersionService:
@@ -382,7 +395,9 @@ class VersionService:
         candidates = [f"github_{program_key}" for program_key in self.programs]
         # A signature that could not be *read* is a check that failed too; one
         # that was read and refused is an answer, and a retry would repeat it.
-        candidates += [key for key in self._github_cache if key.startswith(SIGNATURE_CACHE_PREFIX)]
+        # So is a return whose data formats could not be compared.
+        candidates += [key for key in self._github_cache
+                       if key.startswith((SIGNATURE_CACHE_PREFIX, SCHEMA_CACHE_PREFIX))]
         for cache_key in candidates:
             cached = self._github_cache.get(cache_key)
             if cached is not None and cached.get("status") not in ("success", "refused"):
@@ -521,6 +536,21 @@ class VersionService:
             for key in ("version", "tag_name", "html_url", "published_at")
         }
 
+    @classmethod
+    def nothing_installed(cls, status: Dict[str, Any]) -> bool:
+        """Whether a full status describes a program this unit does not have.
+
+        The one "off the pin?" rule both the screen's offer and the Milō
+        update's reconciliation read: no version read *and* nothing on disk is
+        a program never installed here, with nothing to update. A version that
+        is there but could not be read (`unreadable`: a command that timed out
+        on a cold card, a banner the regex no longer matches) is not that — it
+        is off the pin, offered on the screen and reinstalled by the
+        reconciliation alike.
+        """
+        return (cls.installed_version(status) is None
+                and status.get("installed", {}).get("status") != "unreadable")
+
     @staticmethod
     def installed_version(status: Dict[str, Any]) -> Optional[str]:
         """The one version a full status reports as installed.
@@ -541,16 +571,122 @@ class VersionService:
         development checkout; in the first, it tells a unit running a
         pre-release that it is running nothing at all.
         """
+        returncode, stdout, _ = await self._read_git("describe", "--tags", "--exact-match")
+        if returncode != 0:
+            return None
+        return stdout.strip() or None
+
+    async def _read_git(self, *args: str, timeout: Optional[float] = None) -> tuple[int, str, str]:
+        """One git command in the checkout Milō runs from: (exit code, stdout,
+        stderr). Raises TimeoutError past `timeout`, the process killed."""
         proc = await asyncio.create_subprocess_exec(
-            "git", "-C", self.programs["milo"]["git_path"],
-            "describe", "--tags", "--exact-match",
+            "git", "-C", self.programs["milo"]["git_path"], *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await proc.communicate()
-        if proc.returncode != 0:
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout)
+        except asyncio.TimeoutError:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.wait()
+            raise
+        return proc.returncode, stdout.decode(errors="replace"), stderr.decode(errors="replace")
+
+    async def _schemas_at(self, ref: str) -> Optional[Dict[str, tuple[str, Optional[int]]]]:
+        """{owner: (its file, the SCHEMA_VERSION it declares)} for every owner
+        the data set of release `ref` names, all read from git at `ref`; None
+        when that set cannot be read there (data_snapshot.declared_data_files)."""
+        (snapshot_rc, snapshot, _), (constants_rc, constants, _) = await asyncio.gather(
+            self._read_git("show", f"{ref}:{SNAPSHOT_SOURCE}"),
+            self._read_git("show", f"{ref}:{CONSTANTS_SOURCE}"),
+        )
+        if snapshot_rc != 0 or constants_rc != 0:
             return None
-        return stdout.decode().strip() or None
+        files = declared_data_files(snapshot, constants)
+        if files is None:
+            return None
+
+        async def declared(owner: str) -> Optional[int]:
+            returncode, source, _ = await self._read_git("show", f"{ref}:{owner_source(owner)}")
+            if returncode != 0:
+                return None
+            return declared_schema_version(source, owner.rpartition(".")[2])
+
+        versions = await asyncio.gather(*(declared(owner) for owner in files))
+        return {owner: (files[owner], version) for owner, version in zip(files, versions)}
+
+    async def _schemas_crossed(self, running_ref: str, target_ref: str) -> Optional[List[str]]:
+        """The owners of `running_ref` whose file a return to `target_ref`
+        would set aside — another `SCHEMA_VERSION` for the same file — or None
+        when that cannot be told. Both commits must be in the checkout.
+
+        Asked twice of one release: by the offer, at the commit its signed
+        manifest names (`_schema_return_verdict`), and by the install, at the
+        commit it checks out (`UpdateService._update_milo_app`) — the install's
+        answer is the one that decides.
+        """
+        running, target = await asyncio.gather(
+            self._schemas_at(running_ref), self._schemas_at(target_ref)
+        )
+        if running is None or target is None:
+            return None
+        return schema_changes(running, target)
+
+    async def _holds_commit(self, commit: str) -> bool:
+        returncode, _, _ = await self._read_git("cat-file", "-e", f"{commit}^{{commit}}")
+        return returncode == 0
+
+    async def _schema_return_verdict(self, tag: str, commit: str) -> Dict[str, Any]:
+        """Whether a return to release `tag`, at the `commit` its signed
+        manifest names, crosses a data format: `success` with the owners it
+        crosses, or `error` when that could not be told. Cached per commit,
+        and a failure for `RELEASES_RETRY_S` like a release read, the screen's
+        Retry dropping it at once: every status read of the row reaches this."""
+        cache_key = f"{SCHEMA_CACHE_PREFIX}{commit}"
+        return await self._shared_read(
+            cache_key, lambda: self._read_schema_return(tag, commit, cache_key)
+        )
+
+    async def _read_schema_return(self, tag: str, commit: str, cache_key: str) -> Dict[str, Any]:
+        now = time.time()
+        try:
+            if not await self._holds_commit(commit):
+                # A release this checkout never fetched: the install fetches
+                # only once it was offered, and the release a withdrawal falls
+                # back to may have been cut since (a fix on the line before the
+                # withdrawn one). Its objects alone — no ref is written, so
+                # nothing here races an install's own fetch for a lock.
+                returncode, _, stderr = await self._read_git(
+                    "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
+                    "origin", f"refs/tags/{tag}", timeout=RELEASE_FETCH_TIMEOUT_S,
+                )
+                if returncode != 0:
+                    raise Exception(f"the fetch of {tag} failed: {stderr.strip()}")
+                if not await self._holds_commit(commit):
+                    raise Exception(f"{tag} does not name commit {commit}, which its signed manifest names")
+            crossed = await self._schemas_crossed("HEAD", commit)
+            if crossed is None:
+                raise Exception("the data files and their schema_version could not be read at both releases")
+        except Exception as e:
+            # Logged once per read, not per status read: this is cached.
+            self.logger.warning(
+                f"The data formats of release {tag} could not be compared with the "
+                f"running release's; its return is not offered: {e!r}"
+            )
+            verdict = {"status": "error", "message": str(e)}
+            self._github_cache[cache_key] = verdict
+            self._last_github_fetch[cache_key] = now - self._cache_timeout + RELEASES_RETRY_S
+            return verdict
+        if crossed:
+            self.logger.warning(
+                f"A return to release {tag} would set aside the data of "
+                f"{', '.join(crossed)} (another schema_version); it is not offered"
+            )
+        verdict = {"status": "success", "crossed": crossed}
+        self._github_cache[cache_key] = verdict
+        self._last_github_fetch[cache_key] = now
+        return verdict
 
     async def _fetch_release_bytes(self, url: str, *, listed: bool) -> bytes:
         """One small release asset, byte for byte: a signature covers exact
@@ -589,10 +725,10 @@ class VersionService:
         return await verified_manifest(manifest, signature, Path(milo["release_signing_key"]), tag)
 
     async def _release_verdict(self, tag: str, asset_names: List[str]) -> Dict[str, Any]:
-        """Whether release `tag` verifies: `success`, `refused` (no signed
-        manifest, or one that does not verify), or `error` (it could not be
-        read). Cached per tag like the release it belongs to — a published
-        release's assets do not change — and a read that failed for
+        """Whether release `tag` verifies: `success`, `refused` (no published
+        frontend, no signed manifest, or one that does not verify), or `error`
+        (it could not be read). Cached per tag like the release it belongs to —
+        a published release's assets do not change — and a read that failed for
         `RELEASES_RETRY_S`, the screen's Retry dropping it at once."""
         cache_key = f"{SIGNATURE_CACHE_PREFIX}{tag}"
         return await self._shared_read(
@@ -603,19 +739,28 @@ class VersionService:
         self, tag: str, asset_names: List[str], cache_key: str
     ) -> Dict[str, Any]:
         now = time.time()
-        manifest = self.programs["milo"]["release_manifest_url"].format(tag=tag).rsplit("/", 1)[-1]
+        milo = self.programs["milo"]
+        manifest = milo["release_manifest_url"].format(tag=tag).rsplit("/", 1)[-1]
+        # What the install downloads besides the manifest: half of "can this be
+        # installed" is an artifact, not a ref. A tag pushed without CI, a build
+        # that died before its upload, a release predating this channel (v0.0.1,
+        # measured: no asset at all) — offered, each is an update refused at
+        # every press; read as "up to date", it hides what the channel served.
+        frontend = milo["frontend_asset_url"].format(tag=tag).rsplit("/", 1)[-1]
         try:
-            # A release that lists neither file is refused without a download.
-            missing = [name for name in (manifest, f"{manifest}{SIGNATURE_SUFFIX}")
+            # A release that does not list all three is refused without a download.
+            missing = [name for name in (frontend, manifest, f"{manifest}{SIGNATURE_SUFFIX}")
                        if name not in asset_names]
             if missing:
                 raise UnverifiableRelease(f"the release publishes no {' and no '.join(missing)}")
-            await self.verify_release(tag, listed=True)
-            verdict = {"status": "success"}
+            signed = await self.verify_release(tag, listed=True)
+            # The commit it names is what the install checks out, so it is
+            # what the return check judges, never the tag's local name.
+            verdict = {"status": "success", "commit": signed.commit}
         except UnverifiableRelease as e:
             # Logged once per read, not per status read: this is cached. A
-            # warning, as for a release that published no frontend — the row
-            # says it, and an error would raise the banner on every opening.
+            # warning: the row says it, and an error would raise the banner on
+            # every opening.
             self.logger.warning(f"Release {tag} is refused, it is not offered: {e}")
             verdict = {"status": "refused", "message": str(e)}
         except Exception as e:
@@ -660,12 +805,26 @@ class VersionService:
             says why), so offering it would draw a button whose every press
             fails. `refused: "signature"` is what the row reads instead — not
             "up to date", which would hide that the channel served something
-            this unit will not run. A signature that could not be *read* (no
-            network) is a check that failed, like the release read itself.
+            this unit will not run. A release that publishes no frontend is
+            the same refusal (`_read_release_verdict`): the install downloads
+            it, and a release without one has no signed manifest either. A
+            signature that could not be *read* (no network) is a check that
+            failed, like the release read itself.
+          * **a return that would cross a data format is refused, and says
+            so.** A withdrawal's return is an ordinary install, and the copy
+            of the data from before the withdrawn release was dropped when it
+            committed: a release put back over a file the withdrawn one moved
+            to another `schema_version` sets it aside and starts from its
+            defaults — the settings and the multiroom registry, on every unit
+            that took it. `refused: "schema"` names that instead of a button
+            that erases them (data_snapshot.py). Judged at the commit the
+            signed manifest names, fetched when this checkout lacks it, and
+            judged again by the install at the commit it checks out.
 
         A unit running a pre-release is *not* a development build: it sits on a
         tag, so it is told plainly what it runs and offered the stable release
-        the channel publishes — which is how a test unit gets back.
+        the channel publishes — which is how a test unit gets back, unless its
+        pre-release moved a data format the stable release does not read.
         """
         # Asked of git, not of GitHub: an offline development tree is still one.
         tag = await self._exact_release_tag()
@@ -684,22 +843,6 @@ class VersionService:
         if not is_stable_release(published) or published == tag:
             return
 
-        # The offer's contract is that what it names can be *installed*, and half
-        # of that is an artefact, not a ref. A tag pushed without CI, a build
-        # that died after publishing, a release predating this channel — each
-        # gives a frontend download that 404s, an update refused at every
-        # press. Measured on v0.0.1, the one release this repo carried before
-        # the channel existed: offered, and carrying no asset at all.
-        wanted = self.programs["milo"]["frontend_asset_url"].format(
-            tag=published
-        ).rsplit("/", 1)[-1]
-        if wanted not in (latest.get("asset_names") or []):
-            self.logger.warning(
-                f"Release {published} publishes no {wanted}; it cannot be "
-                "installed, so it is not offered."
-            )
-            return
-
         verdict = await self._release_verdict(published, latest.get("asset_names") or [])
         if verdict["status"] == "error":
             result["check_failed"] = True
@@ -708,13 +851,21 @@ class VersionService:
             result["refused"] = "signature"
             return
 
-        result["update_available"] = True
         # Installed newer than published: the release moved backwards, which is
         # a withdrawal. Measured on the versions rather than the tags because
         # the "v" prefix is a repo convention, not part of the ordering.
-        latest["withdrawn"] = compare_versions(
-            latest.get("version"), self.installed_version(result)
-        )
+        withdrawn = compare_versions(latest.get("version"), self.installed_version(result))
+        if withdrawn:
+            crossed = await self._schema_return_verdict(published, verdict["commit"])
+            if crossed["status"] != "success":
+                result["check_failed"] = True
+                return
+            if crossed["crossed"]:
+                result["refused"] = "schema"
+                return
+
+        result["update_available"] = True
+        latest["withdrawn"] = withdrawn
 
     async def get_program_full_status(self, program_key: str) -> Dict[str, Any]:
         """Gets complete status (installed + GitHub) for a program"""
@@ -761,12 +912,17 @@ class VersionService:
                 await self._apply_milo_offer(result, github_result)
             elif github_result.get("status") != "success":
                 result["check_failed"] = True
-            elif installed_result.get("status") == "installed":
+            elif not self.nothing_installed(result):
 
                 installed_version = self.installed_version(result)
                 latest_version = github_result.get("version")
 
-                if installed_version and latest_version:
+                if installed_version is None:
+                    # Present, its version unread: off the pin, so the version
+                    # it is pinned to is offered — the reinstall the
+                    # reconciliation would do, reachable from the screen.
+                    result["update_available"] = True
+                elif latest_version:
                     result["update_available"] = compare_versions(installed_version, latest_version)
                     self._reconcile_offer(
                         program_key, github_result, installed_version,

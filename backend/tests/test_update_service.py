@@ -1580,6 +1580,29 @@ class TestDependencyReconciliation:
         assert "go-librespot: the installed version could not be read" in caplog.text
 
     @pytest.mark.asyncio
+    async def test_the_screen_offers_the_reinstall_the_reconciliation_does(self, update_service):
+        """One "off the pin?" rule, read in both places. Offered nothing, the
+        row of a program whose version cannot be read had no button and its
+        route answered "No update available", while the next Milō update
+        reinstalled it — every time, when the banner itself had moved."""
+        validated = update_service.programs["go-librespot"]["validated_version"]
+        binary = update_service.programs["go-librespot"]["binary_path"]
+        with self._reconciling(
+            update_service, installed=lambda argv: b"" if "go-librespot" in " ".join(argv) else b"1.0.0",
+            tag=f"v{validated}",
+        ) as dispatched, patch(
+            "backend.core.updates.version.os.path.lexists", side_effect=lambda path: path == binary,
+        ):
+            status = await update_service.get_program_full_status("go-librespot")
+            result = await update_service.update_program("go-librespot")
+
+        assert status["installed"]["status"] == "unreadable"
+        assert status["update_available"] is True
+        assert status["check_failed"] is False
+        assert result.get("success") is True, result
+        assert dispatched == [("go-librespot", validated)]
+
+    @pytest.mark.asyncio
     async def test_a_dependency_absent_from_disk_is_still_left_alone(self, update_service, caplog):
         """The other half: no binary where the catalog names one is a program
         this unit does not have, and installing it is no update's business."""
@@ -4703,6 +4726,54 @@ class TestTheMiloInstall:
         assert journal["target_commit"] == MiloUnit.TARGET
         assert (journal["origin_tag"], journal["target_tag"]) == ("v0.1.0", "v0.2.0")
         assert journal["failure"] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target_settings_version, refused", [(4, True), (5, False)])
+    async def test_a_return_is_judged_on_the_commit_that_installs(
+            self, update_service, tmp_path, target_settings_version, refused):
+        """The version moves backwards (v0.3.0 withdrawn, v0.2.0 published
+        again): an ordinary install, with no copy of the data from before
+        v0.3.0 left to restore. The offer judged the return already, but on
+        what it could read then; the install judges the commit it checks out,
+        and a return across settings.json's format is refused with nothing
+        moved — not a snapshot taken at v0.3.0's schema that v0.2.0 then sets
+        aside, with every setting and speaker in it."""
+        def tree(settings_version):
+            return {
+                "backend/config/constants.py": (
+                    'from pathlib import Path\nMILO_DATA_DIR = Path("/var/lib/milo")\n'
+                    'SETTINGS_FILE = MILO_DATA_DIR / "settings.json"\n'),
+                "backend/core/updates/data_snapshot.py": (
+                    "from backend.config.constants import SETTINGS_FILE\n"
+                    "VERSIONED_DATA_FILES = {'backend.core.settings.SettingsService': SETTINGS_FILE}\n"),
+                "backend/core/settings.py": f"class SettingsService:\n    SCHEMA_VERSION = {settings_version}\n",
+            }
+        trees = {MiloUnit.ORIGIN: tree(5), MiloUnit.TARGET: tree(target_settings_version)}
+
+        def show(argv):
+            if argv[0] == "git" and argv[3] == "show":
+                ref, path = argv[4].split(":", 1)
+                text = trees.get(ref, {}).get(path)
+                return (0, text.encode(), b"") if text is not None else (128, b"", b"fatal: no such path")
+            raise AssertionError(f"a Milo update spawned something unexpected: {argv}")
+
+        unit = MiloUnit(update_service, tmp_path, other=show)
+        going_back = {
+            "installed": {"versions": {"main": "0.3.0"}, "raw_version": "v0.3.0", "release_tag": "v0.3.0"},
+            "latest": {"status": "success", "version": "0.2.0", "tag_name": "v0.2.0"},
+        }
+        with unit.running():
+            result = await update_service._update_milo_app(going_back)
+
+        assert unit.ran(_git("show", f"{MiloUnit.TARGET}:backend/core/settings.py"))
+        if refused:
+            assert result["success"] is False
+            assert "would set aside the data of backend.core.settings.SettingsService" in result["error"]
+            assert unit.journal() is None
+            assert not unit.ran(_git("checkout"))
+            assert not (unit.backups / unit.journal_names.DATA_SNAPSHOT_NAME).exists()
+        else:
+            assert result == {"success": True, "pending": True}
 
     @pytest.mark.asyncio
     async def test_the_origin_is_read_by_hash_before_the_fetch(self, update_service, tmp_path):

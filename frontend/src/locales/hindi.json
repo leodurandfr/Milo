@@ -554,6 +554,8 @@
     "developmentBuild": "डेवलपमेंट बिल्ड",
     "refusedSignature": "अस्वीकृत: हस्ताक्षर",
     "refusedSignatureCause": "संस्करण {version} का हस्ताक्षर सत्यापित नहीं हो सका",
+    "refusedSchema": "अस्वीकृत: डेटा प्रारूप",
+    "refusedSchemaCause": "संस्करण {version} अपना डेटा दूसरे प्रारूप में सहेजता है: उस पर वापस जाने से वर्तमान सेटिंग्स और डेटा खो जाएंगे",
     "dependenciesHint": "ऐप और उसके साथ मान्य किए गए प्रोग्राम संस्करण इंस्टॉल करता है।",
     "clientsHint": "Milō Clients को भी यह मिलता है।",
     "revertTo": "{version} पर लौटें",

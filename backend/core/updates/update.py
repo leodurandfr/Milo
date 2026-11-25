@@ -19,6 +19,7 @@ from backend.core.updates.version import VersionService
 from backend.core.updates.data_snapshot import take_snapshot
 from backend.core.updates import dpkg_lock
 from backend.core.updates.helpers import (
+    compare_versions,
     fsync_directory,
     requirements_moved_up,
     write_json_durably,
@@ -770,14 +771,14 @@ class UpdateService(VersionService):
                 installed = self.installed_version(status)
                 # Not installed is the catalog's "no update offered" (a venv or
                 # a binary this unit never had), whatever GitHub answers. A
-                # version that is there but could not be read (a command that
-                # timed out on a cold card, a banner the regex no longer
-                # matches) is not that: it reads as off the pin, so it is
-                # reinstalled, and said — skipping it in silence left the old
-                # daemon under code written for the new one.
+                # version that is there but could not be read is not that: it
+                # is off the pin — the screen offers it by the same rule
+                # (`nothing_installed`) — so it is reinstalled, and said:
+                # skipping it in silence left the old daemon under code written
+                # for the new one.
+                if self.nothing_installed(status):
+                    continue
                 if installed is None:
-                    if status["installed"].get("status") != "unreadable":
-                        continue
                     self.update_logger.error(
                         f"{program_key}: the installed version could not be read "
                         f"({'; '.join(status['installed'].get('errors') or []) or 'no error recorded'}); "
@@ -1291,6 +1292,22 @@ class UpdateService(VersionService):
                     raise Exception(
                         f"{tag} names commit {target_commit}, its signed manifest {manifest.commit}"
                     )
+                # A return — the version moving backwards, as after a
+                # withdrawal — is an ordinary install: the guard's copy of the
+                # data from before the release that runs was dropped when it
+                # committed, so a release put back over a file this one moved to
+                # another schema_version would set it aside. Judged here, on the
+                # commit that installs, whatever the offer said before.
+                if compare_versions(status["latest"].get("version"), self.installed_version(status)):
+                    crossed = await self._schemas_crossed(origin_commit, target_commit)
+                    if crossed is None:
+                        raise Exception(
+                            f"the data formats of {tag} could not be compared with this release's"
+                        )
+                    if crossed:
+                        raise Exception(
+                            f"going back to {tag} would set aside the data of {', '.join(crossed)}"
+                        )
                 requirements_moved = requirements_moved_up(
                     await self._git_output("show", f"{origin_commit}:{PYTHON_LOCK}"),
                     await self._git_output("show", f"{target_commit}:{PYTHON_LOCK}"),

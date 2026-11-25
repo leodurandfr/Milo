@@ -1061,6 +1061,23 @@ visited: a release that is never published is offered to nobody, and one that is
 un-published (or marked pre-release) stops being `releases/latest`, so every
 unit that took it is offered the return on its next check.
 
+**A withdrawal cannot undo a data format.** The return is an ordinary install,
+not the guard's rollback: the copy of the data a unit kept from before the
+withdrawn release was dropped when that release committed, and the release put
+back sets aside every versioned file (`backend/core/updates/data_snapshot.py`)
+the withdrawn one moved to another `schema_version` — `settings.json` among
+them, which holds the settings and the whole multiroom registry. So before it
+offers a return the unit reads, with `git show` at the commit the release's
+signed manifest names (fetched first when the checkout lacks it, as for a fix
+cut on an older line after the unit last fetched), which file each owner reads
+and the `SCHEMA_VERSION` it declares, pairing the two releases by file; if a
+file both read changes version, the row reads *Refused: data format* and nothing
+is offered, and the install refuses the same return on the commit it checks
+out, with nothing moved. A release that bumps a schema is therefore withdrawn
+only by a release cut after it — fixed forward, with the bump kept — and the
+same holds for a test unit running a release candidate that bumps one: the
+stable release it was cut from is not offered back to it.
+
 **A build that fails publishes nothing.** The image build needs the CI checks,
 so a tag cut on a commit they fail is never built at all — they are the one
 check a release meets before any unit is offered it, since a unit judges a

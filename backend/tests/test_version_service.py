@@ -3,7 +3,9 @@
 Tests for VersionService — version detection, GitHub API, caching.
 """
 import asyncio
+import subprocess
 import time
+from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -1303,6 +1305,86 @@ class TestVersionDetectionResidue:
 # Captured before any test patches it: ssh-keygen runs for real under the
 # doubles below, which stand in for git and GitHub only.
 _REAL_EXEC = asyncio.create_subprocess_exec
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+_CONSTANTS = (
+    "from pathlib import Path\n"
+    "MILO_DATA_DIR = Path(\"/var/lib/milo\")\n"
+    "SETTINGS_FILE = MILO_DATA_DIR / \"settings.json\"\n"
+    "HARDWARE_FILE = MILO_DATA_DIR / \"hardware.json\"\n"
+)
+
+
+def _git_in(root: Path, *args) -> str:
+    return subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t",
+                           *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _write_release(root: Path, settings_version: int, comment: str, *,
+                   settings_module: str = "backend/core/settings.py") -> None:
+    """One release's tree as the return check reads it: the data set
+    (data_snapshot.py over constants.py) and its two owners' sources.
+    HardwareService sits at one schema in every release, so the running tree
+    always declares more than the owner that moved."""
+    for stale in (root / "backend").rglob("*.py") if (root / "backend").exists() else ():
+        stale.unlink()
+    owner = settings_module[:-3].replace("/", ".") + ".SettingsService"
+    files = {
+        "backend/config/constants.py": _CONSTANTS,
+        "backend/core/updates/data_snapshot.py": (
+            "from backend.config.constants import HARDWARE_FILE, SETTINGS_FILE\n"
+            "VERSIONED_DATA_FILES: dict = {\n"
+            f"    \"{owner}\": SETTINGS_FILE,\n"
+            "    \"backend.hardware.service.HardwareService\": HARDWARE_FILE,\n"
+            "}\n"
+        ),
+        settings_module: f"# {comment}\nclass SettingsService:\n    SCHEMA_VERSION: int = {settings_version}\n",
+        "backend/hardware/service.py": "class HardwareService:\n    SCHEMA_VERSION = 2\n",
+    }
+    for path, text in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(text)
+
+
+def _two_releases(root: Path, *, bump: bool, head: str = "v0.3.0", move: bool = False) -> Path:
+    """A real checkout holding two releases, v0.2.0 then v0.3.0, HEAD on `head`.
+
+    The second commit raises SettingsService's SCHEMA_VERSION when `bump`, and
+    otherwise moves a line beside it; with `move`, it also moves the class to
+    another module, which the data set names in its place.
+    """
+    root.mkdir()
+    _git_in(root, "init", "-q", "-b", "main")
+    _write_release(root, 4, "first")
+    _git_in(root, "add", "-A")
+    _git_in(root, "commit", "-qm", "first")
+    _git_in(root, "tag", "v0.2.0")
+    _write_release(root, 5 if bump else 4, "second",
+                   **({"settings_module": "backend/core/settings_service.py"} if move else {}))
+    _git_in(root, "add", "-A")
+    _git_in(root, "commit", "-qm", "second")
+    _git_in(root, "tag", "v0.3.0")
+    _git_in(root, "checkout", "-q", head)
+    return root
+
+
+def _a_unit_behind_its_origin(tmp_path: Path, *, hotfix_settings_version: int) -> tuple[Path, str]:
+    """A unit on v0.3.0 (which raised SettingsService to 5), cloned from an
+    origin that has since published v0.2.1: a fix cut on the v0.2 line, off
+    v0.2.0, that the unit has never fetched. Returns (the unit, v0.2.1's commit)."""
+    origin = _two_releases(tmp_path / "origin", bump=True)
+    _git_in(origin, "checkout", "-q", "-b", "v0.2", "v0.2.0")
+    _write_release(origin, hotfix_settings_version, "the fix")
+    _git_in(origin, "commit", "-qam", "the fix")
+    _git_in(origin, "tag", "v0.2.1")
+    _git_in(origin, "checkout", "-q", "main")
+    unit = tmp_path / "milo"
+    subprocess.run(["git", "clone", "-q", "--no-local", "--no-tags", "--single-branch",
+                    "--branch", "main", str(origin), str(unit)], check=True, capture_output=True)
+    _git_in(unit, "fetch", "-q", "origin", "refs/tags/v0.3.0:refs/tags/v0.3.0")
+    _git_in(unit, "checkout", "-q", "v0.3.0")
+    return unit, _git_in(origin, "rev-parse", "v0.2.1^{commit}")
 
 
 def _signed_release_assets(service, tag):
@@ -1405,14 +1487,14 @@ class TestTheMiloReleaseOffer:
         self.key = make_key(tmp_path / "keys")
         version_service.programs["milo"]["release_signing_key"] = str(self.key.allowed_signers)
 
-    def _signed_files(self, service, tag, signature=None):
+    def _signed_files(self, service, tag, signature=None, commit="c" * 40):
         """The manifest and signature a signed release `tag` publishes."""
         url = service.programs["milo"]["release_manifest_url"].format(tag=tag)
-        manifest = manifest_for(tag, "c" * 40, "d" * 64)
+        manifest = manifest_for(tag, commit, "d" * 64)
         return {url: manifest, f"{url}.sig": self.key.sign(manifest) if signature is None else signature}
 
     async def _row(self, service, *, exact, published, described=None, assets=None,
-                   files=None, github=None):
+                   files=None, github=None, repo=None, commit=None):
         """One milo row, with both git reads and GitHub doubled.
 
         `exact` is what `git describe --tags --exact-match` answers — the tag,
@@ -1423,12 +1505,20 @@ class TestTheMiloReleaseOffer:
         "v0.1.0-2017-g36b9a0d7" (a tree 2017 commits past one). `published`
         None is a GitHub that does not answer. The release carries its frontend
         and a manifest signed by the trusted key unless `assets` and `files`
-        say otherwise; ssh-keygen is the real one.
+        say otherwise; ssh-keygen is the real one. Every ref of the doubled git
+        holds this tree's own files, so a return crosses no data format; with
+        `repo`, git is the real one over that checkout and `exact` is unused,
+        and the manifest names `commit` — by default, the one `published`
+        names there.
         """
         described = described or exact or "36b9a0d7"
+        if repo is not None:
+            service.programs["milo"]["git_path"] = str(repo)
+            service.programs["milo"]["commands"] = {
+                "main": ["git", "-C", str(repo), "describe", "--tags", "--always"]}
 
         async def git(*argv, **kwargs):
-            if argv[0] == "ssh-keygen":
+            if argv[0] == "ssh-keygen" or repo is not None:
                 return await _REAL_EXEC(*argv, **kwargs)
             proc = AsyncMock()
             if "--exact-match" in argv:
@@ -1436,6 +1526,10 @@ class TestTheMiloReleaseOffer:
                 proc.communicate = AsyncMock(
                     return_value=((exact or "").encode(), b"fatal: no tag exactly matches")
                 )
+            elif "show" in argv:
+                proc.returncode = 0
+                proc.communicate = AsyncMock(return_value=(
+                    (REPO_ROOT / argv[-1].split(":", 1)[1]).read_bytes(), b""))
             else:
                 proc.returncode = 0
                 proc.communicate = AsyncMock(return_value=(described.encode(), b""))
@@ -1447,7 +1541,9 @@ class TestTheMiloReleaseOffer:
             if github is None:
                 github = _MiloGitHub(
                     published, _signed_release_assets(service, published) if assets is None else assets,
-                    self._signed_files(service, published) if files is None else files,
+                    self._signed_files(service, published, commit=commit or (
+                    _git_in(repo, "rev-parse", f"{published}^{{commit}}") if repo is not None
+                    else "c" * 40)) if files is None else files,
                 )
             served = github.serving()
         with patch("asyncio.create_subprocess_exec", side_effect=git), served:
@@ -1599,6 +1695,24 @@ class TestTheMiloReleaseOffer:
                               assets=[])
 
         assert row["update_available"] is False
+        # Refused, not "up to date": the channel served a release this unit
+        # will not install, as it does for one nobody signed.
+        assert row["refused"] == "signature"
+        assert row["check_failed"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_signed_release_whose_frontend_is_missing_is_refused(self, version_service):
+        """The manifest and its signature are there, the frontend the install
+        downloads is not: the same refusal, before any download."""
+        assets = [a for a in _signed_release_assets(version_service, "v0.3.0")
+                  if a["name"] != "milo-frontend-v0.3.0.tar.gz"]
+        github = _MiloGitHub("v0.3.0", assets, self._signed_files(version_service, "v0.3.0"))
+
+        row = await self._row(version_service, exact="v0.2.0", published="v0.3.0", github=github)
+
+        assert row["update_available"] is False
+        assert row["refused"] == "signature"
+        assert github.requested == ["https://api.github.com/repos/leodurandfr/Milo/releases/latest"]
 
     @pytest.mark.asyncio
     async def test_a_release_carrying_some_other_asset_is_not_offered(self, version_service):
@@ -1607,6 +1721,7 @@ class TestTheMiloReleaseOffer:
                               assets=[{"name": "2026-09-04-milo.img.xz"}])
 
         assert row["update_available"] is False
+        assert row["refused"] == "signature"
 
     @pytest.mark.asyncio
     async def test_a_github_that_did_not_answer_offers_nothing(self, version_service):
@@ -1770,3 +1885,100 @@ class TestTheMiloReleaseOffer:
 
         assert row["refused"] == "signature"
         assert github.requested.count(url) == 1, github.requested
+
+    # ── a return across a data format ────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_a_return_across_a_data_format_is_refused(self, version_service, tmp_path):
+        """v0.3.0 raised SettingsService's schema and was withdrawn. The return
+        is an ordinary install whose data copy was dropped at v0.3.0's commit,
+        so v0.2.0 would set settings.json aside and start from its defaults —
+        the settings and every speaker, zone and speaker EQ, on every unit that
+        took v0.3.0. Offered, the button erases them; refused, the row says so."""
+        repo = _two_releases(tmp_path / "milo", bump=True)
+
+        row = await self._row(version_service, exact=None, published="v0.2.0", repo=repo)
+
+        assert row["installed"]["release_tag"] == "v0.3.0", "the real checkout was not read"
+        assert row["update_available"] is False
+        assert row["refused"] == "schema"
+        assert row["check_failed"] is False
+        assert "withdrawn" not in row["latest"]
+
+    @pytest.mark.asyncio
+    async def test_a_return_within_one_data_format_is_offered(self, version_service, tmp_path):
+        repo = _two_releases(tmp_path / "milo", bump=False)
+
+        row = await self._row(version_service, exact=None, published="v0.2.0", repo=repo)
+
+        assert row["update_available"] is True
+        assert row["refused"] is None
+        assert row["latest"]["withdrawn"] is True
+
+    @pytest.mark.asyncio
+    async def test_an_update_across_a_data_format_is_still_offered(self, version_service, tmp_path):
+        """Only a return is judged: going forward is what a schema bump is for."""
+        repo = _two_releases(tmp_path / "milo", bump=True, head="v0.2.0")
+
+        row = await self._row(version_service, exact=None, published="v0.3.0", repo=repo)
+
+        assert row["installed"]["release_tag"] == "v0.2.0"
+        assert row["update_available"] is True
+        assert row["latest"]["withdrawn"] is False
+
+    @pytest.mark.asyncio
+    async def test_a_return_across_a_moved_owner_is_still_refused(self, version_service, tmp_path):
+        """v0.3.0 moved SettingsService to another module and raised its
+        schema in the same release. Paired by class path, v0.2.0 read "no such
+        owner" — so "nothing to lose" — and the return was offered: v0.2.0
+        still reads settings.json under its old module, and sets it aside. The
+        two releases are paired by the file each one's data set names."""
+        repo = _two_releases(tmp_path / "milo", bump=True, move=True)
+
+        row = await self._row(version_service, exact=None, published="v0.2.0", repo=repo)
+
+        assert row["refused"] == "schema"
+        assert row["update_available"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("hotfix_settings_version, offered", [(4, False), (5, True)])
+    async def test_a_return_to_a_release_this_checkout_never_fetched_is_judged(
+            self, version_service, tmp_path, hotfix_settings_version, offered):
+        """v0.3.0 is withdrawn and the channel falls back to v0.2.1, cut after
+        this unit last fetched — its tag, its commit, all of it new here.
+        Nothing fetches outside an install, so judged from the local tags the
+        row read "check failed" for good, Retry included, and every unit that
+        took v0.3.0 had no way back. The release the manifest names is fetched
+        and judged: refused when the fix kept v0.2's format, offered when it
+        carried v0.3.0's."""
+        repo, commit = _a_unit_behind_its_origin(
+            tmp_path, hotfix_settings_version=hotfix_settings_version)
+
+        row = await self._row(version_service, exact=None, published="v0.2.1", repo=repo,
+                              commit=commit)
+
+        assert row["installed"]["release_tag"] == "v0.3.0"
+        assert row["check_failed"] is False
+        assert row["update_available"] is offered
+        assert row["refused"] == (None if offered else "schema")
+
+    @pytest.mark.asyncio
+    async def test_a_return_that_cannot_be_fetched_is_a_failed_check_asked_once(
+            self, version_service, tmp_path, caplog):
+        """Nothing tells whether the return crosses a format (the commit the
+        manifest names is nowhere this unit can fetch): not offered, not
+        refused — the check did not happen. Remembered like a failed release
+        read, so the screen's every opening does not fetch and warn again;
+        the screen's Retry asks afresh."""
+        repo = _two_releases(tmp_path / "milo", bump=False)
+
+        rows = [await self._row(version_service, exact=None, published="v0.2.1", repo=repo,
+                                commit="e" * 40) for _ in range(2)]
+        version_service.forget_failed_checks()
+        await self._row(version_service, exact=None, published="v0.2.1", repo=repo, commit="e" * 40)
+
+        for row in rows:
+            assert row["update_available"] is False
+            assert row["refused"] is None
+            assert row["check_failed"] is True
+        assert caplog.text.count("The data formats of release v0.2.1 could not be compared") == 2

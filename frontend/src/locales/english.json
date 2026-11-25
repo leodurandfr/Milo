@@ -554,6 +554,8 @@
     "developmentBuild": "Development build",
     "refusedSignature": "Refused: signature",
     "refusedSignatureCause": "The signature of version {version} could not be verified",
+    "refusedSchema": "Refused: data format",
+    "refusedSchemaCause": "Version {version} stores its data in another format: going back to it would lose the current settings and data",
     "dependenciesHint": "Installs the app and the program versions validated with it.",
     "clientsHint": "The Milō Clients receive it too.",
     "revertTo": "Back to {version}",
