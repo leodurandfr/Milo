@@ -130,10 +130,15 @@ def create_system_router(
         `setup_awaiting_network`: the wizard's choices are applied and the unit
         has not joined a network since (`api/setup.py`), so the wizard opens on
         its Network step — the key typed over the AP is the one thing to fix.
+        It moves while the unit runs: the first link clears it, written before
+        any linked `network/status_changed` is broadcast
+        (`NetworkService.add_link_listener`), so a client that reads the setup
+        state on that event reads it cleared.
 
         A state and not an event, deliberately: a HAT is not hot-pluggable, so
-        the answer is settled at boot, and the UI needs it on every load rather
-        than once, at the moment it happened to be connected.
+        the card's answer is settled at boot; the UI reads it, and the setup
+        state above, on every load rather than once, at the moment it happened
+        to be connected.
         """
         data = {
             "hostname_conflict": False,
@@ -446,8 +451,9 @@ def create_system_router(
         the source, so a door opened on it is open to anyone who reads the
         repository. Otherwise it is answered like every other route: nothing
         on this API authenticates, and the LAN is the boundary. Closing is
-        never refused. A client of the open recovery AP may send no write at
-        all, setup or not (`api/middleware.py::RecoveryAccessPointGuard`).
+        never refused. A client of the open recovery AP is refused this write,
+        set up or not: it may send only `PRE_SETUP_WRITES` and `SET_UP_WRITES`
+        (`api/middleware.py::RecoveryAccessPointGuard`).
         """
         if payload.enabled:
             if not PASSWORD_CHANGED_MARKER.exists():

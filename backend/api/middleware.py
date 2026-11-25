@@ -209,11 +209,15 @@ PRE_SETUP_WRITES = frozenset({
 
 # The writes a client of the unit's own AP may send once the unit is set up: saving
 # a WiFi network, the one repair of a unit with no screen and no Ethernet whose home
-# network changed (Settings › Network, composables/useNetwork.js). Saved, never
-# joined: the AP stays up under the client that sent it, and the home-network retry
-# (`STATION_RETRY_S`, core/network/service.py) tries the network saved at its next
-# turn, ahead of those saved before it. Spelled as PRE_SETUP_WRITES is, and held the
-# same way.
+# network changed (Settings › Network, composables/useNetwork.js). Saved, then
+# tried: with `try_now`, which Settings › Network always sends over the AP, the AP
+# goes down under the client that sent it `STATION_TRY_AFTER_SAVE_S` after the
+# answer and the unit joins the network saved, the AP coming back only if that
+# fails; without it, the home-network retry (`STATION_RETRY_S`,
+# core/network/service.py) tries it at its next turn, ahead of those saved before
+# it. So a client of the AP can move a unit set up onto a network of its choice
+# (SECURITY.md, Known limits). Spelled as PRE_SETUP_WRITES is, and held the same
+# way.
 SET_UP_WRITES = frozenset({
     ("POST", "/api/network/wifi/save"),
 })
@@ -236,8 +240,8 @@ class RecoveryAccessPointGuard:
     never one of the AP's) or over Ethernet.
 
     Never a speaker's hotspot: while an adoption holds this unit on one, nobody
-    legitimate saves this unit's WiFi from there, and `save_network` deletes the
-    saved name's other profiles.
+    legitimate saves this unit's WiFi from there, and `save_network`, with no AP
+    of the unit's own to try it from, deletes the saved name's other profiles.
 
     Deny by default, in one place, rather than a dependency per route: the per-route
     gate this replaced guarded three routes and left WiFi, power, hardware and

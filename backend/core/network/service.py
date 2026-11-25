@@ -204,10 +204,10 @@ class NetworkService:
         self._station_retry: Optional[asyncio.Task] = None
         # How many tries have been made, so each saved network gets its turn.
         self._station_tries: int = 0
-        # The profile `save_network` wrote last, tried first at the next try
-        # (`_retry_station`): over the AP, a save is how a client repairs a unit
-        # whose home network changed, and the old network's profile is still
-        # there to take the turn.
+        # The UUID of the profile `save_network` wrote last, tried first at the
+        # next try (`_retry_station`): over the AP, a save is how a client
+        # repairs a unit whose home network changed, and the old network's
+        # profile is still there to take the turn.
         self._station_saved: Optional[str] = None
         # Requests and sockets from the AP's clients open right now, and when
         # the last one ended — a try is skipped under either.
@@ -275,10 +275,13 @@ class NetworkService:
         """Await `listener()` each time the unit gains a link to a network: an
         Ethernet lease, or WiFi associated to a network that is not a Milō access
         point (`_get_wifi_info` excludes both). Once per gain, the first status
-        read included, and before that status is broadcast, so a client that
-        reads anything after the broadcast reads what the listener wrote. What a
-        link means beyond that is the listener's: this layer knows nothing of
-        the setup wizard (`api/setup.py`, the only one).
+        read included, and before any linked status is broadcast: the listeners
+        run under the broadcast lock, so no newer refresh sends one meanwhile,
+        and a client that reads anything after a linked status reads what the
+        listener wrote. A listener therefore holds every refresh while it runs,
+        and must not wait on one. What a link means beyond that is the
+        listener's: this layer knows nothing of the setup wizard (`api/setup.py`,
+        the only one).
         """
         self._link_listeners.append(listener)
 
@@ -448,17 +451,24 @@ class NetworkService:
     async def save_network(self, ssid: str, password: Optional[str] = None, *, try_now: bool = False) -> None:
         """Save WiFi credentials without connecting.
 
-        Creates a NM profile for the given SSID so NetworkManager will
-        auto-connect on next boot.  The current connection (e.g. hotspot)
-        is left untouched, so nothing validates the key: the profiles the SSID
-        had before are replaced only once the new one is written. While the AP
-        holds the radio, the home-network retry tries this profile first at
-        its next turn, ahead of the ones saved before it. The wizard that saves
-        a network this way counts the unit as set up only once a link has come
-        up (`api/setup.py`), so a mistyped key brings the wizard back on the AP.
+        Creates a NM profile for the given SSID, on disk and autoconnecting.
+        The current connection (e.g. hotspot) is left untouched, so nothing
+        validates the key here. While the AP holds the radio, the home-network
+        retry tries this profile first at its next turn, ahead of the ones saved
+        before it.
 
         `try_now` (Settings › Network over the AP) has that turn come
-        STATION_TRY_AFTER_SAVE_S after the save, whoever is on the AP.
+        STATION_TRY_AFTER_SAVE_S after the save, whoever is on the AP — and
+        keeps the SSID's other profiles until the network is joined, by a try
+        or by NetworkManager's autoconnect, as a connect does
+        (`_keep_station_profile`): replaced at the save, the one
+        working profile went with a mistyped key, or with a right one typed
+        while the box was off, and the unit stayed on its AP once the box was
+        back. A save with no try (the wizard, which reboots next, so no try of
+        this process would come to replace them) replaces the SSID's other
+        profiles once the new one is written; the wizard counts the unit as set
+        up only once a link has come up (`api/setup.py`), so a mistyped key
+        brings the wizard back on the AP.
         """
         async with self._connect_lock:
             # Saving a network is choosing the radio as much as connecting is:
@@ -471,15 +481,24 @@ class NetworkService:
             except RuntimeError as e:
                 self.logger.error("Failed to save WiFi profile for '%s': %s", ssid, e)
                 raise RuntimeError(f"WiFi save failed: {e}") from e
-            self._station_saved = _station_profile_name(ssid)
+            self._station_saved = uuid
+
+            if try_now and self._hotspot_active:
+                self.logger.info(
+                    "WiFi profile saved for '%s': tried in a few seconds, its other profiles kept until a try joins",
+                    ssid,
+                )
+                self._bg.spawn(self._try_station_after_save(), label="station_try_after_save")
+                return
 
             # Best effort: the network is saved, and a profile left over is
             # one more NM tries.
             with contextlib.suppress(RuntimeError):
                 await self._delete_ssid_profiles(ssid, keep=uuid)
-            self.logger.info("WiFi profile saved for '%s' (will connect on next boot)", ssid)
-            if try_now and self._hotspot_active:
-                self._bg.spawn(self._try_station_after_save(), label="station_try_after_save")
+            if self._hotspot_active:
+                self.logger.info("WiFi profile saved for '%s': tried at the access point's next retry", ssid)
+            else:
+                self.logger.info("WiFi profile saved for '%s': left to NetworkManager's autoconnect", ssid)
 
     async def _try_station_after_save(self) -> None:
         """The turn a save over the AP asked for: the network just saved goes
@@ -1026,20 +1045,18 @@ class NetworkService:
         self.logger.warning("wlan0 did not come back within the settle window")
         return False
 
-    async def _station_profiles(self) -> List[str]:
-        """The WiFi client profiles that stand for a home network — `milo-` ones
-        first, as the wizard and the WiFi panel write them, then any other,
-        Imager's `preconfigured` included; never one of the unit's own
-        (OWN_PROFILES)."""
-        rc, stdout, _ = await self._run_nmcli("-t", "-f", "NAME,TYPE", "connection", "show")
-        if rc != 0:
+    async def _station_profiles(self) -> List[Tuple[str, str, str]]:
+        """(name, UUID, SSID) of the WiFi client profiles that stand for a home
+        network, read as `_wifi_profiles` reads them — `milo-` ones first, as
+        the wizard and the WiFi panel write them, then any other, Imager's
+        `preconfigured` included; never one of the unit's own (OWN_PROFILES).
+        By UUID, since two can share a name: a save that asked for a try keeps
+        the SSID's other profiles until one joins (`save_network`)."""
+        try:
+            profiles = await self._wifi_profiles()
+        except RuntimeError:
             return []
-        names = [
-            fields[0]
-            for fields in map(_parse_nmcli_line, stdout.split("\n"))
-            if len(fields) >= 2 and "wireless" in fields[1] and fields[0] not in OWN_PROFILES
-        ]
-        return sorted(names, key=lambda name: not name.startswith("milo-"))
+        return sorted(profiles, key=lambda profile: not profile[0].startswith("milo-"))
 
     async def _wait_for_autoconnect(self) -> None:
         """Give NM's autoconnect of a saved network its chance on the radio
@@ -1205,11 +1222,12 @@ class NetworkService:
                 self._station_retry = None
 
     async def _retry_station(self) -> None:
-        """One try: the AP down, one saved network asked for — each in turn, as
-        nmcli lists them by name and the first may be a box long gone, the one
-        `save_network` wrote last before the others — and the AP back at once
-        if it does not join, not after the settle window: the home network just
-        had its chance, and the AP is how the unit is reached."""
+        """One try: the AP down, one saved profile asked for by UUID — each in
+        turn, as nmcli lists them by name and the first may be a box long gone,
+        the one `save_network` wrote last before the others — and the AP back at
+        once if it does not join, not after the settle window: the home network
+        just had its chance, and the AP is how the unit is reached. A join
+        settles the network's profiles (`_settle_station`)."""
         async with self._connect_lock:
             if not self._hotspot_active:
                 return
@@ -1227,12 +1245,12 @@ class NetworkService:
             # the old one's profile, still there, would otherwise take every
             # other turn — each one up to (STATION_RETRY_MAX_HOLDS + 1) ×
             # STATION_RETRY_S apart while a client of the AP holds them off.
-            if self._station_saved in profiles:
-                index = profiles.index(self._station_saved)
+            uuids = [uuid for _, uuid, _ in profiles]
+            if self._station_saved in uuids:
+                index = uuids.index(self._station_saved)
             else:
                 index = self._station_tries % len(profiles)
-            profile = profiles[index]
-            ssid = _ssid_from_profile(profile)
+            name, uuid, ssid = profiles[index]
 
             # An AP NM still carries holds the radio: no station under it.
             if not await self._stop_hotspot(f"trying the home network '{ssid}' again"):
@@ -1240,11 +1258,14 @@ class NetworkService:
             self._station_saved = None
             self._station_tries = index + 1
             try:
-                rc, _, stderr = await self._run_nmcli("connection", "up", profile, timeout=STATION_UP_TIMEOUT_S)
+                rc, _, stderr = await self._run_nmcli(
+                    "connection", "up", "uuid", uuid, timeout=STATION_UP_TIMEOUT_S
+                )
             except asyncio.TimeoutError:
                 rc, stderr = None, "timed out"
             if rc == 0:
                 self.logger.info("Home network '%s' joined again", ssid)
+                await self._settle_station(ssid, uuid)
                 return
             self.logger.info("Home network '%s' still out of reach (%s)", ssid, stderr or f"rc={rc}")
 
@@ -1254,6 +1275,53 @@ class NetworkService:
             if not self._recovery_holds and await self._has_active_connection() is not True:
                 self._cancel_recovery_arm()
                 await self._start_hotspot()
+
+    async def _settle_station(self, ssid: str, uuid: str) -> None:
+        """`ssid` was joined with profile `uuid`, a key now proven: it becomes
+        the SSID's one profile, as a connect's does (`_keep_station_profile`) —
+        whoever wrote it and whichever joined, the profile a save over the AP
+        left untried or the one it had (`save_network`), and in whatever
+        process: nothing about the save is kept in memory, so a restart between
+        the save and the join settles the same. By the SSID each profile
+        carries (`_delete_ssid_profiles`), so Imager's `preconfigured` counts
+        as the network's. Only from a profile on disk: one NM holds in /run
+        (a trial a discard missed) is gone at the next reboot, and the ones it
+        would replace with it. Best effort: a profile left over is one more NM
+        tries."""
+        if not await self._profile_on_disk(uuid):
+            return
+        with contextlib.suppress(RuntimeError):
+            await self._delete_ssid_profiles(ssid, keep=uuid)
+
+    async def _settle_active_station(self) -> None:
+        """WiFi came up, by whatever path, and the profile wlan0 carries settles
+        its network's profiles (`_settle_station`). A try of the retry is one
+        way back to the box; NetworkManager's own autoconnect is the other — at
+        boot after a power cut, or in the gap a failed try leaves before the AP
+        is back — and, settled by the retry alone, the profile a save over the
+        AP left untried stayed on disk with its mistyped key, autoconnecting,
+        and took a turn in every later outage's rotation. Under the connect
+        lock, so a connect or a try in flight has settled first; two reads when
+        the network has one profile, which is every join but those."""
+        async with self._connect_lock:
+            try:
+                active = await self._active_station()
+                profiles = await self._wifi_profiles() if active is not None else []
+            except (RuntimeError, asyncio.TimeoutError) as e:
+                self.logger.warning(
+                    "Could not read the WiFi profile that came up, its network's other profiles kept: %s",
+                    e or "timed out",
+                )
+                return
+            if active is None:
+                return
+            uuid = active[1]
+            ssid = next((carried for _, other, carried in profiles if other == uuid), None)
+            if ssid is None or not any(
+                carried == ssid and other != uuid for _, other, carried in profiles
+            ):
+                return
+            await self._settle_station(ssid, uuid)
 
     async def _set_radio_override(self, forced: bool) -> None:
         """Set the radio override, on disk as well: NM keeps the radio on across
@@ -1954,7 +2022,9 @@ class NetworkService:
 
         The WS broadcast runs OUTSIDE the lock: a slow client would otherwise
         keep the lock held while D-Bus signal handlers pile up new refresh
-        tasks behind it. `evaluate` False when the AP itself moved
+        tasks behind it. The link listeners run inside it, once per gained
+        link, so they hold the next refresh for as long as they write.
+        `evaluate` False when the AP itself moved
         (`_hotspot_changed`): the evaluation is what raised or removed it, and
         one run again from there would raise a failed AP again at once, forever.
         """
@@ -1995,25 +2065,21 @@ class NetworkService:
                 previous is not None and previous.wifi.connected
                 and previous.wifi.ssid == status.wifi.ssid
             )
+            if joined:
+                self._bg.spawn(self._settle_active_station(), label="station_settle")
             if joined and self._satellite_wifi_service is not None:
                 self._bg.spawn(self._satellite_wifi_service.push_all(), label="satellite_wifi")
 
-            gained_link = status.linked and not (previous is not None and previous.linked)
-
-        # Outside the lock with the broadcast, and before it (`add_link_listener`).
-        if gained_link:
-            for listener in self._link_listeners:
-                try:
-                    await listener()
-                except Exception as e:
-                    self.logger.error("A listener to the link that came up failed: %s", e)
-
-            # Superseded while the listeners ran: a newer refresh read another
-            # status (the AP this link took down, say) and has sent it or will.
-            # Sent now, this older one would be the last word, and the dedup
-            # would keep it there.
-            if self._last_broadcast is not status:
-                return
+            # Under the lock, and before the broadcast (`add_link_listener`): a
+            # newer refresh run meanwhile — NM signals a link in bursts — sent
+            # its own linked status while the listener still wrote, and this
+            # one, superseded, sent nothing after the write.
+            if status.linked and not (previous is not None and previous.linked):
+                for listener in self._link_listeners:
+                    try:
+                        await listener()
+                    except Exception as e:
+                        self.logger.error("A listener to the link that came up failed: %s", e)
 
         await self.state_machine.broadcast(
             NetworkStatusChanged(**status.model_dump())

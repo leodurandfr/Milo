@@ -251,6 +251,8 @@ class FakeNetworkManager:
             return (0, f"Connection '{name}' ({self.uuid_of(name)}) successfully added.", "")
         if args[:2] in (("connection", "delete"), ("connection", "up")):
             name = args[2]
+            if name == "uuid":
+                name = next((n for n in self.profiles if self.uuid_of(n) == args[3]), args[3])
             if name not in self.profiles:
                 return (10, "", f"Error: unknown connection '{name}'.")
             if args[1] == "delete":
@@ -1001,8 +1003,8 @@ async def test_a_saved_network_gets_its_autoconnect_before_the_access_point(serv
             if radio["on"]:
                 polls["n"] += 1
             return (0, "wifi:connected:milo-Maison" if polls["n"] > 3 else "", "")
-        if "NAME,TYPE" in args:
-            return (0, f"{profile}:802-11-wireless", "")
+        if "NAME,UUID,TYPE" in args:
+            return (0, f"{profile}:0d0e0f00-0000-4000-8000-000000000001:802-11-wireless", "")
         return (0, "", "")
 
     fake, patcher = with_nmcli(router)
@@ -1029,8 +1031,8 @@ async def test_a_saved_network_gets_its_autoconnect_even_when_the_radio_was_alre
         if "status" in args and "TYPE,STATE,CONNECTION" in args:
             polls["n"] += 1
             return (0, "wifi:connected:milo-Maison" if polls["n"] > 3 else "", "")
-        if "NAME,TYPE" in args:
-            return (0, "milo-Maison:802-11-wireless", "")
+        if "NAME,UUID,TYPE" in args:
+            return (0, "milo-Maison:0d0e0f00-0000-4000-8000-000000000001:802-11-wireless", "")
         return (0, "", "")
 
     fake, patcher = with_nmcli(router)
@@ -1162,8 +1164,8 @@ async def test_a_radio_whose_device_never_returns_skips_the_autoconnect_wait(ser
             return (0, "disabled", "")
         if "status" in args and "DEVICE,STATE" in args:
             return (0, "wlan0:unavailable", "")
-        if "NAME,TYPE" in args:
-            return (0, "milo-Maison:802-11-wireless", "")
+        if "NAME,UUID,TYPE" in args:
+            return (0, "milo-Maison:0d0e0f00-0000-4000-8000-000000000001:802-11-wireless", "")
         return (0, "", "")
 
     fake, patcher = with_nmcli(router)
@@ -1172,7 +1174,7 @@ async def test_a_radio_whose_device_never_returns_skips_the_autoconnect_wait(ser
         await service.evaluate_reachability()
         await settle_until(lambda: service._recovery_arm is None)
 
-    assert not fake.argv_containing("NAME,TYPE"), "the autoconnect window was entered"
+    assert not fake.argv_containing("NAME,UUID,TYPE"), "the autoconnect window was entered"
 
 
 @pytest.mark.asyncio
@@ -1517,7 +1519,13 @@ async def test_the_override_is_on_disk_before_the_radio_is_on(service, radio_ove
 # --------------------------------------------------------------------------- #
 
 STATION = "milo-Maison"
-STATION_UP = ("connection", "up", STATION)
+STATION_UP = ("connection", "up", "uuid", FakeNetworkManager.uuid_of(STATION))
+
+
+def station_tries(nm, calls):
+    """The station profiles a retry asked for, by name, in order."""
+    names = {nm.uuid_of(name): name for name in nm.profiles}
+    return [names.get(call[3], call[3]) for call in calls if call[:3] == ("connection", "up", "uuid")]
 
 
 @pytest.mark.asyncio
@@ -1624,8 +1632,7 @@ async def test_every_saved_network_gets_its_turn(service):
         await settle_until(lambda: STATION in nm.active)
         await service.cleanup()
 
-    tries = [call[2] for call in fake.calls if call[:2] == ("connection", "up") and call[2] != HOTSPOT_NAME]
-    assert tries == ["milo-Ancienne", STATION]
+    assert station_tries(nm, fake.calls) == ["milo-Ancienne", STATION]
 
 
 @pytest.mark.asyncio
@@ -1649,8 +1656,7 @@ async def test_a_network_saved_over_the_access_point_is_the_next_one_tried(servi
         await settle_until(lambda: STATION in nm.active)
         await service.cleanup()
 
-    tries = [call[2] for call in fake.calls if call[:2] == ("connection", "up") and call[2] != HOTSPOT_NAME]
-    assert tries == [STATION]
+    assert station_tries(nm, fake.calls) == [STATION]
 
 
 @pytest.mark.asyncio
@@ -1672,6 +1678,90 @@ async def test_a_save_that_asks_for_a_try_gets_it_under_a_client_of_the_access_p
         await service.cleanup()
 
     assert service.hotspot_active is False
+
+
+@pytest.mark.parametrize("held_by,box_key,restarted", [
+    ("milo-MaBox", "right", False),     # the key typed over the AP was mistyped
+    ("milo-MaBox", "n3w", False),       # right, but typed while the box was off
+    ("preconfigured", "right", False),  # Imager's profile, which carries the SSID
+    ("preconfigured", "n3w", False),
+    ("milo-MaBox", "right", True),      # the backend restarted before the box came back
+    ("milo-MaBox", "n3w", True),
+])
+@pytest.mark.asyncio
+async def test_a_save_over_the_access_point_replaces_nothing_until_a_try_joins(service, held_by, box_key, restarted):
+    """The box is off for a while and the unit, on WiFi alone, raises its AP;
+    the banner says to save the network again, and the owner does, from a phone
+    on the AP. The save replaced the SSID's profiles at once — the one working
+    profile with them — before its key was ever tried: a mistyped key, or a
+    right one typed before the box was back, and the unit stayed on its AP for
+    good once the box returned, where left alone it would have rejoined it.
+
+    Every profile of the network is kept while the box is away, and once a try
+    joins, the profile that joined is the network's one profile, as a
+    connect's is — whatever the working profile is named (Imager's
+    `preconfigured` carries the SSID), and in a process that did not make the
+    save: one profile left over takes a turn in every later outage's rotation."""
+    nm = FakeStations([(held_by, "u-good", "MaBox", "right")], hotspot=True, in_range={})
+    service._hotspot_active = True
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 0), \
+         patch("backend.core.network.service.STATION_TRY_AFTER_SAVE_S", 0):
+        await service.save_network("MaBox", "n3w" if box_key == "n3w" else "typo", try_now=True)
+        [saved] = [uuid for uuid in nm.profiles if uuid != "u-good"]
+        await settle_until(lambda: ("connection", "up", "uuid", saved) in fake.calls and nm.hotspot)
+        await settle_until(lambda: ("connection", "up", "uuid", "u-good") in fake.calls and nm.hotspot)
+        while_away = set(nm.profiles)
+
+        if restarted:
+            await service.cleanup()
+            service = NetworkService(AsyncMock(), AsyncMock())
+            service._hotspot_active = True
+            service._arm_station_retry()
+        nm.in_range = {"MaBox": box_key}
+        await settle_until(lambda: nm.active is not None)
+        await service.cleanup()
+
+    assert while_away == {"u-good", saved}, "a profile of the network went before any try joined"
+    kept = "u-good" if box_key == "right" else saved
+    assert set(nm.profiles) == {kept}
+    assert nm.active == kept
+    assert service.hotspot_active is False
+
+
+@pytest.mark.parametrize("restarted", [False, True])
+@pytest.mark.asyncio
+async def test_a_network_rejoined_by_autoconnect_settles_its_profiles_too(service, restarted):
+    """A save over the AP keeps the network's working profile until a key is
+    proven, and a try of the retry is not the only way back: after a power cut
+    NetworkManager autoconnects the working profile at boot, before any try. The
+    mistyped profile, settled only by a try, stayed on disk with autoconnect on,
+    and took a turn in every later outage's rotation until one happened to
+    join through it."""
+    nm = FakeStations([("milo-MaBox", "u-good", "MaBox", "right")], hotspot=True, in_range={})
+    service._hotspot_active = True
+    fake, patcher = with_nmcli(nm.route)
+    with patcher, no_delay(), patch("backend.core.network.service.STATION_RETRY_S", 1000), \
+         patch("backend.core.network.service.STATION_TRY_AFTER_SAVE_S", 0):
+        await service.save_network("MaBox", "typo", try_now=True)
+        [saved] = [uuid for uuid in nm.profiles if uuid != "u-good"]
+        await settle_until(lambda: ("connection", "up", "uuid", saved) in fake.calls and nm.hotspot)
+        assert set(nm.profiles) == {"u-good", saved}
+
+        if restarted:
+            await service.cleanup()
+            service = NetworkService(AsyncMock(), AsyncMock())
+        # NetworkManager's own autoconnect: the box is back, no try asked for it.
+        nm.in_range = {"MaBox": "right"}
+        nm.hotspot = False
+        nm.active = "u-good"
+        await service._refresh_and_broadcast()
+        await settle_until(lambda: set(nm.profiles) == {"u-good"})
+        await service.cleanup()
+
+    assert nm.active == "u-good"
+    tries = [args for args in fake.calls if args[:3] == ("connection", "up", "uuid")]
+    assert tries == [("connection", "up", "uuid", saved)], "a try, not the autoconnect, joined"
 
 
 @pytest.mark.asyncio
@@ -4137,6 +4227,47 @@ async def test_the_listener_has_written_before_the_link_is_broadcast(service):
         await _settle_bg(service)
 
     assert order == ["listener", "broadcast"]
+
+
+@pytest.mark.asyncio
+async def test_a_newer_link_status_is_not_broadcast_before_the_listener_has_written(service):
+    """NM signals a link in bursts: the device's state, then its address. The
+    refresh that saw the link come up waits on the setup listener, which writes
+    settings.json on the SD card; a newer refresh read the link with its
+    address, sent it at once, and the kiosk's wizard read the unit not set up —
+    while the older refresh, superseded, sent nothing after the write. On
+    Ethernet nothing else moves the status: the wizard stayed on a unit set up."""
+    order = []
+    entered = asyncio.Event()
+    may_write = asyncio.Event()
+
+    async def listener():
+        entered.set()
+        await may_write.wait()
+        order.append("written")
+
+    async def broadcast(event):
+        if isinstance(event, NetworkStatusChanged):
+            order.append("broadcast")
+
+    service.add_link_listener(listener)
+    service.state_machine.broadcast = AsyncMock(side_effect=broadcast)
+    links = {"eth": ("Wired connection 1", "192.168.1.10"), "wlan": ("--", None)}
+    _fake, patcher = with_nmcli(lambda args: _status_router(**links)(args))
+    with patcher:
+        first = asyncio.ensure_future(service._refresh_and_broadcast())
+        await asyncio.wait_for(entered.wait(), 1)
+        links.update(wlan=("milo-Home", "192.168.1.11"))
+        second = asyncio.ensure_future(service._refresh_and_broadcast())
+        for _ in range(200):  # every chance for the newer refresh to send
+            await asyncio.sleep(0)
+        may_write.set()
+        await asyncio.wait_for(asyncio.gather(first, second), 1)
+        await _settle_bg(service)
+        await service.cleanup()
+
+    assert order[0] == "written", "a linked status went out before the listener wrote"
+    assert order[-1] == "broadcast"
 
 
 @pytest.mark.asyncio

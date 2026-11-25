@@ -1655,8 +1655,10 @@ unlinked without the unit being lost, and none raises the AP.
 
 So a unit that is set up is repaired over its AP in one way only: Settings › Network, from a
 browser on the AP, *saves* a network rather than joining it (joining would take the one radio
-from under that browser), and the home-network retry (`STATION_RETRY_S`) tries the saved network
-on its next turn, ahead of the networks saved before it, the old home's among them. That is the
+from under that browser) with `try_now`, and the unit tries it `STATION_TRY_AFTER_SAVE_S` (5 s)
+after the answer, the AP down under that browser for the try and back only if it fails; later
+turns of the home-network retry (`STATION_RETRY_S`) try every saved profile, the old home's among
+them, the network saved first. That is the
 repair of a server with no screen and no Ethernet whose home WiFi changed. Everything else is
 repaired from the touch
 screen (the kiosk is loopback, not an AP client, and joins at once) or over Ethernet.
@@ -1667,7 +1669,12 @@ success it switches autoconnect on (which writes the profile to disk), checks th
 file now lives under `/etc`, and only then deletes the SSID's other profiles. On failure the trial
 is deleted and the profile that was up before comes back at once, or the AP, raised again at once.
 A mistyped key therefore no longer costs the working profile. `POST /api/network/wifi/save` writes
-first and removes the SSID's other profiles after. A profile belongs to an SSID by the SSID it
+first and removes the SSID's other profiles after — at once with no try to come (the wizard, which
+reboots next), and only once the network is joined with `try_now`, by a try or by NetworkManager's
+autoconnect: the retry brings profiles up by UUID, since the two share a name, and the one that joins
+becomes the SSID's one profile, so a key
+mistyped over the AP, or typed while the box was off, leaves the unit the profile that brings it
+home. A profile belongs to an SSID by the SSID it
 carries (a `milo-*` profile by its name, which carries it), so an Imager `preconfigured` profile or
 one written by hand is replaced and forgotten with Milō's own; the satellite's
 `milo-client-join-wifi` matches the same way.

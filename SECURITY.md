@@ -104,6 +104,11 @@ DMZ.
   over an open network to a unit that is not authenticated, so a fake `Milō` network in range
   can collect it. Ethernet avoids both. It is also pushed to every speaker as a standby link,
   unauthenticated, over the local network.
+- **The recovery access point can move a unit onto another network.** The access point is
+  open, so while a set-up unit has no link, anyone in radio range can join it and save a WiFi
+  network of their choice. The unit tries that network about five seconds later and joins it if
+  it can. It is then on the network that person chose, where the API answers them without
+  authentication, root included. A unit whose Ethernet link holds raises no access point.
 - **mDNS is not authenticated.** Any host on the local network can answer for `milo.local`,
   the name browsers and the apps dial, or announce `_milo._tcp`, which a freshly flashed card
   looks for before it turns itself into a multiroom speaker.
