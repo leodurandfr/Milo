@@ -181,6 +181,10 @@ class BluetoothSource(BaseAudioSource):
         # Whether BlueALSA is there: without it there is no A2DP sink, so a
         # phone must not be offered one (half of the exposure rule too).
         self._bluealsa_up = False
+        # bluetoothd's name left the bus and no successor's adapter is up yet:
+        # nothing is there to write the exposure to, and `_bluez_moved(up)`
+        # applies it to the next one (which starts closed, measured).
+        self._bluez_away = False
 
         self.adapter = BluetoothAdapter()
         self.agent = BluetoothAgent()
@@ -194,6 +198,9 @@ class BluetoothSource(BaseAudioSource):
             self._running = True
             self._released = False
             self._bluealsa_up = True
+            # Started below; a departure heard while the source was off is
+            # not followed by an arrival this source will hear.
+            self._bluez_away = False
 
             # 1. Start system services
             for service in [self.bluetooth_service, self.bluealsa_service]:
@@ -607,6 +614,7 @@ class BluetoothSource(BaseAudioSource):
         measured, it starts closed and with no agent, and refuses every audio
         connection while the screen says ready.
         """
+        self._bluez_away = not up
         if not up:
             if self._session is None:
                 return []
@@ -627,22 +635,53 @@ class BluetoothSource(BaseAudioSource):
         """Power the new daemon's adapter and give it the agent; the exposure,
         which reads the source's state, is applied back in the mailbox."""
         powered = False
+        # What the bus raised at the last attempt, for the one ERROR that
+        # reports it; None when that attempt was answered (a refusal is
+        # logged by the adapter itself).
+        last_error: Optional[Exception] = None
         for attempt in range(ADAPTER_CONFIGURE_ATTEMPTS):
             if attempt:
                 await asyncio.sleep(ADAPTER_CONFIGURE_RETRY_S)
-            if await self.adapter.power_on() and await self.adapter.set_discoverable_timeout(0):
-                powered = True
+            try:
+                powered = (await self.adapter.power_on()
+                           and await self.adapter.set_discoverable_timeout(0))
+            except Exception as e:
+                # Broad on purpose: whatever the bus raised, the answer is the
+                # next attempt — Busy while AutoEnable powers the adapter, as
+                # measured on every restart. Only the last failure is
+                # reported, with its cause, by `_bluez_reconfigured`.
+                last_error = e
+                self._logger.debug(
+                    f"New bluetoothd's adapter not configured "
+                    f"(attempt {attempt + 1}/{ADAPTER_CONFIGURE_ATTEMPTS}): {e!r}"
+                )
+                continue
+            last_error = None
+            if powered:
                 break
         agent_ok = not self.auto_agent or await self.agent.register_again()
-        self._post_result(lambda: self._bluez_reconfigured(powered, agent_ok))
+        self._post_result(lambda: self._bluez_reconfigured(powered, agent_ok, last_error))
 
-    async def _bluez_reconfigured(self, powered: bool, agent_ok: bool) -> None:
-        exposed = powered and await self._apply_exposure()
+    async def _bluez_reconfigured(self, powered: bool, agent_ok: bool,
+                                  last_error: Optional[Exception] = None) -> None:
+        if self._bluez_away:
+            # It left again while it was being configured: its successor's
+            # adapter brings its own configuration, and this one failed for
+            # having gone, not for refusing.
+            self._logger.debug("bluetoothd left again before its configuration landed")
+            return
+        exposed = await self._apply_exposure() if powered else False
+        if exposed is None:
+            # It is leaving under this very write, heard by the feed ahead of
+            # the mailbox: the same case as above, one step later.
+            self._logger.debug("bluetoothd left again while its exposure was written")
+            return
         if exposed and agent_ok:
             return
+        cause = f" ({last_error!r})" if not powered and last_error is not None else ""
         self._logger.error(
             "A restarted bluetoothd could not be "
-            f"{'configured' if not exposed else 'given the pairing agent'} — "
+            f"{'configured' if not exposed else 'given the pairing agent'}{cause} — "
             "phones will be refused until the source is selected again"
         )
         self.broadcast_error(SourceErrorReason.SERVICE_UNREACHABLE)
@@ -775,8 +814,12 @@ class BluetoothSource(BaseAudioSource):
         """
         return self._running and self._bluealsa_up and self._session is None
 
-    async def _apply_exposure(self) -> bool:
+    async def _apply_exposure(self) -> Optional[bool]:
         """Make the appliance's Bluetooth exposure match the state it is in.
+
+        True when applied, False when it failed (reported here at ERROR), None
+        when it was not written because bluetoothd is gone or leaving — the
+        next one is given it when its adapter is up, so nothing failed.
 
         Called from every transition that can change the answer — source
         start, a phone linking, a session ending, source stop, a new
@@ -802,13 +845,38 @@ class BluetoothSource(BaseAudioSource):
         # Past the teardown no sink is left to keep a holder's link for.
         holder = self._session.sender if self._session is not None and self._running else None
 
-        exposed = await self.adapter.set_exposure(discoverable=may_accept, pairable=may_accept)
+        written_to = self.avrcp.bluez_owner
+        if self._bluez_absent(written_to):
+            self._logger.debug(
+                f"Bluetooth exposure (accepting={may_accept}) not written: bluetoothd is "
+                f"not on the bus — applied to the next one when its adapter is up"
+            )
+            return None
+        cause = None
+        try:
+            exposed = await self.adapter.set_exposure(discoverable=may_accept, pairable=may_accept)
+        except Exception as e:
+            if self._bluez_absent(written_to):
+                # Measured on `systemctl restart bluetooth` with a Mac linked:
+                # the session ends as the link drops, ~90 ms before the name
+                # leaves, and its exposure reaches a bluetoothd that exits
+                # without answering (NoReply). Killed, a write finds no
+                # adapter at all. Either way the next daemon gets it.
+                self._logger.debug(
+                    f"Bluetooth exposure (accepting={may_accept}) not written: bluetoothd "
+                    f"left under the write ({e!r}) — applied to the next one when its adapter is up"
+                )
+                return None
+            # Broad on purpose: the bus raises whatever its transport raises,
+            # and every failure means the same thing — said once, below.
+            exposed, cause = False, e
         unblocked = await self.adapter.set_audio_peers_blocked(
             not may_accept, keep_unblocked=holder
         )
         if not (exposed and unblocked):
             self._logger.error(
-                f"Bluetooth exposure not applied (accepting={may_accept}) — the "
+                f"Bluetooth exposure not applied (accepting={may_accept})"
+                f"{f': {cause!r}' if cause is not None else ''} — the "
                 f"appliance may be visible or connectable in the wrong state"
             )
             return False
@@ -819,13 +887,37 @@ class BluetoothSource(BaseAudioSource):
         )
         return True
 
+    def _bluez_absent(self, written_to: Optional[str]) -> bool:
+        """Whether the bluetoothd an exposure is written to is not there.
+
+        Known gone (`_bluez_moved`), or — ahead of the mailbox, which hears of
+        it only after the handler in flight — no longer the one the AVRCP feed
+        sees holding the name: `written_to` is who held it when the write
+        began. The bus daemon sends the NameOwnerChanged before it answers a
+        departed recipient's callers NoReply, so the feed knows first. With
+        the feed stopped (the start before it runs, the stop after it), only
+        the first answer stands.
+        """
+        if self._bluez_away:
+            return True
+        if not self.avrcp.listening:
+            return False
+        owner = self.avrcp.bluez_owner
+        return owner is None or owner != written_to
+
     async def _configure_adapter(self) -> bool:
         """Power the adapter and apply the exposure its current state calls for."""
-        if not await self.adapter.power_on():
+        try:
+            if not await self.adapter.power_on():
+                return False
+            if not await self.adapter.set_discoverable_timeout(0):
+                return False
+        except Exception as e:
+            # Broad on purpose: a bus that cannot connect (a dev host) raises
+            # whatever dbus-next's transport raises — the start goes on.
+            self._logger.error(f"Bluetooth adapter could not be powered: {e!r}")
             return False
-        if not await self.adapter.set_discoverable_timeout(0):
-            return False
-        return await self._apply_exposure()
+        return bool(await self._apply_exposure())
 
     @handle_errors(default=None)
     async def _adopt_linked_device(self) -> None:

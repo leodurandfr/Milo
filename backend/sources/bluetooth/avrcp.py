@@ -311,6 +311,9 @@ class AvrcpController:
         # bus daemon says who holds the name.
         self._bluez_owner: Optional[str] = None
         self._owner_changes = 0
+        # Whether `_bluez_owner` is being kept: the handler is installed and
+        # the owner was read. Stopped, None says nothing about bluetoothd.
+        self._listening = False
         # The destinations whose last call went unanswered: a silent
         # bluetoothd is said once, not at every position poll — and the bus
         # daemon answering in between says nothing about bluetoothd.
@@ -353,6 +356,18 @@ class AvrcpController:
         return self._device is None or (address or "").upper() == self._device
 
     @property
+    def listening(self) -> bool:
+        """Whether `bluez_owner` follows the bus: the feed is started."""
+        return self._listening
+
+    @property
+    def bluez_owner(self) -> Optional[str]:
+        """The unique name the bus daemon last said holds org.bluez, None
+        while nobody does. Moved from the D-Bus handler itself, so it is ahead
+        of whatever the source's mailbox has been posted about bluetoothd."""
+        return self._bluez_owner
+
+    @property
     def status(self) -> str:
         """The player's AVRCP Status as BlueZ reports it (`playing`, `paused`,
         `stopped`, …), or "" while it has reported none — measured: a Mac says
@@ -381,6 +396,7 @@ class AvrcpController:
 
         self._bus.add_message_handler(self._on_dbus_message)
         await self._read_owner()
+        self._listening = True
         self._notify_task = asyncio.create_task(self._notify_loop())
         self._poll_task = asyncio.create_task(self._poll_loop())
 
@@ -394,6 +410,7 @@ class AvrcpController:
     async def stop(self) -> None:
         """Drop the listener, the bus and any tracked player."""
         self._stopped = True
+        self._listening = False
 
         for task in (self._notify_task, self._poll_task, self._reread_task,
                      self._settle_task, self._rescan_task):

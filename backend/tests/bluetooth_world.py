@@ -32,7 +32,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from unittest.mock import AsyncMock, Mock
 
 import aiohttp
-from dbus_next import Variant
+from dbus_next import DBusError, Variant
 from dbus_next.constants import MessageType
 
 from backend.core import audio_source
@@ -264,6 +264,10 @@ class FakeBluez:
         self.transport: List[str] = []
         self.agents: List[str] = []                  # agents the running bluetoothd knows
         self.bluez_up = True
+        # Set from a clean exit's first half until the name leaves: bluetoothd
+        # answers nothing more, and dbus-daemon then answers its callers
+        # NoReply (measured on an exposure write, `systemctl restart bluetooth`).
+        self.exiting: Optional[asyncio.Event] = None
         self.bluealsa_up = True
         self.disconnects: List[str] = []             # addresses a Disconnect was called on
         self.keeps_link: set = set()                 # device paths whose peer does not let go
@@ -418,10 +422,21 @@ class FakeBluez:
         self._emit("NameOwnerChanged", ["org.bluez", old, new],
                    path="/org/freedesktop/DBus", interface="org.freedesktop.DBus")
 
+    async def answer(self) -> None:
+        """A call reaching bluetoothd while it exits: held until its name
+        leaves, then answered as dbus-daemon answers a recipient that
+        disconnected — after it has broadcast the NameOwnerChanged."""
+        gate = self.exiting
+        if gate is not None:
+            await gate.wait()
+            raise DBusError("org.freedesktop.DBus.Error.NoReply",
+                            "Message recipient disconnected from message bus without replying")
+
     def bluez_removes_its_objects(self) -> None:
         """A clean exit's first half: bluetoothd removes its player and its
         transports, and BlueALSA the PCMs (measured 88 ms before the name
-        leaves the bus)."""
+        leaves the bus). From here it answers nothing."""
+        self.exiting = asyncio.Event()
         if self.player:
             self.player_removed()
         for phone in (IPHONE, MAC_MINI, PIXEL):
@@ -436,6 +451,9 @@ class FakeBluez:
         self.bluez_up = False
         self.agents.clear()
         self._owner_changed(old, "")
+        exiting, self.exiting = self.exiting, None
+        if exiting is not None:
+            exiting.set()
         self.player, self.track, self.status = None, {}, ""
         for phone in (IPHONE, MAC_MINI, PIXEL):
             if phone.pcm_path in self.pcms:
@@ -572,6 +590,7 @@ class FakeSystemBus:
         pass
 
     async def introspect(self, service: str, path: str, timeout: float = 30.0) -> str:
+        await self._world.answer()
         if not self._world.bluez_up:
             raise RuntimeError("org.freedesktop.DBus.Error.ServiceUnknown")
         return path

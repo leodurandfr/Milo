@@ -14,6 +14,7 @@ import pytest
 from backend.core.models.ws_events import SourceErrorReason
 from backend.sources.bluetooth import adapter as adapter_module
 from backend.sources.bluetooth import source as source_module
+from backend.tests import bluetooth_world
 from backend.tests.bluetooth_world import (
     APLAY_UNIT, BLUEALSA_UNIT, BLUEZ_UNIT, FEELING_GOOD, IPHONE, MAC_MINI, PIXEL, REMOTE_CARD, SAYS,
     Bluetooth,
@@ -235,13 +236,103 @@ async def test_a_new_bluetoothd_still_powering_up_is_configured_anyway(bt):
     assert bt.errors() == []
 
 
-async def test_a_new_bluetoothd_that_cannot_be_configured_is_reported(bt):
+async def test_a_new_bluetoothd_that_cannot_be_configured_is_reported(bt, caplog):
     """A new bluetoothd left unconfigured fails as a closed appliance under a screen that says ready:
-    when it cannot be undone, it is said."""
+    when it cannot be undone, it is said — once, by the last attempt."""
     await bt.select()
     bt.bluez.adapter_busy = 100
     await bt.bluetoothd_restarts()
     assert bt.errors() == [SourceErrorReason.SERVICE_UNREACHABLE]
+    logged = errors_logged(caplog)
+    assert len(logged) == 1, logged
+    # The attempts are quiet, so the one line left must say why: the journal
+    # runs at INFO, where the attempts' debug lines are gone.
+    assert "Busy" in logged[0], logged
+
+
+# === What a bluetoothd going away writes to the journal ===
+# Measured 2026-11-24 with a Mac mini linked: both recoveries worked, and the
+# journal said otherwise — three ERROR lines for a clean restart, three for a
+# kill that owes one. A smoke check counts them.
+
+def errors_logged(caplog) -> list:
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def linked_mac(bt):
+    """The measured setup: a Mac linked, sound off (no AVRCP status yet)."""
+    await bt.select()
+    await bt.pcm_added(MAC_MINI)
+    assert bt.active()
+
+
+async def test_a_clean_bluetoothd_restart_under_a_linked_sender_logs_no_error(bt, caplog):
+    """The session ends as the link drops, before the name leaves the bus, and
+    the exposure that end recomputes reaches a bluetoothd that exits without
+    answering: `Error in set_exposure: Message recipient disconnected…` and
+    `exposure not applied` were logged for an exposure the next bluetoothd
+    receives anyway — and does, below."""
+    caplog.set_level(logging.DEBUG, logger="source.bluetooth")
+    await linked_mac(bt)
+    await bt.bluetoothd_restarts()
+    assert errors_logged(caplog) == []
+    assert bt.exposed() and bt.bluez.accepts_audio()
+    skipped = [r for r in caplog.records if "exposure" in r.getMessage() and "not written" in r.getMessage()]
+    assert len(skipped) == 1 and skipped[0].levelno == logging.DEBUG
+
+
+async def test_a_killed_bluetoothd_logs_its_death_and_nothing_else(bt, caplog):
+    """The death is the one ERROR owed (it ends the session with a banner);
+    the exposure the end recomputes was written to the daemon already known
+    gone, and logged twice more at ERROR."""
+    await linked_mac(bt)
+    await bt.bluetoothd_killed_and_restarted()
+    logged = errors_logged(caplog)
+    assert len(logged) == 1 and "bluetoothd exited under the session" in logged[0], logged
+    assert bt.errors() == [SourceErrorReason.STREAM_DISCONNECTED]
+    assert bt.exposed() and bt.bluez.accepts_audio()
+
+
+async def test_a_bluetoothd_leaving_under_its_own_configuration_logs_no_error(bt, caplog, monkeypatch):
+    """A second restart (or a kill) just after the first daemon came up: its
+    exposure write reaches a bluetoothd that exits without answering, and the
+    feed hears the name leave before the mailbox does. Taken for a refusal,
+    it logged `could not be configured` and put SERVICE_UNREACHABLE on screen
+    while the successor was configured anyway — as it is, below."""
+    await bt.select()
+    world = bt.bluez
+    call_set = bluetooth_world._Interface.call_set
+    leave_under = {"armed": True}
+
+    async def exits_under_the_exposure(self, iface, name, value):
+        if name == "Discoverable" and leave_under["armed"]:
+            leave_under["armed"] = False
+            world.bluez_removes_its_objects()
+            asyncio.get_running_loop().call_soon(world.bluez_leaves_the_bus)
+            await world.answer()
+        return await call_set(self, iface, name, value)
+
+    monkeypatch.setattr(bluetooth_world._Interface, "call_set", exits_under_the_exposure)
+    await bt.bluetoothd_restarts()
+    assert not leave_under["armed"], "no exposure write reached the exiting bluetoothd"
+    world.bluez_returns()
+    await settle()
+
+    assert errors_logged(caplog) == []
+    assert bt.errors() == []
+    assert bt.exposed() and bt.bluez.accepts_audio()
+
+
+async def test_an_adapter_busy_at_the_first_attempt_logs_no_error(bt, caplog):
+    """Measured on every restart: the new adapter answers Busy while AutoEnable
+    powers it, the retry configures it, and `Error in power_on` was logged at
+    ERROR for the attempt the retry absorbed."""
+    await linked_mac(bt)
+    bt.bluez.adapter_busy = 1
+    await bt.bluetoothd_restarts()
+    assert bt.bluez.adapter_busy == 0, "the first attempt was not answered Busy"
+    assert errors_logged(caplog) == []
+    assert bt.exposed() and bt.bluez.accepts_audio()
 
 
 async def test_a_name_change_not_sent_by_the_bus_itself_is_ignored(bt):

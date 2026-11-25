@@ -22,6 +22,7 @@ from backend.sources.bluetooth.adapter import (
     PROPS_IFACE,
     BluetoothAdapter,
 )
+from backend.tests.bluetooth_world import FakeBluez, FakeSystemBus, VirtualClock
 
 HID_UUID = "00001124-0000-1000-8000-00805f9b34fb"  # Human Interface Device
 
@@ -63,13 +64,21 @@ class TestReadBack:
         assert await adapter.set_exposure(discoverable=True, pairable=True) is False
 
     @pytest.mark.asyncio
-    async def test_a_refusal_is_a_failure_not_an_exception(self):
-        """BlueZ absent (dev host) must fail closed, not crash the source start."""
-        adapter = BluetoothAdapter()
-        adapter._properties = AsyncMock(side_effect=RuntimeError("no bluez"))
-
-        assert await adapter.power_on() is False
-        assert await adapter.set_exposure(discoverable=False, pairable=False) is False
+    async def test_a_bus_failure_reaches_the_caller(self):
+        """How bad a failed write is depends on what only the source knows — a
+        Busy it retries, a bluetoothd it saw leave — so the adapter raises it
+        rather than logging it at ERROR itself (each was a false alarm on a
+        `systemctl restart bluetooth`). The source failing closed on it is
+        pinned in test_bluetooth_behavior.py."""
+        world = FakeBluez(VirtualClock())
+        world.bluez_up = False
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(adapter_module, "MessageBus", lambda **_: FakeSystemBus(world))
+            for write in (lambda a: a.power_on(),
+                          lambda a: a.set_discoverable_timeout(0),
+                          lambda a: a.set_exposure(discoverable=False, pairable=False)):
+                with pytest.raises(RuntimeError, match="ServiceUnknown"):
+                    await write(BluetoothAdapter())
 
 
 class TestDroppingOnePeer:

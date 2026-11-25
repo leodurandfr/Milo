@@ -151,6 +151,18 @@ async def test_an_adapter_refusing_a_property_is_reported_not_taken_for_applied(
     assert "exposure not applied" in caplog.text
 
 
+async def test_a_start_with_no_bluetoothd_on_the_bus_fails_closed_not_crashed(bt, caplog):
+    """BlueZ absent (a dev host, a bluetoothd that died): the adapter writes
+    raise, and the start goes on as a receiver that says why it is not one."""
+    bt.bluez.bluez_up = False
+
+    with caplog.at_level(logging.WARNING, logger="source.bluetooth"):
+        await bt.select()
+
+    assert bt.state()["service"] != "failed"
+    assert "Adapter configuration failed" in caplog.text
+
+
 async def test_an_adapter_that_will_not_power_is_reported(bt, caplog):
     bt.bluez.adapter_refuses.add("Powered")
 

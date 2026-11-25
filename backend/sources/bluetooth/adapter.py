@@ -112,27 +112,35 @@ class BluetoothAdapter:
             return False
         return True
 
-    @handle_errors(default=False)
+    # The three adapter writes below raise what the bus raised (a refusal
+    # such as Busy, a bluetoothd gone, no bus at all) instead of logging it:
+    # how bad it is depends on what the caller knows and this module does not
+    # — a Busy answered to a new bluetoothd still powering up is retried, a
+    # write sent to a bluetoothd that is exiting is applied again to the next
+    # one. Logged here at ERROR, each was a false alarm in the journal of a
+    # recovery that worked (measured on a `systemctl restart bluetooth`).
+    # A value the adapter settles back from is still reported here: it
+    # answered, and said no.
+
     async def power_on(self) -> bool:
-        """Power the adapter on."""
+        """Power the adapter on. Raises when the bus does."""
         return await self._set_verified(
             ADAPTER_PATH, ADAPTER_IFACE, "Powered", Variant("b", True), True
         )
 
-    @handle_errors(default=False)
     async def set_discoverable_timeout(self, seconds: int) -> bool:
-        """Set DiscoverableTimeout (0 = never expires)."""
+        """Set DiscoverableTimeout (0 = never expires). Raises when the bus does."""
         return await self._set_verified(
             ADAPTER_PATH, ADAPTER_IFACE, "DiscoverableTimeout",
             Variant("u", seconds), seconds
         )
 
-    @handle_errors(default=False)
     async def set_exposure(self, discoverable: bool, pairable: bool) -> bool:
         """Set Discoverable and Pairable, reporting whether the adapter agreed.
+        Raises when the bus does.
 
-        Both are attempted even if the first fails — a half-applied exposure is
-        worth logging in full rather than one line at a time.
+        Both are attempted even if the first is refused — a half-applied
+        exposure is worth logging in full rather than one line at a time.
         """
         results = [
             await self._set_verified(ADAPTER_PATH, ADAPTER_IFACE, "Discoverable",
