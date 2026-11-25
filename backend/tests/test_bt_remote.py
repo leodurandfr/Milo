@@ -203,6 +203,47 @@ def bt(monkeypatch):
     )
 
 
+class Grace:
+    """The NODE_LOSS_GRACE wait, elapsed by the test rather than by the clock.
+
+    The controller's grace sleep is held on an event; `elapse()` releases every
+    wait started so far and lets the loop run what follows it.
+    """
+
+    DELAY = 1234.5   # a NODE_LOSS_GRACE no other sleep in the module uses
+
+    def __init__(self):
+        self._over = asyncio.Event()
+        self.started = 0
+
+    async def elapse(self):
+        self._over.set()
+        await settle()
+
+
+async def settle():
+    """Let every task the controller started run until it blocks again."""
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
+@pytest.fixture
+def grace(monkeypatch):
+    clock = Grace()
+    real_sleep = asyncio.sleep
+
+    async def sleep(delay, *args, **kwargs):
+        if delay == Grace.DELAY:
+            clock.started += 1
+            await clock._over.wait()
+            return None
+        return await real_sleep(delay, *args, **kwargs)
+
+    monkeypatch.setattr(bt_remote_module, "NODE_LOSS_GRACE", Grace.DELAY)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    return clock
+
+
 async def connect_remote(bt, path="/dev/input/event5"):
     """Bring one node up and let the controller adopt it, as _periodic_scan would."""
     bt.evdev.nodes[path] = FakeInputDevice(path)
@@ -449,7 +490,7 @@ async def test_a_node_whose_name_does_not_match_the_filter_is_ignored(bt):
 
 
 @pytest.mark.asyncio
-async def test_losing_one_node_drops_every_node_of_the_same_remote(bt):
+async def test_losing_one_node_drops_every_node_of_the_same_remote(bt, grace):
     """BLE HID publishes several nodes per connection and only one carries the
     volume keys. When one dies the rest are stale, so status must go to empty
     rather than keep reporting a remote that is gone."""
@@ -463,7 +504,8 @@ async def test_losing_one_node_drops_every_node_of_the_same_remote(bt):
 
     tasks = dict(bt.controller._monitor_tasks)
     await bt.evdev.nodes["/dev/input/event5"].events.put(None)  # OSError in the read loop
-    await asyncio.sleep(0.05)
+    await settle()
+    await grace.elapse()
 
     assert bt.controller._monitored_paths == set()
     assert bt.status()[-1].connected_devices == []
@@ -473,7 +515,7 @@ async def test_losing_one_node_drops_every_node_of_the_same_remote(bt):
 
 
 @pytest.mark.asyncio
-async def test_a_node_that_vanished_from_the_kernel_table_is_announced_by_the_scan(bt):
+async def test_a_node_that_vanished_from_the_kernel_table_is_announced_by_the_scan(bt, grace):
     """The remote is switched off or walks out of range; the scan must say so.
 
     architecture/test_bt_remote_notifications.py cannot reach this branch: it
@@ -491,10 +533,90 @@ async def test_a_node_that_vanished_from_the_kernel_table_is_announced_by_the_sc
     bt.evdev.nodes.clear()          # the kernel node is gone
     bt.bluez.connected = []
     await bt.controller._scan_devices()
+    await grace.elapse()
 
     assert bt.controller._monitored_paths == set()
     assert bt.status(), "the scan dropped the node without telling the UI"
     assert bt.status()[-1].connected_devices == []
+
+
+async def connect_two_node_remote(bt):
+    """A remote as BLE HID publishes it: two nodes, one link."""
+    bt.controller.running = True
+    bt.bluez.paired = [(REMOTE_MAC, REMOTE_NAME)]
+    bt.bluez.connected = [(REMOTE_MAC, REMOTE_NAME)]
+    for path in ("/dev/input/event5", "/dev/input/event6"):
+        bt.evdev.nodes[path] = FakeInputDevice(path)
+    await bt.controller._scan_devices()
+    assert len(bt.controller._monitored_paths) == 2
+    bt.broadcasts.clear()
+
+
+async def lose_the_nodes(bt):
+    """BlueZ destroys the uhid device: ENODEV on the read, the nodes leave the table."""
+    dying = bt.evdev.nodes["/dev/input/event5"]
+    bt.evdev.nodes.clear()
+    await dying.events.put(None)
+    await settle()
+
+
+@pytest.mark.asyncio
+async def test_a_node_bluez_recreates_within_the_grace_announces_no_disconnection(bt, grace, caplog):
+    """BlueZ recreating the uhid nodes of a remote that stays connected — eight
+    times in 90 s after a wake, measured on a unit — is not a disconnection.
+    Announced at once, each recreation blinked the Settings › Remotes panel to
+    "not connected" and back a second later, and wrote its lines at info into
+    the journal the owner reads — one per node of the remote, all recreated."""
+    await connect_two_node_remote(bt)
+
+    caplog.set_level(logging.DEBUG, logger=bt_remote_module.logger.name)
+    caplog.clear()
+    await lose_the_nodes(bt)
+    for path in ("/dev/input/event7", "/dev/input/event8"):
+        bt.evdev.nodes[path] = FakeInputDevice(path)
+    await bt.controller._scan_devices()     # the D-Bus listener's rescan
+    await grace.elapse()
+
+    assert all(e.connected_devices for e in bt.status()), (
+        "a node recreated within the grace was announced as a disconnection")
+    assert bt.controller._monitored_paths == {"/dev/input/event7", "/dev/input/event8"}
+    loud = [r.getMessage() for r in caplog.records
+            if r.name == bt_remote_module.logger.name and r.levelno >= logging.INFO]
+    assert not loud, f"a recreation was logged at info: {loud}"
+    assert grace.started == 1, "the loss started no grace wait"
+    await bt.controller._stop_scanning()
+
+
+@pytest.mark.asyncio
+async def test_a_node_not_recreated_is_announced_once_after_the_grace(bt, grace):
+    """The remote switched off or out of range: one status after the grace,
+    not one per node of the remote, and none while it is still running."""
+    await connect_two_node_remote(bt)
+
+    await lose_the_nodes(bt)
+    assert not bt.status(), "the loss was announced before the grace elapsed"
+    await grace.elapse()
+
+    assert [e.connected_devices for e in bt.status()] == [[]]
+    assert bt.controller._monitored_paths == set()
+
+
+@pytest.mark.asyncio
+async def test_a_loss_pending_when_the_remote_is_switched_off_is_dropped(bt, grace):
+    """The off announces the empty list itself; the pending wait dies with it
+    rather than outliving the controller's tasks."""
+    await connect_two_node_remote(bt)
+    await lose_the_nodes(bt)
+    pending = list(bt.controller._pending_losses.values())
+    assert pending, "the loss started no grace wait"
+
+    await bt.controller.update_config({"enabled": False})
+    await settle()
+
+    assert all(task.cancelled() for task in pending), "the grace wait outlived the off"
+    announced = len(bt.status())
+    await grace.elapse()
+    assert len(bt.status()) == announced, "a loss was announced after the off"
 
 
 @pytest.mark.asyncio
@@ -2238,7 +2360,7 @@ class TestTheDeviceMonitor:
         await bt.controller._stop_scanning()
 
     @pytest.mark.asyncio
-    async def test_a_remote_that_disappears_leaves_no_bookkeeping_behind(self, bt):
+    async def test_a_remote_that_disappears_leaves_no_bookkeeping_behind(self, bt, grace):
         """The node dies when the remote sleeps. A path left in the monitored
         set means the next scan skips it, so the remote never comes back."""
         bt.controller.running = True
@@ -2254,5 +2376,7 @@ class TestTheDeviceMonitor:
         assert bt.controller._monitored_paths == set()
         assert bt.controller._device_info == {}
         assert bt.controller._monitor_tasks == {}
+        await grace.elapse()
         assert bt.status()[-1].connected_devices == []
+        assert bt.controller._pending_losses == {}
         await bt.controller._stop_scanning()

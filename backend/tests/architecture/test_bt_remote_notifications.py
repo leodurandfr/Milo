@@ -59,6 +59,10 @@ BT_REMOTE_PATH = BACKEND_ROOT / "hardware" / "bt_remote.py"
 NODE_STATE = frozenset({"_monitored_paths", "_device_info", "_monitor_tasks"})
 
 BROADCASTER = "_broadcast_status"
+# A lost node is announced late, by a task this method spawns, because BlueZ
+# recreates the node of a remote that stays connected: calling it is how a
+# mutator that loses a node notifies, and the task it starts must broadcast.
+DEFERRED_BROADCASTER = "_announce_loss"
 STATUS_EVENT = "BtRemoteStatusChanged"
 
 # Shutdown is the one caller that owes the UI nothing: the process is going
@@ -171,6 +175,13 @@ def test_every_mutator_of_the_monitored_set_notifies_the_ui(controller):
     calls, callers = controller["calls"], controller["callers"]
     broadcasts = {name for name, c in calls.items() if BROADCASTER in c}
     assert broadcasts, "nothing calls the broadcaster — extractor is broken"
+    deferred = controller["methods"].get(DEFERRED_BROADCASTER)
+    assert deferred is not None, f"{DEFERRED_BROADCASTER}() is gone — this guardrail names it"
+    assert any(BROADCASTER in calls[task] for task in _spawned(deferred)), (
+        f"{DEFERRED_BROADCASTER}() no longer starts a task that calls {BROADCASTER}(), "
+        f"so a lost node is announced to nobody"
+    )
+    broadcasts |= {name for name, c in calls.items() if DEFERRED_BROADCASTER in c}
 
     resolving, verdicts = set(), {}
 

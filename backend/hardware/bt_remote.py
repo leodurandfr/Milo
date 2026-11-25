@@ -52,6 +52,13 @@ BOOT_RETRY_INTERVAL = 15.0  # Seconds between them — BlueZ is often not ready 
 DISCOVERY_DURATION = 5      # Seconds to run BT scan
 DBUS_RECONNECT_DELAY = 5.0  # Seconds before reconnecting a dropped D-Bus listener
 DBUS_EVDEV_SETTLE = 1.0     # Seconds to wait for evdev nodes after BLE reconnect signal
+# Seconds a remote whose evdev nodes died is still reported connected, waiting
+# for a new node at the same address. Measured on a unit (2026-11-25): after a
+# wake, BlueZ recreated the uhid node of a connected remote every 12 s for 90 s,
+# the new node adopted ~1 s after the old one's ENODEV — announced at once,
+# each recreation blinked the Settings › Remotes panel to "not connected"
+# and back.
+NODE_LOSS_GRACE = 2.0
 
 _MAC_PATTERN = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
 
@@ -99,6 +106,9 @@ class BtRemoteController:
         self._monitored_paths: Set[str] = set()
         self._monitor_tasks: Dict[str, asyncio.Task] = {}
         self._device_info: Dict[str, dict] = {}  # path -> {name, address}
+        # MAC -> the NODE_LOSS_GRACE wait before its loss is announced;
+        # adopting a node at that MAC cancels it.
+        self._pending_losses: Dict[str, asyncio.Task] = {}
         self._scan_task: Optional[asyncio.Task] = None
         self._discovery_task: Optional[asyncio.Task] = None
         self._dbus_listener_task: Optional[asyncio.Task] = None
@@ -190,6 +200,9 @@ class BtRemoteController:
             if not task.done():
                 task.cancel()
         self._monitor_tasks.clear()
+        for task in self._pending_losses.values():
+            task.cancel()
+        self._pending_losses.clear()
         self._monitored_paths.clear()
         self._device_info.clear()
 
@@ -579,17 +592,21 @@ class BtRemoteController:
 
             # Clean up disconnected devices
             active_paths = set(all_paths)
-            disconnected = False
             for path in list(self._monitored_paths):
                 if path not in active_paths:
+                    info = self._device_info.get(path, {})
+                    mac = info.get("address", "").upper()
                     self._drop_node(path)
-                    logger.info("BT HID device disconnected: %s", path)
-                    disconnected = True
-            if disconnected and self.running:
-                await self._broadcast_status()
+                    logger.debug("BT HID node gone from the kernel table: %s", path)
+                    if mac:
+                        self._announce_loss(mac, info.get("name", ""))
 
             # Track which MACs we already monitor (for status broadcast dedup)
             macs_before = self._monitored_macs()
+
+            # MAC -> name of each remote whose pending loss a node adopted here
+            # cancelled: BlueZ recreating its nodes, all of them at once.
+            recovered: Dict[str, str] = {}
 
             # Check for new matching devices
             for path in all_paths:
@@ -620,7 +637,11 @@ class BtRemoteController:
                     self._device_info[device.path] = {"name": device.name, "address": device.uniq or ""}
                     task = asyncio.create_task(self._monitor_device(device))
                     self._monitor_tasks[device.path] = task
-                    logger.info("BT HID device found: %s (%s) at %s", device.name, device.uniq, device.path)
+                    logger.debug("BT HID device found: %s (%s) at %s", device.name, device.uniq, device.path)
+                    pending = self._pending_losses.pop(device.uniq.upper(), None)
+                    if pending:
+                        pending.cancel()
+                        recovered[device.uniq.upper()] = device.name
                 except OSError as e:
                     device.close()
                     logger.debug("Error checking device %s: %s", path, e)
@@ -630,8 +651,19 @@ class BtRemoteController:
                     device.close()
                     logger.warning("Unexpected error checking device %s: %s", path, e)
 
-            # Broadcast only if a new MAC appeared (not for each additional evdev node)
+            # Said once per remote, not per node: a remote publishes several
+            # nodes, and a recreation (every node of it) is no news at info.
             new_macs = self._monitored_macs() - macs_before
+            for address, device_name in recovered.items():
+                logger.debug(
+                    "BT HID device found: %s (%s), within %.0fs of losing its nodes: "
+                    "no disconnection announced", device_name, address, NODE_LOSS_GRACE,
+                )
+            for address in sorted(new_macs - recovered.keys()):
+                device_name = self._name_of(address)
+                logger.info("BT HID device found: %s (%s)", device_name, address)
+
+            # Broadcast only if a new MAC appeared (not for each additional evdev node)
             if new_macs:
                 await self._broadcast_status()
 
@@ -642,6 +674,14 @@ class BtRemoteController:
             for info in self._device_info.values()
             if info.get("address")
         }
+
+    def _name_of(self, mac: str) -> str:
+        """The device name of a monitored MAC (its nodes all carry the same)."""
+        return next(
+            (info.get("name", "") for info in self._device_info.values()
+             if info.get("address", "").upper() == mac),
+            "",
+        )
 
     def _drop_node(self, path: str):
         """Forget one evdev node: clear its bookkeeping and cancel its monitor task.
@@ -654,6 +694,35 @@ class BtRemoteController:
         task = self._monitor_tasks.pop(path, None)
         if task and not task.done():
             task.cancel()
+
+    def _announce_loss(self, mac: str, name: str):
+        """Announce that the remote at `mac` lost its nodes, once NODE_LOSS_GRACE
+        has passed without a new one.
+
+        BlueZ recreates the uhid node of a remote that stays connected (ENODEV
+        on the old node, a new one a second later), so a loss announced at once
+        is a disconnection the panel draws and takes back. A second loss of the
+        same remote during the wait joins the one already pending.
+        """
+        if not self.running or mac in self._pending_losses:
+            return
+        self._pending_losses[mac] = asyncio.create_task(self._announce_loss_after_grace(mac, name))
+
+    async def _announce_loss_after_grace(self, mac: str, name: str):
+        """The NODE_LOSS_GRACE wait of _announce_loss: cancelled by an adoption."""
+        try:
+            await asyncio.sleep(NODE_LOSS_GRACE)
+            if self._pending_losses.get(mac) is asyncio.current_task():
+                del self._pending_losses[mac]
+            if not self.running:
+                return
+            if mac not in self._monitored_macs():
+                logger.info("BT HID device disconnected: %s (no new node within %.0fs)", name, NODE_LOSS_GRACE)
+            await self._broadcast_status()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("Error announcing the loss of a BT HID device: %s", e)
 
     def _cancel_all_for_mac(self, address: str):
         """Cancel all monitor tasks for a given MAC (BLE HID has multiple evdev nodes)."""
@@ -897,7 +966,7 @@ class BtRemoteController:
         device_path = device.path
         device_mac = (self._device_info.get(device_path, {}).get("address", "") or device.uniq or "").upper()
         device_disconnected = False
-        logger.info("Monitoring BT HID device: %s", device_name)
+        logger.debug("Monitoring BT HID device: %s", device_name)
 
         try:
             async for event in device.async_read_loop():
@@ -921,7 +990,9 @@ class BtRemoteController:
                     await self._dispatch_action(action)
 
         except OSError as e:
-            logger.info("BT HID device disconnected: %s (%s)", device_name, e)
+            # Often BlueZ recreating the node of a remote still connected: the
+            # disconnection is _announce_loss's to say, after its grace.
+            logger.debug("BT HID node lost at %s (%s)", device_path, e)
             device_disconnected = True
         except asyncio.CancelledError:
             logger.debug("Monitor cancelled for %s", device_name)
@@ -940,10 +1011,10 @@ class BtRemoteController:
             if device_disconnected and mac:
                 # BLE HID creates multiple evdev nodes per connection.
                 # When one dies, the others are stale — cancel them all.
+                # Their own teardown announces nothing: whoever cancels a
+                # monitor (this, the scan, the off) reports the change itself.
                 self._cancel_all_for_mac(mac)
-
-            if self.running:
-                await self._broadcast_status()
+                self._announce_loss(mac, device_name)
 
     # ========================================================================
     # ACTION DISPATCH
