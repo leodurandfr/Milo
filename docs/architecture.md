@@ -1455,8 +1455,10 @@ answer again, so a restart — the first useful gesture on a sick card — can b
 journal stays on trial, so that restart counts as one of its starts, and every other install — a
 program, a satellite push, the one an admission owes — stays refused until it
 (`milo_update_holds_installs`, a 409 that names the restart): nothing moves for a release the guard
-may still put back. `GET /api/programs` no longer lists `milo` in `active_updates` then, since nothing
-runs that a client could wait for. A commit the guard declines with exit 0 (a restore in progress,
+may still put back. So does any journal open short of `committed` — an install handed to the guard
+whose restart has not landed, one its guard did not put back and the backend let go of: the tree may
+then be the new release's checkout, half installed. `GET /api/programs` no longer lists `milo` in
+`active_updates` then, since nothing runs that a client could wait for. A commit the guard declines with exit 0 (a restore in progress,
 a failure recorded beside the journal, a HEAD that is not the release on trial) is let go of the
 same way, under the reason the guard printed; `let_go_of_the_trial` reads the journal first, so a
 committed one is left to the post-commit phase.
@@ -1472,6 +1474,8 @@ but each run is counted in the journal before it begins (`post_commit_runs`, wit
 `post_commit_at` naming the dependency or room it reached): a phase that kills the backend at the
 same item every time — a compile that runs its cgroup out of memory — is given up after
 `MAX_ATTEMPTS - 1` runs, the journal closed as `committed` with a detail naming where it was cut.
+A qobuz-proxy installed again because its lock moved at an unchanged version is recorded
+(`qobuz_relocked`), so a run that follows a cut does not install it once more.
 A phase that cannot close its journal (a full card) lets go of the unit and runs again at the
 next start.
 Until it has run, the new release runs over the previous dependency set — the state any unit is

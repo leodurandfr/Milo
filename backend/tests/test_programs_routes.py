@@ -798,6 +798,54 @@ async def test_a_trial_let_go_of_frees_the_restart_and_no_install(tmp_path, mock
     waiting.cancel()
 
 
+async def test_a_journal_its_guard_did_not_put_back_frees_the_restart_and_no_install(
+    tmp_path, mock_settings_service, monkeypatch,
+):
+    """An install whose guard failed twice in one boot is let go of so that the
+    unit may be restarted, and nothing more: the backend runs whatever tree the
+    guard left — the new release's checkout, half installed, perhaps. Freed
+    with the restart, an admission push woke at the let-go and pushed that
+    tree's client app to a speaker, a release the server never committed and
+    the next start may put back, restarting the speaker twice."""
+    from backend.core.updates import update as update_module
+
+    monkeypatch.setattr(update_module, "BOOT_ID_PATH", str(tmp_path / "boot_id"))
+    (tmp_path / "boot_id").write_text("boot-1\n")
+    service = _milo_unit(tmp_path, mock_settings_service, "checked_out")
+    journal = tmp_path / "app-update" / mj.JOURNAL_NAME
+    journal.write_text(json.dumps({
+        **json.loads(journal.read_text()), mj.KEY_FAILURE: "pip check failed",
+        mj.KEY_GUARD_RETRY_BOOT: "boot-1",
+    }))
+    service._systemd.restart_self = AsyncMock()
+    satellites = MagicMock()
+    satellites.update_satellite_app = AsyncMock(return_value={
+        "success": True, "verdict": "committed", "detail": None,
+    })
+    state_machine = MagicMock()
+    state_machine.broadcast = AsyncMock()
+    r = create_programs_router(service, satellites, state_machine)
+    (runner,), _ = satellites.set_admission_push_runner.call_args
+    owed = AsyncMock(return_value=True)
+    waiting = asyncio.create_task(runner("aa:bb:cc:dd:ee:01", owed))
+    await asyncio.sleep(0)
+
+    await service.hand_stranded_journal_to_the_guard()
+    await asyncio.wait({waiting}, timeout=0.2)
+
+    service._systemd.restart_self.assert_not_awaited()
+    refuse_while_milo_updates(service, "reboot")  # the restart is free again
+    assert not waiting.done(), "the admission push ran over a journal the guard did not put back"
+    owed.assert_not_awaited()
+    satellites.update_satellite_app.assert_not_awaited()
+    program = _endpoint(r, "/api/programs/{program_key}/update")
+    assert "restarted" in await _refused(program("go-librespot", VALIDATED, BackgroundTasks()))
+    assert await service.update_program("go-librespot") == {
+        "success": False, "error": "A Milo update is in progress; it must finish first",
+    }
+    waiting.cancel()
+
+
 async def test_a_trial_let_go_of_is_not_listed_as_an_update_in_flight(tmp_path, mock_settings_service):
     """Every client mirrors `active_updates` into its rows: `milo` listed with
     no `milo_update` drew the Milō row "Updating…" for good, kept the rollback

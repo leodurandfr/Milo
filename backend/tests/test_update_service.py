@@ -1200,9 +1200,10 @@ class TestDependencyReconciliation:
         production applies. `unreadable` maps a repo to the HTTP status GitHub
         answers its release with instead. No program's file is on disk unless
         a test patches `os.path.lexists` itself: a version nothing could read
-        is then a program the unit does not have. `through_flows` records at
-        each program's install flow instead of at `_dispatch_update`, so what
-        the dispatch does before it is run.
+        is then a program the unit does not have. `through_flows` runs the
+        binary flow for real, its download, systemd and its deploy stubbed,
+        and records its install at the deploy (the other flows at their
+        entry), so what the flow does before its stop is run.
         """
         dispatched = []
         answer = dispatch or (lambda *_a: {"success": True})
@@ -1251,7 +1252,30 @@ class TestDependencyReconciliation:
                 patch("backend.core.updates.update.aiohttp.ClientSession", return_value=_Session())
             )
             if through_flows:
-                stack.enter_context(patch.object(service, "_update_binary_program", side_effect=record))
+                installing = {}
+                real_binary_flow = service._update_binary_program
+
+                async def binary_flow(program_key, status):
+                    installing["now"] = (program_key, status)
+                    return await real_binary_flow(program_key, status)
+
+                async def deploy(*_args, **_kwargs):
+                    await record(*installing["now"])
+                    return True, ""
+
+                stack.enter_context(patch.object(service, "_update_binary_program", side_effect=binary_flow))
+                stack.enter_context(patch.object(service, "_backup_binary_program",
+                                                 AsyncMock(return_value={"success": True})))
+                stack.enter_context(patch.object(service, "_download_binary_program", AsyncMock(return_value={
+                    "success": True, "archive_path": "/tmp/dl/bin.tar.gz", "member": "bin",
+                    "sha256": None, "temp_dir": "/tmp/dl"})))
+                stack.enter_context(patch.object(service._systemd, "probe_active", AsyncMock(return_value=True)))
+                stack.enter_context(patch.object(service, "_stop_service", AsyncMock(return_value=True)))
+                stack.enter_context(patch.object(service, "_start_service", AsyncMock(return_value=True)))
+                stack.enter_context(patch.object(service, "_run_deploy", side_effect=deploy))
+                stack.enter_context(patch.object(service, "_verify_binary_program",
+                                                 AsyncMock(return_value={"success": True})))
+                stack.enter_context(patch.object(service, "_cleanup_temp_files", AsyncMock()))
                 for flow, key in (("_update_multiroom", "multiroom"),
                                   ("_update_shairport_sync", "shairport-sync"),
                                   ("_update_qobuz_proxy", "qobuz-proxy")):
@@ -1282,8 +1306,8 @@ class TestDependencyReconciliation:
         unit the owner is listening to again: it stopped the daemon under the
         session — the sound cut, the source left selected over a restarted
         daemon, and for the library a lost-stream banner. It now ends the
-        session first, as the route's own install does, and only the active
-        source's."""
+        session before the stop, as the route's own install does, and only the
+        active source's."""
         update_service.programs["navidrome"]["validated_version"] = self.BUMPED
         events, install = self._playing(update_service, AudioSource.MUSIC_LIBRARY)
 
@@ -1298,7 +1322,8 @@ class TestDependencyReconciliation:
     @pytest.mark.asyncio
     async def test_the_route_s_install_ends_the_same_session_the_same_way(self, update_service):
         """One implementation for the two callers: the route's install reaches
-        the flow through the same dispatch, and ends the session there."""
+        the flow through the same dispatch, and the flow ends the session right
+        before its stop."""
         update_service.programs["navidrome"]["validated_version"] = self.BUMPED
         events, install = self._playing(update_service, AudioSource.MUSIC_LIBRARY)
 
@@ -5422,6 +5447,8 @@ class TestTheMiloPostCommit:
         assert unit.journal()["step"] == "committed"
         assert complete == [False], "the clients drop the banner"
         assert not update_service.milo_update_active
+        # Committed, the tree is the release that held: nothing to hold back.
+        assert not update_service.milo_update_holds_installs
         assert update_service.milo_update_state() is None
         assert "restarting Milo" in milo["error"]
 
@@ -5495,6 +5522,60 @@ class TestTheMiloPostCommit:
         assert unit.ran(lambda argv: "qobuz-proxy" in " ".join(map(str, argv))), "the sidecar was never read"
         detail = update_service.last_update_record()["detail"] or ""
         assert ("qobuz-proxy" in detail) is reached, detail
+
+    @pytest.mark.asyncio
+    async def test_a_sidecar_relocked_by_a_phase_cut_after_it_is_not_installed_again(
+            self, update_service, tmp_path):
+        """The relock is decided from the two commits the journal names, which
+        a cut does not move: a phase killed after the sidecar's install (a
+        restart, a compile that ran the backend out of memory) installed it
+        again, whole and uncached, at every run that followed — minutes of pip
+        per run, for a venv that already held the lock. Recorded once done, it
+        is the next run's to skip."""
+        version = update_service.programs["qobuz-proxy"]["validated_version"]
+        dispatched = []
+
+        async def dispatch(program_key, status):
+            dispatched.append(program_key)
+            return {"success": True}
+
+        class _Release:
+            status = 200
+
+            async def json(self):
+                return {"tag_name": f"v{version}", "published_at": None, "html_url": None}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        class _GitHub:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            def get(self, url, *a, **kw):
+                return _Release()
+
+        with self._arrived(update_service, tmp_path, journal=self.COMMITTED, at_pin=("qobuz-proxy",),
+                           target_qobuz_lock=self.MOVED_QOBUZ_LOCK,
+                           pushed=asyncio.CancelledError()) as (unit, _, complete), \
+                patch("backend.core.updates.update.aiohttp.ClientSession", return_value=_GitHub()), \
+                patch.object(update_service, "_dispatch_update", side_effect=dispatch):
+            with pytest.raises(asyncio.CancelledError):
+                await update_service.run_post_commit()
+            assert dispatched == ["qobuz-proxy"], "the moved lock was never installed"
+
+            update_service._satellites.push_client_app_to_fleet = AsyncMock(return_value=[])
+            await update_service.run_post_commit()
+
+        assert dispatched == ["qobuz-proxy"]
+        assert unit.journal() is None and complete == [True]
+        assert update_service.last_update_record()["detail"] is None
 
 
 class TestAStaleShutdownInhibitor:
@@ -5760,6 +5841,32 @@ class TestAJournalTheGuardDidNotClose:
         assert complete == [False]
         assert (tmp_path / "state" / "journal.json").exists(), "the next boot's guard still has it"
 
+    @pytest.mark.parametrize("journal, let_go", [
+        ({"step": "swapped", "failure": "pip check failed"}, False),
+        ({"step": "checked_out", "guard_retry_boot": "boot-1"}, True),
+    ], ids=["handed-to-the-guard", "let-go-of"])
+    @pytest.mark.asyncio
+    async def test_until_the_guard_puts_it_back_no_install_starts(
+            self, mock_settings_service, tmp_path, monkeypatch, journal, let_go):
+        """Handed to the guard (the restart asked for, not landed), or let go
+        of once the guard failed twice in the boot, the journal frees the
+        restart and nothing else: the tree may be the new release's checkout,
+        half installed, and a local install took the pin of a manifest no
+        release committed — as a satellite admitted meanwhile was pushed its
+        client app."""
+        service, systemd, _ = self._service(mock_settings_service, tmp_path, monkeypatch, journal)
+        if let_go:
+            await service.hand_stranded_journal_to_the_guard()
+            systemd.restart_self.assert_not_awaited()
+            assert service.milo_update_state() is None, "the journal was not let go of"
+
+        assert not service.milo_update_active, "the restart that finishes it is refused"
+        assert service.milo_update_holds_installs
+        with patch.object(service, "_dispatch_update", AsyncMock(return_value={"success": True})) as dispatch:
+            result = await service.update_program("go-librespot")
+        assert result == {"success": False, "error": "A Milo update is in progress; it must finish first"}
+        dispatch.assert_not_awaited()
+
     @pytest.mark.parametrize("step", ["rebooting", "committed"])
     @pytest.mark.asyncio
     async def test_a_trial_or_a_committed_update_is_left_to_its_phase(
@@ -6007,3 +6114,166 @@ class TestTheUnitStateIsReadWhenItIsActedOn:
         assert result == {"success": True}
         started = [call[1] for call in world.acts() if call[0] == "start"]
         assert started == (list(units) if multiroom_enabled else [])
+
+
+class TestTheSessionEndsRightBeforeTheStop:
+    """An install ends the session its daemon serves, so that the stop never
+    cuts a source left selected — but only once what it installs is
+    downloaded, checked and built. Ended first, a download or a digest that
+    refused left Spotify, AirPlay or Qobuz cut and deselected for an install
+    that changed nothing, AirPlay fell minutes ahead of its compile, and a
+    source selected again meanwhile had its daemon stopped under the new
+    session.
+
+    `_SystemdWorld` is systemd, and the session ender the router installs is
+    recorded on the same list, so the order of the two is one assertion.
+    """
+
+    BINARY_STATUS = TestTheUnitStateIsReadWhenItIsActedOn.BINARY_STATUS
+    SHAIRPORT_STATUS = TestTheUnitStateIsReadWhenItIsActedOn.SHAIRPORT_STATUS
+    QOBUZ_STATUS = {"latest": {"version": "1.4.2", "tag_name": "v1.4.2"}}
+
+    @staticmethod
+    def _service(world, settings, program_key):
+        service = TestTheUnitStateIsReadWhenItIsActedOn._service(world, settings)
+        world.active[service.programs[program_key]["service_name"]] = True
+
+        async def end_session_of(key):
+            world.calls.append(("end_session", key))
+
+        service.set_session_ender(end_session_of)
+        return service
+
+    @staticmethod
+    @contextmanager
+    def _install(service, world, program_key, *, refused):
+        """Every phase of `program_key`'s flow stubbed but the download, which
+        is real down to the asset GitHub serves: refused, that asset fails its
+        digest; otherwise the download, and the compile or qobuz-proxy's venv
+        backup, are recorded."""
+        async def download(*_args):
+            world.calls.append(("download",))
+            if refused:
+                raise RuntimeError("checksum mismatch: the archive is not the one the manifest names")
+
+        async def compile_(_source_dir):
+            world.calls.append(("compile",))
+            return {"success": True}
+
+        async def binary_download(_config, _version):
+            await download()
+            return {"success": True, "archive_path": "/tmp/dl/bin.tar.gz", "member": "bin",
+                    "sha256": None, "temp_dir": "/tmp/dl"}
+
+        async def source_download(*_args):
+            await download()
+            return {"success": True, "temp_dir": "/tmp/sps", "source_dir": "/tmp/sps/src"}
+
+        async def venv_backup(_config):
+            world.calls.append(("backup",))
+            return {"success": True}
+
+        ok = AsyncMock(return_value={"success": True})
+        with ExitStack() as stack:
+            def stub(name, **kwargs):
+                stack.enter_context(patch.object(service, name, **kwargs))
+
+            stub("_download_release_asset", side_effect=download)
+            stub("_run_deploy", side_effect=_deploy_into(world))
+            stub("_cleanup_temp_files", new=AsyncMock())
+            stack.enter_context(patch("backend.core.updates.update.Path.exists", return_value=True))
+            if program_key == "shairport-sync":
+                stub("_backup_shairport_sync", new=ok)
+                if not refused:
+                    stub("_download_source", side_effect=source_download)
+                stub("_prepare_nqptp", new=AsyncMock(return_value={
+                    "success": True, "build": None, "expected": ("1.2.9", 11)}))
+                stub("_configure_source", new=ok)
+                stub("_compile_source", side_effect=compile_)
+                stub("_install_shairport_sync", new=ok)
+                stub("_verify_shairport_sync_update", new=ok)
+                stub("_rollback_shairport_sync", new=AsyncMock(return_value=True))
+                stack.enter_context(patch("backend.core.updates.update.aiofiles.open",
+                                          new=_recording_aiofiles_open({})))
+            elif program_key == "qobuz-proxy":
+                stub("_backup_qobuz_venv", side_effect=venv_backup)
+                stub("_run_local", new=LocalCommands())
+                stub("_verify_qobuz_update", new=ok)
+                stub("_rollback_qobuz_venv", new=AsyncMock(return_value=True))
+                stub("_cleanup_qobuz_backup", new=AsyncMock())
+            else:
+                stub("_backup_binary_program", new=ok)
+                if not refused:
+                    stub("_download_binary_program", side_effect=binary_download)
+                stub("_verify_binary_program", new=ok)
+                stub("_rollback_binary_program", new=AsyncMock(return_value=True))
+            yield
+
+    def _status(self, program_key):
+        return {"go-librespot": self.BINARY_STATUS, "shairport-sync": self.SHAIRPORT_STATUS,
+                "qobuz-proxy": self.QOBUZ_STATUS}[program_key]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("program_key", ["go-librespot", "shairport-sync", "qobuz-proxy"])
+    async def test_a_refused_download_ends_no_session(self, mock_settings_service, program_key):
+        """Spotify plays and the network drops, or GitHub serves a regenerated
+        source archive: the install refuses with nothing moved, and the source
+        plays on."""
+        world = _SystemdWorld()
+        service = self._service(world, mock_settings_service, program_key)
+        unit = service.programs[program_key]["service_name"]
+
+        with self._install(service, world, program_key, refused=True):
+            result = await service._dispatch_update(program_key, self._status(program_key))
+
+        assert result["success"] is False
+        assert ("end_session", program_key) not in world.calls, "the source was cut for nothing"
+        assert world.calls == [("download",)]
+        assert world.active[unit] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("program_key, ready", [
+        ("go-librespot", [("download",)]),
+        ("shairport-sync", [("download",), ("compile",)]),
+        ("qobuz-proxy", [("download",), ("backup",)]),
+    ])
+    async def test_the_session_ends_once_the_install_is_ready_and_before_the_stop(
+            self, mock_settings_service, program_key, ready):
+        """The session ends after everything that can still refuse, and right
+        before the reading that decides the stop — so that reading sees what
+        the session's end left, and a source selected during the compile is
+        ended before its daemon stops rather than cut under it."""
+        world = _SystemdWorld()
+        service = self._service(world, mock_settings_service, program_key)
+        unit = service.programs[program_key]["service_name"]
+
+        with self._install(service, world, program_key, refused=False):
+            result = await service._dispatch_update(program_key, self._status(program_key))
+
+        assert result == {"success": True}
+        assert world.calls[:len(ready) + 3] == [
+            *ready, ("end_session", program_key), ("probe_active", unit), ("stop", unit),
+        ]
+        assert world.calls.count(("end_session", program_key)) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_refused_venv_backup_ends_no_session(self, mock_settings_service):
+        """qobuz-proxy copies its venv before it stops the sidecar: a copy that
+        fails (`cp -a` on a full card) refuses with nothing installed, and Qobuz
+        plays on rather than being cut and deselected for nothing."""
+        world = _SystemdWorld()
+        service = self._service(world, mock_settings_service, "qobuz-proxy")
+        unit = service.programs["qobuz-proxy"]["service_name"]
+
+        async def refused_backup(_config):
+            world.calls.append(("backup",))
+            return {"success": False, "error": "cp: No space left on device"}
+
+        with self._install(service, world, "qobuz-proxy", refused=False), \
+                patch.object(service, "_backup_qobuz_venv", side_effect=refused_backup):
+            result = await service._dispatch_update("qobuz-proxy", self.QOBUZ_STATUS)
+
+        assert result["success"] is False
+        assert ("end_session", "qobuz-proxy") not in world.calls, "Qobuz was cut for nothing"
+        assert world.calls == [("download",), ("backup",)]
+        assert world.active[unit] is True

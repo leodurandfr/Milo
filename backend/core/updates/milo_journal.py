@@ -129,3 +129,10 @@ KEY_GUARD_RETRY_BOOT = "guard_retry_boot"
 # kept in the browser at every restart. The guard never writes it, so a record
 # it writes — a new outcome — is shown again.
 KEY_DISMISSED = "dismissed"
+
+# Written by the arriving backend into a committed journal once its post-commit
+# phase installed qobuz-proxy again because qobuz-proxy.lock moved between the
+# two commits the journal names (at an unchanged version, which nothing on the
+# unit can tell apart from a venv still on the previous lock). A phase cut after
+# it and run again leaves the sidecar alone instead of installing it again.
+KEY_QOBUZ_RELOCKED = "qobuz_relocked"

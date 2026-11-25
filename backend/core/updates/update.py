@@ -43,6 +43,7 @@ from backend.core.updates.milo_journal import (
     KEY_OUTCOME,
     KEY_POST_COMMIT_AT,
     KEY_POST_COMMIT_RUNS,
+    KEY_QOBUZ_RELOCKED,
     KEY_STEP,
     KEY_TARGET_COMMIT,
     KEY_TARGET_TAG,
@@ -237,14 +238,20 @@ class UpdateService(VersionService):
     def set_session_ender(self, end_session_of: SessionEnder) -> None:
         """What ends the listening session a program's daemon serves.
 
-        `end_session_of(program_key)` is awaited before every program's install
-        flow, whoever asked for it — the route, or a Milō update bringing the
-        dependency set to its manifest —, and ends the session of the source
-        that daemon plays for when it is the active one, as a press on another
-        source would. An install stops the daemon: under a session, the sound
-        was cut with the source left selected over a restarted daemon, and for
-        Navidrome mpv's localhost stream ended as a lost stream, with its
-        banner, for an operation the owner asked for.
+        `end_session_of(program_key)` is awaited by every install flow that
+        stops a daemon, whoever asked for it — the route, or a Milō update
+        bringing the dependency set to its manifest —, once what it installs is
+        downloaded, checked and built, right before it reads whether the daemon
+        runs and stops it (`_end_session_before_the_stop`). It ends the session
+        of the source that daemon plays for when it is the active one, as a
+        press on another source would. An install stops the daemon: under a
+        session, the sound was cut with the source left selected over a
+        restarted daemon, and for Navidrome mpv's localhost stream ended as a
+        lost stream, with its banner, for an operation the owner asked for.
+        Not earlier: a download or a digest refused left the source cut and
+        deselected for an install that changed nothing, the session fell
+        minutes ahead of a shairport-sync compile, and a source selected again
+        meanwhile had its daemon stopped under the new session.
         """
         self._end_session_of = end_session_of
 
@@ -275,21 +282,26 @@ class UpdateService(VersionService):
     @property
     def milo_update_holds_installs(self) -> bool:
         """Whether no other install may start now: a Milō update holds the unit
-        (`milo_update_active`), or the trial this process let go of is still
-        open (`let_go_of_the_trial`).
+        (`milo_update_active`), or its journal is open and not committed — a
+        trial this process let go of (`let_go_of_the_trial`), an install the
+        guard is to put back (handed over to it, the restart not yet landed),
+        or one its guard did not put back (`hand_stranded_journal_to_the_guard`).
 
-        Letting go of a trial frees the restart and lifts the update screen,
+        Letting go of a journal frees the restart and lifts the update screen,
         nothing else: the dependency set and the satellites move only once a
         trial has committed (`run_post_commit`), and the guard may still put
-        the previous release back. Freed here as well, a satellite owed the
+        the previous release back — the tree meanwhile may be the new release's
+        checkout, half installed. Freed here as well, a satellite owed the
         client app at its admission was pushed the uncommitted release's — a
         speaker restarted in every room for a release that may not stay — and
-        a local install took the uncommitted manifest's pin.
+        a local install took the uncommitted manifest's pin. A committed
+        journal holds nothing past its post-commit phase: the tree is the
+        release that held.
         """
         if self.milo_update_active:
             return True
         journal = self._milo_journal()
-        return journal is not None and journal.get(KEY_STEP) == TRIAL_STEP
+        return journal is not None and journal.get(KEY_STEP) != COMMITTED_STEP
 
     def milo_update_state(self) -> Optional[Dict[str, Any]]:
         """`{"phase", "from_version", "to_version", "item", "index", "total"}`,
@@ -369,7 +381,9 @@ class UpdateService(VersionService):
         reboot the leaving release installs the app only, so nothing outside
         the checkout has moved if the guard has to put it back. Called once the
         trial committed, and again at every start while the journal still says
-        so — both steps leave alone what is already where it should be, so a
+        so — both steps leave alone what is already where it should be (a
+        sidecar relocked by an earlier run is recorded as such in the journal,
+        `KEY_QOBUZ_RELOCKED`, since its version alone cannot say so), so a
         phase cut by a restart resumes. Without a committed journal it does
         nothing.
 
@@ -426,9 +440,8 @@ class UpdateService(VersionService):
         """The dependency set, then the satellites; what stayed behind, for the
         outcome's detail."""
         await self._milo_progress("dependencies")
-        dependency_failures = await self._reconcile_dependencies(
-            relock=await self._qobuz_lock_moved(journal)
-        )
+        relock = frozenset() if journal.get(KEY_QOBUZ_RELOCKED) else await self._qobuz_lock_moved(journal)
+        dependency_failures = await self._reconcile_dependencies(relock=relock)
         await self._milo_progress("satellites")
         satellite_failures = await self._satellites.push_client_app_to_fleet(
             on_push=lambda name, index, total: self._milo_progress(
@@ -496,7 +509,9 @@ class UpdateService(VersionService):
         nothing else would ever act on it. It restarts once per boot so the
         guard runs again. Found a second time in the same boot, the journal is
         let go of instead: the unit runs what started, the update screen lifts
-        and the power routes answer, so a restart can still be asked for.
+        and the power routes answer, so a restart can still be asked for. Every
+        other install stays refused until then (`milo_update_holds_installs`):
+        the tree may be the new release's, half installed.
         """
         if self._milo_running:
             return
@@ -686,14 +701,13 @@ class UpdateService(VersionService):
 
         `update_program` is the route's entry point; `_reconcile_dependencies`
         is the Milō update bringing the set to the manifest. Both have already
-        decided there is something to install, so neither re-checks here. Both
-        end the session the program's daemon serves first, here, so that no
-        install stops a daemon under one (`set_session_ender`).
+        decided there is something to install, so neither re-checks here. The
+        session the program's daemon serves is ended by its flow, right before
+        the stop (`set_session_ender`), never here: what comes before the stop
+        can still refuse with nothing moved.
         """
         if program_key == "milo":
             return await self._update_milo_app(status)
-        if self._end_session_of is not None:
-            await self._end_session_of(program_key)
         if program_key == "multiroom":
             return await self._update_multiroom(status)
         elif program_key == "shairport-sync":
@@ -705,13 +719,24 @@ class UpdateService(VersionService):
         else:
             return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
+    async def _end_session_before_the_stop(self, program_key: str) -> None:
+        """End the session `program_key`'s daemon serves (`set_session_ender`).
+
+        Called by each flow that stops a daemon once its download, its digest
+        and its build are done, right before the reading of the unit that
+        decides its stop, so that reading sees what the session's end left.
+        """
+        if self._end_session_of is not None:
+            await self._end_session_of(program_key)
+
     async def _reconcile_dependencies(self, relock: frozenset[str] = frozenset()) -> list[str]:
         """Bring every dependency to the version this release's manifest declares.
 
         `relock` names the dependencies installed again at the version they
         already run, because the lock their install reads moved
         (`_qobuz_lock_moved`) — never one held off its pin on purpose, whose
-        install reads no lock.
+        install reads no lock. A relock that succeeded is recorded in the
+        journal, so a phase run again after a cut does not repeat it.
 
         Run by the release that arrived, once its trial committed: the catalog
         it imported at start resolved its own `dependencies.env`, so what it
@@ -801,6 +826,8 @@ class UpdateService(VersionService):
                 result = await self._dispatch_update(program_key, status)
             except Exception as e:
                 result = {"success": False, "error": str(e)}
+            if program_key == "qobuz-proxy" and program_key in relock and result.get("success"):
+                await self._record_relocked()
             if not result.get("success"):
                 failed.append(program_key)
                 self.update_logger.error(
@@ -867,6 +894,19 @@ class UpdateService(VersionService):
                 await self._on_milo_progress(dict(self._milo_phase))
             except Exception as e:
                 self.update_logger.error(f"Milo update progress not announced: {e}")
+
+    async def _record_relocked(self) -> None:
+        """The sidecar's venv now holds this release's qobuz-proxy.lock: a
+        post-commit phase cut after it and run again does not install it again
+        (`_qobuz_lock_moved` answers from the two commits, which never move).
+        Not recorded costs one more install of the sidecar at the next run."""
+        journal = self._milo_journal()
+        if journal is None or journal.get(KEY_STEP) != COMMITTED_STEP:
+            return
+        try:
+            await self._write_journal(**{KEY_QOBUZ_RELOCKED: True})
+        except OSError as e:
+            self.update_logger.warning(f"The relocked qobuz-proxy was not recorded in the journal: {e}")
 
     async def _record_post_commit_at(self, at: str) -> None:
         """Where the post-commit phase is, for the detail of one given up."""
@@ -1491,10 +1531,15 @@ class UpdateService(VersionService):
         The one behavioural difference is service policy. CamillaDSP is
         always-on, so it is stopped and started unconditionally; go-librespot's
         Spotify service is on-demand and Navidrome runs only while the dock
-        enables Music Library, so they are restarted only if they run when the
-        download is done — the owner may select either while it downloads, and
-        a reading taken before it would leave the one they chose stopped. A
-        state systemd cannot report aborts the update before anything changes.
+        enables Music Library, so they are restarted only if they run right
+        before the stop. That reading follows the end of the session the daemon
+        serves (`_end_session_before_the_stop`), so Spotify, selected during the
+        download or not, is ended like any active session and go-librespot stays
+        stopped after a success; what the reading still decides is Navidrome,
+        whose unit runs with the dock rather than the selection, and nothing for
+        the always-on CamillaDSP. A state systemd cannot report aborts the
+        update with nothing installed — the session the daemon serves has
+        already ended, as for any install that reaches its stop.
         """
         config = self.programs[program_key]
         display_name = config["log_name"]
@@ -1514,6 +1559,7 @@ class UpdateService(VersionService):
             if not download_result["success"]:
                 return download_result
 
+            await self._end_session_before_the_stop(program_key)
             if config.get("always_on", False):
                 run_service = True
             else:
@@ -1854,10 +1900,13 @@ class UpdateService(VersionService):
         settled before anything is stopped (`_prepare_nqptp`), installed in
         upstream's order (NQPTP first), and rolled back together.
 
-        Whether milo-airplay runs is read once the build is done, not before:
-        the owner may select AirPlay during the minutes it compiles, and the
-        NQPTP swap stops it through `Requires=` — a reading taken before would
-        leave the receiver they chose stopped under a success.
+        The session AirPlay serves is ended once the build is done, not before
+        (`_end_session_before_the_stop`), and whether milo-airplay runs is read
+        right after it: AirPlay, selected during the minutes it compiles or
+        before, is ended like any active session, and its receiver stays stopped
+        after a success — the NQPTP swap would stop it through `Requires=`
+        anyway. The reading decides only for a receiver started with no session
+        to end.
         """
         config = self.programs["shairport-sync"]
         latest_version = status["latest"]["version"]
@@ -1903,6 +1952,7 @@ class UpdateService(VersionService):
                 await self._cleanup_temp_files(temp_dir)
                 return compile_result
 
+            await self._end_session_before_the_stop("shairport-sync")
             state = await self._systemd.probe_active(service_name)
             if state is None:
                 await self._cleanup_temp_files(temp_dir)
@@ -2485,8 +2535,10 @@ class UpdateService(VersionService):
         venv = config["venv_path"]
         service = config["service_name"]
 
-        # Read once the backup is taken, right before the stop it decides: the
-        # owner may select Qobuz while the venv is copied.
+        # Read once the backup is taken, right after the session Qobuz serves is
+        # ended (`_end_session_before_the_stop`) and before the stop it decides:
+        # Qobuz, selected while the venv is copied or before, is ended like any
+        # active session, and its sidecar stays stopped after a success.
         service_was_active = False
         # Nothing to roll back to before phase 1 completes, so a failure above
         # that line reports no rollback outcome at all.
@@ -2507,6 +2559,7 @@ class UpdateService(VersionService):
                 return backup_result
             backed_up = True
 
+            await self._end_session_before_the_stop("qobuz-proxy")
             state = await self._systemd.probe_active(service)
             if state is None:
                 await self._cleanup_qobuz_backup(config)
@@ -2515,8 +2568,8 @@ class UpdateService(VersionService):
             self.update_logger.info(f"Service {service} is {'active' if state else 'inactive'} before the upgrade")
 
             # Phase 2: Stop the sidecar before touching the venv (50%).
-            # Normally already stopped (its session ended before the install),
-            # so this is defensive against a file lock (Restart=always).
+            # Normally already stopped (its session ended just above), so this
+            # is defensive against a file lock (Restart=always).
             if service_was_active:
                 if not await self._stop_service(service):
                     rolled_back = await self._rollback_qobuz_venv(config, service_was_active)
@@ -2762,8 +2815,8 @@ class UpdateService(VersionService):
         when it installs fixes, and apt-daily the lists' while it refreshes
         them. What `milo-deploy-update` runs waits a minute at most: apt-get for
         dpkg's lock (52milo-unattended-upgrades), sync-system-files' `dpkg
-        --configure -a` as long, install-deb's not at all. So both callers
-        wait here first, while a refusal still leaves everything as it was.
+        --configure -a` as long. So both callers wait here first, while a
+        refusal still leaves everything as it was.
         """
         held_by = await asyncio.to_thread(dpkg_lock.holder, APT_LOCKS)
         if held_by is None:
@@ -2798,7 +2851,7 @@ class UpdateService(VersionService):
     @staticmethod
     def _unreadable_state(service_name: str) -> Dict[str, Any]:
         """The answer of a flow that could not read the unit it was about to stop."""
-        return {"success": False, "error": f"state of {service_name} unreadable, nothing changed"}
+        return {"success": False, "error": f"state of {service_name} unreadable, nothing installed"}
 
     async def _restart_after_rollback(self, service_name: str, requested: bool) -> bool:
         """Whether a rollback starts the unit again once the old version is back.

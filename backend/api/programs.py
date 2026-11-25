@@ -112,8 +112,10 @@ def create_programs_router(
     def _running() -> set[str]:
         """The in-flight keys, `milo` included while the update service says a
         Milō update holds the installs: its journal outlives this process, and
-        the release that arrives inherits the claim with it. A trial let go of
-        still holds it (`milo_update_holds_installs`): only a restart frees it."""
+        the release that arrives inherits the claim with it. A journal let go
+        of, or one the guard has still to put back, holds it as long as it is
+        open and not committed (`milo_update_holds_installs`): only a restart
+        frees it."""
         if update_service.milo_update_holds_installs:
             return active_updates | {"milo"}
         return set(active_updates)
@@ -180,10 +182,11 @@ def create_programs_router(
     def _refuse(blocker: str, update_key: str) -> HTTPException:
         """The refusal naming what is in the way, when it is not this key."""
         if blocker == "milo" and "milo" not in active_updates and not update_service.milo_update_active:
-            # Only the journal claims it: a trial let go of. Nothing runs, and
-            # waiting finishes nothing — the restart it was let go of for does.
+            # Only the journal claims it, open and not committed: a trial let go
+            # of, or an install its guard has not put back. Nothing runs, and
+            # waiting finishes nothing — a restart does.
             return _refusal(
-                "The Milō update on trial could not be committed; no other update "
+                "A Milō update was neither committed nor put back; no other update "
                 "starts before the unit is restarted"
             )
         if blocker == update_key:
@@ -309,7 +312,7 @@ def create_programs_router(
         # `milo_update` is where a Milō update stands (the shape of
         # program_update_progress), `last_update` how the last one ended.
         # `milo` is listed while a Milō update runs (`milo_update_active`), not
-        # while a trial let go of still holds the installs: nothing runs then,
+        # while a journal let go of still holds the installs: nothing runs then,
         # and listed, every client drew the Milō row "Updating…" for good and
         # disabled every other row, read as an update to wait for when the
         # restart is the gesture the let-go frees. `_blocker` still refuses

@@ -45,6 +45,7 @@ NOT_THE_GUARDS = {
     "KEY_VENV_KEPT": "the guard trusts the kept copy on disk, which a cut copy cannot fake",
     "KEY_POST_COMMIT_RUNS": "the post-commit phase is the arriving backend's, past the guard's last act",
     "KEY_POST_COMMIT_AT": "the post-commit phase is the arriving backend's, past the guard's last act",
+    "KEY_QOBUZ_RELOCKED": "the post-commit phase is the arriving backend's, past the guard's last act",
     "KEY_GUARD_RETRY_BOOT": "the backend's own record of having restarted into the guard once this boot",
     "KEY_DISMISSED": "the banner's state, set by the backend; a record the guard writes is new, so not dismissed",
 }
