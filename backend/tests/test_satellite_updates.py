@@ -774,6 +774,71 @@ class TestAppUpdateAvailableFlag:
         assert self._snapclient_flag(client) is False
 
 
+class TestSatelliteCheckFailed:
+    """A satellite's snapclient and CamillaDSP rows say when GitHub did not answer.
+
+    `update_available: False` is what the read of a failed GitHub check left
+    too, so without `check_failed` UpdateManager.vue drew both rows "up to date"
+    while the local Multiroom row, fed by the same read, said it could not
+    check — and an update for the speaker stayed invisible until the next read.
+    """
+
+    @pytest.fixture
+    def satellites(self):
+        return [{
+            "mac_id": "dc:a6:32:7e:d3:43",
+            "snapclient_version": "0.28.0",
+            "app_version": SERVER_VERSION,
+            "app_payload": SERVER_PAYLOAD,
+            "camilladsp_version": "3.0.0",
+            "online": True,
+        }]
+
+    def _row(self, satellites, answers):
+        """The satellite's row, GitHub answering `answers[program_key]`."""
+        update_service = Mock()
+        update_service.get_latest_github_version = AsyncMock(side_effect=lambda key: answers[key])
+        satellite_service = Mock()
+        satellite_service.list_satellites = AsyncMock(return_value=satellites)
+        satellite_service.get_client_payload_version = AsyncMock(return_value=SERVER_PAYLOAD)
+        satellite_service.get_server_version = AsyncMock(return_value=SERVER_VERSION)
+        app = FastAPI()
+        app.include_router(create_programs_router(update_service, satellite_service, Mock()))
+        body = TestClient(app).get("/api/programs/satellites").json()
+        assert body["status"] == "success" and body["count"] == 1, body
+        return body["satellites"][0]
+
+    def test_a_snapclient_read_that_failed_is_said(self, satellites):
+        row = self._row(satellites, {
+            "multiroom": {"status": "error", "message": "rate limited"},
+            "camilladsp": {"status": "success", "version": "3.0.0"},
+        })
+
+        assert row["update_available"] is False
+        assert row["check_failed"] is True
+        assert row["camilladsp_check_failed"] is False
+
+    def test_a_camilladsp_read_that_failed_is_said(self, satellites):
+        row = self._row(satellites, {
+            "multiroom": {"status": "success", "version": "0.28.0"},
+            "camilladsp": {"status": "error", "message": "offline"},
+        })
+
+        assert row["camilladsp_update_available"] is False
+        assert row["camilladsp_check_failed"] is True
+        assert row["check_failed"] is False
+
+    def test_an_answer_with_nothing_newer_is_not_a_failure(self, satellites):
+        """Up to date stays an answer GitHub gave, never the failure's flag."""
+        row = self._row(satellites, {
+            "multiroom": {"status": "success", "version": "0.28.0"},
+            "camilladsp": {"status": "success", "version": "3.0.0"},
+        })
+
+        assert (row["update_available"], row["check_failed"]) == (False, False)
+        assert (row["camilladsp_update_available"], row["camilladsp_check_failed"]) == (False, False)
+
+
 class TestAppUpdateOutcome:
     """What counts as "the satellite is running the new app".
 

@@ -65,6 +65,39 @@ describe('updatesStore recheck', () => {
     expect(store.localProgramsError).toBe(true);
   });
 
+  it('a Retry reads a satellite list it holds again, after the recheck dropped the failures', async () => {
+    // The recheck forgets the failed checks the satellites' read answers from
+    // too; without a second read their snapclient and CamillaDSP rows kept
+    // "check impossible" — or "up to date" — until the next resync.
+    const satellite = { mac_id: 'aa', online: true, check_failed: true, camilladsp_check_failed: true };
+    apiCall.get.mockImplementation(async (url) => (url === '/api/programs/satellites'
+      ? ok({ satellites: [satellite] })
+      : ok({ programs: {}, active_updates: [] })));
+    await store.loadSatellites();
+    const order = [];
+    apiCall.post.mockImplementation(async (url) => {
+      order.push(`POST ${url}`);
+      return ok({ programs: {}, active_updates: [] });
+    });
+    apiCall.get.mockImplementation(async (url) => {
+      order.push(`GET ${url}`);
+      return ok({ satellites: [{ ...satellite, check_failed: false, camilladsp_check_failed: false }] });
+    });
+
+    await store.recheckPrograms();
+
+    expect(order).toEqual(['POST /api/programs/recheck', 'GET /api/programs/satellites']);
+  });
+
+  it('a Retry with no satellite list held reads none', async () => {
+    apiCall.post.mockResolvedValue(ok({ programs: {}, active_updates: [] }));
+
+    await store.recheckPrograms();
+
+    expect(apiCall.post.mock.calls.map(([url]) => url)).toEqual(['/api/programs/recheck']);
+    expect(apiCall.get).not.toHaveBeenCalled();
+  });
+
   it('an ordinary read does not ask GitHub again', async () => {
     apiCall.get.mockResolvedValue(ok({ programs: {}, active_updates: [] }));
     await store.loadLocalPrograms();

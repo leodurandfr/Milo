@@ -399,7 +399,11 @@ def create_programs_router(
 
     @router.get("/satellites")
     async def get_satellites():
-        """Retrieve the list of detected satellites with their versions"""
+        """Retrieve the list of detected satellites with their versions.
+
+        A satellite whose snapclient or CamillaDSP row could not be checked on
+        GitHub carries `check_failed` / `camilladsp_check_failed: true`.
+        """
         try:
             # Fetch all data in parallel: satellite discovery + cached version lookups
             # Online satellites, plus the ones that hold an app push they did
@@ -417,8 +421,14 @@ def create_programs_router(
                 )
             )
 
-            latest_version = snapclient_github.get("version") if snapclient_github.get("status") == "success" else None
-            camilladsp_latest = camilladsp_github.get("version") if camilladsp_github.get("status") == "success" else None
+            # A read that failed offers nothing and says so, by the rule the
+            # local rows follow (`VersionService.get_program_status`): without
+            # `check_failed` the two rows read "up to date" while the local
+            # Multiroom row, fed by the same read, says it could not ask.
+            snapclient_check_failed = snapclient_github.get("status") != "success"
+            camilladsp_check_failed = camilladsp_github.get("status") != "success"
+            latest_version = None if snapclient_check_failed else snapclient_github.get("version")
+            camilladsp_latest = None if camilladsp_check_failed else camilladsp_github.get("version")
 
             for satellite in satellites:
                 mac = satellite.get("mac_id")
@@ -436,6 +446,7 @@ def create_programs_router(
                 # a disabled button and no way back.
                 online = satellite.get("online", False)
                 satellite["latest_version"] = latest_version
+                satellite["check_failed"] = snapclient_check_failed
                 satellite["update_available"] = online and bool(latest_version) and (
                     satellite.get("snapclient_version") != latest_version
                 )
@@ -453,6 +464,7 @@ def create_programs_router(
                 )
                 # CamillaDSP update
                 satellite["camilladsp_latest_version"] = camilladsp_latest
+                satellite["camilladsp_check_failed"] = camilladsp_check_failed
                 satellite["camilladsp_update_available"] = online and bool(camilladsp_latest) and (
                     satellite.get("camilladsp_version") != camilladsp_latest
                 )

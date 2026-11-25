@@ -335,6 +335,17 @@ export const useUpdatesStore = defineStore('updates', () => {
     return result.ok;
   }
 
+  // A row's Retry after its check failed. The recheck drops the failures the
+  // backend remembers for every read, the satellites' included, so a satellite
+  // list already held is read again after it — else its snapclient and
+  // CamillaDSP rows keep the failed answer until the next resync.
+  async function recheckPrograms({ errorRef } = {}) {
+    const held = satellites.value !== null;
+    const ok = await loadLocalPrograms({ recheck: true, errorRef });
+    if (held) await loadSatellites();
+    return ok;
+  }
+
   async function startUpdate(states, id, url, message, body = null, onDelta = null) {
     if (states.value[id]?.updating) return;
     // The target rides along so the button that was pressed can say what it is
@@ -684,6 +695,7 @@ export const useUpdatesStore = defineStore('updates', () => {
     loadLocalPrograms,
     loadMiloUpdate,
     loadSatellites,
+    recheckPrograms,
     canUpdateLocal,
     startLocalUpdate,
     startSatelliteUpdate,

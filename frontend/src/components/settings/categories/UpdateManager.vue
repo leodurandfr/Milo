@@ -332,6 +332,9 @@
                         <span class="version-new">> {{ satelliteByMacId[client.mac_id].latest_version }}</span>
                       </template>
                     </span>
+                    <div v-if="satelliteByMacId[client.mac_id].check_failed" class="program-failure">
+                      <span class="text-body-small failure-cause">{{ t('updates.checkFailed') }}</span>
+                    </div>
                     <div v-if="shownFailure(satelliteUpdateFailure(client.mac_id), isSatelliteUpdating(client.mac_id))"
                       class="program-failure">
                       <span v-if="failureCause(satelliteUpdateFailure(client.mac_id))" class="text-body-small failure-cause">
@@ -358,6 +361,17 @@
                         @click="startSatelliteUpdate(client.mac_id)"
                         :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
                     </template>
+                    <!-- Up to date is an answer GitHub gave, as on the local rows: a
+                         check that did not reach it offers the check again. -->
+                    <template v-else-if="satelliteByMacId[client.mac_id].check_failed">
+                      <Button size="small" variant="control" class="program-button action-wide"
+                        :loading="rechecking" :disabled="rechecking" @click="recheck">
+                        {{ t('updates.retry') }}
+                      </Button>
+                      <IconButton icon="arrowClockwise" variant="control" size="small"
+                        class="action-compact row-icon-button" :aria-label="t('updates.retry')"
+                        :loading="rechecking" :disabled="rechecking" @click="recheck" />
+                    </template>
                     <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
                     </Button>
@@ -376,6 +390,9 @@
                         <span class="version-new">> {{ satelliteByMacId[client.mac_id].camilladsp_latest_version }}</span>
                       </template>
                     </span>
+                    <div v-if="satelliteByMacId[client.mac_id].camilladsp_check_failed" class="program-failure">
+                      <span class="text-body-small failure-cause">{{ t('updates.checkFailed') }}</span>
+                    </div>
                     <div v-if="shownFailure(satelliteCamillaFailure(client.mac_id), isSatelliteCamillaUpdating(client.mac_id))"
                       class="program-failure">
                       <span v-if="failureCause(satelliteCamillaFailure(client.mac_id))" class="text-body-small failure-cause">
@@ -401,6 +418,15 @@
                         :loading="isSatelliteCamillaUpdating(client.mac_id)"
                         @click="startSatelliteCamillaUpdate(client.mac_id)"
                         :disabled="isMiloUpdating() || isSatelliteBusy(client.mac_id)" />
+                    </template>
+                    <template v-else-if="satelliteByMacId[client.mac_id].camilladsp_check_failed">
+                      <Button size="small" variant="control" class="program-button action-wide"
+                        :loading="rechecking" :disabled="rechecking" @click="recheck">
+                        {{ t('updates.retry') }}
+                      </Button>
+                      <IconButton icon="arrowClockwise" variant="control" size="small"
+                        class="action-compact row-icon-button" :aria-label="t('updates.retry')"
+                        :loading="rechecking" :disabled="rechecking" @click="recheck" />
                     </template>
                     <Button v-else size="small" variant="control" class="program-button btn-up-to-date" disabled>
                       {{ t('updates.upToDate') }}
@@ -492,7 +518,7 @@ const {
   satellites, satellitesError, satelliteByMacId, miloUpdateFailure, rollbackNotice,
 } = storeToRefs(updatesStore);
 const {
-  loadLocalPrograms, loadSatellites,
+  loadLocalPrograms, loadSatellites, recheckPrograms,
   canUpdateLocal, startLocalUpdate,
   startSatelliteUpdate, startSatelliteAppUpdate, startSatelliteCamillaUpdate,
   isLocalUpdating, isLocalUpdateCompleted,
@@ -530,7 +556,7 @@ async function recheck() {
   // One refusal at a time: two sticky boxes at the panel's bottom overlap.
   startRefusal.value = null;
   try {
-    await loadLocalPrograms({ recheck: true, errorRef: recheckRefusal });
+    await recheckPrograms({ errorRef: recheckRefusal });
   } finally {
     rechecking.value = false;
   }
@@ -593,7 +619,7 @@ const APP_FAILURE_CAUSES = {
 
 // A retry in flight is the question the failure asked again.
 function appFailureShown(macId) {
-  return !!satelliteAppFailure(macId) && !isSatelliteAppUpdating(macId);
+  return shownFailure(satelliteAppFailure(macId), isSatelliteAppUpdating(macId));
 }
 
 // The release on offer is the one that was put back: a press is a retry. With
@@ -637,8 +663,7 @@ function programButtonLabel(failure, updating) {
 }
 
 function appButtonLabel(macId) {
-  if (isSatelliteAppUpdating(macId)) return t('updates.updating');
-  return satelliteAppFailure(macId) ? t('updates.retry') : t('updates.update');
+  return programButtonLabel(satelliteAppFailure(macId), isSatelliteAppUpdating(macId));
 }
 
 const programToDockApp = {
