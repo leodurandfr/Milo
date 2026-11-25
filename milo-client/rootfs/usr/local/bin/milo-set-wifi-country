@@ -15,14 +15,14 @@
 
 set -euo pipefail
 
+# The boot partition, mounted here since Bookworm, and only here: no Milō image
+# has another layout, and what Raspberry Pi OS leaves under /boot is a stub
+# saying the file moved, which a write would reach in silence while the next
+# boot reads the real one. Same rule as milo-deploy-update's boot_file, the
+# other writer of this file.
 CMDLINE_FILE="/boot/firmware/cmdline.txt"
 # Not on cmdline.txt itself: the rename below gives that path a new inode.
 LOCK_FILE="/run/lock/milo-set-wifi-country.lock"
-
-# Fallback for older Pi OS layouts
-if [[ ! -f "$CMDLINE_FILE" ]]; then
-    CMDLINE_FILE="/boot/cmdline.txt"
-fi
 
 # =============================================================================
 # Validation
@@ -41,7 +41,7 @@ if ! [[ "$COUNTRY_CODE" =~ ^[A-Z0-9]{2}$ ]]; then
 fi
 
 if [[ ! -f "$CMDLINE_FILE" ]]; then
-    echo "ERROR: $CMDLINE_FILE not found" >&2
+    echo "ERROR: $CMDLINE_FILE not found -- is the boot partition mounted at /boot/firmware?" >&2
     exit 1
 fi
 

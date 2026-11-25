@@ -7,9 +7,17 @@
 # /etc/nftables.conf accepts a new inbound IPv6 connection from a global address
 # only when that address lies in one of the prefixes the unit's own interfaces
 # carry: a LAN peer, never the Internet. Those prefixes are the router's to hand
-# out and to change, so the set is rebuilt whole, from `ip -6 addr`, in one nft
-# transaction — whichever run comes last, the set ends equal to the addresses
-# the interfaces held then, and a prefix the router took back leaves it with them.
+# out and to change, so the set is rebuilt whole, from `ip -6 addr` and `ip -6
+# route`, in one nft transaction — whichever run comes last, the set ends equal
+# to what the interfaces held then, and a prefix the router took back leaves it
+# with them.
+#
+# The routes too, because an address does not always carry its link's prefix:
+# where the router hands addresses out by stateful DHCPv6 and advertises no
+# prefix for SLAAC (RA M=1, A=0: OpenWrt, pfSense or UniFi in managed mode),
+# NetworkManager sets the leased address as a /128, and the link's /64 is only
+# the on-link route the advertisement brought. Read from the address alone, the
+# set would hold the unit itself and refuse every global peer of its own link.
 # Three callers, one implementation:
 #   * nftables.service, once the ruleset is loaded, at start and at reload (its
 #     milo-link-prefixes.conf drop-in): a load starts the set empty;
@@ -61,15 +69,23 @@ SETTLE_S = 30
 LINK_ENDS = {"down", "pre-down", "vpn-down"}
 
 
-def link_prefixes(ip_json: str) -> list[ipaddress.IPv6Network]:
+def link_prefixes(addr_json: str, route_json: str) -> list[ipaddress.IPv6Network]:
     """The global prefixes every interface but loopback carries, overlaps merged.
 
-    `ip_json` is what `ip -j -6 addr show scope global` prints. Merged because an
-    interval set refuses two elements that overlap, and eth0 and wlan0 on the
-    same LAN carry the same prefix.
+    `addr_json` is what `ip -j -6 addr show scope global` prints, `route_json`
+    what `ip -j -6 route show` prints. A route is the link only when it says
+    so twice: no gateway, and put there by the link itself — `proto ra`, the
+    on-link prefix of an advertisement, or `proto kernel`, the prefix route of
+    an address. A default route, a route through a router, a multipath route
+    and an unreachable one are not; nor is a gatewayless route someone else
+    installed (`proto boot`/`static`/`dhcp`): a full-tunnel VPN's `::/1` and
+    `8000::/1` on tun0 are that, and merged they are the whole Internet.
+    Merged because an interval set refuses two elements that overlap — eth0
+    and wlan0 on the same LAN carry the same prefix, and a /128 lease lies in
+    its link's on-link /64.
     """
     networks = []
-    for link in json.loads(ip_json or "[]"):
+    for link in json.loads(addr_json or "[]"):
         if link.get("ifname") == "lo":
             continue
         for address in link.get("addr_info", []):
@@ -78,6 +94,18 @@ def link_prefixes(ip_json: str) -> list[ipaddress.IPv6Network]:
             networks.append(
                 ipaddress.ip_interface(f"{address['local']}/{address['prefixlen']}").network
             )
+    for route in json.loads(route_json or "[]"):
+        if (route.get("dev") in (None, "lo") or route.get("dst", "default") == "default"
+                or "gateway" in route or "nexthops" in route
+                or route.get("type", "unicast") != "unicast"
+                or route.get("protocol") not in ("ra", "kernel")):
+            continue
+        network = ipaddress.ip_network(route["dst"], strict=False)
+        # What `scope global` reads of an address: neither fe80::/64, which
+        # every link carries and the ruleset accepts by itself, nor multicast.
+        if network.version == 6 and not (network.is_link_local or network.is_multicast
+                                         or network.is_loopback or network.is_unspecified):
+            networks.append(network)
     return list(ipaddress.collapse_addresses(networks))
 
 
@@ -88,13 +116,13 @@ def main() -> int:
     if f"table {FAMILY} {TABLE}" not in tables.stdout.splitlines():
         return 0
 
-    addresses = subprocess.run(
-        ["ip", "-j", "-6", "addr", "show", "scope", "global"],
-        stdout=subprocess.PIPE, text=True, check=False,
-    )
-    if addresses.returncode != 0:
-        return addresses.returncode
-    prefixes = link_prefixes(addresses.stdout)
+    reads = []
+    for command in (["ip", "-j", "-6", "addr", "show", "scope", "global"], ["ip", "-j", "-6", "route", "show"]):
+        read = subprocess.run(command, stdout=subprocess.PIPE, text=True, check=False)
+        if read.returncode != 0:
+            return read.returncode
+        reads.append(read.stdout)
+    prefixes = link_prefixes(*reads)
     batch = f"flush set {FAMILY} {TABLE} {SET}\n"
     if prefixes:
         batch += f"add element {FAMILY} {TABLE} {SET} {{ {', '.join(map(str, prefixes))} }}\n"

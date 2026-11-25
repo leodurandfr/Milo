@@ -103,7 +103,8 @@ NQPTP_SETTLE_S = 1.0
 # — unattended-upgrades' run, apt-daily's refresh of the lists, both at a time
 # apt's timers pick — before it gives up with nothing stopped or installed. What
 # `milo-deploy-update install-deb` and `sync-system-files` take: dpkg's locks
-# for `dpkg --configure -a` and the install, the lists' for their `apt update`.
+# for `dpkg --configure -a` and the install, the lists' for their `apt-get
+# update`, which fails at once on it rather than waiting.
 APT_LOCK_WAIT_S = 300
 APT_LOCKS = dpkg_lock.DPKG_LOCKS + (dpkg_lock.APT_LISTS_LOCK,)
 
@@ -1801,9 +1802,10 @@ class UpdateService(VersionService):
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
                 return {"success": False, "error": f"Failed to download snapclient: {client_download.get('error')}"}
 
-            # Before the stop: install-deb's dpkg run, its `apt update` and its
-            # install each fail at once on a lock another apt holds, and
-            # waiting for it with the units down is a house without music.
+            # Before the stop: install-deb waits a minute at most for dpkg's
+            # locks, and its `apt-get update` fails at once on the lists' lock
+            # another apt holds; waiting for either with the units down is a
+            # house without music.
             held_by = await self._wait_for_apt()
             if held_by:
                 await self._cleanup_temp_files(server_download.get("temp_dir"))
@@ -2831,9 +2833,10 @@ class UpdateService(VersionService):
         unattended-upgrades holds dpkg's for its whole run, which takes minutes
         when it installs fixes, and apt-daily the lists' while it refreshes
         them. What `milo-deploy-update` runs waits a minute at most: apt-get for
-        dpkg's lock (52milo-unattended-upgrades), sync-system-files' `dpkg
-        --configure -a` as long. So both callers wait here first, while a
-        refusal still leaves everything as it was.
+        dpkg's lock (52milo-unattended-upgrades), and its one `dpkg --configure
+        -a` (sync-system-files' and install-deb's) as long — and its `apt-get
+        update` not at all for the lists'. So both callers wait here first,
+        while a refusal still leaves everything as it was.
         """
         held_by = await asyncio.to_thread(dpkg_lock.holder, APT_LOCKS)
         if held_by is None:

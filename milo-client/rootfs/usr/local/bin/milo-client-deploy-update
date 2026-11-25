@@ -12,6 +12,7 @@ error_exit() { echo "ERROR: $1" >&2; exit 1; }
 CHANGED=()
 SYSCTL_FILES=()
 NM_CONF_DEPLOYED=false
+NFTABLES_CHANGED=false
 would_change() {
     # $1 source, $2 destination — true when copying would alter the destination.
     [ -f "$2" ] || return 0
@@ -135,6 +136,17 @@ while read -r rel_path; do
     CHANGED+=("$target")
     mkdir -p "$(dirname "$target")"
 
+    # The IPv6 firewall, loaded below when its ruleset, its unit's drop-in or
+    # the script that fills its set moved; a ruleset nft refuses is never
+    # installed, as a sudoers policy visudo refuses is not.
+    case "$rel_path" in
+        etc/nftables.conf)
+            nft -c -f "$MILO_DIR/rootfs/$rel_path" || error_exit "nft rejects $rel_path -- not installed"
+            NFTABLES_CHANGED=true ;;
+        etc/systemd/system/nftables.service.d/*|etc/NetworkManager/dispatcher.d/50-milo-ipv6-link-prefixes)
+            NFTABLES_CHANGED=true ;;
+    esac
+
     # Executable for scripts, ownership for home files — set on the copy, so
     # the file is final the moment it is swapped in.
     mode=""
@@ -179,18 +191,30 @@ fi
 systemctl daemon-reload
 echo "  systemctl daemon-reload done"
 
-# avahi-daemon is the only consumer of anything deployed here that nothing else
-# brings back. The app update restarts milo-client.service as its last step and
-# systemd propagates that to milo-client-camilladsp and milo-client-snapclient —
+# The app update restarts milo-client.service as its last step and systemd
+# propagates that to milo-client-camilladsp and milo-client-snapclient —
 # measured on a unit: both go inactive with it and return with it, NRestarts
 # untouched — so the unit files above and /etc/asound.conf take effect on their
-# own. This drop-in would sit reloaded-but-unapplied until the next boot, which
-# is how a satellite kept announcing itself on the wrong interface after the fix
-# for it had already been deployed. Only on a real change: a restart re-registers
-# every mDNS name on the unit, and that is how the server finds it.
+# own. What no restart reaches is told here, and a satellite reboots only on a
+# power cut or a push that finds reboot-required in a silent room, so what is
+# not told waits weeks. Below: avahi-daemon, nftables, sysctl and
+# NetworkManager. (journald's drop-in still waits for the next boot.)
+#
+# avahi-daemon's drop-in would sit reloaded-but-unapplied until the next boot,
+# which is how a satellite kept announcing itself on the wrong interface after
+# the fix for it had already been deployed. Only on a real change: a restart
+# re-registers every mDNS name on the unit, and that is how the server finds it.
 if [ "$avahi_changed" -eq 1 ]; then
     systemctl restart avahi-daemon.service
     echo "  Restarted avahi-daemon (its drop-in changed)"
+fi
+
+# nftables.service loaded the ruleset at its start; a reload loads the one just
+# installed (its drop-in then fills link_prefixes again). Only on a real change,
+# and only a running firewall: one stopped by hand stays stopped.
+if [ "$NFTABLES_CHANGED" = true ]; then
+    systemctl try-reload-or-restart nftables.service
+    echo "  nftables ruleset reloaded (it changed)"
 fi
 
 # Our own files only, on every push, changed or not: the push that brings one

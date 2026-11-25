@@ -966,3 +966,177 @@ def test_hardware_helpers_ignore_a_json_module_in_the_working_directory(tree_nam
     assert not marker.exists(), f"the planted json.py ran: {marker.read_text()!r}"
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "hifiberry-dacplushd"
+
+
+# --------------------------------------------------------------------------- #
+# The boot partition is /boot/firmware, and only there.
+# --------------------------------------------------------------------------- #
+
+# A boot file named under /boot itself, which Raspberry Pi OS leaves as a stub
+# saying the file moved since Bookworm.
+BOOT_STUB_PATH_RE = re.compile(r"/boot/(?:config|cmdline)\.txt\b")
+
+
+def test_no_helper_falls_back_to_the_boot_stub():
+    """config.txt and cmdline.txt are /boot/firmware's, in every helper of both trees.
+
+    `milo-deploy-update::boot_file` writes them there alone, and so must every
+    other writer: a fallback to /boot/config.txt or /boot/cmdline.txt, taken
+    when /boot/firmware is not mounted, writes the WiFi country or the sound
+    card "successfully" into the stub the firmware never reads, and the next
+    boot comes up without them — while the other writer of the same file,
+    under the same lock, refuses. Fails naming `file:line` for each such path
+    outside a comment. Consumers: milo-set-wifi-country (both trees),
+    hardware-helpers.sh::resolve_config_file (both apply helpers and
+    milo-first-boot) and milo-client-join-wifi.
+    """
+    code = {}
+    for tree in TREES.values():
+        for path in sorted(tree.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                code[path] = _code_lines(path)
+            except UnicodeDecodeError:  # an image: no path in it
+                continue
+    firmware = [path for path, lines in code.items() if any("/boot/firmware/" in line for line in lines)]
+    assert len(firmware) >= 4, f"no helper read naming /boot/firmware: {firmware}"
+
+    stubs = [
+        f"{path.relative_to(REPO_ROOT)}:{line.strip()}"
+        for path, lines in code.items() for line in lines
+        if BOOT_STUB_PATH_RE.search(line)
+    ]
+    assert not stubs, "a boot file named under /boot, not /boot/firmware:\n" + "\n".join(stubs)
+
+
+# --------------------------------------------------------------------------- #
+# One way to finish an interrupted dpkg.
+# --------------------------------------------------------------------------- #
+
+# `dpkg --configure` in command position: at a line's start, in a `$(…)`, or
+# after an operator, past any VAR=value prefix — never a word in a message.
+# Every `dpkg --configure` a line runs, whatever shell form leads to it (`if !`,
+# `until`, `timeout 60`, `$(…)`); a quoted string — a message an echo prints —
+# is blanked first, so only the command itself counts.
+DPKG_CONFIGURE_RE = re.compile(r"\bdpkg\s+--configure\b")
+SHELL_QUOTED_RE = re.compile(r'"(?:[^"\\]|\\.)*"|\'[^\']*\'')
+
+
+def _runs_dpkg_configure(line: str) -> bool:
+    return bool(DPKG_CONFIGURE_RE.search(SHELL_QUOTED_RE.sub('""', line)))
+
+
+def test_the_server_deploy_finishes_an_interrupted_dpkg_one_way():
+    """`dpkg --configure -a` runs from one function, which both installers call.
+
+    dpkg takes its lock without waiting, and unattended-upgrades can take it
+    between the backend's wait for apt and the helper's run:
+    `finish_interrupted_dpkg` retries while dpkg says the lock is held, a bare
+    run fails at once. Fails on a second invocation anywhere in
+    milo-deploy-update, and when sync-system-files' package install or
+    install-deb stops calling the function. Consumers: UpdateService's Milō
+    update (sync-system-files) and its program updates (install-deb).
+    """
+    functions = dict(SHELL_FUNC_RE.findall(SERVER_DEPLOY_SCRIPT.read_text(encoding="utf-8")))
+    assert {"finish_interrupted_dpkg", "install_system_packages", "cmd_install_deb"} <= set(functions), (
+        f"functions not extracted: {sorted(functions)}"
+    )
+    # The match must discriminate before it is trusted.
+    for run in ('until out=$(LC_ALL=C dpkg --configure -a 2>&1); do', 'dpkg --configure -a',
+                'if ! dpkg --configure -a; then', 'until dpkg --configure -a; do',
+                'timeout 60 dpkg --configure -a', 'x || dpkg --configure -a'):
+        assert _runs_dpkg_configure(run), f"a run not counted: {run}"
+    for message in ('echo "WARNING: dpkg --configure -a failed"', "echo 'run dpkg --configure -a'",
+                    'echo "  WARNING: dpkg --configure -a failed: $(failure_line "$out")"'):
+        assert not _runs_dpkg_configure(message), f"a message counted as a run: {message}"
+
+    runs = [line.strip() for line in _code_lines(SERVER_DEPLOY_SCRIPT) if _runs_dpkg_configure(line)]
+    assert len(runs) == 1, f"milo-deploy-update finishes dpkg {len(runs)} ways: {runs}"
+    assert any(_runs_dpkg_configure(line) for line in functions["finish_interrupted_dpkg"].splitlines()), (
+        "the one `dpkg --configure` is not finish_interrupted_dpkg's"
+    )
+    for caller in ("install_system_packages", "cmd_install_deb"):
+        assert re.search(r"^\s*finish_interrupted_dpkg\s*$", functions[caller], re.MULTILINE), (
+            f"{caller} does not finish an interrupted dpkg through finish_interrupted_dpkg"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# A deploy that installs a new firewall loads it.
+# --------------------------------------------------------------------------- #
+
+NFTABLES_REL = "etc/nftables.conf"
+NFTABLES_DROPIN_REL = "etc/systemd/system/nftables.service.d/milo-link-prefixes.conf"
+# A `case` arm, its pattern list and its body up to `;;`, over several lines.
+CASE_ARM_BODY_RE = re.compile(r"^[ \t]+([\w./*|-]+)\)(.*?);;", re.MULTILINE | re.DOTALL)
+CHANGE_CHECK_RE = re.compile(r'(?:\bwould_change|\bcmp\s+-s)\s+"[^"]*"\s+"\$target"')
+
+
+def _arm_for(loop: str, rel: str) -> re.Match | None:
+    from fnmatch import fnmatch
+    return next(
+        (arm for arm in CASE_ARM_BODY_RE.finditer(loop)
+         if any(fnmatch(rel, pattern) for pattern in arm.group(1).split("|"))
+         and re.search(r"\b\w+=true\b", arm.group(2))),
+        None,
+    )
+
+
+@pytest.mark.parametrize("script", [SERVER_DEPLOY_SCRIPT, CLIENT_DEPLOY_SCRIPT], ids=lambda p: p.name)
+def test_a_deploy_loads_the_firewall_it_changed(script):
+    """A push that moves the IPv6 ruleset, or its unit's drop-in, reloads nftables.service.
+
+    nftables.service reads /etc/nftables.conf at its start; the file installed
+    after that waits for the next boot. A satellite reboots on a power cut or a
+    push that finds reboot-required in a silent room — weeks — so a release
+    that closes a port had it open there all along, and the server showed the
+    push committed; on the server, the guard's sync back is followed by no
+    reboot. Fails when a deploy script that installs etc/nftables.conf stops
+    noting its change (before the copy, from a comparison with what is there),
+    stops checking the new ruleset with `nft -c -f` before installing it, or
+    stops running `systemctl try-reload-or-restart nftables.service` on that
+    note after its daemon-reload. Consumers: SatelliteUpdateService's pushes
+    (milo-client-deploy-update), UpdateService and milo-update-guard
+    (sync-system-files).
+    """
+    tree = script.parents[3]
+    assert (tree / NFTABLES_REL).is_file() and (tree / NFTABLES_DROPIN_REL).is_file(), (
+        f"{tree.relative_to(REPO_ROOT)} carries no firewall; re-read this"
+    )
+    text = script.read_text(encoding="utf-8")
+    start, end = text.find('echo "Deploying rootfs files..."'), text.find('echo "Deploying systemd service files..."')
+    assert -1 < start < end, f"the rootfs loop of {script.name} was not found"
+    loop = text[start:end]
+    assert "done < <(find . -type f)" in loop, f"{script.name} no longer installs its whole tree"
+
+    ruleset_arm, dropin_arm = _arm_for(loop, NFTABLES_REL), _arm_for(loop, NFTABLES_DROPIN_REL)
+    assert ruleset_arm and dropin_arm, (
+        f"{script.name}: no case arm notes a change to {NFTABLES_REL} and to {NFTABLES_DROPIN_REL}"
+    )
+    flags = {re.search(r"\b(\w+)=true\b", arm.group(2)).group(1) for arm in (ruleset_arm, dropin_arm)}
+    assert len(flags) == 1, f"{script.name}: the ruleset and its drop-in set different flags: {flags}"
+    flag = flags.pop()
+
+    install_at = loop.find("install_atomic ")
+    for arm in (ruleset_arm, dropin_arm):
+        assert -1 < arm.start() < install_at, f"{script.name}: the change is noted after the copy"
+        assert CHANGE_CHECK_RE.search(loop[:arm.start()]) or CHANGE_CHECK_RE.search(arm.group(2)), (
+            f"{script.name}: {arm.group(1)} sets {flag} with no comparison to the installed file"
+        )
+    nft_check = re.search(r'\bnft\s+-c\s+-f\s+"([^"]+)"', ruleset_arm.group(2))
+    assert nft_check and nft_check.group(1).endswith('/rootfs/$rel_path'), (
+        f"{script.name}: the new ruleset is not checked with `nft -c -f` before it is installed"
+    )
+
+    reload = re.search(
+        rf'^\s*if \[ "\${flag}" = true \]; then\n(.*?)^\s*fi$', text[end:], re.MULTILINE | re.DOTALL,
+    )
+    assert reload and re.search(r"^\s*systemctl try-reload-or-restart nftables\.service\s*$",
+                                reload.group(1), re.MULTILINE), (
+        f"{script.name}: {flag} reloads no running nftables.service"
+    )
+    daemon_reload = text.find("systemctl daemon-reload", end)
+    assert -1 < daemon_reload < end + reload.start(), (
+        f"{script.name}: nftables.service is reloaded before systemd reads its drop-in"
+    )

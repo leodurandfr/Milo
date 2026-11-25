@@ -82,8 +82,9 @@ if [[ ! -e "/sys/class/net/$IFACE" ]]; then
 fi
 
 if [[ -n "$COUNTRY" ]]; then
+    # /boot/firmware only, as milo-set-wifi-country reads it: with the file
+    # missing, the grep fails and the helper says why.
     cmdline="/boot/firmware/cmdline.txt"
-    [[ -f "$cmdline" ]] || cmdline="/boot/cmdline.txt"
     if ! grep -qw "cfg80211.ieee80211_regdom=$COUNTRY" "$cmdline" 2>/dev/null; then
         "$SET_COUNTRY" "$COUNTRY" >/dev/null
     fi

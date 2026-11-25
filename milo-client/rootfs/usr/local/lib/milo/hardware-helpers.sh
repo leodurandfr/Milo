@@ -67,11 +67,16 @@ remove_role_blocks() {
     done
 }
 
-# --- Resolve config.txt path (with Pi OS fallback) ---
+# --- The config.txt path ---
+# The boot partition, mounted here since Bookworm, and only here: no Milō image
+# has another layout, and what Raspberry Pi OS leaves under /boot is a stub
+# saying the file moved, which a write would reach in silence while the next
+# boot reads the real one. Same rule as milo-deploy-update's boot_file.
 resolve_config_file() {
     CONFIG_FILE="/boot/firmware/config.txt"
     if [[ ! -f "$CONFIG_FILE" ]]; then
-        CONFIG_FILE="/boot/config.txt"
+        echo "ERROR: $CONFIG_FILE not found -- is the boot partition mounted at /boot/firmware?" >&2
+        return 1
     fi
 }
 

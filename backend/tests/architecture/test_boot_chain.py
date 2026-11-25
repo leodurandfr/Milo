@@ -311,8 +311,8 @@ def test_the_kiosk_is_switched_with_the_screen(verb):
     display. Nothing said a word: `milo-kiosk` has no ConditionPath of its own
     and the backend never looked. Disabling is the signal, not the whole cure:
     a restart starts a disabled unit and `milo-readiness` runs either way, so
-    the update rollback and the prewarm read `is-enabled` themselves
-    (`test_rollback_leaves_a_disabled_kiosk_stopped`,
+    the backend's kiosk restarts and the prewarm read `is-enabled` themselves
+    (`test_screen_controller.py::test_a_disabled_kiosk_is_not_started`,
     `test_the_prewarm_only_runs_for_an_enabled_kiosk`).
 
     Both verbs, because only pruning is what makes a role half-applied: a

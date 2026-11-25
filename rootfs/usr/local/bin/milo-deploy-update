@@ -340,8 +340,9 @@ install_system_packages() {
 
     echo "Installing ${missing[*]}..."
     # The image wipes the package lists, so there is nothing to install from
-    # until they are read again.
-    out=$(apt-get -o DPkg::Lock::Timeout="$DPKG_LOCK_TIMEOUT_S" update 2>&1) \
+    # until they are read again. No DPkg::Lock::Timeout: it does not cover the
+    # lists' lock, which the backend waits for before it calls this.
+    out=$(apt-get update 2>&1) \
         || error_exit "apt-get update failed, so ${missing[*]} could not be installed: $(failure_line "$out")"
     # A source apt-get update cannot reach is only a warning to it, and it exits
     # 0 (measured, apt 3.0): the other sources may still hold the package, so
@@ -437,6 +438,7 @@ cmd_sync_system_files() {
     local synced_nm_conf=false
     local synced_sshd=false
     local synced_nginx=false
+    local synced_nftables=false
     local sysctl_files=()
 
     # 1. Deploy rootfs files (preserving directory structure). Before the units:
@@ -462,6 +464,20 @@ cmd_sync_system_files() {
 
         target="/$rel_path"
         mkdir -p "$(dirname "$target")"
+
+        # The IPv6 firewall, loaded below when its ruleset, its unit's drop-in
+        # or the script that fills its set moved — compared before the copy,
+        # which installs every file; a ruleset nft refuses is never installed,
+        # as a sudoers policy visudo refuses is not.
+        case "$rel_path" in
+            etc/nftables.conf)
+                if ! cmp -s "$REPO_PATH/rootfs/$rel_path" "$target"; then
+                    nft -c -f "$REPO_PATH/rootfs/$rel_path" || error_exit "nft rejects $rel_path -- not installed"
+                    synced_nftables=true
+                fi ;;
+            etc/systemd/system/nftables.service.d/*|etc/NetworkManager/dispatcher.d/50-milo-ipv6-link-prefixes)
+                cmp -s "$REPO_PATH/rootfs/$rel_path" "$target" || synced_nftables=true ;;
+        esac
 
         # Executable for scripts and dispatcher hooks, ownership for the files
         # the milo user owns on the image — set on the copy, so the file is
@@ -553,6 +569,15 @@ cmd_sync_system_files() {
     if [ "$synced_nginx" = true ]; then
         systemctl try-reload-or-restart nginx.service
         echo "  nginx configuration reloaded"
+    fi
+
+    # nftables.service loaded the ruleset at its start; a reload loads the one
+    # just installed (its drop-in then fills link_prefixes again) — the guard's
+    # sync back included, which no reboot follows. Only on a real change, and
+    # only a running firewall: one stopped by hand stays stopped.
+    if [ "$synced_nftables" = true ]; then
+        systemctl try-reload-or-restart nftables.service
+        echo "  nftables ruleset reloaded (it changed)"
     fi
 
     # The updater moves its journal forward, and the guard closes its rollback,
@@ -656,16 +681,18 @@ cmd_install_deb() {
     export DEBCONF_NONINTERACTIVE_SEEN=true
     export APT_LISTCHANGES_FRONTEND=none
 
-    # An install cut by a power loss leaves dpkg "interrupted", and apt-get then
-    # refuses every install until this runs; nothing else ever runs it. A no-op
-    # on a healthy system. Not fatal here: what it could not finish, apt-get
-    # reports below in words.
+    # The same finish as sync-system-files', waiting as long as apt-get does for
+    # another dpkg (unattended-upgrades can take the lock between the backend's
+    # wait for apt and this line). What it could not finish, apt-get reports
+    # below in words.
     echo "Finishing any interrupted dpkg run..."
-    dpkg --configure -a --force-confdef --force-confold \
-        || echo "WARNING: dpkg --configure -a failed; apt-get decides below" >&2
+    finish_interrupted_dpkg
 
+    # The lists' lock is never waited for: DPkg::Lock::Timeout covers dpkg's
+    # locks alone, and `apt-get update` fails at once on the lists' (measured,
+    # apt 3.0.4), so the backend waits for it before it calls this.
     echo "Updating APT package list..."
-    apt update -qq
+    apt-get update -qq
 
     # One apt transaction, never `dpkg -i` then `apt-get -f install -y`: the
     # repair step satisfies a Depends it cannot meet by removing the package
@@ -673,6 +700,7 @@ cmd_install_deb() {
     # --allow-downgrades because the validated pin may sit below what runs.
     echo "Installing $(basename "$deb_path")..."
     apt-get install -y -qq --no-remove --allow-downgrades --no-install-recommends \
+        -o DPkg::Lock::Timeout="$DPKG_LOCK_TIMEOUT_S" \
         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
         "$deb_path"
 

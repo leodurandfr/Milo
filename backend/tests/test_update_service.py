@@ -1064,7 +1064,7 @@ class TestUpdateMultiroom:
         looks = [set(c.args[0]) for c in mocks["apt_holder"].call_args_list]
         assert len(looks) == 3, "two looks at a held lock, a third at a free one"
         for looked_at in looks:
-            assert dpkg_lock.APT_LISTS_LOCK in looked_at, "install-deb's `apt update` takes the lists' lock"
+            assert dpkg_lock.APT_LISTS_LOCK in looked_at, "install-deb's `apt-get update` takes the lists' lock"
             assert set(dpkg_lock.DPKG_LOCKS) <= looked_at
 
     @pytest.mark.asyncio

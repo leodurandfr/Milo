@@ -29,6 +29,7 @@ on an empty surface.
 import ipaddress
 import json
 import re
+import runpy
 import subprocess
 import sys
 from collections.abc import Callable
@@ -446,6 +447,46 @@ _IP_ADDR_JSON = [
 ]
 
 
+# A link where the router leases addresses by stateful DHCPv6 and advertises no
+# prefix for SLAAC (RA M=1, A=0): NetworkManager sets the lease as a /128, and
+# the link's /64 is only the on-link route the advertisement brought. Shaped as
+# `ip -j -6 addr` / `ip -j -6 route` print them (iproute2 6.15).
+DHCPV6_LINK = "2001:db8::/64"
+DHCPV6_PEER = "2001:db8::77"
+_DHCPV6_ADDR_JSON = [
+    {"ifindex": 2, "ifname": "eth0", "addr_info": [
+        {"family": "inet6", "local": "2001:db8::5", "prefixlen": 128, "scope": "global",
+         "dynamic": True, "noprefixroute": True},
+        {"family": "inet6", "local": "fe80::1e2f:3aff:fe4b:5c6d", "prefixlen": 64, "scope": "link"},
+    ]},
+]
+_DHCPV6_ROUTE_JSON = [
+    {"dst": DHCPV6_LINK, "dev": "eth0", "protocol": "ra", "metric": 100, "flags": [], "pref": "medium"},
+    {"dst": "fe80::/64", "dev": "eth0", "protocol": "kernel", "metric": 1024, "flags": [], "pref": "medium"},
+    {"dst": "default", "nhid": 12, "gateway": "fe80::1", "dev": "eth0", "protocol": "ra",
+     "metric": 100, "flags": [], "pref": "medium"},
+]
+# Routes that are not the link: through a router, to several, nowhere, to loopback.
+_NOT_THE_LINK_ROUTE_JSON = [
+    {"dst": "2001:db8:ff::/48", "gateway": "2001:db8::1", "dev": "eth0", "protocol": "ra",
+     "metric": 100, "flags": []},
+    {"dst": "2001:db8:ee::/48", "protocol": "static", "metric": 1024, "flags": [],
+     "nexthops": [{"gateway": "fe80::1", "dev": "eth0", "weight": 1, "flags": []},
+                  {"gateway": "fe80::2", "dev": "wlan0", "weight": 1, "flags": []}]},
+    {"type": "unreachable", "dst": "2001:db8:dd::/48", "dev": "lo", "protocol": "static",
+     "metric": 1024, "flags": []},
+    {"dst": "2001:db8:cc::/64", "dev": "lo", "protocol": "static", "metric": 1024, "flags": []},
+]
+# A full-tunnel VPN (OpenVPN's def1): two gatewayless halves of the address
+# space on its tunnel, which merge into ::/0.
+_FULL_TUNNEL_ROUTE_JSON = [
+    {"dst": "::/1", "dev": "tun0", "protocol": "boot", "metric": 1024, "flags": [], "pref": "medium"},
+    {"dst": "8000::/1", "dev": "tun0", "protocol": "static", "metric": 1024, "flags": [], "pref": "medium"},
+]
+# A stand-in for any address on the Internet: outside the LAN's /64.
+INTERNET_SOURCE = "2001:db8:ffff::1"
+
+
 # What each stub prints on stderr when it is told to fail: the script captures
 # none of them, so each must reach the journal as the command wrote it.
 NFT_ERROR = "Error: No such file or directory"
@@ -463,29 +504,37 @@ class DispatcherRun:
 
 
 def _run_dispatcher(
-    tmp_path: Path, addresses: list, *argv: str,
+    tmp_path: Path, addresses: list, *argv: str, routes: tuple | list = (),
     loaded: bool = True, list_status: int = 0, batch_status: int = 0,
-    ip_status: int = 0, run_status: int = 0,
+    ip_status: int = 0, route_status: int = 0, run_status: int = 0,
 ) -> DispatcherRun:
     """Run the dispatcher with `argv` (NetworkManager passes interface and action;
     the drop-in and the timer pass nothing), `ip`, `nft` and `systemd-run` stubbed.
 
+    `addresses` / `routes`: what `ip -j -6 addr` / `ip -j -6 route` print.
     `loaded`: `nft list tables` prints the firewall's table, as nft prints it.
     `list_status` / `batch_status`: what `nft list` / `nft -f -` exit with,
-    printing NFT_ERROR on stderr when it is not 0. `ip_status`: what `ip` exits
-    with, printing IP_ERROR on stderr and nothing on stdout when it is not 0 (a
-    killed `ip`, a netlink error). `run_status`: the same for `systemd-run`,
-    with RUN_ERROR, once it has recorded its argv.
+    printing NFT_ERROR on stderr when it is not 0. `ip_status`: what every `ip`
+    exits with, printing IP_ERROR on stderr and nothing on stdout when it is not
+    0 (a killed `ip`, a netlink error); `route_status` the same for `ip … route`
+    alone. `run_status`: the same for `systemd-run`, with RUN_ERROR, once it has
+    recorded its argv.
     """
     family, table, _ = _dispatcher_names()
     stubs = tmp_path / "bin"
     stubs.mkdir()
     (tmp_path / "addresses.json").write_text(json.dumps(addresses))
+    (tmp_path / "routes.json").write_text(json.dumps(list(routes)))
     (tmp_path / "tables").write_text(f"table {family} {table}\n" if loaded else "")
     (stubs / "ip").write_text(
         f'#!/bin/sh\necho "ip $*" >> "{tmp_path}/calls"\n'
         f'[ {ip_status} = 0 ] || {{ echo "{IP_ERROR}" >&2; exit {ip_status}; }}\n'
-        f'cat "{tmp_path}/addresses.json"\n'
+        f'case " $* " in\n'
+        f'  *" addr "*) cat "{tmp_path}/addresses.json" ;;\n'
+        f'  *" route "*) [ {route_status} = 0 ] || {{ echo "{IP_ERROR}" >&2; exit {route_status}; }}\n'
+        f'    cat "{tmp_path}/routes.json" ;;\n'
+        f'  *) echo "ip stub: not modeled: $*" >&2; exit 2 ;;\n'
+        f'esac\n'
     )
     (stubs / "nft").write_text(
         f'#!/bin/sh\necho "nft $*" >> "{tmp_path}/calls"\n'
@@ -541,6 +590,80 @@ def test_the_set_is_rebuilt_from_the_prefixes_the_interfaces_carry(tmp_path):
         f"flush set {family} {table} {set_name}",
         f"add element {family} {table} {set_name} {{ 2001:db8:12:3450::/64, fd12:3456:789a:1::/64 }}",
     ]
+
+
+def _link_prefixes() -> Callable[[str, str], list]:
+    """The dispatcher's own `link_prefixes`, read from the script (it has no .py)."""
+    return runpy.run_path(str(DISPATCHER))["link_prefixes"]
+
+
+def test_a_dhcpv6_lease_is_widened_to_its_link():
+    """A /128 lease and the on-link /64 of the advertisement: the set holds the
+    /64, the lease folded into it. Fails when the set is read from the addresses
+    alone — it would hold the unit itself and nothing of its link."""
+    prefixes = _link_prefixes()(json.dumps(_DHCPV6_ADDR_JSON), json.dumps(_DHCPV6_ROUTE_JSON))
+    assert [str(p) for p in prefixes] == [DHCPV6_LINK]
+
+
+def test_a_route_through_a_router_is_not_the_link():
+    """Only a route with no gateway is the link. A prefix reached through a
+    router, a multipath route, an unreachable one or loopback is somewhere else:
+    in the set, it would open every listener to whoever holds it."""
+    link_prefixes = _link_prefixes()
+    routes = _DHCPV6_ROUTE_JSON + _NOT_THE_LINK_ROUTE_JSON
+    assert [str(p) for p in link_prefixes("[]", json.dumps(routes))] == [DHCPV6_LINK]
+    # Non-triviality: each of those routes, read as the link, would have shown.
+    for route in _NOT_THE_LINK_ROUTE_JSON:
+        bare = {"dst": route["dst"], "dev": "eth0", "protocol": "ra"}
+        assert link_prefixes("[]", json.dumps([bare])), f"{bare} not read as a link either"
+
+
+def test_a_full_tunnel_vpn_does_not_open_the_firewall_to_the_internet(tmp_path):
+    """A gatewayless route the link did not put there is not the link. A
+    full-tunnel VPN's ::/1 and 8000::/1 on tun0 have no gateway, and merged they
+    are ::/0: in the set, sshd, snapserver and every other listener would answer
+    any address on the Internet. Through the script, with ip and nft stubbed:
+    the set keeps the LAN's /64 alone, and a SYN from the Internet is dropped."""
+    link_prefixes = _link_prefixes()
+    # Non-triviality: the same routes, had the link put them there, are read —
+    # and merge into the whole address space.
+    as_the_link = [dict(route, protocol="ra") for route in _FULL_TUNNEL_ROUTE_JSON]
+    assert [str(p) for p in link_prefixes("[]", json.dumps(as_the_link))] == ["::/0"]
+
+    routes = _DHCPV6_ROUTE_JSON + _FULL_TUNNEL_ROUTE_JSON
+    run = _run_dispatcher(tmp_path, _DHCPV6_ADDR_JSON, "tun0", "vpn-up", routes=routes)
+    assert run.status == 0, run.stderr
+    added = [line for line in run.batch.splitlines() if line.startswith("add element")]
+    elements = _values(TOKEN_RE.findall(added[0])[-1]) if added else []
+    assert elements == [DHCPV6_LINK], elements
+    _, _, set_name = _dispatcher_names()
+    verdict = evaluator(RULESET.read_text(), {set_name: elements})
+    for daemon in ("sshd", "snapserver"):
+        proto, port = LISTENERS_ON_ANY_ADDRESS[daemon]
+        assert verdict(Packet(INTERNET_SOURCE, proto, dport=port)) == "drop", (
+            f"{daemon} answers {INTERNET_SOURCE}; the set holds {elements}"
+        )
+
+
+def test_every_listener_answers_a_peer_of_a_dhcpv6_link(tmp_path):
+    """End to end through the script, with ip and nft stubbed: the set it
+    fills, on a link that leases addresses by DHCPv6 alone, lets a global peer
+    of that link reach SSH and snapserver, and still refuses the next /64.
+    Fails when the peer's SYN falls to the policy drop: ssh waits out its
+    connect timeout (about 75 s) before it tries IPv4, and a client with no
+    fallback hangs."""
+    run = _run_dispatcher(tmp_path, _DHCPV6_ADDR_JSON, "eth0", "dhcp6-change", routes=_DHCPV6_ROUTE_JSON)
+    assert run.status == 0, run.stderr
+    added = [line for line in run.batch.splitlines() if line.startswith("add element")]
+    elements = _values(TOKEN_RE.findall(added[0])[-1]) if added else []
+    family, table, set_name = _dispatcher_names()
+    verdict = evaluator(RULESET.read_text(), {set_name: elements})
+    for daemon in ("sshd", "snapserver"):
+        proto, port = LISTENERS_ON_ANY_ADDRESS[daemon]
+        assert verdict(Packet(DHCPV6_PEER, proto, dport=port)) == "accept", (
+            f"{daemon} refuses {DHCPV6_PEER}; the set holds {elements}"
+        )
+        assert verdict(Packet("2001:db8:0:1::77", proto, dport=port)) == "drop", elements
 
 
 def test_a_prefix_the_router_took_back_leaves_the_set(tmp_path):
@@ -604,6 +727,7 @@ _FAILURES = {
     # failing command: (the stub's status keyword, its error, whether the set was already read)
     "nft list": ("list_status", NFT_ERROR, False),
     "ip": ("ip_status", IP_ERROR, False),
+    "ip route": ("route_status", IP_ERROR, False),
     "nft -f": ("batch_status", NFT_ERROR, True),
 }
 
@@ -616,9 +740,10 @@ def test_a_command_that_fails_is_a_failure_not_a_stopped_firewall(tmp_path, fail
     A loaded table whose set was renamed or removed refuses the batch, and an nft
     that cannot list its tables knows nothing: read as "not loaded", every event
     would succeed in silence while the LAN's global addresses stay refused. An
-    `ip` that fails prints nothing, which reads as "no prefix at all": the set
-    would be emptied, every LAN global address refused, and the run exit 0 — so
-    a failed read must leave the set as it was, unflushed.
+    `ip` that fails, reading the addresses or the routes, prints nothing, which
+    reads as "no prefix at all": the set would be emptied (or keep the leases
+    alone), every LAN global address refused, and the run exit 0 — so a failed
+    read must leave the set as it was, unflushed.
     """
     keyword, error, read = _FAILURES[failure]
     run = _run_dispatcher(tmp_path, _IP_ADDR_JSON, "eth0", "up", **{keyword: 1})

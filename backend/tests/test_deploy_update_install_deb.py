@@ -32,7 +32,16 @@ DEB_VERSION = "0.35.0-1"
 STUBS = {
     "apt": "exit 0",
     "apt-get": 'exit "${STUB_APT_GET_RC:-0}"',
-    "dpkg": "exit 1",
+    # Its first $STUB_DPKG_LOCKED runs answer as dpkg does under another dpkg's
+    # lock (dpkg 1.22's words); every other run fails, finishing nothing.
+    "dpkg": (
+        'runs=$(grep -c "^dpkg " "$STUB_LOG")\n'
+        'if [ "$runs" -le "${STUB_DPKG_LOCKED:-0}" ]; then\n'
+        '  echo "dpkg: error: dpkg frontend lock was locked by /usr/bin/python3.13 process with pid 812" >&2\n'
+        '  exit 2\n'
+        'fi\n'
+        'exit 1'
+    ),
     "dpkg-deb": (
         'case "$3" in\n'
         f"  Package) echo {DEB_PACKAGE} ;;\n"
@@ -72,12 +81,13 @@ def world():
     shutil.rmtree(root, ignore_errors=True)
 
 
-def _env(world, *, dpkg_query="", apt_get_rc=0):
+def _env(world, *, dpkg_query="", apt_get_rc=0, dpkg_locked=0):
     return {
         "PATH": f"{world['stubs']}:/usr/bin:/bin",
         "STUB_LOG": str(world["log"]),
         "STUB_DPKG_QUERY": dpkg_query,
         "STUB_APT_GET_RC": str(apt_get_rc),
+        "STUB_DPKG_LOCKED": str(dpkg_locked),
     }
 
 
@@ -85,10 +95,10 @@ def _log(world) -> str:
     return world["log"].read_text() if world["log"].exists() else ""
 
 
-def _run(world, *, dpkg_query, apt_get_rc=0, sha256=None):
+def _run(world, *, dpkg_query, apt_get_rc=0, sha256=None, dpkg_locked=0):
     result = subprocess.run(
         ["bash", str(HELPER), "install-deb", str(world["deb"]), sha256 or world["sha256"]],
-        env=_env(world, dpkg_query=dpkg_query, apt_get_rc=apt_get_rc),
+        env=_env(world, dpkg_query=dpkg_query, apt_get_rc=apt_get_rc, dpkg_locked=dpkg_locked),
         capture_output=True, text=True, timeout=30,
     )
     log = world["log"].read_text() if world["log"].exists() else ""
@@ -242,5 +252,20 @@ def test_install_deb_finishes_an_interrupted_dpkg_run_before_apt(world):
     calls = [line.split(" ", 1)[0] + " " + line.split(" ", 2)[1] for line in log.splitlines()]
     assert "dpkg --configure" in calls, log
     configure = calls.index("dpkg --configure")
-    assert configure < calls.index("apt update"), log
-    assert configure < next(i for i, c in enumerate(calls) if c.startswith("apt-get ")), log
+    assert configure < next(i for i, c in enumerate(calls) if c.startswith(("apt ", "apt-get "))), log
+
+
+def test_install_deb_waits_for_a_dpkg_lock_before_it_gives_up_on_finishing(world):
+    """A dpkg run that meets another dpkg's lock is tried again, as
+    sync-system-files' is: unattended-upgrades can take the lock between the
+    backend's wait for apt and this run, and a bare `dpkg --configure -a` gives
+    up at once, leaving an interrupted dpkg unfinished under the install. Fails
+    when install-deb finishes dpkg its own way again, once and without waiting.
+    """
+    result, log = _run(world, dpkg_query=f"installed {DEB_VERSION}", dpkg_locked=1)
+
+    assert result.returncode == 0, result.stderr
+    calls = [line for line in log.splitlines() if line.startswith(("dpkg ", "apt ", "apt-get "))]
+    runs = [i for i, line in enumerate(calls) if line.startswith("dpkg --configure")]
+    assert len(runs) == 2, f"dpkg was not tried again past the lock: {calls}"
+    assert runs[-1] < next(i for i, line in enumerate(calls) if not line.startswith("dpkg ")), calls
