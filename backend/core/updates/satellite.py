@@ -82,9 +82,10 @@ ADMISSION_DPKG_RETRIES = 3
 
 # How long a snapclient or CamillaDSP install may run on a satellite once it
 # answered `started`. The satellite's own steps are bounded: its download by
-# DOWNLOAD_TIMEOUT_S (services/release_download.py), snapclient's `apt-get
-# update` by APT_UPDATE_TIMEOUT_S (milo-client-install-snapclient), then dpkg
-# and the service's restart. While the satellite says the install runs the
+# DOWNLOAD_TIMEOUT_S (services/release_download.py), snapclient's wait for apt
+# before it stops the unit by APT_LOCK_WAIT_S (services/snapclient.py),
+# snapclient's `apt-get update` by APT_UPDATE_TIMEOUT_S
+# (milo-client-install-snapclient), then dpkg and the service's restart. While the satellite says the install runs the
 # server waits, up to this; held above the satellite's budget, read from its
 # source, by tests/architecture/test_satellite_program_ceiling.py.
 PROGRAM_UPDATE_CEILING_S = 900

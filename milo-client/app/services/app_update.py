@@ -596,9 +596,11 @@ class AppUpdateService:
     async def _extract_tarball(self, tarball_path: str, dest_dir: str):
         """Extracts tarball with security validation (no path traversal).
 
-        Nothing authenticates the upload this unpacks: `POST /app/update` takes a
-        tarball from anything that can reach port 8001, and it is extracted by the
-        account that owns the app and the deploy sudo wrapper.
+        The upload this unpacks comes from this unit's server only: `POST
+        /app/update` refuses, before anything is saved, a request that does not
+        carry the secret the satellite pinned (`server_secret.py`). It is still
+        extracted by the account that owns the app and the deploy sudo wrapper,
+        so a tarball is never trusted for its sender.
 
         Two layers, and both are needed. The name pass runs over every member
         before a single one is written, so a refused tarball leaves no partial

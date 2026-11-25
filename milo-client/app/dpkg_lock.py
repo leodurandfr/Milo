@@ -13,8 +13,8 @@ themselves can be stat()ed by anyone. A lock on one of their inodes is held.
 Lines marked `->` are processes waiting for a lock, never its holder.
 
 Two copies, byte for byte: backend/core/updates/dpkg_lock.py (the server's
-program updates) and milo-client/app/dpkg_lock.py (a satellite's app push),
-since a satellite cannot import the server's code. Held equal by
+program updates) and milo-client/app/dpkg_lock.py (a satellite's app push and
+snapclient update), since a satellite cannot import the server's code. Held equal by
 backend/tests/test_dpkg_lock.py.
 """
 import asyncio

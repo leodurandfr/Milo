@@ -9,12 +9,21 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+import dpkg_lock
 from services.release_download import NO_DIGEST, download_release_asset
 
 # Constants
 SNAPCLIENT_VERSION_REGEX = r"v(\d+\.\d+\.\d+)"
 GITHUB_REPO = "badaix/snapcast"
 SNAPCLIENT_SERVICE = "milo-client-snapclient.service"
+# How long an update waits for apt before it stops the room's snapclient.
+# unattended-upgrades runs on every satellite and holds dpkg's lock for its
+# whole run; the install wrapper's `dpkg --configure -a` and `apt-get update`
+# never wait for a lock, so an install that met one failed after the room had
+# gone silent. Counted in the server's wait on this install
+# (PROGRAM_UPDATE_CEILING_S): held by
+# backend/tests/architecture/test_satellite_program_ceiling.py.
+APT_LOCK_WAIT_S = 60
 
 
 class SnapclientService:
@@ -143,24 +152,35 @@ class SnapclientService:
             if not download_result["success"]:
                 return download_result
 
-            # 2. Stop the service
+            # 2. Wait for apt, and refuse with the room still playing when it
+            # stays held: dpkg's locks and the lists' one, which the wrapper's
+            # `apt-get update` takes.
+            held_by = await dpkg_lock.wait_until_free(
+                APT_LOCK_WAIT_S, dpkg_lock.DPKG_LOCKS + (dpkg_lock.APT_LISTS_LOCK,)
+            )
+            if held_by:
+                error = f"apt is held by {held_by} after {APT_LOCK_WAIT_S} s: nothing was stopped"
+                self.logger.warning(f"Snapclient update refused: {error}")
+                return {"success": False, "error": error}
+
+            # 3. Stop the service
             stop_result = await self._stop_snapclient_service()
             if not stop_result:
                 return {"success": False, "error": "Failed to stop snapclient service"}
             service_stopped = True
 
-            # 3. Install the .deb with APT (which resolves dependencies automatically)
+            # 4. Install the .deb with APT (which resolves dependencies automatically)
             install_result = await self._install_deb_with_apt(download_result["deb_path"], sha256)
             if not install_result["success"]:
                 return install_result
 
-            # 4. Restart the service
+            # 5. Restart the service
             start_result = await self._start_snapclient_service()
             if not start_result:
                 return {"success": False, "error": "Failed to start snapclient service"}
             service_stopped = False
 
-            # 5. Verify the update
+            # 6. Verify the update
             await asyncio.sleep(3)  # Wait for the service to stabilize
             new_version = await self.get_installed_version()
 

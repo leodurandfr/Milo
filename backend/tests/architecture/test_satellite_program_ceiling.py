@@ -7,11 +7,12 @@ After a satellite answers `started`, the server follows the install through
 install goes on and lands. A fixed 180 s did exactly that to an install the
 satellite allowed to run past 300 s.
 
-The satellite's own steps are bounded in two files of its tree: the download by
-`DOWNLOAD_TIMEOUT_S` (services/release_download.py), and snapclient's `apt-get
-update` by `APT_UPDATE_TIMEOUT_S` (the install wrapper). What follows — dpkg on
-a local package, the service's restart, a rollback — has no timer of its own and
-is counted as a budget. Each extractor asserts its own output first.
+The satellite's own steps are bounded in three files of its tree: the download
+by `DOWNLOAD_TIMEOUT_S` (services/release_download.py), the wait for apt before
+snapclient is stopped by `APT_LOCK_WAIT_S` (services/snapclient.py), and
+snapclient's `apt-get update` by `APT_UPDATE_TIMEOUT_S` (the install wrapper).
+What follows — dpkg on a local package, the service's restart, a rollback — has
+no timer of its own and is counted as a budget. Each extractor asserts its own output first.
 """
 import ast
 import re
@@ -26,6 +27,7 @@ from backend.core.updates.satellite import (
 REPO = Path(__file__).resolve().parents[3]
 CLIENT = REPO / "milo-client"
 DOWNLOAD = CLIENT / "app" / "services" / "release_download.py"
+SNAPCLIENT = CLIENT / "app" / "services" / "snapclient.py"
 WRAPPER = CLIENT / "rootfs" / "usr" / "local" / "bin" / "milo-client-install-snapclient"
 
 # dpkg's run on the local .deb, the dependency it may fetch, the version reads
@@ -57,6 +59,7 @@ def _shell_int(path: Path, name: str) -> int:
 
 def test_the_extractors_read_plausible_values():
     assert _python_int(DOWNLOAD, "DOWNLOAD_TIMEOUT_S") > 0
+    assert _python_int(SNAPCLIENT, "APT_LOCK_WAIT_S") > 0
     assert _shell_int(WRAPPER, "APT_UPDATE_TIMEOUT_S") > 0
 
 
@@ -70,9 +73,22 @@ def test_the_wrapper_bounds_apt_update_with_its_own_value():
     assert not re.search(r"^apt-get update\b", text, re.M), f"{WRAPPER.name} runs an unbounded apt-get update"
 
 
+def test_the_snapclient_update_waits_for_apt_with_its_own_value():
+    """A wait declared and never applied would hold the inequality below for a
+    wait bounded by some other value, or by none."""
+    text = SNAPCLIENT.read_text(encoding="utf-8")
+    assert re.search(r"\bwait_until_free\(\s*APT_LOCK_WAIT_S\b", text), (
+        f"{SNAPCLIENT.name} no longer waits for apt under APT_LOCK_WAIT_S"
+    )
+    assert len(re.findall(r"\bwait_until_free\(", text)) == 1, (
+        f"{SNAPCLIENT.name} waits for apt more than once: count every wait below"
+    )
+
+
 def test_the_server_outwaits_the_slowest_install_a_satellite_can_run():
     bound = (
         _python_int(DOWNLOAD, "DOWNLOAD_TIMEOUT_S")
+        + _python_int(SNAPCLIENT, "APT_LOCK_WAIT_S")
         + _shell_int(WRAPPER, "APT_UPDATE_TIMEOUT_S")
         + INSTALL_BUDGET_S
     )

@@ -6,6 +6,8 @@ snapclient is a version string it parses out of a subprocess and a flag it
 raises while an update runs — so both of those are the whole of what the server,
 and the operator, get to see.
 """
+import os
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -412,3 +414,86 @@ class TestAnUnreadableCodenameFailsTheUpdate:
         assert "codename" in result["error"]
         github.assert_not_called()
         assert FakeMachine.STOP not in machine.calls
+
+
+@pytest.fixture
+def apt_locks(tmp_path, monkeypatch):
+    """apt's three lock files under tmp_path, and the kernel's lock table that
+    says who holds them; `hold(name)` makes this test's own process the holder
+    of one, as unattended-upgrades or apt-daily would be."""
+    import dpkg_lock
+
+    paths = {name: tmp_path / name for name in ("lock-frontend", "lock", "lists-lock")}
+    for path in paths.values():
+        path.write_text("")
+    monkeypatch.setattr(dpkg_lock, "DPKG_LOCKS", (paths["lock-frontend"], paths["lock"]))
+    monkeypatch.setattr(dpkg_lock, "APT_LISTS_LOCK", paths["lists-lock"])
+
+    def hold(name):
+        st = os.stat(paths[name])
+        dpkg_lock.PROC_LOCKS.write_text(
+            f"1: POSIX  ADVISORY  WRITE {os.getpid()} "
+            f"{os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino} 0 EOF\n"
+        )
+
+    def release():
+        dpkg_lock.PROC_LOCKS.write_text("")
+
+    return hold, release
+
+
+def _ran_installer(calls):
+    return [argv for argv in calls if argv[:2] == ("sudo", "-n") and argv[2].endswith("milo-client-install-snapclient")]
+
+
+class TestAptIsWaitedForBeforeTheRoomGoesSilent:
+    """unattended-upgrades runs on every satellite and holds dpkg's lock for its
+    whole run; apt-daily holds the lists' lock while it refreshes them. The
+    wrapper's `dpkg --configure -a` and `apt-get update` never wait for either,
+    so an update that stopped snapclient first kept the room silent for minutes
+    for an install that failed anyway, with apt's own line as the reason.
+    Waited out before the stop, and refused with the room still playing."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("lock", ["lock-frontend", "lock", "lists-lock"])
+    async def test_a_lock_still_held_stops_nothing_and_names_its_holder(
+        self, snapclient_service, patched_world, apt_locks, lock
+    ):
+        machine = patched_world
+        hold, _ = apt_locks
+        hold(lock)
+
+        result = await snapclient_service.update_snapclient("0.29.0", None)
+
+        assert result["success"] is False
+        assert FakeMachine.STOP not in machine.calls, "the room went silent for an install apt would refuse"
+        assert not _ran_installer(machine.calls), "the installer ran under a held lock"
+        assert f"(pid {os.getpid()})" in result["error"], result["error"]
+        assert "nothing was stopped" in result["error"]
+        assert machine.running is True
+
+    @pytest.mark.asyncio
+    async def test_a_lock_released_during_the_wait_lets_the_update_run(
+        self, snapclient_service, patched_world, apt_locks
+    ):
+        """A wait, not a single look: a run that ends a few seconds in must not
+        cost the push."""
+        import services.snapclient as snapclient_module
+
+        machine = patched_world
+        hold, release = apt_locks
+        hold("lock-frontend")
+        sleeps = []
+
+        async def _sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                release()
+
+        with patch.object(snapclient_module.asyncio, "sleep", _sleep):
+            result = await snapclient_service.update_snapclient("0.29.0", None)
+
+        assert result["success"] is True, result
+        assert len(sleeps) >= 2, "the update did not wait for the lock"
+        assert machine.calls.count(FakeMachine.STOP) == 1
+        assert len(_ran_installer(machine.calls)) == 1

@@ -44,8 +44,12 @@ Dpkg::Options {
     "--force-confold";
 };
 
-# Every apt-get on the unit waits a minute for the lock a run holds, rather
-# than failing at once: a program update, a satellite's snapclient install.
+# `apt-get install` waits a minute for the dpkg lock a run holds, rather than
+# failing at once. Nothing else does: `dpkg --configure -a` never waits for that
+# lock, nor `apt-get update` for the package lists', so whatever runs them asks
+# /proc/locks first (dpkg_lock.py) and waits for the run to end before it stops
+# anything: a server's program update, a satellite's app push and snapclient
+# install.
 DPkg::Lock::Timeout "60";
 
 # The lists refreshed and the fixes installed once a day, by apt's own timers
