@@ -57,6 +57,7 @@
     "btRemote": "蓝牙遥控器",
     "irRemote": "红外遥控器",
     "writeRefused": "无法保存此更改。",
+    "writeDeferred": "此更改已保存。音箱恢复后将应用此更改。",
     "actionFailed": "无法完成此操作。",
     "readFailed": "无法加载此信息。"
   },
@@ -209,6 +210,7 @@
     "deleteSystem": "删除此音频系统",
     "confirmDeleteSystem": "确认删除",
     "deleteSystemDetails": "它的均衡器、延迟以及它在区域中的位置将一并删除。此操作无法撤销。",
+    "deleteSystemDetailsZone": "它的均衡器和延迟将一并删除，区域「{zone}」及其名称和分频频率也将一并删除：另一台音箱将重新单独播放。此操作无法撤销。",
     "offline": "离线",
     "defaultSpeakerName": "音箱",
     "externalVolume": "音量未由 Milō 管理"
@@ -986,6 +988,7 @@
       "rebooting": "正在重启…",
       "rebootingDescription": "请等待系统重启。",
       "rebootTimeout": "重启超时。请刷新页面。",
+      "applyFailed": "Milō 无法应用此配置。请重试。",
       "volumeNotManaged": "音量未由 Milō 管理"
     }
   },

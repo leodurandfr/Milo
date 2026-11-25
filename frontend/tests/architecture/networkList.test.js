@@ -83,3 +83,38 @@ describe('Settings › Network\'s preferred row', () => {
     expect(forgets[0]).toMatch(/\bv-if="preferredForgettable"/);
   });
 });
+
+/**
+ * Whether the list saves a network or joins it is one rule: `overRecoveryAp`
+ * (useNetwork) — a browser on the recovery AP saves, since joining takes the
+ * radio from under it, while the kiosk, a loopback client the AP does not
+ * hold, joins at once. The wizard's step read `hotspotActive` alone, so on the
+ * kiosk over the AP a mistyped key was saved untried and cost a reboot to be
+ * found wrong, where Settings › Network refused it on the spot.
+ */
+describe('the list saves or joins by one rule', () => {
+  const choosers = vueFiles(SRC_DIR).flatMap((file) => {
+    const source = stripComments(readFileSync(file, 'utf8'));
+    return (source.match(/<NetworkSelector\b[^>]*>/g) ?? [])
+      .filter(tag => /\s:action="/.test(tag))
+      .map(tag => ({ file: relative(SRC_DIR, file), source, action: tag.match(/\s:action="([^"]*)"/)[1] }));
+  });
+
+  it('finds the views that pick between saving and joining', () => {
+    // Guards the rule below: a parse that finds nothing would pass it.
+    expect(choosers.map(({ file }) => file).sort()).toEqual([
+      'components/settings/categories/NetworkSettings.vue',
+      'components/setup/NetworkStep.vue',
+    ]);
+  });
+
+  it('every one of them takes the action from useNetwork\'s overRecoveryAp', () => {
+    const astray = choosers
+      .filter(({ source, action }) => !(
+        action === "overRecoveryAp ? 'save' : 'connect'"
+        && /const \{[^}]*\boverRecoveryAp\b[^}]*\} = useNetwork\(\)/.test(source)
+      ))
+      .map(({ file, action }) => `${file}: :action="${action}"`);
+    expect(astray).toEqual([]);
+  });
+});

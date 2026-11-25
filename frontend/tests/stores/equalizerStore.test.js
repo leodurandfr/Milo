@@ -1647,4 +1647,30 @@ describe('equalizerStore', () => {
       expect(equalizerStore.outputPeak).toEqual([-12, -14]);
     });
   });
+  describe('a zone crossover a member did not take', () => {
+    // The backend pins the frequency on the zone before it pushes it, so its
+    // 502 is a pin recorded and applied at the member's next reconnection.
+    // ClientEdit says "saved" on that status and "not saved" on any other; a
+    // store answering a bare false made the two one sentence, the wrong one.
+    it('hands the refusal\'s status to the screen', async () => {
+      apiCall.put.mockResolvedValueOnce(fail('Crossover recorded but not applied: client x refused it', 502));
+
+      const verdict = await equalizerStore.setZoneCrossoverFrequency('z1', 120);
+
+      expect(apiCall.put).toHaveBeenCalledWith(
+        '/api/equalizer/target/zone:z1/crossover', { frequency: 120 }, expect.anything(),
+      );
+      expect(verdict).toEqual({ ok: false, status: 502 });
+    });
+
+    it('tells a refusal that recorded nothing from one that did', async () => {
+      apiCall.put.mockResolvedValueOnce(fail('Zone not found: z1', 404));
+      expect(await equalizerStore.setZoneCrossoverFrequency('z1', null)).toEqual({ ok: false, status: 404 });
+    });
+
+    it('answers an accepted pin with no status', async () => {
+      apiCall.put.mockResolvedValueOnce(ok({ status: 'success', zone_id: 'z1' }));
+      expect(await equalizerStore.setZoneCrossoverFrequency('z1', 120)).toEqual({ ok: true, status: null });
+    });
+  });
 });

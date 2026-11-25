@@ -33,7 +33,10 @@
          deletion) and the Create button, in one sticky footer: two at bottom 0
          would overlap. -->
     <div class="sticky-footer">
-      <SettingsRefusal :detail="refusal">{{ t(refusalMessage) }}</SettingsRefusal>
+      <SettingsRefusal
+        :detail="refusal"
+        :kind="refusalMessage === 'settings.writeDeferred' ? 'warning' : 'error'"
+      >{{ t(refusalMessage) }}</SettingsRefusal>
       <Button
         v-if="!groupId && selectedClients.length >= 2"
         variant="brand"
@@ -66,6 +69,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { logger } from '@/services/logger';
+import { RECORDED_NOT_APPLIED } from '@/constants/multiroomWrites';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import SystemListItem from '@/components/settings/categories/multiroom/SystemListItem.vue';
@@ -91,7 +95,8 @@ const zoneName = ref('');
 const originalZoneName = ref('');
 const selectedClients = ref([]);
 // The server's detail for the last write it refused, and the sentence that says
-// which kind it was: an edit put back, or an action that did not happen.
+// which kind it was: an edit put back, a member recorded whose speaker has not
+// taken the zone's EQ yet, or an action that did not happen.
 const refusal = ref(null);
 const refusalMessage = ref('settings.writeRefused');
 
@@ -125,16 +130,16 @@ async function toggleClient(clientId) {
     // Adding client — optimistic update before await to avoid stale index
     selectedClients.value.push(clientId);
     if (props.groupId) {
-      try {
-        expectRefusal('settings.writeRefused');
-        await multiroomStore.addClientToZone(props.groupId, clientId, { errorRef: refusal });
-        // Watcher syncs final state from WebSocket
-      } catch (error) {
-        // Show the store's membership, not the one before the tap: a 502 means
-        // the client joined but its speaker refused the zone's EQ, and the
-        // zone_changed event may already be in, so the watcher fires no more.
+      expectRefusal('settings.writeRefused');
+      const { ok, status } = await multiroomStore.addClientToZone(props.groupId, clientId, { errorRef: refusal });
+      // On success the watcher syncs the final state from the WebSocket.
+      if (!ok) {
+        // A 502 is a client that joined, whose speaker did not take the zone's
+        // EQ yet: said as saved, not as refused.
+        if (status === RECORDED_NOT_APPLIED) refusalMessage.value = 'settings.writeDeferred';
+        // Show the store's membership, not the one before the tap: after a 502
+        // the zone_changed event may already be in, so the watcher fires no more.
         selectedClients.value = [...(currentGroup.value?.client_ids || [])];
-        logger.error('multiroom', 'Error adding client to zone', error);
       }
     }
   } else {

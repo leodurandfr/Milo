@@ -57,6 +57,7 @@
     "btRemote": "Bluetooth remote",
     "irRemote": "IR remote",
     "writeRefused": "This change could not be saved.",
+    "writeDeferred": "This change is saved. The speaker will apply it when it is back.",
     "actionFailed": "This action could not be completed.",
     "readFailed": "This information could not be loaded."
   },
@@ -209,6 +210,7 @@
     "deleteSystem": "Delete this audio system",
     "confirmDeleteSystem": "Confirm deletion",
     "deleteSystemDetails": "Its equalizer, its delay and its place in its zone are erased with it. This cannot be undone.",
+    "deleteSystemDetailsZone": "Its equalizer and its delay are erased with it, and so is the zone “{zone}”, with its name and its crossover frequency: the other speaker plays on its own again. This cannot be undone.",
     "offline": "Offline",
     "defaultSpeakerName": "Speaker",
     "externalVolume": "Volume not managed by Milō"
@@ -986,6 +988,7 @@
       "rebooting": "Rebooting…",
       "rebootingDescription": "Please wait while the system restarts.",
       "rebootTimeout": "Reboot timed out. Please refresh the page.",
+      "applyFailed": "Milō could not apply this configuration. Please try again.",
       "volumeNotManaged": "Volume not managed by Milō"
     }
   },

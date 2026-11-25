@@ -13,3 +13,13 @@ export function zoneLevelState(members) {
   if (online.length === 0) return 'offline';
   return online.some(member => member.volume_control !== false) ? 'counted' : 'external';
 }
+
+/**
+ * Whether a member leaving `zone` deletes it. A zone holds at least two
+ * members (backend Zone.is_valid), so the registry deletes one that would fall
+ * below — its name and its crossover with it — and the member left plays on
+ * its own. ClientEdit names that zone in the confirmation of a delete.
+ */
+export function leavingDeletesZone(zone) {
+  return (zone?.client_ids?.length ?? 0) === 2;
+}

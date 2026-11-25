@@ -57,6 +57,7 @@
     "btRemote": "Bluetooth-Fernbedienung",
     "irRemote": "IR-Fernbedienung",
     "writeRefused": "Diese Änderung konnte nicht gespeichert werden.",
+    "writeDeferred": "Diese Änderung wurde gespeichert. Der Lautsprecher übernimmt sie, sobald er wieder verfügbar ist.",
     "actionFailed": "Diese Aktion konnte nicht ausgeführt werden.",
     "readFailed": "Diese Informationen konnten nicht geladen werden."
   },
@@ -209,6 +210,7 @@
     "deleteSystem": "Dieses Audiosystem löschen",
     "confirmDeleteSystem": "Löschen bestätigen",
     "deleteSystemDetails": "Sein Equalizer, seine Verzögerung und sein Platz in seiner Zone werden mit ihm gelöscht. Dies kann nicht rückgängig gemacht werden.",
+    "deleteSystemDetailsZone": "Sein Equalizer und seine Verzögerung werden mit ihm gelöscht, ebenso die Zone „{zone}“ mit ihrem Namen und ihrer Trennfrequenz: Der andere Lautsprecher spielt wieder allein. Dies kann nicht rückgängig gemacht werden.",
     "offline": "Offline",
     "defaultSpeakerName": "Lautsprecher",
     "externalVolume": "Lautstärke nicht von Milō gesteuert"
@@ -986,6 +988,7 @@
       "rebooting": "Neustart…",
       "rebootingDescription": "Bitte warten Sie, während das System neu startet.",
       "rebootTimeout": "Zeitüberschreitung beim Neustart. Bitte laden Sie die Seite neu.",
+      "applyFailed": "Milō konnte diese Konfiguration nicht anwenden. Bitte versuchen Sie es erneut.",
       "volumeNotManaged": "Lautstärke nicht von Milō gesteuert"
     }
   },

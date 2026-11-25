@@ -38,7 +38,10 @@
       </div>
     </div>
 
-    <NoticeBox v-if="error">{{ error }}</NoticeBox>
+    <!-- A refusal says what failed in the reader's language, the server's
+         words folded under it, as a settings screen does. -->
+    <NoticeBox v-if="applyRefusal !== null" :detail="applyRefusal">{{ t('setup.summary.applyFailed') }}</NoticeBox>
+    <NoticeBox v-if="rebootTimedOut">{{ t('setup.summary.rebootTimeout') }}</NoticeBox>
 
     <p v-if="isRebooting" class="text-mono-medium text-secondary">
       {{ t('setup.summary.rebootingDescription') }}
@@ -88,9 +91,14 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
-  error: {
+  // The server's detail for an apply it refused; null while none was.
+  applyRefusal: {
     type: String,
     default: null,
+  },
+  rebootTimedOut: {
+    type: Boolean,
+    default: false,
   },
 });
 

@@ -18,7 +18,7 @@
       icon="multiroom"
       :title="t('multiroom.systemOffline', { name: clientDisplayName })"
       :subtitle="t('multiroom.systemOfflineDescription', { ip: client?.ip || t('common.unknown') })"
-      :details="deleteState === 'idle' ? null : t('multiroom.deleteSystemDetails')"
+      :details="deleteDetails"
       :cta-label="deleteLabel"
       cta-variant="important"
       :cta-click="handleDelete"
@@ -191,7 +191,10 @@
          speaker) and Apply and reboot (two-step confirm, only when the audio card
          changed), in one sticky footer: two at bottom 0 would overlap. -->
     <div v-if="!isRebooting" class="sticky-footer">
-      <SettingsRefusal :detail="refusal">{{ t(refusalMessage) }}</SettingsRefusal>
+      <SettingsRefusal
+        :detail="refusal"
+        :kind="refusalMessage === 'settings.writeDeferred' ? 'warning' : 'error'"
+      >{{ t(refusalMessage) }}</SettingsRefusal>
       <Button
         v-if="!isOffline && isAudioDirty"
         :variant="confirmReboot ? 'important' : 'brand'"
@@ -218,6 +221,8 @@ import { useEqualizerStore } from '@/stores/equalizerStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import { needsHardwareRead, volumeControlForCard } from '@/utils/clientHardware';
+import { RECORDED_NOT_APPLIED } from '@/constants/multiroomWrites';
+import { leavingDeletesZone } from '@/utils/multiroomZone';
 import { logger } from '@/services/logger';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -273,7 +278,8 @@ const DEFAULT_DELAY_MS = 20;
 const lastDelay = ref(DEFAULT_DELAY_MS);
 // 'idle' → 'confirming' → 'deleting': two steps, like a zone's delete — the
 // offline screen also shows for the seconds a speaker restarts, and a delete
-// takes its equalizer, its delay and its place in its zone with it.
+// takes its equalizer, its delay and its place in its zone with it (the zone
+// itself when it had two members).
 const deleteState = ref('idle');
 const crossoverFrequency = ref(80);
 // null until the satellite answered; a satellite whose app predates the route
@@ -283,8 +289,8 @@ const sshBusy = ref(false);
 const sshError = ref(null);
 const sshReadError = ref(null);
 // The server's detail for the last write of this panel it refused, and the
-// sentence that says which kind it was: a setting put back, or a delete that
-// did not happen.
+// sentence that says which kind it was: a setting put back, a setting recorded
+// that a speaker has not taken yet, or a delete that did not happen.
 const refusal = ref(null);
 const refusalMessage = ref('settings.writeRefused');
 
@@ -292,6 +298,14 @@ const refusalMessage = ref('settings.writeRefused');
 function expectRefusal(messageKey) {
   refusal.value = null;
   refusalMessage.value = messageKey;
+}
+
+// A write the server recorded before a speaker refused it says so: the control
+// keeps the new value, and the speaker takes it at its return. Only for the
+// writes that record first (the crossover, EQ independence) — the trim and the
+// delay are pushed first, and their refusal records nothing.
+function sayRecordedOn(status) {
+  if (status === RECORDED_NOT_APPLIED) refusalMessage.value = 'settings.writeDeferred';
 }
 // null until the satellite answered, and for good on one whose app predates the
 // route (the rows stay hidden).
@@ -487,16 +501,14 @@ async function toggleVolumeControl() {
 
 async function toggleEqIndependent(enabled) {
   eqIndependent.value = enabled;
-  try {
-    expectRefusal('settings.writeRefused');
-    await multiroomClientStore.setClientEqIndependent(props.macId, enabled, { errorRef: refusal });
-  } catch (error) {
-    logger.error('multiroom', 'Error saving EQ independence', error);
-    // The record's flag, not the one before the tap: a 502 means the flag was
-    // saved but the speaker refused the zone's EQ, and client_state_changed may
-    // already be in, so the watcher fires no more.
-    eqIndependent.value = client.value?.eq_independent === true;
-  }
+  expectRefusal('settings.writeRefused');
+  const { ok, status } = await multiroomClientStore.setClientEqIndependent(props.macId, enabled, { errorRef: refusal });
+  if (ok) return;
+  sayRecordedOn(status);
+  // The record's flag, not the one before the tap: a 502 means the flag was
+  // saved but the speaker refused the zone's EQ, and client_state_changed may
+  // already be in, so the watcher fires no more.
+  eqIndependent.value = client.value?.eq_independent === true;
 }
 
 async function persistGain(value) {
@@ -592,10 +604,14 @@ async function applyAudioChange() {
 
 async function handleCrossoverChange(frequency) {
   if (!clientZone.value?.id) return;
-  // The zone record is untouched by a refusal; the slider follows it again.
   expectRefusal('settings.writeRefused');
-  const saved = await equalizerStore.setZoneCrossoverFrequency(clientZone.value.id, frequency, { errorRef: refusal });
-  if (!saved) crossoverFrequency.value = zoneCrossoverFrequency.value;
+  const { ok, status } = await equalizerStore.setZoneCrossoverFrequency(clientZone.value.id, frequency, { errorRef: refusal });
+  if (ok) return;
+  sayRecordedOn(status);
+  // The slider follows the zone record again: a 502 is a pin the zone kept (its
+  // zone_changed may already be in, so the watcher fires no more), any other
+  // refusal left the record as it was.
+  crossoverFrequency.value = zoneCrossoverFrequency.value;
 }
 
 // Leaving auto pins whatever auto had just resolved to, so the sound does not
@@ -603,11 +619,12 @@ async function handleCrossoverChange(frequency) {
 async function toggleCrossoverAuto() {
   if (!clientZone.value?.id) return;
   expectRefusal('settings.writeRefused');
-  await equalizerStore.setZoneCrossoverFrequency(
+  const { status } = await equalizerStore.setZoneCrossoverFrequency(
     clientZone.value.id,
     crossoverAuto.value ? zoneCrossoverFrequency.value : null,
     { errorRef: refusal },
   );
+  sayRecordedOn(status);
 }
 
 async function selectSpeakerType(type) {
@@ -644,6 +661,16 @@ async function saveClientName() {
     if (clientName.value?.trim() === newName) clientName.value = originalClientName.value;
   }
 }
+
+// A zone of two cannot keep one member: deleting this speaker deletes the zone
+// too (the registry's unregister_client), and the confirmation names it.
+const deleteDetails = computed(() => {
+  if (deleteState.value === 'idle') return null;
+  if (leavingDeletesZone(clientZone.value)) {
+    return t('multiroom.deleteSystemDetailsZone', { zone: clientZone.value.name });
+  }
+  return t('multiroom.deleteSystemDetails');
+});
 
 const deleteLabel = computed(() => {
   if (deleteState.value === 'confirming') return t('multiroom.confirmDeleteSystem');

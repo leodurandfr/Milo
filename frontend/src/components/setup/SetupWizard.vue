@@ -21,7 +21,7 @@
         <div v-else :key="currentStep" class="setup-card__body">
           <LanguageStep v-if="currentStep === 1" v-model="wizardState.language" />
 
-          <NetworkStep v-else-if="currentStep === 2" v-model="wizardState.wifiSsid" :hotspot-active="settingsStore.hotspotActive"
+          <NetworkStep v-else-if="currentStep === 2" v-model="wizardState.wifiSsid"
             :awaiting-network="systemStore.setupAwaitingNetwork" />
 
           <!-- The cards come from one read at mount: failed, this step had no
@@ -44,7 +44,8 @@
             :language-code="wizardState.language" :language-label="selectedLanguageLabel"
             :audio-label="selectedAudioLabel" :screen-label="selectedScreenLabel"
             :volume-control="wizardState.volumeControl" :is-dac="isDacSelected"
-            :wifi-ssid="wizardState.wifiSsid" :is-rebooting="isRebooting" :error="error" />
+            :wifi-ssid="wizardState.wifiSsid" :is-rebooting="isRebooting"
+            :apply-refusal="applyRefusal" :reboot-timed-out="rebootTimedOut" />
         </div>
       </Transition>
 
@@ -115,7 +116,11 @@ const currentStep = ref(0);
 const isApplying = ref(false);
 const isRebooting = ref(false);
 const confirmReboot = ref(false);
-const error = ref(null);
+// The server's detail for an apply it refused (folded under a translated
+// sentence: it is English, and names the helper that failed), and whether the
+// unit never came back from the reboot an accepted apply started.
+const applyRefusal = ref(null);
+const rebootTimedOut = ref(false);
 let pollIntervalId = null;
 
 // Hardware options from API
@@ -221,7 +226,8 @@ function prevStep() {
 async function applySetup() {
   isApplying.value = true;
   confirmReboot.value = false;
-  error.value = null;
+  applyRefusal.value = null;
+  rebootTimedOut.value = false;
 
   const applyResult = await apiCall.post('/api/setup/complete', {
     language: wizardState.language,
@@ -231,7 +237,7 @@ async function applySetup() {
   }, {
     category: 'setup',
     message: 'Setup wizard failed',
-    errorRef: error,
+    errorRef: applyRefusal,
   });
 
   if (!applyResult.ok) {
@@ -265,7 +271,7 @@ async function applySetup() {
       timer.clear(pollIntervalId);
       pollIntervalId = null;
       isRebooting.value = false;
-      error.value = t('setup.summary.rebootTimeout');
+      rebootTimedOut.value = true;
     }
   }, 3000);
 }

@@ -47,8 +47,12 @@
     <p v-if="showContinueHint" class="text-body-small continue-hint">{{ t('setup.wifi.continueHint') }}</p>
 
     <!-- Network selector (country + scan + password). The network saved stays
-         in the list: a key mistyped over the AP is typed again there. -->
-    <NetworkSelector :action="hotspotActive ? 'save' : 'connect'" @saved="triedSsid = ''" />
+         in the list: a key mistyped over the AP is typed again there. Over the
+         recovery AP a phone saves, and the kiosk — a loopback client the AP
+         does not hold — joins at once, so a wrong key is refused there and
+         then rather than after a reboot (useNetwork's overRecoveryAp, the
+         rule Settings › Network follows). -->
+    <NetworkSelector :action="overRecoveryAp ? 'save' : 'connect'" @saved="triedSsid = ''" />
   </div>
 </template>
 
@@ -68,7 +72,7 @@ const { t } = useI18n();
 const timer = useTimer();
 
 // Status display state — selection state lives inside NetworkSelector.
-const { status, networks, country, loading, initialize } = useNetwork();
+const { status, networks, country, loading, overRecoveryAp, initialize } = useNetwork();
 
 const emit = defineEmits(['update:modelValue']);
 
@@ -76,10 +80,6 @@ const props = defineProps({
   modelValue: {
     type: String,
     default: null,
-  },
-  hotspotActive: {
-    type: Boolean,
-    default: false,
   },
   // The wizard was sent once and the unit has joined no network since.
   awaitingNetwork: {

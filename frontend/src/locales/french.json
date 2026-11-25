@@ -57,6 +57,7 @@
     "btRemote": "Télécommande Bluetooth",
     "irRemote": "Télécommande IR",
     "writeRefused": "Cette modification n'a pas pu être enregistrée.",
+    "writeDeferred": "Cette modification est enregistrée. L'enceinte l'appliquera à son retour.",
     "actionFailed": "Cette action n'a pas pu aboutir.",
     "readFailed": "Ces informations n'ont pas pu être chargées."
   },
@@ -209,6 +210,7 @@
     "deleteSystem": "Supprimer ce système audio",
     "confirmDeleteSystem": "Confirmer la suppression",
     "deleteSystemDetails": "Son égaliseur, son retard et sa place dans sa zone sont effacés avec lui. Cette action est irréversible.",
+    "deleteSystemDetailsZone": "Son égaliseur et son retard sont effacés avec lui, ainsi que la zone « {zone} », son nom et sa fréquence de coupure : l'autre enceinte redevient seule. Cette action est irréversible.",
     "offline": "Hors ligne",
     "defaultSpeakerName": "Enceinte",
     "externalVolume": "Volume non géré par Milō"
@@ -986,6 +988,7 @@
       "rebooting": "Redémarrage…",
       "rebootingDescription": "Veuillez patienter pendant le redémarrage du système.",
       "rebootTimeout": "Le redémarrage prend trop de temps. Veuillez actualiser la page.",
+      "applyFailed": "Milō n'a pas pu appliquer cette configuration. Veuillez réessayer.",
       "volumeNotManaged": "Volume non géré par Milō"
     }
   },

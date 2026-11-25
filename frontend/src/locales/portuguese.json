@@ -57,6 +57,7 @@
     "btRemote": "Comando Bluetooth",
     "irRemote": "Comando IR",
     "writeRefused": "Não foi possível guardar esta alteração.",
+    "writeDeferred": "Esta alteração foi guardada. A coluna irá aplicá-la quando voltar a estar disponível.",
     "actionFailed": "Não foi possível concluir esta ação.",
     "readFailed": "Não foi possível carregar estas informações."
   },
@@ -209,6 +210,7 @@
     "deleteSystem": "Eliminar este sistema de áudio",
     "confirmDeleteSystem": "Confirmar eliminação",
     "deleteSystemDetails": "O seu equalizador, o seu atraso e o seu lugar na zona são apagados com ele. Esta ação não pode ser anulada.",
+    "deleteSystemDetailsZone": "O seu equalizador e o seu atraso são apagados com ele, assim como a zona «{zone}», o seu nome e a sua frequência de corte: a outra coluna volta a funcionar sozinha. Esta ação não pode ser anulada.",
     "offline": "Offline",
     "defaultSpeakerName": "Coluna",
     "externalVolume": "Volume não gerido pelo Milō"
@@ -986,6 +988,7 @@
       "rebooting": "A reiniciar…",
       "rebootingDescription": "Aguarde enquanto o sistema reinicia.",
       "rebootTimeout": "O tempo de espera do reinício expirou. Atualize a página.",
+      "applyFailed": "O Milō não conseguiu aplicar esta configuração. Tente novamente.",
       "volumeNotManaged": "Volume não gerido pelo Milō"
     }
   },

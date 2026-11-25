@@ -23,7 +23,9 @@
  * `action(` once destructured out of a store or a composable — UpdateManager
  * takes its actions that way, and a guardrail reading only the first spelling
  * passed with every update start silent. A settings component is every one
- * under components/settings/ and every component one mounts, wherever it lives
+ * under components/settings/, every step of the setup wizard under
+ * components/setup/ (whose apply drew the server's English refusal as its only
+ * message), and every component one mounts, wherever it lives
  * (WifiCountrySelector, from components/network/).
  * useSettingsAPI's own refusal is held by settingsRefusal.test.js.
  *
@@ -39,6 +41,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, '../../src');
 const COMPONENTS = join(SRC, 'components');
 const SETTINGS = join(COMPONENTS, 'settings');
+const SETUP = join(COMPONENTS, 'setup');
 
 // Writes a settings screen sends with no cause to show, each with why. A key is
 // `file::label` for every such call, or `file::label(args)` for the one call
@@ -222,10 +225,12 @@ function importedComponents(path, script) {
     (source.startsWith('@/') ? join(SRC, source.slice(2)) : resolve(dirname(path), source)));
 }
 
-// Every settings component, and every component one mounts wherever it lives:
-// WifiCountrySelector is a settings row drawn from components/network/.
+// Every settings component, every step of the setup wizard — the first screen a
+// new owner reads, in any of the eight languages — and every component one
+// mounts wherever it lives: WifiCountrySelector is a settings row drawn from
+// components/network/.
 const byPath = new Map();
-const pending = filesUnder(SETTINGS, '.vue');
+const pending = [...filesUnder(SETTINGS, '.vue'), ...filesUnder(SETUP, '.vue')];
 while (pending.length) {
   const path = pending.pop();
   if (byPath.has(path)) continue;

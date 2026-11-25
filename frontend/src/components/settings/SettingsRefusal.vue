@@ -4,10 +4,13 @@
      it. Pinned to the bottom of the panel, as an Apply button is, so it is
      seen wherever the control that moved back sits on a long page. Nothing is
      drawn while `detail` is null. A screen that already pins a button there
-     puts both in one sticky footer: two sticky boxes at bottom 0 overlap. -->
+     puts both in one sticky footer: two sticky boxes at bottom 0 overlap.
+     A write the server recorded but could not apply yet is a warning, not an
+     error (`kind`): it is not refused, so it is neither tinted nor announced
+     as a failure. -->
 <template>
   <div v-if="detail !== null" class="settings-refusal">
-    <NoticeBox :detail="detail">
+    <NoticeBox :kind="kind" :detail="detail">
       <slot>{{ t('settings.writeRefused') }}</slot>
     </NoticeBox>
   </div>
@@ -22,6 +25,12 @@ defineProps({
   detail: {
     type: String,
     default: null
+  },
+  // 'warning' for a change the server saved and a speaker will take later.
+  kind: {
+    type: String,
+    default: 'error',
+    validator: (value) => ['error', 'warning'].includes(value)
   }
 });
 

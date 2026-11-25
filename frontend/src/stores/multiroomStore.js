@@ -451,20 +451,22 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * Client's equalizer is replaced by the zone's shared equalizer.
    * @param {string} zoneId - Zone ID
    * @param {string} macId - Client mac_id to add
-   * @returns {Promise<Object>} Response with updated zone data
+   * @returns {Promise<{ok: boolean, status: number|null}>} The verdict, and the
+   *   HTTP status of a refusal: a 502 is a client that joined the zone but whose
+   *   speaker did not take the zone's EQ — the membership is recorded, so the
+   *   screen says "saved" (ZoneEdit). null when no HTTP answer came.
    */
   async function addClientToZone(zoneId, macId, { errorRef } = {}) {
     const result = await apiCall.post(`/api/multiroom/zones/${zoneId}/clients`, { mac_id: macId }, {
       category: 'store',
       message: 'Error adding client to zone',
       errorRef,
-      rethrow: true,
     });
-    if (result.data.zone) {
+    if (result.ok && result.data?.zone) {
       zones.value.set(zoneId, result.data.zone);
       saveCache();
     }
-    return result.data;
+    return { ok: result.ok, status: result.error?.status ?? null };
   }
 
   /**
@@ -513,16 +515,18 @@ export const useMultiroomStore = defineStore('multiroom', () => {
    * its zone. State updates arrive via the client_state_changed WS event.
    * @param {string} macId - Client mac_id
    * @param {boolean} enabled - True = EQ independent from the zone
-   * @returns {Promise<Object>} Updated client data
+   * @returns {Promise<{ok: boolean, status: number|null}>} The verdict, and the
+   *   HTTP status of a refusal: a 502 is a flag recorded whose speaker did not
+   *   take the zone's EQ, so the screen says "saved" (ClientEdit). null when no
+   *   HTTP answer came.
    */
   async function setClientEqIndependent(macId, enabled, { errorRef } = {}) {
     const result = await apiCall.put(`/api/multiroom/clients/${macId}/eq-independent`, { enabled }, {
       category: 'store',
       message: 'Error updating EQ independence',
       errorRef,
-      rethrow: true,
     });
-    return result.data;
+    return { ok: result.ok, status: result.error?.status ?? null };
   }
 
   /**

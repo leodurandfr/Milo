@@ -6,7 +6,7 @@
  * that sets nothing and springs back, and a mute switch that never turns off.
  */
 import { describe, it, expect } from 'vitest';
-import { zoneLevelState } from '@/utils/multiroomZone';
+import { zoneLevelState, leavingDeletesZone } from '@/utils/multiroomZone';
 
 describe('zoneLevelState', () => {
   it('a zone whose members are all unavailable has no level to draw', () => {
@@ -40,5 +40,26 @@ describe('zoneLevelState', () => {
       { online: true, volume_control: false },
       { online: true }
     ])).toBe('counted');
+  });
+});
+
+/**
+ * ClientEdit's delete confirmation names the zone a delete takes with it. If
+ * this fails, deleting one of a pair's two speakers confirms "its place in its
+ * zone" while the zone, its name and its crossover go too, the other speaker
+ * left on its own — irreversibly, and unannounced.
+ */
+describe('leavingDeletesZone', () => {
+  it('a zone of two is deleted with either member', () => {
+    expect(leavingDeletesZone({ id: 'z1', client_ids: ['a', 'b'] })).toBe(true);
+  });
+
+  it('a larger zone keeps going without one', () => {
+    expect(leavingDeletesZone({ id: 'z1', client_ids: ['a', 'b', 'c'] })).toBe(false);
+  });
+
+  it('a standalone speaker has no zone to take with it', () => {
+    expect(leavingDeletesZone(null)).toBe(false);
+    expect(leavingDeletesZone(undefined)).toBe(false);
   });
 });

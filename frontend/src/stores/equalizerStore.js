@@ -841,7 +841,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
    * @param {string} zoneId - Zone ID
    * @param {number|null} frequency - Crossover frequency in Hz (40-200), or
    *   null to hand the zone back to auto (derived from its speaker types)
-   * @returns {Promise<boolean>} Success status
+   * @returns {Promise<{ok: boolean, status: number|null}>} The verdict, and the
+   *   HTTP status of a refusal: a 502 is a member that did not take a pin the
+   *   zone has recorded (it is applied at that member's next reconnection), so
+   *   the screen says "saved" rather than "not saved" (ClientEdit). null when
+   *   no HTTP answer came.
    */
   async function setZoneCrossoverFrequency(zoneId, frequency, { errorRef } = {}) {
     // Explicit zone token rather than targetBase(): the caller names the zone,
@@ -852,7 +856,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       message: 'Error setting zone crossover',
       errorRef,
     });
-    return result.ok;
+    return { ok: result.ok, status: result.error?.status ?? null };
   }
 
   // === WEBSOCKET HANDLERS ===

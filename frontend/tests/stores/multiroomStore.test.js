@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { i18n } from '@/services/i18n';
 import { apiCall } from '@/services/apiCall';
-import { resetApiCallMock, ok } from '../helpers/apiCallMock';
+import { resetApiCallMock, ok, fail } from '../helpers/apiCallMock';
 
 vi.mock('@/services/apiCall', () => import('../helpers/apiCallMock'));
 
@@ -342,6 +342,35 @@ describe('multiroomStore', () => {
       expect(apiCall.get).not.toHaveBeenCalled();
       // Still "not fetched yet" — the lazy callers must trigger resync().
       expect(store.isInitialized).toBe(false);
+    });
+  });
+  describe('a write recorded that a speaker did not take', () => {
+    // Both routes record before they push the zone's EQ, and answer 502 when the
+    // speaker refused it: the membership or the flag is kept. ClientEdit and
+    // ZoneEdit say "saved" on that status, "not saved" on any other — so the
+    // store hands it back rather than throwing it away with the request.
+    it('a member added whose speaker refused the zone\'s EQ answers its 502', async () => {
+      store.handleMultiroomEvent(zoneEvent('created', 'z1', { id: 'z1', name: 'Living', client_ids: ['mac-a', 'mac-b'] }));
+      apiCall.post.mockResolvedValueOnce(fail('saved, the speaker did not take its EQ', 502));
+
+      const verdict = await store.addClientToZone('z1', 'mac-c');
+
+      expect(verdict).toEqual({ ok: false, status: 502 });
+      // The membership is the WebSocket's to announce, not a failed answer's.
+      expect(store.zoneList.find(z => z.id === 'z1').client_ids).toEqual(['mac-a', 'mac-b']);
+    });
+
+    it('an EQ independence whose speaker refused the zone\'s EQ answers its 502', async () => {
+      apiCall.put.mockResolvedValueOnce(fail('saved, the speaker did not take its EQ', 502));
+
+      const verdict = await store.setClientEqIndependent('mac-a', false);
+
+      expect(verdict).toEqual({ ok: false, status: 502 });
+    });
+
+    it('an unknown client is a refusal that recorded nothing', async () => {
+      apiCall.put.mockResolvedValueOnce(fail("Client with mac_id 'mac-z' not found", 404));
+      expect(await store.setClientEqIndependent('mac-z', true)).toEqual({ ok: false, status: 404 });
     });
   });
 });
