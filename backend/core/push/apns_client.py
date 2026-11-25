@@ -271,9 +271,10 @@ class ApnsClient:
             lambda: not directory.is_dir() or (directory / "synchronized").exists()
         )
         if synchronized:
-            self._clock_set = True
-            if self._clock_wait_logged:
+            # Two sends can read it across the same await: one says it.
+            if not self._clock_set and self._clock_wait_logged:
                 logger.info("Wall clock synchronized: pushes go out again")
+            self._clock_set = True
         elif not self._clock_wait_logged:
             self._clock_wait_logged = True
             logger.info("Pushes held until the wall clock is synchronized (a token dated before would be expired)")
