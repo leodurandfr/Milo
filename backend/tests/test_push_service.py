@@ -1984,6 +1984,36 @@ class TestReportedGone:
         assert "start" not in sent_events(apns)
 
 
+class TestDevicePresence:
+    """A phone leaving the LAN with its extension asleep kept a full card, its
+    buttons reaching nothing, until the next track (2026-11-25, 15:19 and
+    15:54). Milō wakes it by sending its card again."""
+
+    async def test_a_device_that_left_is_sent_its_card_again_alone(
+        self, service, registry, apns
+    ):
+        await TestSessionLifecycle._two_devices_on_one_session(
+            TestSessionLifecycle(), service, registry, apns)
+        await service._publish()
+        apns.send.reset_mock()
+
+        service._device_moved("phone-1", here=False)
+        await service._publish()
+
+        assert TestSessionLifecycle._addressed(apns) == ["sess-phone"]
+        assert sent_events(apns) == ["update"]
+
+    async def test_without_a_move_nothing_is_sent_again(self, service, registry, apns):
+        await TestSessionLifecycle._two_devices_on_one_session(
+            TestSessionLifecycle(), service, registry, apns)
+        await service._publish()
+        apns.send.reset_mock()
+
+        await service._publish()
+
+        assert TestSessionLifecycle._addressed(apns) == []
+
+
 class TestDeviceReboot:
     """A restart destroys every session on the phone and tells nobody."""
 

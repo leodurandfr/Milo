@@ -549,6 +549,7 @@ class TestRoutes:
         service = AsyncMock()
         service.align_session_to_playback = AsyncMock(return_value=None)
         service.session_token_registered = MagicMock()
+        service.note_device_address = MagicMock()
         return service
 
     @pytest.fixture
@@ -646,6 +647,19 @@ class TestRoutes:
         assert response.status_code == 200
         mock_registry.drop_sessions_absent_from.assert_awaited_once_with(
             "phone-1", ["sess-a", "sess-b"])
+
+    def test_both_routes_tell_the_service_where_the_device_is(self, client, mock_service):
+        """The address is what the LAN watch probes (`presence.py`): the app's
+        report and the extension's registrations are the only requests that
+        name the device."""
+        client.post("/api/push/sessions", json={"device_id": "phone-1"})
+        client.post("/api/push/tokens", json={
+            "token": "tok", "kind": "push_to_start",
+            "environment": "sandbox", "device_id": "phone-1",
+        })
+
+        assert [c.args[0] for c in mock_service.note_device_address.call_args_list] \
+            == ["phone-1", "phone-1"]
 
     def test_an_absent_session_list_means_none(self, client, mock_registry):
         """Holding nothing is the report that matters most, so the field

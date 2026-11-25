@@ -54,6 +54,7 @@ from backend.core.models.ws_events import (
     WsEvent,
 )
 from backend.core.push.models import PushTokenKind
+from backend.core.push.presence import POLL_S as PRESENCE_POLL_S, DevicePresence
 from backend.core.push.payloads import (
     NowPlayingDevice,
     build_attributes,
@@ -255,6 +256,10 @@ class PushService:
         # must be a `start`. See `_adopt_reported_session`.
         self._unconfirmed: Optional[str] = None
         self._widget_signature: Optional[tuple] = None
+        # Whether the devices holding the card are still on the LAN, which
+        # only this side can notice while their extension sleeps. See
+        # `presence.py` and `_device_moved`.
+        self._presence = DevicePresence(on_change=self._device_moved)
 
     def set_state_machine(self, state_machine) -> None:
         """Wired in dependencies.py STEP 2 — the machine calls back into on_event."""
@@ -263,6 +268,7 @@ class PushService:
     async def initialize(self) -> None:
         """Start the coalescing loop. Cheap even with no key: it idles on an event."""
         self._bg.spawn(self._loop(), label="coalescer")
+        self._bg.spawn(self._watch_presence(), label="presence")
 
     async def cleanup(self) -> None:
         await self._bg.cancel_all()
@@ -495,6 +501,55 @@ class PushService:
             token.device_id == device_id
             for token in self._registry.tokens_for(PushTokenKind.PUSH_TO_START)
         )
+
+    # =========================================================================
+    # PRESENCE
+    # =========================================================================
+
+    def note_device_address(self, device_id: str, host: Optional[str]) -> None:
+        """A device's request came from `host`. Called by the push routes."""
+        self._presence.note(device_id, host)
+
+    async def _watch_presence(self) -> None:
+        """Probe the devices holding the card, for as long as one is held."""
+        while True:
+            try:
+                devices = self._session_devices()
+                if devices:
+                    await self._presence.check(devices)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Presence check failed")
+            await asyncio.sleep(PRESENCE_POLL_S)
+
+    def _device_moved(self, device_id: str, here: bool) -> None:
+        """A device holding the card left the LAN, or came back: send it its
+        card again, to wake its extension.
+
+        The push carries nothing new. What matters is that the extension runs:
+        woken, it finds its Wi-Fi gone, or Milō out of reach, and empties the
+        card, which iOS then takes off the Lock Screen at once (measured
+        2026-11-25 at 15:19:20.444); back on the LAN, it fills it again. Asleep,
+        it did neither until the next track. A departure misread (the phone
+        still there) costs one push, and the extension, finding Milō, changes
+        nothing.
+
+        Done by forgetting what the device was last sent, so the next cycle
+        sends it the card through the usual path, to it alone, spacing and
+        refusals included.
+        """
+        logger.info(
+            f"Device {device_id} {'back on' if here else 'left'} the LAN "
+            "— sending its card again to wake it"
+        )
+        if self._session_id is None:
+            return
+        for token in self._registry.tokens_for_session(self._session_id):
+            if token.device_id == device_id:
+                self._playing_card.pop(token.token, None)
+                self._idle_card.pop(token.token, None)
+        self._dirty.set()
 
     def _session_devices(self) -> Set[str]:
         """The devices the live session's `end` would be addressed to.

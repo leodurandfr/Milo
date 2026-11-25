@@ -19,7 +19,7 @@ with what is playing — see `PushService.align_session_to_playback`.
 import logging
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.models import PushLiveSessionsRequest, PushTokenRegisterRequest
 from backend.api.responses import StatusResponse
@@ -40,7 +40,7 @@ def create_push_router(
     router = APIRouter(prefix="/api/push", tags=["push"])
 
     @router.post("/tokens", response_model=StatusResponse, openapi_extra=CONTRACTED)
-    async def register_token(request: PushTokenRegisterRequest):
+    async def register_token(request: PushTokenRegisterRequest, raw: Request):
         """Register an APNs device token.
 
         Idempotent by construction: a token that supersedes one already held —
@@ -56,6 +56,7 @@ def create_push_router(
                 session_id=request.session_id,
                 boot_time=request.boot_time,
             )
+            push_service.note_device_address(request.device_id, raw.client and raw.client.host)
             # What waits on a session token — an `end`, a first `update` —
             # goes out now rather than at the next bus event.
             if request.kind is PushTokenKind.SESSION:
@@ -63,7 +64,7 @@ def create_push_router(
             return {"status": "success"}
 
     @router.post("/sessions", response_model=StatusResponse, openapi_extra=CONTRACTED)
-    async def report_live_sessions(request: PushLiveSessionsRequest):
+    async def report_live_sessions(request: PushLiveSessionsRequest, raw: Request):
         """Tell Milō which Now Playing sessions this device still holds.
 
         Retires the session tokens it does not name. Without this, a session
@@ -91,6 +92,7 @@ def create_push_router(
             await push_token_registry.drop_sessions_absent_from(
                 request.device_id, request.session_ids
             )
+            push_service.note_device_address(request.device_id, raw.client and raw.client.host)
             await push_service.align_session_to_playback(request.device_id)
             return {"status": "success"}
 
