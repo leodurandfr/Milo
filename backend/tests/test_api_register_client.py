@@ -241,6 +241,27 @@ class TestConfiguredClient:
         registry.update_client.assert_not_awaited()
         registry.set_client_gain.assert_not_awaited()
 
+    @pytest.mark.parametrize("configured", [True, False])
+    def test_the_adoption_name_does_not_undo_the_name_a_configure_chose(
+        self, client, pending, configured
+    ):
+        """A wifi-adopted satellite carries its adoption name on every heartbeat.
+        Forgotten, then configured again under another name, it came back under
+        the adoption one: the next heartbeat had overwritten the pending entry
+        (measured on a unit, "Bureau-B20" back as "Desk"). Staged once, on an
+        entry with no name, it leaves a chosen one alone — before the reboot
+        (unconfigured) and after it (configured, not yet admitted).
+        """
+        pending.register_client.side_effect = lambda **kw: _pending(name="Bureau-B20")
+
+        response = client.post("/api/multiroom/register-client", json={
+            **BODY, "hardware_configured": configured,
+            "name": "Desk", "speaker_type": "bookshelf",
+        })
+
+        assert response.status_code == 200
+        pending.update_client.assert_not_awaited()
+
     def test_a_wifi_adopted_client_arrives_configured_and_unknown(
         self, client, registry, pending
     ):

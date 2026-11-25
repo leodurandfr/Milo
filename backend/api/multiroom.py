@@ -1083,6 +1083,20 @@ def create_multiroom_router(
                 return
             background_tasks.add_task(satellite_secret.hand_over, request.mac_id, request.ip)
 
+        async def stage_identity(client: dict) -> dict:
+            """The identity a wifi-adopted satellite carries, staged once: on a
+            pending entry with no name yet. It rides every heartbeat, and
+            applied each time it undid the name a configure chose within 15 s
+            — measured: a speaker configured as "Bureau-B20" came back "Desk",
+            its adoption name. The admitted branch above follows the same rule."""
+            if client.get("name") is not None or not (request.name or request.speaker_type):
+                return client
+            return await pending_clients_service.update_client(
+                request.mac_id,
+                name=request.name,
+                speaker_type=request.speaker_type,
+            ) or client
+
         async with api_error_handler("Error registering client", logger):
             # Validate that the declared IP matches the actual request origin
             # Strip IPv4-mapped IPv6 prefix (::ffff:) for dual-stack compatibility
@@ -1155,12 +1169,7 @@ def create_multiroom_router(
                     audio_id=request.audio_id,
                     volume_control=request.volume_control,
                 )
-                if request.name or request.speaker_type:
-                    client = await pending_clients_service.update_client(
-                        request.mac_id,
-                        name=request.name,
-                        speaker_type=request.speaker_type,
-                    ) or client
+                client = await stage_identity(client)
                 # A configured speaker this process has not asked yet: one
                 # that kept running through this server's reflash, announced
                 # before its admission — or for good with multiroom off,
@@ -1181,12 +1190,7 @@ def create_multiroom_router(
                 audio_id=request.audio_id,
                 volume_control=request.volume_control,
             )
-            if request.name or request.speaker_type:
-                client = await pending_clients_service.update_client(
-                    request.mac_id,
-                    name=request.name,
-                    speaker_type=request.speaker_type,
-                ) or client
+            client = await stage_identity(client)
             # A speaker waiting to be configured is asked only when it would
             # follow: its first contact is the reboot that configures it, a
             # gesture someone makes, and that reboot's own hand-over (`_signed`)
