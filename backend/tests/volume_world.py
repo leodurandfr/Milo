@@ -14,14 +14,16 @@ class Registry:
 
     `known` are the clients the registry holds offline (an online one is
     known too);
-    `dac` are the ones whose volume an external amp owns.
+    `dac` are the ones whose volume an external amp owns;
+    `local` is this unit, registered at 127.0.0.1.
     """
 
     def __init__(self, online: Iterable[str] = (), known: Iterable[str] = (),
-                 dac: Iterable[str] = ()):
+                 dac: Iterable[str] = (), local: Iterable[str] = ()):
         self.online = set(online)
         self.known = set(known)
         self.dac = set(dac)
+        self.local = set(local)
         self.zones: Dict[str, Zone] = {}
         self.subscribers: List = []
 
@@ -36,13 +38,17 @@ class Registry:
     def is_client_online(self, mac_id: str) -> bool:
         return mac_id in self.online
 
+    def is_local_client(self, mac_id: str) -> bool:
+        return mac_id in self.local
+
     def get_online_client_ids(self) -> List[str]:
         return sorted(self.online)
 
     def get_client(self, mac_id: str):
         if mac_id not in self.known | self.online:
             return None
-        return Client(mac_id=mac_id, name=mac_id, ip="192.168.1.10",
+        ip = "127.0.0.1" if mac_id in self.local else "192.168.1.10"
+        return Client(mac_id=mac_id, name=mac_id, ip=ip,
                       online=mac_id in self.online, volume_control=mac_id not in self.dac)
 
     def get_zone(self, zone_id: str) -> Optional[Zone]:

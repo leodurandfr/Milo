@@ -13,8 +13,9 @@ from backend.api.route_helpers import (
     CONTRACTED,
     WHEN_DSP_IS_BACK,
     api_error_handler,
-    is_satellite_refusal,
+    not_applied_detail,
     refused_detail,
+    unreachable_detail,
 )
 
 from backend.api.responses import (
@@ -37,7 +38,13 @@ from backend.api.models import (
     ZoneCrossoverRequest,
     EqualizerPresetRequest
 )
-from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
+from backend.core.equalizer.client_proxy import (
+    CommandNotApplied,
+    MembersNotApplied,
+    SatelliteUnreachable,
+    is_satellite_refusal,
+    is_satellite_unreachable,
+)
 from backend.core.equalizer.presets import DEFAULT_CUSTOM_GAINS
 
 if TYPE_CHECKING:
@@ -72,6 +79,10 @@ def _resolve_target(target: str) -> tuple[str, str]:
 # online with its DSP back.
 CROSSOVER_APPLIES = "at its next reconnection"
 
+# What a satellite nothing reached gets of an equalizer write: its record is
+# resent (MultiroomEqualizerService._arm_resend), and its admission pushes it.
+EQ_IS_RESENT = "it is sent its record again shortly, and at its next admission"
+
 
 def _speaker(target: str) -> str:
     """The speaker a refusal names, as the target addressed it."""
@@ -80,26 +91,58 @@ def _speaker(target: str) -> str:
     return f"client {target}"
 
 
+def _members_error(what: str, e: MembersNotApplied, local_keeps_previous: bool) -> CommandNotApplied:
+    """A zone fan-out's misses, answered with the future of each member.
+
+    A satellite that refused takes the write when its DSP is back (its record
+    is resent); one nothing reached is resent it as well. This unit's
+    CamillaDSP that refused takes a band, the compressor, loudness or mono on
+    reconnect (the edit is captured into its cache), but keeps its previous
+    bypass flag for good (``local_keeps_previous``): its toggle records
+    nothing. A 502 when anything refused, a 503 — a warning — when every miss
+    is a satellite nothing reached.
+    """
+    later = [f"client {m}" for m in e.refused]
+    kept = []
+    if e.local_refused:
+        (kept if local_keeps_previous else later).insert(0, "this unit")
+    detail = not_applied_detail(
+        what, later, [f"client {m}" for m in e.unreachable], kept, keeps=EQ_IS_RESENT
+    )
+    if later or kept:
+        return CommandNotApplied(detail)
+    return SatelliteUnreachable(", ".join(e.unreachable), detail, status_code=503)
+
+
 @asynccontextmanager
-async def _target_write(context: str, what: str, target: str):
+async def _target_write(context: str, what: str, target: str, local_keeps_previous: bool = False):
     """``api_error_handler`` for a write of this router, with a satellite's
-    refusal answered as the volume answers it.
+    misses answered as the volume answers them.
 
     Every write here is stored before it is sent — a satellite's record in the
     registry, resent until it takes it (or at its admission) — so a satellite
-    that answered and refused (its 400) is a 502 saying the edit is recorded
+    that answered and refused (its 4xx) is a 502 saying the edit is recorded
     (``refused_detail``), never its own 400 passed through, which accused the
-    caller of an invalid request. One that could not be reached keeps its 503,
-    an unknown client its 404, and this unit's CamillaDSP refusing its 502.
-    Logged once, by ``api_error_handler``.
+    caller of an invalid request; one nothing reached is a 503 saying so
+    (``unreachable_detail``), never "refused it"; a zone's misses are one
+    answer naming each member (``_members_error``). An unknown client keeps
+    its 404, and this unit's CamillaDSP refusing its 502. Logged once, by
+    ``api_error_handler``: an error for a refusal, a warning for an absence.
     """
     async with api_error_handler(context, logger):
         try:
             yield
+        except MembersNotApplied as e:
+            raise _members_error(what, e, local_keeps_previous) from e
         except SatelliteUnreachable as e:
-            if not is_satellite_refusal(e):
-                raise
-            raise CommandNotApplied(refused_detail(what, _speaker(target))) from e
+            if is_satellite_refusal(e):
+                raise CommandNotApplied(refused_detail(what, _speaker(target))) from e
+            if is_satellite_unreachable(e):
+                raise SatelliteUnreachable(
+                    e.hostname, unreachable_detail(what, _speaker(target), EQ_IS_RESENT),
+                    status_code=503,
+                ) from e
+            raise
 
 
 def create_equalizer_router(
@@ -115,13 +158,15 @@ def create_equalizer_router(
     router = APIRouter(prefix="/api/equalizer", tags=["equalizer"])
 
     def _not_applied(what: str, target: str, applies: str = WHEN_DSP_IS_BACK) -> CommandNotApplied:
-        """A write the target did not take, raised as the router's one failure.
+        """A write the target refused, raised as the router's one failure.
 
         Every write here says it the same way: a band, the compressor, loudness
         and mono raise ``CommandNotApplied`` from the access layer, and the four
         that answer a bool (enabled, preset, save-custom, crossover) raise it
-        here — a 502, logged by ``api_error_handler``, never a 200 carrying
-        ``"status": "error"``, which a client had to know to look for.
+        here when it is False — a 502, logged by ``api_error_handler``, never a
+        200 carrying ``"status": "error"``, which a client had to know to look
+        for. A satellite nothing reached raises instead of answering False, and
+        a zone's master toggle raises the members it missed (``_target_write``).
 
         A satellite or a zone kept the write (the registry's record, resent
         until it is taken; the zone's pin), so its detail is the volume's
@@ -378,11 +423,16 @@ def create_equalizer_router(
         explicit "<mac>" moves that client alone.
 
         A target that did not take it answers 502, like every other write of this
-        router (see `_not_applied`).
+        router (see `_not_applied`), and one nothing reached 503. A zone — or
+        "local" moving its zone — names the members that missed it, and this
+        unit's own refusal as kept: its toggle records nothing.
         """
         enabled = payload.enabled
         what = f"Equalizer {'enable' if enabled else 'bypass'}"
-        async with _target_write(f"Error updating equalizer enabled for target {target}", what, target):
+        async with _target_write(
+            f"Error updating equalizer enabled for target {target}", what, target,
+            local_keeps_previous=True,
+        ):
             target_type, target_id = _resolve_target(target)
             try:
                 if target_type == "zone":
@@ -409,10 +459,11 @@ def create_equalizer_router(
         """Load a preset for any target; returns resolved gains for immediate UI apply.
 
         A target that did not take the preset answers 502, never a 200 carrying
-        the gains it is not playing. For a zone that means at least one member
-        refused, and the service has logged which. A speaker that will take it
-        later is not a refusal: an offline satellite, or this unit's CamillaDSP
-        while it reconnects, records it and answers 200, as a band edit does.
+        the gains it is not playing — 503 for a satellite nothing reached. For a
+        zone that means at least one member missed it, and the service has
+        logged which. A speaker that will take it later is not a refusal: an
+        offline satellite, or this unit's CamillaDSP while it reconnects,
+        records it and answers 200, as a band edit does.
         """
         async with _target_write(
             f"Error loading preset for target {target}", f"Preset {payload.preset_id}", target

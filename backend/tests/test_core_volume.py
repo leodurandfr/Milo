@@ -28,6 +28,7 @@ from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 from backend.tests.volume_world import Registry, world
 from backend.core.equalizer.client_proxy import CommandNotApplied
+from backend.core.volume.equalizer_controller import Delivery
 from backend.core.volume.state import StoredLevel
 from backend.shared import persistence
 
@@ -174,7 +175,7 @@ class TestEqualizerController:
         """Test setting volume delegates to EqualizerRouter."""
         result = await controller.set_equalizer_volume("local", -25.0)
 
-        assert result is True
+        assert result is Delivery.APPLIED
         mock_router.set_volume.assert_called_once_with("local", -25.0, force=False)
 
     @pytest.mark.asyncio
@@ -182,7 +183,7 @@ class TestEqualizerController:
         """Test setting remote client volume delegates to EqualizerRouter."""
         result = await controller.set_equalizer_volume("milo-client-01", -27.0)
 
-        assert result is True
+        assert result is Delivery.APPLIED
         mock_router.set_volume.assert_called_once_with("milo-client-01", -27.0, force=False)
 
     @pytest.mark.asyncio
@@ -190,14 +191,14 @@ class TestEqualizerController:
         """Test set volume returns False without router."""
         ctrl = EqualizerController()
         result = await ctrl.set_equalizer_volume("local", -25.0)
-        assert result is False
+        assert result is Delivery.NOT_SENT
 
     @pytest.mark.asyncio
     async def test_set_mute_delegates_to_router(self, controller, mock_router):
         """Test setting mute delegates to EqualizerRouter."""
         result = await controller.set_equalizer_mute("local", True)
 
-        assert result is True
+        assert result is Delivery.APPLIED
         mock_router.set_mute.assert_called_once_with("local", True, force=False)
 
     @pytest.mark.asyncio
@@ -228,7 +229,7 @@ class TestEqualizerController:
         mock_router.set_volume = AsyncMock(
             return_value={"status": "skipped", "reason": "client_offline"}
         )
-        assert await controller.set_equalizer_volume("milo-client-01", -25.0) is False
+        assert await controller.set_equalizer_volume("milo-client-01", -25.0) is Delivery.NOT_SENT
 
         mock_router.set_gain = AsyncMock(
             return_value={"status": "skipped", "reason": "external_volume_control"}
@@ -1795,7 +1796,7 @@ class TestPerClientApplyVerdict:
     async def test_a_client_that_took_the_volume_stores_and_reports_it(self, service, caplog):
         """The happy path is unchanged — the level is stored, no noise."""
         with caplog.at_level(logging.ERROR):
-            assert await service.update_client_volume_db(self.ACCEPTING, -25.0) is True
+            assert await service.update_client_volume_db(self.ACCEPTING, -25.0) is None
 
         assert service.state_store.get_client_volume(self.ACCEPTING) == -25.0
         assert caplog.text == ""
@@ -1803,7 +1804,7 @@ class TestPerClientApplyVerdict:
     @pytest.mark.asyncio
     async def test_an_online_client_that_refused_keeps_the_level_asked_for(self, service):
         """The refusal decides the verdict; the store keeps the level asked for."""
-        assert await service.update_client_volume_db(self.REFUSING, -25.0) is False
+        assert await service.update_client_volume_db(self.REFUSING, -25.0) is Delivery.REFUSED
 
         assert service.state_store.get_client_volume(self.REFUSING) == -25.0
         assert service.state_store.get_client_volume(self.ACCEPTING) == -40.0
@@ -1857,7 +1858,7 @@ class TestPerClientApplyVerdict:
         mock_registry.is_client_online.return_value = False
 
         with caplog.at_level(logging.ERROR):
-            assert await service.update_client_volume_db(self.REFUSING, -25.0) is True
+            assert await service.update_client_volume_db(self.REFUSING, -25.0) is None
 
         assert service.state_store.get_client_volume(self.REFUSING) == -25.0
         assert caplog.text == ""
@@ -1867,7 +1868,7 @@ class TestPerClientApplyVerdict:
         self, service, caplog
     ):
         """Mute travels the same path and answers the same way."""
-        assert await service.set_client_mute(self.REFUSING, True) is False
+        assert await service.set_client_mute(self.REFUSING, True) is Delivery.REFUSED
 
         assert service.state_store.get_client_mute(self.REFUSING) is True
 
@@ -1875,7 +1876,7 @@ class TestPerClientApplyVerdict:
     async def test_a_client_that_took_the_mute_stores_and_reports_it(self, service, caplog):
         """The happy path is unchanged for mute too."""
         with caplog.at_level(logging.ERROR):
-            assert await service.set_client_mute(self.ACCEPTING, True) is True
+            assert await service.set_client_mute(self.ACCEPTING, True) is None
 
         assert service.state_store.get_client_mute(self.ACCEPTING) is True
         assert caplog.text == ""
@@ -1888,7 +1889,7 @@ class TestPerClientApplyVerdict:
         mock_registry.is_client_online.return_value = False
 
         with caplog.at_level(logging.ERROR):
-            assert await service.set_client_mute(self.REFUSING, True) is True
+            assert await service.set_client_mute(self.REFUSING, True) is None
 
         assert service.state_store.get_client_mute(self.REFUSING) is True
         assert caplog.text == ""
@@ -2054,7 +2055,7 @@ class TestEqualizerControllerRegistryInjection:
 
     async def test_without_a_registry_a_refusal_is_reported(self, controller, caplog):
         with caplog.at_level(logging.ERROR):
-            assert await controller.set_equalizer_volume("aa:bb", -20.0) is False
+            assert await controller.set_equalizer_volume("aa:bb", -20.0) is Delivery.REFUSED
 
         assert "Volume not applied to aa:bb" in caplog.text
 
@@ -2062,6 +2063,6 @@ class TestEqualizerControllerRegistryInjection:
         controller.set_registry(Mock(is_client_online=Mock(return_value=False)))
 
         with caplog.at_level(logging.ERROR):
-            assert await controller.set_equalizer_volume("aa:bb", -20.0) is False
+            assert await controller.set_equalizer_volume("aa:bb", -20.0) is Delivery.REFUSED
 
         assert caplog.text == ""

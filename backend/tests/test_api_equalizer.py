@@ -33,6 +33,7 @@ from backend.api.models import (
 )
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.equalizer.client_proxy import EqualizerClientProxyService, SatelliteUnreachable
+from backend.core.equalizer import multiroom_service
 from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
 from backend.core.models.ws_events import EqualizerZoneEnabledChanged
 from backend.core.multiroom.client_registry import ClientRegistryService
@@ -45,6 +46,7 @@ from backend.core.multiroom.models import (
     LoudnessSettings,
     FilterType,
 )
+from backend.tests.conftest import drain_background_tasks
 
 
 REMOTE_MAC = "dc:a6:32:7e:d3:43"
@@ -992,13 +994,20 @@ class _RefusingSatelliteHttp:
     def __init__(self):
         self.calls = []
         self.status = 400
+        # Per satellite IP, overriding `status`; None is a satellite nothing
+        # reaches (milo-client restarting: its port refuses the connection).
+        self.by_host = {}
 
     def __call__(self, *args, **kwargs):
         return self
 
     def _record(self, method, url, kwargs):
         self.calls.append((method, url))
-        return self._Answer(self.status)
+        host = url.split("//", 1)[1].split(":", 1)[0]
+        status = self.by_host.get(host, self.status)
+        if status is None:
+            raise aiohttp.ClientConnectionError(f"Cannot connect to host {host}:{CLIENT_API_PORT}")
+        return self._Answer(status)
 
     def get(self, url, **kwargs):
         return self._record("GET", url, kwargs)
@@ -1170,3 +1179,197 @@ class TestASatelliteRefusalAnswersLikeTheVolume:
         assert ("PUT", f"http://{self.CANAPE_IP}:{CLIENT_API_PORT}/equalizer/crossover") in world.satellite.calls, \
             world.satellite.calls
         assert not world.crossover.has_pending_settings(REMOTE_MAC)
+
+    @pytest.mark.parametrize(
+        "route",
+        [r for r in WRITE_ROUTES if not r.path.endswith("/crossover")],
+        ids=lambda r: f"{sorted(r.methods)[0]} {r.path}",
+    )
+    async def test_every_write_a_satellite_misses_unreached_answers_503(
+        self, world, route, caplog
+    ):
+        """A satellite registered online that nothing reached (its milo-client
+        restarting, its port 8001 closed) answers 503 on every write, and says
+        it could not be reached — at warning, never the banner.
+
+        What breaks when this fails: a band, the compressor, loudness and mono
+        answered 503 "Cannot reach", while a preset, a custom save and the
+        master toggle for the same speaker at the same moment answered 502
+        "refused it, and applies it when its DSP is back" — apply_record and
+        the toggle swallowed the absence into a False the route read as a
+        refusal. Two opposite diagnoses for one state, from one router.
+        """
+        world.satellite.status = None
+        body = BODIES[_body_model(route)]
+        transport = httpx.ASGITransport(app=world.app)
+        caplog.set_level(logging.WARNING)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            for target in (self.BUREAU, "zone:salon"):
+                world.satellite.calls.clear()
+                path = route.path.format(target=target, filter_id="eq_band_00")
+                method = sorted(route.methods)[0]
+                response = await http.request(
+                    method, path, **({} if body is None else {"json": body})
+                )
+
+                assert world.satellite.calls, f"{method} {path} never tried the satellite"
+                assert response.status_code == 503, (target, response.text)
+                detail = response.json()["detail"]
+                assert "could not be reached" in detail, (target, detail)
+                assert "refused" not in detail, (target, detail)
+
+        banner = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+        assert banner == [], "a speaker nothing reached raised the error banner"
+
+    @pytest.mark.parametrize(
+        "route",
+        [r for r in WRITE_ROUTES if not r.path.endswith("/crossover")],
+        ids=lambda r: f"{sorted(r.methods)[0]} {r.path}",
+    )
+    async def test_a_satellite_nothing_reached_is_resent_its_record(
+        self, world, route, monkeypatch
+    ):
+        """The 503 says a satellite nothing reached "is sent its record again
+        shortly": once it answers again, it is sent its whole record, the master
+        flag last, without waiting for an admission.
+
+        What breaks when this fails: the detail promises a resend nothing arms.
+        A satellite whose milo-client restarted under a snapclient that stayed
+        connected is never readmitted, so it kept the old curve for good while
+        every screen drew the new one.
+        """
+        monkeypatch.setattr(multiroom_service, "RECORD_RESEND_DELAY_S", 0)
+        body = BODIES[_body_model(route)]
+        method = sorted(route.methods)[0]
+        transport = httpx.ASGITransport(app=world.app)
+        for target, ips in (
+            (self.BUREAU, [self.BUREAU_IP]),
+            ("zone:salon", [self.CANAPE_IP, self.CHAMBRE_IP]),
+        ):
+            world.satellite.status = None
+            path = route.path.format(target=target, filter_id="eq_band_00")
+            async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+                response = await http.request(
+                    method, path, **({} if body is None else {"json": body})
+                )
+            assert response.status_code == 503, (target, response.text)
+
+            world.satellite.status = 200
+            world.satellite.calls.clear()
+            await drain_background_tasks()
+
+            for ip in ips:
+                assert ("PUT", f"http://{ip}:{CLIENT_API_PORT}/equalizer/enabled") \
+                    in world.satellite.calls, (target, ip, world.satellite.calls)
+
+    @pytest.mark.parametrize("unreached, status, errors", [
+        (False, 502, 1),
+        (True, 503, 0),
+    ], ids=["one-member-refuses", "one-member-unreached"])
+    async def test_a_zone_edit_one_member_missed_is_one_line(
+        self, world, caplog, unreached, status, errors
+    ):
+        """A zone band edit one member missed writes one ERROR when it refused,
+        none when nothing reached it, and the detail names that member.
+
+        What breaks when this fails: `failed_members` wrote an ERROR per member
+        that missed it, then api_error_handler one more, for every request of a
+        band drag (20 a second), against a docstring promising "Logged once";
+        and a member merely unplugged raised the banner the same route keeps
+        off for a single satellite.
+        """
+        world.satellite.status = 200
+        world.satellite.by_host[self.CANAPE_IP] = None if unreached else 400
+        transport = httpx.ASGITransport(app=world.app)
+        with caplog.at_level(logging.WARNING):
+            async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+                response = await http.put(
+                    "/api/equalizer/target/zone:salon/filter/eq_band_00", json={"gain": 3.0}
+                )
+
+        assert response.status_code == status, response.text
+        detail = response.json()["detail"]
+        assert f"client {REMOTE_MAC}" in detail and self.CHAMBRE not in detail, detail
+        error_lines = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(error_lines) == errors, error_lines
+
+
+class TestAZoneToggleSaysWhoKeptWhat:
+    """`PUT /target/{t}/enabled` over a zone holding this unit and Canapé says
+    which member missed it, and what each does next.
+
+    What breaks when these fail: the detail was chosen from the target's
+    shape. A zone whose local CamillaDSP refused (reconnecting after a backend
+    restart: the bypass records nothing) was told "a member of zone salon
+    refused it, and applies it when its DSP is back" — a promise nothing
+    keeps, the zone left out of step for good; and "local" moving its zone,
+    with only Canapé refusing, was told "not applied to target local" while
+    the server had switched. Consumers: the web EQ screen shows the detail;
+    Milo-Mac reads only the status. Real registry, access layer and route;
+    the satellite's HTTP and this unit's bypass are the outside world.
+    """
+
+    LOCAL_MAC = "2c:cf:67:a0:00:01"
+    CANAPE_IP = "192.168.1.153"
+
+    @pytest.fixture
+    async def world(self, monkeypatch):
+        satellite = _RefusingSatelliteHttp()
+        satellite.status = 200
+        monkeypatch.setattr(aiohttp, "ClientSession", satellite)
+        registry = await _registry_world(
+            members_of_zone=[self.LOCAL_MAC, REMOTE_MAC],
+            local_mac=self.LOCAL_MAC,
+            satellites={REMOTE_MAC: self.CANAPE_IP},
+        )
+        camilladsp = Mock()
+        camilladsp.connected = True
+        camilladsp.get_equalizer_settings = Mock(side_effect=EqualizerSettings.default)
+        routing = Mock()
+        routing.set_equalizer_effects_enabled = AsyncMock(return_value=True)
+        service = MultiroomEqualizerService(
+            client_registry_service=registry,
+            camilladsp_service=camilladsp,
+            proxy_service=EqualizerClientProxyService(),
+            routing_service=routing,
+            state_machine=Mock(broadcast=AsyncMock()),
+        )
+        app = FastAPI()
+        app.include_router(create_equalizer_router(
+            camilladsp_service=camilladsp,
+            routing_service=routing,
+            client_registry_service=registry,
+            multiroom_equalizer_service=service,
+        ))
+        yield SimpleNamespace(app=app, satellite=satellite, routing=routing)
+        await service.cleanup()
+
+    @staticmethod
+    async def _put(world, target):
+        transport = httpx.ASGITransport(app=world.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            return await http.put(
+                f"/api/equalizer/target/{target}/enabled", json={"enabled": False}
+            )
+
+    @pytest.mark.parametrize("target", ["zone:salon", "local"])
+    async def test_this_unit_refusing_is_said_kept_not_applied_later(self, world, target):
+        world.routing.set_equalizer_effects_enabled = AsyncMock(return_value=False)
+
+        response = await self._put(world, target)
+
+        assert response.status_code == 502, response.text
+        detail = response.json()["detail"]
+        assert "this unit refused it and kept its previous setting" in detail, detail
+        assert "when its DSP is back" not in detail, detail
+
+    @pytest.mark.parametrize("target", ["zone:salon", "local"])
+    async def test_a_satellite_refusing_is_named_not_the_target(self, world, target):
+        world.satellite.status = 400
+
+        response = await self._put(world, target)
+
+        assert response.status_code == 502, response.text
+        detail = response.json()["detail"]
+        assert f"client {REMOTE_MAC} refused it, and applies it when its DSP is back" in detail, detail
+        assert "target local" not in detail and "this unit" not in detail, detail

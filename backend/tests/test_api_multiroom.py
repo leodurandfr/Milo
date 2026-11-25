@@ -706,7 +706,7 @@ async def dac_return(tmp_path, monkeypatch):
     eq_router.set_local_mac_source(lambda: "aa:bb:cc:dd:ee:ff")
     eq_router.set_local_volume_control_source(lambda: True)
 
-    assert await volume.update_client_volume_db(BUREAU, -51.47, broadcast=False)
+    assert await volume.update_client_volume_db(BUREAU, -51.47, broadcast=False) is None
     assert satellite.wire[-1][2:] == ("/equalizer/volume", {"volume": 0.0}), \
         "the DAC client was not sent unity: the setup is not the measured state"
     satellite.wire.clear()
@@ -1363,6 +1363,79 @@ class TestCreateZone:
         )
 
         assert response.status_code == 422  # Pydantic validation error
+
+
+class TestANewZonesEqualizerMissedByAMember:
+    """`POST /zones` applies a neutral EQ to its members; one that missed it is
+    said once, by why: a refusal at error (the banner), an absence at warning.
+
+    What breaks when these fail: a satellite that answered and refused the new
+    zone's record — its CamillaDSP stopped — reached the operator at warning
+    only, while the zone drew the neutral curve that speaker was not playing;
+    or a satellite merely unplugged raised the banner. The zone is created
+    either way (201). Real registry, access layer and route; the satellite's
+    HTTP is the outside world.
+    """
+
+    CANAPE, CANAPE_IP = "dc:a6:32:00:00:0b", "192.168.1.61"
+    BUREAU, BUREAU_IP = "dc:a6:32:00:00:0c", "192.168.1.62"
+
+    async def _create(self, answer, caplog):
+        from backend.core.equalizer.client_proxy import EqualizerClientProxyService
+        from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
+        from backend.core.multiroom.client_registry import ClientRegistryService
+
+        settings = AsyncMock()
+        settings.get_setting = AsyncMock(return_value=None)
+        registry = ClientRegistryService(settings_service=settings)
+        await registry.initialize()
+        for mac, ip in ((self.CANAPE, self.CANAPE_IP), (self.BUREAU, self.BUREAU_IP)):
+            await registry.register_client(mac, mac, ip)
+            await registry.set_client_online(mac, True)
+        proxy = EqualizerClientProxyService()
+
+        async def request(hostname, method, path, body=None, **_):
+            if hostname == self.BUREAU_IP:
+                raise answer
+            return {"status": "success"}
+
+        proxy.request = request
+        service = MultiroomEqualizerService(
+            client_registry_service=registry,
+            proxy_service=proxy,
+            state_machine=Mock(broadcast=AsyncMock()),
+        )
+        app = FastAPI()
+        app.include_router(create_multiroom_router(registry, multiroom_equalizer_service=service))
+        try:
+            with caplog.at_level(logging.WARNING):
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+                    response = await http.post(
+                        "/api/multiroom/zones",
+                        json={"name": "Salon", "client_ids": [self.CANAPE, self.BUREAU]},
+                    )
+        finally:
+            await service.cleanup()
+        assert response.status_code == 201, response.text
+        return [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    async def test_a_member_that_refused_is_one_error_naming_it(self, caplog):
+        refused = SatelliteUnreachable(self.BUREAU_IP, "Client error: 400", status_code=400)
+
+        errors = await self._create(refused, caplog)
+
+        assert len(errors) == 1, [r.getMessage() for r in errors]
+        assert self.BUREAU in errors[0].getMessage()
+        assert self.CANAPE not in errors[0].getMessage()
+
+    async def test_a_member_nothing_reached_raises_no_banner(self, caplog):
+        unreached = SatelliteUnreachable(self.BUREAU_IP, "Cannot reach", status_code=503)
+
+        errors = await self._create(unreached, caplog)
+
+        assert errors == [], [r.getMessage() for r in errors]
+        assert any(self.BUREAU in r.getMessage() for r in caplog.records)
 
 
 class TestUpdateZone:

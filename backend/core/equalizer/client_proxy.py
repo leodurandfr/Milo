@@ -36,9 +36,10 @@ class CommandNotApplied(Exception):
     refused, 503 when nothing could carry the command, 404 for a satellite the
     registry no longer holds, and a satellite's own status
     (``SatelliteUnreachable``) for anything it answered or failed to — save
-    the equalizer writes, which answer a satellite's refusal (its 400) 502,
-    as the volume does, since the edit is recorded and resent
-    (api/equalizer.py::_target_write).
+    the volume and equalizer writes, which answer a satellite's refusal (its
+    4xx, ``is_satellite_refusal``) 502, since the write is recorded, and one
+    nothing reached (``is_satellite_unreachable``) 503, each with a detail
+    saying what happens next (api/route_helpers.py::not_applied_detail).
     """
 
     def __init__(self, detail: str, status_code: int = 502):
@@ -58,6 +59,55 @@ class SatelliteUnreachable(CommandNotApplied):
     def __init__(self, hostname: str, detail: str, status_code: int = 503):
         self.hostname = hostname
         super().__init__(detail, status_code)
+
+
+def is_satellite_refusal(error: BaseException) -> bool:
+    """A satellite that answered and refused, as opposed to one nothing reached.
+
+    A satellite says "refused" with a 4xx (milo-client's ``_refused`` answers
+    400 when its CamillaDSP did not take the command). It holds what it was
+    sent for its DSP's return, so a write it refused is answered 502 "recorded
+    but not applied" — never its own 400 passed through, which told the caller
+    its request was invalid. The one spelling of the rule, read by the volume
+    door (EqualizerController), the equalizer fan-outs and api/equalizer.py.
+    """
+    return isinstance(error, SatelliteUnreachable) and 400 <= error.status_code < 500
+
+
+def is_satellite_unreachable(error: BaseException) -> bool:
+    """A satellite nothing reached: its milo-client restarting, its port 8001
+    closed, its Wi-Fi gone for a second, or multiroom off.
+
+    It answered nothing, so it holds nothing: a write it missed is answered
+    503 and logged at warning, never "refused it", and what it plays next is
+    what is sent to it next. A 500 is neither this nor a refusal: the proxy
+    met something unexpected.
+    """
+    return isinstance(error, SatelliteUnreachable) and error.status_code == 503
+
+
+class MembersNotApplied(CommandNotApplied):
+    """A zone fan-out some members did not take, by why.
+
+    Raised once per request, after the fan-out reported each member at
+    warning, so the route that answers it writes the request's one line
+    (api/equalizer.py::_target_write): one raise could carry only one
+    member's error, and a line per member plus the route's was N+1 errors a
+    request on a band drag. ``refused`` are the satellites that answered and
+    refused, ``unreachable`` those nothing reached, ``local_refused`` this
+    unit's own CamillaDSP, whose consequence the route words per write.
+    A 502 when anything refused, a 503 when every miss is an absence.
+    """
+
+    def __init__(self, context: str, refused=(), unreachable=(), local_refused: bool = False):
+        self.refused = list(refused)
+        self.unreachable = list(unreachable)
+        self.local_refused = local_refused
+        missed = (["this unit"] if local_refused else []) + self.refused + self.unreachable
+        super().__init__(
+            f"{context} not applied to {', '.join(missed)}",
+            502 if (local_refused or self.refused) else 503,
+        )
 
 
 def is_ip_address(hostname: str) -> bool:
@@ -257,7 +307,7 @@ class EqualizerClientProxyService:
             self.logger.debug(f"Cannot reach client {hostname}: {e}")
             return 0
 
-    async def apply_record(self, hostname: str, settings) -> bool:
+    async def apply_record(self, hostname: str, settings, *, raise_unreachable: bool = False) -> bool:
         """Send a satellite one complete EQ record, in the canonical order.
 
         The single way a whole ``EqualizerSettings`` reaches a client: the live
@@ -269,6 +319,12 @@ class EqualizerClientProxyService:
         Bands carry tuning only — their presence in the pipeline is what the
         master toggle switches — and ``enabled`` goes last, after the effects it
         gates. Returns False if any leg failed; callers own the retry policy.
+
+        ``raise_unreachable`` is the live write's (an operator's request): a
+        satellite nothing reached raises its ``SatelliteUnreachable`` instead of
+        answering False, so the request is answered "could not be reached"
+        (503) rather than "refused it". The background paths (the reconnection
+        sync, the pending replay, the resend) keep the bool.
         """
         try:
             bands = {
@@ -299,6 +355,8 @@ class EqualizerClientProxyService:
             return True
         except Exception as e:
             self.logger.warning(f"Failed to apply equalizer record to {hostname}: {e}")
+            if raise_unreachable and is_satellite_unreachable(e):
+                raise
             return False
 
     async def get_equalizer_levels(self, hostname: str) -> Optional[Dict[str, Any]]:

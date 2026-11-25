@@ -582,7 +582,7 @@ class ClientRegistryService:
 
         Membership only — a zone holds no EQ of its own (the unified per-client
         model). Each member keeps its own EQ record; the caller neutralises the
-        zone's EQ via MultiroomEqualizerService.set_zone_eq().
+        zone's EQ via MultiroomEqualizerService.apply_zone_equalizer().
 
         Args:
             zone_id: Unique zone identifier

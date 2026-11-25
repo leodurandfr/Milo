@@ -38,6 +38,7 @@ from backend.core.multiroom.equalizer_router import EqualizerRouter
 from backend.core.push.service import PushService
 from backend.core.volume import VolumeService, VolumeStateStore
 from backend.tests.volume_world import world
+from backend.core.volume.equalizer_controller import Delivery
 from backend.core.volume.state import StoredLevel
 
 
@@ -1088,16 +1089,18 @@ class TestEqualizerControllerRetry:
 
         controller._router.set_volume = _set_volume
 
-        assert await controller.set_equalizer_volume("aa:bb", -30.0) is True
+        assert await controller.set_equalizer_volume("aa:bb", -30.0) is Delivery.APPLIED
         assert attempts["n"] == 2
 
     async def test_the_retries_are_bounded_and_the_failure_is_reported(
         self, controller, instant_backoff, caplog
     ):
-        """Three attempts total, then error. The recursion is what makes the
-        bound necessary at all — an unbounded one would hold the boot push past
-        its PUSH_BUDGET_S for as long as the speaker stays away, and the mutes
-        and level trims queued behind it would never leave.
+        """Three attempts total, then a warning: a satellite that answers
+        nothing is one nothing reached, answered 503, never the banner. The
+        recursion is what makes the bound necessary at all — an unbounded one
+        would hold the boot push past its PUSH_BUDGET_S for as long as the
+        speaker stays away, and the mutes and level trims queued behind it
+        would never leave.
         """
         attempts = {"n": 0}
 
@@ -1107,11 +1110,12 @@ class TestEqualizerControllerRetry:
 
         controller._router.set_volume = _set_volume
 
-        with caplog.at_level(logging.ERROR):
-            assert await controller.set_equalizer_volume("aa:bb", -30.0) is False
+        with caplog.at_level(logging.WARNING):
+            assert await controller.set_equalizer_volume("aa:bb", -30.0) is Delivery.UNREACHABLE
 
         assert attempts["n"] == controller.RETRY_ATTEMPTS + 1
-        assert "Timeout setting volume for aa:bb" in caplog.text
+        [line] = [r for r in caplog.records if "aa:bb" in r.getMessage()]
+        assert line.levelno == logging.WARNING, line.getMessage()
 
     async def test_the_force_flag_survives_every_retry(self, controller, instant_backoff):
         """`force` bypasses the router's online check and is what the
@@ -1146,7 +1150,7 @@ class TestEqualizerControllerRetry:
         controller._router.set_volume = _set_volume
 
         with caplog.at_level(logging.WARNING):
-            assert await controller.set_equalizer_volume("aa:bb", -30.0) is False
+            assert await controller.set_equalizer_volume("aa:bb", -30.0) is Delivery.REFUSED
 
         assert attempts["n"] == 1
         assert "Failed to set volume for aa:bb" in caplog.text
@@ -1163,7 +1167,7 @@ class TestEqualizerControllerRetry:
         controller._router.set_mute = _set_mute
 
         with caplog.at_level(logging.WARNING):
-            assert await controller.set_equalizer_mute("aa:bb", True) is False
+            assert await controller.set_equalizer_mute("aa:bb", True) is Delivery.REFUSED
 
         assert "Failed to set mute for aa:bb" in caplog.text
 

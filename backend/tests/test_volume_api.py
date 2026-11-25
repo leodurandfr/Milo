@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from backend.api.models import ClientVolumeRequest, ClientMuteRequest
 from backend.api.volume import create_volume_router
 from backend.core.models.volume import VolumeConfig
+from backend.core.volume.equalizer_controller import Delivery
 
 
 # =============================================================================
@@ -75,8 +76,9 @@ class TestMacAddressClientVolume:
     def mock_volume_service(self):
         """Create a mock VolumeService for MAC tests."""
         service = MagicMock()
-        service.update_client_volume_db = AsyncMock(return_value=True)
-        service.set_client_mute = AsyncMock(return_value=True)
+        # None: no online client missed it (VolumeService._failure).
+        service.update_client_volume_db = AsyncMock(return_value=None)
+        service.set_client_mute = AsyncMock(return_value=None)
         service.config = MagicMock()
         # A real config, not a mock: the route converts through it, and a mock
         # would answer a mock rather than a level.
@@ -216,7 +218,7 @@ class TestMacAddressClientVolume:
         The service reports the refusal; when this fails the route is back to
         answering success for a level the speaker is not playing (sweep S4).
         """
-        mock_volume_service.update_client_volume_db.return_value = False
+        mock_volume_service.update_client_volume_db.return_value = Delivery.REFUSED
 
         response = test_client.patch(
             "/api/volume/client/mac/dca6327ed343",
@@ -228,7 +230,7 @@ class TestMacAddressClientVolume:
 
     def test_a_refused_mute_answers_502(self, test_client, mock_volume_service):
         """Mute carries the same verdict as the volume."""
-        mock_volume_service.set_client_mute.return_value = False
+        mock_volume_service.set_client_mute.return_value = Delivery.REFUSED
 
         response = test_client.patch(
             "/api/volume/client/mac/dca6327ed343/mute",

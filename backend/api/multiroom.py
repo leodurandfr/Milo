@@ -43,7 +43,7 @@ from backend.api.responses import (
     ZoneOrMessageResponse,
 )
 from backend.config.constants import CLIENT_API_PORT, get_client_display_name
-from backend.core.equalizer.client_proxy import CommandNotApplied
+from backend.core.equalizer.client_proxy import CommandNotApplied, MembersNotApplied
 from backend.core.network.addresses import server_addresses
 from backend.core.multiroom.models import EqualizerSettings
 from backend.core.multiroom.satellite_http import Holding, SatelliteSecretUnavailable
@@ -834,16 +834,17 @@ def create_multiroom_router(
             # record (mono on) to each member via the access layer.
             # Best-effort on purpose: the zone exists either way, and a member
             # that was not reached recovers the record on its reconnection sync.
-            # Only the log tells the operator, so it must not stay silent.
+            # Only the log tells the operator, so it must not stay silent: a
+            # member that refused is the request's one ERROR (the banner), one
+            # nothing reached a warning, as every EQ write says it.
             if multiroom_equalizer_service:
                 try:
-                    if not await multiroom_equalizer_service.apply_zone_equalizer(
+                    await multiroom_equalizer_service.apply_zone_equalizer(
                         zone_id, EqualizerSettings.default_for_zone()
-                    ):
-                        logger.warning(
-                            f"Zone {zone_id} created, but its initial equalizer did not "
-                            "reach every member"
-                        )
+                    )
+                except MembersNotApplied as e:
+                    log_at = logger.error if e.status_code == 502 else logger.warning
+                    log_at(f"Zone created, its initial equalizer missed members: {e.detail}")
                 except Exception as e:
                     logger.warning(f"Failed to apply initial zone equalizer: {e}")
 

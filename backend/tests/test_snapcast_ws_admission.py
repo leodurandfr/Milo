@@ -1547,7 +1547,7 @@ class _Satellite:
         self.last[(hostname, path)] = body
         return {"status": "success"}
 
-    async def apply_record(self, hostname, settings):
+    async def apply_record(self, hostname, settings, raise_unreachable=False):
         self.calls[(hostname, "record")] += 1
         await self._gate("record")
         if self.refuses_records:

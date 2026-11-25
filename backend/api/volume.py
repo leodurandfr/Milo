@@ -9,10 +9,17 @@ owns both directions of that conversion (`core/models/volume.py`) so that no
 client ever has to.
 """
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING
 from fastapi import APIRouter, HTTPException
 
-from backend.api.route_helpers import CONTRACTED, api_error_handler, refused_detail
+from backend.api.route_helpers import (
+    CONTRACTED,
+    KEEPS_ITS_LEVEL,
+    KEEPS_ITS_MUTE,
+    api_error_handler,
+    not_applied_detail,
+    refused_detail,
+)
 from backend.api.models import (
     VolumeAdjustRequest,
     VolumeSetRequest,
@@ -21,6 +28,7 @@ from backend.api.models import (
     VolumeControlRequest,
     ZoneVolumeRequest,
 )
+from backend.core.volume.equalizer_controller import Delivery
 from backend.api.responses import (
     ClientMuteSetResponse,
     ClientVolumeSetResponse,
@@ -37,6 +45,26 @@ if TYPE_CHECKING:
     from backend.core.volume.service import VolumeService
 
 logger = logging.getLogger(__name__)
+
+
+def _not_applied(what: str, failures: Dict[str, Delivery]) -> HTTPException:
+    """The answer to a level or a mute some online speakers did not take.
+
+    A 502 when one refused — it holds the value and applies it when its DSP
+    is back — and a 503 when every miss is a speaker nothing reached, which
+    holds nothing and keeps its level (or its mute) until the next change or
+    its next admission; the detail names each. EqualizerController has logged
+    this request's misses (`report=True`), so nothing is logged here.
+    """
+    refused = [f"client {m}" for m, kind in failures.items() if kind is Delivery.REFUSED]
+    unreachable = [f"client {m}" for m, kind in failures.items() if kind is not Delivery.REFUSED]
+    return HTTPException(
+        status_code=502 if refused else 503,
+        detail=not_applied_detail(
+            what, refused, unreachable,
+            keeps=KEEPS_ITS_MUTE if what == "Mute" else KEEPS_ITS_LEVEL,
+        ),
+    )
 
 
 def create_volume_router(
@@ -272,20 +300,17 @@ def create_volume_router(
         Mute or unmute every member of a zone, in one request and one broadcast.
 
         Same verdict as the client route: a member offline takes it when it
-        comes back, a member online that refused answers 502.
+        comes back, a member online that refused answers 502, and one nothing
+        reached 503 — the detail names each.
         """
         async with api_error_handler("Error setting zone mute", logger):
             try:
-                refused = await volume_service.set_zone_mute(zone_id, request.mute)
+                failures = await volume_service.set_zone_mute(zone_id, request.mute)
             except ValueError as e:
                 raise HTTPException(status_code=404, detail=str(e))
 
-            if refused:
-                # EqualizerController has said which members refused, one line
-                # each for this request (`report=True`).
-                raise HTTPException(
-                    status_code=502, detail=refused_detail("Mute", ", ".join(refused))
-                )
+            if failures:
+                raise _not_applied("Mute", failures)
 
             return {"status": "success", "zone_id": zone_id, "mute": request.mute}
 
@@ -344,6 +369,10 @@ def create_volume_router(
               same, and the state every screen reads shows it: a satellite
               caches it before calling its DSP and applies it when the DSP is
               back, and the local unit is re-applied from the store.
+            - A client registered online that nothing reached (its milo-client
+              restarting, its Wi-Fi gone for a second) answers 503: it holds
+              nothing, and keeps its level until the next change or its next
+              admission. The level is recorded the same way.
             - An **offline** client also answers 200 — nothing failed — and the
               level is *recorded*, then applied when the client comes back: a
               reconnecting client is brought to its own stored level
@@ -364,12 +393,9 @@ def create_volume_router(
                     f"its next admission brings it back at this level"
                 )
 
-            if not await volume_service.update_client_volume_db(mac_id, volume_db):
-                # EqualizerController has logged this request's refusal
-                # (`report=True`): its one line.
-                raise HTTPException(
-                    status_code=502, detail=refused_detail("Volume", f"client {mac_id}")
-                )
+            failure = await volume_service.update_client_volume_db(mac_id, volume_db)
+            if failure is not None:
+                raise _not_applied("Volume", {mac_id: failure})
 
             return {
                 "status": "success",
@@ -395,18 +421,15 @@ def create_volume_router(
             - MAC format in response: with colons (dc:a6:32:7e:d3:43)
             - A WebSocket event is broadcast after the update
             - Same verdict as the volume route: an online client that refused
-              answers 502, an offline one keeps its 200.
+              answers 502, one nothing reached 503, an offline one keeps its 200.
         """
         async with api_error_handler("Error setting client mute by MAC", logger):
             mac_id = _mac_from_url(mac_url)
             _validate_mac_exists(mac_id)
 
-            if not await volume_service.set_client_mute(mac_id, request.mute):
-                # EqualizerController has logged this request's refusal
-                # (`report=True`): its one line.
-                raise HTTPException(
-                    status_code=502, detail=refused_detail("Mute", f"client {mac_id}")
-                )
+            failure = await volume_service.set_client_mute(mac_id, request.mute)
+            if failure is not None:
+                raise _not_applied("Mute", {mac_id: failure})
 
             return {
                 "status": "success",

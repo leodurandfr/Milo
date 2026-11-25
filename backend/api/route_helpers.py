@@ -8,14 +8,13 @@ Provides:
 - parse_audio_source(): Parse user-provided source name to enum, or raise HTTP 400
 - CONTRACTED: the `openapi_extra` of every operation a companion app's manifest pins
 """
-import logging
 from contextlib import asynccontextmanager
+from typing import Sequence
 
 from fastapi import HTTPException
 
-from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
+from backend.core.equalizer.client_proxy import CommandNotApplied, is_satellite_unreachable
 from backend.core.models.audio_state import AudioSource
-logger = logging.getLogger(__name__)
 
 # Marks an operation Milo-Mac or Milo-iOS calls (tests/contracts/milo_*_contract.json)
 # as `x-stability: contracted` in OpenAPI; the set is held equal to the two manifests
@@ -56,8 +55,6 @@ async def run_source_command(source, cmd: str, data: dict, context: str = "Comma
         return result
     except HTTPException:
         raise
-    except CommandNotApplied as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{context}: {_reason(e)}")
 
@@ -103,9 +100,7 @@ async def api_error_handler(context: str, log=None):
         raise
     except CommandNotApplied as e:
         if log:
-            expected = e.status_code == 404 or (
-                isinstance(e, SatelliteUnreachable) and e.status_code == 503
-            )
+            expected = e.status_code == 404 or is_satellite_unreachable(e)
             log_at = log.warning if expected else log.error
             log_at(f"{context}: {e.detail}")
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -119,6 +114,43 @@ async def api_error_handler(context: str, log=None):
 # When a refused write is taken, by default (`refused_detail`).
 WHEN_DSP_IS_BACK = "when its DSP is back"
 
+# What a speaker nothing reached plays, for a level and for a mute
+# (`unreachable_detail`): nothing resends either while its snapclient stays connected.
+KEEPS_ITS_LEVEL = "it keeps its level until the next change or its next admission"
+KEEPS_ITS_MUTE = "it keeps its current mute until the next change or its next admission"
+
+
+def not_applied_detail(
+    what: str,
+    refused: Sequence[str] = (),
+    unreachable: Sequence[str] = (),
+    kept_previous: Sequence[str] = (),
+    *,
+    applies: str = WHEN_DSP_IS_BACK,
+    keeps: str = KEEPS_ITS_LEVEL,
+) -> str:
+    """The detail of a write some speakers did not take, saying what each does next.
+
+    One sentence per kind of miss, because each kind has a different future:
+    ``refused`` answered and refused, and take the value later — ``applies``
+    says when (a satellite caches a level and is resent its EQ record; the
+    local unit is re-applied from the store); ``unreachable`` were not reached
+    and hold nothing — ``keeps`` says what they play meanwhile; ``kept_previous``
+    refused and keep the old value for good (this unit's bypass toggle, which
+    records nothing when its CamillaDSP refuses). Each clause must be what the
+    system does: telling a speaker nothing reached that it "applies it when its
+    DSP is back" promised a resend that did not exist.
+    """
+    clauses = []
+    if refused:
+        clauses.append(f"{', '.join(refused)} refused it, and applies it {applies}")
+    if unreachable:
+        clauses.append(f"{', '.join(unreachable)} could not be reached; {keeps}")
+    if kept_previous:
+        clauses.append(f"{', '.join(kept_previous)} refused it and kept its previous setting")
+    head = "recorded but not applied" if refused or unreachable else "not applied"
+    return f"{what} {head}: " + "; ".join(clauses)
+
 
 def refused_detail(what: str, speaker: str, applies: str = WHEN_DSP_IS_BACK) -> str:
     """The 502's detail for a write a speaker refused after the server kept it.
@@ -127,25 +159,15 @@ def refused_detail(what: str, speaker: str, applies: str = WHEN_DSP_IS_BACK) -> 
     level, a mute, an equalizer edit, a zone's crossover — so a client reads
     one sentence for one situation: nothing is wrong with the request, the
     speaker said no, and the value it was asked for is the one it takes later.
-    ``applies`` says when, and must be what the system does: by default when
-    its DSP is back (a satellite caches a level and is resent its EQ record;
-    the local unit is re-applied from the store). The crossover says
-    otherwise, since a satellite that refused it is sent it again only when it
-    reconnects.
+    ``applies`` as for ``not_applied_detail``; the crossover says otherwise,
+    since a satellite that refused it is sent it again only when it reconnects.
     """
-    return f"{what} recorded but not applied: {speaker} refused it, and applies it {applies}"
+    return not_applied_detail(what, refused=[speaker], applies=applies)
 
 
-def is_satellite_refusal(error: BaseException) -> bool:
-    """A satellite that answered and refused, as opposed to one nothing reached.
-
-    A satellite says "refused" with a 4xx (milo-client's ``_refused`` answers
-    400 when its CamillaDSP did not take the command) — the reading
-    EqualizerController makes too. Passed through as-is, that 400 told the
-    caller its own request was invalid. An unreachable satellite (503) and a
-    proxy fault (500) are not refusals.
-    """
-    return isinstance(error, SatelliteUnreachable) and 400 <= error.status_code < 500
+def unreachable_detail(what: str, speaker: str, keeps: str = KEEPS_ITS_LEVEL) -> str:
+    """The 503's detail for a write stored for a speaker nothing reached."""
+    return not_applied_detail(what, unreachable=[speaker], keeps=keeps)
 
 
 def raise_on_error_status(result: dict, context: str, log=None) -> dict:

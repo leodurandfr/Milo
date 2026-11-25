@@ -4,7 +4,7 @@ Unit tests for MultiroomEqualizerService — the per-client EQ access layer.
 
 One EQ record per client is the source of truth; a zone holds no EQ of its own
 (its EQ is the identical EQ of its members). These tests cover:
-- the access-layer primitives (get/set_client_eq, get/set_zone_eq)
+- the access-layer primitives (get/set_client_eq, get_zone_eq, apply_zone_equalizer)
 - the route-facing wrappers (apply_/get_ zone/client + target-agnostic dispatch)
 - preset loading and custom-preset save
 - partial updates (per-member persistence + targeted broadcast)
@@ -19,7 +19,7 @@ from unittest.mock import Mock, AsyncMock
 
 from backend.core.equalizer import CamillaDSPService, MultiroomEqualizerService
 from backend.core.equalizer.camilladsp_client import CamillaDspError
-from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
+from backend.core.equalizer.client_proxy import CommandNotApplied, MembersNotApplied, SatelliteUnreachable
 from backend.core.models.ws_events import (
     EqualizerZoneEnabledChanged,
     MultiroomEqualizerChanged,
@@ -390,9 +390,9 @@ class TestPerClientAccessLayer:
         routing.set_equalizer_effects_enabled.assert_called_once_with(True)
 
     @pytest.mark.asyncio
-    async def test_set_zone_eq_fans_out_to_all_members(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone, sample_equalizer_settings):
+    async def test_zone_equalizer_fans_out_to_all_members(self, multiroom_equalizer_service, mock_registry, mock_camilladsp_service, sample_zone, sample_equalizer_settings):
         mock_registry.get_zone.return_value = sample_zone
-        result = await multiroom_equalizer_service.set_zone_eq("zone-123", sample_equalizer_settings)
+        result = await multiroom_equalizer_service.apply_zone_equalizer("zone-123", sample_equalizer_settings)
         assert result is True
         # local member applied to the DAC + persisted; remote member written to the registry
         mock_camilladsp_service.apply_settings.assert_awaited_once()
@@ -401,22 +401,22 @@ class TestPerClientAccessLayer:
         assert mock_registry.set_client_equalizer.call_args.args[0] == "milo-client-1"
 
     @pytest.mark.asyncio
-    async def test_set_zone_eq_members_get_independent_copies(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
+    async def test_zone_equalizer_members_get_independent_copies(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
         mock_registry.get_zone.return_value = Zone(id="z", name="Pair", client_ids=["milo-client-1", "milo-client-2"])
-        await multiroom_equalizer_service.set_zone_eq("z", sample_equalizer_settings)
+        await multiroom_equalizer_service.apply_zone_equalizer("z", sample_equalizer_settings)
         records = [c.args[1] for c in mock_registry.set_client_equalizer.call_args_list]
         assert len(records) == 2
         assert records[0] is not records[1]  # independent copies, no aliasing
 
     @pytest.mark.asyncio
-    async def test_set_zone_eq_member_copies_are_deep(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
+    async def test_zone_equalizer_member_copies_are_deep(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
         """Each member receives a DEEP copy: editing one member's nested filter must
         not bleed into a sibling (nor into the caller's source record). Guards the
         from_dict(to_dict()) fan-out against shared EqFilter/list aliasing — the
         property that lets a later per-member edit stay local."""
         mock_registry.get_zone.return_value = Zone(id="z", name="Pair", client_ids=["milo-client-1", "milo-client-2"])
         original_gain = sample_equalizer_settings.filters[0].gain
-        await multiroom_equalizer_service.set_zone_eq("z", sample_equalizer_settings)
+        await multiroom_equalizer_service.apply_zone_equalizer("z", sample_equalizer_settings)
         records = [c.args[1] for c in mock_registry.set_client_equalizer.call_args_list]
         assert len(records) == 2
         # Mutate member-0's first filter; member-1 and the source must be untouched.
@@ -425,10 +425,10 @@ class TestPerClientAccessLayer:
         assert sample_equalizer_settings.filters[0].gain == original_gain
 
     @pytest.mark.asyncio
-    async def test_set_zone_eq_zone_not_found_raises(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
+    async def test_zone_equalizer_zone_not_found_raises(self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings):
         mock_registry.get_zone.return_value = None
         with pytest.raises(ValueError, match="Zone not found"):
-            await multiroom_equalizer_service.set_zone_eq("nope", sample_equalizer_settings)
+            await multiroom_equalizer_service.apply_zone_equalizer("nope", sample_equalizer_settings)
 
 
 # =============================================================================
@@ -836,7 +836,7 @@ class TestRemoteRecordPush:
 
         assert await service.set_client_eq("milo-client-1", sample_equalizer_settings) is True
         proxy_service.apply_record.assert_awaited_once_with(
-            "192.168.1.100", sample_equalizer_settings
+            "192.168.1.100", sample_equalizer_settings, raise_unreachable=True
         )
 
     @pytest.mark.asyncio
@@ -942,15 +942,17 @@ class TestZoneFanoutOutcome:
         self, service, proxy_service, two_remote_members, sample_equalizer_settings, caplog
     ):
         proxy_service.apply_record = AsyncMock(
-            side_effect=lambda ip, _settings: ip != self.REFUSING_IP
+            side_effect=lambda ip, _settings, **_: ip != self.REFUSING_IP
         )
 
-        with caplog.at_level(logging.ERROR):
-            result = await service.set_zone_eq("z", sample_equalizer_settings)
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(MembersNotApplied) as raised:
+                await service.apply_zone_equalizer("z", sample_equalizer_settings)
 
-        assert result is False
         # The failing member is named: it is the only thing that tells the owner
-        # which speaker kept the old curve.
+        # which speaker kept the old curve. The route's one line carries it.
+        assert raised.value.refused == [self.ZONE_MEMBERS[1]]
+        assert raised.value.status_code == 502
         assert self.ZONE_MEMBERS[1] in caplog.text
         assert self.ZONE_MEMBERS[0] not in caplog.text
 
@@ -971,7 +973,8 @@ class TestZoneFanoutOutcome:
         proxy_service.apply_record = AsyncMock(return_value=False)
 
         with caplog.at_level(logging.INFO):
-            assert await service.apply_zone_equalizer("z", sample_equalizer_settings) is False
+            with pytest.raises(MembersNotApplied):
+                await service.apply_zone_equalizer("z", sample_equalizer_settings)
 
         assert "applied to all members" not in caplog.text
 
@@ -991,8 +994,10 @@ class TestZoneFanoutOutcome:
         ])
         service._equalizer_router = router
 
-        with pytest.raises(SatelliteUnreachable):
+        with pytest.raises(MembersNotApplied) as raised:
             await service.update_filter("zone", "z", "eq_band_00", gain=5.0)
+        assert raised.value.unreachable == [self.ZONE_MEMBERS[1]]
+        assert raised.value.refused == [] and raised.value.status_code == 503
 
         # Everything that did succeed is still committed: the records are stored
         # (they sync to the absent member on reconnection) and the broadcast fired.
@@ -1027,7 +1032,7 @@ class TestZoneFanoutOutcome:
         zone_record = await service.get_zone_eq("z")
         assert zone_record.enabled is False  # the conjunction, as reported
 
-        await service.set_zone_eq("z", zone_record)
+        await service.apply_zone_equalizer("z", zone_record)
 
         persisted = {
             call.args[0]: call.args[1]
@@ -1694,7 +1699,7 @@ class TestEqIndependentMembers:
         return zone
 
     @pytest.mark.asyncio
-    async def test_set_zone_eq_skips_an_independent_member(
+    async def test_zone_equalizer_skips_an_independent_member(
         self, multiroom_equalizer_service, mock_registry, sample_equalizer_settings
     ):
         self._wire(mock_registry, {
@@ -1702,7 +1707,7 @@ class TestEqIndependentMembers:
             "milo-client-2": self._member("milo-client-2", eq_independent=False),
         })
 
-        await multiroom_equalizer_service.set_zone_eq("z", sample_equalizer_settings)
+        await multiroom_equalizer_service.apply_zone_equalizer("z", sample_equalizer_settings)
 
         # Only the shared member receives the zone EQ.
         macs = [c.args[0] for c in mock_registry.set_client_equalizer.call_args_list]
@@ -1942,7 +1947,7 @@ class _Satellite:
         self.during_record = None
         self.refused = set()
 
-    async def apply_record(self, hostname, settings):
+    async def apply_record(self, hostname, settings, raise_unreachable=False):
         self.records.append((hostname, settings.to_dict()))
         if self.during_record:
             await self.during_record(len(self.records))
@@ -2112,7 +2117,7 @@ class TestARefusedPushIsResent:
         target_id = "salon" if target_type == "zone" else RESEND_CANAPE
         world.satellite.refused = {(RESEND_CANAPE_IP, "/equalizer/filter/")}
 
-        with pytest.raises(SatelliteUnreachable):
+        with pytest.raises(CommandNotApplied):
             await world.service.update_filter(target_type, target_id, "eq_band_00", gain=6.0)
         await drain_background_tasks()
 
@@ -2134,7 +2139,7 @@ class TestARefusedPushIsResent:
         target_id = "salon" if target_type == "zone" else RESEND_CANAPE
         world.satellite.refused = {(RESEND_CANAPE_IP, "/equalizer/filter/")}
 
-        with pytest.raises(SatelliteUnreachable):
+        with pytest.raises(CommandNotApplied):
             await world.service.update_filter(target_type, target_id, "eq_band_00", gain=6.0)
 
         events = [
@@ -2156,12 +2161,12 @@ class TestARefusedPushIsResent:
         world.satellite.refused = {(RESEND_CANAPE_IP, "/equalizer/enabled")}
         if target_type == "zone":
             await world.registry.create_zone("salon", "Salon", [RESEND_CANAPE, RESEND_BUREAU])
-            toggled = await world.service.set_zone_equalizer_effects_enabled("salon", False)
+            with pytest.raises(MembersNotApplied):
+                await world.service.set_zone_equalizer_effects_enabled("salon", False)
         else:
-            toggled = await world.service.set_client_equalizer_effects_enabled(RESEND_CANAPE, False)
+            assert await world.service.set_client_equalizer_effects_enabled(RESEND_CANAPE, False) is False
         await drain_background_tasks()
 
-        assert toggled is False
         stored = world.registry.get_client_equalizer(RESEND_CANAPE)
         assert stored.enabled is False
         assert world.satellite.records == [(RESEND_CANAPE_IP, stored.to_dict())]
@@ -2278,10 +2283,10 @@ class TestZoneEnabledFanout:
         assert proxy_service.request.await_count == 1
 
     @staticmethod
-    def _errors_naming(caplog, member):
+    def _warnings_naming(caplog, member):
         return [
             r for r in caplog.records
-            if r.levelno == logging.ERROR and member in r.getMessage()
+            if r.levelno == logging.WARNING and member in r.getMessage()
         ]
 
     @staticmethod
@@ -2298,25 +2303,27 @@ class TestZoneEnabledFanout:
         """A DSP that refuses its bypass must not leave the rest of the zone at
         the old setting — half a room with effects on is worse than none. It is
         still a failure: answered True, the panel draws the zone as switched
-        while the local speaker kept its effects, and no banner names it."""
+        while the local speaker kept its effects. The raise names this unit, so
+        the route's one ERROR line — the banner — says which speaker kept it."""
         self._zone(mock_registry, ["local", "aa:bb:cc:dd:ee:02"])
         service._routing_service.set_equalizer_effects_enabled = AsyncMock(
             side_effect=RuntimeError("daemon down")
         )
 
         with caplog.at_level(logging.WARNING):
-            assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is False
+            with pytest.raises(MembersNotApplied) as raised:
+                await service.set_zone_equalizer_effects_enabled("zone-1", False)
 
         proxy_service.request.assert_awaited_once()
-        assert self._errors_naming(caplog, "local"), \
-            "the local refusal raised no ERROR line, so no banner names the speaker"
+        assert (raised.value.local_refused, raised.value.refused) == (True, [])
+        assert self._warnings_naming(caplog, "local"), "the local refusal left no line naming it"
 
     @pytest.mark.asyncio
     async def test_a_satellite_refusal_fails_the_zone_toggle(
         self, service, mock_registry, proxy_service, caplog
     ):
         """The zone's invariant is one record across its members, so a partial
-        fan-out is a failure — the rule `set_zone_eq` and the crossover already
+        fan-out is a failure — the rule `apply_zone_equalizer` and the crossover already
         follow. Counted as a success, the route answered `success`, the dock tile
         moved, and Canapé kept its effects while the room next to it had none,
         with nothing on any screen. The record is still persisted: it is what
@@ -2327,10 +2334,12 @@ class TestZoneEnabledFanout:
         )
 
         with caplog.at_level(logging.WARNING):
-            assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is False
+            with pytest.raises(MembersNotApplied) as raised:
+                await service.set_zone_equalizer_effects_enabled("zone-1", False)
 
-        assert self._errors_naming(caplog, "aa:bb:cc:dd:ee:02"), \
-            "the satellite's refusal raised no ERROR line naming it"
+        assert (raised.value.refused, raised.value.local_refused) == (["aa:bb:cc:dd:ee:02"], False)
+        assert self._warnings_naming(caplog, "aa:bb:cc:dd:ee:02"), \
+            "the satellite's refusal left no line naming it"
         mock_registry.set_client_equalizer.assert_awaited_once()
         mac, record = mock_registry.set_client_equalizer.await_args.args
         assert (mac, record.enabled) == ("aa:bb:cc:dd:ee:02", False)
@@ -2401,7 +2410,9 @@ class TestZoneEnabledFanout:
         self._zone(mock_registry, ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])
         proxy_service.request = AsyncMock(return_value={"status": "error"})
 
-        assert await service.set_zone_equalizer_effects_enabled("zone-1", True) is False
+        with pytest.raises(MembersNotApplied) as raised:
+            await service.set_zone_equalizer_effects_enabled("zone-1", True)
+        assert raised.value.refused == ["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"]
 
     @pytest.mark.asyncio
     async def test_satellites_that_all_refuse_still_announce_the_flag_they_will_take(
@@ -2420,7 +2431,8 @@ class TestZoneEnabledFanout:
         )
         proxy_service.apply_record = AsyncMock(return_value=False)
 
-        assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is False
+        with pytest.raises(MembersNotApplied):
+            await service.set_zone_equalizer_effects_enabled("zone-1", False)
 
         assert [e.enabled for e in self._zone_events(mock_state_machine)] == [False]
         await service.cleanup()
@@ -2436,7 +2448,8 @@ class TestZoneEnabledFanout:
         wire_enabled_stores(mock_registry, mock_camilladsp_service, service._routing_service)
         service._routing_service.set_equalizer_effects_enabled = AsyncMock(return_value=False)
 
-        assert await service.set_zone_equalizer_effects_enabled("zone-1", False) is False
+        with pytest.raises(MembersNotApplied):
+            await service.set_zone_equalizer_effects_enabled("zone-1", False)
 
         assert self._zone_events(mock_state_machine) == []
 
@@ -2455,7 +2468,8 @@ class TestZoneEnabledFanout:
         )
         service._routing_service.set_equalizer_effects_enabled = AsyncMock(return_value=False)
 
-        assert await service.set_zone_equalizer_effects_enabled("zone-1", True) is False
+        with pytest.raises(MembersNotApplied):
+            await service.set_zone_equalizer_effects_enabled("zone-1", True)
 
         [event] = self._zone_events(mock_state_machine)
         assert event.wire_data() == {"zone_id": "zone-1", "enabled": False}

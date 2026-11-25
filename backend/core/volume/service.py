@@ -13,12 +13,12 @@ Architecture:
 """
 import asyncio
 import logging
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from backend.shared.background import BackgroundTaskSet
 from backend.shared.decorators import handle_errors
 from backend.core.volume.state import VolumeStateStore
-from backend.core.volume.equalizer_controller import EqualizerController
+from backend.core.volume.equalizer_controller import Delivery, EqualizerController
 from backend.core.multiroom.identity import get_local_mac
 from backend.core.multiroom.models import RegistryEventType
 from backend.core.models.volume import VolumeConfig
@@ -588,63 +588,80 @@ class VolumeService:
         await self.broadcast_volume_state(display="none")
         return len(failures) == 0
 
-    def _refused(self, client_id: str, applied: bool) -> bool:
-        """Did a client that is *still online* refuse the command?
+    def _failure(self, client_id: str, delivery: Delivery) -> Optional[Delivery]:
+        """What an operator must be told about a command: None, `REFUSED` or `UNREACHABLE`.
 
-        EqualizerController answers False for two opposite reasons: the router
-        short-circuited an offline client — a skip, since a switched-off speaker
-        refusing nothing is not a failure anyone can act on — or the client
-        answered and refused. The registry, read *after* the call, separates
-        them: a client that is still online and did not take the command is the
-        one nothing will ever replay it to, and the only one the operator has to
-        be told about. The level is error, so the banner fires.
+        EqualizerController answers a command that did not apply for opposite
+        reasons: the router short-circuited an offline client — a skip, since
+        a switched-off speaker refusing nothing is not a failure anyone can act
+        on — the client answered and refused, or nothing reached it. The
+        registry, read *after* the call, keeps the skip apart: a client that is
+        still online and did not take the command is the one the operator has
+        to be told about. Which of the two it is, the door says: a refusal is
+        answered 502 (the speaker holds the value for its DSP's return), a
+        client nothing reached 503 (it holds nothing, and keeps its level until
+        the next change or its next admission — nothing resends a level while
+        its snapclient stays connected). A command the door could not send to
+        a client the registry calls online is one nothing reached either. This
+        unit is never one nothing reached: it has no admission to wait for, and
+        is re-applied from the store when its DSP is back, so what it missed
+        is a refusal.
 
         The stored value keeps what was asked either way: the reconnect
         replays both the stored mute and the stored volume, and a satellite that
-        refused has cached it for its own reconnect. The refusal itself is
+        refused has cached it for its own reconnect. The failure itself is
         logged by EqualizerController — every request a route answers for
         (`report=True`), so nothing is logged here or in the route.
         """
-        if applied or not self._client_registry:
-            return False
-        return self._client_registry.is_client_online(client_id)
+        if delivery or not self._client_registry:
+            return None
+        if not self._client_registry.is_client_online(client_id):
+            return None
+        if client_id == self._state_store.local_mac_id:
+            return Delivery.REFUSED
+        if delivery in (Delivery.UNREACHABLE, Delivery.NOT_SENT):
+            return Delivery.UNREACHABLE
+        return Delivery.REFUSED
 
-    @handle_errors(default=False)
-    async def update_client_volume_db(self, client_id: str, volume_db: float, broadcast: bool = True) -> bool:
+    @handle_errors(default=Delivery.REFUSED)
+    async def update_client_volume_db(self, client_id: str, volume_db: float,
+                                      broadcast: bool = True) -> Optional[Delivery]:
         """Update client volume in dB (called from API routes).
 
         The level is stored, then sent — the same order as every other write,
-        so no move can read a level older than the one this sends. False when
-        an online client refused it; the store keeps the level asked for, as
-        the satellite's own cache does, and the reconnect applies it.
+        so no move can read a level older than the one this sends. Answers the
+        failure an online client met (`_failure`), None when there is none;
+        the store keeps the level asked for either way, as the satellite's own
+        cache does, and the reconnect applies it.
         """
         await self._state_store.set_client_volume(client_id, volume_db)
-        applied = await self._equalizer_controller.set_equalizer_volume(client_id, volume_db, report=True)
-        refused = self._refused(client_id, applied)
+        delivery = await self._equalizer_controller.set_equalizer_volume(client_id, volume_db, report=True)
+        failure = self._failure(client_id, delivery)
 
         if broadcast:
             await self.broadcast_volume_state(display="none")
-        return not refused
+        return failure
 
-    @handle_errors(default=False)
-    async def set_client_mute(self, client_id: str, mute: bool, broadcast: bool = True) -> bool:
-        """Set mute state for a client. False when an online client refused it.
+    @handle_errors(default=Delivery.REFUSED)
+    async def set_client_mute(self, client_id: str, mute: bool,
+                              broadcast: bool = True) -> Optional[Delivery]:
+        """Set mute state for a client. Answers as `update_client_volume_db`.
 
         Stored, then sent, like a level; the store keeps the mute asked for.
         """
         await self._state_store.set_client_mute(client_id, mute)
-        applied = await self._equalizer_controller.set_equalizer_mute(client_id, mute, report=True)
-        refused = self._refused(client_id, applied)
+        delivery = await self._equalizer_controller.set_equalizer_mute(client_id, mute, report=True)
+        failure = self._failure(client_id, delivery)
 
         if broadcast:
             await self.broadcast_volume_state(display="none")
-        return not refused
+        return failure
 
     # ============================================================================
     # ATOMIC ZONE OPERATIONS
     # ============================================================================
 
-    async def set_zone_mute(self, zone_id: str, mute: bool) -> List[str]:
+    async def set_zone_mute(self, zone_id: str, mute: bool) -> Dict[str, Delivery]:
         """Mute or unmute a whole zone in one request and one broadcast.
 
         The web UI sent one PATCH per member and got one broadcast per member.
@@ -652,7 +669,8 @@ class VolumeService:
         as the client route: a speaker that is away takes it at its admission.
         The reachable ones are sent it. A member whose amp owns its level is
         muted too: a mute is not a level, and the router mutes its DSP like any
-        other. Returns the reachable members that refused it.
+        other. Returns the failure of each reachable member that did not take
+        it (`_failure`), empty when every one did.
 
         Raises:
             ValueError: unknown zone.
@@ -664,12 +682,13 @@ class VolumeService:
             await self._state_store.set_client_mute(mac_id, mute)
             if mac_id in reachable:
                 answers[mac_id] = self._equalizer_controller.submit_mute(mac_id, mute, report=True)
-        refused = [
-            mac_id for mac_id, answer in answers.items()
-            if self._refused(mac_id, await answer)
-        ]
+        failures = {}
+        for mac_id, answer in answers.items():
+            failure = self._failure(mac_id, await answer)
+            if failure is not None:
+                failures[mac_id] = failure
         await self.broadcast_volume_state(display="none")
-        return refused
+        return failures
 
     async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> Tuple[bool, float, float]:
         """Move a whole zone by `delta_db`. Returns (ok, new zone average, delta applied).
@@ -839,7 +858,7 @@ class VolumeService:
         # mute set during it would otherwise be overwritten by the old one.
         mute = self._state_store.get_client_mute(mac_id)
         mute_taken = await self._equalizer_controller.set_equalizer_mute(mac_id, mute, force=True)
-        return level_taken and mute_taken
+        return bool(level_taken and mute_taken)
 
     async def _pin_local_at_unity(self, local_mac: Optional[str]) -> None:
         """DAC mode: CamillaDSP at 0 dB, with the stored mute (the amp owns the level).

@@ -30,6 +30,7 @@ from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnre
 from backend.core.models.volume import VolumeConfig
 from backend.core.volume import EqualizerController, VolumeService, VolumeStateStore
 from backend.tests.volume_world import Registry
+from backend.core.volume.equalizer_controller import Delivery
 from backend.core.volume.state import StoredLevel
 
 LIMITS = VolumeConfig(limit_min_db=-78.0, limit_max_db=-8.0, startup_volume_db=-60.0,
@@ -382,7 +383,7 @@ async def test_a_zone_mute_is_one_request_stored_for_every_member_and_broadcast_
     service._client_registry.dac.add("amp")
     zone(service, [LOCAL, "amp", "away"])
 
-    assert await service.set_zone_mute("z", True) == []
+    assert await service.set_zone_mute("z", True) == {}
     await settle()
 
     assert all(service._state_store.get_client_mute(mac) for mac in (LOCAL, "amp", "away"))
@@ -456,7 +457,7 @@ async def test_a_burst_reaches_a_speaker_as_two_commands_ending_on_its_last_valu
     await settle()
     router.release.set()
 
-    assert await asyncio.gather(*futures) == [True] * 5
+    assert await asyncio.gather(*futures) == [Delivery.APPLIED] * 5
     assert router.received == [("sat", -50.0), ("sat", -46.0)]
 
 
@@ -517,8 +518,8 @@ async def test_a_sender_cancelled_before_it_starts_answers_and_frees_its_speaker
     waiting = controller.submit_volume("sat", -50.0)
     await controller.cleanup()
 
-    assert await waiting is False
-    assert await controller.submit_volume("sat", -40.0) is True
+    assert await waiting is Delivery.NOT_SENT
+    assert await controller.submit_volume("sat", -40.0) is Delivery.APPLIED
     assert controller._router.last("sat") == -40.0
 
 
@@ -597,8 +598,8 @@ async def test_a_satellite_refusal_is_logged_once_at_error(controller, caplog):
 
     with caplog.at_level(logging.WARNING):
         for step in range(3):
-            assert await controller.submit_volume("sat", -50.0 + step) is False
-            assert await controller.submit_mute("sat", step % 2 == 0) is False
+            assert await controller.submit_volume("sat", -50.0 + step) is Delivery.REFUSED
+            assert await controller.submit_mute("sat", step % 2 == 0) is Delivery.REFUSED
 
     errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(errors) == 2
@@ -627,7 +628,7 @@ async def test_an_admission_refusal_stays_a_warning(controller, caplog, what, ra
     submit = controller.submit_volume if what == "volume" else controller.submit_mute
 
     with caplog.at_level(logging.WARNING):
-        assert await submit("sat", -50.0 if what == "volume" else True, force=force) is False
+        assert not await submit("sat", -50.0 if what == "volume" else True, force=force)
 
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert warnings == [f"Failed to set {what} for sat: {error.detail}"]
@@ -657,15 +658,15 @@ async def test_a_refusing_satellite_readmitted_every_sweep_is_reported_once(
     with caplog.at_level(logging.WARNING):
         table["sat"] = refused_by_satellite()
         for _ in range(4):
-            assert await submit("sat", value, force=True) is False
+            assert await submit("sat", value, force=True) is Delivery.REFUSED
         assert len(reported()) == 1
 
         del table["sat"]
-        assert await submit("sat", value, force=True) is True
+        assert await submit("sat", value, force=True) is Delivery.APPLIED
 
         table["sat"] = refused_by_satellite()
-        assert await submit("sat", value, force=True) is False
-        assert await submit("sat", value, force=True) is False
+        assert await submit("sat", value, force=True) is Delivery.REFUSED
+        assert await submit("sat", value, force=True) is Delivery.REFUSED
 
     assert len(reported()) == 2
 
@@ -967,3 +968,122 @@ async def test_a_refusal_answered_through_a_route_is_one_error_line(caplog, path
                 assert SAT_MAC in errors()[-1]
                 router.answer.pop(SAT_MAC)
                 router.mute_answer.pop(SAT_MAC)
+
+
+VOLUME_ROUTES = [
+    ("/api/volume/client/mac/dca63200000b", {"volume_db": -40.0}, "Volume"),
+    ("/api/volume/client/mac/dca63200000b/mute", {"mute": True}, "Mute"),
+    ("/api/volume/zone/z/mute", {"mute": True}, "Mute"),
+]
+
+
+class _SilentRouter(Router):
+    """A satellite whose packets are dropped: no refusal, no reset, no answer."""
+
+    async def set_volume(self, mac_id, volume_db, force=False):
+        if mac_id == SAT_MAC:
+            await asyncio.sleep(3600)
+        return await super().set_volume(mac_id, volume_db, force=force)
+
+    async def set_mute(self, mac_id, muted, force=False):
+        if mac_id == SAT_MAC:
+            await asyncio.sleep(3600)
+        return await super().set_mute(mac_id, muted, force=force)
+
+
+@pytest.mark.parametrize("silent", [False, True], ids=["503 from the proxy", "no answer in time"])
+@pytest.mark.parametrize("path, body, what", VOLUME_ROUTES,
+                         ids=["client volume", "client mute", "zone mute"])
+async def test_a_speaker_nothing_reached_is_answered_503_not_refused(
+    caplog, monkeypatch, path, body, what, silent
+):
+    """A satellite registered online that nothing reached answers 503, and says so.
+
+    Its milo-client restarting (an app update's trial), or its Wi-Fi gone for a
+    second, while its snapclient holds on: the request never arrived, so the
+    speaker cached nothing, and no admission runs to resend the level — it
+    keeps the old one until the next change. Answered 502 "refused it, and
+    applies it when its DSP is back", the screen promised a level the room
+    would never play, while PUT …/mono on the same speaker at the same moment
+    answered 503. And it is a warning, never the banner: a speaker unplugged
+    is no fault of the appliance (api_error_handler's rule for the EQ) — also
+    when its packets are dropped and the door's own wait ends first, which
+    logged an ERROR under the same 503.
+    """
+    router = _SilentRouter() if silent else Router()
+    service = make_service({LOCAL: -60.0, SAT_MAC: -60.0}, online=[LOCAL, SAT_MAC], router=router)
+    service._equalizer_controller._timeout = 0.01
+    monkeypatch.setattr(EqualizerController, "RETRY_DELAY", 0)
+    zone(service, [LOCAL, SAT_MAC])
+    if not silent:
+        router.answer[SAT_MAC] = satellite_out_of_reach()
+        router.mute_answer[SAT_MAC] = satellite_out_of_reach()
+    app = FastAPI()
+    app.include_router(create_volume_router(service, service._client_registry))
+
+    with caplog.at_level(logging.WARNING):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            response = await http.patch(path, json=body)
+
+    assert response.status_code == 503, response.text
+    detail = response.json()["detail"]
+    assert f"client {SAT_MAC} could not be reached" in detail, detail
+    assert "refused" not in detail, detail
+    # What it keeps is what was asked of it: a mute is no level.
+    assert ("its level" in detail) == (what == "Volume"), detail
+    assert not [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+@pytest.mark.parametrize("path, body, what", VOLUME_ROUTES,
+                         ids=["client volume", "client mute", "zone mute"])
+async def test_a_speaker_that_refused_is_answered_502_recorded(path, body, what):
+    """The other side of the line: a satellite that answered 400 holds the value
+    for its DSP's return, and the 502 says exactly that, naming it."""
+    router = Router()
+    service = make_service({LOCAL: -60.0, SAT_MAC: -60.0}, online=[LOCAL, SAT_MAC], router=router)
+    zone(service, [LOCAL, SAT_MAC])
+    router.answer[SAT_MAC] = refused_by_satellite()
+    router.mute_answer[SAT_MAC] = refused_by_satellite()
+    app = FastAPI()
+    app.include_router(create_volume_router(service, service._client_registry))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+        response = await http.patch(path, json=body)
+
+    assert response.status_code == 502, response.text
+    detail = response.json()["detail"]
+    assert detail.startswith(f"{what} recorded but not applied"), detail
+    assert f"client {SAT_MAC} refused it, and applies it when its DSP is back" in detail, detail
+    assert "could not be reached" not in detail, detail
+
+
+async def test_this_unit_that_does_not_answer_is_refused_not_unreached(caplog, monkeypatch):
+    """This unit's CamillaDSP that does not answer in time is a refusal: 502,
+    one ERROR line. It has no admission, so "could not be reached; it keeps
+    its level until … its next admission" would promise it a push that never
+    comes — it is re-applied from the store when its DSP is back."""
+
+    class _SilentLocal(Router):
+        async def set_volume(self, mac_id, volume_db, force=False):
+            await asyncio.sleep(3600)
+
+    this_unit = "dc:a6:32:00:00:01"
+    service = make_service({this_unit: -60.0}, online=[this_unit], router=_SilentLocal(),
+                           local=this_unit)
+    service._client_registry.local.add(this_unit)
+    service._equalizer_controller._timeout = 0.01
+    monkeypatch.setattr(EqualizerController, "RETRY_DELAY", 0)
+    app = FastAPI()
+    app.include_router(create_volume_router(service, service._client_registry))
+
+    with caplog.at_level(logging.WARNING):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://milo") as http:
+            response = await http.patch("/api/volume/client/mac/dca632000001", json={"volume_db": -40.0})
+
+    assert response.status_code == 502, response.text
+    assert "could not be reached" not in response.json()["detail"]
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1 and this_unit in errors[0], errors

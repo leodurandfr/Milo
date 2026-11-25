@@ -10,14 +10,39 @@ Delegates local/remote routing to EqualizerRouter and adds, per speaker:
 
 import asyncio
 import logging
+from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
 
-from backend.core.equalizer.client_proxy import CommandNotApplied, SatelliteUnreachable
+from backend.core.equalizer.client_proxy import (
+    CommandNotApplied,
+    SatelliteUnreachable,
+    is_satellite_refusal,
+    is_satellite_unreachable,
+)
 from backend.shared.background import BackgroundTaskSet
 
 if TYPE_CHECKING:
     from backend.core.multiroom.client_registry import ClientRegistryService
     from backend.core.multiroom.equalizer_router import EqualizerRouter
+
+
+class Delivery(Enum):
+    """What became of one command to one speaker — truthy only when applied.
+
+    A route answers a speaker that refused (502: it holds the value for its
+    DSP's return) and one nothing reached (503: it holds nothing, and keeps
+    what it plays until the next change or its admission) with two different
+    sentences, so the door says which, where a bool said only "not applied"
+    and a speaker nothing reached was answered "refused it".
+    """
+
+    APPLIED = "applied"          # taken, or nothing to send (an amp owns the level)
+    NOT_SENT = "not_sent"        # the router skipped an offline speaker, or no door
+    REFUSED = "refused"          # answered and refused, or failed in a way that is no absence
+    UNREACHABLE = "unreachable"  # nothing reached a satellite: its 503, or no answer in time
+
+    def __bool__(self) -> bool:
+        return self is Delivery.APPLIED
 
 
 class _Channel:
@@ -108,8 +133,8 @@ class EqualizerController:
 
     def submit_volume(self, mac_id: str, volume_db: float, force: bool = False,
                       report: bool = False) -> asyncio.Future:
-        """Ask for `volume_db` on a speaker; resolves True once a command carrying it,
-        or a later value, was applied.
+        """Ask for `volume_db` on a speaker; resolves to the `Delivery` of the
+        command that carried it or a later value — truthy once applied.
 
         Synchronous on purpose: a caller that writes a level to the store and
         submits it in the same step, with no await in between, submits in the
@@ -123,7 +148,7 @@ class EqualizerController:
                             self._send_volume, report)
 
     async def set_equalizer_volume(self, mac_id: str, volume_db: float, force: bool = False,
-                                   report: bool = False) -> bool:
+                                   report: bool = False) -> Delivery:
         """
         Set volume for a single client via EqualizerRouter.
 
@@ -134,16 +159,16 @@ class EqualizerController:
             report: An operator's request, whose refusal is always logged
 
         Returns:
-            True if successful, False otherwise
+            The command's `Delivery`, truthy only when applied
         """
         return await self.submit_volume(mac_id, volume_db, force=force, report=report)
 
     async def _send_volume(self, mac_id: str, channel: _Channel, force: bool,
-                           report: bool) -> bool:
+                           report: bool) -> Delivery:
         """One volume command, retried on timeout with the value latest at each try."""
         if not self._router:
             self.logger.warning(f"Cannot set volume for {mac_id}: router not configured")
-            return False
+            return Delivery.NOT_SENT
         for attempt in range(self.RETRY_ATTEMPTS + 1):
             try:
                 result = await asyncio.wait_for(
@@ -155,26 +180,43 @@ class EqualizerController:
                 if attempt < self.RETRY_ATTEMPTS:
                     await asyncio.sleep(self.RETRY_DELAY)
                     continue
-                self.logger.error(f"Timeout setting volume for {mac_id}")
-                return False
+                return self._timed_out(mac_id, "Volume", report)
             except CommandNotApplied as e:
                 return self._refused(mac_id, e, force, "Volume", report)
             except Exception as e:
                 self._failed(mac_id, "Volume", e, report)
-                return False
-        return False
+                return Delivery.REFUSED
+        return Delivery.UNREACHABLE
 
     def _failed(self, mac_id: str, what: str, error: BaseException, report: bool) -> None:
-        """A command that did not reach the speaker: a warning, unless an
-        operator's request (`report`) is answered 502 for it — a speaker still
-        online (VolumeService._refused) — and then it is that answer's one
-        error line."""
+        """A command that failed for no refusal and no absence (a proxy fault):
+        a warning, unless an operator's request (`report`) is answered 502 for
+        it — a speaker still online (VolumeService._failure) — and then it is
+        that answer's one error line."""
         online = self._registry.is_client_online(mac_id) if self._registry else True
         log = self.logger.error if report and online else self.logger.warning
         log(f"Failed to set {what.lower()} for {mac_id}: {error}")
 
+    def _timed_out(self, mac_id: str, what: str, report: bool) -> Delivery:
+        """A command nothing answered within `_timeout`.
+
+        A satellite whose packets are dropped (its Wi-Fi gone, its power cut
+        before snapserver marks it offline) answers nothing, and this wait ends
+        before the proxy's own: nothing reached it, so it is `UNREACHABLE`, a
+        warning even for a `report`ed request, which its route answers 503 —
+        as the same speaker's equalizer writes are at the same moment. This
+        unit's own CamillaDSP has no admission to wait for: its silence is a
+        refusal (`_failed`), answered 502 with the request's one error line.
+        """
+        local = self._registry.is_local_client(mac_id) if self._registry else False
+        if local:
+            self._failed(mac_id, what, TimeoutError(f"no answer in {self._timeout} s"), report)
+            return Delivery.REFUSED
+        self.logger.warning(f"Failed to set {what.lower()} for {mac_id}: no answer in {self._timeout} s")
+        return Delivery.UNREACHABLE
+
     def _refused(self, mac_id: str, error: CommandNotApplied, force: bool,
-                 what: str, report: bool = False) -> bool:
+                 what: str, report: bool = False) -> Delivery:
         """A command the router raised for: say once when a speaker that is
         still online starts refusing — not on every step of a turn it keeps
         refusing.
@@ -189,7 +231,10 @@ class EqualizerController:
 
         This unit's DSP refusing, and a satellite that answered and refused
         (4xx), are the refusals reported. A satellite that could not be
-        reached (5xx), or refused a forced send, stays a warning: an admission
+        reached (503) is no refusal: `UNREACHABLE`, a warning even for a
+        `report`ed request, which its route answers 503 — a speaker merely
+        unplugged is no fault of the appliance. One that refused a forced send
+        stays a warning too: an admission
         sends while the satellite's CamillaDSP may still be starting, every
         call answers 400 until it is up, and the admission retries. The forced
         refusal is said once per spell (`_forced_refusing`), until a command
@@ -204,8 +249,7 @@ class EqualizerController:
         would show a level the speaker is about to leave.
         """
         spell = (what, mac_id)
-        if isinstance(error, SatelliteUnreachable) and force and not report \
-                and 400 <= error.status_code < 500:
+        if is_satellite_refusal(error) and force and not report:
             # Once per spell, which an applied command or the end of the
             # admission's outage ends: the sweep readmits a speaker whose DSP
             # stays down every 30 s, and a line for each admission's send was
@@ -215,16 +259,19 @@ class EqualizerController:
             else:
                 self._forced_refusing.add(spell)
                 self.logger.warning(f"Failed to set {what.lower()} for {mac_id}: {error}")
-            return False
-        if isinstance(error, SatelliteUnreachable) and not 400 <= error.status_code < 500:
+            return Delivery.REFUSED
+        if is_satellite_unreachable(error):
+            self.logger.warning(f"Failed to set {what.lower()} for {mac_id}: {error}")
+            return Delivery.UNREACHABLE
+        if isinstance(error, SatelliteUnreachable) and not is_satellite_refusal(error):
             self._failed(mac_id, what, error, report)
-            return False
+            return Delivery.REFUSED
         if report or spell not in self._refusing:
             online = self._registry.is_client_online(mac_id) if self._registry else True
             if online:
                 self._refusing.add(spell)
                 self.logger.error(f"{what} not applied to {mac_id}: {error}")
-        return False
+        return Delivery.REFUSED
 
     def end_refusal_spell(self, mac_id: str) -> None:
         """Make a satellite's next forced refusal news again.
@@ -237,17 +284,17 @@ class EqualizerController:
         self._forced_refusing.discard(("Volume", mac_id))
         self._forced_refusing.discard(("Mute", mac_id))
 
-    def _outcome(self, mac_id: str, result: dict, what: str) -> bool:
+    def _outcome(self, mac_id: str, result: dict, what: str) -> Delivery:
         """Read a router answer: applied, or skipped. A speaker that applies
         again is news again the next time it refuses."""
-        ok = self._is_success(result)
-        if ok:
-            self._refusing.discard((what, mac_id))
-            self._forced_refusing.discard((what, mac_id))
-        return ok
+        if not self._is_success(result):
+            return Delivery.NOT_SENT
+        self._refusing.discard((what, mac_id))
+        self._forced_refusing.discard((what, mac_id))
+        return Delivery.APPLIED
 
     def _submit(self, channels: Dict[str, _Channel], mac_id: str, value: Any, force: bool,
-                send: Callable[[str, _Channel, bool, bool], Awaitable[bool]],
+                send: Callable[[str, _Channel, bool, bool], Awaitable[Delivery]],
                 report: bool = False) -> asyncio.Future:
         future = asyncio.get_running_loop().create_future()
         if force:
@@ -281,11 +328,11 @@ class EqualizerController:
         channel.task = None
         for waiter in channel.waiters:
             if not waiter.done():
-                waiter.set_result(False)
+                waiter.set_result(Delivery.NOT_SENT)
         channel.waiters = []
 
     async def _drain(self, mac_id: str, channel: _Channel,
-                     send: Callable[[str, _Channel, bool, bool], Awaitable[bool]]) -> None:
+                     send: Callable[[str, _Channel, bool, bool], Awaitable[Delivery]]) -> None:
         """Send until nobody waits. Each send answers every caller that asked before it left."""
         waiters: List[asyncio.Future] = []
         try:
@@ -305,7 +352,7 @@ class EqualizerController:
             channel.task = None
             for waiter in waiters + channel.waiters:
                 if not waiter.done():
-                    waiter.set_result(False)
+                    waiter.set_result(Delivery.NOT_SENT)
             channel.waiters = []
 
     async def set_equalizer_gain(self, mac_id: str, gain_db: float, force: bool = False) -> bool:
@@ -340,7 +387,7 @@ class EqualizerController:
         return self._submit(self._mute_channels, mac_id, mute, force, self._send_mute, report)
 
     async def set_equalizer_mute(self, mac_id: str, mute: bool, force: bool = False,
-                                 report: bool = False) -> bool:
+                                 report: bool = False) -> Delivery:
         """Set mute state for a client's equalizer via EqualizerRouter.
 
         Ordered per speaker like the volume, with no retry by design: the boot
@@ -350,21 +397,23 @@ class EqualizerController:
         return await self.submit_mute(mac_id, mute, force=force, report=report)
 
     async def _send_mute(self, mac_id: str, channel: _Channel, force: bool,
-                         report: bool) -> bool:
+                         report: bool) -> Delivery:
         try:
             if not self._router:
                 self.logger.warning(f"Cannot set mute for {mac_id}: router not configured")
-                return False
+                return Delivery.NOT_SENT
             result = await asyncio.wait_for(
                 self._router.set_mute(mac_id, channel.value, force=force),
                 timeout=self._timeout
             )
             return self._outcome(mac_id, result, "Mute")
+        except asyncio.TimeoutError:
+            return self._timed_out(mac_id, "Mute", report)
         except CommandNotApplied as e:
             return self._refused(mac_id, e, force, "Mute", report)
         except Exception as e:
             self._failed(mac_id, "Mute", e, report)
-            return False
+            return Delivery.REFUSED
 
     async def cleanup(self) -> None:
         """Cancel every command still in flight; their callers are answered False."""

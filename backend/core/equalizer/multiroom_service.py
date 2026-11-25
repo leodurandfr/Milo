@@ -4,14 +4,14 @@ MultiroomEqualizerService - the per-client equalizer access layer.
 
 One EQ record per client is the source of truth; a zone holds no EQ of its own
 (its EQ is the identical EQ of its members). This service exposes the unified
-access API (get/set_client_eq, get/set_zone_eq) and routes each write to the
-domain that owns the record:
+access API (get/set_client_eq, get_zone_eq, apply_zone_equalizer) and routes
+each write to the domain that owns the record:
 
 Architecture:
     API Layer
         │
         ▼
-    MultiroomEqualizerService (get/set_client_eq, get/set_zone_eq)
+    MultiroomEqualizerService (get/set_client_eq, get_zone_eq, apply_zone_equalizer)
         │
         ├─── CamillaDSPService   → local client's record (equalizer.json + DAC)
         │
@@ -23,6 +23,11 @@ import logging
 import weakref
 from typing import Callable, Optional
 
+from backend.core.equalizer.client_proxy import (
+    MembersNotApplied,
+    SatelliteUnreachable,
+    is_satellite_unreachable,
+)
 from backend.core.equalizer.eq_response import record_headroom_db
 from backend.core.models.ws_events import (
     EqualizerZoneEnabledChanged,
@@ -34,7 +39,7 @@ from backend.core.multiroom.models import (
     FilterType,
 )
 from backend.shared.background import BackgroundTaskSet
-from backend.shared.fanout import failed_members
+from backend.shared.fanout import members_not_applied
 
 
 # The local device is addressable as this sentinel — no registry entry required.
@@ -166,6 +171,10 @@ class MultiroomEqualizerService:
         captured record by ``restore_effects`` on reconnect. Both answer True,
         as a band edit and a volume change already did in that same window;
         only a DSP that answered and refused answers False.
+
+        Raises:
+            SatelliteUnreachable: an online satellite nothing reached (503);
+                its record is stored and resent (``_apply_to_remote``)
         """
         if self._is_local(mac_id):
             cds = self._camilladsp_service
@@ -283,24 +292,23 @@ class MultiroomEqualizerService:
         membership changed. It reaches the member through ``_member_record``,
         as in the fan-out: everything is the zone's but ``enabled``, which stays
         the member's own — the zone's conjunction would bypass a speaker as soon
-        as any other member is. Same answer as ``set_client_eq``.
+        as any other member is. Same answer as ``set_client_eq``, its raise
+        included.
         """
         return await self.set_client_eq(mac_id, self._member_record(mac_id, zone_record))
 
-    async def set_zone_eq(self, zone_id: str, settings: EqualizerSettings) -> bool:
-        """Apply one EQ record to every zone member, keeping them identical.
+    async def _fan_out_zone_eq(self, zone_id: str, settings: EqualizerSettings):
+        """Write each member that shares the zone's EQ its copy of ``settings``,
+        in parallel: ``(members, results)``, or None with no registry.
 
-        Each member receives its own copy so later per-member edits never alias
-        (and keeps its own ``enabled`` — see ``_member_record``). Members are
-        written in parallel.
-
-        Returns True only when *every* member took it: the zone's invariant is
-        that its members hold identical records, so a partial fan-out is a
-        failure, not a success. Each member that failed is logged by name.
+        Each member receives its own deep copy, so later per-member edits never
+        alias, and keeps its own ``enabled`` (``_member_record``). The zone's
+        invariant is that its members hold identical records, so a partial
+        fan-out is a failure: the caller reads every result.
         """
         if not self._registry:
             self.logger.error("ClientRegistryService not available")
-            return False
+            return None
         zone = self._registry.get_zone(zone_id)
         if not zone:
             raise ValueError(f"Zone not found: {zone_id}")
@@ -313,7 +321,7 @@ class MultiroomEqualizerService:
             ],
             return_exceptions=True,
         )
-        return not failed_members(self.logger, f"Zone {zone_id} equalizer", members, results)
+        return members, results
 
     # =========================================================================
     # Zone / Client Equalizer Methods — route-facing wrappers over the access layer
@@ -322,17 +330,27 @@ class MultiroomEqualizerService:
     async def apply_zone_equalizer(self, zone_id: str, settings: EqualizerSettings) -> bool:
         """Apply equalizer settings to a whole zone (fan-out to all members).
 
-        False when at least one member did not take the record; ``set_zone_eq``
-        has already logged which ones by name.
+        The route-facing write (a preset, a custom save, a new zone's neutral
+        record): each member that did not take it is said at warning, and the
+        whole is raised as one ``MembersNotApplied``, which the route answers
+        with one line naming them — a refusal apart from a satellite nothing
+        reached. False only with no registry.
 
         Raises:
             ValueError: If zone not found
+            MembersNotApplied: a member did not take the record
         """
         async with self._lock:
-            result = await self.set_zone_eq(zone_id, settings)
-            if result:
-                self.logger.info(f"Zone {zone_id} equalizer applied to all members")
-            return result
+            fanout = await self._fan_out_zone_eq(zone_id, settings)
+            if fanout is None:
+                return False
+            not_applied = members_not_applied(
+                self.logger, f"Zone {zone_id} equalizer", *fanout, self._is_local
+            )
+            if not_applied is not None:
+                raise not_applied
+            self.logger.info(f"Zone {zone_id} equalizer applied to all members")
+            return True
 
     async def resolve_preset_gains(
         self,
@@ -492,9 +510,14 @@ class MultiroomEqualizerService:
 
         Raises:
             ValueError: If invalid target_type
+            MembersNotApplied: a zone member did not take it, after the broadcast
         """
+        not_applied: Optional[MembersNotApplied] = None
         if target_type == "zone":
-            applied = await self.apply_zone_equalizer(target_id, settings)
+            try:
+                applied = await self.apply_zone_equalizer(target_id, settings)
+            except MembersNotApplied as e:
+                applied, not_applied = False, e
         elif target_type == "client":
             applied = await self.apply_client_equalizer(target_id, settings)
         else:
@@ -512,6 +535,8 @@ class MultiroomEqualizerService:
                     target_id=target_id,
                     equalizer_settings=wire,
                 ))
+        if not_applied is not None:
+            raise not_applied
         return applied
 
     async def get_equalizer(
@@ -570,7 +595,9 @@ class MultiroomEqualizerService:
 
         A refusal from an online client is resent (``_arm_resend``): the
         admission, the only other push of a record, never runs for a satellite
-        that stays online.
+        that stays online. So is a satellite nothing reached, whose
+        ``SatelliteUnreachable`` is raised rather than answered False: the
+        route answers it "could not be reached" (503), never "refused it".
         """
         # This record is the newest: a resend still waiting would only repeat it.
         self._cancel_resend(mac_id)
@@ -592,7 +619,13 @@ class MultiroomEqualizerService:
             self.logger.warning(f"Client {mac_id} has no IP")
             return False
 
-        applied = await self._proxy_service.apply_record(client_ip, settings)
+        try:
+            applied = await self._proxy_service.apply_record(
+                client_ip, settings, raise_unreachable=True
+            )
+        except SatelliteUnreachable:
+            self._arm_resend(mac_id)
+            raise
         if applied:
             self.logger.debug(f"Equalizer settings applied to remote client {mac_id}")
         else:
@@ -610,7 +643,7 @@ class MultiroomEqualizerService:
             return
         # A band drag sends 20 edits a second: one warning per resend, not per edit.
         if not self._cancel_resend(mac_id):
-            self.logger.warning(f"Equalizer of {mac_id} refused, resending its record")
+            self.logger.warning(f"Equalizer of {mac_id} not taken, resending its record")
         task = self._bg.spawn(self._resend_record(mac_id), label=f"resend_{mac_id}")
         if task is not None:
             self._resend_tasks[mac_id] = task
@@ -702,12 +735,14 @@ class MultiroomEqualizerService:
         that has stopped answering holds a request for up to 10 s, and a band
         drag sends 20 a second.
 
-        Raises whatever the fan-out raised — ``CommandNotApplied``, which the
-        api/ layer maps to its status (502 for this unit's DSP, 503 for an
-        unreachable satellite) — once the four steps are done: a member that
-        refused the command must not be reported as applied. A local DSP that
-        is not connected refuses nothing: the edit is captured and applied on
-        reconnect, like a satellite that is offline.
+        Raises once the four steps are done, since a member that refused the
+        command must not be reported as applied: for a single client, the
+        router's ``CommandNotApplied`` (a satellite's own ``SatelliteUnreachable``
+        among them), which the api/ layer maps to its status; for a zone, one
+        ``MembersNotApplied`` naming every member that missed it, each said at
+        warning here, so the route writes the request's one line. A local DSP
+        that is not connected refuses nothing: the edit is captured and applied
+        on reconnect, like a satellite that is offline.
 
         Args:
             target_type: "zone" or "client"
@@ -823,25 +858,28 @@ class MultiroomEqualizerService:
 
         # A refusal is the router's raise, local or remote, which gather holds
         # back without making the write succeed; it reaches api_error_handler
-        # after the broadcast. A zone names every member in the log first, since
-        # one raise can only carry one of them; a single client's raise is logged
-        # by the route. An answer is never a failure — "skipped" is a client that
-        # went offline between the online filter and the call, and its record
-        # above syncs on reconnection.
+        # after the broadcast. A zone's is one raise naming every member that
+        # missed it (each said at warning): a line per member plus the route's
+        # was N+1 errors a request, 40 a second on a band drag. A single
+        # client's raise is logged by the route. An answer is never a failure —
+        # "skipped" is a client that went offline between the online filter and
+        # the call, and its record above syncs on reconnection.
         fanout_error: Optional[BaseException] = None
         if targets:
-            if target_type == "zone":
-                failed = failed_members(
-                    self.logger, f"Zone {target_id} {router_method}", targets, results
-                )
-            else:
-                failed = [m for m, r in zip(targets, results) if isinstance(r, BaseException)]
+            failed = [m for m, r in zip(targets, results) if isinstance(r, BaseException)]
             for member in failed:
                 if not self._is_local(member):
                     self._arm_resend(member)
-            fanout_error = next(
-                (r for r in results if isinstance(r, BaseException)), None
-            )
+            if target_type == "zone":
+                fanout_error = members_not_applied(
+                    self.logger, f"Zone {target_id} {router_method}", targets,
+                    [r if isinstance(r, BaseException) else True for r in results],
+                    self._is_local,
+                )
+            else:
+                fanout_error = next(
+                    (r for r in results if isinstance(r, BaseException)), None
+                )
 
         # Broadcast targeted WebSocket event
         if self._state_machine:
@@ -1080,8 +1118,9 @@ class MultiroomEqualizerService:
         the plain local write of :meth:`set_local_equalizer_effects_enabled`.
 
         Returns True when the change reached an online client OR was persisted for
-        an offline one (it syncs on reconnect); False only on a failed online push
-        or a missing routing service for the local client.
+        an offline one (it syncs on reconnect); False only on a refused online
+        push or a missing routing service for the local client. Raises the
+        ``SatelliteUnreachable`` of an online satellite nothing reached.
         """
         routing = routing_service or self._routing_service
         if self._is_local(mac_id):
@@ -1112,6 +1151,9 @@ class MultiroomEqualizerService:
         Milo-Mac's Equalizer switch, and the web's for a server outside a zone,
         detached from it, or in direct mode. An explicit ``<mac>`` target goes to
         :meth:`set_client_equalizer_effects_enabled` and moves that client alone.
+
+        Answers as the write it makes: the zone's ``MembersNotApplied`` when a
+        member missed it, else the plain write's bool.
         """
         local_mac = self._local_mac_id()
         zone = self._registry.get_zone_for_client(local_mac) if self._registry else None
@@ -1146,9 +1188,11 @@ class MultiroomEqualizerService:
 
         Returns True when an online push succeeded OR the flag was persisted for an
         offline/unknown client (syncs on reconnect); False when an online client
-        did not take it. One that refused is resent its whole record
+        refused it. One that refused is resent its whole record
         (``_arm_resend``), which carries the flag: its admission never runs
-        while it stays online.
+        while it stays online. So is one nothing reached, whose
+        ``SatelliteUnreachable`` is raised rather than answered False, so the
+        route says "could not be reached", never "refused it".
         """
         client = self._registry.get_client(client_id) if self._registry else None
 
@@ -1164,6 +1208,7 @@ class MultiroomEqualizerService:
             await self._registry.set_client_equalizer(client_id, record, broadcast=announce)
 
         pushed = False
+        unreachable: Optional[BaseException] = None
         if client and client.online and client.ip and self._proxy_service:
             try:
                 result = await self._proxy_service.request(
@@ -1172,10 +1217,14 @@ class MultiroomEqualizerService:
                 pushed = result.get("status") == "success"
             except Exception as e:
                 self.logger.warning(f"Failed to push equalizer enabled to {client_id}: {e}")
+                if is_satellite_unreachable(e):
+                    unreachable = e
             # A toggle that lands leaves an earlier refusal's resend running:
             # this push carried one field, the resend carries the whole record.
             if not pushed:
                 self._arm_resend(client_id)
+            if unreachable is not None:
+                raise unreachable
 
         return pushed if (client and client.online) else True
 
@@ -1187,18 +1236,23 @@ class MultiroomEqualizerService:
         the per-client primitives (local → routing_service bypass/restore;
         remote → persist + push), then broadcasts the zone-level event when at
         least one member's flag moved. A member that did not take it is logged
-        by name at error, like every other zone fan-out.
+        by name at warning, and the whole is raised as one
+        ``MembersNotApplied`` the route answers: a satellite that refused takes
+        the flag by resend, one nothing reached is resent it too, and this
+        unit's CamillaDSP that refused keeps its previous flag for good — three
+        futures the route words apart.
 
         Args:
             zone_id: The zone ID
             enabled: Whether equalizer effects should be enabled
 
         Returns:
-            True only when every non-independent member took it: a partial
-            fan-out leaves the zone's members audibly out of step
+            True when every non-independent member took it
 
         Raises:
             ValueError: If zone not found
+            MembersNotApplied: a member did not take it, after the broadcast: a
+                partial fan-out leaves the zone's members audibly out of step
         """
         if not self._registry:
             self.logger.error("ClientRegistryService not available")
@@ -1227,9 +1281,12 @@ class MultiroomEqualizerService:
             ],
             return_exceptions=True,
         )
-        failed = failed_members(
-            self.logger, f"Zone {zone_id} equalizer enabled", members, results
+        not_applied = members_not_applied(
+            self.logger, f"Zone {zone_id} equalizer enabled", members, results, self._is_local
         )
+        failed = [
+            m for m, r in zip(members, results) if isinstance(r, BaseException) or not r
+        ]
 
         # The event carries the members' flags read back, not the value asked: a
         # local DSP that refused keeps its old one and the zone reads as the
@@ -1245,5 +1302,7 @@ class MultiroomEqualizerService:
                     EqualizerZoneEnabledChanged(zone_id=zone_id, enabled=zone_eq.enabled)
                 )
 
-        return not failed
+        if not_applied is not None:
+            raise not_applied
+        return True
 
