@@ -1378,6 +1378,8 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     likedSongIds,
     likedSongsCount,
     likedSongsLoading,
+    likedSongsLoaded,
+    likedSongsError: likedSongsOrder.error,
     loadLikedSongs,
     setSongFavorite,
 

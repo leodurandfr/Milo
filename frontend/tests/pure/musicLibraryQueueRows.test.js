@@ -180,3 +180,78 @@ describe('listedQueue', () => {
     expect(listed.queue[20].id).toBe('h90');
   });
 });
+
+/**
+ * The queue view memoizes each row on its row object (`v-memo`), and every
+ * state the backend publishes hands over a queue parsed anew. Rows built
+ * afresh each time defeated the memo on every mounted row: with the whole
+ * queue listed, a pause re-rendered up to every queued track for one icon.
+ * A row nothing moved on must be the previous split's own object.
+ */
+describe('splitQueue across published states', () => {
+  const tracks = Array.from({ length: 80 }, (_, n) => ({
+    id: `t${n}`, title: `Track ${n}`, coverArt: `al-${n}`, artists: [{ id: `ar-${n}`, name: 'Someone' }],
+  }));
+  /** A state's window over `list` around entry `index`, parsed anew as every state is. */
+  const stateOf = (list, index) => {
+    const offset = Math.max(0, index - 32);
+    return {
+      queue: structuredClone(list.slice(offset, index + 33)), queueIndex: index - offset,
+      offset, length: list.length,
+    };
+  };
+  const split = (whole, state, previous) => {
+    const listed = listedQueue(whole, [], state);
+    return splitQueue(listed.queue, listed.queueIndex, listed.offset, previous);
+  };
+  const all = ({ upcoming, played }) => [...upcoming, ...played];
+  /** The keys of the rows of `after` that are not `before`'s own objects. */
+  const rebuilt = (before, after) => {
+    const kept = new Set(all(before));
+    return all(after).filter((row) => !kept.has(row)).map((row) => row.key);
+  };
+
+  it('keeps every row across a state that moved only the phase', () => {
+    const first = split(tracks, stateOf(tracks, 10));
+    const paused = split(tracks, stateOf(tracks, 10), first);
+
+    expect(all(first)).toHaveLength(80);
+    expect(rebuilt(first, paused)).toEqual([]);
+  });
+
+  it('rebuilds only the rows that stopped and started being current on a track change', () => {
+    const first = split(tracks, stateOf(tracks, 10));
+    const next = split(tracks, stateOf(tracks, 11), first);
+
+    expect(rebuilt(first, next)).toEqual(['t11#1', 't10#1']);
+    expect(all(next).find((row) => row.current).song.id).toBe('t11');
+  });
+
+  it('keeps every row when the whole queue read again holds the same tracks', () => {
+    const first = split(tracks, stateOf(tracks, 10));
+    const reread = split(structuredClone(tracks), stateOf(tracks, 10), first);
+
+    expect(rebuilt(first, reread)).toEqual([]);
+  });
+
+  it('keeps the rows of the window, the list before the first read', () => {
+    const first = split(null, stateOf(tracks, 40));
+    const paused = split(null, stateOf(tracks, 40), first);
+
+    expect(all(first)).toHaveLength(65);
+    expect(rebuilt(first, paused)).toEqual([]);
+  });
+
+  it('rebuilds a row whose track or queue index moved', () => {
+    // A kept row carrying its old index would play or remove its neighbor.
+    const first = split(tracks, stateOf(tracks, 10));
+    const renamed = tracks.map((song) => (song.id === 't3' ? { ...song, title: 'Renamed' } : song));
+    const removed = renamed.filter((song) => song.id !== 't70');
+    const after = split(removed, stateOf(removed, 10), first);
+
+    expect(rebuilt(first, after)).toEqual(['t71#1', 't72#1', 't73#1', 't74#1', 't75#1', 't76#1',
+      't77#1', 't78#1', 't79#1', 't3#1']);
+    for (const row of all(after)) expect(removed[row.queueIndex].id).toBe(row.song.id);
+    expect(all(after).find((row) => row.key === 't3#1').song.title).toBe('Renamed');
+  });
+});

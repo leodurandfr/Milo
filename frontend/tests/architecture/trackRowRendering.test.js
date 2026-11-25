@@ -1,6 +1,6 @@
 // frontend/tests/architecture/trackRowRendering.test.js
 /**
- * A track list re-renders only the rows that changed.
+ * A memoized track list is memoized on every value its rows read.
  *
  * Two ways every mounted row used to re-render, both invisible in the markup
  * and both paid on the Pi's kiosk, where a step of the render window is sized
@@ -21,7 +21,18 @@
  *   everything inside it read — a call it does not list whole is followed into
  *   the view's script, the composable that returned it, or the store.
  *
- * Read from the templates (comments stripped), outside the gallery.
+ * Read from the templates (comments stripped), outside the gallery — so what
+ * this file proves is the memo's shape, not that it ever skips a row. A memo
+ * whose loop item is a new object on every render skips nothing, and a
+ * template cannot show that: the library's queue view rebuilt each row from
+ * every published state (a queue parsed anew, a pause included), and every
+ * mounted row — up to the whole queue — re-rendered for one icon while this
+ * file passed. A list whose rows are built from the state keeps the objects of
+ * the rows that did not change itself: the queue's, `queueRows.js::splitQueue`,
+ * whose skipping is held by tests/pure/musicLibraryQueueRows.test.js — and
+ * which keeps them only when handed its last split, so every view calling it
+ * is held below to pass its computed's previous value. The other memoized
+ * lists repeat a catalog read, whose items only a new read replaces.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -288,6 +299,25 @@ function rowBindings(loop) {
   return [...own, ...inner, ...mustaches];
 }
 
+// The arguments of the call whose `(` is at `open`, split at its own commas.
+function topLevelArgs(code, open) {
+  const args = [];
+  let depth = 0;
+  let start = open + 1;
+  for (let at = open; at < code.length; at += 1) {
+    const char = code[at];
+    if ('([{'.includes(char)) depth += 1;
+    else if (')]}'.includes(char)) {
+      depth -= 1;
+      if (depth === 0) return [...args, code.slice(start, at).trim()].filter(Boolean);
+    } else if (char === ',' && depth === 1) {
+      args.push(code.slice(start, at).trim());
+      start = at + 1;
+    }
+  }
+  return args;
+}
+
 // Rows that repeat and fill `#menu`: the ones compiled with DYNAMIC_SLOTS.
 const MENU_ROWS = ROWS.filter(({ loop, body }) => loop && body.includes('#menu'));
 
@@ -359,6 +389,27 @@ describe('track rows', () => {
     expect(followed.length).toBeGreaterThanOrEqual(2);
     expect(followed.every(Boolean)).toBe(true);
     expect(missing).toEqual([]);
+  });
+
+  it('hands splitQueue the last split, so the rows it keeps are kept', () => {
+    // Called without it, splitQueue builds every row anew and the queue's
+    // memo skips nothing again: each published state (a pause) re-renders
+    // every mounted row, and no template shows it.
+    const calls = vueFiles(SRC).flatMap((path) => {
+      const script = stripComments(readFileSync(path, 'utf8')).split('<script').slice(1).join('<script');
+      return [...script.matchAll(/(?<![\w$.])splitQueue\(/g)].map((match) => {
+        const before = script.slice(0, match.index);
+        const param = /computed\(\s*\(\s*([\w$]+)\s*\)\s*=>\s*$/.exec(before)?.[1];
+        const args = topLevelArgs(script, match.index + match[0].length - 1);
+        return { file: relative(SRC, path), param, last: args.at(-1) };
+      });
+    });
+
+    expect(calls.length).toBeGreaterThan(0);
+    const unfed = calls
+      .filter(({ param, last }) => !param || last !== param)
+      .map(({ file, last }) => `${file}: splitQueue(…, ${last})`);
+    expect(unfed).toEqual([]);
   });
 
   it('exempts a row only for the reason it states', () => {

@@ -2,7 +2,12 @@
   <div class="liked-songs-view">
     <div class="swap-stack">
       <Transition name="fade-slide">
-        <SkeletonDetailPage v-if="store.likedSongsLoading && !store.likedSongs.length" key="loading" cover artist />
+        <MessageContent v-if="store.likedSongsError && !store.likedSongs.length" key="unavailable" icon="musicNote"
+          :title="t(store.likedSongsError === 'starting' ? 'musicLibrary.catalogStarting' : 'musicLibrary.catalogUnreachable')"
+          :subtitle="store.likedSongsError === 'starting' ? t('musicLibrary.catalogStartingHint') : ''"
+          :cta-label="t('musicLibrary.retry')" cta-variant="control" :cta-loading="store.likedSongsLoading"
+          :cta-click="retry" />
+        <SkeletonDetailPage v-else-if="store.likedSongsLoading && !store.likedSongs.length" key="loading" cover artist />
         <MessageContent v-else-if="!store.likedSongs.length" key="empty" icon="musicNote" :title="t('musicLibrary.noTracks')" />
 
         <div v-else key="loaded" class="content-stack">
@@ -75,9 +80,14 @@ const header = useDetailPlayback(
   (shuffle) => (shuffle ? store.playShuffled(store.likedSongs, 'liked') : playFrom(0)),
 );
 
+// A read that failed is said as the neighboring pages say it, never as "No
+// tracks": a 503 while Navidrome starts, or any other failure, with a Retry —
+// a failure the availability never announced is reloaded by nothing else.
+const retry = () => store.loadLikedSongs({ force: true });
+
 // Started in setup, not onMounted: the loading flag is then up before the first
 // render, so the empty state never flashes ahead of the spinner.
-store.loadLikedSongs({ force: true });
+retry();
 </script>
 
 <style scoped>

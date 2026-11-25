@@ -78,12 +78,15 @@ const options = computed(() => [
 // Every queued track, not the window the state carries: the whole queue is
 // read on opening, again whenever the state says the queue moved (its track,
 // its length or the tracks of its window) and after a reconnect, and listed
-// while it agrees with the state — the window meanwhile.
+// while it agrees with the state — the window meanwhile. Every state
+// published hands over a new queue: the rows nothing moved on are the last
+// split's own objects, so each row's v-memo skips them (a pause re-renders the
+// current row alone).
 const listed = computed(() => listedQueue(store.wholeQueue, store.wholeQueueEdits, {
   queue: store.queue, queueIndex: store.queueIndex, offset: store.queueOffset, length: store.queueLength,
 }));
-const split = computed(() =>
-  splitQueue(listed.value.queue, listed.value.queueIndex, listed.value.offset));
+const split = computed((previous) =>
+  splitQueue(listed.value.queue, listed.value.queueIndex, listed.value.offset, previous));
 
 // A state republished for anything but the queue (a pause) keeps a dropped
 // row where it was dropped.

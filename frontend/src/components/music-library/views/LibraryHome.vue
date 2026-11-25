@@ -115,8 +115,9 @@
             </Button>
           </div>
 
+          <!-- Counted once read: a read that failed is not "0 tracks". -->
           <MediaRow liked :title="t('musicLibrary.playlists.likedSongs')"
-            :subtitle="t('musicLibrary.tracksCount', { count: store.likedSongsCount })"
+            :subtitle="store.likedSongsLoaded ? t('musicLibrary.tracksCount', { count: store.likedSongsCount }) : ''"
             @click="$emit('select-liked')" />
 
           <div class="swap-stack">

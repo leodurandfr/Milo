@@ -55,19 +55,45 @@ function withEdits(whole, edits) {
  * counted in the list, so a duplicate's key moves when its earlier copy
  * slides out of a window — rare, and only that row is built again.
  *
+ * A row nothing about has moved since `previous` is `previous`'s own object,
+ * not a copy: the view memoizes each row on it (`v-memo`), and every state
+ * the backend publishes — a pause, a track change, another source's
+ * availability — hands over a queue parsed anew, so rows built afresh each
+ * time re-rendered every mounted row, up to the whole queue, for one icon.
+ * A row is kept when its key, its queue index, whether it is current and its
+ * track's fields are all unchanged; the track is compared by value, because
+ * the window and the whole queue read again after a track change are new
+ * objects carrying the same tracks.
+ *
  * @param {Array<{id: string}>} queue - The queue listed, in play order
  * @param {number} queueIndex - The current track's index in it, -1 with none
  * @param {number} [offset] - Where it starts in the whole queue (0 for the whole)
+ * @param {{upcoming: Array, played: Array}} [previous] - The last split drawn
  * @returns {{upcoming: Array, played: Array}} The current track then what
  *   follows, in play order; and what played before it, most recent first
  */
-export function splitQueue(queue, queueIndex, offset = 0) {
+export function splitQueue(queue, queueIndex, offset = 0, previous = undefined) {
   const keys = occurrenceKeys(queue);
-  const rows = queue.map((song, index) => (
-    { key: keys[index], song, queueIndex: offset + index, current: index === queueIndex }
-  ));
+  const before = new Map();
+  for (const row of previous ? [...previous.upcoming, ...previous.played] : []) before.set(row.key, row);
+  const rows = queue.map((song, index) => {
+    const row = { key: keys[index], song, queueIndex: offset + index, current: index === queueIndex };
+    const kept = before.get(row.key);
+    return kept && kept.queueIndex === row.queueIndex && kept.current === row.current
+      && sameValue(kept.song, song) ? kept : row;
+  });
   const start = Math.max(queueIndex, 0);
   return { upcoming: rows.slice(start), played: rows.slice(0, start).reverse() };
+}
+
+/** Whether two parsed JSON values hold the same data. */
+function sameValue(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length
+    && keys.every((key) => Object.hasOwn(b, key) && sameValue(a[key], b[key]));
 }
 
 /**

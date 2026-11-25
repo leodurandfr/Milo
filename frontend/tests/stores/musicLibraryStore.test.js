@@ -919,6 +919,24 @@ describe('musicLibraryStore — a first read that failed', () => {
     expect(store.albumsError).toBeNull();
   });
 
+  it('says why the liked songs failed, as the other lists do, until a read lands', async () => {
+    // Unread, the Liked Songs page said "No tracks" and its row "0 tracks"
+    // while the playlists beside it said the catalog was starting.
+    apiCall.get.mockResolvedValueOnce(fail('Music library catalog not ready', 503));
+    await store.loadLikedSongs({ force: true });
+    expect(store.likedSongsError).toBe('starting');
+    expect(store.likedSongsLoaded).toBe(false);
+
+    apiCall.get.mockResolvedValueOnce(fail('boom', 500));
+    await store.loadLikedSongs({ force: true });
+    expect(store.likedSongsError).toBe('failed');
+
+    apiCall.get.mockResolvedValueOnce(ok({ songs: [{ id: 's1' }] }));
+    await store.loadLikedSongs({ force: true });
+    expect(store.likedSongsError).toBeNull();
+    expect(store.likedSongsLoaded).toBe(true);
+  });
+
   it('tells any other failure from a catalog that is starting', async () => {
     apiCall.get.mockResolvedValueOnce(fail('boom', 500));
     await store.loadGenres();
