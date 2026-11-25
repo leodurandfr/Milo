@@ -217,6 +217,20 @@ async def test_a_200_that_is_not_the_satellites_answer_raises_nothing(localtime,
     assert "192.168.1.60" in caplog.records[0].getMessage()
 
 
+async def test_a_satellite_that_does_not_answer_in_time_is_said_with_its_cause(localtime, caplog):
+    """aiohttp's deadline is an `asyncio.TimeoutError()` whose str() is empty:
+    interpolated alone, the line ended on a colon, at every admission of a
+    slow speaker, with nothing saying what happened."""
+    localtime("Europe/Paris")
+
+    with _session(_Satellite(error=asyncio.TimeoutError())), \
+            caplog.at_level(logging.WARNING, logger="backend.core.multiroom.satellite_timezone"):
+        await _service().push("192.168.1.60")
+
+    [line] = [r.getMessage() for r in caplog.records]
+    assert "192.168.1.60" in line and "TimeoutError" in line
+
+
 async def test_a_push_that_read_the_old_zone_never_lands_after_the_new_one(localtime):
     """An admission in flight while the owner changes the zone.
 

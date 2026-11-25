@@ -879,7 +879,9 @@ class SshRequest(BaseModel):
     """Open or close the SSH server.
 
     Opening is refused (409) while the factory password is in place — the
-    reasoning lives on `set_ssh_state`. Closing is never refused.
+    reasoning lives on `set_ssh_state` — and closing is never refused for that.
+    Relayed to a satellite, both directions carry this server's secret and can
+    be refused for it as well: see `set_client_ssh`.
     """
     enabled: bool
 

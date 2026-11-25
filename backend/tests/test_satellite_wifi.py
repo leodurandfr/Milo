@@ -166,6 +166,18 @@ async def test_a_200_that_is_not_the_satellites_answer_raises_nothing(caplog, pa
     assert "192.168.1.60" in caplog.records[0].getMessage()
 
 
+async def test_a_satellite_that_does_not_answer_in_time_is_said_with_its_cause(caplog):
+    """aiohttp's deadline is an `asyncio.TimeoutError()` whose str() is empty:
+    interpolated alone, the line ended on a colon, at every admission of a
+    slow speaker, with nothing saying what happened."""
+    with _session(_Satellite(error=asyncio.TimeoutError())), _server(), \
+            caplog.at_level(logging.WARNING, logger="backend.core.multiroom.satellite_wifi"):
+        await _service().push("192.168.1.60")
+
+    [line] = [r.getMessage() for r in caplog.records]
+    assert "192.168.1.60" in line and "TimeoutError" in line
+
+
 async def test_every_online_satellite_is_handed_it_and_never_the_main_unit():
     """Read once for all of them: the PSK read forks nmcli on the server."""
     satellites = [Mock(ip="192.168.1.60", is_local=False), Mock(ip="127.0.0.1", is_local=True),

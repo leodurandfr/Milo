@@ -48,6 +48,7 @@ from backend.core.network.addresses import server_addresses
 from backend.core.multiroom.models import EqualizerSettings
 from backend.core.multiroom.satellite_http import Holding, SatelliteSecretUnavailable
 from backend.hardware.registry import missing_card_label
+from backend.shared.network import describe_network_error
 
 if TYPE_CHECKING:
     from backend.core.equalizer.multiroom_service import MultiroomEqualizerService
@@ -291,7 +292,9 @@ async def _send_audio_config_and_reboot(
                             detail=f"Client accepted the audio configuration but refused to reboot: {resp.status}",
                         )
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.warning(f"Reboot request to {mac_id} failed (may already be rebooting): {e}")
+                logger.warning(
+                    f"Reboot request to {mac_id} failed (may already be rebooting): {describe_network_error(e)}"
+                )
 
 
 def create_multiroom_router(
@@ -734,24 +737,25 @@ def create_multiroom_router(
         _require_satellite(client)
         return client
 
-    async def _read_client_ssh(mac_id: str, client) -> dict:
-        async with _reaching_satellite(registry_service, mac_id, client.ip):
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-                async with session.get(f"http://{client.ip}:{CLIENT_API_PORT}/api/system/ssh") as resp:
-                    return await _satellite_reply(resp, mac_id)
-
     @router.get("/clients/{mac_id}/ssh")
     async def get_client_ssh(mac_id: str):
         """SSH state of a satellite, the account it logs into, and whether that account still has the factory password."""
         async with api_error_handler(f"Error reading SSH state of client {mac_id}", logger):
-            return await _read_client_ssh(mac_id, _satellite(mac_id))
+            client = _satellite(mac_id)
+            async with _reaching_satellite(registry_service, mac_id, client.ip):
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                    async with session.get(f"http://{client.ip}:{CLIENT_API_PORT}/api/system/ssh") as resp:
+                        return await _satellite_reply(resp, mac_id)
 
     @router.put("/clients/{mac_id}/ssh")
     async def set_client_ssh(mac_id: str, request: SshRequest):
         """Open or close SSH on a satellite.
 
         The satellite refuses to open it while its factory password is in
-        place. Closing is never refused.
+        place, and never refuses to close it for that. Both carry this server's
+        secret, so a speaker that answers another server refuses opening and
+        closing alike (409) until it is unplugged and plugged back in, and a
+        server that holds no secret sends neither (503).
         """
         async with api_error_handler(f"Error setting SSH on client {mac_id}", logger):
             client = _satellite(mac_id)

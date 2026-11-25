@@ -22,6 +22,7 @@ Get that pair backwards in either direction and the wizard either reports every
 successful pairing as a failure, or every failed one as a success.
 """
 import asyncio
+import logging
 
 import aiohttp
 import pytest
@@ -177,19 +178,24 @@ class TestAudioConfigPush:
         asyncio.TimeoutError(),
     ])
     def test_a_connection_dropped_on_the_reboot_is_success_not_a_failure(
-        self, client, registry, monkeypatch, dropped
+        self, client, registry, monkeypatch, dropped, caplog
     ):
         """A satellite that really is rebooting drops the connection mid-reply.
         Treating that as fatal reports every successful card change as failed,
-        and the operator retries a reboot that already happened.
+        and the operator retries a reboot that already happened. The warning
+        names the failure's class: a timeout's str() is empty, and interpolated
+        alone it ended the line on a colon.
         """
         _Satellite({"/api/hardware/reboot": dropped}).install(monkeypatch)
 
-        response = client.put(
-            f"/api/multiroom/clients/{MAC}/audio", json={"audio_id": "hifiberry_amp2"}
-        )
+        with caplog.at_level(logging.WARNING, logger="backend.api.multiroom"):
+            response = client.put(
+                f"/api/multiroom/clients/{MAC}/audio", json={"audio_id": "hifiberry_amp2"}
+            )
 
         assert response.status_code == 200
+        [line] = [r.getMessage() for r in caplog.records if "Reboot request" in r.getMessage()]
+        assert type(dropped).__name__ in line
         # A rebooting client is not an offline one: marking it so drops it out
         # of the multiroom list for the whole boot it was just asked to take.
         registry.set_client_online.assert_not_awaited()

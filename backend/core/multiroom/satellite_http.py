@@ -79,6 +79,7 @@ from typing import Dict, Optional
 import aiohttp
 
 from backend.config.constants import CLIENT_API_PORT, SATELLITE_KEY_FILE
+from backend.shared.network import describe_network_error
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +237,7 @@ class SatelliteSecret:
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             logger.warning(
                 f"Could not hand satellite {mac_id} its secret at {client_ip}: "
-                f"{exc or type(exc).__name__}"
+                f"{describe_network_error(exc)}"
             )
 
     async def probe(self, mac_id: str, client_ip: str) -> Holding:

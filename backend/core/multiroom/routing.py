@@ -372,9 +372,10 @@ class AudioRoutingService:
     async def initialize(self) -> bool:
         """Initializes service state; False when detection failed (the next
         caller retries it)."""
-        if not self._initial_detection_done:
-            await self._detect_initial_state()
-        return self._initial_detection_done
+        async with self._routing_lock:
+            if not self._initial_detection_done:
+                await self._detect_initial_state()
+            return self._initial_detection_done
 
     async def _detect_initial_state(self):
         """Reconcile derived artifacts and live state to match settings.json.
@@ -389,6 +390,11 @@ class AudioRoutingService:
 
         Leaves _initial_detection_done = False on failure so the next caller
         retries detection.
+
+        Run under the routing lock by both callers — `initialize` at boot, and
+        the multiroom toggle that retries a detection which failed there, while
+        routes are served — so the mode the reconcile reads is the one in force
+        when it restarts or stops snapcast. Nothing it calls takes the lock.
         """
         try:
             self.logger.info("Initializing routing state with persistence...")
@@ -583,10 +589,10 @@ class AudioRoutingService:
         `_apply_transition` picks up the new MILO_MODE, and a persist that fails
         leaves routing.env on the old mode with the setting.
         """
-        if not self._initial_detection_done:
-            await self._detect_initial_state()
-
         async with self._routing_lock:
+            if not self._initial_detection_done:
+                await self._detect_initial_state()
+
             old_state = self.multiroom_enabled
             if old_state == enabled:
                 self.logger.info(f"multiroom already {'enabled' if enabled else 'disabled'}")
@@ -925,8 +931,8 @@ class AudioRoutingService:
         only reach the new daemon — no settle delay before it. Refused in
         direct mode, where a restart would START the unit behind the reconcile
         and take hw:Loopback from the direct-mode source: callers hold the
-        routing lock (the reconcile, or `snapcast_config_held`), so the mode
-        read here is the one in force.
+        routing lock (the reconcile, run by `_detect_initial_state` under it,
+        or `snapcast_config_held`), so the mode read here is the one in force.
         """
         if not self._snapcast_restart_allowed(self.snapserver_service):
             return False

@@ -15,6 +15,8 @@ it writes /var/lib/milo/routing.env and sets os.environ["MILO_MODE"], and this
 dev host IS the appliance. A test that let it run would flip the live unit's
 audio routing.
 """
+import asyncio
+
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from backend.core.equalizer.service import CamillaDSPService
@@ -563,6 +565,62 @@ class TestAudioRoutingService:
 
         assert await routing_service.initialize() is False
         assert routing_service._initial_detection_done is False
+
+    @pytest.mark.asyncio
+    async def test_a_detection_retried_by_the_toggle_waits_for_a_held_config_write(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """The boot's detection failed, so the next toggle runs it again —
+        while routes are served. Its reconcile reads the mode and restarts
+        snapserver on a rewritten conf. Both wait for whoever holds the routing
+        lock — here a server-config write, a disable just the same — so the
+        detection's restart neither runs alongside the write's own restarts
+        nor follows a disable that stopped the units. Once the write lets go,
+        the toggle carries on from what the detection found."""
+        _seed_multiroom(mock_settings_service, True)
+        routing_service._initial_detection_done = False
+        routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=True)
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'), \
+                patch('backend.core.multiroom.routing.MacEnv.regenerate'), \
+                patch('backend.core.multiroom.routing.SnapclientEnv.regenerate'):
+            async with routing_service.snapcast_config_held():
+                toggle = asyncio.create_task(routing_service.set_multiroom_enabled(False))
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                snapcast.reconcile_conf.assert_not_awaited()
+                mock_systemd_manager.restart.assert_not_called()
+            assert await toggle is True
+
+        assert routing_service._initial_detection_done is True
+        mock_systemd_manager.restart.assert_awaited_once_with("milo-snapserver-multiroom.service")
+        assert routing_service.multiroom_enabled is False
+
+    @pytest.mark.asyncio
+    async def test_the_boot_detection_waits_for_a_held_config_write(
+        self, routing_service, mock_settings_service, mock_systemd_manager
+    ):
+        """`initialize` is the detection's other caller, and the restart its
+        reconcile issues reads the mode the same way: taken outside the routing
+        lock, it would run alongside a server-config write's own restarts, or
+        after a disable that stopped the units. It waits for whoever holds the
+        lock, then answers what the detection found."""
+        _seed_multiroom(mock_settings_service, True)
+        routing_service._initial_detection_done = False
+        routing_service.snapcast_service = snapcast = self._snapcast(conf_changed=True)
+
+        with patch('backend.core.multiroom.routing.RoutingEnv.regenerate'), \
+                patch('backend.core.multiroom.routing.MacEnv.regenerate'), \
+                patch('backend.core.multiroom.routing.SnapclientEnv.regenerate'):
+            async with routing_service.snapcast_config_held():
+                boot = asyncio.create_task(routing_service.initialize())
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                snapcast.reconcile_conf.assert_not_awaited()
+                mock_systemd_manager.restart.assert_not_called()
+            assert await boot is True
+
+        mock_systemd_manager.restart.assert_awaited_once_with("milo-snapserver-multiroom.service")
 
     @pytest.mark.asyncio
     async def test_set_equalizer_effects_enabled_already_enabled(self, routing_service):

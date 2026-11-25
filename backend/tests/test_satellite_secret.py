@@ -8,6 +8,7 @@ sends a request bare. The satellite is faked as it behaves — trust on first
 use, a 403 for anything else (milo-client/app/server_secret.py, whose own tests
 drive the real thing) — and the key lives under tmp_path.
 """
+import asyncio
 import logging
 import stat
 from unittest.mock import AsyncMock, Mock
@@ -34,9 +35,10 @@ class PinningSatellite:
     """Satellites over HTTP, by address: each pins the first secret it is sent
     and answers 403 to a path to root that carries anything else — or, once
     `predates` is set, runs an app from before the secret: no hand-over route,
-    and every request taken bare. An address in `following` was just plugged
-    back in: its hand-over takes a new secret once, until the pinned one or a
-    new one reaches it."""
+    and every request taken bare. With `error` set, every request raises it
+    instead of answering. An address in `following` was just plugged back in:
+    its hand-over takes a new secret once, until the pinned one or a new one
+    reaches it."""
 
     TO_ROOT = ("/api/system/ssh", "/api/system/password", "/api/hardware/reboot",
                "/api/system/server-secret")
@@ -48,12 +50,15 @@ class PinningSatellite:
         self.answer_status = None
         self.predates = False
         self.following = set()
+        self.error = None
 
     def session(self, *args, **kwargs):
         return _Session(self)
 
     def receive(self, verb, url, headers):
         ip, path = url.split("//", 1)[1].split(":", 1)[0], "/" + url.split("/", 3)[3]
+        if self.error is not None:
+            raise self.error
         if self.answer_status is not None:
             return _Answer(self.answer_status, {"detail": "answered by the test"})
         if verb == "GET":
@@ -298,6 +303,21 @@ async def test_a_satellite_whose_app_predates_the_hand_over_is_said_once_at_info
     said = [r for r in caplog.records if "predates" in r.getMessage()]
     assert [r.levelno for r in said] == [logging.INFO]
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+async def test_a_satellite_that_does_not_answer_in_time_is_said_with_its_cause(
+    satellite_secret, satellites, caplog,
+):
+    """aiohttp's deadline is an `asyncio.TimeoutError()` whose str() is empty:
+    interpolated alone, the line ended on a colon, at every admission of a
+    slow speaker, with nothing saying what happened."""
+    satellites.error = asyncio.TimeoutError()
+
+    with caplog.at_level(logging.WARNING, logger="backend.core.multiroom.satellite_http"):
+        await satellite_secret.hand_over(BUREAU, BUREAU_IP)
+
+    [line] = [r.getMessage() for r in caplog.records]
+    assert BUREAU_IP in line and "TimeoutError" in line
 
 
 async def test_a_server_with_no_key_says_so_once(tmp_path, satellites, caplog):

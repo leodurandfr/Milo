@@ -29,6 +29,7 @@ import aiohttp
 
 from backend.config.constants import CLIENT_API_PORT
 from backend.core.network.service import WifiShareRefusal
+from backend.shared.network import describe_network_error
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,9 @@ class SatelliteWifiService:
                         return
                     detail = await resp.text()
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            logger.warning("Could not hand WiFi '%s' to satellite %s: %s", ssid, client_ip, exc or type(exc).__name__)
+            logger.warning(
+                "Could not hand WiFi '%s' to satellite %s: %s", ssid, client_ip, describe_network_error(exc),
+            )
             return
 
         if resp.status == 404:

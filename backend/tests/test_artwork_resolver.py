@@ -513,7 +513,9 @@ class TestTheRequest:
     ):
         """The unit runs with no internet often enough — Bluetooth and a local
         library need none. Recording that as "no cover for this track" makes the
-        whole session coverless once the link comes back.
+        whole session coverless once the link comes back. The line names the
+        failure's class: a timeout's str() is empty, and interpolated alone it
+        ended the line on a colon.
         """
         http([failure])
         resolver = ArtworkResolver()
@@ -524,7 +526,8 @@ class TestTheRequest:
                     "https://itunes.apple.com/search", {"term": "A"}
                 )
 
-        assert "Artwork lookup failed" in caplog.text
+        [line] = [r.getMessage() for r in caplog.records if "Artwork lookup failed" in r.getMessage()]
+        assert type(failure).__name__ in line
 
     async def test_a_body_that_is_not_json_is_not_an_answer(self, http, no_throttle):
         """iTunes serves `text/javascript`, so the parse is deliberately lenient

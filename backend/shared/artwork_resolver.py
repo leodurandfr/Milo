@@ -48,6 +48,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
+from backend.shared.network import describe_network_error
+
 logger = logging.getLogger(__name__)
 
 _ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
@@ -404,7 +406,7 @@ class ArtworkResolver:
                     logger.info(f"iTunes {url} -> HTTP {status}")
                     raise _LookupUnavailable(url)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
-            logger.info(f"Artwork lookup failed ({params}): {e}")
+            logger.info(f"Artwork lookup failed ({params}): {describe_network_error(e)}")
             raise _LookupUnavailable(url) from e
 
         if not isinstance(data, dict):
