@@ -11,9 +11,10 @@ at warning, and one raise for the route's one line. A member that refused reads
 the same way whichever one dropped it.
 """
 import logging
-from typing import Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
-from backend.core.equalizer.client_proxy import MembersNotApplied, is_satellite_unreachable
+if TYPE_CHECKING:
+    from backend.core.equalizer.client_proxy import MembersNotApplied
 
 
 def _line(context: str, member, result) -> str:
@@ -48,7 +49,7 @@ def members_not_applied(
     members: Sequence,
     results: Sequence,
     is_local: Callable[[str], bool],
-) -> Optional[MembersNotApplied]:
+) -> Optional["MembersNotApplied"]:
     """The members of a fan-out a route answers for that did not take it, by why.
 
     Read like ``failed_members``, but each member is said at warning, and the
@@ -62,6 +63,12 @@ def members_not_applied(
     unreachable; anything else a satellite did (a False answer, a 500) is a
     refusal too, as is any miss of this unit (``is_local``).
     """
+    # Imported here, not at the top: core.equalizer's package imports this
+    # module (multiroom_service), so a top-level import made whichever of the
+    # two was imported first — crossover.py imports this one first at boot —
+    # a circular import that stopped the backend from starting.
+    from backend.core.equalizer.client_proxy import MembersNotApplied, is_satellite_unreachable
+
     refused, unreachable, local_refused = [], [], False
     for member, result in zip(members, results):
         if not isinstance(result, BaseException) and result:
