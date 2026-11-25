@@ -87,8 +87,20 @@ PREV_RESTART_THRESHOLD_S = 3
 # boundary; a short TTL bounds staleness from the watcher/scheduled scans (an
 # explicit rescan or share change invalidates it at once).
 ALBUM_CACHE_TTL_S = 30.0
-# getAlbumList2's per-request ceiling — loop by it to pull the whole catalog.
-_ALBUM_PAGE = 500
+# getAlbumList2's per-request ceiling — loop by it to pull the whole catalog
+# (and a whole genre: routes._whole_genre pages by it too).
+ALBUM_PAGE = 500
+# How many getPlaylist reads one fan-out keeps in flight (the placement of the
+# unrecorded playlists, the Playlists tab's counts): a library of imported .m3u
+# files is dozens of playlists, each read whole, against a Navidrome on a Pi
+# that may be indexing. Podcast bounds its feed fan-out the same way.
+_PLAYLIST_READS = 8
+
+
+class _PlaylistUnread(Exception):
+    """A playlist's read that Navidrome answered with an error (or with no
+    client yet): nothing to place the playlist by, for this load."""
+
 
 # What `loop-file` is set to while the track repeats: mpv's ceiling for the
 # option (10001 is refused, measured on 0.40). Not `inf`, because a finite
@@ -286,6 +298,11 @@ class MusicLibrarySource(MpvAudioSource):
         # playlist id → its first track's album id, for placing a playlist Milō
         # did not create in a storage space (see playlists_in_scope).
         self._playlist_album: Dict[str, Optional[str]] = {}
+        # playlist id → (Navidrome's ``changed`` stamp, its entries), so a
+        # playlist is read once per change rather than on every load of the
+        # Playlists tab (see playlist_entries); and the bound on those reads.
+        self._playlist_entries: Dict[str, Tuple[str, List[Dict[str, Any]]]] = {}
+        self._playlist_reads = asyncio.Semaphore(_PLAYLIST_READS)
         # The one initialization (see initialize), awaited by every caller.
         self._init_task: Optional[asyncio.Task] = None
 
@@ -438,7 +455,9 @@ class MusicLibrarySource(MpvAudioSource):
         a failed page of any other album list. Read as the catalog, a partial
         inventory drops every track past the break as unmounted: an album opened
         with no songs, a two-CD set with one disc, nothing said. A listing (this
-        grid, the playlist pane) keeps the partial answer.
+        grid, the playlist pane) keeps the partial answer — the playlist pane's
+        counts included: a strict walk that stops short leaves Navidrome's own
+        (see routes.get_playlists).
         """
         key = tuple(sorted(scope))
         cached = self._album_cache.get(key)
@@ -482,7 +501,7 @@ class MusicLibrarySource(MpvAudioSource):
                 page = await client.get_album_list(
                     scope,
                     list_type="alphabeticalByName",
-                    size=_ALBUM_PAGE,
+                    size=ALBUM_PAGE,
                     offset=offset,
                 )
                 if page is None:
@@ -493,9 +512,9 @@ class MusicLibrarySource(MpvAudioSource):
                     complete = False
                     break
                 albums.extend(page)
-                if len(page) < _ALBUM_PAGE:
+                if len(page) < ALBUM_PAGE:
                     break
-                offset += _ALBUM_PAGE
+                offset += ALBUM_PAGE
             merged = merge_albums(albums)
             if albums and complete and generation == self._album_generation:
                 self._album_cache[key] = (started, merged)
@@ -609,7 +628,11 @@ class MusicLibrarySource(MpvAudioSource):
         ]
 
     async def playlists_in_scope(
-        self, playlists: List[Dict[str, Any]], library_id: Optional[int] = None
+        self,
+        playlists: List[Dict[str, Any]],
+        library_id: Optional[int] = None,
+        *,
+        unread: Optional[Set[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Keep the playlists that belong to a browse scope's storage spaces.
 
@@ -640,6 +663,13 @@ class MusicLibrarySource(MpvAudioSource):
         storage space while still existing in Navidrome. A record pointing at a
         space that exists but is *away* is a different thing and is honoured: the
         playlist is out of scope, because none of it can be played.
+
+        An unrecorded playlist whose read failed — Navidrome answered it with an
+        error, or did not answer — is shown everywhere too, for this load only
+        (nothing is memoized): a read that failed says nothing about where the
+        playlist belongs, and hiding it, or failing the whole list over it, is
+        how an imported ``.m3u`` vanished from the tab while Navidrome indexed.
+        Its id is added to ``unread`` when the caller passes a set.
         """
         recorded = await self._shares.playlist_storages()
         entries = await self._shares.storages()
@@ -660,16 +690,22 @@ class MusicLibrarySource(MpvAudioSource):
             else:
                 undecided.append(playlist)
 
-        # One round-trip per unplaced playlist, all at once: they are independent
-        # and a library of imported .m3u files would otherwise serialise dozens.
+        # One round-trip per unplaced playlist, at most _PLAYLIST_READS at once:
+        # they are independent and a library of imported .m3u files would
+        # otherwise serialise dozens.
         album_of = await asyncio.gather(
-            *(self._playlist_album_id(playlist["id"]) for playlist in undecided)
+            *(self._playlist_album_id(playlist) for playlist in undecided),
+            return_exceptions=True,
         )
-        kept.extend(
-            playlist
-            for playlist, album_id in zip(undecided, album_of)
-            if album_id is not None and album_id in album_ids
-        )
+        for playlist, album_id in zip(undecided, album_of):
+            if isinstance(album_id, (_PlaylistUnread, NavidromeUnreachable)):
+                kept.append(playlist)
+                if unread is not None:
+                    unread.add(playlist["id"])
+            elif isinstance(album_id, BaseException):
+                raise album_id
+            elif album_id is not None and album_id in album_ids:
+                kept.append(playlist)
         # gather() answered out of order relative to getPlaylists; restore it.
         order = {playlist["id"]: index for index, playlist in enumerate(playlists)}
         return sorted(kept, key=lambda playlist: order[playlist["id"]])
@@ -693,37 +729,89 @@ class MusicLibrarySource(MpvAudioSource):
                 ids.add(album_id)
         return ids
 
-    async def _playlist_album_id(self, playlist_id: str) -> Optional[str]:
-        """The album of a playlist's first track (memoised), or None if empty."""
+    async def _playlist_album_id(self, playlist: Dict[str, Any]) -> Optional[str]:
+        """The album of a playlist's first track (memoised), or None if empty.
+
+        ``playlist`` is its getPlaylists row. The read goes through
+        :meth:`playlist_entries`, so the Playlists tab's count of the same
+        playlist, right after, reads nothing again. A read Navidrome answered
+        with an error raises _PlaylistUnread and one it did not answer
+        NavidromeUnreachable; neither is memoized, so the playlist is not filed
+        as empty until the next rescan.
+        """
+        playlist_id = playlist["id"]
         if playlist_id in self._playlist_album:
             return self._playlist_album[playlist_id]
-        client = await self.get_navidrome_client()
-        album_id = None
-        if client is not None:
-            playlist = await client.get_playlist(playlist_id)
-            entries = (playlist or {}).get("entry") or []
-            album_id = entries[0].get("albumId") if entries else None
+        entries = await self.playlist_entries(playlist_id, playlist.get("changed"))
+        if entries is None:
+            raise _PlaylistUnread(playlist_id)
+        album_id = entries[0].get("albumId") if entries else None
         self._playlist_album[playlist_id] = album_id
         return album_id
 
+    async def playlist_entries(
+        self, playlist_id: str, changed: Optional[str]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """A playlist's entries (``id``, ``albumId``, ``duration`` of each), read
+        at most once per change of the playlist.
+
+        ``changed`` is the stamp getPlaylists gives the playlist; an answer read
+        under the same stamp is the answer, so a load of the Playlists tab that
+        follows no edit reads no playlist at all — the tab is reloaded after
+        every playlist edit, at the end of every scan and, during one, as the
+        album count moves. Without a stamp nothing is reused. The memo is
+        dropped with the placement (:meth:`forget_playlist_placement`) and with
+        the catalog (:meth:`invalidate_album_cache`), since a rescan can take
+        an entry's song away without the playlist's stamp moving.
+
+        Reads are bounded (``_PLAYLIST_READS`` in flight). None when there is
+        no client yet or Navidrome answered with an error (an unknown id
+        answers so), neither memoized; NavidromeUnreachable when it did not
+        answer.
+        """
+        memo = self._playlist_entries.get(playlist_id)
+        if memo is not None and changed is not None and memo[0] == changed:
+            return memo[1]
+        client = await self.get_navidrome_client()
+        if client is None:
+            return None
+        async with self._playlist_reads:
+            playlist = await client.get_playlist(playlist_id)
+        if playlist is None:
+            return None
+        entries = [
+            {
+                "id": entry.get("id"),
+                "albumId": entry.get("albumId"),
+                "duration": entry.get("duration"),
+            }
+            for entry in playlist.get("entry") or []
+        ]
+        stamp = playlist.get("changed")
+        if stamp is not None:
+            self._playlist_entries[playlist_id] = (stamp, entries)
+        return entries
+
     def forget_playlist_placement(self, playlist_id: str) -> None:
-        """Drop a playlist's memoised album after its contents changed.
+        """Drop a playlist's memoised album and entries after its contents changed.
 
         Reordering or removing tracks can move the first one to another storage
         space, which is what the playlist is placed by — without this the memo
         would keep it filed under the old one until the next rescan.
         """
         self._playlist_album.pop(playlist_id, None)
+        self._playlist_entries.pop(playlist_id, None)
 
     def invalidate_album_cache(self) -> None:
         """Drop every scope's cached catalog — merged albums and artist index —
         so the next grid load rebuilds it (called after an explicit rescan or a
         share add/update/remove).
 
-        The playlist→album memo goes with it: both answer "what is in this
-        storage space", and a rescan is exactly when that changes. So does the
-        client's cover memo — a rescan is when an album gains or loses its art,
-        and the one moment an artist Deezer had no photo for is worth re-asking.
+        The playlist memos (album, entries) go with it: they answer "what is
+        in this storage space", and a rescan is exactly when that changes. So
+        does the client's cover memo — a rescan is when an album gains or loses
+        its art, and the one moment an artist Deezer had no photo for is worth
+        re-asking.
         A walk in flight is let go: it read the catalog from before the change,
         so it caches nothing, and the next caller starts a walk of its own.
         """
@@ -732,6 +820,7 @@ class MusicLibrarySource(MpvAudioSource):
         self._album_walks.clear()
         self._artist_cache.clear()
         self._playlist_album.clear()
+        self._playlist_entries.clear()
         self._artist_images.invalidate()
         if self._navidrome is not None:
             self._navidrome.invalidate_cover_memo()

@@ -678,8 +678,12 @@ class StorageManager:
             self.logger.warning("Deferred Navidrome rescan failed: %s", exc)
 
     async def _start_scan(self, client: NavidromeClient) -> None:
-        """The one place a scan is actually asked for, and the one place a scan
-        Milō asked for is announced — after Navidrome accepted it."""
+        """Where every scan asked through :meth:`request_scan` (a mount or a
+        replug, the source opening, Navidrome or a share coming back) is asked
+        for, and announced once Navidrome accepted it. ``POST /scan``
+        (routes.trigger_scan) asks for and announces its own, through
+        ``note_scan_started``, outside ``_scan_lock`` and the deferred scan:
+        these are the two announcers."""
         try:
             outcome = await client.start_scan()
         except Exception as exc:

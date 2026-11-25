@@ -1326,7 +1326,7 @@ class TestMergedAlbumCache:
             return_value=self._client([[{"id": "a1"}, {"id": "a2"}], None])
         )
 
-        with patch("backend.sources.music_library.source._ALBUM_PAGE", 2):
+        with patch("backend.sources.music_library.source.ALBUM_PAGE", 2):
             albums = await source.get_merged_albums([2])
 
         # This call still answers with what it got — a partial grid beats none.
@@ -1345,7 +1345,7 @@ class TestMergedAlbumCache:
             return_value=self._client([[{"id": "a1"}, {"id": "a2"}], None])
         )
 
-        with patch("backend.sources.music_library.source._ALBUM_PAGE", 2):
+        with patch("backend.sources.music_library.source.ALBUM_PAGE", 2):
             with pytest.raises(NavidromeUnreachable):
                 await source.mounted_album_ids()
 
@@ -1356,7 +1356,7 @@ class TestMergedAlbumCache:
         client = self._client([[{"id": "a1"}, {"id": "a2"}], [{"id": "a3"}]])
         source.get_navidrome_client = AsyncMock(return_value=client)
 
-        with patch("backend.sources.music_library.source._ALBUM_PAGE", 2):
+        with patch("backend.sources.music_library.source.ALBUM_PAGE", 2):
             albums = await source.get_merged_albums([2])
             again = await source.get_merged_albums([2])
 

@@ -567,7 +567,7 @@ class TestBrowseRoutes:
 
     def test_albums_passes_params(self, api, nav_client):
         r = api.get("/api/music-library/albums", params={
-            "type": "byGenre", "genre": "Techno", "size": 10, "offset": 5
+            "type": "alphabeticalByName", "genre": "Techno", "size": 10, "offset": 5
         })
         assert r.status_code == 200
         assert r.json() == {"albums": [{"id": "al-1"}]}
@@ -576,7 +576,7 @@ class TestBrowseRoutes:
         # without it would be a page of the whole catalog.
         assert nav_client.get_album_list.await_args.args[0] == [2]
         kwargs = nav_client.get_album_list.await_args.kwargs
-        assert kwargs["list_type"] == "byGenre"
+        assert kwargs["list_type"] == "alphabeticalByName"
         assert kwargs["genre"] == "Techno"
         assert kwargs["size"] == 10
         assert kwargs["offset"] == 5
@@ -749,34 +749,12 @@ class TestPlaylistRoutes:
         assert api.get("/api/music-library/playlists").json() == {
             "playlists": [{"id": "pl-scoped"}]
         }
-        source.playlists_in_scope.assert_awaited_once_with([{"id": "pl-1"}], None)
+        source.playlists_in_scope.assert_awaited_once()
+        assert source.playlists_in_scope.await_args.args == ([{"id": "pl-1"}], None)
 
     def test_playlist_404_when_missing(self, api, nav_client):
         nav_client.get_playlist = AsyncMock(return_value=None)
         assert api.get("/api/music-library/playlist/nope").status_code == 404
-
-    def test_a_playlist_row_counts_what_its_page_lists(self, api, source, nav_client):
-        """The Playlists tab's row and the playlist's page give one count and one
-        duration: the entries a mounted space serves. Navidrome's songCount takes
-        in an unplugged key, so the row said 2 tracks over a page listing 1."""
-        source.playlists_in_scope = AsyncMock(return_value=[
-            {"id": "pl-1", "songCount": 2, "duration": 300},
-        ])
-        nav_client.get_playlist = AsyncMock(side_effect=lambda _id: {
-            "id": "pl-1",
-            "songCount": 2,
-            "duration": 300,
-            "entry": [
-                {"id": "s-1", "albumId": "al-1", "duration": 100},
-                {"id": "s-2", "albumId": "al-unplugged", "duration": 200},
-            ],
-        })
-
-        [row] = api.get("/api/music-library/playlists").json()["playlists"]
-        page = api.get("/api/music-library/playlist/pl-1").json()["playlist"]
-
-        assert (row["songCount"], row["duration"]) == (page["songCount"], page["duration"])
-        assert row["songCount"] == 1  # non-trivial: Navidrome said 2
 
     def test_an_empty_playlist_costs_no_read(self, api, source, nav_client):
         """An empty playlist has nothing to tally: reading it anyway would add
@@ -787,32 +765,6 @@ class TestPlaylistRoutes:
 
         assert [playlist["id"] for playlist in listed] == ["pl-0"]
         nav_client.get_playlist.assert_not_awaited()
-
-    def test_a_playlist_deleted_before_its_count_is_read_is_left_out(
-        self, api, source, nav_client
-    ):
-        """A playlist deleted between the list and its read has no count to
-        show; listed anyway, its row would open on a 404."""
-        source.playlists_in_scope = AsyncMock(return_value=[
-            {"id": "gone", "songCount": 1}, {"id": "here", "songCount": 1},
-        ])
-        nav_client.get_playlist = AsyncMock(side_effect=lambda pid: None if pid == "gone" else {
-            "id": pid, "entry": [{"id": "s-1", "albumId": "al-1", "duration": 5}],
-        })
-
-        listed = api.get("/api/music-library/playlists").json()["playlists"]
-
-        assert [playlist["id"] for playlist in listed] == ["here"]
-
-    def test_a_count_navidrome_did_not_answer_is_a_503_not_a_wrong_count(
-        self, api, source, nav_client
-    ):
-        """A read Navidrome did not answer leaves the tab on its Retry, never on
-        Navidrome's own count, which is the wrong one this route replaces."""
-        source.playlists_in_scope = AsyncMock(return_value=[{"id": "pl-1", "songCount": 3}])
-        nav_client.get_playlist = AsyncMock(side_effect=NavidromeUnreachable("getPlaylist"))
-
-        assert api.get("/api/music-library/playlists").status_code == 503
 
 
 def _raw_playlist(*entries):
@@ -1331,7 +1283,7 @@ class TestAnInventoryThatDoesNotAnswer:
     (``_make_request``) and the storage list are simulated.
     """
 
-    PAGE = 500  # source._ALBUM_PAGE: a full page is what makes the walk go on
+    PAGE = 500  # source.ALBUM_PAGE: a full page is what makes the walk go on
 
     @pytest.fixture
     def inventory(self):

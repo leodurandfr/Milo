@@ -908,11 +908,15 @@ export const useMusicLibraryStore = defineStore('musicLibrary', () => {
     }
   }
 
+  // The genre's albums, whole: routes.py answers `byGenre` with every page
+  // Navidrome holds, merged once, so a box set across Navidrome's 500-album
+  // page is one row and nothing past the first page goes missing. Asking for a
+  // page here would read a merged page, shorter than its size, as the end.
   async function fetchGenreAlbums(genre) {
     const result = await apiCall.get(`${BASE}/albums`, {
       category: 'musicLibrary',
       message: 'Error loading genre',
-      params: scoped({ type: 'byGenre', genre, size: 500 }),
+      params: scoped({ type: 'byGenre', genre }),
     });
     return result.ok ? { value: result.data?.albums || [], error: null } : readFailure(result);
   }

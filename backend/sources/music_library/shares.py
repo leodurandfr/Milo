@@ -69,7 +69,10 @@ _SHARE_REMOUNT_PLATEAU_S = 300
 # measured 2026-11-22). So the idle
 # cadence sits well past that one-minute limiter, and only Navidrome's own
 # 6-hourly scan is left to it: every scan Milō asks for is announced the moment
-# Navidrome accepts it (StorageManager's scanning hook), and any catalog call
+# Navidrome accepts it, through note_scan_started (one asked through
+# StorageManager.request_scan — a mount or a replug, the source opening,
+# Navidrome or a share coming back — by its scanning hook, a press of Refresh by
+# POST /scan itself), and any catalog call
 # that goes unanswered — the client reports each one — asks the watcher at once
 # (catalog_unanswered). A poll Navidrome does not answer writes nothing, which
 # is why a catalog that is down is asked often; the active rate paces how often

@@ -450,24 +450,35 @@ async def test_unknown_playlist_is_placed_by_its_first_track(source):
     assert [p["id"] for p in kept] == ["pl-here"]
 
 
-async def test_a_playlist_the_catalog_did_not_answer_for_is_not_hidden_for_good(source):
-    # Its placement is memoised until the next rescan, so a read that never
-    # reached Navidrome remembered as "no first track" hid the playlist from
-    # every storage space for hours. The read fails the request instead, and
-    # the next one asks again.
+@pytest.mark.parametrize("failure", ["refused", "unanswered"])
+async def test_a_playlist_whose_placement_read_failed_is_shown_for_this_load_only(
+    source, failure
+):
+    # A read that failed says nothing about where the playlist belongs. Hidden,
+    # or failing the whole list over it, an imported .m3u vanished from the
+    # Playlists tab while Navidrome indexed; memoized as "empty" or as "kept",
+    # it stayed misfiled until the next rescan. So it is kept for this load,
+    # named to the caller, and the next load places it by what it holds.
     source._shares.playlist_storages = AsyncMock(return_value={})
-    client = _with_catalog(source, album_ids=["al-here"], playlist_albums={"pl-1": "al-here"})
+    client = _with_catalog(
+        source, album_ids=["al-here"], playlist_albums={"pl-1": "al-elsewhere"}
+    )
     answer = client.get_playlist.side_effect
-    client.get_playlist.side_effect = NavidromeUnreachable("getPlaylist")
+    if failure == "refused":
+        client.get_playlist.side_effect = None
+        client.get_playlist.return_value = None
+    else:
+        client.get_playlist.side_effect = NavidromeUnreachable("getPlaylist")
     playlists = [{"id": "pl-1", "songCount": 5}]
+    unread = set()
 
-    with pytest.raises(NavidromeUnreachable):
-        await source.playlists_in_scope(playlists, library_id=3)
-
-    client.get_playlist.side_effect = answer
-    kept = await source.playlists_in_scope(playlists, library_id=3)
+    kept = await source.playlists_in_scope(playlists, library_id=3, unread=unread)
 
     assert [p["id"] for p in kept] == ["pl-1"]
+    assert unread == {"pl-1"}
+
+    client.get_playlist.side_effect = answer
+    assert await source.playlists_in_scope(playlists, library_id=3) == []
 
 
 async def test_track_of_a_merged_multi_disc_album_still_places_its_playlist(source):

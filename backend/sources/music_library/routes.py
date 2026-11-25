@@ -83,7 +83,7 @@ from backend.sources.music_library.navidrome_client import (
     ScanRequest,
 )
 from backend.sources.music_library.shares import ShareLoginNeedsPassword
-from backend.sources.music_library.source import MusicLibrarySource
+from backend.sources.music_library.source import ALBUM_PAGE, MusicLibrarySource
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -111,14 +111,19 @@ def _keep_playable(item: Dict[str, Any], key: str, album_ids: set) -> None:
     In place, and the two header fields that describe those entries are retallied
     with them: left at their catalog values, ``songCount`` and ``duration`` would
     announce tracks the page no longer lists (AlbumView reads both, and
-    ``GET /playlists`` hands both to the playlist rows from here). Every entry
+    ``GET /playlists`` counts its rows by the same rule). Every entry
     carries its own ``albumId``, so a merged multi-disc set spanning a mounted
     and an absent space keeps exactly the discs that play.
     """
     kept = [entry for entry in item.get(key) or [] if _is_playable(entry, album_ids)]
     item[key] = kept
-    item["songCount"] = len(kept)
-    item["duration"] = sum(int(entry.get("duration") or 0) for entry in kept)
+    _tally(item, kept)
+
+
+def _tally(item: Dict[str, Any], entries: List[Dict[str, Any]]) -> None:
+    """Set an item's ``songCount`` and ``duration`` to those of ``entries``."""
+    item["songCount"] = len(entries)
+    item["duration"] = sum(int(entry.get("duration") or 0) for entry in entries)
 
 
 def _reordered(
@@ -328,6 +333,12 @@ async def get_albums(
     (the only paged browse) the merge runs over the *whole* catalog — cached on
     the source — so a disc pair is never split across a page boundary; other
     list types merge within the returned page.
+
+    ``byGenre`` is the genre page's Albums tab, which draws the whole genre: it
+    is answered whole, every Navidrome page read until a short one and merged
+    once, so ``size`` and ``offset`` do not apply. One page was a genre cut at
+    500 with nothing said, beside a Songs tab that lists all of it; and merged
+    page by page, a box set across the boundary was two rows.
     """
     async with _catalog_errors("Error listing albums", source):
         if type not in ALBUM_LIST_TYPES:
@@ -338,6 +349,8 @@ async def get_albums(
         if type == "alphabeticalByName" and genre is None:
             merged = await source.get_merged_albums(scope)
             return {"albums": merged[offset:offset + size]}
+        if type == "byGenre":
+            return {"albums": merge_albums(await _whole_genre(client, scope, genre))}
         albums = await client.get_album_list(
             scope,
             list_type=type,
@@ -353,6 +366,44 @@ async def get_albums(
                 status_code=503, detail="Music library catalog not ready"
             )
         return {"albums": merge_albums(albums)}
+
+
+async def _whole_genre(
+    client: NavidromeClient, scope: List[int], genre: Optional[str]
+) -> List[Dict[str, Any]]:
+    """Every album of a genre, unmerged: getAlbumList2 ``byGenre`` page after
+    page until a short one.
+
+    A page that failed (unanswered or refused) is a 503, never the end of the
+    genre. A
+    full page holding only albums already read is an offset lost on the way,
+    which would answer the same page forever: a 503 too.
+    """
+    albums: List[Dict[str, Any]] = []
+    seen: set = set()
+    while True:
+        page = await client.get_album_list(
+            scope,
+            list_type="byGenre",
+            size=ALBUM_PAGE,
+            offset=len(albums),
+            genre=genre,
+        )
+        if page is None:
+            logger.warning("A page of genre %s failed (unanswered or refused)", genre)
+            raise HTTPException(
+                status_code=503, detail="Music library catalog not ready"
+            )
+        albums.extend(page)
+        if len(page) < ALBUM_PAGE:
+            return albums
+        ids = {album.get("id") for album in page}
+        if ids <= seen:
+            logger.warning("Navidrome answered genre %s's page again", genre)
+            raise HTTPException(
+                status_code=503, detail="Music library catalog not ready"
+            )
+        seen |= ids
 
 
 # === Search ===
@@ -469,37 +520,59 @@ async def get_playlists(
     Subsonic param — for the default scope exactly as for a named storage space.
 
     ``songCount`` and ``duration`` are those of ``GET /playlist/{id}``: the
-    entries a mounted storage space serves (``_keep_playable``). Navidrome's own
+    entries a mounted storage space serves (``_is_playable``). Navidrome's own
     count takes in a key that is away, so a playlist straddling a NAS and an
     unplugged key read "20 tracks" in the list and 12 on its page. Subsonic has
-    no count by storage, so every playlist holding entries is read, all at once;
-    one deleted between the list and its read is left out, as it would 404.
+    no count by storage, so every playlist holding entries is read — once per
+    change of the playlist (``source.playlist_entries``, keyed on Navidrome's
+    ``changed``), a few at a time, and not again after the placement just read
+    it.
+
+    The recount never costs the list. A playlist whose read failed — Navidrome
+    did not answer, or answered with an error, whether the placement or the
+    count read it — keeps Navidrome's counts (and, unrecorded, is shown in every
+    scope for this load), and so does every row when the inventory of mounted
+    albums stopped short (a page of a first index past its deadline): a row with
+    Navidrome's count beats a tab on its Retry. One deleted between the list and
+    its read stays listed too, and its page answers 404.
     """
     async with _catalog_errors("Error listing playlists", source):
         client = await _require_client(source)
+        unread: set = set()
         playlists = await source.playlists_in_scope(
-            await client.get_playlists(), library_id
+            await client.get_playlists(), library_id, unread=unread
         )
-        filled = [playlist for playlist in playlists if playlist.get("songCount")]
-        if not filled:
-            return {"playlists": playlists}
-        album_ids = await source.mounted_album_ids()
-        details = await asyncio.gather(
-            *(client.get_playlist(playlist["id"]) for playlist in filled)
-        )
-        gone = set()
-        for playlist, detail in zip(filled, details):
-            if detail is None:
-                gone.add(playlist["id"])
-                continue
-            _keep_playable(detail, "entry", album_ids)
-            playlist["songCount"] = detail["songCount"]
-            playlist["duration"] = detail["duration"]
-        return {
-            "playlists": [
-                playlist for playlist in playlists if playlist["id"] not in gone
-            ]
-        }
+        # A playlist the placement could not read is not asked again here.
+        filled = [
+            playlist for playlist in playlists
+            if playlist.get("songCount") and playlist["id"] not in unread
+        ]
+        if filled:
+            try:
+                album_ids = await source.mounted_album_ids()
+            except NavidromeUnreachable as exc:
+                logger.warning("Playlist counts left as Navidrome counts them: %s", exc)
+                return {"playlists": playlists}
+            reads = await asyncio.gather(
+                *(
+                    source.playlist_entries(playlist["id"], playlist.get("changed"))
+                    for playlist in filled
+                ),
+                return_exceptions=True,
+            )
+            for playlist, entries in zip(filled, reads):
+                if isinstance(entries, list):
+                    _tally(playlist, [e for e in entries if _is_playable(e, album_ids)])
+                elif entries is None or isinstance(entries, NavidromeUnreachable):
+                    unread.add(playlist["id"])
+                else:
+                    raise entries
+        if unread:
+            logger.warning(
+                "Playlists left at Navidrome's count, their read failed: %s",
+                ", ".join(sorted(unread)),
+            )
+        return {"playlists": playlists}
 
 
 @router.get("/playlists/containing")
@@ -792,7 +865,9 @@ async def trigger_scan(
 ) -> Dict[str, Any]:
     """Kick a Navidrome library rescan on demand ("I added music, refresh now").
 
-    The only scan Milo ever asks for, and it covers both halves of a refresh:
+    Milō asks for a scan here and through StorageManager.request_scan (a mount
+    or a replug, the source opening, Navidrome or a share coming back); either
+    covers both halves of a refresh:
     Navidrome walks the tree and *marks* what it cannot find, which is all that
     "remove deleted music" means here — the Subsonic API excludes a marked track
     from every answer, so it leaves the UI whether or not its row is ever purged
