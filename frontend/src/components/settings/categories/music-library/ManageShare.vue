@@ -52,13 +52,16 @@
 
         <!-- Error -->
         <NoticeBox v-if="errorMessage" :detail="errorDetail">{{ errorMessage }}</NoticeBox>
-      </SectionCard>
 
-      <!-- Remove (edit only) — two-tap inline confirm, like the power menu. -->
-      <Button v-if="isEditMode" variant="important" size="medium" type="button"
-        :loading="isRemoving" :disabled="isSubmitting || isRemoving" @click="handleRemove">
-        {{ confirmRemove ? t('musicLibrary.shares.confirmRemove') : t('musicLibrary.shares.remove') }}
-      </Button>
+        <!-- Remove (edit only) — two-tap inline confirm, like the power menu.
+             Inside the card: the sticky Save below floats over the card's
+             content while it scrolls, and drawn between the two it was
+             another button the Save half covered. -->
+        <Button v-if="isEditMode" variant="important" size="medium" type="button"
+          :loading="isRemoving" :disabled="isSubmitting || isRemoving" @click="handleRemove">
+          {{ confirmRemove ? t('musicLibrary.shares.confirmRemove') : t('musicLibrary.shares.remove') }}
+        </Button>
+      </SectionCard>
 
       <!-- Save — sticky, and only once there's something to save. -->
       <Button v-if="showSubmit" variant="brand" size="medium" type="submit" class="apply-button-sticky" floating
