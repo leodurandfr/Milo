@@ -456,7 +456,7 @@ def test_ci_names_the_repository_it_runs_in():
     """The workflow's repository argument is the run's own repository, never a
     literal: a fork's image is the fork's."""
     text = _code(BUILD_IMAGE.read_text())
-    call = re.search(r'checkout-env\.sh\s+"\$\{MILO_REF\}"\s+"([^"]+)"', text)
+    call = re.search(r'checkout-env\.sh\s+"\$\{MILO_COMMIT\}"\s+"([^"]+)"', text)
     assert call, "the workflow's call to checkout-env.sh is not the expected shape"
     assert call.group(1) == "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git", call.group(1)
 

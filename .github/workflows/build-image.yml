@@ -39,12 +39,19 @@ jobs:
   # `release_manifest_url` in backend/core/updates/catalog.py to download them
   # during an OTA update, and the spellings are pinned together by
   # backend/tests/architecture/test_release_channel.py.
+  #
+  # The commit too, resolved here once: every job that reads the tree checks it
+  # out, and the image clones it. A branch name is read anew by each reader —
+  # three checkouts, then the chroot's clone hours into the build — and main
+  # moves several times a day, so naming the branch built an image of one
+  # commit's stage and frontend around another commit's checkout.
   vars:
     name: Resolve what is being built
     if: github.event_name != 'schedule' || github.repository == 'leodurandfr/Milo'
     runs-on: ubuntu-24.04
     outputs:
       milo_ref: ${{ steps.set.outputs.milo_ref }}
+      milo_commit: ${{ steps.set.outputs.milo_commit }}
       image_name: ${{ steps.set.outputs.image_name }}
       is_release: ${{ steps.set.outputs.is_release }}
       is_prerelease: ${{ steps.set.outputs.is_prerelease }}
@@ -57,6 +64,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "push" ]]; then
             # Tag push: the release being built.
             REF="${GITHUB_REF#refs/tags/}"
+            COMMIT="${GITHUB_SHA}"
             echo "image_name=milo-${REF}" >> "$GITHUB_OUTPUT"
             echo "is_release=true" >> "$GITHUB_OUTPUT"
             # A tag carrying a suffix — v0.2.0-rc1, v0.3.0-beta.2 — is a
@@ -73,12 +81,27 @@ jobs:
             fi
           else
             REF="${{ github.event.inputs.branch || 'main' }}"
-            SHORT_SHA="${GITHUB_SHA:0:7}"
-            echo "image_name=milo-${REF}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            # The ref's commit, not the one the run was launched from: a
+            # dispatch of a tag from main is that tag. Read from the URL the
+            # image clones, as the clone reads it: a tag peeled to its commit,
+            # else the branch — or a full hash, taken as it is.
+            if [[ "${REF}" =~ ^[0-9a-f]{40}$ ]]; then
+              COMMIT="${REF}"
+            else
+              COMMIT="$(git ls-remote "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" \
+                  "refs/tags/${REF}" "refs/tags/${REF}^{}" "refs/heads/${REF}" | awk -v ref="${REF}" '
+                $2 == "refs/tags/" ref "^{}" { peeled = $1 }
+                $2 == "refs/tags/" ref       { tag = $1 }
+                $2 == "refs/heads/" ref      { head = $1 }
+                END { print (peeled != "" ? peeled : (tag != "" ? tag : head)) }')"
+            fi
+            echo "image_name=milo-${REF}-${COMMIT:0:7}" >> "$GITHUB_OUTPUT"
             echo "is_release=false" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
+          [[ "${COMMIT}" =~ ^[0-9a-f]{40}$ ]] || { echo "cannot resolve ${REF} to a commit: '${COMMIT}'" >&2; exit 1; }
           echo "milo_ref=${REF}" >> "$GITHUB_OUTPUT"
+          echo "milo_commit=${COMMIT}" >> "$GITHUB_OUTPUT"
           echo "frontend_asset=milo-frontend-${REF}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "release_manifest=milo-release-${REF}.manifest" >> "$GITHUB_OUTPUT"
 
@@ -97,7 +120,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ needs.vars.outputs.milo_ref }}
+          ref: ${{ needs.vars.outputs.milo_commit }}
           persist-credentials: false
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -138,7 +161,7 @@ jobs:
     needs: vars
     uses: ./.github/workflows/lint.yml
     with:
-      ref: ${{ needs.vars.outputs.milo_ref }}
+      ref: ${{ needs.vars.outputs.milo_commit }}
     # A called workflow may only narrow what its caller grants, and GitHub
     # refuses the whole run when a nested job declares more — milo-mac-freshness
     # declares issues: write, though it is skipped when called.
@@ -166,9 +189,18 @@ jobs:
       # the file the checkout would write it to. The release step takes the
       # token as its own input, and the tag fetch below reads a public
       # repository.
+      #
+      # At the commit being built, like the frontend and checks jobs:
+      # everything this job takes from its own tree — pi-gen/config, the stage,
+      # dependencies.env, system-manifest.env and the tree the inspection
+      # compares against — must be the tree the image clones. Without `ref:` a
+      # manual dispatch of another ref took them all from the branch it was
+      # launched from and cloned the ref it named, three hours for an image of
+      # two trees.
       - name: Checkout Milo
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ needs.vars.outputs.milo_commit }}
           persist-credentials: false
 
       - name: Free disk space
@@ -203,7 +235,7 @@ jobs:
 
       - name: Configure pi-gen
         env:
-          MILO_REF: ${{ needs.vars.outputs.milo_ref }}
+          MILO_COMMIT: ${{ needs.vars.outputs.milo_commit }}
         run: |
           # Copy Milo configuration
           cp pi-gen/config pi-gen-build/config
@@ -212,12 +244,15 @@ jobs:
           cp -r pi-gen/stage-milo pi-gen-build/stage-milo
 
           # What the image clones: the repository running this workflow, at the
-          # ref being built. It travels beside the stage like the files below,
-          # written by the helper pi-gen/build.sh calls too. Not in pi-gen's
-          # config: pi-gen sources it without exporting it, so the MILO_BRANCH
-          # line once appended there never reached the stage script, a child
-          # process, and every image this workflow built cloned main.
-          pi-gen/checkout-env.sh "${MILO_REF}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" \
+          # commit being built — never the ref's name, which the chroot would
+          # read again hours from now (a tag's checkout is the same detached
+          # commit either way, and `git describe` still names the tag). It
+          # travels beside the stage like the files below, written by the
+          # helper pi-gen/build.sh calls too. Not in pi-gen's config: pi-gen
+          # sources it without exporting it, so the MILO_BRANCH line once
+          # appended there never reached the stage script, a child process, and
+          # every image this workflow built cloned main.
+          pi-gen/checkout-env.sh "${MILO_COMMIT}" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" \
              > pi-gen-build/stage-milo/milo-checkout.env
 
           # The validated dependency set travels with the stage. 01-install-audio
@@ -270,8 +305,9 @@ jobs:
       # either way, so a bad image can still be pulled down and looked at. The
       # verdict is enforced at the end.
       #
-      # It compares against this checkout, which for a tag build and for a
-      # dispatch of `main` is the same tree the image cloned.
+      # It compares against this job's checkout, which is the commit the image
+      # cloned (it checks that too): both are the commit the vars job resolved,
+      # whatever the run was launched from and wherever the ref moved since.
       - name: Inspect image
         id: inspect
         continue-on-error: true

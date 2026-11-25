@@ -28,6 +28,7 @@ import hashlib
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -216,8 +217,11 @@ def test_the_workflow_publishes_the_asset_the_backend_downloads(workflow):
 
 def test_the_release_carries_the_asset_and_its_checksum(workflow):
     """A truncated download extracts into a tree that is *almost* a frontend,
-    and nginx serves it. The sidecar is what the install verifies against, so a
-    release published without one cannot be installed at all.
+    and nginx serves it. A signed release checks its frontend against its
+    manifest's `frontend_sha256`, never the sidecar; the sidecar is what the
+    releases from before signing (v0.1.4 and earlier) install the next one by,
+    so a release published without one is a release none of them can install.
+    Frozen by invariant 9 for them.
     """
     release_steps = [
         step for step in workflow["build"]["steps"]
@@ -314,7 +318,7 @@ def test_a_release_is_built_only_from_a_tree_the_ci_checks_passed_on(workflow):
     assert callers, "build-image.yml never runs the CI checks"
     assert set(callers) <= set(workflow["build"]["needs"]), workflow["build"]["needs"]
     for name in callers:
-        assert workflow[name]["with"]["ref"] == "${{ needs.vars.outputs.milo_ref }}", name
+        assert workflow[name]["with"]["ref"] == "${{ needs.vars.outputs.milo_commit }}", name
     # The checks run on the tree being built, not on the commit that triggered
     # the run: the two differ on a manual dispatch of another ref.
     for job in ("backend", "frontend"):
@@ -323,6 +327,88 @@ def test_a_release_is_built_only_from_a_tree_the_ci_checks_passed_on(workflow):
             if step.get("uses", "").startswith("actions/checkout")
         )
         assert checkout.get("with", {}).get("ref") == "${{ inputs.ref }}", job
+
+
+MILO_COMMIT = "${{ needs.vars.outputs.milo_commit }}"
+
+
+def test_every_job_that_reads_the_tree_reads_the_commit_being_built(workflow):
+    """One run, one tree. On a manual dispatch a checkout with no `ref:` takes
+    the branch the run was launched from, not the ref it names: the build job
+    took the stage, dependencies.env, system-manifest.env and the tree the
+    inspection compares against from main, while the image cloned the ref and
+    installed that ref's frontend — three hours for an image of two trees,
+    judged against the wrong one. And a branch's name is read anew by each
+    reader, hours apart, while main moves under them: so every reader takes the
+    one commit the vars job resolved, the chroot's clone included. Fails when
+    the frontend, checks or build job, or the clone, reads any other ref.
+    """
+    checkouts = {
+        job: [step for step in workflow[job]["steps"]
+              if str(step.get("uses", "")).startswith("actions/checkout@")]
+        for job in ("frontend", "build")
+    }
+    assert all(checkouts.values()), f"a job that reads the tree no longer checks it out: {checkouts}"
+    wrong = {
+        job: [step.get("with", {}).get("ref") for step in steps]
+        for job, steps in checkouts.items()
+        if any(step.get("with", {}).get("ref") != MILO_COMMIT for step in steps)
+    }
+    assert not wrong, f"checkouts at another ref than {MILO_COMMIT}: {wrong}"
+    # The checks job checks out inside lint.yml, which the test above holds to
+    # `inputs.ref`; what it is handed is held here.
+    assert workflow["checks"]["with"]["ref"] == MILO_COMMIT, workflow["checks"]
+    # The commit is resolved once, by the vars job, and is what the image clones.
+    assert workflow["vars"]["outputs"].get("milo_commit") == "${{ steps.set.outputs.milo_commit }}", (
+        workflow["vars"]["outputs"])
+    configure = [step for step in workflow["build"]["steps"] if "checkout-env.sh" in str(step.get("run", ""))]
+    assert len(configure) == 1, f"expected one step writing what the image clones, found {len(configure)}"
+    assert configure[0].get("env", {}).get("MILO_COMMIT") == MILO_COMMIT, configure[0].get("env")
+    assert re.search(r'checkout-env\.sh\s+"\$\{MILO_COMMIT\}"', configure[0]["run"]), (
+        "the image clones another ref than the commit being built")
+
+
+@pytest.mark.parametrize("event, ref", [
+    ("push", "v1.2.3"), ("workflow_dispatch", "v1.2.3"), ("workflow_dispatch", "main"), ("schedule", "main"),
+])
+def test_the_commit_being_built_is_the_refs_own(workflow, tmp_path, event, ref):
+    """The vars job's script, run as the runner runs it, against a stand-in of
+    the repository the image clones: a tag push builds the commit it pushed, and
+    a dispatch or the schedule builds the commit the ref names on that
+    repository — an annotated tag peeled to its commit — never the one the run
+    was launched from (GITHUB_SHA, main's head, on a dispatch of a tag). Fails
+    when the commit the whole run is pinned to is another one."""
+    bare, work = tmp_path / "remote.git", tmp_path / "work"
+    url = "https://github.com/someone/Milo.git"
+    env = {
+        **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.file://{bare}.insteadOf", "GIT_CONFIG_VALUE_0": url,
+    }
+    _git_in(env, tmp_path, "init", "-q", "-b", "main", str(work))
+    _git_in(env, work, "commit", "-q", "--allow-empty", "-m", "the release")
+    _git_in(env, work, "tag", "-a", "v1.2.3", "-m", "v1.2.3")
+    tagged = _git_in(env, work, "rev-parse", "HEAD")
+    _git_in(env, work, "commit", "-q", "--allow-empty", "-m", "main moved on")
+    head = _git_in(env, work, "rev-parse", "HEAD")
+    _git_in(env, tmp_path, "clone", "-q", "--bare", str(work), str(bare))
+
+    steps = [step for step in workflow["vars"]["steps"] if step.get("id") == "set"]
+    assert len(steps) == 1, "the vars job's `set` step is gone"
+    script = steps[0]["run"].replace("${{ github.event_name }}", event).replace(
+        "${{ github.event.inputs.branch || 'main' }}", ref)
+    assert "${{" not in script, f"the vars script reads another expression: {script}"
+    out = tmp_path / "out"
+    result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True, timeout=30, env={
+        **env, "GITHUB_OUTPUT": str(out), "GITHUB_REF": f"refs/tags/{ref}",
+        "GITHUB_SHA": tagged if event == "push" else head,
+        "GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "someone/Milo"})
+    assert result.returncode == 0, result.stderr
+    outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
+    assert outputs["milo_ref"] == ref, outputs
+    assert outputs["milo_commit"] == (tagged if ref == "v1.2.3" else head), outputs
 
 
 def test_the_image_stage_installs_the_frontend_instead_of_building_it(stage_scripts):
@@ -377,6 +463,137 @@ def test_both_image_builders_hand_the_stage_the_same_file(stage_scripts):
     # The local builder has no CI job to take the artefact from, so it builds it
     # — from the lockfile, like the workflow does.
     assert "npm ci" in local, "the local builder re-resolves its dependencies"
+
+
+# A local build, run for real up to the point where it would fetch pi-gen: a
+# throwaway checkout holding the builder and one file in each place it copies
+# from, cloned by the image from a bare repository behind an https URL. Named by
+# MILO_REPO, not as the checkout's origin: git rewrites an origin's URL through
+# `insteadOf` when it is read, and checkout-env.sh would refuse the file:// URL.
+LOCAL_ORIGIN = "https://github.com/fork/Milo.git"
+LOCAL_BUILD_INPUTS = (
+    "dependencies.env", "system-manifest.env", "pi-gen/config",
+    "pi-gen/stage-milo/00-install-deps/00-run.sh", "frontend/package.json", "THIRD_PARTY_NOTICES.md",
+)
+FETCHING_PI_GEN = "Fetching pi-gen"
+
+
+def _git_in(env, cwd, *args) -> str:
+    return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True,
+                          timeout=30, env=env).stdout.strip()
+
+
+@pytest.fixture
+def local_checkout(tmp_path):
+    """A checkout at v1.1.0 = main, pushed, with v1.0.0 one commit behind, and
+    the environment that runs its builder offline."""
+    bare = tmp_path / "remote.git"
+    env = {
+        **{k: v for k, v in os.environ.items() if not k.startswith(("MILO_", "GIT_"))},
+        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": f"url.file://{bare}.insteadOf", "GIT_CONFIG_VALUE_0": LOCAL_ORIGIN,
+        "MILO_REPO": LOCAL_ORIGIN,
+    }
+    checkout = tmp_path / "checkout"
+    (checkout / "pi-gen").mkdir(parents=True)
+    for name in ("build.sh", "checkout-env.sh"):
+        shutil.copy2(LOCAL_BUILDER.parent / name, checkout / "pi-gen" / name)
+    # pi-gen from nowhere: a build that gets past the check stops at the fetch.
+    (checkout / "pi-gen" / "upstream.env").write_text(
+        f"PIGEN_REPO={tmp_path / 'no-pi-gen'}\nPIGEN_COMMIT={'0' * 40}\n")
+    for rel in LOCAL_BUILD_INPUTS:
+        (checkout / rel).parent.mkdir(parents=True, exist_ok=True)
+        (checkout / rel).write_text("v1.0.0\n")
+    _git_in(env, tmp_path, "init", "-q", "-b", "main", str(checkout))
+    _git_in(env, checkout, "add", "-A")
+    _git_in(env, checkout, "commit", "-q", "-m", "one")
+    _git_in(env, checkout, "tag", "-a", "v1.0.0", "-m", "v1.0.0")
+    (checkout / "system-manifest.env").write_text("v1.1.0\n")
+    _git_in(env, checkout, "commit", "-q", "-am", "two")
+    _git_in(env, checkout, "tag", "-a", "v1.1.0", "-m", "v1.1.0")
+    _git_in(env, tmp_path, "clone", "-q", "--bare", str(checkout), str(bare))
+    # The fixture's own premise: the origin answers, through the URL the image clones.
+    assert _git_in(env, checkout, "ls-remote", LOCAL_ORIGIN, "v1.1.0"), "the stand-in origin does not answer"
+    return checkout, env
+
+
+def _build_locally(local_checkout, ref: str) -> subprocess.CompletedProcess:
+    checkout, env = local_checkout
+    return subprocess.run(["bash", str(checkout / "pi-gen" / "build.sh"), "--native"], capture_output=True,
+                          text=True, timeout=60, env={**env, "MILO_BRANCH": ref})
+
+
+def _refused(result: subprocess.CompletedProcess) -> bool:
+    if FETCHING_PI_GEN in result.stdout:
+        return False
+    assert result.returncode != 0 and "Build from the ref you want" in result.stderr, (
+        f"the build stopped before the fetch for another reason: {result.stdout}{result.stderr}")
+    return True
+
+
+@pytest.mark.parametrize("ref", ["main", "v1.1.0", "head-sha"])
+def test_a_local_build_of_the_checked_out_ref_goes_ahead(local_checkout, ref):
+    """The check refuses only what it must: a build of the ref this checkout
+    sits on, as its origin holds it, reaches the pi-gen fetch as before."""
+    if ref == "head-sha":
+        ref = _git_in(local_checkout[1], local_checkout[0], "rev-parse", "--short=12", "HEAD")
+    result = _build_locally(local_checkout, ref)
+    assert not _refused(result), result.stderr
+    # And the image clones the commit checked, by its hash: the branch's name,
+    # read again by the chroot hours later, may have moved.
+    head = _git_in(local_checkout[1], local_checkout[0], "rev-parse", "HEAD")
+    assert f"MILO_BRANCH={head}" in result.stdout, result.stdout
+    assert not _git_in(local_checkout[1], local_checkout[0], "for-each-ref", "refs/milo-build-check"), (
+        "the check left its refs behind in the checkout")
+
+
+@pytest.mark.parametrize("ref, change", [
+    ("v1.0.0", None),
+    ("v9.9.9", None),
+    ("main", "unpushed"),
+    ("main", "system-manifest.env"),
+    ("main", "pi-gen/stage-milo/04-new/00-run.sh"),
+    ("main", "frontend/src/App.vue"),
+    ("main", "THIRD_PARTY_NOTICES.md"),
+    ("head-sha", "unpushed"),
+])
+def test_a_local_build_of_another_tree_than_the_checkout_is_refused(local_checkout, ref, change):
+    """The stage installs the packages of this checkout's system-manifest.env,
+    then applies the unit states of the cloned ref's: built from a checkout of
+    main with `MILO_BRANCH=v1.0.0`, the image carries a package its release does
+    not declare, or fails `systemctl enable` hours in. Fails when such a build —
+    another ref, a branch with commits its origin lacks, or a copied file left
+    uncommitted — gets as far as fetching pi-gen."""
+    checkout, env = local_checkout
+    if change == "unpushed":
+        (checkout / "dependencies.env").write_text("local\n")
+        _git_in(env, checkout, "commit", "-q", "-am", "not pushed")
+    elif change:
+        (checkout / change).parent.mkdir(parents=True, exist_ok=True)
+        (checkout / change).write_text("uncommitted\n")
+    if ref == "head-sha":
+        ref = _git_in(env, checkout, "rev-parse", "--short=12", "HEAD")
+    result = _build_locally(local_checkout, ref)
+    assert _refused(result), f"MILO_BRANCH={ref} ({change}) was built: {result.stdout}"
+    assert not (checkout / "pi-gen" / "pi-gen-upstream").exists(), "refused after pi-gen was fetched"
+
+
+def test_the_dirty_check_covers_what_the_frontend_build_reads_outside_frontend():
+    """The frontend build reads files outside frontend/ (THIRD_PARTY_NOTICES.md,
+    copied into dist/): one left uncommitted puts in the image a dist that
+    differs from the checkout it clones, so the local builder's dirty check must
+    name each. Fails when a vite plugin reads a file the check does not cover."""
+    plugins = sorted((REPO_ROOT / "frontend" / "vite-plugins").glob("*.js"))
+    outside = sorted({m for p in plugins for m in re.findall(r"'\.\./\.\./([^']+)'", p.read_text())})
+    assert outside, "no vite plugin reads a file outside frontend/ any more: the extractor reads nothing"
+    match = re.search(r"status --porcelain --untracked-files=all --(.*?)\)\"", LOCAL_BUILDER.read_text(), re.S)
+    assert match, "pi-gen/build.sh no longer checks its tree for uncommitted changes"
+    pathspec = match.group(1).replace("\\", " ").split()
+    assert "frontend" in pathspec, pathspec
+    assert not set(outside) - set(pathspec), f"read by the frontend build, unchecked: {set(outside) - set(pathspec)}"
 
 
 

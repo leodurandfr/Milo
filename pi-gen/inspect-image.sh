@@ -506,6 +506,12 @@ check "no frontend build tree"  "! [ -d '$MILO_CHECKOUT/frontend/node_modules' ]
 # release unreachable from the update button. Measured, then fixed.
 check "origin fetches all branches" \
     "git -C '$MILO_CHECKOUT' config --get-all remote.origin.fetch | grep -q 'refs/heads/\*'"
+# Every other check here compares the image with this repository, so it is
+# worth something only if the image cloned this very commit: a ref's name, read
+# again by the chroot hours into the build, may have moved. Both checkouts
+# belong to other users than root (sudo), hence the safe.directory.
+image_check "checkout is the commit this repository is at" \
+    "[ \"\$(git -c safe.directory='*' -C '$MILO_CHECKOUT' rev-parse HEAD)\" = \"\$(git -c safe.directory='*' -C '$REPO' rev-parse HEAD)\" ]"
 
 if [[ -n "$REF" ]]; then
     # A suffixed tag (v0.2.0-rc1) is published too, as a pre-release, and the

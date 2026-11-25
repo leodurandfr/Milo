@@ -7,7 +7,8 @@
 # Usage:
 #   ./build.sh                    # Build using Docker (recommended)
 #   ./build.sh --native           # Build natively (requires Debian/Ubuntu host)
-#   MILO_BRANCH=v1.0.0 ./build.sh # Build a specific branch/tag
+#   MILO_BRANCH=v1.0.0 ./build.sh # Build a specific branch/tag, from a
+#                                 # checkout of it (refused otherwise)
 #   MILO_REPO=https://github.com/<owner>/<repo>.git ./build.sh
 #                                 # Clone another repository than this
 #                                 # checkout's origin (checkout-env.sh)
@@ -34,6 +35,69 @@ echo "Milo branch: ${MILO_BRANCH:-main}"
 # MILO_BRANCH. Refused here, a remote the chroot cannot clone (or one carrying a
 # token, which every flashed unit would keep as its origin) costs nothing.
 CHECKOUT_ENV="$("${SCRIPT_DIR}/checkout-env.sh" "${MILO_BRANCH:-main}" "${MILO_REPO:-}")"
+echo "${CHECKOUT_ENV}"
+echo ""
+
+# One build, one tree. The image is made of two: this checkout, which supplies
+# pi-gen/config, the stage, dependencies.env, system-manifest.env (whose packages
+# 00-install-deps installs) and the frontend; and the clone of MILO_BRANCH the
+# stage makes, from which apply-system-manifest applies the unit states and boot
+# lines. Built from another ref than this checkout's, the image carries a
+# package its release does not declare, or fails enabling a unit whose package
+# was never installed, hours into the build. So the build is refused, before
+# anything is fetched, unless HEAD is the commit the image will clone and the
+# files copied from here hold nothing uncommitted. The image then clones that
+# commit by its hash, not by the ref's name, which the chroot would read again
+# hours from now, after the branch may have moved.
+refuse_tree() {
+    printf 'ERROR: %s\n' "$1" >&2
+    echo "Build from the ref you want: check out ${CLONE_REF} (as ${CLONE_REPO} holds it) and run this script again." >&2
+    exit 1
+}
+CHECKOUT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CLONE_REPO="$(eval "${CHECKOUT_ENV}"; printf '%s' "${MILO_REPO}")"
+CLONE_REF="$(eval "${CHECKOUT_ENV}"; printf '%s' "${MILO_BRANCH}")"
+HEAD_COMMIT="$(git -C "${CHECKOUT}" rev-parse --verify HEAD)" \
+    || refuse_tree "${CHECKOUT} is not a git checkout with a commit"
+if [[ "${CLONE_REF}" =~ ^[0-9a-f]{7,40}$ && "${HEAD_COMMIT}" == "${CLONE_REF}"* ]]; then
+    # A commit named by its hash: the clone finds it only if one of the
+    # origin's branches or tags holds it. Asked of the refs themselves, fetched
+    # under a namespace of their own and dropped after — a fetch of the hash
+    # alone answers from this checkout, which always has it.
+    CHECK_REFS="refs/milo-build-check"
+    git -C "${CHECKOUT}" fetch --quiet --no-tags "${CLONE_REPO}" \
+        "+refs/heads/*:${CHECK_REFS}/heads/*" "+refs/tags/*:${CHECK_REFS}/tags/*" \
+        || refuse_tree "cannot read the refs of ${CLONE_REPO}"
+    HOLDER="$(git -C "${CHECKOUT}" for-each-ref --count=1 --contains HEAD "${CHECK_REFS}")"
+    git -C "${CHECKOUT}" for-each-ref --format='delete %(refname)' "${CHECK_REFS}" \
+        | git -C "${CHECKOUT}" update-ref --stdin
+    [[ -n "${HOLDER}" ]] || refuse_tree "${CLONE_REPO} holds no branch or tag containing ${HEAD_COMMIT}"
+    CLONE_COMMIT="${HEAD_COMMIT}"
+else
+    # What the stage's `git checkout --force <ref>` lands on in a fresh clone:
+    # the tag (peeled to its commit — ls-remote lists the peeled line only for a
+    # pattern naming it), else the branch as the remote holds it — not this
+    # checkout's, which may carry commits nobody pushed.
+    REMOTE_REFS="$(git -C "${CHECKOUT}" ls-remote "${CLONE_REPO}" "${CLONE_REF}" "${CLONE_REF}^{}")" \
+        || refuse_tree "cannot read the refs of ${CLONE_REPO}"
+    CLONE_COMMIT="$(awk -v ref="${CLONE_REF}" '
+        $2 == "refs/tags/" ref "^{}" { peeled = $1 }
+        $2 == "refs/tags/" ref       { tag = $1 }
+        $2 == "refs/heads/" ref      { head = $1 }
+        END { print (peeled != "" ? peeled : (tag != "" ? tag : head)) }' <<< "${REMOTE_REFS}")"
+    [[ -n "${CLONE_COMMIT}" ]] || refuse_tree "${CLONE_REPO} has no tag or branch named ${CLONE_REF}"
+fi
+[[ "${HEAD_COMMIT}" == "${CLONE_COMMIT}" ]] \
+    || refuse_tree "this checkout is at ${HEAD_COMMIT}, the image would clone ${CLONE_REF} at ${CLONE_COMMIT}"
+# THIRD_PARTY_NOTICES.md lies outside frontend/, and the frontend build copies
+# it into dist/ (frontend/vite-plugins/).
+DIRTY="$(git -C "${CHECKOUT}" status --porcelain --untracked-files=all -- \
+    dependencies.env system-manifest.env pi-gen/config pi-gen/upstream.env pi-gen/stage-milo frontend \
+    THIRD_PARTY_NOTICES.md)"
+[[ -z "${DIRTY}" ]] \
+    || refuse_tree "uncommitted changes in what this script copies into the image:"$'\n'"${DIRTY}"
+CHECKOUT_ENV="$("${SCRIPT_DIR}/checkout-env.sh" "${CLONE_COMMIT}" "${CLONE_REPO}")"
+echo "The image clones ${CLONE_REF} as this commit:"
 echo "${CHECKOUT_ENV}"
 echo ""
 
