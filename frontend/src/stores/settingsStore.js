@@ -30,6 +30,15 @@ export const useSettingsStore = defineStore('settings', () => {
   // The "WiFi lost" banner. Before setup the wizard says what to do itself.
   const networkLost = computed(() => setupCompleted.value === true && linkLost.value === true);
 
+  // === A WRITE REFUSED AFTER ITS SCREEN LEFT ===
+  // The server's detail for a write a settings screen sent as it left — a
+  // debounced one useSettingsAPI flushes on unmount, or one still in flight —
+  // and the server refused. The screen that would have said it is gone, so
+  // SettingsModal says it under whichever view it shows, until the next
+  // navigation or the modal closes; a refusal landing after the modal closed
+  // is said at its next opening (useLeftScreenRefusal).
+  const leftScreenRefusal = ref(null);
+
   // === LOADING STATE ===
   const isLoading = ref(false);
   // Whether any bulk read has landed: until then every ref holds its default.
@@ -599,6 +608,10 @@ export const useSettingsStore = defineStore('settings', () => {
     hotspotActive.value = value;
   }
 
+  function updateLeftScreenRefusal(detail) {
+    leftScreenRefusal.value = detail;
+  }
+
   function updateLinkLost(value) {
     linkLost.value = value;
   }
@@ -642,6 +655,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setupCompleted,
     hotspotActive,
     linkLost,
+    leftScreenRefusal,
     networkLost,
     isLoading,
     isLoaded,
@@ -678,6 +692,7 @@ export const useSettingsStore = defineStore('settings', () => {
     refreshSetupCompleted,
     updateHotspotActive,
     updateLinkLost,
+    updateLeftScreenRefusal,
     updateLanguage,
     updateVolumeLimits,
     updateVolumeStartup,

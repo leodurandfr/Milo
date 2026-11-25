@@ -134,14 +134,14 @@ export function useNetwork() {
   const overRecoveryAp = computed(() => useSettingsStore().hotspotActive && !isKiosk());
 
   // Settings › Network draws the preferred network in a row of its own, whose
-  // one action is Forget, and leaves it out of the list below. Over the
-  // recovery AP that Forget is refused (RecoveryAccessPointGuard) and the
-  // network is the one the unit lost — the "WiFi lost" banner sends the reader
-  // to type its key again — so the row draws no Forget and the list keeps the
-  // network, the only place a key is typed.
+  // one action is Forget, and leaves it out of the list below. While the
+  // recovery AP is up the network is the one the unit lost — the "WiFi lost"
+  // banner sends every reader, the kiosk's included, to type its key again —
+  // so the list keeps it, the only place a key is typed. Only a client of the
+  // AP loses the Forget, which RecoveryAccessPointGuard refuses it.
   const preferredForgettable = computed(() => !overRecoveryAp.value);
   const listExcludedSsid = computed(() =>
-    preferredForgettable.value ? (preferredNetwork.value?.ssid ?? null) : null
+    useSettingsStore().hotspotActive ? null : (preferredNetwork.value?.ssid ?? null)
   );
 
   function selectNetwork(network) {

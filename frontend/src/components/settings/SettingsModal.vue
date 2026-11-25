@@ -158,6 +158,8 @@
 
     </Transition>
     </div>
+    <!-- A write a screen sent as it left, refused once it was gone. -->
+    <SettingsRefusal :detail="settingsStore.leftScreenRefusal" />
   </div>
 </template>
 
@@ -172,6 +174,7 @@ import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useMacLinkStore } from '@/stores/macLinkStore';
 import { useRadioStore } from '@/stores/radioStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
+import { useLeftScreenRefusal } from '@/composables/useLeftScreenRefusal';
 import { useViewTransition } from '@/composables/useViewTransition';
 import { logger } from '@/services/logger';
 import { apiCall } from '@/services/apiCall';
@@ -181,6 +184,7 @@ import IconButton from '@/components/ui/IconButton.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import NoticeBox from '@/components/ui/NoticeBox.vue';
+import SettingsRefusal from '@/components/settings/SettingsRefusal.vue';
 import { SETTINGS_ICONS } from '@/components/settings/settingsIcons';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 import SectionCard from '@/components/ui/SectionCard.vue';
@@ -243,6 +247,9 @@ const navHeaderRef = ref(null);
 // Navigation with scroll save/restore
 const { currentView, canGoBack, push: navPush, back: navBack, reset, goTo, pendingScrollRestore } =
   useNavigationStack('home', { scrollElRef: modalContentRef });
+// A write a screen sent as it left and the server refused, said under the
+// view that came next.
+useLeftScreenRefusal(currentView);
 
 const stationToEdit = ref(null);
 const shareToEdit = ref(null);

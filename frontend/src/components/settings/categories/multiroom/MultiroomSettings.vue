@@ -208,13 +208,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useAnalysisRun, PROGRESS_TICK_MS } from '@/composables/useAnalysisRun';
 import { useI18n } from '@/services/i18n';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDiscoveryStore } from '@/stores/discoveryStore';
+import { useHotspotPolling } from '@/composables/useHotspotPolling';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
@@ -252,6 +253,8 @@ const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enab
 const showMessage = computed(() => {
   return multiroomClientStore.transitionState !== 'idle' || !isMultiroomActive.value;
 });
+// The hotspots are drawn in the settings branch only.
+useHotspotPolling(() => !showMessage.value);
 const isLoading = computed(() => multiroomClientStore.transitionState === 'enabling');
 // Speakers waiting while multiroom is off, at rest (not while it starts).
 const waitingSpeakers = computed(() =>
@@ -561,13 +564,8 @@ onMounted(async () => {
     multiroomClientStore.fetchPendingClients();
   }
 
-  // Start hotspot polling + load the server's network, offered as the target.
-  discoveryStore.startPolling();
+  // The server's network, offered as an adopted speaker's target.
   discoveryStore.loadServerWifi();
-});
-
-onBeforeUnmount(() => {
-  discoveryStore.stopPolling();
 });
 </script>
 

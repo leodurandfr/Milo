@@ -146,6 +146,7 @@ describe('useSettingsAPI', () => {
 
     await vi.waitFor(() => expect(store.dockApps.spotify).toBe(false));
     expect(api.refusal.value).toBe(detail.message);
+    expect(store.leftScreenRefusal).toBeNull();
   });
 
   it('a refusal answered after a newer write was sent is not undone', async () => {
@@ -192,5 +193,35 @@ describe('useSettingsAPI', () => {
 
     expect(apiCall.put).toHaveBeenCalledTimes(1);
     await vi.waitFor(() => expect(store.dockApps.spotify).toBe(false));
+  });
+
+  it('a debounced write flushed on unmount that is refused is said for the view that came next', async () => {
+    // Dock, Dock › Volume and the normalization switch debounce their writes:
+    // left within 300-500 ms of a tap, the screen that would say the refusal
+    // is gone, and SettingsModal says it from the store instead.
+    const store = useSettingsStore();
+    const { api, wrapper } = mountHost();
+    const detail = { message: 'Failed to update apps: spotify did not start', operations_log: [] };
+    apiCall.put.mockResolvedValueOnce(fail(detail, 500));
+
+    api.debouncedUpdate('dock-apps', 'dock-apps', { enabled_apps: ['radio', 'spotify'] }, 500);
+    wrapper.unmount();
+
+    await vi.waitFor(() => expect(store.leftScreenRefusal).toBe(detail.message));
+    expect(store.dockApps.spotify).toBe(false);
+  });
+
+  it('a write refused once its screen left is said for the next view too', async () => {
+    const store = useSettingsStore();
+    const { api, wrapper } = mountHost();
+    let answer;
+    apiCall.put.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+
+    const written = api.updateSetting('radio-settings', { shazam_enabled: false });
+    wrapper.unmount();
+    answer(fail('Failed to save setting', 500));
+    await written;
+
+    expect(store.leftScreenRefusal).toBe('Failed to save setting');
   });
 });

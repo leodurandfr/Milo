@@ -7,6 +7,12 @@
  * was in before the undo was shared. So every component that takes the
  * composable also takes `refusal` and hands it to a SettingsRefusal.
  *
+ * A write refused once its screen has left (a debounced write flushed on
+ * unmount: Dock, Dock › Volume, the normalization switch) has no screen of its
+ * own left to be said on, so the composable hands it to the settings store and
+ * SettingsModal says it under the next view. A writer mounted anywhere else, or
+ * a modal that stops drawing it, undoes that refusal with no word of why.
+ *
  * Mounts nothing: it reads the sources.
  */
 import { describe, it, expect } from 'vitest';
@@ -44,5 +50,17 @@ describe('a settings write that is refused is said', () => {
       .map(({ file }) => file);
 
     expect(silent).toEqual([]);
+  });
+
+  it('the settings modal mounts every one of them and says what they refused after leaving', () => {
+    const modal = stripComments(readFileSync(join(SRC, 'components/settings/SettingsModal.vue'), 'utf8'));
+    const notMounted = writers
+      .map(({ file }) => file.split('/').pop().replace(/\.vue$/, ''))
+      .filter(name => !new RegExp(`import ${name} from`).test(modal));
+
+    expect(notMounted).toEqual([]);
+    expect(modal).toMatch(/<SettingsRefusal\b[^>]*:detail="settingsStore\.leftScreenRefusal"/);
+    // How long it is said: tests/composables/useLeftScreenRefusal.test.js.
+    expect(modal).toMatch(/\buseLeftScreenRefusal\(currentView\)/);
   });
 });

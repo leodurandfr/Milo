@@ -21,12 +21,14 @@
  * gave when the socket opened — the kiosk's never reopens — so the banner never
  * shows on a unit that lost its network, or never leaves once it has one.
  *
- * Over the recovery AP, Settings › Network keeps the preferred network in the
- * list and draws no Forget on its row. What breaks if it stops holding: on a
- * unit whose network changed, the "WiFi lost" banner sends a phone on the AP to
- * type that network's key again, the list hides the very network, and the
- * row's one action is a Forget the unit refuses — a unit with no screen and no
- * Ethernet is left with no way to be given its key.
+ * While the recovery AP is up, Settings › Network keeps the preferred network
+ * in the list, on a phone on the AP and on the kiosk alike, and draws no Forget
+ * on its row for the phone. What breaks if it stops holding: on a unit whose
+ * network changed, the "WiFi lost" banner sends the reader to type that
+ * network's key again and the list hides the very network — on a phone, the
+ * row's one action is then a Forget the unit refuses, so a unit with no screen
+ * and no Ethernet has no way to be given its key; on the kiosk, the key can be
+ * typed only after a Forget nothing on the screen suggests.
  *
  * `initialize()` is called by a screen and by the network list inside it as
  * both open. What breaks if they stop being one opening: the list's call empties
@@ -212,12 +214,14 @@ describe('the preferred network over the recovery AP', () => {
     expect(preferredForgettable.value).toBe(true);
   });
 
-  it('is the row\'s alone on the kiosk, which the AP guard lets forget', () => {
+  it('stays in the list on the kiosk too, its row keeping the Forget the AP guard lets through', () => {
+    // The banner asks the kiosk for the key as well: a network the list hides
+    // could be given one only after a Forget nothing on the screen suggests.
     kiosk.value = true;
     handleNetworkStatusChanged(lostOnAp());
     const { listExcludedSsid, preferredForgettable } = useNetwork();
 
-    expect(listExcludedSsid.value).toBe('Maison');
+    expect(listExcludedSsid.value).toBeNull();
     expect(preferredForgettable.value).toBe(true);
   });
 });

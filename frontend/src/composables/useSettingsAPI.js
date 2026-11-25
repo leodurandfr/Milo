@@ -14,11 +14,14 @@ import { useSettingsStore } from '@/stores/settingsStore';
  * refuses (a 422, a failed save, a backend gone) is undone here, once for every
  * screen: the stored settings are read back into the store, then `resync` puts
  * the screen's own copy back on the store, and `refusal` holds the server's
- * detail for SettingsRefusal to show. The store, not the value before the tap,
- * because another device may have written since. A write whose settings read
- * fails too (the backend is down) leaves the store to the resync the socket's
- * return runs, which is why SettingsRefusal says only that the change was not
- * saved, never that the old value is back.
+ * detail for SettingsRefusal to show — or, once the screen has left (a write
+ * flushed on unmount, or one still in flight),
+ * `settingsStore.leftScreenRefusal`, which SettingsModal shows under the view
+ * that came next. The store, not the value before the tap, because another
+ * device may have written since. A write whose settings read fails too (the
+ * backend is down) leaves the store to the resync the socket's return runs,
+ * which is why SettingsRefusal says only that the change was not saved, never
+ * that the old value is back.
  *
  * A refusal answered after a newer write to the same endpoint was sent or
  * queued is not undone: the newer write speaks for the screen now, and reading
@@ -40,6 +43,9 @@ export function useSettingsAPI({ resync } = {}) {
 
   // The server's detail for the last write it refused, until the next write.
   const refusal = ref(null);
+  // Set as the screen leaves: a refusal answered after it has no screen of its
+  // own to be said on.
+  let left = false;
 
   /**
    * One PUT, reporting rather than throwing.
@@ -77,7 +83,8 @@ export function useSettingsAPI({ resync } = {}) {
   }
 
   async function undo(detail) {
-    refusal.value = detail;
+    if (left) settingsStore.updateLeftScreenRefusal(detail);
+    else refusal.value = detail;
     await settingsStore.loadAllSettings();
     resync?.();
   }
@@ -110,7 +117,8 @@ export function useSettingsAPI({ resync } = {}) {
 
   /**
    * Update with debouncing. A refusal is undone and reported as by
-   * updateSetting, including for a write flushed on unmount.
+   * updateSetting; for a write flushed on unmount, it is reported in
+   * `settingsStore.leftScreenRefusal`, since the screen is gone.
    * @param {string} key - Unique key to identify the timer
    * @param {string} endpoint - API endpoint
    * @param {object} payload - Data to send
@@ -128,6 +136,7 @@ export function useSettingsAPI({ resync } = {}) {
   }
 
   onBeforeUnmount(() => {
+    left = true;
     for (const key of [...pending.keys()]) flush(key);
   });
 
