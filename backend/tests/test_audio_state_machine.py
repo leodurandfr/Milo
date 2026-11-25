@@ -1162,6 +1162,10 @@ class DrainingSystemd(Systemd):
 
     The daemon's exit is what a pidfd hears (`process_watch`, installed in
     place of the kernel's), never something a state read discovers.
+
+    The same saturated I/O that cuts a stop can cut the rest: `mute_probe` is
+    an is-active fork that does not answer in IS_ACTIVE_TIMEOUT, `cut_stops` a
+    `systemctl stop` cut at CONTROL_TIMEOUT, its unit left stopping.
     """
 
     DAEMON_PID = 4242
@@ -1170,6 +1174,20 @@ class DrainingSystemd(Systemd):
         super().__init__(up={PODCAST_UNIT})
         self.pid = self.DAEMON_PID
         self.watches = []
+        self.mute_probe = False
+        self.cut_stops = False
+
+    async def probe_active(self, name: str) -> Optional[bool]:
+        if self.mute_probe:
+            self.probes += 1
+            return None
+        return await super().probe_active(name)
+
+    async def stop(self, name: str) -> bool:
+        if self.cut_stops:
+            self.leave_stopping()
+            return False
+        return await super().stop(name)
 
     async def main_pid(self, name: str) -> int:
         return self.pid if self._state(name)[0] in ("active", "deactivating") else 0
@@ -1571,6 +1589,7 @@ class TestASourceThatWillNotStop:
         opaque = Mock()
         opaque.stop = AsyncMock(return_value=False)
         opaque.probe_service_active = AsyncMock(return_value=None)
+        opaque.unit_active_state = AsyncMock(return_value=None)
         opaque.stop_unit = AsyncMock(return_value=True)
         state_machine.sources[AudioSource.SPOTIFY] = opaque
 
@@ -1580,6 +1599,72 @@ class TestASourceThatWillNotStop:
         assert "unconfirmed" in caplog.text
         assert "would not stop" not in caplog.text
         opaque.stop_unit.assert_not_awaited()
+
+    @staticmethod
+    def _unconfirmed_stop(draining, how):
+        """A podcast whose stop goes unconfirmed `how`, its unit left stopping:
+        the probe that does not answer after a cut STOP; a STOP failed before
+        the unit (the progress save) followed by a unit stop cut in turn; or
+        that failed STOP with a probe that does not answer either, the unit
+        read `active` over D-Bus and its unit stop cut."""
+        if how == "probe_mute":
+            draining.mute_probe = True
+            return CutPodcast(draining)
+        draining.cut_stops = True
+        if how == "probe_mute_save_fails":
+            draining.mute_probe = True
+        return StubbornPodcast(draining, save_fails=True)
+
+    @pytest.mark.parametrize("how", ["probe_mute", "unit_stop_cut", "probe_mute_save_fails"])
+    async def test_an_unconfirmed_stop_of_a_stopping_unit_hands_it_back(
+        self, state_machine, draining, how
+    ):
+        """Both returned None without reading the unit, so the caller had
+        nothing to wait on: a unit still `deactivating`, its daemon holding the
+        device, was left to play under whatever started next."""
+        podcast = self._unconfirmed_stop(draining, how)
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        try:
+            assert await state_machine._stop_source(AudioSource.PODCAST) == AudioSource.PODCAST
+        finally:
+            await podcast.shutdown()
+
+        # Waited on, never stopped once more on an unread state.
+        assert draining.calls == [f"stop {PODCAST_UNIT}"]
+
+    @pytest.mark.parametrize("how", ["probe_mute", "unit_stop_cut", "probe_mute_save_fails"])
+    async def test_an_unconfirmed_stop_holds_the_next_source_until_its_daemon_exits(
+        self, state_machine, draining, how
+    ):
+        """On a saturated card the next source (or the retry) started while the
+        old daemon was still exiting — audible under it, in multiroom in every
+        room: the defect the wait on a cut STOP was there to remove."""
+        podcast = self._unconfirmed_stop(draining, how)
+        daemon_running_at_start = []
+
+        async def start():
+            daemon_running_at_start.append(draining.pid != 0)
+            return True
+
+        state_machine.sources[AudioSource.PODCAST] = podcast
+        state_machine.sources[AudioSource.MUSIC_LIBRARY] = make_source(
+            start=AsyncMock(side_effect=start)
+        )
+        state_machine.system_state.active_source = AudioSource.PODCAST
+
+        try:
+            transition = asyncio.ensure_future(
+                state_machine.transition_to_source(AudioSource.MUSIC_LIBRARY)
+            )
+            await _until(lambda: draining.watches or transition.done())
+            assert daemon_running_at_start == []
+            draining.daemon_exits()
+            assert await transition is True
+        finally:
+            await podcast.shutdown()
+
+        assert daemon_running_at_start == [False]
+        assert draining.calls == [f"stop {PODCAST_UNIT}"]
 
     async def test_a_clean_stop_says_nothing(self, state_machine, mock_source, caplog):
         state_machine.sources[AudioSource.SPOTIFY] = mock_source

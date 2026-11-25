@@ -721,10 +721,13 @@ class AudioStateMachine:
         it: mpv starts `--idle` with no output open, and each source writes its
         own Loopback substream. Starting the next source over it kept the old
         one audible (in multiroom, in every room), so the unit is stopped here,
-        and the end that follows is the source's own (USER_STOP). A stop
+        and the end that follows is the source's own (USER_STOP) — so is one
+        read `active` over D-Bus after a probe that did not answer. A stop
         whose budget ran out while systemd was still waiting for the daemon to
         exit leaves the unit `deactivating`, the daemon still holding its
-        device: that one is not stopped again, it is waited for.
+        device: that one is not stopped again, it is waited for — and so is a
+        unit found stopping after a probe that did not answer, or after a unit
+        stop of its own that came back False.
 
         The verdict is deliberately *not* propagated. Refusing the transition
         would turn every unclean stop into a source selection the user cannot
@@ -746,6 +749,14 @@ class AudioStateMachine:
         # justifies a line that reaches the banner — the second used to borrow
         # its wording and accuse a source that had already stopped.
         still_up = await instance.probe_service_active()
+        # Not seen up, two ways: the probe read the unit not active (down, or
+        # still on its way down — it cannot tell), or it did not answer, of the
+        # same saturated I/O as a cut STOP. One read of the unit says which; a
+        # unit read `active` after a probe that did not answer is up, and is
+        # stopped as one the probe saw up would be.
+        state = None if still_up is True else await instance.unit_active_state()
+        if still_up is None and state == "active":
+            still_up = True
         if still_up is True and selected_again:
             logger.error(
                 "%s would not stop; selected again, its start takes the unit over",
@@ -754,26 +765,40 @@ class AudioStateMachine:
             return None
         if still_up is True:
             logger.error("%s would not stop; stopping its unit", source.value)
-            if not await instance.stop_unit():
-                logger.error(
-                    "%s unit refused its stop too; it may still be playing", source.value
-                )
-            return None
-        if still_up is None:
-            logger.warning(
-                "%s stop went unconfirmed — the unit may still hold the device",
-                source.value,
-            )
-            return None
+            if await instance.stop_unit():
+                return None
+            # Refused, or cut by its budget while systemd waits out the
+            # daemon — which leaves the unit `deactivating` as often as a cut
+            # STOP does: read it again.
+            state = await instance.unit_active_state()
 
-        # Not active: down, or still on its way down — the probe cannot tell.
-        state = await instance.unit_active_state()
+        # Not confirmed down: a stopping unit is waited for whichever way it
+        # was found. Never a stop sent on an unread state.
         if state == "deactivating":
             if not selected_again:
                 return source
             logger.warning(
                 "%s stop was cut while its unit was still stopping; selected "
                 "again, its start queues behind the stop", source.value,
+            )
+        elif still_up is True:
+            if state in ("inactive", "failed"):
+                logger.info(
+                    "%s unit stop was reported failed, but its unit is down", source.value
+                )
+            elif state is None:
+                logger.warning(
+                    "%s unit stop went unconfirmed — its unit's state could not "
+                    "be read", source.value,
+                )
+            else:
+                logger.error(
+                    "%s unit refused its stop too; it may still be playing", source.value
+                )
+        elif still_up is None and state not in ("inactive", "failed"):
+            logger.warning(
+                "%s stop went unconfirmed — the unit may still hold the device",
+                source.value,
             )
         elif state in ("inactive", "failed"):
             logger.info(
