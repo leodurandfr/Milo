@@ -47,6 +47,14 @@ HOSTS = {
 # 20..60 min satisfies both; 50 leaves room for a slow request at the edge.
 JWT_LIFETIME_S = 50 * 60
 
+# systemd-timesyncd's mark of a first synchronization since boot. Until it is
+# there the wall clock is the one the card last saved, and a provider token
+# dated from it is already older than APNs' hour: measured 2026-11-25, a unit
+# booted at 11:48 read 10:08 until 11:52, and every push in between answered
+# 403 ExpiredProviderToken — an error banner for a clock nobody had set yet.
+# A host with no timesyncd (a dev host) has no directory, and counts as set.
+TIMESYNC_DIR = Path("/run/systemd/timesync")
+
 # How long an idle connection is kept for the next push. httpx's default is
 # 5 s, and httpcore retires an expired connection at the next request, so every
 # push after a quiet spell paid TCP + TLS before its own round trip: 0.33-0.45 s
@@ -90,6 +98,10 @@ class ApnsClient:
 
     def __init__(self):
         self.key_dir: Path = APNS_KEY_DIR
+        self.timesync_dir: Path = TIMESYNC_DIR
+        # Once set, the clock stays set for the boot: read until then only.
+        self._clock_set: bool = False
+        self._clock_wait_logged: bool = False
         self._key_pem: Optional[str] = None
         self._key_id: Optional[str] = None
         self._jwt: Optional[str] = None
@@ -166,6 +178,9 @@ class ApnsClient:
         """
         if not self.available:
             return ApnsResult(ok=False, status=0, reason="NoSigningKey")
+        # Not dead: a push refused here is one the caller may send again.
+        if not await self._clock_synchronized():
+            return ApnsResult(ok=False, status=0, reason="ClockNotSet")
 
         client = await self._client_for(target.environment)
         try:
@@ -245,6 +260,24 @@ class ApnsClient:
     # =========================================================================
     # PRIVATE
     # =========================================================================
+
+    async def _clock_synchronized(self) -> bool:
+        """Whether the wall clock a provider token is dated from has been set
+        (TIMESYNC_DIR). Said once at info while it has not."""
+        if self._clock_set:
+            return True
+        directory = self.timesync_dir
+        synchronized = await asyncio.to_thread(
+            lambda: not directory.is_dir() or (directory / "synchronized").exists()
+        )
+        if synchronized:
+            self._clock_set = True
+            if self._clock_wait_logged:
+                logger.info("Wall clock synchronized: pushes go out again")
+        elif not self._clock_wait_logged:
+            self._clock_wait_logged = True
+            logger.info("Pushes held until the wall clock is synchronized (a token dated before would be expired)")
+        return synchronized
 
     async def _provider_token(self) -> str:
         """The cached ES256 JWT, reminted only when it is close to expiring.

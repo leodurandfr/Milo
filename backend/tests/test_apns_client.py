@@ -50,6 +50,7 @@ def token(environment=ApnsEnvironment.SANDBOX, value="tok"):
 async def client(tmp_path):
     apns = ApnsClient()
     apns.key_dir = make_key(tmp_path)
+    apns.timesync_dir = tmp_path / "no-timesyncd"
     await apns.initialize()
     yield apns
     await apns.cleanup()
@@ -264,3 +265,25 @@ class TestVerdicts:
 
         assert result.ok is False and result.dead is False
         assert result.reason == "Unreachable"
+
+
+class TestClockNotSet:
+    """A Pi has no battery clock: until timesyncd's first synchronization the
+    wall clock is the one the card last saved, and a token dated from it is
+    already expired at Apple (ExpiredProviderToken, measured at a boot)."""
+
+    async def test_nothing_reaches_apns_before_the_first_synchronization(self, client, tmp_path):
+        client.timesync_dir = tmp_path / "timesync"
+        client.timesync_dir.mkdir()
+        sent = stub_transport(client, lambda r: httpx.Response(200))
+
+        held = await client.send(token(), {"aps": {}}, "widgets")
+
+        assert sent == [], "a token dated from an unset clock was sent to Apple"
+        assert held.ok is False and held.dead is False, "a held push cost its token"
+
+        (client.timesync_dir / "synchronized").touch()
+        went = await client.send(token(), {"aps": {}}, "widgets")
+
+        assert went.ok is True and len(sent) == 1
+
